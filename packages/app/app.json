@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Coding Pocket",
+    "slug": "coding-pocket",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "scheme": "codingpocket",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.mingo.codingpocket"
+    },
+    "android": {
+      "package": "dev.mingo.codingpocket",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "coding-pocket",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
