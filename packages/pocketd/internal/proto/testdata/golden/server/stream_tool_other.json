@@ -1,0 +1,23 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "tool",
+    "id": "i3",
+    "seq": 3,
+    "ts": 12,
+    "call": {
+      "toolUseId": "t3",
+      "name": "mcp__x",
+      "detail": {
+        "kind": "other",
+        "name": "mcp__x",
+        "input": {
+          "q": 1
+        }
+      },
+      "status": "error"
+    }
+  }
+}

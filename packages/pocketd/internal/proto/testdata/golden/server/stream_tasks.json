@@ -1,0 +1,17 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "tasks",
+    "id": "i4",
+    "seq": 4,
+    "ts": 13,
+    "items": [
+      {
+        "text": "x",
+        "status": "in_progress"
+      }
+    ]
+  }
+}

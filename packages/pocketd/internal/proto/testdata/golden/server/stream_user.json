@@ -1,0 +1,12 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "user",
+    "id": "i1",
+    "seq": 1,
+    "ts": 10,
+    "text": "hi"
+  }
+}

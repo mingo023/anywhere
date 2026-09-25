@@ -1,0 +1,14 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "result",
+    "id": "i6",
+    "seq": 6,
+    "ts": 15,
+    "ok": false,
+    "durationMs": 0,
+    "error": "interrupted"
+  }
+}

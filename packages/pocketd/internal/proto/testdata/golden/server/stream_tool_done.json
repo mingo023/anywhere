@@ -1,0 +1,38 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "tool",
+    "id": "i2",
+    "seq": 2,
+    "ts": 11,
+    "call": {
+      "toolUseId": "t2",
+      "name": "Edit",
+      "detail": {
+        "kind": "edit",
+        "path": "a.go",
+        "diff": {
+          "lines": [
+            {
+              "number": 1,
+              "kind": "del",
+              "text": "a"
+            },
+            {
+              "number": 1,
+              "kind": "add",
+              "text": "b"
+            }
+          ],
+          "additions": 1,
+          "deletions": 1
+        }
+      },
+      "status": "ok",
+      "output": "done",
+      "durationMs": 5
+    }
+  }
+}

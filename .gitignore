@@ -6,3 +6,4 @@ dist
 third_party/
 target/
 .ui-review/shots/
+packages/pocketd/bin/

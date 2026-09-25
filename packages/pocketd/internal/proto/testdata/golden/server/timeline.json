@@ -1,0 +1,29 @@
+{
+  "type": "agent.timeline",
+  "id": "t1",
+  "agentId": "a1",
+  "epoch": 1,
+  "items": [
+    {
+      "kind": "assistant",
+      "id": "i1",
+      "seq": 1,
+      "ts": 10,
+      "text": "hey"
+    },
+    {
+      "kind": "result",
+      "id": "i2",
+      "seq": 2,
+      "ts": 11,
+      "ok": true,
+      "durationMs": 5,
+      "usage": {
+        "inputTokens": 1,
+        "outputTokens": 2
+      }
+    }
+  ],
+  "hasOlder": false,
+  "maxSeq": 2
+}

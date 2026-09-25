@@ -1,0 +1,12 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "compact",
+    "id": "i5",
+    "seq": 5,
+    "ts": 14,
+    "trigger": "manual"
+  }
+}

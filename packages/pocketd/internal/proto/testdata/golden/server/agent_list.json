@@ -1,0 +1,18 @@
+{
+  "type": "agent.list",
+  "id": "l1",
+  "agents": [
+    {
+      "id": "a1",
+      "title": "fix tests",
+      "cwd": "/w",
+      "provider": "claude",
+      "status": "idle",
+      "epoch": 1,
+      "maxSeq": 3,
+      "providerSessionId": "s1",
+      "createdAt": 1,
+      "updatedAt": 2
+    }
+  ]
+}

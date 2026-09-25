@@ -1,0 +1,13 @@
+{
+  "type": "permission.request",
+  "request": {
+    "requestId": "r1",
+    "agentId": "a1",
+    "toolName": "Bash",
+    "detail": {
+      "kind": "shell",
+      "command": "rm x",
+      "description": "remove"
+    }
+  }
+}

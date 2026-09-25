@@ -1,0 +1,20 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "tool",
+    "id": "i2",
+    "seq": 2,
+    "ts": 11,
+    "call": {
+      "toolUseId": "t1",
+      "name": "Bash",
+      "detail": {
+        "kind": "shell",
+        "command": "ls"
+      },
+      "status": "running"
+    }
+  }
+}
