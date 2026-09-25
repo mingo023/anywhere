@@ -4,10 +4,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { d, font } from "../design";
 import type { TimelineItem } from "@pocket/protocol";
 import { useSession } from "../session";
-import { Bot, ChevronLeft, GitBranch, Terminal } from "../icons";
+import { ChevronLeft, GitBranch, Terminal } from "../icons";
 import { Glass } from "../components/Glass";
 import { TimelineView, type Pending } from "../components/TimelineView";
-import { TasksScreen } from "./TasksScreen";
 import { Composer } from "../components/Composer";
 
 /** The composer floats over the list, so it has to ride the keyboard itself instead of relying on padding. */
@@ -42,6 +41,8 @@ function isCompact(text: string): boolean {
   return /^\/compact$/i.test(text.trim());
 }
 
+const providerLabel: Record<string, string> = { claude: "Claude", codex: "Codex" };
+
 function basename(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
@@ -65,20 +66,17 @@ function diffTotals(items: readonly TimelineItem[]): { added: number; removed: n
 }
 
 export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () => void }) {
-  const { agents, profiles, timelines, tasks, permission, error, clearError, loadTimeline, prompt, compact, interrupt, stopTask } =
-    useSession();
+  const { agents, timelines, permission, error, clearError, loadTimeline, prompt, compact, interrupt } = useSession();
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.id === agentId);
-  const provider = profiles.find((p) => p.id === agent?.profileId)?.label ?? "Agent";
+  const provider = providerLabel[agent?.provider ?? ""] ?? "Agent";
   const meta = [agent ? basename(agent.cwd) : null, agent?.model].filter(Boolean).join(" · ");
   const items = timelines[agentId] ?? [];
   const diff = useMemo(() => diffTotals(items), [items]);
-  const liveTasks = (tasks[agentId] ?? []).filter((task) => task.status === "running");
 
   const compacting = agent?.status === "compacting";
   const busy = agent?.status === "running" || compacting;
   const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [tasksOpen, setTasksOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [dockHeight, setDockHeight] = useState(0);
   const keyboard = useKeyboard();
@@ -95,17 +93,6 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
     startedAt === null
       ? undefined
       : { startedAt, model: agent?.model, waiting: permission?.agentId === agentId, compacting };
-
-  if (tasksOpen) {
-    return (
-      <TasksScreen
-        cwd={agent?.cwd ?? ""}
-        tasks={liveTasks}
-        onStop={(taskId) => stopTask(agentId, taskId)}
-        onBack={() => setTasksOpen(false)}
-      />
-    );
-  }
 
   return (
     <View style={styles.root}>
@@ -137,15 +124,6 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
               {meta ? ` · ${meta}` : ""}
             </Text>
           </Glass>
-
-          {liveTasks.length ? (
-            <Pressable accessibilityLabel="Running tasks" onPress={() => setTasksOpen(true)}>
-              <Glass style={styles.tasks} interactive>
-                <Bot size={15} color={d.green} />
-                <Text style={styles.tasksCount}>{liveTasks.length}</Text>
-              </Glass>
-            </Pressable>
-          ) : null}
 
           <Pressable accessibilityLabel="Review changes">
             <Glass style={styles.diff} interactive>
@@ -228,16 +206,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  tasks: {
-    height: 44,
-    paddingHorizontal: 12,
-    borderRadius: 22,
-    overflow: "hidden",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  tasksCount: { color: d.green, fontSize: 12, fontFamily: font.mono },
   added: { color: d.green, fontSize: 12, fontFamily: font.mono },
   removed: { color: d.red, fontSize: 12, fontFamily: font.mono },
 });

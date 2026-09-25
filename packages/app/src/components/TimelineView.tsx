@@ -49,12 +49,12 @@ function summarise(text: string): string {
 
 export type Pending = { startedAt: number; model?: string | undefined; waiting: boolean; compacting: boolean };
 
-export function elapsed(ms: number): string {
+function elapsed(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
   return total < 60 ? `${total}s` : `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, "0")}s`;
 }
 
-export function useTick(startedAt: number): number {
+function useTick(startedAt: number): number {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     setNow(Date.now());
@@ -126,7 +126,6 @@ function Result({ item }: { item: Extract<TimelineItem, { kind: "result" }> }) {
 
   const metrics = [
     item.usage ? `${tokens(item.usage.inputTokens)} in · ${tokens(item.usage.outputTokens)} out` : null,
-    item.turns ? `${item.turns} turn${item.turns === 1 ? "" : "s"}` : null,
   ].filter(Boolean);
 
   return (

@@ -3,9 +3,6 @@ import { Schema } from "effect";
 export const AgentStatus = Schema.Literal("initializing", "idle", "running", "compacting", "error", "closed");
 export type AgentStatus = typeof AgentStatus.Type;
 
-export const PermissionMode = Schema.Literal("default", "plan", "acceptEdits", "bypassPermissions");
-export type PermissionMode = typeof PermissionMode.Type;
-
 export const Decision = Schema.Literal("allow", "deny");
 export type Decision = typeof Decision.Type;
 
@@ -36,22 +33,6 @@ export const ToolDetail = Schema.Union(
 );
 export type ToolDetail = typeof ToolDetail.Type;
 
-export const AgentStep = Schema.Struct({
-  id: Schema.String,
-  kind: Schema.Literal("tool", "message", "reasoning"),
-  text: Schema.String,
-  detail: Schema.optional(ToolDetail),
-  status: Schema.optional(Schema.Literal("running", "ok", "error")),
-});
-export type AgentStep = typeof AgentStep.Type;
-
-/** The inside of a delegated run, carried on the Task call that spawned it. */
-export const AgentRun = Schema.Struct({
-  name: Schema.String,
-  steps: Schema.Array(AgentStep),
-});
-export type AgentRun = typeof AgentRun.Type;
-
 export const ToolCall = Schema.Struct({
   toolUseId: Schema.String,
   name: Schema.String,
@@ -59,7 +40,6 @@ export const ToolCall = Schema.Struct({
   status: Schema.Literal("running", "ok", "error"),
   output: Schema.optional(Schema.String),
   durationMs: Schema.optional(Schema.Number),
-  agentRun: Schema.optional(AgentRun),
 });
 export type ToolCall = typeof ToolCall.Type;
 
@@ -68,20 +48,6 @@ export const TaskItem = Schema.Struct({
   status: Schema.Literal("pending", "in_progress", "completed"),
 });
 export type TaskItem = typeof TaskItem.Type;
-
-/** A subagent, background shell or workflow the provider is running for an agent. */
-export const SessionTask = Schema.Struct({
-  taskId: Schema.String,
-  kind: Schema.Literal("agent", "shell", "workflow"),
-  title: Schema.String,
-  detail: Schema.optional(Schema.String),
-  status: Schema.Literal("running", "ok", "error", "stopped"),
-  startedAt: Schema.Number,
-  endedAt: Schema.optional(Schema.Number),
-  tools: Schema.optional(Schema.Number),
-  tokens: Schema.optional(Schema.Number),
-});
-export type SessionTask = typeof SessionTask.Type;
 
 export const TurnUsage = Schema.Struct({
   inputTokens: Schema.Number,
@@ -102,10 +68,8 @@ export const TimelineBody = Schema.Union(
     kind: Schema.Literal("result"),
     ok: Schema.Boolean,
     durationMs: Schema.Number,
-    costUsd: Schema.optional(Schema.Number),
     error: Schema.optional(Schema.String),
     usage: Schema.optional(TurnUsage),
-    turns: Schema.optional(Schema.Number),
   }),
 );
 export type TimelineBody = typeof TimelineBody.Type;
@@ -120,7 +84,7 @@ export const AgentSummary = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   cwd: Schema.String,
-  profileId: Schema.String,
+  provider: Schema.String,
   model: Schema.optional(Schema.String),
   status: AgentStatus,
   epoch: Schema.Number,
@@ -130,14 +94,6 @@ export const AgentSummary = Schema.Struct({
   updatedAt: Schema.Number,
 });
 export type AgentSummary = typeof AgentSummary.Type;
-
-export const ProfileSummary = Schema.Struct({
-  id: Schema.String,
-  label: Schema.String,
-  provider: Schema.String,
-  models: Schema.Array(Schema.String),
-});
-export type ProfileSummary = typeof ProfileSummary.Type;
 
 export const PermissionRequest = Schema.Struct({
   requestId: Schema.String,

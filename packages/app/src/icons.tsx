@@ -134,14 +134,6 @@ export const List = (p: IconProps) => (
   </Icon>
 );
 
-export const Bot = (p: IconProps) => (
-  <Icon {...p}>
-    <Path d="M12 3v3M5 9h14a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2z" />
-    <Circle cx="9" cy="14" r="1" />
-    <Circle cx="15" cy="14" r="1" />
-  </Icon>
-);
-
 export const Bulb = (p: IconProps) => (
   <Icon {...p}>
     <Path d="M9 18h6M10 21h4M12 3a6 6 0 00-3 11.2V16h6v-1.8A6 6 0 0012 3z" />

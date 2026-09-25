@@ -16,7 +16,8 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -b && node --test test/"
   },
   "dependencies": {
     "effect": "^3.22.2"

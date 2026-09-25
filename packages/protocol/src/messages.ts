@@ -1,13 +1,5 @@
 import { Schema } from "effect";
-import {
-  AgentSummary,
-  Decision,
-  PermissionMode,
-  PermissionRequest,
-  ProfileSummary,
-  SessionTask,
-  TimelineItem,
-} from "./timeline.js";
+import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timeline.js";
 
 export const ClientMessage = Schema.Union(
   Schema.Struct({
@@ -17,22 +9,11 @@ export const ClientMessage = Schema.Union(
     clientId: Schema.String,
     protocolVersion: Schema.Number,
   }),
-  Schema.Struct({ type: Schema.Literal("profile.list"), id: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.list"), id: Schema.String }),
-  Schema.Struct({
-    type: Schema.Literal("agent.create"),
-    id: Schema.String,
-    cwd: Schema.String,
-    profileId: Schema.String,
-    prompt: Schema.String,
-    model: Schema.optional(Schema.String),
-    permissionMode: Schema.optional(PermissionMode),
-  }),
   Schema.Struct({ type: Schema.Literal("agent.prompt"), id: Schema.String, agentId: Schema.String, text: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.interrupt"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.compact"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.close"), id: Schema.String, agentId: Schema.String }),
-  Schema.Struct({ type: Schema.Literal("task.stop"), id: Schema.String, agentId: Schema.String, taskId: Schema.String }),
   Schema.Struct({
     type: Schema.Literal("agent.timeline"),
     id: Schema.String,
@@ -57,10 +38,8 @@ export const ServerMessage = Schema.Union(
     hostname: Schema.String,
     protocolVersion: Schema.Number,
   }),
-  Schema.Struct({ type: Schema.Literal("profile.list"), id: Schema.String, profiles: Schema.Array(ProfileSummary) }),
   Schema.Struct({ type: Schema.Literal("agent.list"), id: Schema.optional(Schema.String), agents: Schema.Array(AgentSummary) }),
   Schema.Struct({ type: Schema.Literal("agent.update"), agent: AgentSummary }),
-  Schema.Struct({ type: Schema.Literal("agent.tasks"), agentId: Schema.String, tasks: Schema.Array(SessionTask) }),
   Schema.Struct({ type: Schema.Literal("agent.stream"), agentId: Schema.String, epoch: Schema.Number, item: TimelineItem }),
   Schema.Struct({
     type: Schema.Literal("agent.timeline"),

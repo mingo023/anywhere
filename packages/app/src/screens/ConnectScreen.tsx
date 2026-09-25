@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { theme } from "../theme";
 import { useSession } from "../session";
@@ -26,7 +26,7 @@ export function ConnectScreen() {
   };
 
   return (
-    <View style={styles.root}>
+    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <Text style={styles.heading}>Coding Pocket</Text>
       <Text style={styles.label}>Host</Text>
       <TextInput
@@ -57,7 +57,7 @@ export function ConnectScreen() {
         )}
       </Pressable>
       {state === "offline" ? <Text style={styles.error}>Disconnected — retrying</Text> : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
