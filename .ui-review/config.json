@@ -1,0 +1,28 @@
+{
+  "target": {
+    "kind": "native",
+    "launch": "POCKET_HOME=~/.coding-pocket packages/desktop/target/release/pocket-desktop",
+    "url": null,
+    "window_owner": "pocket-desktop"
+  },
+  "viewport": [1440, 900],
+  "blast_radius": ["packages/desktop/src/theme.rs", "packages/desktop/assets/icons/**", "packages/desktop/src/view.rs"],
+  "screens": {
+    "sessions": {
+      "files": ["packages/desktop/src/view.rs", "packages/desktop/src/workspace.rs", "packages/desktop/src/termview.rs"],
+      "open": ["launch the app", "click a session card in the left sessions list"]
+    },
+    "changes": {
+      "files": ["packages/desktop/src/diff.rs", "packages/desktop/src/git.rs"],
+      "open": ["select a session", "click the Changes tab", "click a diff line to open the comment composer"]
+    },
+    "split": {
+      "files": ["packages/desktop/src/view.rs", "packages/desktop/src/workspace.rs", "packages/desktop/src/termview.rs"],
+      "open": ["select a session", "click the split-pane button to add panes to the active tab"]
+    },
+    "inbox": {
+      "files": ["packages/desktop/src/inbox.rs"],
+      "open": ["click Inbox in the left rail"]
+    }
+  }
+}

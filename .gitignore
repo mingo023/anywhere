@@ -3,3 +3,6 @@ dist
 .expo
 *.log
 *.tsbuildinfo
+third_party/
+target/
+.ui-review/shots/
