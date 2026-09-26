@@ -126,7 +126,7 @@ func (c *conn) handle(raw []byte) {
 func (c *conn) dispatch(m proto.ClientMessage) error {
 	switch m.Type {
 	case "permission.resolve":
-		if !c.s.Broker.Resolve(m.RequestID, m.Decision) {
+		if !c.s.Broker.Resolve(m.RequestID, broker.Answer{Decision: m.Decision, Option: m.Option, Message: m.Message}) {
 			return errors.New("Permission request is no longer open")
 		}
 		c.send(proto.NewAck(m.ID))

@@ -13,13 +13,14 @@ import { ChatScreen } from "./screens/ChatScreen";
 import { PermissionSheet } from "./components/PermissionSheet";
 
 function Root() {
-  const { state, permission, resolvePermission } = useSession();
+  const { state, agents, permission, resolvePermission } = useSession();
   const [agentId, setAgentId] = useState<string>();
+  const open = agents.some((a) => a.id === agentId) ? agentId : undefined;
 
   return (
     <>
-      {state === "online" && agentId ? (
-        <ChatScreen agentId={agentId} onBack={() => setAgentId(undefined)} />
+      {state === "online" && open ? (
+        <ChatScreen agentId={open} onBack={() => setAgentId(undefined)} />
       ) : (
         <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
           {state === "online" ? <AgentsScreen onOpen={setAgentId} /> : <ConnectScreen />}

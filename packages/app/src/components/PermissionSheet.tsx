@@ -1,11 +1,12 @@
-import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { PermissionRequest } from "@pocket/protocol";
+import type { PermissionAnswer } from "../session";
 import { theme } from "../theme";
 
 type Props = {
   request?: PermissionRequest;
-  onResolve: (requestId: string, decision: "allow" | "deny") => void;
+  onResolve: (requestId: string, decision: "allow" | "deny", answer?: PermissionAnswer) => void;
 };
 
 function describe(request: PermissionRequest): string {
@@ -26,29 +27,63 @@ function describe(request: PermissionRequest): string {
   }
 }
 
+type Choice = { label: string; decision: "allow" | "deny"; option?: string };
+
+function choices(request: PermissionRequest): Choice[] {
+  return [
+    { label: "Yes", decision: "allow" },
+    ...(request.options ?? []).map((o) => ({ label: o.label, decision: "allow" as const, option: o.id })),
+    { label: "No", decision: "deny" },
+  ];
+}
+
 export function PermissionSheet({ request, onResolve }: Props) {
+  const [feedback, setFeedback] = useState("");
+  useEffect(() => setFeedback(""), [request?.requestId]);
+
+  const sendFeedback = () => {
+    const message = feedback.trim();
+    if (request && message) onResolve(request.requestId, "deny", { message });
+  };
+
   return (
     <Modal visible={!!request} transparent animationType="slide">
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <Text style={styles.title}>{request?.toolName}</Text>
-          <Text style={styles.detail}>{request ? describe(request) : ""}</Text>
-          <View style={styles.actions}>
-            <Pressable
-              style={[styles.button, styles.deny]}
-              onPress={() => request && onResolve(request.requestId, "deny")}
-            >
-              <Text style={styles.denyText}>Deny</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.button, styles.allow]}
-              onPress={() => request && onResolve(request.requestId, "allow")}
-            >
-              <Text style={styles.allowText}>Allow</Text>
-            </Pressable>
+      <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
+        {request && (
+          <View style={styles.sheet}>
+            <Text style={styles.title}>{request.toolName}</Text>
+            <View style={styles.detailBox}>
+              <Text style={styles.detail}>{describe(request)}</Text>
+              {request.detail.kind === "shell" && !!request.detail.description && (
+                <Text style={styles.description}>{request.detail.description}</Text>
+              )}
+            </View>
+            <Text style={styles.question}>Do you want to proceed?</Text>
+            {choices(request).map((c, i) => (
+              <Pressable
+                key={c.option ?? c.decision}
+                style={[styles.choice, i === 0 && styles.primary]}
+                onPress={() => onResolve(request.requestId, c.decision, c.option ? { option: c.option } : undefined)}
+              >
+                <Text style={[styles.choiceText, i === 0 && styles.primaryText]}>
+                  {i + 1}. {c.label}
+                </Text>
+              </Pressable>
+            ))}
+            {request.feedback && (
+              <TextInput
+                style={styles.feedback}
+                value={feedback}
+                onChangeText={setFeedback}
+                onSubmitEditing={sendFeedback}
+                placeholder="No, and tell Claude what to do differently"
+                placeholderTextColor={theme.muted}
+                returnKeyType="send"
+              />
+            )}
           </View>
-        </View>
-      </View>
+        )}
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -61,21 +96,31 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     padding: 20,
     paddingBottom: 40,
-    gap: 12,
+    gap: 10,
   },
   title: { color: theme.text, fontSize: 16, fontWeight: "600" },
-  detail: {
-    color: theme.muted,
-    fontSize: 13,
-    fontFamily: "Menlo",
-    backgroundColor: theme.surfaceAlt,
+  detailBox: { backgroundColor: theme.surfaceAlt, borderRadius: theme.radius, padding: 12, gap: 6 },
+  detail: { color: theme.text, fontSize: 13, fontFamily: "Menlo" },
+  description: { color: theme.muted, fontSize: 13 },
+  question: { color: theme.text, fontSize: 14, marginTop: 4 },
+  choice: {
     borderRadius: theme.radius,
-    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceAlt,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
-  actions: { flexDirection: "row", gap: 12 },
-  button: { flex: 1, borderRadius: theme.radius, paddingVertical: 14, alignItems: "center" },
-  deny: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border },
-  allow: { backgroundColor: theme.accent },
-  denyText: { color: theme.text, fontWeight: "600" },
-  allowText: { color: theme.bg, fontWeight: "600" },
+  primary: { backgroundColor: theme.accent, borderColor: theme.accent },
+  choiceText: { color: theme.text, fontWeight: "500" },
+  primaryText: { color: theme.bg, fontWeight: "600" },
+  feedback: {
+    color: theme.text,
+    fontSize: 14,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
 });

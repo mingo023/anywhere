@@ -95,10 +95,15 @@ export const AgentSummary = Schema.Struct({
 });
 export type AgentSummary = typeof AgentSummary.Type;
 
+export const PermissionOption = Schema.Struct({ id: Schema.String, label: Schema.String });
+export type PermissionOption = typeof PermissionOption.Type;
+
 export const PermissionRequest = Schema.Struct({
   requestId: Schema.String,
   agentId: Schema.String,
   toolName: Schema.String,
   detail: ToolDetail,
+  options: Schema.optional(Schema.Array(PermissionOption)),
+  feedback: Schema.optional(Schema.Boolean),
 });
 export type PermissionRequest = typeof PermissionRequest.Type;

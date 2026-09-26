@@ -19,7 +19,13 @@ type pending struct {
 	seq    int
 	req    proto.PermissionRequest
 	key    string
-	answer chan string
+	answer chan Answer
+}
+
+// Answer is the phone's reply. Option is one of the request's Options;
+// Message is feedback sent with a deny.
+type Answer struct {
+	Decision, Option, Message string
 }
 
 type Broker struct {
@@ -31,18 +37,15 @@ type Broker struct {
 
 func New(h *hub.Hub) *Broker { return &Broker{hub: h, open: map[string]*pending{}} }
 
-// Ask shows the request on every phone and returns "allow" or "deny", or ""
-// when the desktop answered first (see Dismiss). key identifies the same
-// request as seen by the provider, so Dismiss can find it.
-func (b *Broker) Ask(ctx context.Context, agentID, toolName string, detail proto.ToolDetail, key string) string {
+// Ask shows req on every phone and returns its answer, whose Decision is
+// "allow" or "deny", or "" when the desktop answered first (see Dismiss).
+// key identifies the same request as seen by the provider, so Dismiss can
+// find it. Ask assigns req.RequestID.
+func (b *Broker) Ask(ctx context.Context, req proto.PermissionRequest, key string) Answer {
 	b.mu.Lock()
 	b.seq++
-	p := &pending{
-		seq:    b.seq,
-		req:    proto.PermissionRequest{RequestID: "perm-" + strconv.Itoa(b.seq), AgentID: agentID, ToolName: toolName, Detail: detail},
-		key:    key,
-		answer: make(chan string, 1),
-	}
+	req.RequestID = "perm-" + strconv.Itoa(b.seq)
+	p := &pending{seq: b.seq, req: req, key: key, answer: make(chan Answer, 1)}
 	b.open[p.req.RequestID] = p
 	// Publishing under the lock keeps a phone from seeing or resolving the
 	// request before every other phone has been told about it.
@@ -62,11 +65,11 @@ func (b *Broker) Ask(ctx context.Context, agentID, toolName string, detail proto
 }
 
 // giveUp denies p unless an answer already won the race to close it.
-func (b *Broker) giveUp(p *pending, decision string) string {
+func (b *Broker) giveUp(p *pending, decision string) Answer {
 	if _, ok := b.finish(p.req.RequestID, "deny"); !ok {
 		return <-p.answer
 	}
-	return decision
+	return Answer{Decision: decision}
 }
 
 // finish closes the request for every phone; false if it was already closed.
@@ -81,10 +84,10 @@ func (b *Broker) finish(requestID, decision string) (*pending, bool) {
 	return p, ok
 }
 
-func (b *Broker) Resolve(requestID, decision string) bool {
-	p, ok := b.finish(requestID, decision)
+func (b *Broker) Resolve(requestID string, a Answer) bool {
+	p, ok := b.finish(requestID, a.Decision)
 	if ok {
-		p.answer <- decision
+		p.answer <- a
 	}
 	return ok
 }
@@ -94,7 +97,7 @@ func (b *Broker) Resolve(requestID, decision string) bool {
 func (b *Broker) Dismiss(key, decision string) {
 	for _, id := range b.match(func(p *pending) bool { return p.key == key }) {
 		if p, ok := b.finish(id, decision); ok {
-			p.answer <- ""
+			p.answer <- Answer{}
 			return
 		}
 	}
@@ -102,7 +105,7 @@ func (b *Broker) Dismiss(key, decision string) {
 
 func (b *Broker) DenyAll(agentID string) {
 	for _, id := range b.match(func(p *pending) bool { return p.req.AgentID == agentID }) {
-		b.Resolve(id, "deny")
+		b.Resolve(id, Answer{Decision: "deny"})
 	}
 }
 

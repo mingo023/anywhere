@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { AgentSummary, PermissionRequest, ServerMessage, TimelineItem } from "@pocket/protocol";
 import { PocketClient, type ConnectionState } from "./client";
+import { applyAgentUpdate } from "./agents";
 
 type Timelines = Record<string, readonly TimelineItem[]>;
 
@@ -14,6 +15,8 @@ function mergeItem(items: readonly TimelineItem[], item: TimelineItem): readonly
   return [...items, item];
 }
 
+export type PermissionAnswer = { option?: string; message?: string };
+
 type Session = {
   state: ConnectionState;
   agents: readonly AgentSummary[];
@@ -26,7 +29,7 @@ type Session = {
   compact: (agentId: string) => void;
   interrupt: (agentId: string) => void;
   loadTimeline: (agentId: string) => void;
-  resolvePermission: (requestId: string, decision: "allow" | "deny") => void;
+  resolvePermission: (requestId: string, decision: "allow" | "deny", answer?: PermissionAnswer) => void;
   clearError: () => void;
 };
 
@@ -46,13 +49,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setAgents(msg.agents);
         break;
       case "agent.update":
-        setAgents((prev) => {
-          const at = prev.findIndex((a) => a.id === msg.agent.id);
-          if (at < 0) return [msg.agent, ...prev];
-          const next = prev.slice();
-          next[at] = msg.agent;
-          return next;
-        });
+        setAgents((prev) => applyAgentUpdate(prev, msg.agent));
         break;
       case "agent.stream":
         setTimelines((prev) => ({ ...prev, [msg.agentId]: mergeItem(prev[msg.agentId] ?? [], msg.item) }));
@@ -82,6 +79,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [onMessage],
   );
 
+  const loadTimeline = useCallback(
+    (agentId: string) => clientRef.current?.send({ type: "agent.timeline", agentId }),
+    [],
+  );
+
   const value = useMemo<Session>(
     () => ({
       state,
@@ -103,14 +105,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       },
       compact: (agentId) => clientRef.current?.send({ type: "agent.compact", agentId }),
       interrupt: (agentId) => clientRef.current?.send({ type: "agent.interrupt", agentId }),
-      loadTimeline: (agentId) => clientRef.current?.send({ type: "agent.timeline", agentId }),
-      resolvePermission: (requestId, decision) => {
+      loadTimeline,
+      resolvePermission: (requestId, decision, answer) => {
         setPermission(undefined);
-        clientRef.current?.send({ type: "permission.resolve", requestId, decision });
+        clientRef.current?.send({ type: "permission.resolve", requestId, decision, ...answer });
       },
       clearError: () => setError(undefined),
     }),
-    [state, agents, timelines, permission, error, connect],
+    [state, agents, timelines, permission, error, connect, loadTimeline],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

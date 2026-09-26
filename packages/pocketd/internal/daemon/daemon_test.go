@@ -19,6 +19,7 @@ import (
 	"pocketd/internal/hub"
 	"pocketd/internal/ops"
 	"pocketd/internal/session"
+	"pocketd/internal/timeline"
 )
 
 func newDaemon(t *testing.T) *Daemon {
@@ -67,6 +68,29 @@ func TestCodexTUIExitReleasesAccount(t *testing.T) {
 	if waited := time.Since(start); waited > time.Second {
 		t.Fatalf("second spawn waited %v for an exited TUI", waited)
 	}
+}
+
+func TestCodexThreadAfterTheLockWindowStillReachesThePhone(t *testing.T) {
+	defer func(w time.Duration) { CodexThreadWait = w }(CodexThreadWait)
+	CodexThreadWait = 100 * time.Millisecond
+	env, sock := fakeCodex(t, "", "exec sleep 30")
+	late := time.Now().Add(time.Second)
+	codextest.Start(t, sock, func(method string, _ json.RawMessage) (any, string) {
+		switch {
+		case method == "thread/loaded/list" && time.Now().After(late):
+			return map[string]any{"data": []string{"th1"}}, ""
+		case method == "thread/loaded/list":
+			return map[string]any{"data": []string{}}, ""
+		}
+		return map[string]any{"thread": map[string]any{"turns": []any{}}}, ""
+	})
+	d := newDaemon(t)
+	s, err := d.Spawn(ops.Msg{Cmd: "codex", Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	eventually(t, "agent", func() bool { _, err := d.Agents.Get(s.Info().ID); return err == nil })
 }
 
 func TestCodexDaemonStartIgnoresItsChildren(t *testing.T) {
@@ -154,9 +178,9 @@ func TestCodexAgentLeavesWhenAppServerDrops(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	eventually(t, "agent", func() bool { _, err := d.Agents.Get("th1"); return err == nil })
+	eventually(t, "agent", func() bool { _, err := d.Agents.Get(s.Info().ID); return err == nil })
 	close(drop)
-	eventually(t, "agent removed", func() bool { _, err := d.Agents.Get("th1"); return err != nil })
+	eventually(t, "agent removed", func() bool { _, err := d.Agents.Get(s.Info().ID); return err != nil })
 }
 
 func eventually(t *testing.T, what string, ok func() bool) {
@@ -167,4 +191,57 @@ func eventually(t *testing.T, what string, ok func() bool) {
 		}
 	}
 	t.Fatalf("timed out waiting for %s", what)
+}
+
+func TestHookOffersDesktopChoices(t *testing.T) {
+	const payload = `{"session_id":"s1","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"touch c.txt"},
+		"permission_suggestions":[{"type":"addDirectories","directories":["/w"],"destination":"session"}]}`
+	for _, c := range []struct {
+		answer broker.Answer
+		want   string
+	}{
+		{broker.Answer{Decision: "allow"}, `{"behavior":"allow"}`},
+		{broker.Answer{Decision: "allow", Option: optionAlways}, `{"behavior":"allow","updatedPermissions":[{"type":"addDirectories","directories":["/w"],"destination":"session"}]}`},
+		{broker.Answer{Decision: "allow", Option: optionAuto}, `{"behavior":"allow","updatedPermissions":[{"type":"setMode","mode":"auto","destination":"session"}]}`},
+		{broker.Answer{Decision: "deny"}, `{"behavior":"deny","message":"Denied from phone","interrupt":true}`},
+		{broker.Answer{Decision: "deny", Message: "use b.txt"}, `{"behavior":"deny","message":"Denied from phone","interrupt":true}`},
+	} {
+		d := newDaemon(t)
+		drv := &promptRecorder{prompts: make(chan string, 1)}
+		a := d.Agents.Add("s1", "/w", "claude", drv)
+		out := make(chan []byte, 1)
+		go func() { out <- d.Hook(context.Background(), []byte(payload)) }()
+		for len(d.Broker.Open()) == 0 {
+			time.Sleep(time.Millisecond)
+		}
+		req := d.Broker.Open()[0]
+		opts, _ := json.Marshal(req.Options)
+		if string(opts) != `[{"id":"always","label":"Yes, and always allow access to /w"},{"id":"auto","label":"Yes, and switch to auto mode"}]` || !req.Feedback {
+			t.Fatalf("%s feedback=%v", opts, req.Feedback)
+		}
+		d.Broker.Resolve(req.RequestID, c.answer)
+		var got struct {
+			HookSpecificOutput struct{ Decision json.RawMessage }
+		}
+		json.Unmarshal(<-out, &got)
+		if string(got.HookSpecificOutput.Decision) != c.want {
+			t.Errorf("%+v: got %s", c.answer, got.HookSpecificOutput.Decision)
+		}
+		if c.answer.Message != "" {
+			a.Apply(timeline.Event{Kind: "result", Error: "interrupted"})
+			if p := <-drv.prompts; p != c.answer.Message {
+				t.Errorf("prompted %q", p)
+			}
+		}
+	}
+}
+
+type promptRecorder struct {
+	agent.Driver
+	prompts chan string
+}
+
+func (p *promptRecorder) Prompt(text string) error {
+	p.prompts <- text
+	return nil
 }

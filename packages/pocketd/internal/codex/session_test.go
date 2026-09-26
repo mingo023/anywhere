@@ -145,7 +145,7 @@ func TestPhoneAnswersApproval(t *testing.T) {
 			if open.AgentID != "agent1" || open.ToolName != "shell" || open.Detail.Command != "rm -rf build" {
 				t.Fatalf("%+v", open)
 			}
-			b.Resolve(open.RequestID, c.decision)
+			b.Resolve(open.RequestID, broker.Answer{Decision: c.decision})
 			if got := srv.Reply("7"); got != c.reply {
 				t.Fatal(got)
 			}

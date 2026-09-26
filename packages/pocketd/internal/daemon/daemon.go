@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
 	"pocketd/internal/claude"
 	"pocketd/internal/ops"
+	"pocketd/internal/proto"
 	"pocketd/internal/session"
 	"pocketd/internal/timeline"
 )
@@ -25,7 +27,8 @@ type Daemon struct {
 	Exe      string // absolute path of this binary, for the hook command
 	Sock     string
 
-	codexLocks sync.Map
+	codexLocks   sync.Map
+	codexThreads sync.Map
 }
 
 func (d *Daemon) Spawn(m ops.Msg) (*session.Session, error) {
@@ -132,14 +135,18 @@ func (d *Daemon) writeSettings(id string) (string, error) {
 }
 
 type hookInput struct {
-	SessionID string          `json:"session_id"`
-	ToolName  string          `json:"tool_name"`
-	ToolInput json.RawMessage `json:"tool_input"`
+	SessionID             string            `json:"session_id"`
+	ToolName              string            `json:"tool_name"`
+	ToolInput             json.RawMessage   `json:"tool_input"`
+	PermissionMode        string            `json:"permission_mode"`
+	PermissionSuggestions []json.RawMessage `json:"permission_suggestions"`
 }
 
 type hookDecision struct {
-	Behavior string `json:"behavior"`
-	Message  string `json:"message,omitempty"`
+	Behavior           string            `json:"behavior"`
+	UpdatedPermissions []json.RawMessage `json:"updatedPermissions,omitempty"`
+	Message            string            `json:"message,omitempty"`
+	Interrupt          bool              `json:"interrupt,omitempty"`
 }
 
 // Hook answers one PermissionRequest hook call; nil lets Claude's dialog decide.
@@ -148,19 +155,41 @@ func (d *Daemon) Hook(ctx context.Context, payload []byte) []byte {
 	if json.Unmarshal(payload, &in) != nil {
 		return nil
 	}
-	if _, err := d.Agents.Get(in.SessionID); err != nil {
+	ag, err := d.Agents.Get(in.SessionID)
+	if err != nil {
 		return nil
 	}
-	detail := timeline.Detail(in.ToolName, in.ToolInput)
-	decision := hookDecision{Behavior: d.Broker.Ask(ctx, in.SessionID, in.ToolName, detail, permissionKey(in.SessionID, in.ToolName, in.ToolInput))}
-	switch decision.Behavior {
+	req := proto.PermissionRequest{AgentID: in.SessionID, ToolName: in.ToolName, Detail: timeline.Detail(in.ToolName, in.ToolInput), Options: in.options(), Feedback: true}
+	a := d.Broker.Ask(ctx, req, permissionKey(in.SessionID, in.ToolName, in.ToolInput))
+	var decision hookDecision
+	switch a.Decision {
 	case "":
 		return nil
+	case "allow":
+		decision = hookDecision{Behavior: "allow", UpdatedPermissions: in.updates(a.Option)}
 	case "deny":
-		decision.Message = "Denied from phone"
+		decision = hookDecision{Behavior: "deny", Message: "Denied from phone", Interrupt: true}
+		if a.Message != "" {
+			// Claude distrusts a hook's deny message as tool output, so feedback
+			// goes in as the next prompt, like the desktop's "What should Claude do instead?".
+			go promptAfterTurn(ag, ag.Summary().MaxSeq, a.Message)
+		}
 	}
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": decision}})
 	return out
+}
+
+var FeedbackWait = 30 * time.Second
+
+// promptAfterTurn types text once the interrupted turn has ended past
+// seq; typing earlier would land in Claude's still-open permission dialog.
+func promptAfterTurn(a *agent.Agent, seq int64, text string) {
+	for deadline := time.Now().Add(FeedbackWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if s := a.Summary(); s.Status == "idle" && s.MaxSeq > seq {
+			a.Driver().Prompt(text)
+			return
+		}
+	}
 }
 
 type claudeDriver struct {

@@ -13,7 +13,9 @@ import (
 
 func ask(b *Broker, ctx context.Context, agentID, key string) <-chan string {
 	out := make(chan string, 1)
-	go func() { out <- b.Ask(ctx, agentID, "Bash", proto.ToolDetail{Kind: "shell", Command: "ls"}, key) }()
+	go func() {
+		out <- b.Ask(ctx, proto.PermissionRequest{AgentID: agentID, ToolName: "Bash", Detail: proto.ToolDetail{Kind: "shell", Command: "ls"}}, key).Decision
+	}()
 	return out
 }
 
@@ -49,10 +51,10 @@ func TestPhoneAnswers(t *testing.T) {
 	b := New(h)
 	got := ask(b, context.Background(), "a1", "k")
 	req := waitOpen(t, b, 1)[0]
-	if !b.Resolve(req.RequestID, "allow") || <-got != "allow" {
+	if !b.Resolve(req.RequestID, Answer{Decision: "allow"}) || <-got != "allow" {
 		t.Fatal("not allowed")
 	}
-	if b.Resolve(req.RequestID, "deny") {
+	if b.Resolve(req.RequestID, Answer{Decision: "deny"}) {
 		t.Fatal("resolved twice")
 	}
 	if ts := types(msgs); len(ts) != 2 || ts[0] != "permission.request:" || ts[1] != "permission.resolved:allow" {
@@ -157,7 +159,7 @@ func TestResolveWinsOverHookGone(t *testing.T) {
 			}
 		}
 		cancel()
-		if b.Resolve(id, "allow") {
+		if b.Resolve(id, Answer{Decision: "allow"}) {
 			if d := <-got; d != "allow" {
 				t.Fatalf("resolved allow, Ask returned %q", d)
 			}

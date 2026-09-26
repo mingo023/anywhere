@@ -8,6 +8,7 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
+    "test": "node --test test/",
     "build": "tsc --noEmit"
   },
   "dependencies": {

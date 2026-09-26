@@ -17,6 +17,8 @@ type ClientMessage struct {
 	Limit           *float64
 	RequestID       string
 	Decision        string
+	Option          string
+	Message         string
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -40,6 +42,10 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		*dst = new(float64)
 		return get(key, *dst)
 	}
+	optionalString := func(key string, dst *string) bool {
+		_, has := fields[key]
+		return !has || get(key, dst)
+	}
 	ok := get("type", &m.Type) && get("id", &m.ID)
 	switch {
 	case !ok:
@@ -54,7 +60,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("agentId", &m.AgentID) && optional("sinceSeq", &m.SinceSeq) && optional("limit", &m.Limit) &&
 			(m.Limit == nil || *m.Limit >= 1 && *m.Limit <= 500)
 	case m.Type == "permission.resolve":
-		ok = get("requestId", &m.RequestID) && get("decision", &m.Decision) && (m.Decision == "allow" || m.Decision == "deny")
+		ok = get("requestId", &m.RequestID) && get("decision", &m.Decision) && (m.Decision == "allow" || m.Decision == "deny") &&
+			optionalString("option", &m.Option) && optionalString("message", &m.Message)
 	default:
 		ok = false
 	}

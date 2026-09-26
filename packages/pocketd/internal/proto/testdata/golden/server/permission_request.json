@@ -8,6 +8,13 @@
       "kind": "shell",
       "command": "rm x",
       "description": "remove"
-    }
+    },
+    "options": [
+      {
+        "id": "always",
+        "label": "Yes, and always allow access to /w"
+      }
+    ],
+    "feedback": true
   }
 }

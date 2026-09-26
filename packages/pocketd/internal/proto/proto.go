@@ -180,8 +180,17 @@ type AgentSummary struct {
 }
 
 type PermissionRequest struct {
-	RequestID string     `json:"requestId"`
-	AgentID   string     `json:"agentId"`
-	ToolName  string     `json:"toolName"`
-	Detail    ToolDetail `json:"detail"`
+	RequestID string             `json:"requestId"`
+	AgentID   string             `json:"agentId"`
+	ToolName  string             `json:"toolName"`
+	Detail    ToolDetail         `json:"detail"`
+	Options   []PermissionOption `json:"options,omitempty"`
+	// Feedback is set when a deny can carry a message back to the agent.
+	Feedback bool `json:"feedback,omitempty"`
+}
+
+// PermissionOption is an allow variant offered beside plain allow and deny.
+type PermissionOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }

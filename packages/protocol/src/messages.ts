@@ -26,6 +26,8 @@ export const ClientMessage = Schema.Union(
     id: Schema.String,
     requestId: Schema.String,
     decision: Decision,
+    option: Schema.optional(Schema.String),
+    message: Schema.optional(Schema.String),
   }),
 );
 export type ClientMessage = typeof ClientMessage.Type;

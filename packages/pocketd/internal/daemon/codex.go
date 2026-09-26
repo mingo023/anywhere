@@ -38,16 +38,22 @@ func (d *Daemon) spawnCodex(spec session.Spec) (*session.Session, error) {
 	lock, _ := d.codexLocks.LoadOrStore(lockKey(sock), &sync.Mutex{})
 	mu := lock.(*sync.Mutex)
 	mu.Lock()
+	// The lock is held for at most CodexThreadWait so a TUI parked on its
+	// trust prompts doesn't block other spawns; its watcher keeps going unlocked.
 	ctx, cancel := context.WithTimeout(context.Background(), CodexThreadWait)
+	release := sync.OnceFunc(func() { cancel(); mu.Unlock() })
 	before, err := codex.Loaded(ctx, sock)
 	if err == nil {
 		spec.Args = append([]string{"--remote", "unix://" + sock, "-C", spec.Cwd}, spec.Args...)
 		var s *session.Session
 		if s, err = d.Sessions.Spawn(spec); err == nil {
 			go func() {
-				threadID := newThread(ctx, sock, before, s.Done())
-				cancel()
-				mu.Unlock()
+				<-ctx.Done()
+				release()
+			}()
+			go func() {
+				threadID := d.newThread(sock, before, s.Done())
+				release()
 				if threadID != "" {
 					d.followCodex(s, sock, spec.Cwd, threadID)
 				}
@@ -55,23 +61,33 @@ func (d *Daemon) spawnCodex(spec session.Spec) (*session.Session, error) {
 			return s, nil
 		}
 	}
-	cancel()
-	mu.Unlock()
+	release()
 	return nil, err
 }
 
-func newThread(ctx context.Context, sock string, before []string, exited <-chan struct{}) string {
+// newThread claims the first thread loaded after before that no other spawn claimed.
+func (d *Daemon) newThread(sock string, before []string, exited <-chan struct{}) string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-exited:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	for {
 		ids, _ := codex.Loaded(ctx, sock)
 		for _, id := range ids {
-			if !slices.Contains(before, id) {
+			if slices.Contains(before, id) {
+				continue
+			}
+			if _, taken := d.codexThreads.LoadOrStore(id, true); !taken {
 				return id
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return ""
-		case <-exited:
 			return ""
 		case <-time.After(200 * time.Millisecond):
 		}
@@ -88,8 +104,8 @@ func lockKey(sock string) string {
 
 func (d *Daemon) followCodex(s *session.Session, sock, cwd, threadID string) {
 	drv := &codexDriver{s: s}
-	d.track(s, threadID, cwd, "codex", func(a *agent.Agent) agent.Driver { drv.a = a; return drv }, func(ctx context.Context, a *agent.Agent) {
-		thread, err := codex.Open(ctx, sock, threadID, threadID, a, d.Broker)
+	d.track(s, s.Info().ID, cwd, "codex", func(a *agent.Agent) agent.Driver { drv.a = a; return drv }, func(ctx context.Context, a *agent.Agent) {
+		thread, err := codex.Open(ctx, sock, threadID, a.ID(), a, d.Broker)
 		if err != nil {
 			<-ctx.Done()
 			return

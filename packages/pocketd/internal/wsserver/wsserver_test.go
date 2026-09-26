@@ -133,7 +133,7 @@ func TestHelloResendsOpenPermissionRequests(t *testing.T) {
 	_, _, p := setup(t, func(s *Server) { b = s.Broker })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go b.Ask(ctx, "a1", "Bash", proto.ToolDetail{Kind: "shell", Command: "ls"}, "k")
+	go b.Ask(ctx, proto.PermissionRequest{AgentID: "a1", ToolName: "Bash", Detail: proto.ToolDetail{Kind: "shell", Command: "ls"}}, "k")
 	for len(b.Open()) == 0 {
 		time.Sleep(time.Millisecond)
 	}

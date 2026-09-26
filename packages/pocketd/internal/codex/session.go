@@ -277,7 +277,7 @@ func (s *Session) Request(id json.RawMessage, method string, params json.RawMess
 }
 
 func (s *Session) ask(id json.RawMessage, name string, detail proto.ToolDetail) {
-	switch s.broker.Ask(s.ctx, s.agentID, name, detail, s.key(id)) {
+	switch s.broker.Ask(s.ctx, proto.PermissionRequest{AgentID: s.agentID, ToolName: name, Detail: detail}, s.key(id)).Decision {
 	case "allow":
 		s.c.Reply(id, map[string]string{"decision": "accept"})
 	case "deny":
