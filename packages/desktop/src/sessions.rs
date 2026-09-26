@@ -5,6 +5,14 @@ pub struct Session {
     pub info: Info,
     pub term: Option<Term>,
     pub exit: Option<i32>,
+    pub closed: bool,
+}
+
+impl Session {
+    /// A session this window closed was killed, so its exit code says nothing about the agent.
+    pub fn failed(&self) -> bool {
+        !self.closed && self.exit.is_some_and(|c| c != 0)
+    }
 }
 
 /// pocketd's sessions this window is attached to. Exited ones stay until closed so their last screen can be read.
@@ -21,7 +29,7 @@ impl Sessions {
         for info in sessions {
             if self.get(&info.id).is_none() {
                 added.push(info.id.clone());
-                self.items.push(Session { info, term: None, exit: None });
+                self.items.push(Session { info, term: None, exit: None, closed: false });
             }
         }
         added
@@ -101,5 +109,16 @@ mod tests {
         assert_eq!(s.get("a").unwrap().exit, Some(2));
         s.remove("a");
         assert_eq!(ids(&s), vec!["b"]);
+    }
+
+    #[test]
+    fn a_closed_session_killed_by_its_close_has_not_failed() {
+        let mut s = Sessions::default();
+        s.sync(vec![info("a"), info("b")]);
+        s.get_mut("a").unwrap().closed = true;
+        s.apply(&Msg { code: -1, ..msg("exit", "a", "") });
+        s.apply(&Msg { code: -1, ..msg("exit", "b", "") });
+        assert!(!s.get("a").unwrap().failed());
+        assert!(s.get("b").unwrap().failed());
     }
 }

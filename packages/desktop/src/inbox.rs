@@ -48,7 +48,7 @@ impl Desktop {
                 if day != today || self.read.contains(&key) {
                     return None;
                 }
-                let (kind, title, subtitle) = if r.ok {
+                let (kind, title, subtitle) = if !r.failed() {
                     (Kind::Done, a.title.clone(), first_line(self.agents.last_text(&a.id).unwrap_or_default()))
                 } else {
                     (Kind::Failed, format!("{} failed", a.title), first_line(&r.error))

@@ -1,12 +1,13 @@
-use crate::git::{Kind, Line};
+use crate::git::{self, Kind, Line};
 use crate::theme::*;
-use crate::view::{button, segmented};
+use crate::view::{button, dot, kbd, segmented, shadow};
 use crate::Desktop;
-use gpui_kit::component::input::Input;
+use gpui_kit::component::input::{Escape, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::ops::{Range, RangeInclusive};
 
-const NUM: f32 = 48.;
+const NUM: f32 = 44.;
 const SIGN: f32 = 18.;
 const ROW: f32 = 22.;
 
@@ -44,21 +45,98 @@ fn colors(kind: Kind) -> (Option<u32>, u32, &'static str) {
     }
 }
 
-fn number(n: Option<usize>) -> Div {
-    div().w(px(NUM)).flex_none().pr(px(8.)).flex().justify_end().text_color(rgb(FAINT)).child(n.map(|n| n.to_string()).unwrap_or_default())
+fn number(n: Option<usize>, picked: bool) -> Div {
+    div()
+        .w(px(NUM))
+        .flex_none()
+        .pr(px(8.))
+        .flex()
+        .justify_end()
+        .text_color(rgb(if picked { PICK } else { FAINT }))
+        .child(n.map(|n| n.to_string()).unwrap_or_default())
 }
 
-fn code(l: &Line, numbers: Vec<Option<usize>>) -> Div {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Row {
+    Unified(usize),
+    Split(Option<usize>, Option<usize>),
+    Composer,
+}
+
+/// Lays out the diff, with the composer under the row holding line `composer`.
+fn rows(lines: &[Line], split: bool, composer: Option<usize>) -> Vec<Row> {
+    let base: Vec<Row> =
+        if split { git::split(lines).into_iter().map(|(l, r)| Row::Split(l, r)).collect() } else { (0..lines.len()).map(Row::Unified).collect() };
+    let mut out = Vec::with_capacity(base.len() + 1);
+    for row in base {
+        out.push(row);
+        let holds = match row {
+            Row::Unified(i) => composer == Some(i),
+            Row::Split(l, r) => composer.is_some_and(|c| l == Some(c) || r == Some(c)),
+            Row::Composer => false,
+        };
+        if holds {
+            out.push(Row::Composer);
+        }
+    }
+    out
+}
+
+/// The smallest splice turning `old` into `new`, so the list keeps its scroll offset and measured heights.
+fn changed(old: &[Row], new: &[Row]) -> (Range<usize>, usize) {
+    let head = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    let tail = old[head..].iter().rev().zip(new[head..].iter().rev()).take_while(|(a, b)| a == b).count();
+    (head..old.len() - tail, new.len() - head - tail)
+}
+
+fn ordered((a, b): (usize, usize)) -> RangeInclusive<usize> {
+    a.min(b)..=a.max(b)
+}
+
+/// "Line 54" or "Lines 50–54", counted on the new side unless the range only removes lines.
+fn label(lines: &[Line], range: RangeInclusive<usize>) -> Option<String> {
+    let picked: Vec<&Line> = lines.get(range)?.iter().filter(|l| l.kind != Kind::Hunk).collect();
+    let new: Vec<usize> = picked.iter().filter_map(|l| l.new).collect();
+    let nums = if new.is_empty() { picked.iter().filter_map(|l| l.old).collect() } else { new };
+    let (lo, hi) = (*nums.iter().min()?, *nums.iter().max()?);
+    Some(if lo == hi { format!("Line {lo}") } else { format!("Lines {lo}–{hi}") })
+}
+
+/// Where line `i` of `old` sits in `new`, so a selection survives the diff refreshing under it.
+fn remap(old: &[Line], new: &[Line], i: usize) -> Option<usize> {
+    let l = old.get(i)?;
+    let same = |n: &&Line| n.kind == l.kind && n.text == l.text;
+    new.iter().position(|n| n == l).or_else(|| new.iter().enumerate().filter(|(_, n)| same(n)).min_by_key(|(j, _)| j.abs_diff(i)).map(|(j, _)| j))
+}
+
+fn code(l: &Line, numbers: Vec<Option<usize>>, picked: bool) -> Div {
     let (bg, fg, sign) = colors(l.kind);
+    let bg = if picked { Some(if l.kind == Kind::Context { PICK_CONTEXT } else { PICK_BG }) } else { bg };
     div()
-        .h(px(ROW))
+        .relative()
+        .min_h(px(ROW))
+        .flex()
+        .items_start()
+        .when_some(bg, |d, bg| d.bg(rgb(bg)))
+        .when(picked, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(rgb(PICK))))
+        .children(numbers.into_iter().map(|n| number(n, picked)))
+        .child(div().w(px(SIGN)).flex_none().flex().justify_center().text_color(rgb(fg)).child(sign))
+        .child(div().flex_1().min_w_0().pr(px(20.)).text_color(rgb(fg)).child(SharedString::from(l.text.clone())))
+}
+
+fn add_button(left: f32) -> Div {
+    div()
+        .absolute()
+        .left(px(left))
+        .top(px(1.))
+        .size(px(20.))
         .flex()
         .items_center()
-        .whitespace_nowrap()
-        .when_some(bg, |d, bg| d.bg(rgb(bg)))
-        .children(numbers.into_iter().map(number))
-        .child(div().w(px(SIGN)).flex_none().flex().justify_center().text_color(rgb(fg)).child(sign))
-        .child(div().pl(px(8.)).text_color(rgb(fg)).child(l.text.clone()))
+        .justify_center()
+        .rounded(px(5.))
+        .bg(rgb(PICK))
+        .shadow(vec![shadow(1., 3., 0.25)])
+        .child(icon("plus", 13., WHITE))
 }
 
 impl Desktop {
@@ -162,35 +240,23 @@ impl Desktop {
             .child(div().truncate().font_family(MONO).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(path.clone()))
             .children(file.map(|f| stat(f.added, f.removed)))
             .child(div().flex_1())
-            .child(segmented(vec![(false, "Unified".into()), (true, "Split".into())], self.diff_split, 26., 12.5, |this, v, cx| {
+            .child(div().id("diff-mode").child(segmented(vec![(false, "Unified".into()), (true, "Split".into())], self.diff_split, 26., 12.5, |this, v, cx| {
                 this.diff_split = v;
+                this.layout_diff(true);
                 cx.notify();
-            }, cx))
-            .child(button("open-editor").child(icon("external", 13., INK)).child("Open in editor").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            }, cx)))
+            .child(button("open-editor").child(icon("external", 13., MUTED)).child("Open in editor").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 if let Some(p) = &open {
                     cx.open_with_system(p);
                 }
             })));
-        let mut rows: Vec<AnyElement> = Vec::new();
-        let lines = std::mem::take(&mut self.diff);
-        if self.diff_split {
-            for (i, (l, r)) in crate::git::split(&lines).into_iter().enumerate() {
-                let side = |l: Option<&Line>, n: fn(&Line) -> Option<usize>| match l {
-                    Some(l) => code(l, vec![n(l)]).flex_1().min_w_0().overflow_hidden(),
-                    None => div().flex_1().h(px(ROW)).bg(rgb(0xf3f2ee)),
-                };
-                let target = r.or(l).and_then(|l| l.new.or(l.old)).filter(|_| r.or(l).is_some_and(|l| l.kind != Kind::Hunk));
-                rows.push(self.line_row(i, &path, target, div().flex().child(side(l, |l| l.old)).child(side(r, |l| l.new)), cx));
-                self.after_line(&path, target, &mut rows, cx);
-            }
-        } else {
-            for (i, l) in lines.iter().enumerate() {
-                let target = (l.kind != Kind::Hunk).then(|| l.new.or(l.old)).flatten();
-                rows.push(self.line_row(i, &path, target, code(l, vec![l.old, l.new]), cx));
-                self.after_line(&path, target, &mut rows, cx);
-            }
-        }
-        self.diff = lines;
+        let rows = list(self.diff_list.clone(), cx.processor(|this, ix, _, cx| this.diff_row(ix, cx))).py(px(8.));
+        let body = div()
+            .flex_1()
+            .min_h_0()
+            .child(rows.size_full())
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)));
         div()
             .flex_1()
             .min_h_0()
@@ -198,102 +264,288 @@ impl Desktop {
             .flex_col()
             .bg(rgb(WHITE))
             .child(header)
-            .child(div().id("diff").flex_1().overflow_scroll().py(px(8.)).font_family(MONO).text_size(px(12.5)).line_height(px(ROW)).children(rows))
+            .child(body.font_family(MONO).text_size(px(12.5)).line_height(px(ROW)))
     }
 
-    fn line_row(&self, i: usize, path: &str, target: Option<usize>, row: Div, cx: &mut Context<Self>) -> AnyElement {
-        let path = path.to_string();
-        row.id(("line", i))
-            .when_some(target, |d, line| {
-                d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_comment(path.clone(), line, window, cx)))
-            })
-            .into_any_element()
-    }
-
-    fn after_line(&self, path: &str, line: Option<usize>, rows: &mut Vec<AnyElement>, cx: &mut Context<Self>) {
-        let Some(line) = line else { return };
-        for (i, c) in self.comments.iter().enumerate().filter(|(_, c)| c.path == path && c.line == line) {
-            rows.push(self.comment_card(i, &c.text, line, cx).into_any_element());
+    pub fn set_diff(&mut self, lines: Vec<Line>) -> bool {
+        if lines == self.diff {
+            return false;
         }
-        if self.commenting.as_ref().is_some_and(|(p, l)| p == path && *l == line) {
-            rows.push(
-                card()
-                    .font_family(SANS)
-                    .child(author(&self.initials, line))
-                    .child(Input::new(&self.comment_input).text_size(px(14.)))
-                    .into_any_element(),
-            );
-        }
+        self.selection = self.selection.and_then(|(a, b)| Some((remap(&self.diff, &lines, a)?, remap(&self.diff, &lines, b)?)));
+        self.diff = lines;
+        self.layout_diff(true);
+        true
     }
 
-    fn comment_card(&self, i: usize, text: &str, line: usize, cx: &mut Context<Self>) -> Div {
-        let provider = self.session.as_deref().and_then(|s| self.summary(s)).map(|a| provider_name(&a.provider)).unwrap_or("agent");
-        let provider = provider.strip_suffix(" Code").unwrap_or(provider);
-        card()
-            .font_family(SANS)
-            .child(author(&self.initials, line))
-            .child(div().text_size(px(14.)).line_height(px(21.)).text_color(rgb(INK)).child(text.to_string()))
+    /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
+    pub fn layout_diff(&mut self, reset: bool) {
+        let composer = self.selection.filter(|_| self.composing && !self.dragging).map(|s| *ordered(s).end());
+        let rows = rows(&self.diff, self.diff_split, composer);
+        if reset {
+            self.diff_list.reset(rows.len());
+        } else {
+            let (range, count) = changed(&self.diff_rows, &rows);
+            self.diff_list.splice(range, count);
+        }
+        self.diff_rows = rows;
+    }
+
+    pub fn selection_label(&self) -> Option<String> {
+        label(&self.diff, ordered(self.selection?))
+    }
+
+    pub fn same_hunk(&self, a: usize, b: usize) -> bool {
+        !self.diff[a.min(b)..=a.max(b)].iter().any(|l| l.kind == Kind::Hunk)
+    }
+
+    pub fn picked(&self, i: usize) -> bool {
+        self.selection.is_some_and(|s| ordered(s).contains(&i)) && self.diff[i].kind != Kind::Hunk
+    }
+
+    /// One side of a row: pressing picks its line, dragging or shift-clicking stretches the pick; "+" or a drag opens the composer.
+    fn cell(&self, id: &'static str, i: usize, numbers: Vec<Option<usize>>, add_at: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let row = code(&self.diff[i], numbers, self.picked(i)).id((id, i));
+        if self.diff[i].kind == Kind::Hunk {
+            return row;
+        }
+        let last = self.selection.is_some_and(|s| *ordered(s).end() == i);
+        row.group("diff-line")
+            .cursor_pointer()
             .child(
-                div()
-                    .mt(px(2.))
-                    .flex()
-                    .gap(px(8.))
-                    .child(
-                        button(("send-comment", i))
-                            .bg(rgb(INK))
-                            .border_color(rgb(INK))
-                            .text_color(rgb(WHITE))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .hover(|s| s.bg(rgb(0x33312e)))
-                            .child(icon("send", 13., WHITE))
-                            .child(format!("Send to {provider}"))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_comment(i, cx))),
-                    )
-                    .child(button(("resolve", i)).child("Resolve").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.comments.remove(i);
-                        cx.notify();
-                    }))),
+                add_button(add_at)
+                    .when(!last, |b| b.opacity(0.).group_hover("diff-line", |s| s.opacity(1.)))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.open_comment(i, window, cx))),
             )
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.select_line(i, ev.modifiers.shift, window, cx)))
+            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| this.drag_to(i, ev.dragging(), window, cx)))
+    }
+
+    fn diff_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(&row) = self.diff_rows.get(ix) else { return Empty.into_any_element() };
+        match row {
+            Row::Unified(i) => self.cell("line", i, vec![self.diff[i].old, self.diff[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
+            Row::Split(l, r) => {
+                let mut side = |id, i: Option<usize>, n: fn(&Line) -> Option<usize>| match i {
+                    Some(i) => self.cell(id, i, vec![n(&self.diff[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
+                    None => div().flex_1().min_h(px(ROW)).bg(rgb(0xf3f2ee)).into_any_element(),
+                };
+                div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()
+            }
+            Row::Composer => div().w_full().child(self.composer(cx)).into_any_element(),
+        }
+    }
+
+    fn composer(&self, cx: &mut Context<Self>) -> Div {
+        let lines = self.selection_label().unwrap_or_default();
+        let target = self.comment_target();
+        let ready = target.is_some() && !self.comment_input.read(cx).value().trim().is_empty();
+        let head = div()
+            .px(px(16.))
+            .pt(px(12.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .text_size(px(12.5))
+            .child(div().font_family(MONO).font_weight(FontWeight::SEMIBOLD).text_color(rgb(PICK)).child(lines))
+            .child(div().text_color(rgb(MUTED)).child("esc to dismiss"));
+        let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.comment_input).appearance(false));
+        let submit = div()
+            .id("comment-submit")
+            .h(px(34.))
+            .pl(px(14.))
+            .pr(px(12.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(8.))
+            .bg(rgb(INK))
+            .text_size(px(13.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgb(WHITE))
+            .child("Comment")
+            .child(kbd("⌘↵").border_color(rgb(0x4a4844)).text_color(rgb(0xd8d5ce)))
+            .when(ready, |d| {
+                d.cursor_pointer().hover(|s| s.bg(rgb(0x33312e))).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.submit_comment(window, cx)))
+            })
+            .when(!ready, |d| d.opacity(0.5));
+        let cancel = div()
+            .id("comment-cancel")
+            .h(px(34.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .rounded(px(8.))
+            .cursor_pointer()
+            .text_size(px(13.5))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(rgb(MUTED))
+            .hover(|s| s.bg(rgb(HOVER)))
+            .child("Cancel")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_comment(window, cx)));
+        let foot = div()
+            .px(px(12.))
+            .pt(px(10.))
+            .pb(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .border_t_1()
+            .border_color(rgb(0xefede9))
+            .child(self.target_picker(target, cx))
+            .child(div().truncate().text_size(px(12.5)).text_color(rgb(MUTED)).child("sends to this session’s terminal"))
+            .child(div().flex_1())
+            .child(cancel)
+            .child(submit);
+        div()
+            .mt(px(6.))
+            .mb(px(10.))
+            .mr(px(20.))
+            .ml(px(if self.diff_split { NUM + SIGN } else { 2. * NUM + SIGN }))
+            .flex()
+            .flex_col()
+            .rounded(px(12.))
+            .border_1()
+            .border_color(rgb(COMPOSER_LINE))
+            .bg(rgb(WHITE))
+            .shadow(vec![shadow(8., 24., 0.10), shadow(1., 2., 0.06)])
+            .font_family(SANS)
+            .whitespace_normal()
+            .on_action(cx.listener(|this, _: &Escape, window, cx| this.cancel_comment(window, cx)))
+            .child(head)
+            .child(field)
+            .child(foot)
+    }
+
+    fn session_chip(&self, id: &str) -> (u32, String, String) {
+        let provider = self.summary(id).map(|a| a.provider.clone()).unwrap_or_default();
+        let branch = self.cwd_of(id).and_then(|c| self.repos.get(&c)).map(|r| r.branch.clone()).unwrap_or_default();
+        (provider_color(&provider), self.pane_label(id), branch)
+    }
+
+    fn target_picker(&self, target: Option<String>, cx: &mut Context<Self>) -> Div {
+        let pill = div()
+            .id("comment-target")
+            .h(px(34.))
+            .px(px(10.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(rgb(LINE))
+            .bg(rgb(0xfaf9f7))
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(0xf3f2ee)))
+            .text_size(px(13.5))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.target_menu = !this.target_menu;
+                cx.notify();
+            }));
+        let pill = match &target {
+            Some(id) => {
+                let (color, name, branch) = self.session_chip(id);
+                pill.child(dot(8., color))
+                    .child(div().font_family(MONO).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(name))
+                    .when(!branch.is_empty(), |d| {
+                        d.child(div().text_color(rgb(MUTED)).child("·")).child(div().font_family(MONO).text_size(px(12.5)).text_color(rgb(MUTED)).child(branch))
+                    })
+            }
+            None => pill.text_color(rgb(MUTED)).child("No session"),
+        };
+        let menu = self.target_menu.then(|| {
+            let cards = self.project.as_deref().map(|p| self.cards(p)).unwrap_or_default();
+            let items = cards.into_iter().enumerate().map(|(i, c)| {
+                let (color, name, branch) = self.session_chip(&c.id);
+                let picked = target.as_ref() == Some(&c.id);
+                let id = c.id.clone();
+                div()
+                    .id(("target", i))
+                    .h(px(32.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(HOVER)))
+                    .child(dot(8., color))
+                    .child(div().font_family(MONO).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(name))
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(rgb(MUTED)).child(c.title))
+                    .child(div().font_family(MONO).text_size(px(12.)).text_color(rgb(MUTED)).child(branch))
+                    .child(icon("check", 13., if picked { INK } else { WHITE }))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.comment_target = Some(id.clone());
+                        this.target_menu = false;
+                        cx.notify();
+                    }))
+            });
+            deferred(
+                anchored().anchor(Anchor::BottomLeft).offset(point(px(0.), px(-6.))).snap_to_window_with_margin(px(8.)).child(
+                    div()
+                        .id("target-menu")
+                        .w(px(360.))
+                        .p(px(4.))
+                        .flex()
+                        .flex_col()
+                        .rounded(px(10.))
+                        .border_1()
+                        .border_color(rgb(LINE))
+                        .bg(rgb(WHITE))
+                        .shadow(vec![shadow(8., 24., 0.12)])
+                        .children(items)
+                        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.target_menu = false;
+                            cx.notify();
+                        })),
+                ),
+            )
+            .with_priority(1)
+        });
+        div().relative().child(pill.child(icon("chevron-down", 13., MUTED))).children(menu)
     }
 }
 
-fn card() -> Div {
-    div()
-        .mt(px(6.))
-        .mb(px(6.))
-        .mr(px(16.))
-        .ml(px(106.))
-        .px(px(12.))
-        .py(px(10.))
-        .flex()
-        .flex_col()
-        .gap(px(8.))
-        .rounded(px(10.))
-        .border_1()
-        .border_color(rgb(CARD))
-        .bg(rgb(WHITE))
-        .whitespace_normal()
-}
+#[cfg(test)]
+mod tests {
+    use super::{Row, changed, label, remap, rows};
+    use crate::git::parse;
 
-fn author(initials: &str, line: usize) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .text_size(px(13.))
-        .child(
-            div()
-                .size(px(22.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(11.))
-                .bg(rgb(INK))
-                .text_size(px(10.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(rgb(WHITE))
-                .child(initials.to_string()),
-        )
-        .child(div().font_weight(FontWeight::SEMIBOLD).child("You"))
-        .child(div().text_color(rgb(MUTED)).child(format!("on line {line}")))
+    const DIFF: &str = "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n";
+
+    #[test]
+    fn places_the_composer_under_its_line() {
+        let l = parse(DIFF);
+        assert_eq!(rows(&l, false, Some(3)), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
+        assert_eq!(rows(&l, true, Some(2)), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
+        assert_eq!(rows(&l, false, None).len(), 5);
+    }
+
+    #[test]
+    fn labels_ranges_by_their_new_lines() {
+        let l = parse(DIFF);
+        assert_eq!(label(&l, 1..=1).as_deref(), Some("Line 1"));
+        assert_eq!(label(&l, 0..=4).as_deref(), Some("Lines 1–3"));
+        assert_eq!(label(&l, 2..=2).as_deref(), Some("Line 2"));
+        assert_eq!(label(&l, 0..=0), None);
+    }
+
+    #[test]
+    fn remaps_lines_when_the_diff_refreshes() {
+        let old = parse(DIFF);
+        let new = parse("@@ -1,2 +1,4 @@\n z\n a\n-b\n+c\n+d\n");
+        assert_eq!(remap(&old, &new, 2), Some(3));
+        assert_eq!(remap(&old, &parse("@@ -1,1 +1,1 @@\n-x\n+y\n"), 2), None);
+    }
+
+    #[test]
+    fn splices_only_the_rows_that_changed() {
+        let old = [Row::Unified(0), Row::Unified(1), Row::Unified(2)];
+        assert_eq!(changed(&old, &[Row::Unified(0), Row::Unified(1), Row::Composer, Row::Unified(2)]), (2..2, 1));
+        assert_eq!(changed(&old, &[Row::Unified(0), Row::Unified(2)]), (1..2, 0));
+        assert_eq!(changed(&old, &old), (3..3, 0));
+        assert_eq!(changed(&[], &old), (0..0, 3));
+    }
 }

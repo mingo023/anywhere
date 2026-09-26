@@ -32,6 +32,13 @@ pub struct Item {
     pub usage: Option<Usage>,
 }
 
+impl Item {
+    /// Both providers end an interrupted turn with a not-ok result, but the user stopped it.
+    pub fn failed(&self) -> bool {
+        !self.ok && self.error != "interrupted"
+    }
+}
+
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Usage {
@@ -286,5 +293,12 @@ mod tests {
         a.timelines.insert("a".into(), vec![turn(1_000), turn(56_000), Item::default()]);
         assert_eq!(a.context_left("a"), Some(62));
         assert_eq!(a.context_left("b"), None);
+    }
+
+    #[test]
+    fn an_interrupted_turn_has_not_failed() {
+        let result = |error: &str| Item { kind: "result".into(), error: error.into(), ..Default::default() };
+        assert!(!result("interrupted").failed());
+        assert!(result("boom").failed());
     }
 }

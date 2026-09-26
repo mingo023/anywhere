@@ -39,6 +39,10 @@ pub const DEL_BG: u32 = 0xfbeae7;
 pub const DEL_TEXT: u32 = 0x8f2a1e;
 pub const ADD_BG: u32 = 0xe7f4ec;
 pub const ADD_TEXT: u32 = 0x15603a;
+pub const PICK: u32 = 0x3b6fd1;
+pub const PICK_BG: u32 = 0xd6e7f0;
+pub const PICK_CONTEXT: u32 = 0xe1e9f5;
+pub const COMPOSER_LINE: u32 = 0xd3dbe8;
 
 const PROJECTS: [u32; 5] = [0x1b8378, 0xc15f3c, 0x6b5cc4, 0xb58a1b, 0x4f7cbf];
 
@@ -92,7 +96,7 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "arrow-right", "back", "bolt", "branch", "check", "external", "file", "filter", "folder", "forward", "inbox", "plus",
+    "arrow-right", "back", "bolt", "branch", "check", "chevron-down", "external", "file", "filter", "folder", "forward", "inbox", "plus",
     "search", "send", "settings", "shield", "sidebar", "spinner", "split-down", "split-right", "terminal", "x",
 );
 

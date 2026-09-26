@@ -16,7 +16,7 @@ use agents::{Agents, Summary};
 use daemon::{Daemon, Msg};
 use futures::StreamExt;
 use git::Repo;
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::{Root, Theme};
 use gpui_kit::*;
 use serde_json::json;
@@ -68,12 +68,6 @@ enum Intent {
     Split(String, bool),
 }
 
-pub struct Comment {
-    pub path: String,
-    pub line: usize,
-    pub text: String,
-}
-
 pub struct Desktop {
     daemon: Daemon,
     sessions: Sessions,
@@ -90,10 +84,15 @@ pub struct Desktop {
     repos: HashMap<String, Repo>,
     diff_file: Option<String>,
     diff: Vec<git::Line>,
+    diff_rows: Vec<diff::Row>,
+    diff_list: ListState,
     diff_split: bool,
-    comments: Vec<Comment>,
-    commenting: Option<(String, usize)>,
-    comment_input: Entity<InputState>,
+    selection: Option<(usize, usize)>,
+    dragging: bool,
+    composing: bool,
+    comment_input: Entity<TextareaState>,
+    comment_target: Option<String>,
+    target_menu: bool,
     initials: String,
     tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     git_run: u64,
@@ -117,13 +116,13 @@ fn under(cwd: &str, project: &str) -> bool {
 impl Desktop {
     fn new(daemon: Daemon, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search conversations…"));
-        let comment_input = cx.new(|cx| InputState::new(window, cx).placeholder("Leave a comment, ↵ to save"));
+        let comment_input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
         let _subs = vec![
             cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify()),
-            cx.subscribe_in(&comment_input, window, |this, _, ev: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = ev {
-                    this.save_comment(window, cx);
-                }
+            cx.subscribe_in(&comment_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { secondary: true, .. } => this.submit_comment(window, cx),
+                InputEvent::Change => cx.notify(),
+                _ => {}
             }),
         ];
         Self {
@@ -142,10 +141,15 @@ impl Desktop {
             repos: HashMap::new(),
             diff_file: None,
             diff: Vec::new(),
+            diff_rows: Vec::new(),
+            diff_list: ListState::new(0, ListAlignment::Top, px(400.)),
             diff_split: false,
-            comments: Vec::new(),
-            commenting: None,
+            selection: None,
+            dragging: false,
+            composing: false,
             comment_input,
+            comment_target: None,
+            target_menu: false,
             initials: String::new(),
             tree: HashMap::new(),
             git_run: 0,
@@ -224,7 +228,6 @@ impl Desktop {
     pub fn cards(&self, project: &str) -> Vec<Card> {
         let projects = self.projects();
         let mine = |cwd: &str| self.project_of(cwd, &projects).is_some_and(|p| p == project);
-        let exit = |id: &str| self.sessions.get(id).and_then(|s| s.exit);
         let mut out: Vec<Card> = self
             .agents
             .list
@@ -240,7 +243,7 @@ impl Desktop {
                 status: match () {
                     _ if self.agents.needs_you(&a.id) => Status::NeedsYou,
                     _ if a.status == "running" || a.status == "compacting" => Status::Working,
-                    _ if exit(&a.id).is_some_and(|c| c != 0) || self.agents.last_result(&a.id).is_some_and(|r| !r.ok) => Status::Failed,
+                    _ if self.sessions.get(&a.id).is_some_and(|s| s.failed()) || self.agents.last_result(&a.id).is_some_and(|r| r.failed()) => Status::Failed,
                     _ => Status::Done,
                 },
             })
@@ -254,7 +257,7 @@ impl Desktop {
                     title: view::command_line(&s.info),
                     cwd: s.info.cwd.clone(),
                     at: 0,
-                    status: if s.exit.is_some_and(|c| c != 0) { Status::Failed } else { Status::Done },
+                    status: if s.failed() { Status::Failed } else { Status::Done },
                 });
             }
         }
@@ -340,9 +343,9 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn new_session(&mut self, cx: &mut Context<Self>) {
+    pub fn new_session(&mut self, provider: &str, cx: &mut Context<Self>) {
         let Some(cwd) = self.project.clone() else { return };
-        self.spawn("claude", &cwd, Intent::Session, cx);
+        self.spawn(provider, &cwd, Intent::Session, cx);
     }
 
     /// Opens a login shell in the session's folder, as a new tab or a split of the active one.
@@ -378,7 +381,8 @@ impl Desktop {
         for id in self.workspace(&parent).close_tab(i) {
             if id != parent {
                 self.close_pane(&id, cx);
-            } else if self.sessions.get(&id).is_some_and(|s| s.exit.is_none()) {
+            } else if let Some(s) = self.sessions.get_mut(&id).filter(|s| s.exit.is_none()) {
+                s.closed = true;
                 self.daemon.send(json!({"op": "close", "id": id}));
             }
         }
@@ -447,13 +451,15 @@ impl Desktop {
                 if run != d.git_run {
                     return;
                 }
-                d.repos = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
-                d.tree = tree;
+                let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
+                let mut changed = repos != d.repos || tree != d.tree || initials != d.initials;
+                (d.repos, d.tree, d.initials) = (repos, tree, initials);
                 if let Some((lines, _)) = diff.filter(|(_, p)| d.diff_file.as_ref() == Some(p)) {
-                    d.diff = lines;
+                    changed |= d.set_diff(lines);
                 }
-                d.initials = initials;
-                cx.notify();
+                if changed {
+                    cx.notify();
+                }
             })
             .ok();
         })
@@ -463,14 +469,15 @@ impl Desktop {
     pub fn open_changes(&mut self, path: Option<String>, cx: &mut Context<Self>) {
         let path = path.or_else(|| self.diff_file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
         if path != self.diff_file {
-            self.diff.clear();
-            self.commenting = None;
+            self.selection = None;
+            self.set_diff(Vec::new());
         }
         self.diff_file = path;
         if let Some(id) = self.session.clone() {
             self.workspace(&id).open_changes();
         }
         self.load_diff(cx);
+        cx.notify();
     }
 
     fn load_diff(&mut self, cx: &mut Context<Self>) {
@@ -490,30 +497,80 @@ impl Desktop {
         .detach();
     }
 
-    pub fn start_comment(&mut self, path: String, line: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.commenting = Some((path, line));
-        self.comment_input.update(cx, |s, cx| {
-            s.set_value("", window, cx);
-            s.focus(window, cx);
-        });
-        cx.notify();
-    }
-
-    fn save_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.comment_input.read(cx).value().trim().to_string();
-        let Some((path, line)) = self.commenting.take() else { return };
-        if !text.is_empty() {
-            self.comments.push(Comment { path, line, text });
+    /// Starts a comment on line `i` of the diff, or with `extend` stretches the open one to it.
+    pub fn select_line(&mut self, i: usize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let kept = self.selection.map(|(a, _)| a).filter(|&a| extend && self.same_hunk(a, i));
+        if kept.is_none() {
+            self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.composing = false;
         }
-        self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+        self.selection = Some((kept.unwrap_or(i), i));
+        self.dragging = true;
+        self.layout_diff(false);
         cx.notify();
     }
 
-    pub fn send_comment(&mut self, i: usize, cx: &mut Context<Self>) {
-        let Some(id) = self.session.clone() else { return };
-        let c = self.comments.remove(i);
-        self.daemon.send(json!({"op": "prompt", "id": id, "text": format!("{} line {}: {}", c.path, c.line, c.text)}));
+    pub fn drag_to(&mut self, i: usize, pressed: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((anchor, end)) = self.selection.filter(|_| self.dragging) else { return };
+        if !pressed {
+            return self.end_drag(window, cx);
+        }
+        if end != i && self.same_hunk(anchor, i) {
+            self.selection = Some((anchor, i));
+            cx.notify();
+        }
+    }
+
+    pub fn end_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.dragging) {
+            return;
+        }
+        if self.selection.is_some_and(|(a, b)| a != b) {
+            self.composing = true;
+        }
+        self.layout_diff(false);
+        if self.composing {
+            self.comment_input.update(cx, |s, cx| s.focus(window, cx));
+        }
         cx.notify();
+    }
+
+    pub fn open_comment(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.picked(i) {
+            self.selection = Some((i, i));
+            self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+        self.composing = true;
+        self.layout_diff(false);
+        self.comment_input.update(cx, |s, cx| s.focus(window, cx));
+        cx.notify();
+    }
+
+    pub fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.selection = None;
+        self.composing = false;
+        self.target_menu = false;
+        self.layout_diff(false);
+        self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+        window.focus(&self.root, cx);
+        cx.notify();
+    }
+
+    pub fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.comment_input.read(cx).value().trim().to_string();
+        let (Some(target), Some(path), Some(lines)) = (self.comment_target(), self.diff_file.clone(), self.selection_label()) else { return };
+        if text.is_empty() {
+            return;
+        }
+        self.daemon.send(json!({"op": "prompt", "id": target, "text": format!("{path} {}: {text}", lines.to_lowercase())}));
+        self.cancel_comment(window, cx);
+    }
+
+    /// The session a comment goes to: the one picked, else the open one, else the project's newest.
+    pub fn comment_target(&self) -> Option<String> {
+        let cards = self.cards(self.project.as_deref()?);
+        let live = |id: &String| cards.iter().any(|c| &c.id == id);
+        self.comment_target.clone().filter(live).or_else(|| self.session.clone().filter(live)).or_else(|| cards.first().map(|c| c.id.clone()))
     }
 
     fn open_selected(&mut self, _: &OpenSession, window: &mut Window, cx: &mut Context<Self>) {
@@ -613,6 +670,7 @@ fn main() {
         cx.text_system().add_fonts(theme::FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()).expect("bundled fonts load");
         light_theme(cx);
         cx.bind_keys([KeyBinding::new("cmd-k", FocusSearch, None), KeyBinding::new("cmd-enter", OpenSession, None)]);
+        cx.bind_keys(keys::bindings());
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

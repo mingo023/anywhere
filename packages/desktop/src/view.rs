@@ -336,7 +336,7 @@ impl Desktop {
             .gap(px(2.))
             .child(div().flex_1().truncate().text_size(px(16.)).font_weight(FontWeight::BOLD).child(name))
             .child(icon_button("find", "search", 28., 16.).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.focus_search(&crate::FocusSearch, window, cx))))
-            .child(icon_button("new-session", "plus", 28., 16.).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_session(cx))));
+            .child(icon_button("new-session", "plus", 28., 16.).on_click(cx.listener(|this, e: &ClickEvent, _, cx| this.new_session(if e.modifiers().alt { "codex" } else { "claude" }, cx))));
         let tabs = segmented(
             vec![(Side::Sessions, "Sessions".into()), (Side::Explorer, "Explorer".into()), (Side::Changes, format!("Changes · {changes}"))],
             self.side,
@@ -468,6 +468,7 @@ impl Desktop {
             Screen::Inbox => self.inbox_detail(cx),
             Screen::Sessions => match self.session.clone() {
                 Some(id) => self.session_view(&id, cx),
+                None if self.diff_file.is_some() => self.diff_view(cx),
                 None => drag_area(div())
                     .flex_1()
                     .flex()
@@ -647,6 +648,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(px(8.))
+            .key_context(crate::keys::CONTEXT)
             .track_focus(&self.term_focus)
             .on_key_down(cx.listener(Self::on_term_key))
             .children(out)

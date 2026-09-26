@@ -160,22 +160,21 @@ pub fn parse(diff: &str) -> Vec<Line> {
 }
 
 /// Pairs each run of deletions with the additions that follow it, side by side.
-pub fn split(lines: &[Line]) -> Vec<(Option<&Line>, Option<&Line>)> {
+pub fn split(lines: &[Line]) -> Vec<(Option<usize>, Option<usize>)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < lines.len() {
-        let l = &lines[i];
-        if l.kind == Kind::Hunk || l.kind == Kind::Context {
-            out.push((Some(l), Some(l)));
+        if matches!(lines[i].kind, Kind::Hunk | Kind::Context) {
+            out.push((Some(i), Some(i)));
             i += 1;
             continue;
         }
-        let dels: Vec<&Line> = lines[i..].iter().take_while(|l| l.kind == Kind::Del).collect();
-        let adds: Vec<&Line> = lines[i + dels.len()..].iter().take_while(|l| l.kind == Kind::Add).collect();
-        for k in 0..dels.len().max(adds.len()) {
-            out.push((dels.get(k).copied(), adds.get(k).copied()));
+        let dels = lines[i..].iter().take_while(|l| l.kind == Kind::Del).count();
+        let adds = lines[i + dels..].iter().take_while(|l| l.kind == Kind::Add).count();
+        for k in 0..dels.max(adds) {
+            out.push(((k < dels).then_some(i + k), (k < adds).then_some(i + dels + k)));
         }
-        i += dels.len() + adds.len();
+        i += dels + adds;
     }
     out
 }
@@ -206,7 +205,8 @@ mod tests {
     #[test]
     fn split_pairs_deletions_with_additions() {
         let l = parse(DIFF);
-        let rows: Vec<_> = split(&l).into_iter().map(|(a, b)| (a.map(|l| l.text.as_str()), b.map(|l| l.text.as_str()))).collect();
+        let text = |i: Option<usize>| i.map(|i| l[i].text.as_str());
+        let rows: Vec<_> = split(&l).into_iter().map(|(a, b)| (text(a), text(b))).collect();
         assert_eq!(rows[2], (Some("old"), Some("new1")));
         assert_eq!(rows[3], (None, Some("new2")));
         assert_eq!(rows.len(), 5);

@@ -1,4 +1,11 @@
-use gpui_kit::Keystroke;
+use gpui_kit::{KeyBinding, Keystroke, NoAction};
+
+pub const CONTEXT: &str = "Terminal";
+
+/// gpui-component's Root binds tab and shift-tab to focus cycling; in the terminal they belong to the CLI.
+pub fn bindings() -> [KeyBinding; 2] {
+    [KeyBinding::new("tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT))]
+}
 
 pub fn key_bytes(k: &Keystroke, app_cursor: bool) -> Option<Vec<u8>> {
     let m = &k.modifiers;
@@ -43,6 +50,7 @@ pub fn key_bytes(k: &Keystroke, app_cursor: bool) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::{KeyContext, Keymap, actions};
 
     fn bytes(s: &str) -> Option<Vec<u8>> {
         key_bytes(&Keystroke::parse(s).unwrap(), false)
@@ -104,5 +112,18 @@ mod tests {
         assert_eq!(key_bytes(&k, false), None);
         assert_eq!(bytes("cmd-c"), None);
         assert_eq!(bytes("shift"), None);
+    }
+
+    actions!(test, [CycleFocus]);
+
+    #[test]
+    fn tab_reaches_the_terminal_past_root_focus_cycling() {
+        let mut keymap = Keymap::default();
+        keymap.add_bindings([KeyBinding::new("tab", CycleFocus, Some("Root")), KeyBinding::new("shift-tab", CycleFocus, Some("Root"))]);
+        keymap.add_bindings(bindings());
+        let stack = [KeyContext::parse("Root").unwrap(), KeyContext::parse(CONTEXT).unwrap()];
+        for key in ["tab", "shift-tab"] {
+            assert!(keymap.bindings_for_input(&[Keystroke::parse(key).unwrap()], &stack).0.is_empty(), "{key}");
+        }
     }
 }
