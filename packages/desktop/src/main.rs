@@ -1,6 +1,7 @@
 mod agents;
 mod daemon;
 mod diff;
+mod ds;
 mod git;
 mod inbox;
 mod keys;
@@ -55,7 +56,6 @@ pub enum Status {
 pub struct Card {
     pub id: String,
     pub provider: String,
-    pub model: String,
     pub title: String,
     pub cwd: String,
     pub at: i64,
@@ -236,7 +236,6 @@ impl Desktop {
             .map(|a| Card {
                 id: a.id.clone(),
                 provider: a.provider.clone(),
-                model: a.model.as_deref().map(|_| agents::model_label(a)).unwrap_or_default(),
                 title: if a.title.is_empty() { "New session".into() } else { a.title.clone() },
                 cwd: a.cwd.clone(),
                 at: a.updated_at,
@@ -253,7 +252,6 @@ impl Desktop {
                 out.push(Card {
                     id: s.info.id.clone(),
                     provider: s.info.cmd.clone(),
-                    model: String::new(),
                     title: view::command_line(&s.info),
                     cwd: s.info.cwd.clone(),
                     at: 0,
@@ -650,10 +648,10 @@ fn light_theme(cx: &mut App) {
     let t = Theme::global_mut(cx);
     t.font_family = theme::SANS.into();
     t.font_size = px(14.);
-    t.foreground = rgb(theme::INK).into();
-    t.muted_foreground = rgb(theme::MUTED).into();
-    t.background = rgb(theme::APP).into();
-    t.caret = rgb(theme::INK).into();
+    t.foreground = rgba(theme::TEXT).into();
+    t.muted_foreground = rgba(theme::TEXT_2).into();
+    t.background = rgba(theme::WINDOW).into();
+    t.caret = rgba(theme::TEXT).into();
 }
 
 fn main() {

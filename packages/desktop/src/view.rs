@@ -1,5 +1,6 @@
 use crate::daemon::Info;
 use crate::termview::{self, Metrics};
+use crate::ds::{self, Segment, State, Variant, dot, icon_button, kbd};
 use crate::theme::*;
 use crate::workspace::Tab;
 use crate::{Card, Desktop, Screen, Side, Status};
@@ -60,261 +61,128 @@ pub fn drag_area(d: Div) -> Div {
     })
 }
 
-pub fn shadow(y: f32, blur: f32, alpha: f32) -> BoxShadow {
-    BoxShadow { color: hsla(0., 0., 0., alpha), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(0.), inset: false }
-}
-
-pub fn icon_button(id: impl Into<ElementId>, name: &str, box_size: f32, icon_size: f32) -> Stateful<Div> {
-    div()
-        .id(id)
-        .size(px(box_size))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(7.))
-        .hover(|s| s.bg(rgb(HOVER)))
-        .child(icon(name, icon_size, MUTED))
-}
-
-pub fn kbd(label: &str) -> Div {
-    div()
-        .h(px(18.))
-        .px(px(5.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .rounded(px(4.))
-        .border_1()
-        .border_color(rgb(0xdad8d2))
-        .font_family(MONO)
-        .text_size(px(11.))
-        .text_color(rgb(MUTED))
-        .child(label.to_string())
-}
-
-pub fn dot(size: f32, color: u32) -> Div {
-    div().size(px(size)).flex_none().rounded(px(size / 2.)).bg(rgb(color))
-}
-
-pub fn square(size: f32, color: u32) -> Div {
-    div().size(px(size)).flex_none().rounded(px(size * 0.3)).bg(rgb(color))
-}
-
-pub fn button(id: impl Into<ElementId>) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(30.))
-        .px(px(12.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .rounded(px(8.))
-        .border_1()
-        .border_color(rgb(FIELD))
-        .bg(rgb(WHITE))
-        .text_size(px(13.))
-        .text_color(rgb(INK))
-        .hover(|s| s.bg(rgb(0xfbfaf8)))
-}
-
-pub fn segmented<T: Copy + PartialEq + 'static>(
-    items: Vec<(T, String)>,
-    active: T,
-    height: f32,
-    size: f32,
-    on: impl Fn(&mut Desktop, T, &mut Context<Desktop>) + 'static,
-    cx: &mut Context<Desktop>,
-) -> Div {
-    let on = std::rc::Rc::new(on);
-    div().p(px(3.)).flex().gap(px(2.)).rounded(px(9.)).bg(rgb(SEGMENT)).children(items.into_iter().enumerate().map(|(i, (v, label))| {
-        let on = on.clone();
-        let selected = v == active;
-        div()
-            .id(("segment", i))
-            .flex_1()
-            .h(px(height))
-            .px(px(10.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(7.))
-            .text_size(px(size))
-            .whitespace_nowrap()
-            .when(selected, |d| d.bg(rgb(WHITE)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(INK)).shadow(vec![shadow(1., 2., 0.08)]))
-            .when(!selected, |d| d.text_color(rgb(MUTED)).font_weight(FontWeight::MEDIUM))
-            .child(label)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on(this, v, cx)))
-    }))
-}
-
-fn status_badge(status: Status, i: usize) -> Div {
-    let row = div().flex().flex_none().items_center().gap(px(5.)).text_size(px(12.5));
+fn state(status: Status, added: usize, removed: usize) -> State {
     match status {
-        Status::NeedsYou => row.child(dot(7., AMBER)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(AMBER_TEXT)).child("Needs you"),
-        Status::Working => row.child(spinner(("working", i), 12., GREEN)).font_weight(FontWeight::MEDIUM).text_color(rgb(GREEN)).child("Working"),
-        Status::Done => row.child(icon("check", 12., MUTED)).text_color(rgb(MUTED)).child("Done"),
-        Status::Failed => row.child(icon("x", 12., RED)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(RED)).child("Failed"),
+        Status::NeedsYou => State::Waiting,
+        Status::Working => State::Running,
+        Status::Failed => State::Failed,
+        Status::Done => State::Done(added, removed),
     }
 }
 
-fn rail_row(id: &'static str, name: &str, label: &str, selected: bool) -> Stateful<Div> {
+fn nav_row(id: &'static str, name: &str, label: &str, selected: bool) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(34.))
-        .px(px(10.))
+        .pl(px(8.))
+        .pr(px(8.))
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(10.))
-        .rounded(px(8.))
+        .gap(px(9.))
+        .rounded(px(9.))
+        .cursor_pointer()
         .text_size(px(14.))
-        .text_color(rgb(TEXT))
-        .when(selected, |d| d.bg(rgb(PROJECT_SELECTED)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(INK)))
-        .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgb(HOVER))))
-        .child(icon(name, 16., MUTED))
+        .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(ds::row_shadow()).font_weight(FontWeight::SEMIBOLD))
+        .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_BODY)).hover(|s| s.bg(rgba(FILL_2))))
+        .child(icon(name, 16., TEXT_2))
         .child(div().flex_1().child(label.to_string()))
 }
 
-pub fn sidebar_frame() -> Div {
-    div().w(px(332.)).flex_none().h_full().flex().flex_col().bg(rgb(APP)).border_r_1().border_color(rgb(LINE))
+fn field() -> Div {
+    div().h(px(32.)).px(px(10.)).flex().flex_none().items_center().gap(px(8.)).rounded(px(10.)).bg(rgba(FILL_3)).text_size(px(13.5)).text_color(rgba(TEXT_3))
+}
+
+pub fn column() -> Div {
+    ds::side(div().w(px(332.)).flex_none().h_full().flex().flex_col().overflow_hidden())
+}
+
+pub fn empty(text: &'static str) -> Div {
+    div().p(px(16.)).text_size(px(13.5)).text_color(rgba(TEXT_3)).child(text)
 }
 
 impl Desktop {
     fn rail(&self, cx: &mut Context<Self>) -> Div {
         let top = drag_area(div())
-            .h(px(52.))
+            .h(px(44.))
             .flex()
             .flex_none()
             .items_center()
             .gap(px(1.))
             .child(div().flex_1())
-            .child(icon_button("back", "back", 28., 16.))
-            .child(icon_button("forward", "forward", 28., 16.))
-            .child(icon_button("toggle-sidebar", "sidebar", 28., 16.).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            .child(icon_button("back", "back"))
+            .child(icon_button("forward", "forward"))
+            .child(icon_button("toggle-sidebar", "sidebar").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.sidebar = !this.sidebar;
                 cx.notify();
             })));
-        let search = div()
+        let search = field()
             .id("rail-search")
-            .h(px(34.))
-            .px(px(10.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(8.))
-            .rounded(px(8.))
-            .border_1()
-            .border_color(rgb(FIELD))
-            .bg(rgb(WHITE))
-            .text_size(px(14.))
-            .text_color(rgb(MUTED))
-            .child(icon("search", 15., MUTED))
+            .cursor_pointer()
+            .child(icon("search", 15., TEXT_3))
             .child(div().flex_1().child("Search"))
-            .child(kbd("⌘K"))
+            .child(kbd("⌘ K"))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.focus_search(&crate::FocusSearch, window, cx)));
         let asks = self.agents.pending.len();
         let inbox = self.screen == Screen::Inbox;
         let badge = div()
-            .px(px(6.))
-            .min_w(px(18.))
+            .h(px(20.))
+            .px(px(7.))
             .flex()
-            .justify_center()
-            .rounded(px(9.))
-            .bg(rgb(AMBER_TEXT))
-            .font_family(MONO)
+            .items_center()
+            .rounded(px(10.))
+            .bg(rgba(WAITING_BG))
             .text_size(px(11.5))
             .font_weight(FontWeight::SEMIBOLD)
-            .line_height(px(18.))
-            .text_color(rgb(WHITE))
+            .text_color(rgba(WAITING_TEXT))
             .child(asks.to_string());
         let nav = div()
-            .mt(px(12.))
+            .mt(px(10.))
             .flex()
             .flex_col()
             .gap(px(2.))
-            .child(rail_row("inbox", "inbox", "Inbox", inbox).when(asks > 0, |d| d.child(badge)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            .child(nav_row("inbox", "inbox", "Inbox", inbox).when(asks > 0, |d| d.child(badge)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.open_inbox(window, cx);
             })))
-            .child(rail_row("automations", "bolt", "Automations", false));
+            .child(nav_row("automations", "bolt", "Automations", false));
         let header = div()
-            .pt(px(20.))
-            .pb(px(6.))
-            .px(px(10.))
+            .pt(px(18.))
+            .pb(px(4.))
+            .pl(px(8.))
             .flex()
             .items_center()
-            .text_size(px(12.5))
+            .text_size(px(12.))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgb(MUTED))
+            .text_color(rgba(TEXT_3))
             .child(div().flex_1().child("Projects"))
-            .child(icon_button("add-project", "plus", 22., 14.).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.add_project(cx))));
+            .child(icon_button("add-project", "plus").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.add_project(cx))));
         let projects = self.projects().into_iter().enumerate().map(|(i, p)| {
             let selected = self.screen == Screen::Sessions && self.project.as_ref() == Some(&p);
             let cards = self.cards(&p);
-            let needs = cards.iter().any(|c| c.status == Status::NeedsYou);
-            let running = cards.iter().filter(|c| c.status == Status::Working).count();
-            let name = basename(&p);
-            div()
-                .id(("project", i))
-                .h(px(34.))
-                .px(px(10.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(10.))
-                .rounded(px(8.))
-                .text_size(px(14.))
-                .text_color(rgb(TEXT))
-                .when(selected, |d| d.bg(rgb(PROJECT_SELECTED)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(INK)))
-                .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgb(HOVER))))
-                .child(square(10., project_color(i)))
-                .child(div().flex_1().truncate().child(name))
-                .when(needs, |d| {
-                    d.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(5.))
-                            .text_size(px(11.5))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(AMBER_TEXT))
-                            .child(dot(7., AMBER))
-                            .child("needs you"),
-                    )
-                })
-                .when(!needs && running > 0, |d| {
-                    d.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(5.))
-                            .font_family(MONO)
-                            .text_size(px(11.5))
-                            .text_color(rgb(GREEN))
-                            .child(spinner(("project-spin", i), 12., GREEN))
-                            .child(running.to_string()),
-                    )
-                })
+            let state = if cards.iter().any(|c| c.status == Status::NeedsYou) {
+                Some(State::Waiting)
+            } else if cards.iter().any(|c| c.status == Status::Working) {
+                Some(State::Running)
+            } else {
+                None
+            };
+            ds::repo_row(("project", i), &basename(&p), selected, state, ("project-spin", i))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
         });
-        div()
+        ds::side(div())
             .w(px(248.))
             .flex_none()
             .h_full()
-            .px(px(10.))
-            .pb(px(12.))
+            .px(px(8.))
+            .pb(px(8.))
             .flex()
             .flex_col()
-            .bg(rgb(RAIL))
-            .border_r_1()
-            .border_color(rgb(LINE))
             .child(top)
             .child(search)
             .child(nav)
             .child(header)
             .child(div().id("projects").flex_1().overflow_y_scroll().flex().flex_col().gap(px(2.)).children(projects))
-            .child(rail_row("settings", "settings", "Settings", false).child(kbd("⌘,")))
+            .child(nav_row("settings", "settings", "Settings", false).child(kbd("⌘ ,")))
     }
 
     fn sidebar_view(&mut self, cx: &mut Context<Self>) -> Div {
@@ -334,14 +202,18 @@ impl Desktop {
             .flex_none()
             .items_center()
             .gap(px(2.))
-            .child(div().flex_1().truncate().text_size(px(16.)).font_weight(FontWeight::BOLD).child(name))
-            .child(icon_button("find", "search", 28., 16.).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.focus_search(&crate::FocusSearch, window, cx))))
-            .child(icon_button("new-session", "plus", 28., 16.).on_click(cx.listener(|this, e: &ClickEvent, _, cx| this.new_session(if e.modifiers().alt { "codex" } else { "claude" }, cx))));
-        let tabs = segmented(
-            vec![(Side::Sessions, "Sessions".into()), (Side::Explorer, "Explorer".into()), (Side::Changes, format!("Changes · {changes}"))],
+            .child(div().flex_1().truncate().text_size(px(17.)).font_weight(FontWeight::BOLD).child(name))
+            .child(icon_button("find", "search").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.focus_search(&crate::FocusSearch, window, cx))))
+            .child(icon_button("new-session", "compose").on_click(cx.listener(|this, e: &ClickEvent, _, cx| this.new_session(if e.modifiers().alt { "codex" } else { "claude" }, cx))));
+        let tabs = ds::segmented(
+            vec![
+                Segment { value: Side::Sessions, label: "Sessions".into(), badge: None },
+                Segment { value: Side::Explorer, label: "Explore".into(), badge: None },
+                Segment { value: Side::Changes, label: "Changes".into(), badge: (changes > 0).then(|| changes.to_string()) },
+            ],
             self.side,
-            30.,
-            13.5,
+            false,
+            true,
             |this, side, cx| {
                 this.side = side;
                 if side == Side::Changes {
@@ -351,72 +223,35 @@ impl Desktop {
             },
             cx,
         );
-        sidebar_frame().child(header).child(div().px(px(12.)).child(tabs)).child(body)
+        column().child(header).child(div().px(px(12.)).child(tabs)).child(body)
     }
 
     fn session_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let search = div()
+        let search = field()
             .mx(px(12.))
-            .mt(px(12.))
-            .h(px(38.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(8.))
-            .border_t_1()
-            .border_b_1()
-            .border_color(rgb(HAIR))
-            .pl(px(6.))
-            .child(icon("search", 15., MUTED))
+            .mt(px(10.))
+            .pr(px(2.))
+            .child(icon("search", 15., TEXT_3))
             .child(div().flex_1().child(Input::new(&self.filter).appearance(false).p_0().text_size(px(13.5))))
-            .child(icon_button("filter", "filter", 26., 14.));
+            .child(icon_button("filter", "filter"));
         let list = div().flex_1().min_h_0().flex().flex_col().child(search);
         let Some(project) = self.project.clone() else {
-            return list.child(div().p(px(16.)).text_size(px(13.5)).text_color(rgb(MUTED)).child("Add a project with + to start."));
+            return list.child(empty("Add a project with + to start."));
         };
         let query = self.filter.read(cx).value().to_lowercase();
         let now = now_ms();
         let cards = self.cards(&project).into_iter().filter(|c| query.is_empty() || c.title.to_lowercase().contains(&query));
         let cards: Vec<_> = cards.enumerate().map(|(i, c)| self.card(i, c, now, cx)).collect();
-        list.child(div().id("cards").flex_1().overflow_y_scroll().px(px(8.)).py(px(8.)).flex().flex_col().gap(px(2.)).children(cards))
+        list.child(div().id("cards").flex_1().overflow_y_scroll().p(px(8.)).flex().flex_col().gap(px(2.)).children(cards))
     }
 
     fn card(&self, i: usize, c: Card, now: i64, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = self.session.as_ref() == Some(&c.id);
-        let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone()).unwrap_or_default();
+        let repo = self.repos.get(&c.cwd);
+        let branch = repo.map(|r| r.branch.clone()).unwrap_or_default();
+        let (added, removed) = repo.map(|r| r.totals()).unwrap_or_default();
         let id = c.id.clone();
-        div()
-            .id(("card", i))
-            .px(px(12.))
-            .py(px(10.))
-            .flex()
-            .flex_none()
-            .flex_col()
-            .gap(px(4.))
-            .rounded(px(10.))
-            .when(selected, |d| d.bg(rgb(SELECTED)))
-            .when(!selected, |d| d.hover(|s| s.bg(rgb(0xefede9))))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .text_size(px(12.5))
-                    .child(square(7., provider_color(&c.provider)))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(rgb(provider_color(&c.provider))).child(provider_name(&c.provider)))
-                    .child(div().flex_1().truncate().text_color(rgb(MUTED)).child(c.model))
-                    .child(div().text_color(rgb(MUTED)).child(ago(c.at, now))),
-            )
-            .child(div().truncate().text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(INK)).child(c.title))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(icon("branch", 12., MUTED))
-                    .child(div().flex_1().truncate().font_family(MONO).text_size(px(12.)).text_color(rgb(MUTED)).child(branch))
-                    .child(status_badge(c.status, i)),
-            )
+        ds::session_row(("card", i), selected, c.title, state(c.status, added, removed), &c.provider, branch, ago(c.at, now))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_session(id.clone(), window, cx)))
     }
 
@@ -425,38 +260,22 @@ impl Desktop {
         if let Some(root) = self.project.clone() {
             self.tree(Path::new(&root), 0, &mut rows, cx);
         }
-        div().id("explorer").flex_1().mt(px(10.)).px(px(8.)).pb(px(8.)).overflow_y_scroll().flex().flex_col().children(rows)
+        div().id("explorer").flex_1().mt(px(8.)).p(px(8.)).overflow_y_scroll().flex().flex_col().gap(px(1.)).children(rows)
     }
 
     fn tree(&self, dir: &Path, depth: usize, rows: &mut Vec<Stateful<Div>>, cx: &mut Context<Self>) {
         for (is_dir, path) in self.tree.get(dir).cloned().unwrap_or_default() {
             let open = is_dir && self.tree.contains_key(&path);
             let target = path.clone();
-            rows.push(
-                div()
-                    .id(id(format!("tree-{}", path.display())))
-                    .h(px(30.))
-                    .pl(px(10. + depth as f32 * 14.))
-                    .pr(px(10.))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap(px(8.))
-                    .rounded(px(7.))
-                    .text_size(px(13.5))
-                    .text_color(rgb(TEXT))
-                    .hover(|s| s.bg(rgb(HOVER)))
-                    .child(icon(if is_dir { "folder" } else { "file" }, 14., MUTED))
-                    .child(div().flex_1().truncate().child(path.file_name().unwrap_or_default().to_string_lossy().to_string()))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if !is_dir {
-                            cx.open_with_system(&target);
-                        } else if this.tree.remove(&target).is_none() {
-                            this.tree.insert(target.clone(), list_dir(&target));
-                        }
-                        cx.notify();
-                    })),
-            );
+            let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            rows.push(ds::tree_row(id(format!("tree-{}", path.display())), label, is_dir, open, depth).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                if !is_dir {
+                    cx.open_with_system(&target);
+                } else if this.tree.remove(&target).is_none() {
+                    this.tree.insert(target.clone(), list_dir(&target));
+                }
+                cx.notify();
+            })));
             if open {
                 self.tree(&path, depth + 1, rows, cx);
             }
@@ -475,11 +294,11 @@ impl Desktop {
                     .items_center()
                     .justify_center()
                     .text_size(px(14.))
-                    .text_color(rgb(MUTED))
+                    .text_color(rgba(TEXT_3))
                     .child(if self.project.is_some() { "Pick a session, or press + to start one." } else { "Add a project to begin." }),
             },
         };
-        div().flex_1().min_w_0().h_full().flex().flex_col().bg(rgb(MAIN)).child(body).child(self.footer())
+        ds::page(div()).flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).child(self.footer())
     }
 
     pub fn pane_label(&self, id: &str) -> String {
@@ -491,14 +310,14 @@ impl Desktop {
     }
 
     fn session_view(&mut self, id: &str, cx: &mut Context<Self>) -> Div {
-        let (provider, title) = match self.summary(id) {
-            Some(a) => (a.provider.clone(), a.title.clone()),
-            None => (String::new(), self.pane_label(id)),
+        let (provider, title, model) = match self.summary(id) {
+            Some(a) => (a.provider.clone(), a.title.clone(), Some(crate::agents::model_label(a))),
+            None => (String::new(), self.pane_label(id), None),
         };
         let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
         let (added, removed) = self.repo().map(|r| r.totals()).unwrap_or_default();
         let header = drag_area(div())
-            .h(px(46.))
+            .h(px(52.))
             .pl(px(20.))
             .pr(px(12.))
             .flex()
@@ -506,7 +325,8 @@ impl Desktop {
             .items_center()
             .gap(px(8.))
             .child(dot(8., provider_color(&provider)))
-            .child(div().truncate().text_size(px(15.)).font_weight(FontWeight(650.)).child(title))
+            .child(div().truncate().text_size(px(17.)).font_weight(FontWeight::BOLD).child(title))
+            .children(model.map(ds::tag))
             .child(
                 div()
                     .flex()
@@ -515,20 +335,16 @@ impl Desktop {
                     .items_center()
                     .gap(px(5.))
                     .pl(px(4.))
-                    .child(icon("branch", 12., MUTED))
-                    .child(div().truncate().font_family(MONO).text_size(px(12.)).text_color(rgb(MUTED)).child(branch)),
+                    .child(icon("worktree", 12., TEXT_4))
+                    .child(div().truncate().font_family(MONO).text_size(px(11.5)).text_color(rgba(TEXT_3)).child(branch)),
             )
-            .child(icon_button("split-right", "split-right", 30., 16.).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))))
-            .child(icon_button("split-down", "split-down", 30., 16.).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))))
+            .child(ds::icon_group([
+                ds::group_button("split-right", "split-right").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))),
+                ds::group_button("split-down", "split-down").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))),
+            ]))
             .child(
-                button("diffstat")
+                ds::button("diffstat", Variant::Secondary, Some("branch"), ds::diffstat(added, removed).text_size(px(12.)))
                     .ml(px(4.))
-                    .px(px(10.))
-                    .font_family(MONO)
-                    .text_size(px(12.5))
-                    .child(icon("branch", 12., MUTED))
-                    .child(div().text_color(rgb(GREEN)).child(format!("+{added}")))
-                    .child(div().text_color(rgb(RED)).child(format!("−{removed}")))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx))),
             );
         let body = match self.workspace(id).active() {
@@ -545,21 +361,21 @@ impl Desktop {
     fn tab_lead(&self, panes: Option<Vec<String>>, (added, removed): (usize, usize)) -> Div {
         let row = div().flex().items_center().gap(px(7.));
         let Some(p) = panes else {
-            return row.child(icon("branch", 13., MUTED)).child(format!("Changes · +{added} −{removed}"));
+            return row.child(icon("branch", 13., TEXT_3)).child(format!("Changes · +{added} −{removed}"));
         };
         let count = |label: String| if p.len() > 1 { format!("{label} · {} panes", p.len()) } else { label };
         if let Some(a) = self.summary(&p[0]) {
             return row
                 .child(dot(7., provider_color(&a.provider)))
                 .child(count(a.provider.clone()))
-                .when(self.agents.needs_you(&p[0]), |d| d.child(dot(6., AMBER)));
+                .when(self.agents.needs_you(&p[0]), |d| d.child(dot(6., WAITING)));
         }
         let mark = match self.sessions.get(&p[0]).map(|s| s.exit) {
-            Some(None) => dot(6., LIVE).into_any_element(),
-            Some(Some(c)) if c != 0 => icon("x", 12., RED).into_any_element(),
-            _ => dot(6., FAINT).into_any_element(),
+            Some(None) => dot(6., RUNNING).into_any_element(),
+            Some(Some(c)) if c != 0 => icon("x", 12., FAILED).into_any_element(),
+            _ => dot(6., TEXT_5).into_any_element(),
         };
-        row.child(icon("terminal", 13., MUTED)).child(count(self.pane_label(&p[0]))).child(mark)
+        row.child(icon("terminal", 13., TEXT_3)).child(count(self.pane_label(&p[0]))).child(mark)
     }
 
     fn tab_strip(&mut self, parent: &str, cx: &mut Context<Self>) -> Div {
@@ -575,55 +391,52 @@ impl Desktop {
                 let selected = i == active;
                 div()
                     .id(("tab", i))
-                    .h(px(32.))
+                    .h(px(30.))
                     .pl(px(12.))
-                    .pr(px(6.))
+                    .pr(px(4.))
                     .flex()
                     .flex_none()
                     .items_center()
                     .gap(px(8.))
-                    .rounded_t(px(8.))
+                    .rounded(px(9.))
+                    .cursor_pointer()
                     .font_family(MONO)
-                    .text_size(px(12.5))
+                    .text_size(px(12.))
                     .whitespace_nowrap()
-                    .when(selected, |d| {
-                        d.bg(rgb(WHITE))
-                            .border_1()
-                            .border_b_0()
-                            .border_color(rgb(TAB_LINE))
-                            .mb(px(-1.))
-                            .h(px(33.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(INK))
-                    })
-                    .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(rgb(MUTED)).hover(|s| s.bg(rgb(0xf0eeea))))
+                    .when(selected, |d| d.bg(rgba(FILL_3)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)))
+                    .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_2)).hover(|s| s.bg(rgba(FILL_2))))
                     .child(self.tab_lead(panes, totals))
-                    .child(icon_button(("close-tab", i), "x", 18., 11.).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.close_tab(i, cx);
-                    })))
+                    .child(
+                        div()
+                            .id(("close-tab", i))
+                            .size(px(20.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(6.))
+                            .hover(|s| s.bg(rgba(FILL_3)))
+                            .child(icon("x", 11., TEXT_3))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.close_tab(i, cx);
+                            })),
+                    )
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_tab(i, window, cx)))
             })
             .collect();
         div()
-            .h(px(38.))
+            .h(px(42.))
             .flex_none()
             .px(px(12.))
             .flex()
-            .items_end()
+            .items_center()
             .gap(px(2.))
             .border_b_1()
-            .border_color(rgb(TAB_LINE))
+            .border_color(rgba(HAIRLINE))
             .children(items)
-            .child(
-                div()
-                    .h(px(32.))
-                    .flex()
-                    .items_center()
-                    .child(icon_button("new-tab", "plus", 28., 15.).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(None, cx)))),
-            )
+            .child(icon_button("new-tab", "plus").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(None, cx))))
             .child(div().flex_1())
-            .child(div().h(px(32.)).flex().items_center().text_size(px(12.)).text_color(rgb(MUTED)).child("tabs of this session"))
+            .child(div().text_size(px(12.)).text_color(rgba(TEXT_3)).child("tabs of this session"))
     }
 
     fn panes(&mut self, rows: Vec<Vec<String>>, cx: &mut Context<Self>) -> Div {
@@ -667,7 +480,7 @@ impl Desktop {
                 let (f, cells) = t.frame();
                 termview::screen(&f, cells, m)
             }
-            None => div().text_color(rgb(MUTED)).child(if known { "Connecting…" } else { "This session is not running." }),
+            None => div().text_color(rgba(TEXT_3)).child(if known { "Connecting…" } else { "This session is not running." }),
         };
         let close_id = id.to_string();
         let header = n.map(|n| {
@@ -679,16 +492,27 @@ impl Desktop {
                 .flex()
                 .items_center()
                 .border_b_1()
-                .border_color(rgb(PANE_LINE))
-                .bg(rgb(if focused { 0xf4f2ee } else { MAIN }))
-                .text_color(rgb(if focused { INK } else { MUTED }))
+                .border_color(rgba(HAIRLINE))
+                .bg(rgba(if focused { FILL_2 } else { SURFACE_SUNKEN }))
+                .text_color(rgba(if focused { TEXT } else { TEXT_3 }))
                 .font_family(MONO)
                 .text_size(px(11.5))
                 .child(div().flex_1().truncate().child(format!("{n} · {title}")))
-                .child(icon_button(self::id(format!("close-{close_id}")), "x", 22., 12.).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.close_pane(&close_id, cx);
-                })))
+                .child(
+                    div()
+                        .id(self::id(format!("close-{close_id}")))
+                        .size(px(22.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(6.))
+                        .hover(|s| s.bg(rgba(FILL_3)))
+                        .child(icon("x", 12., TEXT_3))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.close_pane(&close_id, cx);
+                        })),
+                )
         });
         let focus_id = id.to_string();
         let screen = div()
@@ -703,18 +527,15 @@ impl Desktop {
             .min_h_0()
             .flex()
             .flex_col()
-            .bg(rgb(WHITE))
-            .rounded(px(8.))
-            .border_1()
-            .border_color(rgb(if focused || n.is_none() { TERM_LINE } else { CARD }))
+            .bg(rgba(SURFACE))
+            .rounded(px(12.))
+            .shadow(vec![ds::ring(if focused || n.is_none() { SEPARATOR_STRONG } else { HAIRLINE }, 1.)])
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
             .children(header)
-            .child(
-                div().flex_1().min_h_0().px(px(16.)).py(px(12.)).font_family(MONO).text_size(px(m.size)).line_height(px(m.line)).text_color(rgb(TERM_TEXT)).child(screen),
-            )
+            .child(div().flex_1().min_h_0().px(px(16.)).py(px(12.)).font_family(MONO).text_size(px(m.size)).line_height(px(m.line)).text_color(rgba(TEXT)).child(screen))
             .children(exit.map(|c| {
-                div().px(px(16.)).pb(px(8.)).text_size(px(12.)).text_color(rgb(if c == 0 { MUTED } else { RED })).child(format!("Process exited with code {c}"))
+                div().px(px(16.)).pb(px(8.)).text_size(px(12.)).text_color(rgba(if c == 0 { TEXT_3 } else { FAILED })).child(format!("Process exited with code {c}"))
             }))
     }
 
@@ -739,10 +560,9 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .gap(px(7.))
-                    .child(dot(7., provider_color(p)))
-                    .child(if p == "codex" { "Codex" } else { "Claude" })
-                    .child(div().w(px(44.)).h(px(5.)).rounded(px(3.)).bg(rgb(TAB_LINE)).child(div().h_full().w(px(fill)).rounded(px(3.)).bg(rgb(provider_color(p)))))
-                    .child(div().font_family(MONO).text_size(px(12.)).child(label)),
+                    .child(ds::agent_badge(p, if p == "codex" { "Codex" } else { "Claude" }).text_color(rgba(TEXT)))
+                    .child(div().w(px(44.)).h(px(5.)).rounded(px(3.)).bg(rgba(FILL_4)).child(div().h_full().w(px(fill)).rounded(px(3.)).bg(rgba(provider_color(p)))))
+                    .child(div().font_family(MONO).text_size(px(11.5)).child(label)),
             )
         });
         let term = self.focused.as_deref().filter(|_| self.screen == Screen::Inbox || self.session.is_some());
@@ -753,22 +573,22 @@ impl Desktop {
         });
         let size = term.and_then(|id| self.sized.get(id)).map(|(c, r)| format!("{c}×{r}"));
         div()
-            .h(px(32.))
+            .h(px(36.))
             .flex_none()
-            .pl(px(16.))
-            .pr(px(12.))
+            .pl(px(12.))
+            .pr(px(16.))
             .flex()
             .items_center()
             .gap(px(16.))
             .border_t_1()
-            .border_color(rgb(HAIR))
-            .text_size(px(12.5))
-            .text_color(rgb(MUTED))
+            .border_color(rgba(HAIRLINE))
+            .text_size(px(12.))
+            .text_color(rgba(TEXT_2))
             .children(providers)
-            .children(self.error.clone().map(|e| div().truncate().text_color(rgb(RED)).child(e)))
+            .children(self.error.clone().map(|e| div().truncate().text_color(rgba(FAILED)).child(e)))
             .child(div().flex_1())
-            .children(place.map(|p| div().flex().items_center().gap(px(6.)).font_family(MONO).text_size(px(12.)).child(icon("terminal", 12., MUTED)).child(p)))
-            .children(size.map(|s| div().font_family(MONO).text_size(px(12.)).child(s)))
+            .children(place.map(|p| div().flex().items_center().gap(px(6.)).font_family(MONO).text_size(px(11.5)).child(icon("terminal", 12., TEXT_3)).child(p)))
+            .children(size.map(|s| div().font_family(MONO).text_size(px(11.5)).child(s)))
     }
 }
 
@@ -776,10 +596,13 @@ impl Render for Desktop {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut root = div()
             .size_full()
+            .p(px(8.))
             .flex()
-            .bg(rgb(APP))
+            .gap(px(8.))
+            .bg(rgba(WINDOW))
             .font_family(SANS)
-            .text_color(rgb(INK))
+            .line_height(relative(1.2))
+            .text_color(rgba(TEXT))
             .track_focus(&self.root)
             .on_action(cx.listener(Self::focus_search))
             .on_action(cx.listener(Self::open_selected))

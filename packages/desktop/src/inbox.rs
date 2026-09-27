@@ -1,5 +1,6 @@
 use crate::theme::*;
-use crate::view::{ago, basename, button, drag_area, icon_button, kbd, now_ms, sidebar_frame, square};
+use crate::ds::{self, State, Variant, icon_button, kbd};
+use crate::view::{ago, basename, column, drag_area, empty, now_ms};
 use crate::{Desktop, Screen, termview};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -83,11 +84,10 @@ impl Desktop {
         cx.stop_propagation();
     }
 
-    fn project_badge(&self, agent: &str) -> (String, u32) {
+    fn project_name(&self, agent: &str) -> String {
         let projects = self.projects();
         let cwd = self.cwd_of(agent).unwrap_or_default();
-        let i = self.project_of(&cwd, &projects).and_then(|p| projects.iter().position(|x| x == p));
-        (i.map(|i| basename(&projects[i])).unwrap_or_else(|| basename(&cwd)), project_color(i.unwrap_or(0)))
+        basename(self.project_of(&cwd, &projects).unwrap_or(&cwd))
     }
 
     pub fn inbox_list(&mut self, cx: &mut Context<Self>) -> Div {
@@ -103,21 +103,10 @@ impl Desktop {
             .flex_none()
             .items_center()
             .gap(px(4.))
-            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).child("Inbox"))
-            .child(icon_button("inbox-filter", "filter", 28., 15.))
+            .child(div().flex_1().text_size(px(17.)).font_weight(FontWeight::BOLD).child("Inbox"))
+            .child(icon_button("inbox-filter", "filter"))
             .child(
-                div()
-                    .id("mark-read")
-                    .h(px(28.))
-                    .px(px(8.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(7.))
-                    .text_size(px(13.5))
-                    .text_color(rgb(MUTED))
-                    .hover(|s| s.bg(rgb(HOVER)))
-                    .child("Mark all read")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                ds::button("mark-read", Variant::Ghost, None, "Mark all read").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         let keys: Vec<String> = this.notes().into_iter().filter(|n| n.kind != Kind::Ask).map(|n| n.key).collect();
                         this.read.extend(keys);
                         this.select_note(this.inbox, cx);
@@ -125,13 +114,13 @@ impl Desktop {
             );
         let section = |label: &str, count: usize| {
             div()
-                .pt(px(14.))
-                .pb(px(6.))
-                .px(px(20.))
+                .pt(px(12.))
+                .pb(px(4.))
+                .px(px(12.))
                 .flex()
                 .text_size(px(12.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(rgb(MUTED))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgba(TEXT_3))
                 .child(div().flex_1().child(label.to_string()))
                 .child(div().font_family(MONO).font_weight(FontWeight::MEDIUM).child(count.to_string()))
         };
@@ -141,8 +130,10 @@ impl Desktop {
             .overflow_y_scroll()
             .track_focus(&self.inbox_focus)
             .on_key_down(cx.listener(Self::on_inbox_key))
+            .p(px(8.))
             .flex()
-            .flex_col();
+            .flex_col()
+            .gap(px(2.));
         for (i, n) in notes.into_iter().enumerate() {
             if i == 0 && asks > 0 {
                 list = list.child(section("NEEDS YOU", asks));
@@ -153,31 +144,31 @@ impl Desktop {
             list = list.child(self.note_row(i, n, now, cx));
         }
         if total == 0 {
-            list = list.child(div().p(px(20.)).text_size(px(13.5)).text_color(rgb(MUTED)).child("Nothing needs you."));
+            list = list.child(empty("Nothing needs you."));
         }
-        sidebar_frame().child(header).child(list)
+        column().child(header).child(list)
     }
 
     fn note_row(&self, i: usize, n: Note, now: i64, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = i == self.inbox;
         let (glyph, color) = match n.kind {
-            Kind::Ask => ("shield", AMBER_TEXT),
-            Kind::Failed => ("x", RED),
-            Kind::Done => ("check", GREEN),
+            Kind::Ask => ("shield", WAITING_TEXT),
+            Kind::Failed => ("x", FAILED),
+            Kind::Done => ("check", RUNNING_TEXT),
         };
-        let (project, pcolor) = self.project_badge(&n.agent);
+        let project = self.project_name(&n.agent);
         let provider = self.agents.get(&n.agent).map(|a| provider_name(&a.provider)).unwrap_or("Shell");
         div()
             .id(("note", i))
-            .mx(px(8.))
             .px(px(12.))
             .py(px(10.))
             .flex()
             .flex_none()
             .gap(px(12.))
-            .rounded(px(10.))
-            .when(selected, |d| d.bg(rgb(SELECTED)))
-            .when(!selected, |d| d.hover(|s| s.bg(rgb(0xefede9))))
+            .rounded(px(12.))
+            .cursor_pointer()
+            .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(ds::row_shadow()))
+            .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
             .child(
                 div()
                     .size(px(26.))
@@ -185,10 +176,9 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(7.))
-                    .border_1()
-                    .border_color(rgb(CARD))
-                    .bg(rgb(WHITE))
+                    .rounded(px(8.))
+                    .bg(rgba(SURFACE))
+                    .shadow(vec![ds::ring(SEPARATOR_STRONG, 0.5), ds::shadow(0x0000000a, 1., 1.)])
                     .child(icon(glyph, 13., color)),
             )
             .child(
@@ -203,14 +193,15 @@ impl Desktop {
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .text_size(px(12.5))
-                            .child(square(8., pcolor))
-                            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(rgb(TEXT)).child(project))
-                            .child(div().flex_1().truncate().text_color(rgb(MUTED)).child(format!("· {provider}")))
-                            .child(div().text_color(rgb(MUTED)).child(ago(n.at, now))),
+                            .text_size(px(12.))
+                            .text_color(rgba(TEXT_2))
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(project))
+                            .child(div().text_color(rgba(TEXT_6)).child("·"))
+                            .child(div().flex_1().truncate().child(provider))
+                            .child(div().text_color(rgba(TEXT_4)).child(ago(n.at, now))),
                     )
-                    .child(div().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(INK)).child(n.title))
-                    .child(div().truncate().text_size(px(12.5)).text_color(rgb(MUTED)).child(n.subtitle)),
+                    .child(div().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(n.title))
+                    .child(div().truncate().text_size(px(12.)).text_color(rgba(TEXT_2)).child(n.subtitle)),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_note(i, cx);
@@ -220,9 +211,9 @@ impl Desktop {
 
     pub fn inbox_detail(&mut self, cx: &mut Context<Self>) -> Div {
         let Some(n) = self.notes().into_iter().nth(self.inbox) else {
-            return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(rgb(MUTED)).child("You're all caught up.");
+            return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(rgba(TEXT_3)).child("You're all caught up.");
         };
-        let (project, pcolor) = self.project_badge(&n.agent);
+        let project = self.project_name(&n.agent);
         let title = self.agents.get(&n.agent).map(|a| a.title.clone()).unwrap_or_default();
         let secs = (now_ms() - n.at).max(0) / 1000;
         let agent = n.agent.clone();
@@ -234,27 +225,16 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(10.))
-            .text_size(px(14.5))
-            .child(square(10., pcolor))
-            .child(div().text_color(rgb(MUTED)).child(project))
-            .child(div().text_color(rgb(FAINT)).child("/"))
+            .text_size(px(14.))
+            .child(ds::repo_mark(&project, false, false, false))
+            .child(div().text_color(rgba(TEXT_2)).child(project))
+            .child(div().text_color(rgba(TEXT_6)).child("/"))
             .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(title))
             .when(n.kind == Kind::Ask, |d| {
-                d.child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(6.))
-                        .text_size(px(12.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(AMBER_TEXT))
-                        .child(crate::view::dot(7., AMBER))
-                        .child(format!("Waiting for input · {}:{:02}", secs / 60, secs % 60)),
-                )
+                d.child(ds::status("waiting", State::Waiting)).child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(format!("{}:{:02}", secs / 60, secs % 60)))
             })
             .child(div().flex_1())
-            .child(button("open-session").child("Open session").child(icon("forward", 13., MUTED)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            .child(ds::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_session(agent.clone(), window, cx)
             })));
         let pane = self.pane(&n.agent, None, &termview::MAIN, cx);
@@ -265,13 +245,13 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(6.))
-            .text_size(px(12.5))
-            .text_color(rgb(MUTED))
+            .text_size(px(12.))
+            .text_color(rgba(TEXT_2))
             .child("Answer in the terminal ·")
             .child(kbd("J"))
             .child(kbd("K"))
             .child("next / previous ·")
-            .child(kbd("⌘↵"))
+            .child(kbd("⌘ ↵"))
             .child("open session");
         div()
             .flex_1()

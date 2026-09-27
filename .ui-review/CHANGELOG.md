@@ -1,5 +1,13 @@
 # UI Review Changelog
 
+## 2026-09-27 · f07e1cc · full
+- passed: sessions, changes, split, inbox
+- failed: none
+- skipped: none
+- designs: sessions=70e2cbef45a3, changes=70e2cbef45a3, split=70e2cbef45a3, inbox=70e2cbef45a3
+- trigger: packages/desktop/src/ds.rs, packages/desktop/src/theme.rs, packages/desktop/src/view.rs, packages/desktop/assets/icons/**
+- note: design is a component board (no screens); compared components visually, fixed root line-height (φ → 1.2)
+
 ## 2026-09-25 · 71e6eb2 · full
 - passed: none
 - failed: changes
