@@ -6,6 +6,8 @@ pub struct FileStat {
     pub added: usize,
     pub removed: usize,
     pub staged: bool,
+    /// Git's status letter: M, A or D.
+    pub status: char,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -19,6 +21,7 @@ pub struct Repo {
     pub branch: String,
     pub base: Option<String>,
     pub ahead: usize,
+    pub behind: usize,
     pub files: Vec<FileStat>,
     pub commits: Vec<Commit>,
 }
@@ -52,32 +55,125 @@ fn numstat(out: &str) -> Vec<(String, usize, usize)> {
 pub fn read(cwd: &str) -> Option<Repo> {
     let branch = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
     let staged = lines(git(cwd, &["diff", "--cached", "--name-only"]));
+    let statuses = name_status(&git(cwd, &["diff", "HEAD", "--name-status"]).unwrap_or_default());
     let mut files: Vec<FileStat> = numstat(&git(cwd, &["diff", "HEAD", "--numstat"]).unwrap_or_default())
         .into_iter()
-        .map(|(path, added, removed)| FileStat { staged: staged.contains(&path), path, added, removed })
+        .map(|(path, added, removed)| {
+            let status = statuses.iter().find(|(p, _)| *p == path).map_or('M', |(_, s)| *s);
+            FileStat { staged: staged.contains(&path), path, added, removed, status }
+        })
         .collect();
     for path in lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) {
         let added = std::fs::read_to_string(std::path::Path::new(cwd).join(&path)).map(|s| s.lines().count()).unwrap_or(0);
-        files.push(FileStat { path, added, removed: 0, staged: false });
+        files.push(FileStat { path, added, removed: 0, staged: false, status: 'A' });
     }
     let base = if branch == "main" || branch == "master" {
         git(cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string())
     } else {
         ["main", "master"].into_iter().find(|b| git(cwd, &["rev-parse", "--verify", "--quiet", b]).is_some()).map(str::to_string)
     };
-    let (ahead, commits) = match &base {
+    let (ahead, behind, commits) = match &base {
         Some(b) => {
             let range = format!("{b}..HEAD");
-            let ahead = git(cwd, &["rev-list", "--count", &range]).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let (ahead, behind) = ahead_behind(cwd, b);
             let commits = lines(git(cwd, &["log", "--format=%h\t%s", "-n", "20", &range]))
                 .into_iter()
                 .filter_map(|l| l.split_once('\t').map(|(sha, subject)| Commit { sha: sha.into(), subject: subject.into() }))
                 .collect();
-            (ahead, commits)
+            (ahead, behind, commits)
         }
-        None => (0, Vec::new()),
+        None => (0, 0, Vec::new()),
     };
-    Some(Repo { branch, base, ahead, files, commits })
+    Some(Repo { branch, base, ahead, behind, files, commits })
+}
+
+fn name_status(out: &str) -> Vec<(String, char)> {
+    out.lines()
+        .filter_map(|l| {
+            let mut parts = l.split('\t');
+            let status = parts.next()?.chars().next()?;
+            Some((parts.last()?.to_string(), if status == 'R' { 'M' } else { status }))
+        })
+        .collect()
+}
+
+/// Commits HEAD has that `base` doesn't, and the reverse.
+pub fn ahead_behind(cwd: &str, base: &str) -> (usize, usize) {
+    let out = git(cwd, &["rev-list", "--left-right", "--count", &format!("{base}...HEAD")]).unwrap_or_default();
+    let mut n = out.split_whitespace().map(|w| w.parse().unwrap_or(0));
+    let behind = n.next().unwrap_or(0);
+    (n.next().unwrap_or(0), behind)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Worktree {
+    pub path: String,
+    pub branch: String,
+    pub main: bool,
+}
+
+fn parse_worktrees(out: &str) -> Vec<Worktree> {
+    out.split("\n\n")
+        .filter_map(|block| {
+            let mut path = None;
+            let mut branch = String::new();
+            for l in block.lines() {
+                if let Some(p) = l.strip_prefix("worktree ") {
+                    path = Some(p.to_string());
+                } else if let Some(b) = l.strip_prefix("branch ") {
+                    branch = b.strip_prefix("refs/heads/").unwrap_or(b).to_string();
+                } else if l == "detached" {
+                    branch = "detached".into();
+                }
+            }
+            Some(Worktree { path: path?, branch, main: false })
+        })
+        .enumerate()
+        .map(|(i, w)| Worktree { main: i == 0, ..w })
+        .collect()
+}
+
+/// The repository's checkouts, main one first.
+pub fn worktrees(cwd: &str) -> Vec<Worktree> {
+    parse_worktrees(&git(cwd, &["worktree", "list", "--porcelain"]).unwrap_or_default())
+}
+
+/// Local branches, most recently committed first.
+pub fn branches(cwd: &str) -> Vec<String> {
+    lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]))
+}
+
+/// Branches already merged into `base`, other than `base` itself.
+pub fn merged(cwd: &str, base: &str) -> Vec<String> {
+    lines(git(cwd, &["branch", "--merged", base, "--format=%(refname:short)"])).into_iter().filter(|b| b != base).collect()
+}
+
+pub fn remotes(cwd: &str) -> usize {
+    lines(git(cwd, &["remote"])).len()
+}
+
+/// Seconds since the epoch of the last commit on `rev`.
+pub fn committed_at(cwd: &str, rev: &str) -> Option<i64> {
+    git(cwd, &["log", "-1", "--format=%ct", rev])?.trim().parse().ok()
+}
+
+/// Tracked and untracked files, relative to `cwd`.
+pub fn ls_files(cwd: &str) -> Vec<String> {
+    lines(git(cwd, &["ls-files", "--cached", "--others", "--exclude-standard"]))
+}
+
+pub fn add_worktree(repo: &str, path: &str, branch: &str, base: &str) -> Result<(), String> {
+    let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "add", "-b", branch, path, base]).output().map_err(|e| e.to_string())?;
+    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+}
+
+pub fn clone(url: &str, dest: &str) -> Result<(), String> {
+    let out = Command::new("git").args(["clone", "--", url, dest]).output().map_err(|e| e.to_string())?;
+    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+}
+
+pub fn remove_worktree(repo: &str, path: &str) -> bool {
+    git(repo, &["worktree", "remove", path]).is_some()
 }
 
 pub fn set_staged(cwd: &str, path: &str, staged: bool) {
@@ -116,7 +212,7 @@ pub struct Line {
     pub text: String,
 }
 
-fn hunk_start(header: &str, sign: char) -> usize {
+pub fn hunk_start(header: &str, sign: char) -> usize {
     header
         .split_whitespace()
         .find_map(|w| w.strip_prefix(sign))
@@ -210,6 +306,21 @@ mod tests {
         assert_eq!(rows[2], (Some("old"), Some("new1")));
         assert_eq!(rows[3], (None, Some("new2")));
         assert_eq!(rows.len(), 5);
+    }
+
+    #[test]
+    fn reads_worktrees_main_first() {
+        let out = "worktree /r\nHEAD 1\nbranch refs/heads/main\n\nworktree /w/fix\nHEAD 2\nbranch refs/heads/fix/a\n\nworktree /w/d\nHEAD 3\ndetached\n";
+        let w = parse_worktrees(out);
+        assert_eq!(w.len(), 3);
+        assert_eq!((w[0].path.as_str(), w[0].branch.as_str(), w[0].main), ("/r", "main", true));
+        assert_eq!((w[1].branch.as_str(), w[1].main), ("fix/a", false));
+        assert_eq!(w[2].branch, "detached");
+    }
+
+    #[test]
+    fn name_status_reads_renames_as_modified() {
+        assert_eq!(name_status("M\ta\nA\tb\nR100\told\tnew\nD\tc\n"), vec![("a".into(), 'M'), ("b".into(), 'A'), ("new".into(), 'M'), ("c".into(), 'D')]);
     }
 
     #[test]

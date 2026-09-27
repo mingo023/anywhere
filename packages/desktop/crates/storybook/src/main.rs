@@ -51,11 +51,11 @@ fn swatch(label: &'static str, material: fn(Div) -> Div) -> Div {
 impl Render for Storybook {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tabs = vec![
-            Segment { value: Tab::Sessions, label: "Sessions".into(), badge: None },
-            Segment { value: Tab::Explore, label: "Explore".into(), badge: None },
-            Segment { value: Tab::Changes, label: "Changes".into(), badge: Some("3".into()) },
+            Segment { icon: None, value: Tab::Sessions, label: "Sessions".into(), badge: None },
+            Segment { icon: None, value: Tab::Explore, label: "Explore".into(), badge: None },
+            Segment { icon: None, value: Tab::Changes, label: "Changes".into(), badge: Some("3".into()) },
         ];
-        let modes = vec![Segment { value: Mode::Unified, label: "Unified".into(), badge: None }, Segment { value: Mode::Split, label: "Split".into(), badge: None }];
+        let modes = vec![Segment { icon: None, value: Mode::Unified, label: "Unified".into(), badge: None }, Segment { icon: None, value: Mode::Split, label: "Split".into(), badge: None }];
         let board = div()
             .flex()
             .flex_col()
@@ -103,6 +103,9 @@ impl Render for Storybook {
                     .child(ui::status("waiting", State::Waiting))
                     .child(ui::status("running", State::Running))
                     .child(ui::status("failed", State::Failed))
+                    .child(ui::status("merged", State::Merged))
+                    .child(ui::status("sent", State::Sent))
+                    .child(ui::status("draft", State::Draft))
                     .child(ui::status("done", State::Done(84, 51))),
             ))
             .child(story(
@@ -132,18 +135,18 @@ impl Render for Storybook {
                 "Repository row",
                 "Sidebar rail",
                 list()
-                    .child(ui::repo_row("repo-android", "app-android", true, None, "spin-android"))
-                    .child(ui::repo_row("repo-ios", "app-ios", false, Some(State::Waiting), "spin-ios"))
-                    .child(ui::repo_row("repo-web", "web", false, Some(State::Running), "spin-web")),
+                    .child(ui::repo_row("repo-android", "app-android", true, Some(3), None, "spin-android"))
+                    .child(ui::repo_row("repo-ios", "app-ios", false, None, Some(State::Waiting), "spin-ios"))
+                    .child(ui::repo_row("repo-web", "web", false, None, Some(State::Running), "spin-web")),
             ))
             .child(story(
                 "Session row",
                 "Sessions tab of the column",
                 list()
-                    .child(ui::session_row("s1", true, "Fix stale terminal reveal".into(), State::Waiting, "codex", "fix/restore-handoff".into(), "2m".into()))
-                    .child(ui::session_row("s2", false, "Split restore hook into two files".into(), State::Running, "claude", "refactor/restore-hook".into(), "now".into()))
-                    .child(ui::session_row("s3", false, "Upgrade to RN 0.81".into(), State::Failed, "codex", "chore/rn-081".into(), "3h".into()))
-                    .child(ui::session_row("s4", false, "Migrate legacy hooks".into(), State::Done(28, 11), "codex", "chore/migrate-hooks".into(), "6m".into())),
+                    .child(ui::session_row("s1", true, "Fix stale terminal reveal".into(), State::Waiting, "codex", "fix/restore-handoff".into(), "2m".into(), vec![]))
+                    .child(ui::session_row("s2", false, "Split restore hook into two files".into(), State::Running, "claude", "refactor/restore-hook".into(), "now".into(), vec!["2 sub-agents".into(), "pnpm dev".into()]))
+                    .child(ui::session_row("s3", false, "Upgrade to RN 0.81".into(), State::Failed, "codex", "chore/rn-081".into(), "3h".into(), vec![]))
+                    .child(ui::session_row("s4", false, "Migrate legacy hooks".into(), State::Done(28, 11), "codex", "chore/migrate-hooks".into(), "6m".into(), vec![])),
             ))
             .child(story(
                 "File rows",
@@ -154,15 +157,62 @@ impl Render for Storybook {
                     .items_start()
                     .child(
                         list()
-                            .child(ui::tree_row("t1", "hooks".into(), true, true, 0))
-                            .child(ui::tree_row("t2", "use-restore-preview.ts".into(), false, false, 1))
-                            .child(ui::tree_row("t3", "use-terminal-settled.ts".into(), false, false, 1)),
+                            .child(ui::tree_row("t1", "hooks".into(), true, true, 0, false, false, None))
+                            .child(ui::tree_row("t2", "use-restore-preview.ts".into(), false, false, 1, true, true, Some('M')))
+                            .child(ui::tree_row("t3", "use-terminal-settled.ts".into(), false, false, 1, false, false, Some('A'))),
                     )
                     .child(
                         list()
-                            .child(ui::change_row("c1", ui::checkbox(true), "src/hooks/use-restore-preview.ts", true, 28, 11))
-                            .child(ui::change_row("c2", ui::checkbox(false), "src/components/terminal-view.tsx", false, 11, 5)),
+                            .child(ui::change_row("c1", ui::checkbox(true), "src/hooks/use-restore-preview.ts", true, 28, 11, 2))
+                            .child(ui::change_row("c2", ui::checkbox(false), "src/components/terminal-view.tsx", false, 11, 5, 0)),
                     ),
+            ))
+            .child(story(
+                "Rail",
+                "Repository tiles, add tile, inbox badge, avatar",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(ui::repo_tile("AN", 38., true, false, false))
+                    .child(ui::repo_tile("iO", 38., false, true, false))
+                    .child(ui::repo_tile("HK", 38., false, false, true))
+                    .child(ui::add_tile("rail-add", 38.))
+                    .child(ui::count_badge(2))
+                    .child(ui::avatar("MN", 32.)),
+            ))
+            .child(story(
+                "Worktrees",
+                "Nested under the selected repository",
+                list()
+                    .child(ui::worktree_row("w1", "main".into(), "~/code/app-android".into(), true, false, None))
+                    .child(ui::worktree_row("w2", "restore-handoff".into(), "fix/restore-handoff".into(), false, true, Some(State::Waiting)))
+                    .child(ui::worktree_row("w3", "migrate-hooks".into(), "chore/migrate-hooks".into(), false, false, Some(State::Merged))),
+            ))
+            .child(story(
+                "Palette and menus",
+                "Command palette rows and popover menu rows",
+                list()
+                    .child(ui::trigger_field("trigger", "search", "Search sessions, files and actions…", "⌘K"))
+                    .child(ui::palette_row("p1", true, ui::dot(7., WAITING), "Fix stale terminal reveal".into(), "app-android · Codex · waiting".into(), None))
+                    .child(ui::palette_row("p2", false, icon("sparkle", 13., TEXT_2), "New session in app-android".into(), String::new(), Some("⌘ N")))
+                    .child(ui::menu_row("m1", "worktree", "New worktree…", Some("⌘ ⇧ N")))
+                    .child(ui::menu_row("m2", "settings", "Project settings", Some("⌘ ,"))),
+            ))
+            .child(story(
+                "Form controls",
+                "Fields, swatches, checkboxes, chips and links",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(ui::field_box().w(px(200.)).child(icon("branch", 13., TEXT_3)).child("main"))
+                    .children(PALETTE.iter().map(|&c| ui::swatch(c, 22., 7.)))
+                    .child(ui::checkbox(true))
+                    .child(ui::checkbox(false))
+                    .child(ui::chip("chip-all", true).child("All files"))
+                    .child(ui::chip("chip-touched", false).child("Touched by agents"))
+                    .child(ui::link("link", "+ Add file")),
             ))
             .child(story(
                 "Materials",

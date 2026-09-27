@@ -63,9 +63,14 @@ fn resolve_cwd(cwd: &str, home: &str) -> String {
 pub fn spawn_op(cmdline: &str, cwd: &str) -> Option<Value> {
     let mut words = cmdline.split_whitespace();
     let cmd = words.next()?;
+    Some(spawn_argv(cmd, words.map(str::to_string).collect(), cwd))
+}
+
+/// Like `spawn_op`, but each argument goes through untouched, so a prompt with spaces stays one argument.
+pub fn spawn_argv(cmd: &str, args: Vec<String>, cwd: &str) -> Value {
     let env: Vec<String> = std::env::vars().map(|(k, v)| format!("{k}={v}")).collect();
     let cwd = resolve_cwd(cwd, &std::env::var("HOME").unwrap_or_default());
-    Some(json!({"op": "spawn", "cmd": cmd, "args": words.collect::<Vec<_>>(), "cwd": cwd, "env": env, "cols": 120, "rows": 36}))
+    json!({"op": "spawn", "cmd": cmd, "args": args, "cwd": cwd, "env": env, "cols": 120, "rows": 36})
 }
 
 #[derive(Clone)]

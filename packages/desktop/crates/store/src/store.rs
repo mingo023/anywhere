@@ -1,5 +1,18 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// How a repository shows in the rail and how new worktrees of it are made.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
+#[serde(default)]
+pub struct RepoConfig {
+    pub name: String,
+    pub color: u32,
+    pub base: String,
+    pub worktrees: String,
+    pub setup: String,
+    pub copy: Vec<String>,
+}
 
 /// What the desktop remembers across launches, in `desktop.json` next to pocketd's socket.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
@@ -8,6 +21,8 @@ pub struct Store {
     pub projects: Vec<String>,
     /// (child, parent): shells opened as tabs of a session.
     pub children: Vec<(String, String)>,
+    /// Keyed by the repository's path in `projects`.
+    pub repos: BTreeMap<String, RepoConfig>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -46,6 +61,7 @@ mod tests {
         let mut s = Store::load(&dir);
         s.projects.push("/w".into());
         s.children.push(("c".into(), "p".into()));
+        s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], ..Default::default() });
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);

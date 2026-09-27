@@ -6,7 +6,7 @@
     "window_owner": "pocket-desktop"
   },
   "viewport": [1440, 900],
-  "blast_radius": ["packages/desktop/crates/theme/**", "packages/desktop/crates/ui/**", "packages/desktop/crates/pocket/src/view.rs"],
+  "blast_radius": ["packages/desktop/crates/theme/**", "packages/desktop/crates/ui/**", "packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/overlay.rs", "packages/desktop/crates/pocket/src/forms.rs"],
   "screens": {
     "sessions": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
@@ -23,6 +23,30 @@
     "inbox": {
       "files": ["packages/desktop/crates/pocket/src/inbox.rs"],
       "open": ["click Inbox in the left rail"]
+    },
+    "explore": {
+      "files": ["packages/desktop/crates/pocket/src/explore.rs"],
+      "open": ["select a session", "click the Explore tab"]
+    },
+    "command-palette-k": {
+      "files": ["packages/desktop/crates/pocket/src/overlay.rs"],
+      "open": ["press Cmd+K"]
+    },
+    "new-session": {
+      "files": ["packages/desktop/crates/pocket/src/forms.rs"],
+      "open": ["press Cmd+N"]
+    },
+    "project-menu-amp-worktrees": {
+      "files": ["packages/desktop/crates/pocket/src/overlay.rs"],
+      "open": ["click the project name dropdown in the sidebar header"]
+    },
+    "add-repository": {
+      "files": ["packages/desktop/crates/pocket/src/forms.rs"],
+      "open": ["click the project name dropdown", "click 'Add repository to project…'"]
+    },
+    "repositories-worktrees": {
+      "files": ["packages/desktop/crates/pocket/src/view.rs"],
+      "open": ["press Cmd+B to expand the wide sidebar"]
     }
   }
 }

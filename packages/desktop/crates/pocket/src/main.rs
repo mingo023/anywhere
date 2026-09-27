@@ -1,5 +1,8 @@
 mod diff;
+mod explore;
+mod forms;
 mod inbox;
+mod overlay;
 mod sessions;
 mod termview;
 mod view;
@@ -20,7 +23,7 @@ use std::time::Duration;
 use store::Store;
 use workspace::{Tab, Workspace};
 
-actions!(desktop, [FocusSearch, OpenSession]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, NewWorktree, ProjectSettings]);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -43,6 +46,7 @@ pub enum Status {
     Failed,
 }
 
+#[derive(Clone)]
 pub struct Card {
     pub id: String,
     pub provider: String,
@@ -50,6 +54,25 @@ pub struct Card {
     pub cwd: String,
     pub at: i64,
     pub status: Status,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Overlay {
+    Palette,
+    NewSession,
+    AddRepo,
+    ProjectMenu,
+    More,
+}
+
+/// A comment sent to an agent about lines of a file, kept so the diff can show it until resolved.
+pub struct Comment {
+    pub path: String,
+    pub lines: (usize, usize),
+    pub old_side: bool,
+    pub label: String,
+    pub text: String,
+    pub at: i64,
 }
 
 enum Intent {
@@ -66,7 +89,7 @@ pub struct Desktop {
     project: Option<String>,
     screen: Screen,
     side: Side,
-    sidebar: bool,
+    wide: bool,
     session: Option<String>,
     workspaces: HashMap<String, Workspace>,
     intents: VecDeque<Intent>,
@@ -96,6 +119,21 @@ pub struct Desktop {
     filter: Entity<InputState>,
     sized: HashMap<String, (u16, u16)>,
     marked: Option<usize>,
+    overlay: Option<Overlay>,
+    palette_ix: usize,
+    palette_all: bool,
+    palette_files: Vec<String>,
+    worktrees: HashMap<String, Vec<git::Worktree>>,
+    merged: HashSet<String>,
+    worktree: Option<String>,
+    file: Option<String>,
+    file_text: Option<String>,
+    file_diff: Vec<git::Line>,
+    touched_only: bool,
+    comments: Vec<Comment>,
+    viewed: HashSet<String>,
+    new_form: forms::NewForm,
+    repo_form: forms::RepoForm,
     _subs: Vec<Subscription>,
 }
 
@@ -105,16 +143,25 @@ fn under(cwd: &str, project: &str) -> bool {
 
 impl Desktop {
     fn new(daemon: Daemon, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search conversations…"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions, files and actions…"));
         let comment_input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
-        let _subs = vec![
-            cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify()),
+        let (new_form, new_subs) = forms::NewForm::new(window, cx);
+        let (repo_form, repo_subs) = forms::RepoForm::new(window, cx);
+        let mut _subs = vec![
+            cx.subscribe(&filter, |this, _, ev: &InputEvent, cx| {
+                if let InputEvent::Change = ev {
+                    this.palette_ix = 0;
+                }
+                cx.notify()
+            }),
             cx.subscribe_in(&comment_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { secondary: true, .. } => this.submit_comment(window, cx),
                 InputEvent::Change => cx.notify(),
                 _ => {}
             }),
         ];
+        _subs.extend(new_subs);
+        _subs.extend(repo_subs);
         Self {
             daemon,
             sessions: Sessions::default(),
@@ -123,7 +170,7 @@ impl Desktop {
             store,
             screen: Screen::Sessions,
             side: Side::Sessions,
-            sidebar: true,
+            wide: false,
             session: None,
             workspaces: HashMap::new(),
             intents: VecDeque::new(),
@@ -153,6 +200,21 @@ impl Desktop {
             filter,
             sized: HashMap::new(),
             marked: None,
+            overlay: None,
+            palette_ix: 0,
+            palette_all: true,
+            palette_files: Vec::new(),
+            worktrees: HashMap::new(),
+            merged: HashSet::new(),
+            worktree: None,
+            file: None,
+            file_text: None,
+            file_diff: Vec::new(),
+            touched_only: false,
+            comments: Vec::new(),
+            viewed: HashSet::new(),
+            new_form,
+            repo_form,
             _subs,
         }
     }
@@ -204,15 +266,24 @@ impl Desktop {
         let live = self.agents.list.iter().filter(|a| a.status != "closed").map(|a| &a.cwd);
         let sessions = self.sessions.items.iter().filter(|s| self.store.parent(&s.info.id).is_none()).map(|s| &s.info.cwd);
         for cwd in live.chain(sessions) {
-            if !out.iter().any(|p| under(cwd, p)) {
+            if self.project_of(cwd, &out).is_none() {
                 out.push(cwd.clone());
             }
         }
         out
     }
 
+    /// The project owning `cwd`: the one whose folder or worktree holds it most closely.
     pub fn project_of<'a>(&self, cwd: &str, projects: &'a [String]) -> Option<&'a String> {
-        projects.iter().filter(|p| under(cwd, p)).max_by_key(|p| p.len())
+        let reach = |p: &String| {
+            let trees = self.worktrees.get(p).into_iter().flatten().map(|w| w.path.as_str());
+            std::iter::once(p.as_str()).chain(trees).filter(|root| under(cwd, root)).map(str::len).max()
+        };
+        projects.iter().filter_map(|p| Some((reach(p)?, p))).max_by_key(|(n, _)| *n).map(|(_, p)| p)
+    }
+
+    pub fn worktree_of(&self, cwd: &str) -> Option<&git::Worktree> {
+        self.worktrees.values().flatten().filter(|w| under(cwd, &w.path)).max_by_key(|w| w.path.len())
     }
 
     pub fn cards(&self, project: &str) -> Vec<Card> {
@@ -278,7 +349,9 @@ impl Desktop {
         if self.project.as_ref() != Some(&p) {
             self.project = Some(p);
             self.session = None;
+            self.worktree = None;
             self.diff_file = None;
+            self.file = None;
             self.tree.clear();
             self.refresh_git(cx);
         }
@@ -325,16 +398,16 @@ impl Desktop {
 
     fn spawn(&mut self, cmdline: &str, cwd: &str, intent: Intent, cx: &mut Context<Self>) {
         let Some(op) = daemon::spawn_op(cmdline, cwd) else { return };
+        self.send_spawn(op, intent, cx);
+    }
+
+    fn send_spawn(&mut self, op: serde_json::Value, intent: Intent, cx: &mut Context<Self>) {
         self.daemon.send(op);
         self.intents.push_back(intent);
         self.error = None;
         cx.notify();
     }
 
-    pub fn new_session(&mut self, provider: &str, cx: &mut Context<Self>) {
-        let Some(cwd) = self.project.clone() else { return };
-        self.spawn(provider, &cwd, Intent::Session, cx);
-    }
 
     /// Opens a login shell in the session's folder, as a new tab or a split of the active one.
     pub fn new_shell(&mut self, split: Option<bool>, cx: &mut Context<Self>) {
@@ -377,23 +450,6 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn add_project(&mut self, cx: &mut Context<Self>) {
-        let paths = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: None });
-        cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = paths.await else { return };
-            let Some(dir) = paths.into_iter().next() else { return };
-            let dir = dir.to_string_lossy().to_string();
-            this.update(cx, |d, cx| {
-                if !d.store.projects.contains(&dir) {
-                    d.store.projects.push(dir.clone());
-                    d.store.save();
-                }
-                d.select_project(dir, cx);
-            })
-            .ok();
-        })
-        .detach();
-    }
 
     pub fn fit(&mut self, id: &str, cols: u16, rows: u16) {
         if self.sized.get(id) != Some(&(cols, rows)) && self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
@@ -406,6 +462,7 @@ impl Desktop {
         let mut cwds: Vec<String> = self.project.iter().cloned().collect();
         if let Some(p) = &self.project {
             cwds.extend(self.cards(p).into_iter().map(|c| c.cwd));
+            cwds.extend(self.worktrees.get(p).into_iter().flatten().map(|w| w.path.clone()));
         }
         cwds.extend(self.cwd());
         cwds.sort();
@@ -415,9 +472,15 @@ impl Desktop {
 
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
         let cwds = self.git_cwds();
+        let projects = self.store.projects.clone();
+        let current = self.project.clone();
+        let file = self.file.clone().map(|f| {
+            let changed = self.file_status(&f).is_some();
+            (f, changed)
+        });
         let diff = self.cwd().zip(self.diff_file.clone());
         let mut dirs: Vec<PathBuf> = self.tree.keys().cloned().collect();
-        dirs.extend(self.project.as_ref().map(PathBuf::from));
+        dirs.extend(self.explore_root().map(PathBuf::from));
         self.git_run += 1;
         let run = self.git_run;
         let task = cx.background_executor().spawn(async move {
@@ -431,17 +494,30 @@ impl Desktop {
                 let listing = view::list_dir(&d);
                 (d, listing)
             }).collect();
-            (repos, diff, initials, tree)
+            let worktrees: HashMap<String, Vec<git::Worktree>> = projects.into_iter().map(|p| {
+                let w = git::worktrees(&p);
+                (p, w)
+            }).collect();
+            let merged: HashSet<String> = current.map(|p| {
+                let base = git::read(&p).map(|r| r.branch).unwrap_or_default();
+                git::merged(&p, &base).into_iter().collect()
+            }).unwrap_or_default();
+            let file = file.map(|(f, changed)| explore::load(&f, changed));
+            (repos, diff, initials, tree, worktrees, merged, file)
         });
         cx.spawn(async move |this, cx| {
-            let (repos, diff, initials, tree) = task.await;
+            let (repos, diff, initials, tree, worktrees, merged, file) = task.await;
             this.update(cx, |d, cx| {
                 if run != d.git_run {
                     return;
                 }
                 let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
-                let mut changed = repos != d.repos || tree != d.tree || initials != d.initials;
-                (d.repos, d.tree, d.initials) = (repos, tree, initials);
+                let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees || merged != d.merged;
+                (d.repos, d.tree, d.initials, d.worktrees, d.merged) = (repos, tree, initials, worktrees, merged);
+                if let Some((_, text, lines)) = file.filter(|(p, _, _)| d.file.as_ref() == Some(p)) {
+                    changed |= text != d.file_text || lines != d.file_diff;
+                    (d.file_text, d.file_diff) = (text, lines);
+                }
                 if let Some((lines, _)) = diff.filter(|(_, p)| d.diff_file.as_ref() == Some(p)) {
                     changed |= d.set_diff(lines);
                 }
@@ -461,9 +537,8 @@ impl Desktop {
             self.set_diff(Vec::new());
         }
         self.diff_file = path;
-        if let Some(id) = self.session.clone() {
-            self.workspace(&id).open_changes();
-        }
+        self.screen = Screen::Sessions;
+        self.side = Side::Changes;
         self.load_diff(cx);
         cx.notify();
     }
@@ -551,6 +626,9 @@ impl Desktop {
             return;
         }
         self.daemon.send(json!({"op": "prompt", "id": target, "text": format!("{path} {}: {text}", lines.to_lowercase())}));
+        if let Some(comment) = self.new_comment(path, lines, text) {
+            self.comments.push(comment);
+        }
         self.cancel_comment(window, cx);
     }
 
@@ -570,11 +648,19 @@ impl Desktop {
         }
     }
 
-    fn focus_search(&mut self, _: &FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
-        self.screen = Screen::Sessions;
-        self.side = Side::Sessions;
-        self.sidebar = true;
-        self.filter.update(cx, |s, cx| s.focus(window, cx));
+    fn next_waiting(&mut self, _: &NextWaiting, window: &mut Window, cx: &mut Context<Self>) {
+        let projects = self.projects();
+        let waiting: Vec<String> = projects.iter().flat_map(|p| self.cards(p)).filter(|c| c.status == Status::NeedsYou).map(|c| c.id).collect();
+        let next = waiting.iter().position(|id| self.session.as_ref() == Some(id)).map_or(0, |i| (i + 1) % waiting.len().max(1));
+        if let Some(id) = waiting.get(next).cloned() {
+            self.overlay = None;
+            self.side = Side::Sessions;
+            self.select_session(id, window, cx);
+        }
+    }
+
+    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
+        self.wide = !self.wide;
         cx.notify();
     }
 
@@ -646,7 +732,16 @@ fn main() {
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
         theme::init(cx);
-        cx.bind_keys([KeyBinding::new("cmd-k", FocusSearch, None), KeyBinding::new("cmd-enter", OpenSession, None)]);
+        cx.bind_keys([
+            KeyBinding::new("cmd-k", OpenPalette, None),
+            KeyBinding::new("cmd-p", GoToFile, None),
+            KeyBinding::new("cmd-n", StartSession, None),
+            KeyBinding::new("cmd-j", NextWaiting, None),
+            KeyBinding::new("cmd-b", ToggleSidebar, None),
+            KeyBinding::new("cmd-shift-n", NewWorktree, None),
+            KeyBinding::new("cmd-,", ProjectSettings, None),
+            KeyBinding::new("cmd-enter", OpenSession, None),
+        ]);
         cx.bind_keys(keys::bindings());
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let opts = WindowOptions {

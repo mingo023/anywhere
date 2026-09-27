@@ -49,6 +49,20 @@ pub const DIFF_ADD_TEXT: u32 = 0x18794eff;
 pub const DIFF_DEL_BG: u32 = 0xe5484d17;
 pub const DIFF_DEL_TEXT: u32 = 0xcd2b31ff;
 
+pub const MODIFIED: u32 = 0xad5700ff;
+pub const MERGED: u32 = 0x8250dfff;
+pub const MERGED_BG: u32 = 0x8250df1f;
+pub const TEAL: u32 = 0x0e7c86ff;
+pub const TEAL_BG: u32 = 0x0f9d8a14;
+
+pub const SYN_KEYWORD: u32 = 0x8e4ec6ff;
+pub const SYN_FN: u32 = 0x3e63ddff;
+pub const SYN_STRING: u32 = 0x18794eff;
+pub const SYN_COMMENT: u32 = 0xa1a1aaff;
+
+/// Colours a repository can take in the rail, the menu and the new-session form.
+pub const PALETTE: [u32; 6] = [0xd97757ff, 0x0f9d8aff, 0x7b61ffff, 0xe8a317ff, 0x3b82f6ff, 0x8b8b94ff];
+
 pub fn provider_color(provider: &str) -> u32 {
     match provider {
         "codex" => AGENT_CODEX,
@@ -95,9 +109,9 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "arrow-right", "back", "bolt", "branch", "check", "chevron-down", "chevron-right", "compose", "external", "file", "filter", "folder",
-    "forward", "inbox", "plus", "search", "send", "settings", "shield", "sidebar", "spinner", "split-down", "split-right", "terminal",
-    "worktree", "x", "x-bold",
+    "arrow-right", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "clock", "comment", "compose", "copy",
+    "external", "file", "filter", "folder", "forward", "inbox", "merge", "mic", "more", "plus", "prompt", "search", "send", "settings", "shield",
+    "sidebar", "sparkle", "spinner", "split-down", "split-right", "terminal", "unfold", "worktree", "x", "x-bold",
 );
 
 impl AssetSource for Assets {

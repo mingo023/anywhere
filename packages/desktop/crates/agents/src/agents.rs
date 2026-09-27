@@ -30,6 +30,13 @@ pub struct Item {
     pub error: String,
     pub duration_ms: i64,
     pub usage: Option<Usage>,
+    pub call: Option<Call>,
+}
+
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Call {
+    pub detail: Detail,
 }
 
 impl Item {
@@ -158,6 +165,21 @@ impl Agents {
     pub fn context_left(&self, id: &str) -> Option<u64> {
         let u = self.timelines.get(id)?.iter().rev().find_map(|i| i.usage.as_ref())?;
         Some(100 - ((u.input_tokens + u.cache_read_tokens) * 100 / CONTEXT_WINDOW).min(100))
+    }
+
+    /// The agent whose timeline last edited or wrote `path`, and when; tool paths may be absolute or relative to its cwd.
+    pub fn last_edit(&self, path: &str) -> Option<(&Summary, i64)> {
+        let touches = |d: &Detail, cwd: &str| {
+            (d.kind == "edit" || d.kind == "write") && !d.path.is_empty() && (d.path == path || format!("{cwd}/{}", d.path) == path)
+        };
+        self.list
+            .iter()
+            .filter_map(|a| {
+                let t = self.timelines.get(&a.id)?;
+                let ts = t.iter().rev().find(|i| i.call.as_ref().is_some_and(|c| touches(&c.detail, &a.cwd)))?.ts;
+                Some((a, ts))
+            })
+            .max_by_key(|(_, ts)| *ts)
     }
 
     pub fn last_text(&self, id: &str) -> Option<&str> {

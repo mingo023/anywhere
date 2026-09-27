@@ -1,8 +1,9 @@
 use git::{self, Kind, Line};
 use theme::*;
 use ui::{self, Segment, Variant, checkbox, diffstat, dot};
-use crate::view::empty;
-use crate::Desktop;
+use crate::explore::status_word;
+use crate::view::{ago_long, empty, now_ms};
+use crate::{Comment, Desktop, Overlay};
 use gpui_kit::component::input::{Escape, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -37,21 +38,23 @@ pub enum Row {
     Unified(usize),
     Split(Option<usize>, Option<usize>),
     Composer,
+    Comment(usize),
 }
 
-/// Lays out the diff, with the composer under the row holding line `composer`.
-fn rows(lines: &[Line], split: bool, composer: Option<usize>) -> Vec<Row> {
+/// Lays out the diff, with each `(line, comment)` note and then the composer under the row holding their line.
+fn rows(lines: &[Line], split: bool, composer: Option<usize>, notes: &[(usize, usize)]) -> Vec<Row> {
     let base: Vec<Row> =
         if split { git::split(lines).into_iter().map(|(l, r)| Row::Split(l, r)).collect() } else { (0..lines.len()).map(Row::Unified).collect() };
-    let mut out = Vec::with_capacity(base.len() + 1);
+    let mut out = Vec::with_capacity(base.len() + notes.len() + 1);
     for row in base {
         out.push(row);
-        let holds = match row {
-            Row::Unified(i) => composer == Some(i),
-            Row::Split(l, r) => composer.is_some_and(|c| l == Some(c) || r == Some(c)),
-            Row::Composer => false,
+        let holds = |i: usize| match row {
+            Row::Unified(j) => j == i,
+            Row::Split(l, r) => l == Some(i) || r == Some(i),
+            Row::Composer | Row::Comment(_) => false,
         };
-        if holds {
+        out.extend(notes.iter().filter(|(line, _)| holds(*line)).map(|&(_, c)| Row::Comment(c)));
+        if composer.is_some_and(&holds) {
             out.push(Row::Composer);
         }
     }
@@ -69,13 +72,53 @@ fn ordered((a, b): (usize, usize)) -> RangeInclusive<usize> {
     a.min(b)..=a.max(b)
 }
 
-/// "Line 54" or "Lines 50–54", counted on the new side unless the range only removes lines.
-fn label(lines: &[Line], range: RangeInclusive<usize>) -> Option<String> {
+/// First and last line numbers picked, counted on the new side unless the range only removes lines (then `true`).
+fn span(lines: &[Line], range: RangeInclusive<usize>) -> Option<(usize, usize, bool)> {
     let picked: Vec<&Line> = lines.get(range)?.iter().filter(|l| l.kind != Kind::Hunk).collect();
     let new: Vec<usize> = picked.iter().filter_map(|l| l.new).collect();
-    let nums = if new.is_empty() { picked.iter().filter_map(|l| l.old).collect() } else { new };
-    let (lo, hi) = (*nums.iter().min()?, *nums.iter().max()?);
+    let old_side = new.is_empty();
+    let nums = if old_side { picked.iter().filter_map(|l| l.old).collect() } else { new };
+    Some((*nums.iter().min()?, *nums.iter().max()?, old_side))
+}
+
+/// "Line 54" or "Lines 50–54".
+fn label(lines: &[Line], range: RangeInclusive<usize>) -> Option<String> {
+    let (lo, hi, _) = span(lines, range)?;
     Some(if lo == hi { format!("Line {lo}") } else { format!("Lines {lo}–{hi}") })
+}
+
+/// The line a sent comment hangs under: its last line, on the side it was made.
+fn anchor(lines: &[Line], c: &Comment) -> Option<usize> {
+    lines.iter().position(|l| if c.old_side { l.new.is_none() && l.old == Some(c.lines.1) } else { l.new == Some(c.lines.1) })
+}
+
+/// Lines hidden before hunk `i`, and the code context git printed after its header.
+fn hunk_info(lines: &[Line], i: usize) -> (usize, String) {
+    let text = &lines[i].text;
+    let before = lines[..i].iter().rev().find_map(|l| l.new).unwrap_or(0);
+    let context = text.splitn(3, "@@").nth(2).unwrap_or_default().trim().to_string();
+    (git::hunk_start(text, '+').saturating_sub(before + 1), context)
+}
+
+fn hunk(lines: &[Line], i: usize) -> Div {
+    let (hidden, context) = hunk_info(lines, i);
+    div()
+        .min_h(px(ROW))
+        .pl(px(16.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .bg(rgba(FILL_1))
+        .text_color(rgba(TEXT_4))
+        .whitespace_nowrap()
+        .overflow_hidden()
+        .child(icon("unfold", 11., TEXT_4))
+        .when(hidden > 0, |d| d.child(div().flex_none().font_family(SANS).text_size(px(12.5)).child(format!("{hidden} unchanged lines"))))
+        .child(div().truncate().child(context))
+}
+
+fn line_label((lo, hi): (usize, usize)) -> String {
+    if lo == hi { format!("L{lo}") } else { format!("L{lo}-{hi}") }
 }
 
 /// Where line `i` of `old` sits in `new`, so a selection survives the diff refreshing under it.
@@ -117,38 +160,45 @@ fn add_button(left: f32) -> Div {
 
 impl Desktop {
     pub fn changes_list(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let list = div().id("changes").flex_1().overflow_y_scroll().flex().flex_col();
+        let list = div().id("changes").flex_1().overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col();
         let Some(repo) = self.repo().cloned() else {
             return list.child(empty("Not a git repository."));
         };
         let (added, removed) = repo.totals();
-        let staged = repo.files.iter().filter(|f| f.staged).count();
-        let label = if staged == repo.files.len() && staged > 0 { "Staged" } else { "Changes" };
+        let count = repo.files.len();
         let branch = div()
-            .h(px(40.))
             .mt(px(6.))
-            .px(px(16.))
+            .px(px(14.))
+            .py(px(12.))
             .flex()
-            .items_center()
+            .flex_col()
             .gap(px(6.))
-            .font_family(MONO)
-            .text_size(px(11.5))
-            .child(icon("worktree", 12., TEXT_4))
-            .child(div().truncate().child(repo.branch.clone()))
-            .when_some(repo.base.clone(), |d, base| d.child(icon("arrow-right", 12., TEXT_4)).child(div().text_color(rgba(TEXT_3)).child(base)))
-            .child(div().flex_1())
-            .child(div().font_family(SANS).text_size(px(12.)).text_color(rgba(TEXT_3)).child(format!("{} ahead", repo.ahead)));
-        let heading = div()
-            .px(px(16.))
-            .pt(px(4.))
-            .pb(px(4.))
-            .flex()
-            .items_center()
-            .text_size(px(12.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(TEXT_3))
-            .child(div().flex_1().child(format!("{label} · {} file{}", repo.files.len(), if repo.files.len() == 1 { "" } else { "s" })))
-            .child(diffstat(added, removed).font_weight(FontWeight::NORMAL));
+            .rounded(px(14.))
+            .bg(rgba(0xffffffb3))
+            .shadow(vec![ui::ring(HAIRLINE, 0.5)])
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .font_family(MONO)
+                    .text_size(px(12.5))
+                    .child(icon("branch", 12., TEXT_3))
+                    .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(repo.branch.clone()))
+                    .when_some(repo.base.clone(), |d, base| d.child(div().flex_none().text_color(rgba(TEXT_4)).child(format!("→ {base}")))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .text_size(px(12.5))
+                    .text_color(rgba(TEXT_3))
+                    .child(format!("{count} file{}", if count == 1 { "" } else { "s" }))
+                    .child(diffstat(added, removed))
+                    .child(div().text_color(rgba(TEXT_5)).child("·"))
+                    .child(format!("{} commit{} ahead", repo.ahead, if repo.ahead == 1 { "" } else { "s" })),
+            );
         let files = repo.files.iter().enumerate().map(|(i, f)| {
             let selected = self.diff_file.as_ref() == Some(&f.path);
             let (path, on) = (f.path.clone(), f.staged);
@@ -157,50 +207,64 @@ impl Desktop {
                 cx.stop_propagation();
                 this.stage(path.clone(), !on, cx);
             }));
-            ui::change_row(("file", i), check, &f.path, selected, f.added, f.removed)
+            let comments = self.comments.iter().filter(|c| c.path == f.path).count();
+            ui::change_row(("file", i), check, &f.path, selected, f.added, f.removed, comments)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(open.clone()), cx)))
         });
-        let commits = repo.commits.iter().map(|c| {
+        let note = |id: ElementId, label: String, state: ui::State, text: String, path: String| {
             div()
-                .px(px(16.))
-                .h(px(26.))
+                .id(id.clone())
+                .px(px(10.))
+                .py(px(6.))
                 .flex()
-                .items_center()
-                .gap(px(8.))
-                .text_size(px(13.))
-                .child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(RUNNING_TEXT)).child(c.sha.clone()))
-                .child(div().truncate().text_color(rgba(TEXT_BODY)).child(c.subject.clone()))
-        });
+                .flex_col()
+                .gap(px(4.))
+                .rounded(px(10.))
+                .cursor_pointer()
+                .hover(|s| s.bg(rgba(FILL_1)))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(label))
+                        .child(ui::status(id, state)),
+                )
+                .child(div().truncate().text_size(px(13.5)).text_color(rgba(TEXT_BODY)).child(text))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(path.clone()), cx)))
+        };
+        let mut notes: Vec<Stateful<Div>> = self
+            .comments
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| repo.files.iter().any(|f| f.path == c.path))
+            .map(|(i, c)| note(ElementId::NamedInteger("note".into(), i as u64), line_label(c.lines), ui::State::Sent, c.text.clone(), c.path.clone()))
+            .collect();
+        let draft = self.comment_input.read(cx).value().trim().to_string();
+        if let (true, false, Some(path), Some((lo, hi, _))) =
+            (self.composing, draft.is_empty(), self.diff_file.clone(), self.selection.and_then(|s| span(&self.diff, ordered(s))))
+        {
+            notes.push(note("draft".into(), line_label((lo, hi)), ui::State::Draft, draft, path));
+        }
         list.child(branch)
-            .child(heading)
-            .child(div().px(px(8.)).flex().flex_col().gap(px(2.)).children(files))
-            .child(div().mx(px(16.)).my(px(10.)).h(px(1.)).bg(rgba(HAIRLINE)))
-            .child(div().px(px(16.)).pb(px(4.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child("Commits on branch"))
-            .children(commits)
+            .child(ui::section_header("Changed", Some(count)))
+            .child(div().flex().flex_col().gap(px(2.)).children(files))
+            .when(!notes.is_empty(), |d| d.child(ui::section_header("Comments", Some(notes.len()))).children(notes))
     }
 
     pub fn diff_view(&mut self, cx: &mut Context<Self>) -> Div {
         let Some(path) = self.diff_file.clone() else {
-            return div().flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(rgba(TEXT_3)).child("No changes.");
+            return empty("No changes.");
         };
         let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned();
-        let open = self.cwd().map(|c| std::path::Path::new(&c).join(&path));
-        let header = div()
-            .h(px(52.))
-            .flex_none()
-            .pl(px(20.))
-            .pr(px(12.))
+        let viewed = self.viewed.contains(&path);
+        let toggle = path.clone();
+        let right = div()
             .flex()
             .items_center()
-            .gap(px(10.))
-            .border_b_1()
-            .border_color(rgba(HAIRLINE))
-            .child(icon("file", 15., TEXT_3))
-            .child(div().truncate().font_family(MONO).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(path.clone()))
-            .children(file.map(|f| diffstat(f.added, f.removed)))
-            .child(div().flex_1())
-            .child(ui::segmented(
-                vec![Segment { value: false, label: "Unified".into(), badge: None }, Segment { value: true, label: "Split".into(), badge: None }],
+            .gap(px(8.))
+            .child(div().id("diff-mode").child(ui::segmented(
+                vec![Segment { icon: None, value: false, label: "Unified".into(), badge: None }, Segment { icon: None, value: true, label: "Split".into(), badge: None }],
                 self.diff_split,
                 true,
                 false,
@@ -210,26 +274,59 @@ impl Desktop {
                     cx.notify();
                 },
                 cx,
-            ))
-            .child(ui::button("open-editor", Variant::Secondary, Some("external"), "Open in editor").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                if let Some(p) = &open {
-                    cx.open_with_system(p);
-                }
-            })));
-        let rows = list(self.diff_list.clone(), cx.processor(|this, ix, _, cx| this.diff_row(ix, cx))).py(px(8.));
-        let body = div()
-            .flex_1()
-            .min_h_0()
-            .child(rows.size_full())
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)));
+            )))
+            .child(ui::button("viewed", Variant::Glass, None, div().flex().items_center().gap(px(7.)).child(checkbox(viewed)).child("Viewed")).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    if !this.viewed.remove(&toggle) {
+                        this.viewed.insert(toggle.clone());
+                    }
+                    cx.notify();
+                },
+            )))
+            .child(ui::round_button("diff-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))));
+        let (color, state) = status_word(file.as_ref().map(|f| f.status));
+        let mut meta = div().flex().items_center().overflow_hidden().child(ui::meta_item().child(dot(7., color)).child(ui::meta_value(state)));
+        if let Some(f) = &file {
+            meta = meta.child(ui::meta_item().child(diffstat(f.added, f.removed).text_size(px(13.))));
+        }
+        let comments = self.comments.iter().filter(|c| c.path == path).count();
+        if comments > 0 {
+            meta = meta.child(ui::meta_item().child(icon("comment", 13., TEXT_3)).child(ui::meta_value(format!("{comments} comment{}", if comments == 1 { "" } else { "s" }))));
+        }
+        let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
+        if let Some((a, ts)) = self.agents.last_edit(&abs) {
+            let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
+            meta = meta.child(ui::meta_item().child(dot(7., provider_color(&a.provider))).child("by").child(ui::meta_value(by)));
+        }
+        let crumbs = std::iter::once("Changes".to_string()).chain(path.split('/').map(str::to_string)).collect();
+        let name = path.rsplit('/').next().unwrap_or(&path).to_string();
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .child(header)
-            .child(body.font_family(MONO).text_size(px(12.5)).line_height(px(ROW)))
+            .child(Self::page_bar(crumbs, right))
+            .child(Self::title_block(name, if self.wide { 24. } else { 28. }, meta))
+            .child(self.diff_box(cx))
+    }
+
+    pub fn diff_box(&mut self, cx: &mut Context<Self>) -> Div {
+        let rows = list(self.diff_list.clone(), cx.processor(|this, ix, _, cx| this.diff_row(ix, cx))).pb(px(8.));
+        div()
+            .flex_1()
+            .min_h_0()
+            .mx(px(20.))
+            .mb(px(20.))
+            .rounded(px(16.))
+            .bg(rgba(SURFACE))
+            .shadow(vec![ui::ring(HAIRLINE, 0.5)])
+            .overflow_hidden()
+            .font_family(MONO)
+            .text_size(px(12.5))
+            .line_height(px(ROW))
+            .child(rows.size_full())
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
     }
 
     pub fn set_diff(&mut self, lines: Vec<Line>) -> bool {
@@ -245,7 +342,10 @@ impl Desktop {
     /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
     pub fn layout_diff(&mut self, reset: bool) {
         let composer = self.selection.filter(|_| self.composing && !self.dragging).map(|s| *ordered(s).end());
-        let rows = rows(&self.diff, self.diff_split, composer);
+        let path = self.diff_file.as_deref();
+        let notes: Vec<(usize, usize)> =
+            self.comments.iter().enumerate().filter(|(_, c)| Some(c.path.as_str()) == path).filter_map(|(i, c)| Some((anchor(&self.diff, c)?, i))).collect();
+        let rows = rows(&self.diff, self.diff_split, composer, &notes);
         if reset {
             self.diff_list.reset(rows.len());
         } else {
@@ -259,6 +359,19 @@ impl Desktop {
         label(&self.diff, ordered(self.selection?))
     }
 
+    pub fn new_comment(&self, path: String, label: String, text: String) -> Option<Comment> {
+        let (lo, hi, old_side) = span(&self.diff, ordered(self.selection?))?;
+        Some(Comment { path, lines: (lo, hi), old_side, label, text, at: now_ms() })
+    }
+
+    fn resolve_comment(&mut self, i: usize, cx: &mut Context<Self>) {
+        if i < self.comments.len() {
+            self.comments.remove(i);
+            self.layout_diff(false);
+            cx.notify();
+        }
+    }
+
     pub fn same_hunk(&self, a: usize, b: usize) -> bool {
         !self.diff[a.min(b)..=a.max(b)].iter().any(|l| l.kind == Kind::Hunk)
     }
@@ -269,10 +382,10 @@ impl Desktop {
 
     /// One side of a row: pressing picks its line, dragging or shift-clicking stretches the pick; "+" or a drag opens the composer.
     fn cell(&self, id: &'static str, i: usize, numbers: Vec<Option<usize>>, add_at: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        let row = code(&self.diff[i], numbers, self.picked(i)).id((id, i));
         if self.diff[i].kind == Kind::Hunk {
-            return row;
+            return hunk(&self.diff, i).id((id, i));
         }
+        let row = code(&self.diff[i], numbers, self.picked(i)).id((id, i));
         let last = self.selection.is_some_and(|s| *ordered(s).end() == i);
         row.group("diff-line")
             .cursor_pointer()
@@ -290,6 +403,7 @@ impl Desktop {
         let Some(&row) = self.diff_rows.get(ix) else { return Empty.into_any_element() };
         match row {
             Row::Unified(i) => self.cell("line", i, vec![self.diff[i].old, self.diff[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
+            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if self.diff[i].kind == Kind::Hunk => hunk(&self.diff, i).w_full().into_any_element(),
             Row::Split(l, r) => {
                 let mut side = |id, i: Option<usize>, n: fn(&Line) -> Option<usize>| match i {
                     Some(i) => self.cell(id, i, vec![n(&self.diff[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
@@ -298,6 +412,7 @@ impl Desktop {
                 div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()
             }
             Row::Composer => div().w_full().child(self.composer(cx)).into_any_element(),
+            Row::Comment(c) => div().w_full().child(self.comment_card(c, cx)).into_any_element(),
         }
     }
 
@@ -331,7 +446,6 @@ impl Desktop {
             .border_t_1()
             .border_color(rgba(HAIRLINE))
             .child(self.target_picker(target, cx))
-            .child(div().truncate().text_size(px(12.)).text_color(rgba(TEXT_3)).child("sends to this session’s terminal"))
             .child(div().flex_1())
             .child(cancel)
             .child(submit);
@@ -351,6 +465,53 @@ impl Desktop {
             .child(head)
             .child(field)
             .child(foot)
+    }
+
+    fn comment_card(&self, i: usize, cx: &mut Context<Self>) -> Div {
+        let Some(c) = self.comments.get(i) else { return div() };
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .text_size(px(12.))
+            .child(div().font_family(MONO).font_weight(FontWeight::SEMIBOLD).text_color(rgba(WAITING_TEXT)).child(c.label.clone()))
+            .child(div().text_color(rgba(TEXT_4)).child(format!("· {}", ago_long(c.at, now_ms()))))
+            .child(div().flex_1())
+            .child(div().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(RUNNING_TEXT)).child(icon("check", 12., RUNNING_TEXT)).child("Sent"));
+        let resolve = div()
+            .id(("resolve", i))
+            .h(px(24.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .rounded(px(12.))
+            .bg(rgba(FILL_3))
+            .hover(|s| s.bg(rgba(FILL_4)))
+            .cursor_pointer()
+            .text_size(px(12.5))
+            .font_weight(FontWeight::MEDIUM)
+            .child(icon("check", 12., TEXT_2))
+            .child("Resolve")
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resolve_comment(i, cx)));
+        div()
+            .mt(px(6.))
+            .mb(px(10.))
+            .mr(px(20.))
+            .ml(px(if self.diff_split { NUM + SIGN } else { 2. * NUM + SIGN }))
+            .px(px(16.))
+            .py(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .rounded(px(12.))
+            .bg(rgba(SURFACE))
+            .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(0x1111130f, 1., 3.)])
+            .font_family(SANS)
+            .whitespace_normal()
+            .child(head)
+            .child(div().text_size(px(14.5)).line_height(px(21.)).text_color(rgba(TEXT)).child(c.text.clone()))
+            .child(div().flex().child(resolve))
     }
 
     fn session_chip(&self, id: &str) -> (u32, String, String) {
@@ -438,7 +599,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Row, changed, label, remap, rows};
+    use super::{Row, changed, hunk_info, label, remap, rows};
     use git::parse;
 
     const DIFF: &str = "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n";
@@ -446,9 +607,22 @@ mod tests {
     #[test]
     fn places_the_composer_under_its_line() {
         let l = parse(DIFF);
-        assert_eq!(rows(&l, false, Some(3)), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
-        assert_eq!(rows(&l, true, Some(2)), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
-        assert_eq!(rows(&l, false, None).len(), 5);
+        assert_eq!(rows(&l, false, Some(3), &[]), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
+        assert_eq!(rows(&l, true, Some(2), &[]), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
+        assert_eq!(rows(&l, false, None, &[]).len(), 5);
+    }
+
+    #[test]
+    fn places_sent_comments_before_the_composer() {
+        let l = parse(DIFF);
+        assert_eq!(rows(&l, false, Some(3), &[(3, 0)])[4..], [Row::Comment(0), Row::Composer, Row::Unified(4)]);
+    }
+
+    #[test]
+    fn counts_lines_hidden_before_a_hunk() {
+        let l = parse("@@ -40,2 +45,2 @@ export function f() {\n a\n b\n@@ -60,1 +65,1 @@\n c\n");
+        assert_eq!(hunk_info(&l, 0), (44, "export function f() {".into()));
+        assert_eq!(hunk_info(&l, 3), (18, String::new()));
     }
 
     #[test]
