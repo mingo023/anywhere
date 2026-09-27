@@ -1,8 +1,8 @@
-use crate::daemon::Info;
+use daemon::Info;
 use crate::termview::{self, Metrics};
-use crate::ds::{self, Segment, State, Variant, dot, icon_button, kbd};
-use crate::theme::*;
-use crate::workspace::Tab;
+use ui::{self, Segment, State, Variant, dot, icon_button, kbd};
+use theme::*;
+use workspace::Tab;
 use crate::{Card, Desktop, Screen, Side, Status};
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -83,7 +83,7 @@ fn nav_row(id: &'static str, name: &str, label: &str, selected: bool) -> Statefu
         .rounded(px(9.))
         .cursor_pointer()
         .text_size(px(14.))
-        .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(ds::row_shadow()).font_weight(FontWeight::SEMIBOLD))
+        .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(ui::row_shadow()).font_weight(FontWeight::SEMIBOLD))
         .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_BODY)).hover(|s| s.bg(rgba(FILL_2))))
         .child(icon(name, 16., TEXT_2))
         .child(div().flex_1().child(label.to_string()))
@@ -94,7 +94,7 @@ fn field() -> Div {
 }
 
 pub fn column() -> Div {
-    ds::side(div().w(px(332.)).flex_none().h_full().flex().flex_col().overflow_hidden())
+    ui::side(div().w(px(332.)).flex_none().h_full().flex().flex_col().overflow_hidden())
 }
 
 pub fn empty(text: &'static str) -> Div {
@@ -166,10 +166,10 @@ impl Desktop {
             } else {
                 None
             };
-            ds::repo_row(("project", i), &basename(&p), selected, state, ("project-spin", i))
+            ui::repo_row(("project", i), &basename(&p), selected, state, ("project-spin", i))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
         });
-        ds::side(div())
+        ui::side(div())
             .w(px(248.))
             .flex_none()
             .h_full()
@@ -205,7 +205,7 @@ impl Desktop {
             .child(div().flex_1().truncate().text_size(px(17.)).font_weight(FontWeight::BOLD).child(name))
             .child(icon_button("find", "search").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.focus_search(&crate::FocusSearch, window, cx))))
             .child(icon_button("new-session", "compose").on_click(cx.listener(|this, e: &ClickEvent, _, cx| this.new_session(if e.modifiers().alt { "codex" } else { "claude" }, cx))));
-        let tabs = ds::segmented(
+        let tabs = ui::segmented(
             vec![
                 Segment { value: Side::Sessions, label: "Sessions".into(), badge: None },
                 Segment { value: Side::Explorer, label: "Explore".into(), badge: None },
@@ -251,7 +251,7 @@ impl Desktop {
         let branch = repo.map(|r| r.branch.clone()).unwrap_or_default();
         let (added, removed) = repo.map(|r| r.totals()).unwrap_or_default();
         let id = c.id.clone();
-        ds::session_row(("card", i), selected, c.title, state(c.status, added, removed), &c.provider, branch, ago(c.at, now))
+        ui::session_row(("card", i), selected, c.title, state(c.status, added, removed), &c.provider, branch, ago(c.at, now))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_session(id.clone(), window, cx)))
     }
 
@@ -268,7 +268,7 @@ impl Desktop {
             let open = is_dir && self.tree.contains_key(&path);
             let target = path.clone();
             let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-            rows.push(ds::tree_row(id(format!("tree-{}", path.display())), label, is_dir, open, depth).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            rows.push(ui::tree_row(id(format!("tree-{}", path.display())), label, is_dir, open, depth).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if !is_dir {
                     cx.open_with_system(&target);
                 } else if this.tree.remove(&target).is_none() {
@@ -298,7 +298,7 @@ impl Desktop {
                     .child(if self.project.is_some() { "Pick a session, or press + to start one." } else { "Add a project to begin." }),
             },
         };
-        ds::page(div()).flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).child(self.footer())
+        ui::page(div()).flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).child(self.footer())
     }
 
     pub fn pane_label(&self, id: &str) -> String {
@@ -311,7 +311,7 @@ impl Desktop {
 
     fn session_view(&mut self, id: &str, cx: &mut Context<Self>) -> Div {
         let (provider, title, model) = match self.summary(id) {
-            Some(a) => (a.provider.clone(), a.title.clone(), Some(crate::agents::model_label(a))),
+            Some(a) => (a.provider.clone(), a.title.clone(), Some(agents::model_label(a))),
             None => (String::new(), self.pane_label(id), None),
         };
         let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
@@ -326,7 +326,7 @@ impl Desktop {
             .gap(px(8.))
             .child(dot(8., provider_color(&provider)))
             .child(div().truncate().text_size(px(17.)).font_weight(FontWeight::BOLD).child(title))
-            .children(model.map(ds::tag))
+            .children(model.map(ui::tag))
             .child(
                 div()
                     .flex()
@@ -338,12 +338,12 @@ impl Desktop {
                     .child(icon("worktree", 12., TEXT_4))
                     .child(div().truncate().font_family(MONO).text_size(px(11.5)).text_color(rgba(TEXT_3)).child(branch)),
             )
-            .child(ds::icon_group([
-                ds::group_button("split-right", "split-right").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))),
-                ds::group_button("split-down", "split-down").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))),
+            .child(ui::icon_group([
+                ui::group_button("split-right", "split-right").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))),
+                ui::group_button("split-down", "split-down").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))),
             ]))
             .child(
-                ds::button("diffstat", Variant::Secondary, Some("branch"), ds::diffstat(added, removed).text_size(px(12.)))
+                ui::button("diffstat", Variant::Secondary, Some("branch"), ui::diffstat(added, removed).text_size(px(12.)))
                     .ml(px(4.))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx))),
             );
@@ -461,7 +461,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .key_context(crate::keys::CONTEXT)
+            .key_context(keys::CONTEXT)
             .track_focus(&self.term_focus)
             .on_key_down(cx.listener(Self::on_term_key))
             .children(out)
@@ -529,7 +529,7 @@ impl Desktop {
             .flex_col()
             .bg(rgba(SURFACE))
             .rounded(px(12.))
-            .shadow(vec![ds::ring(if focused || n.is_none() { SEPARATOR_STRONG } else { HAIRLINE }, 1.)])
+            .shadow(vec![ui::ring(if focused || n.is_none() { SEPARATOR_STRONG } else { HAIRLINE }, 1.)])
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
             .children(header)
@@ -560,7 +560,7 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .gap(px(7.))
-                    .child(ds::agent_badge(p, if p == "codex" { "Codex" } else { "Claude" }).text_color(rgba(TEXT)))
+                    .child(ui::agent_badge(p, if p == "codex" { "Codex" } else { "Claude" }).text_color(rgba(TEXT)))
                     .child(div().w(px(44.)).h(px(5.)).rounded(px(3.)).bg(rgba(FILL_4)).child(div().h_full().w(px(fill)).rounded(px(3.)).bg(rgba(provider_color(p)))))
                     .child(div().font_family(MONO).text_size(px(11.5)).child(label)),
             )

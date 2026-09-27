@@ -1,16 +1,28 @@
-[package]
-name = "pocket-desktop"
-version = "0.0.0"
-edition = "2024"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/pocket"]
 
-[dependencies]
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+agents = { path = "crates/agents" }
+daemon = { path = "crates/daemon" }
+git = { path = "crates/git" }
+keys = { path = "crates/keys" }
+store = { path = "crates/store" }
+term = { path = "crates/term" }
+theme = { path = "crates/theme" }
+ui = { path = "crates/ui" }
+workspace = { path = "crates/workspace" }
+
+base64 = "0.22"
+cc = "1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+futures = "0.3"
 gpui-kit = "0.6.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
-futures = "0.3"
 tungstenite = "0.26"
-chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
-
-[build-dependencies]
-cc = "1"

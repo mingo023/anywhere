@@ -1,5 +1,5 @@
 fn main() {
-    let ghostty = "../../third_party/ghostty/zig-out";
+    let ghostty = "../../../../third_party/ghostty/zig-out";
     let out = std::env::var("OUT_DIR").unwrap();
     // Copied alone into OUT_DIR: next to the .dylib the linker would pick the dylib.
     std::fs::copy(format!("{ghostty}/lib/libghostty-vt.a"), format!("{out}/libghostty-vt.a"))

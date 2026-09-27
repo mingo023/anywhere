@@ -1,5 +1,5 @@
-use crate::daemon::{Info, Msg};
-use crate::term::Term;
+use daemon::{Info, Msg};
+use term::Term;
 
 pub struct Session {
     pub info: Info,

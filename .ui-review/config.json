@@ -6,22 +6,22 @@
     "window_owner": "pocket-desktop"
   },
   "viewport": [1440, 900],
-  "blast_radius": ["packages/desktop/src/theme.rs", "packages/desktop/assets/icons/**", "packages/desktop/src/view.rs"],
+  "blast_radius": ["packages/desktop/crates/theme/**", "packages/desktop/crates/ui/**", "packages/desktop/crates/pocket/src/view.rs"],
   "screens": {
     "sessions": {
-      "files": ["packages/desktop/src/view.rs", "packages/desktop/src/workspace.rs", "packages/desktop/src/termview.rs"],
+      "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
       "open": ["launch the app", "click a session card in the left sessions list"]
     },
     "changes": {
-      "files": ["packages/desktop/src/diff.rs", "packages/desktop/src/git.rs"],
+      "files": ["packages/desktop/crates/pocket/src/diff.rs", "packages/desktop/crates/git/**"],
       "open": ["select a session", "click the Changes tab", "click a diff line to open the comment composer"]
     },
     "split": {
-      "files": ["packages/desktop/src/view.rs", "packages/desktop/src/workspace.rs", "packages/desktop/src/termview.rs"],
+      "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
       "open": ["select a session", "click the split-pane button to add panes to the active tab"]
     },
     "inbox": {
-      "files": ["packages/desktop/src/inbox.rs"],
+      "files": ["packages/desktop/crates/pocket/src/inbox.rs"],
       "open": ["click Inbox in the left rail"]
     }
   }

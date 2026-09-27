@@ -1,6 +1,6 @@
-use crate::git::{self, Kind, Line};
-use crate::theme::*;
-use crate::ds::{self, Segment, Variant, checkbox, diffstat, dot};
+use git::{self, Kind, Line};
+use theme::*;
+use ui::{self, Segment, Variant, checkbox, diffstat, dot};
 use crate::view::empty;
 use crate::Desktop;
 use gpui_kit::component::input::{Escape, Textarea};
@@ -111,7 +111,7 @@ fn add_button(left: f32) -> Div {
         .justify_center()
         .rounded(px(6.))
         .bg(rgba(ACCENT))
-        .shadow(vec![ds::shadow(ACCENT_GLOW, 1., 3.)])
+        .shadow(vec![ui::shadow(ACCENT_GLOW, 1., 3.)])
         .child(icon("plus", 13., WHITE))
 }
 
@@ -157,7 +157,7 @@ impl Desktop {
                 cx.stop_propagation();
                 this.stage(path.clone(), !on, cx);
             }));
-            ds::change_row(("file", i), check, &f.path, selected, f.added, f.removed)
+            ui::change_row(("file", i), check, &f.path, selected, f.added, f.removed)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(open.clone()), cx)))
         });
         let commits = repo.commits.iter().map(|c| {
@@ -199,7 +199,7 @@ impl Desktop {
             .child(div().truncate().font_family(MONO).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(path.clone()))
             .children(file.map(|f| diffstat(f.added, f.removed)))
             .child(div().flex_1())
-            .child(ds::segmented(
+            .child(ui::segmented(
                 vec![Segment { value: false, label: "Unified".into(), badge: None }, Segment { value: true, label: "Split".into(), badge: None }],
                 self.diff_split,
                 true,
@@ -211,7 +211,7 @@ impl Desktop {
                 },
                 cx,
             ))
-            .child(ds::button("open-editor", Variant::Secondary, Some("external"), "Open in editor").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            .child(ui::button("open-editor", Variant::Secondary, Some("external"), "Open in editor").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 if let Some(p) = &open {
                     cx.open_with_system(p);
                 }
@@ -315,12 +315,12 @@ impl Desktop {
             .child(div().font_family(MONO).font_weight(FontWeight::SEMIBOLD).text_color(rgba(ACCENT)).child(lines))
             .child(div().text_color(rgba(TEXT_3)).child("esc to dismiss"));
         let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.comment_input).appearance(false));
-        let submit = ds::button("comment-submit", Variant::Accent, None, "Comment")
-            .child(ds::button_kbd("⌘↵"))
+        let submit = ui::button("comment-submit", Variant::Accent, None, "Comment")
+            .child(ui::button_kbd("⌘↵"))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.submit_comment(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let cancel =
-            ds::button("comment-cancel", Variant::Ghost, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_comment(window, cx)));
+            ui::button("comment-cancel", Variant::Ghost, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_comment(window, cx)));
         let foot = div()
             .px(px(12.))
             .pt(px(10.))
@@ -344,7 +344,7 @@ impl Desktop {
             .flex_col()
             .rounded(px(12.))
             .bg(rgba(SURFACE))
-            .shadow(vec![ds::ring(ACCENT_RING, 1.), ds::shadow(0x1111131a, 8., 24.), ds::shadow(0x1111130f, 1., 2.)])
+            .shadow(vec![ui::ring(ACCENT_RING, 1.), ui::shadow(0x1111131a, 8., 24.), ui::shadow(0x1111130f, 1., 2.)])
             .font_family(SANS)
             .whitespace_normal()
             .on_action(cx.listener(|this, _: &Escape, window, cx| this.cancel_comment(window, cx)))
@@ -418,7 +418,7 @@ impl Desktop {
             });
             deferred(
                 anchored().anchor(Anchor::BottomLeft).offset(point(px(0.), px(-6.))).snap_to_window_with_margin(px(8.)).child(
-                    ds::pop(div().id("target-menu"))
+                    ui::pop(div().id("target-menu"))
                         .w(px(360.))
                         .p(px(6.))
                         .flex()
@@ -439,7 +439,7 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Row, changed, label, remap, rows};
-    use crate::git::parse;
+    use git::parse;
 
     const DIFF: &str = "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n";
 

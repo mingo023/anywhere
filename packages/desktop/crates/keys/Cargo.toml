@@ -1,0 +1,11 @@
+[package]
+name = "keys"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/keys.rs"
+
+[dependencies]
+gpui-kit.workspace = true

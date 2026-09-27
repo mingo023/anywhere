@@ -1,0 +1,12 @@
+[package]
+name = "store"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/store.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

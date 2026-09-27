@@ -1,28 +1,18 @@
-mod agents;
-mod daemon;
 mod diff;
-mod ds;
-mod git;
 mod inbox;
-mod keys;
 mod sessions;
-mod store;
-mod term;
 mod termview;
-mod theme;
 mod view;
-mod workspace;
 
 use agents::{Agents, Summary};
 use daemon::{Daemon, Msg};
 use futures::StreamExt;
 use git::Repo;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
-use gpui_kit::component::{Root, Theme};
+use gpui_kit::component::Root;
 use gpui_kit::*;
 use serde_json::json;
 use sessions::Sessions;
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -644,16 +634,6 @@ impl EntityInputHandler for Desktop {
     }
 }
 
-fn light_theme(cx: &mut App) {
-    let t = Theme::global_mut(cx);
-    t.font_family = theme::SANS.into();
-    t.font_size = px(14.);
-    t.foreground = rgba(theme::TEXT).into();
-    t.muted_foreground = rgba(theme::TEXT_2).into();
-    t.background = rgba(theme::WINDOW).into();
-    t.caret = rgba(theme::TEXT).into();
-}
-
 fn main() {
     let path = daemon::sock_path();
     let (daemon, mut rx) = Daemon::connect(&path).unwrap_or_else(|e| {
@@ -665,8 +645,7 @@ fn main() {
     let store = Store::load(&home);
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
-        cx.text_system().add_fonts(theme::FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()).expect("bundled fonts load");
-        light_theme(cx);
+        theme::init(cx);
         cx.bind_keys([KeyBinding::new("cmd-k", FocusSearch, None), KeyBinding::new("cmd-enter", OpenSession, None)]);
         cx.bind_keys(keys::bindings());
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);

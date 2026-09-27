@@ -1,5 +1,4 @@
-use crate::Desktop;
-use crate::theme::*;
+use theme::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -118,13 +117,13 @@ pub struct Segment<T> {
     pub badge: Option<String>,
 }
 
-pub fn segmented<T: Copy + PartialEq + 'static>(
+pub fn segmented<V: 'static, T: Copy + PartialEq + 'static>(
     items: Vec<Segment<T>>,
     active: T,
     small: bool,
     fill: bool,
-    on: impl Fn(&mut Desktop, T, &mut Context<Desktop>) + 'static,
-    cx: &mut Context<Desktop>,
+    on: impl Fn(&mut V, T, &mut Context<V>) + 'static,
+    cx: &mut Context<V>,
 ) -> Div {
     let on = std::rc::Rc::new(on);
     let (h, r, ir, fs) = if small { (24., 11., 8., 12.) } else { (30., 12., 9., 13.5) };

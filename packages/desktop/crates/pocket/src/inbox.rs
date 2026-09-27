@@ -1,5 +1,5 @@
-use crate::theme::*;
-use crate::ds::{self, State, Variant, icon_button, kbd};
+use theme::*;
+use ui::{self, State, Variant, icon_button, kbd};
 use crate::view::{ago, basename, column, drag_area, empty, now_ms};
 use crate::{Desktop, Screen, termview};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -106,7 +106,7 @@ impl Desktop {
             .child(div().flex_1().text_size(px(17.)).font_weight(FontWeight::BOLD).child("Inbox"))
             .child(icon_button("inbox-filter", "filter"))
             .child(
-                ds::button("mark-read", Variant::Ghost, None, "Mark all read").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                ui::button("mark-read", Variant::Ghost, None, "Mark all read").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         let keys: Vec<String> = this.notes().into_iter().filter(|n| n.kind != Kind::Ask).map(|n| n.key).collect();
                         this.read.extend(keys);
                         this.select_note(this.inbox, cx);
@@ -167,7 +167,7 @@ impl Desktop {
             .gap(px(12.))
             .rounded(px(12.))
             .cursor_pointer()
-            .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(ds::row_shadow()))
+            .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(ui::row_shadow()))
             .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
             .child(
                 div()
@@ -178,7 +178,7 @@ impl Desktop {
                     .justify_center()
                     .rounded(px(8.))
                     .bg(rgba(SURFACE))
-                    .shadow(vec![ds::ring(SEPARATOR_STRONG, 0.5), ds::shadow(0x0000000a, 1., 1.)])
+                    .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(0x0000000a, 1., 1.)])
                     .child(icon(glyph, 13., color)),
             )
             .child(
@@ -226,15 +226,15 @@ impl Desktop {
             .items_center()
             .gap(px(10.))
             .text_size(px(14.))
-            .child(ds::repo_mark(&project, false, false, false))
+            .child(ui::repo_mark(&project, false, false, false))
             .child(div().text_color(rgba(TEXT_2)).child(project))
             .child(div().text_color(rgba(TEXT_6)).child("/"))
             .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(title))
             .when(n.kind == Kind::Ask, |d| {
-                d.child(ds::status("waiting", State::Waiting)).child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(format!("{}:{:02}", secs / 60, secs % 60)))
+                d.child(ui::status("waiting", State::Waiting)).child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(format!("{}:{:02}", secs / 60, secs % 60)))
             })
             .child(div().flex_1())
-            .child(ds::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            .child(ui::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_session(agent.clone(), window, cx)
             })));
         let pane = self.pane(&n.agent, None, &termview::MAIN, cx);

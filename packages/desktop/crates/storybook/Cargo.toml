@@ -1,0 +1,10 @@
+[package]
+name = "storybook"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+theme.workspace = true
+ui.workspace = true

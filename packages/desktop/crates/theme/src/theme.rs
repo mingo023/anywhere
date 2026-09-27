@@ -75,7 +75,7 @@ pub fn spinner(id: impl Into<ElementId>, size: f32, color: u32) -> impl IntoElem
     })
 }
 
-pub const FONTS: [&[u8]; 8] = [
+const FONTS: [&[u8]; 8] = [
     include_bytes!("../assets/fonts/Geist-Regular.ttf"),
     include_bytes!("../assets/fonts/Geist-Medium.ttf"),
     include_bytes!("../assets/fonts/Geist-SemiBold.ttf"),
@@ -111,4 +111,16 @@ impl AssetSource for Assets {
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         gpui_kit::assets::Assets.list(path)
     }
+}
+
+/// Loads the bundled fonts and points gpui-kit's theme at these tokens. Call after `gpui_kit::init`.
+pub fn init(cx: &mut App) {
+    cx.text_system().add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()).expect("bundled fonts load");
+    let t = gpui_kit::component::Theme::global_mut(cx);
+    t.font_family = SANS.into();
+    t.font_size = px(14.);
+    t.foreground = rgba(TEXT).into();
+    t.muted_foreground = rgba(TEXT_2).into();
+    t.background = rgba(WINDOW).into();
+    t.caret = rgba(TEXT).into();
 }

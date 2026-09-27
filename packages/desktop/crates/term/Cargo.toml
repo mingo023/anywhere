@@ -1,0 +1,11 @@
+[package]
+name = "term"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/term.rs"
+
+[build-dependencies]
+cc.workspace = true
