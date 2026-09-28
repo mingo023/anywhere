@@ -1,7 +1,8 @@
 {
   "target": {
-    "kind": "native",
+    "kind": "headless",
     "launch": "POCKET_HOME=~/.coding-pocket packages/desktop/target/release/pocket-desktop",
+    "capture": "~/.cargo/bin/cargo build -q --release -p pocket --features capture --manifest-path packages/desktop/Cargo.toml && POCKET_HOME=~/.coding-pocket packages/desktop/target/release/pocket-desktop --capture",
     "url": null,
     "window_owner": "pocket-desktop"
   },
@@ -10,15 +11,18 @@
   "screens": {
     "sessions": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
-      "open": ["launch the app", "click a session card in the left sessions list"]
+      "open": ["launch the app", "click a session card in the left sessions list"],
+      "capture": ["session"]
     },
     "sessions-sidebar-expanded": {
       "files": ["packages/desktop/crates/pocket/src/main.rs"],
-      "open": ["launch the app", "press Cmd+\\ to expand the rail to 240px"]
+      "open": ["launch the app", "press Cmd+\\ to expand the rail to 240px"],
+      "capture": ["rail"]
     },
     "changes": {
       "files": ["packages/desktop/crates/pocket/src/diff.rs", "packages/desktop/crates/git/**"],
-      "open": ["select a session", "click the Changes tab", "click a diff line to open the comment composer"]
+      "open": ["select a session", "click the Changes tab", "click a diff line to open the comment composer"],
+      "capture": ["changes", "comment"]
     },
     "split": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
@@ -26,35 +30,43 @@
     },
     "inbox": {
       "files": ["packages/desktop/crates/pocket/src/inbox.rs"],
-      "open": ["click Inbox in the left rail"]
+      "open": ["click Inbox in the left rail"],
+      "capture": ["inbox"]
     },
     "explore": {
       "files": ["packages/desktop/crates/pocket/src/explore.rs"],
-      "open": ["select a session", "click the Explore tab"]
+      "open": ["select a session", "click the Explore tab"],
+      "capture": ["session", "explore"]
     },
     "command-palette-k": {
       "files": ["packages/desktop/crates/pocket/src/overlay.rs"],
-      "open": ["press Cmd+K"]
+      "open": ["press Cmd+K"],
+      "capture": ["palette"]
     },
     "new-session": {
       "files": ["packages/desktop/crates/pocket/src/forms.rs"],
-      "open": ["press Cmd+N"]
+      "open": ["press Cmd+N"],
+      "capture": ["new-session"]
     },
     "project-menu-amp-worktrees": {
       "files": ["packages/desktop/crates/pocket/src/overlay.rs"],
-      "open": ["click the project name dropdown in the sidebar header"]
+      "open": ["click the project name dropdown in the sidebar header"],
+      "capture": ["project-menu"]
     },
     "add-repository": {
       "files": ["packages/desktop/crates/pocket/src/forms.rs"],
-      "open": ["click the project name dropdown", "click 'Add repository to project…'"]
+      "open": ["click the project name dropdown", "click 'Add repository to project…'"],
+      "capture": ["project-menu", "add-repo"]
     },
     "repositories-worktrees": {
       "files": ["packages/desktop/crates/pocket/src/view.rs"],
-      "open": ["press Cmd+B to expand the wide sidebar"]
+      "open": ["press Cmd+B to expand the wide sidebar"],
+      "capture": ["sidebar"]
     },
     "terminal-focus": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/main.rs"],
-      "open": ["select a session", "press Cmd+B to expand the wide sidebar", "press Cmd+. to hide the sidebars"]
+      "open": ["select a session", "press Cmd+B to expand the wide sidebar", "press Cmd+. to hide the sidebars"],
+      "capture": ["session", "sidebar", "focus"]
     }
   }
 }

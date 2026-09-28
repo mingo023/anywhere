@@ -1,3 +1,4 @@
+mod capture;
 mod diff;
 mod explore;
 mod forms;
@@ -118,6 +119,7 @@ pub struct Desktop {
     initials: String,
     tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     git_run: u64,
+    git_done: u64,
     inbox: usize,
     read: HashSet<String>,
     error: Option<String>,
@@ -151,6 +153,7 @@ pub struct Desktop {
     viewed: HashSet<String>,
     new_form: forms::NewForm,
     repo_form: forms::RepoForm,
+    capturing: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -217,6 +220,7 @@ impl Desktop {
             initials: String::new(),
             tree: HashMap::new(),
             git_run: 0,
+            git_done: 0,
             inbox: 0,
             read: HashSet::new(),
             error: None,
@@ -250,6 +254,7 @@ impl Desktop {
             viewed: HashSet::new(),
             new_form,
             repo_form,
+            capturing: false,
             _subs,
         }
     }
@@ -487,6 +492,10 @@ impl Desktop {
 
 
     pub fn fit(&mut self, id: &str, cols: u16, rows: u16) {
+        // Sessions are shared with the user's own window; a capture must not reflow them.
+        if self.capturing {
+            return;
+        }
         if self.sized.get(id) != Some(&(cols, rows)) && self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
             self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
             self.sized.insert(id.to_string(), (cols, rows));
@@ -557,6 +566,7 @@ impl Desktop {
                 if run != d.git_run {
                     return;
                 }
+                d.git_done = run;
                 let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
                 let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees || merged != d.merged;
                 (d.repos, d.tree, d.initials, d.worktrees, d.merged) = (repos, tree, initials, worktrees, merged);
@@ -785,6 +795,7 @@ impl EntityInputHandler for Desktop {
 }
 
 fn main() {
+    let capture = capture::Capture::from_args();
     let path = daemon::sock_path();
     let (daemon, mut rx) = Daemon::connect(&path).unwrap_or_else(|e| {
         eprintln!("pocket-desktop: cannot reach pocketd at {}: {e}", path.display());
@@ -810,7 +821,7 @@ fn main() {
         ]);
         cx.bind_keys(keys::bindings());
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
-        let opts = WindowOptions {
+        let mut opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
                 title: Some("Coding Pocket".into()),
@@ -819,7 +830,10 @@ fn main() {
             }),
             ..Default::default()
         };
-        cx.open_window(opts, move |window, cx| {
+        if capture.is_some() {
+            capture::Capture::hide(&mut opts);
+        }
+        let window = cx.open_window(opts, move |window, cx| {
             let view = cx.new(|cx| {
                 cx.spawn_in(window, async move |this, cx| {
                     while let Some(m) = rx.next().await {
@@ -858,6 +872,9 @@ fn main() {
             cx.new(|cx| Root::new(view, window, cx))
         })
         .expect("open window");
-        cx.activate(true);
+        match capture {
+            Some(c) => c.run(window, cx),
+            None => cx.activate(true),
+        }
     });
 }
