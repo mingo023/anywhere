@@ -12,6 +12,10 @@
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
       "open": ["launch the app", "click a session card in the left sessions list"]
     },
+    "sessions-sidebar-expanded": {
+      "files": ["packages/desktop/crates/pocket/src/main.rs"],
+      "open": ["launch the app", "press Cmd+\\ to expand the rail to 240px"]
+    },
     "changes": {
       "files": ["packages/desktop/crates/pocket/src/diff.rs", "packages/desktop/crates/git/**"],
       "open": ["select a session", "click the Changes tab", "click a diff line to open the comment composer"]
