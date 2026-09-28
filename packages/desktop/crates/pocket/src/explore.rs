@@ -1,29 +1,60 @@
 use crate::view::{ago_long, basename, empty, id, list_dir, now_ms};
 use crate::{Desktop, Overlay, Side};
 use git::{Kind, Line};
+use crate::mermaid::Mermaid;
+use crate::syntax::language_for;
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::input::{Editor, TextDecoration};
+use gpui_kit::component::text::{TextView, TextViewStyle};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
-use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use theme::*;
-use ui::{self, Variant, dot};
+use ui::{self, Segment, Variant, dot};
 
 const MAX_BYTES: u64 = 512 * 1024;
-const MAX_LINES: usize = 3000;
+const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+const IMAGES: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
 
-const KEYWORDS: &[&str] = &[
-    "as", "async", "await", "break", "case", "catch", "class", "const", "continue", "def", "default", "else", "enum", "export", "extends", "false",
-    "fn", "for", "from", "function", "if", "impl", "import", "in", "interface", "let", "loop", "match", "mod", "mut", "new", "null", "of", "pub",
-    "return", "self", "static", "struct", "switch", "throw", "trait", "true", "try", "type", "undefined", "use", "var", "where", "while",
-];
+#[derive(Clone, Debug, PartialEq)]
+pub enum Preview {
+    Text(String),
+    Image,
+    Binary(u64),
+    TooLarge(u64),
+    Unreadable,
+}
 
-/// A file's text (None when too big or not UTF-8) and its diff against HEAD when git reports it changed.
-pub fn load(path: &str, changed: bool) -> (String, Option<String>, Vec<Line>) {
-    let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= MAX_BYTES);
-    let text = small.then(|| std::fs::read_to_string(path).ok()).flatten();
+/// Text unless the first 8 KB hold a NUL byte or the bytes aren't UTF-8.
+fn decode(bytes: Vec<u8>) -> Preview {
+    let len = bytes.len() as u64;
+    if bytes[..bytes.len().min(8192)].contains(&0) {
+        return Preview::Binary(len);
+    }
+    String::from_utf8(bytes).map_or(Preview::Binary(len), Preview::Text)
+}
+
+/// What Explore can show for the file at `path`.
+pub fn preview(path: &str) -> Preview {
+    let Ok(len) = std::fs::metadata(path).map(|m| m.len()) else { return Preview::Unreadable };
+    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    let image = IMAGES.contains(&ext.as_str());
+    if len > if image { MAX_IMAGE_BYTES } else { MAX_BYTES } {
+        return Preview::TooLarge(len);
+    }
+    if image {
+        return Preview::Image;
+    }
+    std::fs::read(path).map_or(Preview::Unreadable, decode)
+}
+
+/// What a file shows as and its diff against HEAD when git reports it changed.
+pub fn load(path: &str, changed: bool) -> (String, Preview, Vec<Line>) {
+    let preview = preview(path);
     let dir = Path::new(path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let diff = if changed { git::file_diff(&dir, path) } else { Vec::new() };
-    (path.to_string(), text, diff)
+    (path.to_string(), preview, diff)
 }
 
 pub fn status_word(status: Option<char>) -> (u32, &'static str) {
@@ -64,49 +95,6 @@ pub fn size(bytes: usize) -> String {
     }
 }
 
-/// Colour ranges for one line of code: keywords, strings, comments, numbers and called functions.
-pub fn highlight(line: &str) -> Vec<(Range<usize>, u32)> {
-    let b = line.as_bytes();
-    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        let c = b[i];
-        if line[i..].starts_with("//") {
-            out.push((i..b.len(), SYN_COMMENT));
-            break;
-        }
-        if matches!(c, b'"' | b'\'' | b'`') {
-            let mut j = i + 1;
-            while j < b.len() && b[j] != c {
-                j += if b[j] == b'\\' { 2 } else { 1 };
-            }
-            let end = (j + 1).min(b.len());
-            out.push((i..end, SYN_STRING));
-            i = end;
-            continue;
-        }
-        if word(c) {
-            let start = i;
-            while i < b.len() && word(b[i]) {
-                i += 1;
-            }
-            let token = &line[start..i];
-            let next = line[i..].trim_start().bytes().next();
-            if c.is_ascii_digit() {
-                out.push((start..i, SYN_FN));
-            } else if KEYWORDS.contains(&token) {
-                out.push((start..i, SYN_KEYWORD));
-            } else if next == Some(b'(') || b.get(i) == Some(&b'<') {
-                out.push((start..i, SYN_FN));
-            }
-            continue;
-        }
-        i += 1;
-    }
-    out
-}
-
 /// New-side line numbers that git marks as changed: true where a line replaced another, false where it was only added.
 pub fn gutter(lines: &[Line]) -> HashMap<usize, bool> {
     git::split(lines)
@@ -117,6 +105,23 @@ pub fn gutter(lines: &[Line]) -> HashMap<usize, bool> {
             _ => None,
         })
         .collect()
+}
+
+/// Background tints for the lines git marks as changed: amber where a line was modified, green where it was only added.
+pub fn decorations(text: &str, marks: &HashMap<usize, bool>) -> Vec<TextDecoration> {
+    text.lines()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            let modified = *marks.get(&(i + 1))?;
+            let start = line.as_ptr() as usize - text.as_ptr() as usize;
+            let bg = HighlightStyle { background_color: Some(rgba(if modified { WAITING_BG } else { RUNNING_BG }).into()), ..Default::default() };
+            Some(TextDecoration::new(start..start + line.len(), bg))
+        })
+        .collect()
+}
+
+fn pane() -> Div {
+    div().flex_1().min_h_0().border_t(px(0.5)).border_color(rgba(SEPARATOR))
 }
 
 impl Desktop {
@@ -141,8 +146,10 @@ impl Desktop {
     pub fn open_file(&mut self, path: String, cx: &mut Context<Self>) {
         if self.file.as_ref() != Some(&path) {
             self.file = Some(path);
-            self.file_text = None;
+            self.file_preview = None;
             self.file_diff.clear();
+            self.code_stale = true;
+            self.md_source = false;
         }
         self.side = Side::Explorer;
         self.refresh_git(cx);
@@ -235,10 +242,28 @@ impl Desktop {
         let prompt = format!("About {rel}: ");
         let copy = rel.clone();
         let opened = path.clone();
+        let text = match &self.file_preview {
+            Some(Preview::Text(t)) => Some(t.as_str()),
+            _ => None,
+        };
+        let markdown = text.is_some() && language_for(&path) == "markdown";
         let right = div()
             .flex()
             .items_center()
             .gap(px(4.))
+            .when(markdown, |d| {
+                d.child(div().id("md-mode").child(ui::segmented(
+                    vec![Segment { icon: None, value: false, label: "Preview".into(), badge: None }, Segment { icon: None, value: true, label: "Source".into(), badge: None }],
+                    self.md_source,
+                    true,
+                    false,
+                    |this, v, cx| {
+                        this.md_source = v;
+                        cx.notify();
+                    },
+                    cx,
+                )))
+            })
             .child(
                 ui::button("ask-file", Variant::Ghost, Some("sparkle"), "Ask about this file").text_color(rgba(TEXT)).on_click(cx.listener(
                     move |this, _: &ClickEvent, window, cx| {
@@ -256,13 +281,12 @@ impl Desktop {
                 ui::group_button("copy-path", "copy").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))),
                 ui::group_button("file-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
             ]));
-        let text = self.file_text.clone();
         let (status_color, status_label) = status_word(self.file_status(&path));
         let mut meta = div()
             .flex()
             .items_center()
             .child(ui::meta_item().child(icon("file", 13., TEXT_3)).child(language(&path)));
-        if let Some(t) = &text {
+        if let Some(t) = text {
             meta = meta.child(ui::meta_item().child(ui::meta_value(format!("{} lines · {}", t.lines().count(), size(t.len())))));
         }
         meta = meta.child(ui::meta_item().child(dot(7., status_color)).child(ui::meta_value(status_label)));
@@ -296,8 +320,42 @@ impl Desktop {
                 .child(ui::link("view-changes", "View changes").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(None, cx))))
         });
         let code = match text {
-            Some(t) => self.code_box(&t).into_any_element(),
-            None => empty("This file can't be shown.").into_any_element(),
+            Some(_) if markdown && !self.md_source => pane()
+                .px(px(40.))
+                .py(px(20.))
+                .bg(rgba(SURFACE))
+                .child(
+                    TextView::new(&self.md)
+                        .plugin(Mermaid(self.diagrams.clone()))
+                        .selectable(true)
+                        .scrollable(true)
+                        .style(TextViewStyle {
+                            highlight_theme: cx.theme().highlight_theme.clone(),
+                            inline_code: HighlightStyle { background_color: Some(rgba(FILL_2).into()), ..Default::default() },
+                            code_block: StyleRefinement::default().bg(rgba(SURFACE_SUNKEN)).rounded(px(8.)).p(px(12.)),
+                            ..Default::default()
+                        })
+                        .size_full(),
+                )
+                .into_any_element(),
+            Some(_) => pane()
+                .bg(rgba(SURFACE_SUNKEN))
+                .child(Editor::new(&self.code).readonly(true).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))
+                .into_any_element(),
+            None => match &self.file_preview {
+                Some(Preview::Image) => pane()
+                    .p(px(24.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(rgba(SURFACE_SUNKEN))
+                    .child(img(PathBuf::from(&path)).max_w_full().max_h_full().object_fit(ObjectFit::Contain))
+                    .into_any_element(),
+                Some(Preview::Binary(n)) => empty(format!("Binary file · {}", size(*n as usize))).into_any_element(),
+                Some(Preview::TooLarge(n)) => empty(format!("Too large to preview · {}", size(*n as usize))).into_any_element(),
+                Some(Preview::Unreadable) => empty("This file can't be shown.").into_any_element(),
+                Some(Preview::Text(_)) | None => div().flex_1().into_any_element(),
+            },
         };
         div()
             .flex_1()
@@ -310,62 +368,59 @@ impl Desktop {
             .child(code)
     }
 
-    fn code_box(&self, text: &str) -> Stateful<Div> {
-        let marks = gutter(&self.file_diff);
-        let rows = text.lines().take(MAX_LINES).enumerate().map(|(i, line)| {
-            let n = i + 1;
-            let bar = marks.get(&n).map(|&modified| if modified { WAITING } else { RUNNING });
-            let styled = StyledText::new(SharedString::from(line.to_string()))
-                .with_highlights(highlight(line).into_iter().map(|(r, c)| (r, HighlightStyle { color: Some(rgba(c).into()), ..Default::default() })));
-            div()
-                .relative()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .whitespace_nowrap()
-                .children(bar.map(|c| div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(rgba(c))))
-                .child(div().w(px(46.)).flex_none().pr(px(18.)).flex().justify_end().text_color(rgba(TEXT_5)).child(n.to_string()))
-                .child(styled)
+    /// Loads the open file into the code editor after it changed, keeping the scroll position when the same file refreshes.
+    pub fn sync_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.code_stale) {
+            return;
+        }
+        let text = match &self.file_preview {
+            Some(Preview::Text(t)) => SharedString::from(t.clone()),
+            _ => SharedString::default(),
+        };
+        let same = self.code_file == self.file;
+        let reload = !same || text != self.code_text;
+        let language = language_for(self.file.as_deref().unwrap_or_default());
+        let marks = decorations(&text, &gutter(&self.file_diff));
+        self.code_file = self.file.clone();
+        self.code_text = text.clone();
+        self.code.update(cx, |s, cx| {
+            if !same {
+                s.set_highlighter(language, cx);
+            }
+            if reload {
+                let scroll = s.scroll_offset();
+                s.set_value(text, window, cx);
+                if same {
+                    s.set_scroll_offset(scroll, cx);
+                }
+            }
         });
-        div()
-            .id("code")
-            .flex_1()
-            .min_h_0()
-            .mx(px(20.))
-            .mb(px(20.))
-            .py(px(14.))
-            .overflow_y_scroll()
-            .rounded(px(16.))
-            .bg(rgba(SURFACE_SUNKEN))
-            .shadow(vec![BoxShadow { inset: true, ..ui::ring(SEPARATOR, 0.5) }])
-            .font_family(MONO)
-            .text_size(px(13.))
-            .text_color(rgba(TEXT))
-            .children(rows)
+        self.code_marks.set(marks, cx);
+        if reload {
+            self.md.update(cx, |md, cx| {
+                md.set_text(&self.code_text, cx);
+                if !same {
+                    md.list_state().scroll_to(ListOffset::default());
+                }
+            });
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{gutter, highlight, language, size};
+    use super::{Preview, decode, decorations, gutter, language, preview, size};
     use git::{Kind, Line};
-    use theme::*;
+    use gpui_kit::rgba;
+    use std::collections::HashMap;
+    use theme::{RUNNING_BG, WAITING_BG};
 
     #[test]
-    fn highlights_keywords_strings_calls_and_comments() {
-        let line = "const x = useState<Phase>('idle') // note";
-        let spans: Vec<(&str, u32)> = highlight(line).into_iter().map(|(r, c)| (&line[r], c)).collect();
-        assert_eq!(spans, vec![("const", SYN_KEYWORD), ("useState", SYN_FN), ("'idle'", SYN_STRING), ("// note", SYN_COMMENT)]);
-        let line = "  timeout(id, 5000)";
-        let spans: Vec<&str> = highlight(line).into_iter().map(|(r, _)| &line[r]).collect();
-        assert_eq!(spans, vec!["timeout", "5000"]);
-    }
-
-    #[test]
-    fn highlight_survives_unterminated_strings_and_unicode() {
-        let line = "let s = \"héllo";
-        let spans: Vec<&str> = highlight(line).into_iter().map(|(r, _)| &line[r]).collect();
-        assert_eq!(spans, vec!["let", "\"héllo"]);
+    fn tints_changed_lines() {
+        let d = decorations("a\nbb\nccc\n", &HashMap::from([(2, true), (3, false)]));
+        assert_eq!(d.iter().map(|d| d.range.clone()).collect::<Vec<_>>(), vec![2..4, 5..8]);
+        assert_eq!(d[0].style.background_color, Some(rgba(WAITING_BG).into()));
+        assert_eq!(d[1].style.background_color, Some(rgba(RUNNING_BG).into()));
     }
 
     #[test]
@@ -390,5 +445,28 @@ mod tests {
         assert_eq!(language("Makefile"), "Plain text");
         assert_eq!(size(612), "612 B");
         assert_eq!(size(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn tells_text_from_binary() {
+        assert_eq!(decode(b"fn main() {}\n".to_vec()), Preview::Text("fn main() {}\n".into()));
+        assert_eq!(decode(b"PK\x03\x04\0\0".to_vec()), Preview::Binary(6));
+        assert_eq!(decode(vec![0xff, 0xfe, b'a']), Preview::Binary(3));
+    }
+
+    #[test]
+    fn previews_files_by_kind_and_size() {
+        let dir = std::env::temp_dir().join(format!("pocket-preview-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str, bytes: &[u8]| {
+            let p = dir.join(name);
+            std::fs::write(&p, bytes).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        assert_eq!(preview(&file("a.rs", b"x\n")), Preview::Text("x\n".into()));
+        assert_eq!(preview(&file("logo.PNG", b"\x89PNG\0")), Preview::Image);
+        assert_eq!(preview(&file("big.txt", &vec![b'a'; 600 * 1024])), Preview::TooLarge(600 * 1024));
+        assert_eq!(preview(&dir.join("missing.rs").to_string_lossy()), Preview::Unreadable);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

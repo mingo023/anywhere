@@ -20,12 +20,12 @@ pub fn row_shadow() -> Vec<BoxShadow> {
 
 /// Flat white surface that holds content.
 pub fn page<E: Styled>(e: E) -> E {
-    e.bg(rgba(SURFACE)).rounded(px(20.)).shadow(vec![ring(HAIRLINE, 0.5), shadow(HAIRLINE, 12., 40.)])
+    e.bg(rgba(SURFACE))
 }
 
-/// Floating chrome for the rail and sidebar column.
+/// Translucent chrome for the rail and sidebar column, split from the next pane by a hairline.
 pub fn side<E: Styled>(e: E) -> E {
-    e.bg(rgba(0xfafafbb3)).rounded(px(22.)).shadow(vec![ring(0x00000012, 0.5), highlight(0xffffffe6), shadow(0x281e1414, 10., 34.)])
+    e.bg(rgba(0xfafafbb3)).border_r(px(0.5)).border_color(rgba(SEPARATOR))
 }
 
 /// Floating menus and sheets.

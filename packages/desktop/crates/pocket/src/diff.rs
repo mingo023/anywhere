@@ -2,6 +2,7 @@ use git::{self, Kind, Line};
 use theme::*;
 use ui::{self, Segment, Variant, checkbox, diffstat, dot};
 use crate::explore::status_word;
+use crate::syntax::{Spans, language_for, line_spans};
 use crate::view::{ago_long, empty, now_ms};
 use crate::{Comment, Desktop, Overlay};
 use gpui_kit::component::input::{Escape, Textarea};
@@ -12,6 +13,56 @@ use std::ops::{Range, RangeInclusive};
 const NUM: f32 = 44.;
 const SIGN: f32 = 18.;
 const ROW: f32 = 22.;
+
+const MAX_COLORED: usize = 512 * 1024;
+const MAX_WORD_LINES: usize = 5;
+
+/// Syntax colours for every line of the old and new file; none when either is too big to parse quickly. Run off the UI thread.
+pub fn syntax(path: &str, old: &str, new: &str) -> (Vec<Spans>, Vec<Spans>) {
+    if old.len().max(new.len()) > MAX_COLORED {
+        return Default::default();
+    }
+    let language = language_for(path);
+    (line_spans(language, old), line_spans(language, new))
+}
+
+fn tint(syntax: Spans, words: Vec<Range<usize>>, color: u32) -> Spans {
+    let bg = HighlightStyle { background_color: Some(rgba(color).into()), ..Default::default() };
+    combine_highlights(syntax, words.into_iter().map(|r| (r, bg))).collect()
+}
+
+/// Colours for each diff line: syntax from its side of the file, plus word tints where a run of up to five deletions is replaced line for line.
+pub fn highlights(lines: &[Line], old: &[Spans], new: &[Spans]) -> Vec<Spans> {
+    let syntax = |l: &Line| {
+        let side = match l.kind {
+            Kind::Hunk => None,
+            Kind::Del => l.old.and_then(|n| old.get(n - 1)),
+            Kind::Add | Kind::Context => l.new.and_then(|n| new.get(n - 1)),
+        };
+        let fits = |r: &Range<usize>| r.end <= l.text.len() && l.text.is_char_boundary(r.start) && l.text.is_char_boundary(r.end);
+        side.map(|s| s.iter().filter(|(r, _)| fits(r)).cloned().collect()).unwrap_or_default()
+    };
+    let mut out: Vec<Spans> = lines.iter().map(syntax).collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let dels = lines[i..].iter().take_while(|l| l.kind == Kind::Del).count();
+        let adds = lines[i + dels..].iter().take_while(|l| l.kind == Kind::Add).count();
+        if dels == 0 {
+            i += 1;
+            continue;
+        }
+        if dels == adds && dels <= MAX_WORD_LINES {
+            for k in 0..dels {
+                let (d, a) = (i + k, i + dels + k);
+                let (del, add) = git::words(&lines[d].text, &lines[a].text);
+                out[d] = tint(std::mem::take(&mut out[d]), del, DIFF_DEL_WORD);
+                out[a] = tint(std::mem::take(&mut out[a]), add, DIFF_ADD_WORD);
+            }
+        }
+        i += dels + adds;
+    }
+    out
+}
 
 fn colors(kind: Kind) -> (Option<u32>, u32, &'static str) {
     match kind {
@@ -117,6 +168,12 @@ fn hunk(lines: &[Line], i: usize) -> Div {
         .child(div().truncate().child(context))
 }
 
+/// The first new-side line folded away above hunk `i`, the key `git::diff_texts` opens it by.
+fn fold_start(lines: &[Line], i: usize) -> Option<usize> {
+    let (hidden, _) = hunk_info(lines, i);
+    (hidden > 0).then(|| git::hunk_start(&lines[i].text, '+') - hidden)
+}
+
 fn line_label((lo, hi): (usize, usize)) -> String {
     if lo == hi { format!("L{lo}") } else { format!("L{lo}-{hi}") }
 }
@@ -128,7 +185,7 @@ fn remap(old: &[Line], new: &[Line], i: usize) -> Option<usize> {
     new.iter().position(|n| n == l).or_else(|| new.iter().enumerate().filter(|(_, n)| same(n)).min_by_key(|(j, _)| j.abs_diff(i)).map(|(j, _)| j))
 }
 
-fn code(l: &Line, numbers: Vec<Option<usize>>, picked: bool) -> Div {
+fn code(l: &Line, hl: Option<&Spans>, numbers: Vec<Option<usize>>, picked: bool) -> Div {
     let (bg, fg, sign) = colors(l.kind);
     let bg = if picked { Some(if l.kind == Kind::Context { ACCENT_TINT } else { ACCENT_BG }) } else { bg };
     div()
@@ -140,7 +197,14 @@ fn code(l: &Line, numbers: Vec<Option<usize>>, picked: bool) -> Div {
         .when(picked, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(rgba(ACCENT))))
         .children(numbers.into_iter().map(|n| number(n, picked)))
         .child(div().w(px(SIGN)).flex_none().flex().justify_center().text_color(rgba(fg)).child(sign))
-        .child(div().flex_1().min_w_0().pr(px(20.)).text_color(rgba(fg)).child(SharedString::from(l.text.clone())))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .pr(px(20.))
+                .text_color(rgba(TEXT_BODY))
+                .child(StyledText::new(SharedString::from(l.text.clone())).with_highlights(hl.cloned().unwrap_or_default())),
+        )
 }
 
 fn add_button(left: f32) -> Div {
@@ -315,11 +379,9 @@ impl Desktop {
         div()
             .flex_1()
             .min_h_0()
-            .mx(px(20.))
-            .mb(px(20.))
-            .rounded(px(16.))
             .bg(rgba(SURFACE))
-            .shadow(vec![ui::ring(HAIRLINE, 0.5)])
+            .border_t(px(0.5))
+            .border_color(rgba(SEPARATOR))
             .overflow_hidden()
             .font_family(MONO)
             .text_size(px(12.5))
@@ -329,14 +391,23 @@ impl Desktop {
             .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
     }
 
-    pub fn set_diff(&mut self, lines: Vec<Line>) -> bool {
+    pub fn set_diff(&mut self, lines: Vec<Line>, reset: bool) -> bool {
         if lines == self.diff {
             return false;
         }
         self.selection = self.selection.and_then(|(a, b)| Some((remap(&self.diff, &lines, a)?, remap(&self.diff, &lines, b)?)));
         self.diff = lines;
-        self.layout_diff(true);
+        self.layout_diff(reset);
         true
+    }
+
+    /// Shows the unchanged lines folded away from `start` on, keeping the scroll position.
+    fn expand(&mut self, start: usize, cx: &mut Context<Self>) {
+        self.diff_open.insert(start);
+        let lines = git::diff_texts(&self.diff_source.0, &self.diff_source.1, &self.diff_open);
+        self.diff_hl = highlights(&lines, &self.diff_syntax.0, &self.diff_syntax.1);
+        self.set_diff(lines, false);
+        cx.notify();
     }
 
     /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
@@ -383,9 +454,9 @@ impl Desktop {
     /// One side of a row: pressing picks its line, dragging or shift-clicking stretches the pick; "+" or a drag opens the composer.
     fn cell(&self, id: &'static str, i: usize, numbers: Vec<Option<usize>>, add_at: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         if self.diff[i].kind == Kind::Hunk {
-            return hunk(&self.diff, i).id((id, i));
+            return self.fold(id, i, cx);
         }
-        let row = code(&self.diff[i], numbers, self.picked(i)).id((id, i));
+        let row = code(&self.diff[i], self.diff_hl.get(i), numbers, self.picked(i)).id((id, i));
         let last = self.selection.is_some_and(|s| *ordered(s).end() == i);
         row.group("diff-line")
             .cursor_pointer()
@@ -399,11 +470,20 @@ impl Desktop {
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| this.drag_to(i, ev.dragging(), window, cx)))
     }
 
+    /// A hunk header; clicking it unfolds the lines hidden above it.
+    fn fold(&self, id: &'static str, i: usize, cx: &mut Context<Self>) -> Stateful<Div> {
+        let row = hunk(&self.diff, i).id((id, i));
+        match fold_start(&self.diff, i) {
+            Some(start) => row.cursor_pointer().hover(|s| s.bg(rgba(FILL_2))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.expand(start, cx))),
+            None => row,
+        }
+    }
+
     fn diff_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let Some(&row) = self.diff_rows.get(ix) else { return Empty.into_any_element() };
         match row {
             Row::Unified(i) => self.cell("line", i, vec![self.diff[i].old, self.diff[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
-            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if self.diff[i].kind == Kind::Hunk => hunk(&self.diff, i).w_full().into_any_element(),
+            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if self.diff[i].kind == Kind::Hunk => self.fold("fold", i, cx).w_full().into_any_element(),
             Row::Split(l, r) => {
                 let mut side = |id, i: Option<usize>, n: fn(&Line) -> Option<usize>| match i {
                     Some(i) => self.cell(id, i, vec![n(&self.diff[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
@@ -456,7 +536,7 @@ impl Desktop {
             .ml(px(if self.diff_split { NUM + SIGN } else { 2. * NUM + SIGN }))
             .flex()
             .flex_col()
-            .rounded(px(12.))
+            .rounded(px(16.))
             .bg(rgba(SURFACE))
             .shadow(vec![ui::ring(ACCENT_RING, 1.), ui::shadow(0x1111131a, 8., 24.), ui::shadow(0x1111130f, 1., 2.)])
             .font_family(SANS)
@@ -599,8 +679,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Row, changed, hunk_info, label, remap, rows};
+    use super::{Row, changed, fold_start, highlights, hunk_info, label, remap, rows};
     use git::parse;
+    use gpui_kit::{HighlightStyle, rgba};
+    use theme::{DIFF_ADD_WORD, DIFF_DEL_WORD, SYN_FN, SYN_KEYWORD, SYN_STRING};
 
     const DIFF: &str = "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n";
 
@@ -649,5 +731,44 @@ mod tests {
         assert_eq!(changed(&old, &[Row::Unified(0), Row::Unified(2)]), (1..2, 0));
         assert_eq!(changed(&old, &old), (3..3, 0));
         assert_eq!(changed(&[], &old), (0..0, 3));
+    }
+
+    fn color(c: u32) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+        vec![(0..1, HighlightStyle { color: Some(rgba(c).into()), ..Default::default() })]
+    }
+
+    #[test]
+    fn tints_changed_words_in_lines_replaced_one_for_one() {
+        let l = parse("@@ -1,2 +1,2 @@\n-let a = 1;\n+let b = 1;\n ctx\n");
+        let hl = highlights(&l, &[], &[]);
+        let tint = |i: usize| hl[i].iter().filter_map(|(r, s)| Some((r.clone(), s.background_color?))).collect::<Vec<_>>();
+        assert_eq!(tint(1), vec![(4..5, rgba(DIFF_DEL_WORD).into())]);
+        assert_eq!(tint(2), vec![(4..5, rgba(DIFF_ADD_WORD).into())]);
+        assert!(hl[3].is_empty());
+    }
+
+    #[test]
+    fn takes_syntax_from_each_side_and_skips_uneven_runs() {
+        let l = parse("@@ -2,1 +2,2 @@\n-x\n+y\n+z\n");
+        let hl = highlights(&l, &[vec![], color(SYN_KEYWORD)], &[vec![], color(SYN_FN), color(SYN_STRING)]);
+        assert_eq!(hl[1][0].1.color, Some(rgba(SYN_KEYWORD).into()));
+        assert_eq!(hl[2][0].1.color, Some(rgba(SYN_FN).into()));
+        assert_eq!(hl[3][0].1.color, Some(rgba(SYN_STRING).into()));
+        assert!(hl.iter().flatten().all(|(_, s)| s.background_color.is_none()));
+    }
+
+    #[test]
+    fn drops_syntax_that_no_longer_fits_the_line() {
+        let l = parse("@@ -1,1 +1,1 @@\n a\n");
+        let long = vec![(0..5, HighlightStyle { color: Some(rgba(SYN_FN).into()), ..Default::default() })];
+        assert!(highlights(&l, &[], &[long])[1].is_empty());
+    }
+
+    #[test]
+    fn finds_the_first_folded_line() {
+        let l = parse("@@ -40,2 +45,2 @@ export function f() {\n a\n b\n@@ -60,1 +65,1 @@\n c\n");
+        assert_eq!(fold_start(&l, 0), Some(1));
+        assert_eq!(fold_start(&l, 3), Some(47));
+        assert_eq!(fold_start(&parse("@@ -1,1 +1,1 @@\n a\n"), 0), None);
     }
 }

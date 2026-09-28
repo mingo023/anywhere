@@ -1,3 +1,7 @@
+use imara_diff::{Algorithm, Diff, InternedInput};
+use std::collections::HashSet;
+use std::ops::Range;
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,7 +60,7 @@ pub fn read(cwd: &str) -> Option<Repo> {
     let branch = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
     let staged = lines(git(cwd, &["diff", "--cached", "--name-only"]));
     let statuses = name_status(&git(cwd, &["diff", "HEAD", "--name-status"]).unwrap_or_default());
-    let mut files: Vec<FileStat> = numstat(&git(cwd, &["diff", "HEAD", "--numstat"]).unwrap_or_default())
+    let mut files: Vec<FileStat> = numstat(&git(cwd, &["diff", "HEAD", "--numstat", "--histogram"]).unwrap_or_default())
         .into_iter()
         .map(|(path, added, removed)| {
             let status = statuses.iter().find(|(p, _)| *p == path).map_or('M', |(_, s)| *s);
@@ -188,12 +192,95 @@ pub fn user_initials(cwd: &str) -> String {
 }
 
 pub fn file_diff(cwd: &str, path: &str) -> Vec<Line> {
-    let tracked = git(cwd, &["diff", "HEAD", "--", path]).filter(|s| !s.is_empty());
-    let out = tracked.unwrap_or_else(|| {
-        let out = Command::new("git").arg("-C").arg(cwd).args(["diff", "--no-index", "--", "/dev/null", path]).output();
-        out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
-    });
-    parse(&out)
+    let (old, new) = texts(cwd, path);
+    diff_texts(&old, &new, &HashSet::new())
+}
+
+const CONTEXT: usize = 3;
+
+/// The file at HEAD (empty when untracked) and in the working tree (empty when deleted); `path` is relative to `cwd` or absolute.
+pub fn texts(cwd: &str, path: &str) -> (String, String) {
+    let full = Path::new(cwd).join(path);
+    let rel = full.strip_prefix(cwd).unwrap_or(&full).to_string_lossy().into_owned();
+    let old = git(cwd, &["show", &format!("HEAD:./{rel}")]).unwrap_or_default();
+    let new = std::fs::read(&full).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+    (old, new)
+}
+
+/// A unified diff of two texts with three lines of context around each change. A gap whose first new-side line is in `open` shows in full instead of folding.
+pub fn diff_texts(old: &str, new: &str, open: &HashSet<usize>) -> Vec<Line> {
+    if old.contains('\0') || new.contains('\0') {
+        return Vec::new();
+    }
+    let (ol, nl): (Vec<&str>, Vec<&str>) = (old.lines().collect(), new.lines().collect());
+    let input = InternedInput::new(old, new);
+    let mut diff = Diff::compute(Algorithm::Histogram, &input);
+    diff.postprocess_lines(&input);
+    let hunks: Vec<_> = diff.hunks().collect();
+    if hunks.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let (mut o, mut n) = (0, 0);
+    for k in 0..=hunks.len() {
+        let last = k == hunks.len();
+        let (bs, be, as_, ae) = hunks.get(k).map_or((ol.len(), ol.len(), nl.len(), nl.len()), |h| {
+            (h.before.start as usize, h.before.end as usize, h.after.start as usize, h.after.end as usize)
+        });
+        let gap = bs - o;
+        let lead = if k == 0 { 0 } else { gap.min(CONTEXT) };
+        let trail = if last { 0 } else { (gap - lead).min(CONTEXT) };
+        let fold = if last || open.contains(&(n + lead + 1)) { 0 } else { gap - lead - trail };
+        let same = |i: usize| Line { kind: Kind::Context, old: Some(o + i + 1), new: Some(n + i + 1), text: ol[o + i].into() };
+        out.extend((0..lead).map(same));
+        if k == 0 || fold > 0 {
+            let (a, b) = (o + lead + fold + 1, n + lead + fold + 1);
+            out.push(Line { kind: Kind::Hunk, old: None, new: None, text: format!("@@ -{a} +{b} @@") });
+        }
+        out.extend((lead + fold..if last { lead } else { gap }).map(same));
+        out.extend((bs..be).map(|i| Line { kind: Kind::Del, old: Some(i + 1), new: None, text: ol[i].into() }));
+        out.extend((as_..ae).map(|i| Line { kind: Kind::Add, old: None, new: Some(i + 1), text: nl[i].into() }));
+        (o, n) = (be, ae);
+    }
+    out
+}
+
+fn tokens(s: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for (i, c) in s.char_indices() {
+        if c.is_alphanumeric() || c == '_' {
+            start.get_or_insert(i);
+            continue;
+        }
+        if let Some(a) = start.take() {
+            out.push((a, &s[a..i]));
+        }
+        out.push((i, &s[i..i + c.len_utf8()]));
+    }
+    if let Some(a) = start {
+        out.push((a, &s[a..]));
+    }
+    out
+}
+
+/// Byte ranges that differ between two versions of a line, compared word by word: (removed from `old`, added in `new`).
+pub fn words(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+    let (a, b) = (tokens(old), tokens(new));
+    let mut input = InternedInput::default();
+    input.update_before(a.iter().map(|t| t.1));
+    input.update_after(b.iter().map(|t| t.1));
+    let span = |t: &[(usize, &str)], r: Range<u32>| t[r.start as usize].0..t[r.end as usize - 1].0 + t[r.end as usize - 1].1.len();
+    let (mut del, mut add) = (Vec::new(), Vec::new());
+    for h in Diff::compute(Algorithm::Histogram, &input).hunks() {
+        if !h.before.is_empty() {
+            del.push(span(&a, h.before));
+        }
+        if !h.after.is_empty() {
+            add.push(span(&b, h.after));
+        }
+    }
+    (del, add)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -326,5 +413,81 @@ mod tests {
     #[test]
     fn numstat_reads_binary_as_zero() {
         assert_eq!(numstat("3\t1\ta.rs\n-\t-\timg.png\n"), vec![("a.rs".into(), 3, 1), ("img.png".into(), 0, 0)]);
+    }
+
+    fn numbered(n: usize) -> String {
+        (1..=n).map(|i| format!("l{i}\n")).collect()
+    }
+
+    #[test]
+    fn diffs_word_by_word() {
+        assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
+        assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], vec![7..12]));
+        assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+    }
+
+    #[test]
+    fn reads_head_and_working_texts() {
+        let dir = std::env::temp_dir().join(format!("pocket-git-texts-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        let d = dir.to_str().unwrap();
+        let run = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(d).args(args).output().unwrap().status.success());
+        run(&["init", "-q"]);
+        std::fs::write(dir.join("src/a.rs"), "old\n").unwrap();
+        run(&["add", "."]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "init"]);
+        std::fs::write(dir.join("src/a.rs"), "new\n").unwrap();
+        std::fs::write(dir.join("b.rs"), "fresh\n").unwrap();
+        assert_eq!(texts(d, "src/a.rs"), ("old\n".into(), "new\n".into()));
+        assert_eq!(texts(&format!("{d}/src"), &format!("{d}/src/a.rs")), ("old\n".into(), "new\n".into()));
+        assert_eq!(texts(d, "b.rs"), (String::new(), "fresh\n".into()));
+        std::fs::write(dir.join("src/a.rs"), b"\x89PNG\0\xff").unwrap();
+        assert!(file_diff(d, "src/a.rs").is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn diffs_texts_with_three_lines_of_context() {
+        let old = numbered(20);
+        let lines = diff_texts(&old, &old.replace("l10\n", "L10\n"), &HashSet::new());
+        let got: Vec<_> = lines.iter().map(|l| (l.kind, l.old, l.new, l.text.as_str())).collect();
+        assert_eq!(
+            got,
+            vec![
+                (Kind::Hunk, None, None, "@@ -7 +7 @@"),
+                (Kind::Context, Some(7), Some(7), "l7"),
+                (Kind::Context, Some(8), Some(8), "l8"),
+                (Kind::Context, Some(9), Some(9), "l9"),
+                (Kind::Del, Some(10), None, "l10"),
+                (Kind::Add, None, Some(10), "L10"),
+                (Kind::Context, Some(11), Some(11), "l11"),
+                (Kind::Context, Some(12), Some(12), "l12"),
+                (Kind::Context, Some(13), Some(13), "l13"),
+            ]
+        );
+    }
+
+    #[test]
+    fn folds_long_gaps_and_opens_them_on_request() {
+        let old = numbered(30);
+        let new = old.replace("l5\n", "L5\n").replace("l25\n", "L25\n");
+        let folded = diff_texts(&old, &new, &HashSet::new());
+        let headers: Vec<&str> = folded.iter().filter(|l| l.kind == Kind::Hunk).map(|l| l.text.as_str()).collect();
+        assert_eq!(headers, ["@@ -2 +2 @@", "@@ -22 +22 @@"]);
+        let open = diff_texts(&old, &new, &HashSet::from([9]));
+        assert_eq!(open.iter().filter(|l| l.kind == Kind::Hunk).count(), 1);
+        assert_eq!(open.len(), folded.len() - 1 + 13);
+    }
+
+    #[test]
+    fn merges_nearby_changes_and_handles_edges() {
+        let old = numbered(10);
+        let near = diff_texts(&old, &old.replace("l1\n", "L1\n").replace("l6\n", "L6\n"), &HashSet::new());
+        assert_eq!(near[0].text, "@@ -1 +1 @@");
+        assert_eq!(near.iter().filter(|l| l.kind == Kind::Hunk).count(), 1);
+        assert!(diff_texts(&old, &old, &HashSet::new()).is_empty());
+        assert!(diff_texts("a\0", "b", &HashSet::new()).is_empty());
+        let added = diff_texts("", "x\ny\n", &HashSet::new());
+        assert_eq!(added.iter().map(|l| l.kind).collect::<Vec<_>>(), [Kind::Hunk, Kind::Add, Kind::Add]);
     }
 }

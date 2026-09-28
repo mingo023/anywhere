@@ -356,7 +356,7 @@ impl Desktop {
         });
         let label = |text: String| div().px(px(10.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child(text);
         let rule = || div().mx(px(8.)).my(px(8.)).h(px(0.5)).bg(rgba(SEPARATOR));
-        let left = if self.wide { 292. } else { 92. };
+        let left = if self.wide { 292. } else if self.rail_open { 260. } else { 92. };
         ui::pop(div().absolute().left(px(left)).top(px(62.)).w(px(438.)).p(px(8.)).pt(px(14.)).rounded(px(20.)).flex().flex_col())
             .occlude()
             .child(label(format!("Repositories in {name}")))

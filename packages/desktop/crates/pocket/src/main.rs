@@ -2,8 +2,10 @@ mod diff;
 mod explore;
 mod forms;
 mod inbox;
+mod mermaid;
 mod overlay;
 mod sessions;
+mod syntax;
 mod termview;
 mod view;
 
@@ -11,7 +13,8 @@ use agents::{Agents, Summary};
 use daemon::{Daemon, Msg};
 use futures::StreamExt;
 use git::Repo;
-use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
+use gpui_kit::component::input::{EditorState, InputEvent, InputState, TextDecorationCollection, TextareaState};
+use gpui_kit::component::text::TextViewState;
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use serde_json::json;
@@ -23,7 +26,7 @@ use std::time::Duration;
 use store::Store;
 use workspace::{Tab, Workspace};
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, NewWorktree, ProjectSettings]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, ToggleRail, NewWorktree, ProjectSettings]);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -90,6 +93,7 @@ pub struct Desktop {
     screen: Screen,
     side: Side,
     wide: bool,
+    rail_open: bool,
     session: Option<String>,
     workspaces: HashMap<String, Workspace>,
     intents: VecDeque<Intent>,
@@ -100,6 +104,10 @@ pub struct Desktop {
     diff_rows: Vec<diff::Row>,
     diff_list: ListState,
     diff_split: bool,
+    diff_hl: Vec<syntax::Spans>,
+    diff_open: HashSet<usize>,
+    diff_source: (String, String),
+    diff_syntax: (Vec<syntax::Spans>, Vec<syntax::Spans>),
     selection: Option<(usize, usize)>,
     dragging: bool,
     composing: bool,
@@ -127,8 +135,16 @@ pub struct Desktop {
     merged: HashSet<String>,
     worktree: Option<String>,
     file: Option<String>,
-    file_text: Option<String>,
+    file_preview: Option<explore::Preview>,
     file_diff: Vec<git::Line>,
+    code: Entity<EditorState>,
+    code_marks: TextDecorationCollection,
+    code_stale: bool,
+    code_file: Option<String>,
+    code_text: SharedString,
+    md: Entity<TextViewState>,
+    diagrams: Entity<mermaid::Diagrams>,
+    md_source: bool,
     touched_only: bool,
     comments: Vec<Comment>,
     viewed: HashSet<String>,
@@ -145,6 +161,10 @@ impl Desktop {
     fn new(daemon: Daemon, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions, files and actions…"));
         let comment_input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
+        let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
+        let code_marks = code.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
+        let md = cx.new(|cx| TextViewState::markdown("", cx));
+        let diagrams = cx.new(|_| mermaid::Diagrams::new(&md));
         let (new_form, new_subs) = forms::NewForm::new(window, cx);
         let (repo_form, repo_subs) = forms::RepoForm::new(window, cx);
         let mut _subs = vec![
@@ -171,6 +191,7 @@ impl Desktop {
             screen: Screen::Sessions,
             side: Side::Sessions,
             wide: false,
+            rail_open: false,
             session: None,
             workspaces: HashMap::new(),
             intents: VecDeque::new(),
@@ -181,6 +202,10 @@ impl Desktop {
             diff_rows: Vec::new(),
             diff_list: ListState::new(0, ListAlignment::Top, px(400.)),
             diff_split: false,
+            diff_hl: Vec::new(),
+            diff_open: HashSet::new(),
+            diff_source: Default::default(),
+            diff_syntax: Default::default(),
             selection: None,
             dragging: false,
             composing: false,
@@ -208,8 +233,16 @@ impl Desktop {
             merged: HashSet::new(),
             worktree: None,
             file: None,
-            file_text: None,
+            file_preview: None,
             file_diff: Vec::new(),
+            code,
+            code_marks,
+            code_stale: false,
+            code_file: None,
+            code_text: SharedString::default(),
+            md,
+            diagrams,
+            md_source: false,
             touched_only: false,
             comments: Vec::new(),
             viewed: HashSet::new(),
@@ -479,6 +512,8 @@ impl Desktop {
             (f, changed)
         });
         let diff = self.cwd().zip(self.diff_file.clone());
+        let shown = self.diff.clone();
+        let open = self.diff_open.clone();
         let mut dirs: Vec<PathBuf> = self.tree.keys().cloned().collect();
         dirs.extend(self.explore_root().map(PathBuf::from));
         self.git_run += 1;
@@ -488,7 +523,16 @@ impl Desktop {
                 let r = git::read(&c);
                 (c, r)
             }).collect();
-            let diff = diff.map(|(cwd, path)| (git::file_diff(&cwd, &path), path));
+            let diff = diff.map(|(cwd, path)| {
+                let (old, new) = git::texts(&cwd, &path);
+                let lines = git::diff_texts(&old, &new, &open);
+                let spans = (lines != shown).then(|| {
+                    let syntax = diff::syntax(&path, &old, &new);
+                    let hl = diff::highlights(&lines, &syntax.0, &syntax.1);
+                    (syntax, hl)
+                });
+                (lines, (old, new), spans, path, open)
+            });
             let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
             let tree = dirs.into_iter().map(|d| {
                 let listing = view::list_dir(&d);
@@ -514,12 +558,19 @@ impl Desktop {
                 let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
                 let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees || merged != d.merged;
                 (d.repos, d.tree, d.initials, d.worktrees, d.merged) = (repos, tree, initials, worktrees, merged);
-                if let Some((_, text, lines)) = file.filter(|(p, _, _)| d.file.as_ref() == Some(p)) {
-                    changed |= text != d.file_text || lines != d.file_diff;
-                    (d.file_text, d.file_diff) = (text, lines);
+                if let Some((_, preview, lines)) = file.filter(|(p, _, _)| d.file.as_ref() == Some(p)) {
+                    let preview = Some(preview);
+                    let fresh = preview != d.file_preview || lines != d.file_diff;
+                    changed |= fresh;
+                    d.code_stale |= fresh;
+                    (d.file_preview, d.file_diff) = (preview, lines);
                 }
-                if let Some((lines, _)) = diff.filter(|(_, p)| d.diff_file.as_ref() == Some(p)) {
-                    changed |= d.set_diff(lines);
+                if let Some((lines, source, spans, _, _)) = diff.filter(|(.., p, open)| d.diff_file.as_ref() == Some(p) && *open == d.diff_open) {
+                    d.diff_source = source;
+                    if let Some((syntax, hl)) = spans {
+                        (d.diff_syntax, d.diff_hl) = (syntax, hl);
+                    }
+                    changed |= d.set_diff(lines, true);
                 }
                 if changed {
                     cx.notify();
@@ -534,7 +585,8 @@ impl Desktop {
         let path = path.or_else(|| self.diff_file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
         if path != self.diff_file {
             self.selection = None;
-            self.set_diff(Vec::new());
+            self.diff_open.clear();
+            self.set_diff(Vec::new(), true);
         }
         self.diff_file = path;
         self.screen = Screen::Sessions;
@@ -664,6 +716,11 @@ impl Desktop {
         cx.notify();
     }
 
+    fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
+        self.rail_open = !self.rail_open;
+        cx.notify();
+    }
+
     fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.focused.clone() else { return };
         let Some(s) = self.sessions.get(&id) else { return };
@@ -738,6 +795,7 @@ fn main() {
             KeyBinding::new("cmd-n", StartSession, None),
             KeyBinding::new("cmd-j", NextWaiting, None),
             KeyBinding::new("cmd-b", ToggleSidebar, None),
+            KeyBinding::new("cmd-\\", ToggleRail, None),
             KeyBinding::new("cmd-shift-n", NewWorktree, None),
             KeyBinding::new("cmd-,", ProjectSettings, None),
             KeyBinding::new("cmd-enter", OpenSession, None),
@@ -749,7 +807,7 @@ fn main() {
             titlebar: Some(TitlebarOptions {
                 title: Some("Coding Pocket".into()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(15.), px(20.))),
+                traffic_light_position: Some(point(px(5.), px(14.))),
             }),
             ..Default::default()
         };

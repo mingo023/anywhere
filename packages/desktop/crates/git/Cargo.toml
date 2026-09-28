@@ -6,3 +6,6 @@ publish.workspace = true
 
 [lib]
 path = "src/git.rs"
+
+[dependencies]
+imara-diff.workspace = true

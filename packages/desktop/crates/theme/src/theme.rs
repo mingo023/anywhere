@@ -1,5 +1,7 @@
+use gpui_kit::component::highlighter::HighlightTheme;
 use gpui_kit::*;
 use std::borrow::Cow;
+use std::sync::Arc;
 
 pub const SANS: &str = "Geist";
 pub const MONO: &str = "Geist Mono";
@@ -48,6 +50,8 @@ pub const DIFF_ADD_BG: u32 = 0x30a46c1c;
 pub const DIFF_ADD_TEXT: u32 = 0x18794eff;
 pub const DIFF_DEL_BG: u32 = 0xe5484d17;
 pub const DIFF_DEL_TEXT: u32 = 0xcd2b31ff;
+pub const DIFF_ADD_WORD: u32 = 0x30a46c40;
+pub const DIFF_DEL_WORD: u32 = 0xe5484d38;
 
 pub const MODIFIED: u32 = 0xad5700ff;
 pub const MERGED: u32 = 0x8250dfff;
@@ -59,6 +63,37 @@ pub const SYN_KEYWORD: u32 = 0x8e4ec6ff;
 pub const SYN_FN: u32 = 0x3e63ddff;
 pub const SYN_STRING: u32 = 0x18794eff;
 pub const SYN_COMMENT: u32 = 0xa1a1aaff;
+
+fn syntax_color(name: &str) -> u32 {
+    match name.split('.').next().unwrap_or(name) {
+        "keyword" | "boolean" | "preproc" | "attribute" => SYN_KEYWORD,
+        "function" | "constructor" | "type" | "enum" | "tag" => SYN_FN,
+        "string" | "number" | "constant" => SYN_STRING,
+        "comment" => SYN_COMMENT,
+        _ => TEXT_BODY,
+    }
+}
+
+/// gpui-kit's light highlight theme recoloured with the `SYN_*` tokens, for the code editor, markdown and diff rows.
+pub fn highlight_theme() -> Arc<HighlightTheme> {
+    let hsla = |c: u32| serde_json::to_value(Hsla::from(rgba(c))).expect("colour serializes");
+    let mut v = serde_json::to_value(&*HighlightTheme::default_light()).expect("theme serializes");
+    if let Some(syntax) = v["style"]["syntax"].as_object_mut() {
+        for (name, style) in syntax.iter_mut() {
+            *style = serde_json::json!({ "color": hsla(syntax_color(name)) });
+        }
+    }
+    for (key, c) in [
+        ("editor.background", SURFACE_SUNKEN),
+        ("editor.foreground", TEXT_BODY),
+        ("editor.line_number", TEXT_5),
+        ("editor.active_line_number", TEXT_2),
+        ("editor.active_line.background", FILL_1),
+    ] {
+        v["style"][key] = hsla(c);
+    }
+    Arc::new(serde_json::from_value(v).expect("theme deserializes"))
+}
 
 /// Colours a repository can take in the rail, the menu and the new-session form.
 pub const PALETTE: [u32; 6] = [0xd97757ff, 0x0f9d8aff, 0x7b61ffff, 0xe8a317ff, 0x3b82f6ff, 0x8b8b94ff];
@@ -89,7 +124,7 @@ pub fn spinner(id: impl Into<ElementId>, size: f32, color: u32) -> impl IntoElem
     })
 }
 
-const FONTS: [&[u8]; 8] = [
+pub const FONTS: [&[u8]; 8] = [
     include_bytes!("../assets/fonts/Geist-Regular.ttf"),
     include_bytes!("../assets/fonts/Geist-Medium.ttf"),
     include_bytes!("../assets/fonts/Geist-SemiBold.ttf"),
@@ -111,7 +146,7 @@ macro_rules! embed {
 const ICONS: &[(&str, &[u8])] = embed!(
     "arrow-right", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "clock", "comment", "compose", "copy",
     "external", "file", "filter", "folder", "forward", "inbox", "merge", "mic", "more", "plus", "prompt", "search", "send", "settings", "shield",
-    "sidebar", "sparkle", "spinner", "split-down", "split-right", "terminal", "unfold", "worktree", "x", "x-bold",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "unfold", "worktree", "x", "x-bold",
 );
 
 impl AssetSource for Assets {
@@ -137,4 +172,25 @@ pub fn init(cx: &mut App) {
     t.muted_foreground = rgba(TEXT_2).into();
     t.background = rgba(WINDOW).into();
     t.caret = rgba(TEXT).into();
+    t.mono_font_family = MONO.into();
+    t.mono_font_size = px(13.);
+    t.link = rgba(ACCENT).into();
+    t.highlight_theme = highlight_theme();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SYN_COMMENT, SYN_FN, SYN_KEYWORD, SYN_STRING, highlight_theme};
+    use gpui_kit::component::input::HighlightStyleResolver;
+    use gpui_kit::rgba;
+
+    #[test]
+    fn colours_syntax_with_our_tokens() {
+        let t = highlight_theme();
+        let color = |name: &str| t.style(name).and_then(|s| s.color);
+        assert_eq!(color("keyword"), Some(rgba(SYN_KEYWORD).into()));
+        assert_eq!(color("function"), Some(rgba(SYN_FN).into()));
+        assert_eq!(color("string"), Some(rgba(SYN_STRING).into()));
+        assert_eq!(color("comment"), Some(rgba(SYN_COMMENT).into()));
+    }
 }

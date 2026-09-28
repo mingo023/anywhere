@@ -88,11 +88,11 @@ pub fn state(status: Status, added: usize, removed: usize) -> State {
 }
 
 pub fn column() -> Div {
-    ui::side(div().w(px(328.)).flex_none().h_full().flex().flex_col().overflow_hidden())
+    ui::side(div().w(px(348.)).flex_none().h_full().flex().flex_col().overflow_hidden())
 }
 
-pub fn empty(text: &'static str) -> Div {
-    div().p(px(16.)).text_size(px(13.5)).text_color(rgba(TEXT_3)).child(text)
+pub fn empty(text: impl Into<SharedString>) -> Div {
+    div().p(px(16.)).text_size(px(13.5)).text_color(rgba(TEXT_3)).child(text.into())
 }
 
 fn today(ms: i64) -> bool {
@@ -139,35 +139,101 @@ impl Desktop {
     }
 
     fn rail(&self, cx: &mut Context<Self>) -> Div {
-        let tiles = self.projects().into_iter().enumerate().map(|(i, p)| {
+        let open = self.rail_open;
+        let toggle = icon_button_sized("rail-toggle", if open { "sidebar-collapse" } else { "sidebar-expand" }, 30., TEXT_2)
+            .rounded(px(7.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_rail(&crate::ToggleRail, window, cx)));
+        let rule = div().h(px(0.5)).flex_none().bg(rgba(SEPARATOR_STRONG));
+        let add = cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx));
+        let inbox = cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx));
+        let asks = self.agents.pending.len();
+        let me = if self.initials.is_empty() { "ME".to_string() } else { self.initials.clone() };
+        let rail = drag_area(ui::side(div())).w(px(if open { 240. } else { 72. })).flex_none().h_full().pb(px(12.)).flex().flex_col();
+        if !open {
+            let tiles = self.projects().into_iter().enumerate().map(|(i, p)| {
+                let selected = self.screen == Screen::Sessions && self.project.as_ref() == Some(&p);
+                let state = self.project_state(&p);
+                let tile = ui::repo_tile(&initials(&self.repo_name(&p)), 38., selected, state == Some(State::Waiting), state == Some(State::Running));
+                div().id(("rail-project", i)).cursor_pointer().child(tile).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
+            });
+            let bell = icon_button_sized("rail-bell", "bell", 38., if self.screen == Screen::Inbox { TEXT } else { TEXT_2 })
+                .relative()
+                .rounded(px(11.))
+                .when(asks > 0, |d| d.child(ui::count_badge(asks)))
+                .on_click(inbox);
+            return rail
+                .pt(px(37.))
+                .items_center()
+                .gap(px(12.))
+                .child(toggle)
+                .child(rule.w(px(26.)).mt(px(4.)).mb(px(2.)))
+                .children(tiles)
+                .child(ui::add_tile("rail-add", 38.).on_click(add))
+                .child(div().flex_1())
+                .child(bell)
+                .child(ui::avatar(&me, 32.));
+        }
+        let row = |id: ElementId| div().id(id).h(px(40.)).px(px(8.)).flex().flex_none().items_center().gap(px(10.)).rounded(px(10.)).cursor_pointer().hover(|s| s.bg(rgba(FILL_2)));
+        let rows = self.projects().into_iter().enumerate().map(|(i, p)| {
             let selected = self.screen == Screen::Sessions && self.project.as_ref() == Some(&p);
             let state = self.project_state(&p);
-            let tile = ui::repo_tile(&initials(&self.repo_name(&p)), 38., selected, state == Some(State::Waiting), state == Some(State::Running));
-            div().id(("rail-project", i)).cursor_pointer().child(tile).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
+            let waiting = self.cards(&p).iter().filter(|c| c.status == Status::NeedsYou).count();
+            let note = match state {
+                Some(State::Waiting) => Some((format!("{waiting} waiting"), WAITING_TEXT)),
+                Some(State::Running) => Some(("Running".to_string(), RUNNING_TEXT)),
+                _ => None,
+            };
+            row(("rail-row", i).into())
+                .when(selected, |d| d.bg(rgba(FILL_3)))
+                .child(ui::repo_tile(&initials(&self.repo_name(&p)), 28., selected, state == Some(State::Waiting), state == Some(State::Running)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(13.5))
+                        .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
+                        .child(self.repo_name(&p)),
+                )
+                .children(note.map(|(text, color)| div().flex_none().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(rgba(color)).child(text)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
         });
-        let asks = self.agents.pending.len();
-        let bell = icon_button_sized("rail-bell", "bell", 38., if self.screen == Screen::Inbox { TEXT } else { TEXT_2 })
-            .relative()
-            .rounded(px(11.))
-            .when(asks > 0, |d| d.child(ui::count_badge(asks)))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx)));
-        let me = if self.initials.is_empty() { "ME".to_string() } else { self.initials.clone() };
-        drag_area(ui::side(div()))
-            .w(px(62.))
-            .flex_none()
-            .h_full()
-            .pt(px(44.))
-            .pb(px(12.))
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(12.))
-            .child(div().w(px(26.)).h(px(0.5)).flex_none().bg(rgba(SEPARATOR_STRONG)))
-            .children(tiles)
-            .child(ui::add_tile("rail-add", 38.).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx))))
+        rail.pt(px(6.))
+            .px(px(10.))
+            .gap(px(2.))
+            .child(div().h(px(30.)).flex().flex_none().justify_end().child(toggle))
+            .child(rule.mt(px(10.)).mx(px(4.)).mb(px(8.)))
+            .child(div().pt(px(4.)).px(px(8.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child("Projects"))
+            .children(rows)
+            .child(
+                row("rail-add".into())
+                    .text_color(rgba(TEXT_2))
+                    .child(ui::add_tile("rail-add-tile", 28.))
+                    .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Add repository"))
+                    .on_click(add),
+            )
             .child(div().flex_1())
-            .child(bell)
-            .child(ui::avatar(&me, 32.))
+            .child(
+                div()
+                    .id("rail-bell")
+                    .h(px(38.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(10.))
+                    .text_size(px(13.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .pl(px(12.))
+                    .pr(px(8.))
+                    .rounded(px(10.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgba(FILL_2)))
+                    .child(icon("bell", 17., TEXT))
+                    .child(div().flex_1().pl(px(3.)).child("Notifications"))
+                    .when(asks > 0, |d| d.child(ui::count_badge(asks).relative().top_0().right_0()))
+                    .on_click(inbox),
+            )
+            .child(div().h(px(44.)).pl(px(6.)).pr(px(8.)).flex().flex_none().items_center().gap(px(10.)).child(ui::avatar(&me, 32.)).child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Account")))
     }
 
     /// The expanded sidebar: repositories with their worktrees and each worktree's agents.
@@ -238,7 +304,7 @@ impl Desktop {
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.project_settings(&crate::ProjectSettings, window, cx))),
             );
         ui::side(div())
-            .w(px(262.))
+            .w(px(272.))
             .flex_none()
             .h_full()
             .px(px(8.))
@@ -375,7 +441,7 @@ impl Desktop {
             },
             cx,
         );
-        column().when(self.wide, |d| d.w(px(316.))).child(self.column_header(cx)).child(div().px(px(14.)).pb(px(12.)).child(tabs)).child(body)
+        column().when(self.wide, |d| d.w(px(334.))).child(self.column_header(cx)).child(div().px(px(14.)).pb(px(12.)).child(tabs)).child(body)
     }
 
     fn column_header(&self, cx: &mut Context<Self>) -> Div {
@@ -707,16 +773,17 @@ impl Desktop {
                     self.pane(&id, split.then_some(n), m, cx)
                 })
                 .collect();
-            out.push(div().flex().gap(px(10.)).min_h_0().when(r == 0, |d| d.flex_1()).when(r > 0, |d| d.h(px(250.)).flex_none()).children(panes));
+            out.push(div().flex().gap(px(0.5)).min_h_0().when(r == 0, |d| d.flex_1()).when(r > 0, |d| d.h(px(250.)).flex_none()).children(panes));
         }
         div()
             .flex_1()
             .min_h_0()
-            .mx(px(20.))
-            .mb(px(20.))
             .flex()
             .flex_col()
-            .gap(px(10.))
+            .gap(px(0.5))
+            .bg(rgba(SEPARATOR))
+            .border_t(px(0.5))
+            .border_color(rgba(SEPARATOR))
             .key_context(keys::CONTEXT)
             .track_focus(&self.term_focus)
             .on_key_down(cx.listener(Self::on_term_key))
@@ -765,7 +832,6 @@ impl Desktop {
             .overflow_hidden()
             .child(termview::surface(cx.entity(), id.to_string(), m, focused.then(|| self.term_focus.clone())))
             .child(body);
-        let ring = if focused && n.is_some() { SEPARATOR_STRONG } else { SEPARATOR };
         div()
             .flex_1()
             .min_w_0()
@@ -773,8 +839,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .bg(rgba(SURFACE_SUNKEN))
-            .rounded(px(16.))
-            .shadow(vec![BoxShadow { inset: true, ..ui::ring(ring, 0.5) }])
+            .when(focused && n.is_some(), |d| d.shadow(vec![BoxShadow { inset: true, ..ui::ring(SEPARATOR_STRONG, 0.5) }]))
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
             .children(header)
@@ -799,6 +864,7 @@ impl Desktop {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_code(window, cx);
         let lead = if self.wide { self.aside(cx) } else { self.rail(cx) };
         let column = self.column_view(cx);
         let page = self.main_view(cx);
@@ -806,9 +872,7 @@ impl Render for Desktop {
         div()
             .relative()
             .size_full()
-            .p(px(10.))
             .flex()
-            .gap(px(10.))
             .bg(rgba(WINDOW))
             .font_family(SANS)
             .line_height(relative(1.2))
@@ -827,6 +891,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::project_settings))
             .on_action(cx.listener(Self::next_waiting))
             .on_action(cx.listener(Self::toggle_sidebar))
+            .on_action(cx.listener(Self::toggle_rail))
             .on_action(cx.listener(Self::open_selected))
             .child(lead)
             .child(column)

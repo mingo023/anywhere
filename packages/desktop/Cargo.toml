@@ -22,7 +22,27 @@ base64 = "0.22"
 cc = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 futures = "0.3"
-gpui-kit = "0.6.6"
+gpui-kit = { version = "0.6.6", features = [
+    "tree-sitter-bash",
+    "tree-sitter-css",
+    "tree-sitter-go",
+    "tree-sitter-html",
+    "tree-sitter-java",
+    "tree-sitter-javascript",
+    "tree-sitter-kotlin",
+    "tree-sitter-markdown",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-swift",
+    "tree-sitter-toml",
+    "tree-sitter-tsx",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
+image = { version = "0.25", default-features = false }
+imara-diff = "0.2"
+merman = { version = "=0.8.0-alpha.6", default-features = false, features = ["svg", "layout-cytoscape"] }
+resvg = "0.46"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tungstenite = "0.26"
