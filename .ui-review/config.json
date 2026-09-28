@@ -51,6 +51,10 @@
     "repositories-worktrees": {
       "files": ["packages/desktop/crates/pocket/src/view.rs"],
       "open": ["press Cmd+B to expand the wide sidebar"]
+    },
+    "terminal-focus": {
+      "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/main.rs"],
+      "open": ["select a session", "press Cmd+B to expand the wide sidebar", "press Cmd+. to hide the sidebars"]
     }
   }
 }

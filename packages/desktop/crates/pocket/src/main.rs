@@ -26,7 +26,7 @@ use std::time::Duration;
 use store::Store;
 use workspace::{Tab, Workspace};
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, ToggleRail, NewWorktree, ProjectSettings]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings]);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -94,6 +94,7 @@ pub struct Desktop {
     side: Side,
     wide: bool,
     rail_open: bool,
+    focus: bool,
     session: Option<String>,
     workspaces: HashMap<String, Workspace>,
     intents: VecDeque<Intent>,
@@ -192,6 +193,7 @@ impl Desktop {
             side: Side::Sessions,
             wide: false,
             rail_open: false,
+            focus: false,
             session: None,
             workspaces: HashMap::new(),
             intents: VecDeque::new(),
@@ -721,6 +723,11 @@ impl Desktop {
         cx.notify();
     }
 
+    fn toggle_focus(&mut self, _: &ToggleFocus, _: &mut Window, cx: &mut Context<Self>) {
+        self.focus = !self.focus;
+        cx.notify();
+    }
+
     fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.focused.clone() else { return };
         let Some(s) = self.sessions.get(&id) else { return };
@@ -796,6 +803,7 @@ fn main() {
             KeyBinding::new("cmd-j", NextWaiting, None),
             KeyBinding::new("cmd-b", ToggleSidebar, None),
             KeyBinding::new("cmd-\\", ToggleRail, None),
+            KeyBinding::new("cmd-.", ToggleFocus, None),
             KeyBinding::new("cmd-shift-n", NewWorktree, None),
             KeyBinding::new("cmd-,", ProjectSettings, None),
             KeyBinding::new("cmd-enter", OpenSession, None),

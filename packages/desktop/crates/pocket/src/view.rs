@@ -580,7 +580,7 @@ impl Desktop {
 
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {
         let text = if self.project.is_none() { "Add a repository to begin." } else { "Pick a session, or start a new one." };
-        div().flex_1().flex().flex_col().child(drag_area(ui::page_bar(vec!["Sessions".into()]))).child(
+        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(
             div()
                 .flex_1()
                 .flex()
@@ -609,13 +609,20 @@ impl Desktop {
         }
     }
 
-    /// The page's top bar: breadcrumb on the left, `right` on the far side.
-    pub fn page_bar(crumbs: Vec<String>, right: impl IntoElement) -> Div {
-        drag_area(ui::page_bar(crumbs)).child(div().ml_auto().flex().flex_none().items_center().gap(px(8.)).child(right))
-    }
-
-    pub fn title_block(title: String, size: f32, meta: Div) -> Div {
-        div().pt(px(6.)).px(px(40.)).pb(px(18.)).flex().flex_none().flex_col().gap(px(12.)).child(ui::page_title(title, size)).child(meta)
+    /// The page's top bar: sidebar toggle, breadcrumb and meta on the left, `right` on the far side.
+    pub fn page_bar(&self, crumbs: Vec<String>, meta: Vec<AnyElement>, right: impl IntoElement, cx: &mut Context<Self>) -> Div {
+        let toggle = (self.focus || !self.wide).then(|| {
+            icon_button_sized("focus-toggle", if self.focus { "sidebar-expand" } else { "sidebar-collapse" }, 28., TEXT_2)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::ToggleFocus, window, cx)))
+        });
+        drag_area(ui::page_bar())
+            .when(self.wide, |d| d.pl(px(24.)))
+            // Leaves room for the window's traffic lights once the sidebars are hidden.
+            .when(self.focus, |d| d.pl(px(82.)))
+            .children(toggle)
+            .child(ui::breadcrumb(crumbs))
+            .child(ui::meta_row(meta))
+            .child(div().ml_auto().flex().flex_none().items_center().gap(px(8.)).child(right))
     }
 
     fn session_page(&mut self, id: &str, cx: &mut Context<Self>) -> Div {
@@ -624,36 +631,38 @@ impl Desktop {
         let title = summary.as_ref().map(|a| a.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| self.pane_label(id));
         let repo = self.repo().cloned();
         let (added, removed) = repo.as_ref().map(|r| r.totals()).unwrap_or_default();
-        let mut meta = div().flex().items_center().overflow_hidden();
+        let compact = self.wide;
+        let mut meta = Vec::new();
         if let Some(a) = &summary {
-            meta = meta.child(
-                ui::meta_item()
-                    .child(dot(7., provider_color(&a.provider)))
-                    .child("Agent")
-                    .child(ui::meta_value(format!("{} · {}", provider_name(&a.provider), agents::model_label(a)))),
-            );
+            let agent = format!("{} · {}", provider_name(&a.provider), agents::model_label(a));
+            let agent = if compact { div().child(agent) } else { ui::meta_value(agent) };
+            meta.push(ui::meta_item().child(dot(7., provider_color(&a.provider))).child(agent).into_any_element());
         }
-        if let Some(r) = &repo {
-            meta = meta.child(ui::meta_item().child(icon("branch", 13., TEXT_3)).child(ui::meta_value(r.branch.clone())));
+        if let Some(r) = repo.as_ref().filter(|_| !compact) {
+            meta.push(ui::meta_item().child(icon("branch", 13., TEXT_2)).child(ui::meta_value(r.branch.clone())).into_any_element());
         }
         if let Some(a) = &summary {
-            meta = meta.child(ui::meta_item().child(icon("clock", 13., TEXT_3)).child("Started").child(ui::meta_value(ago_long(a.created_at, now))));
-            if let Some(left) = self.agents.context_left(&a.id) {
+            let clock = ui::meta_item().child(icon("clock", 13., TEXT_2));
+            meta.push(if compact { clock.gap(px(5.)).child(ago(a.created_at, now)) } else { clock.child(ui::meta_value(ago_long(a.created_at, now))) }.into_any_element());
+            if let Some(left) = self.agents.context_left(&a.id).filter(|_| !compact) {
                 let bar = ui::context_bar(left as f32 / 100.);
-                meta = meta.child(ui::meta_item().child("Context").child(bar).child(ui::meta_value(format!("{}%", 100 - left.min(100)))));
+                meta.push(ui::meta_item().gap(px(8.)).child("Context").child(bar).child(ui::meta_value(format!("{}%", 100 - left.min(100)))).into_any_element());
             }
         }
         if added + removed > 0 {
-            meta = meta.child(
+            meta.push(
                 ui::meta_item()
                     .id("meta-diff")
+                    .when(compact, |d| d.gap(px(5.)))
                     .cursor_pointer()
-                    .child(ui::diffstat(added, removed).text_size(px(13.)))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx))),
+                    .child(icon("branch", 13., TEXT_2))
+                    .child(ui::meta_diff(added, removed, 12.))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx)))
+                    .into_any_element(),
             );
         }
         if let Some(e) = self.error.clone() {
-            meta = meta.child(div().truncate().text_size(px(13.)).text_color(rgba(FAILED)).child(e));
+            meta.push(div().truncate().text_size(px(12.5)).text_color(rgba(FAILED)).child(e).into_any_element());
         }
         let right = div()
             .flex()
@@ -663,12 +672,10 @@ impl Desktop {
                 ui::group_button("split-right", "split-right").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))),
                 ui::group_button("split-down", "split-down").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))),
             ]))
-            .child(ui::round_button("session-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))));
-        let crumbs = if self.wide {
-            vec![self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default(), title.clone(), "Session".into()]
-        } else {
-            vec!["Sessions".into(), title.clone()]
-        };
+            .child(ui::icon_group([
+                ui::group_button("session-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
+            ]));
+        let crumbs = if self.wide { vec![self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default(), title] } else { vec!["Sessions".into(), title] };
         let tabs = self.tab_strip(id, cx);
         let body = match self.workspace(id).active() {
             Some(Tab::Term(rows)) => {
@@ -683,8 +690,7 @@ impl Desktop {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(Self::page_bar(crumbs, right))
-            .child(Self::title_block(title, if self.wide { 24. } else { 28. }, meta))
+            .child(self.page_bar(crumbs, meta, right, cx))
             .children(tabs)
             .child(body)
     }
@@ -847,9 +853,9 @@ impl Desktop {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .pt(px(16.))
-                    .px(px(24.))
-                    .pb(px(20.))
+                    .pt(px(10.))
+                    .px(px(20.))
+                    .pb(px(14.))
                     .font_family(MONO)
                     .text_size(px(m.size))
                     .line_height(px(m.line))
@@ -865,8 +871,8 @@ impl Desktop {
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_code(window, cx);
-        let lead = if self.wide { self.aside(cx) } else { self.rail(cx) };
-        let column = self.column_view(cx);
+        let lead = (!self.focus).then(|| if self.wide { self.aside(cx) } else { self.rail(cx) });
+        let column = (!self.focus).then(|| self.column_view(cx));
         let page = self.main_view(cx);
         let overlay = self.overlay_view(window, cx);
         div()
@@ -892,9 +898,10 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::next_waiting))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::toggle_rail))
+            .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::open_selected))
-            .child(lead)
-            .child(column)
+            .children(lead)
+            .children(column)
             .child(page)
             .children(overlay)
     }

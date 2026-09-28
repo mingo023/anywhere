@@ -347,30 +347,32 @@ impl Desktop {
                     cx.notify();
                 },
             )))
-            .child(ui::round_button("diff-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))));
+            .child(ui::icon_group([
+                ui::group_button("diff-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
+            ]));
         let (color, state) = status_word(file.as_ref().map(|f| f.status));
-        let mut meta = div().flex().items_center().overflow_hidden().child(ui::meta_item().child(dot(7., color)).child(ui::meta_value(state)));
+        let mut meta = vec![ui::meta_item().child(dot(7., color)).child(ui::meta_value(state)).into_any_element()];
         if let Some(f) = &file {
-            meta = meta.child(ui::meta_item().child(diffstat(f.added, f.removed).text_size(px(13.))));
+            meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
         }
         let comments = self.comments.iter().filter(|c| c.path == path).count();
         if comments > 0 {
-            meta = meta.child(ui::meta_item().child(icon("comment", 13., TEXT_3)).child(ui::meta_value(format!("{comments} comment{}", if comments == 1 { "" } else { "s" }))));
+            let label = format!("{comments} comment{}", if comments == 1 { "" } else { "s" });
+            meta.push(ui::meta_item().child(icon("comment", 13., TEXT_2)).child(ui::meta_value(label)).into_any_element());
         }
         let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
         if let Some((a, ts)) = self.agents.last_edit(&abs) {
             let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
-            meta = meta.child(ui::meta_item().child(dot(7., provider_color(&a.provider))).child("by").child(ui::meta_value(by)));
+            meta.push(ui::meta_item().child(dot(7., provider_color(&a.provider))).child("by").child(ui::meta_value(by)).into_any_element());
         }
-        let crumbs = std::iter::once("Changes".to_string()).chain(path.split('/').map(str::to_string)).collect();
-        let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+        let (dir, name) = path.rsplit_once('/').map_or((None, path.clone()), |(d, n)| (Some(d.to_string()), n.to_string()));
+        let crumbs = std::iter::once("Changes".to_string()).chain(dir).chain([name]).collect();
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .child(Self::page_bar(crumbs, right))
-            .child(Self::title_block(name, if self.wide { 24. } else { 28. }, meta))
+            .child(self.page_bar(crumbs, meta, right, cx))
             .child(self.diff_box(cx))
     }
 

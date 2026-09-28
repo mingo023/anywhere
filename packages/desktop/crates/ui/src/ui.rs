@@ -30,7 +30,7 @@ pub fn side<E: Styled>(e: E) -> E {
 
 /// Floating menus and sheets.
 pub fn pop<E: Styled>(e: E) -> E {
-    e.bg(rgba(0xffffffd6)).rounded(px(26.)).shadow(vec![ring(SEPARATOR, 0.5), highlight(0xfffffff2), shadow(0x00000024, 18., 50.), shadow(0x0000000f, 2., 6.)])
+    e.bg(rgba(SURFACE)).rounded(px(26.)).shadow(vec![ring(SEPARATOR, 0.5), highlight(0xfffffff2), shadow(0x00000024, 18., 50.), shadow(0x0000000f, 2., 6.)])
 }
 
 /// Translucent chrome for floating buttons and groups.
@@ -116,11 +116,6 @@ pub fn icon_button(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
 
 pub fn icon_button_sized(id: impl Into<ElementId>, name: &str, size: f32, color: u32) -> Stateful<Div> {
     glyph_button(id, name, size, size, 7., color)
-}
-
-/// A glass circle holding one icon, for actions that stand apart from a group.
-pub fn round_button(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
-    glass(glyph_button(id, name, 36., 36., 18., TEXT))
 }
 
 pub fn icon_group(buttons: impl IntoIterator<Item = Stateful<Div>>) -> Div {
@@ -543,10 +538,10 @@ pub fn avatar(initials: &str, size: f32) -> Div {
 /// Crumbs separated by slashes; the last one is the current page.
 pub fn breadcrumb(crumbs: Vec<String>) -> Div {
     let last = crumbs.len().saturating_sub(1);
-    div().flex().min_w_0().items_center().gap(px(8.)).text_size(px(13.5)).whitespace_nowrap().children(crumbs.into_iter().enumerate().flat_map(|(i, c)| {
+    div().flex().min_w_0().items_center().gap(px(8.)).text_size(px(13.)).whitespace_nowrap().children(crumbs.into_iter().enumerate().flat_map(|(i, c)| {
         let crumb = div()
             .truncate()
-            .when(i == last, |d| d.text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD))
+            .when(i == last, |d| d.min_w(px(60.)).text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD))
             .when(i != last, |d| d.flex_none().text_color(rgba(TEXT_2)).font_weight(FontWeight(450.)))
             .child(c);
         let slash = (i > 0).then(|| div().flex_none().text_color(rgba(TEXT_6)).child("/"));
@@ -554,38 +549,42 @@ pub fn breadcrumb(crumbs: Vec<String>) -> Div {
     }))
 }
 
-pub fn page_bar(crumbs: Vec<String>) -> Div {
-    div().h(px(50.)).pl(px(24.)).pr(px(12.)).flex().flex_none().items_center().gap(px(8.)).child(breadcrumb(crumbs))
-}
-
-pub fn page_title(title: impl Into<SharedString>, size: f32) -> Div {
-    div().truncate().text_size(px(size)).line_height(px(size * 1.2)).font_weight(FontWeight::BOLD).text_color(rgba(TEXT)).child(title.into())
+pub fn page_bar() -> Div {
+    div().h(px(44.)).pl(px(14.)).pr(px(12.)).flex().flex_none().items_center().gap(px(8.))
 }
 
 pub fn meta_item() -> Div {
+    div().h(px(22.)).flex().flex_none().items_center().gap(px(6.)).text_size(px(12.5)).text_color(rgba(TEXT_2)).whitespace_nowrap()
+}
+
+/// Meta items after the breadcrumb, split by small dots; clipped when the bar runs out of room.
+pub fn meta_row(items: Vec<AnyElement>) -> Div {
+    let n = items.len();
+    div().ml(px(8.)).min_w_0().flex().items_center().gap(px(10.)).overflow_hidden().children(items.into_iter().enumerate().flat_map(move |(i, item)| {
+        [Some(item), (i + 1 < n).then(|| dot(3., TEXT_6).into_any_element())].into_iter().flatten()
+    }))
+}
+
+/// "+n −n" in the status colors, as the top bar shows it.
+pub fn meta_diff(added: usize, removed: usize, size: f32) -> Div {
     div()
-        .h(px(22.))
-        .pr(px(14.))
-        .mr(px(14.))
         .flex()
         .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .border_r(px(0.5))
-        .border_color(rgba(SEPARATOR_STRONG))
-        .text_size(px(13.))
-        .text_color(rgba(TEXT_2))
-        .whitespace_nowrap()
+        .gap(px(size * 0.6))
+        .font_family(MONO)
+        .text_size(px(size))
+        .child(div().text_color(rgba(RUNNING_TEXT)).child(format!("+{added}")))
+        .child(div().text_color(rgba(FAILED)).child(format!("−{removed}")))
 }
 
 pub fn meta_value(text: impl Into<SharedString>) -> Div {
     div().text_color(rgba(TEXT)).font_weight(FontWeight::MEDIUM).child(text.into())
 }
 
-/// How much of the context window is left, drawn as a 48px bar.
+/// How much of the context window is left, drawn as a 32px bar.
 pub fn context_bar(left: f32) -> Div {
     let used = (1. - left).clamp(0., 1.);
-    div().w(px(48.)).h(px(4.)).rounded(px(2.)).bg(rgba(FILL_4)).child(div().h_full().w(px(48. * used)).rounded(px(2.)).bg(rgba(if used > 0.8 { WAITING } else { TEXT_3 })))
+    div().w(px(32.)).h(px(4.)).rounded(px(2.)).bg(rgba(SEPARATOR_STRONG)).child(div().h_full().w(px(32. * used)).rounded(px(2.)).bg(rgba(if used > 0.8 { WAITING } else { TEXT })))
 }
 
 pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> Div {

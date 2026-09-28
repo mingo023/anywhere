@@ -1,4 +1,4 @@
-use crate::view::{ago_long, basename, empty, id, list_dir, now_ms};
+use crate::view::{ago_long, empty, id, list_dir, now_ms};
 use crate::{Desktop, Overlay, Side};
 use git::{Kind, Line};
 use crate::mermaid::Mermaid;
@@ -273,7 +273,6 @@ impl Desktop {
         let rel = path.strip_prefix(&root).map(|r| r.trim_start_matches('/').to_string()).unwrap_or_else(|| path.clone());
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
         let crumbs = std::iter::once(project).chain(rel.split('/').map(str::to_string)).collect();
-        let name = basename(&path);
         let prompt = format!("About {rel}: ");
         let copy = rel.clone();
         let opened = path.clone();
@@ -285,7 +284,7 @@ impl Desktop {
         let right = div()
             .flex()
             .items_center()
-            .gap(px(4.))
+            .gap(px(8.))
             .when(markdown, |d| {
                 d.child(div().id("md-mode").child(ui::segmented(
                     vec![Segment { icon: None, value: false, label: "Preview".into(), badge: None }, Segment { icon: None, value: true, label: "Source".into(), badge: None }],
@@ -317,42 +316,18 @@ impl Desktop {
                 ui::group_button("file-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
             ]));
         let (status_color, status_label) = status_word(self.file_status(&path));
-        let mut meta = div()
-            .flex()
-            .items_center()
-            .child(ui::meta_item().child(icon("file", 13., TEXT_3)).child(language(&path)));
+        let mut meta = vec![ui::meta_item().child(icon("file", 13., TEXT_2)).child(language(&path)).into_any_element()];
         if let Some(t) = text {
-            meta = meta.child(ui::meta_item().child(ui::meta_value(format!("{} lines · {}", t.lines().count(), size(t.len())))));
+            meta.push(ui::meta_item().child(ui::meta_value(format!("{} lines · {}", t.lines().count(), size(t.len())))).into_any_element());
         }
-        meta = meta.child(ui::meta_item().child(dot(7., status_color)).child(ui::meta_value(status_label)));
-        let banner = self.agents.last_edit(&path).map(|(a, ts)| {
-            let title = if a.title.is_empty() { "a session".to_string() } else { a.title.clone() };
-            div()
-                .mx(px(40.))
-                .mb(px(14.))
-                .h(px(50.))
-                .px(px(14.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(12.))
-                .rounded(px(12.))
-                .bg(rgba(TEAL_BG))
-                .text_size(px(13.5))
-                .text_color(rgba(TEXT_BODY))
-                .child(div().size(px(26.)).flex().flex_none().items_center().justify_center().rounded(px(8.)).bg(rgba(0xffffffcc)).child(icon("sparkle", 13., TEAL)))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .flex()
-                        .gap(px(4.))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)).child(provider_name(&a.provider)))
-                        .child(format!("edited this file {} in", ago_long(ts, now_ms())))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)).child(format!("{title}."))),
-                )
-                .child(ui::link("view-changes", "View changes").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(None, cx))))
+        let status = ui::meta_item().id("meta-status").child(dot(7., status_color)).child(ui::meta_value(status_label));
+        meta.push(match self.agents.last_edit(&path) {
+            Some((a, ts)) => status
+                .cursor_pointer()
+                .child(format!("by {} · {}", provider_name(&a.provider), ago_long(ts, now_ms())))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx)))
+                .into_any_element(),
+            None => status.into_any_element(),
         });
         let code = match text {
             Some(_) if markdown && !self.md_source => pane()
@@ -393,9 +368,7 @@ impl Desktop {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(Self::page_bar(crumbs, right))
-            .child(Self::title_block(name, if self.wide { 24. } else { 28. }, meta))
-            .children(banner)
+            .child(self.page_bar(crumbs, meta, right, cx))
             .child(code)
     }
 

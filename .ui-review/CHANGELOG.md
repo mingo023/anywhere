@@ -1,5 +1,13 @@
 # UI Review Changelog
 
+## 2026-09-28 · 88b7acd · full
+- passed: sessions, sessions-sidebar-expanded, changes, explore, repositories-worktrees, terminal-focus
+- failed: command-palette-k, new-session, project-menu-amp-worktrees, add-repository (fixed)
+- skipped: split, inbox (no design)
+- designs: sessions=40574e0b0075, sessions-sidebar-expanded=d095965700d6, changes=b4639de1fc80, explore=ff101789cdef, command-palette-k=5483488e6184, new-session=39fe454f4641, project-menu-amp-worktrees=a18e707caec6, add-repository=e167de64e5b7, repositories-worktrees=f317924950e5, terminal-focus=64d255efe3c7
+- trigger: new export (Agent Remote (4).html — inline 44px top bar replaces title+meta block, new focus layout); packages/desktop/crates/pocket/src/{diff,explore,main,view}.rs, packages/desktop/crates/ui/src/ui.rs changed since d505d02
+- note: floating menus/dialogs on `ui::pop`/`ui::modal` (palette, new-session, project menu, add-repository) showed background text/images through the panel. Captures came from a binary started before `pop()` switched from translucent `0xffffffd6` to solid `SURFACE`; relaunched on the new build, palette and new-session render opaque. Remaining 4–8% mismatches on the other screens are live data.
+
 ## 2026-09-28 · d505d02 · full
 - passed: sessions, sessions-sidebar-expanded, changes, explore, command-palette-k, new-session, project-menu-amp-worktrees, add-repository, repositories-worktrees
 - failed: none
