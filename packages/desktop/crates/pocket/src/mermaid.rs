@@ -21,7 +21,7 @@ struct Merman {
 
 static MERMAN: LazyLock<Merman> = LazyLock::new(|| {
     let roles = [
-        (ThemeRole::Canvas, SURFACE),
+        (ThemeRole::Canvas, WINDOW),
         (ThemeRole::Surface, SURFACE_SUNKEN),
         (ThemeRole::SurfaceAlt, WINDOW),
         (ThemeRole::Text, TEXT),
@@ -60,7 +60,7 @@ fn hex(c: u32) -> String {
 
 /// Mermaid source as SVG that resvg can draw: labels are plain `<text>`, not `<foreignObject>`.
 fn svg(source: &str) -> Result<String, String> {
-    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, ..Default::default() }.pipeline();
+    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, root_background_color: Some(hex(WINDOW)), ..Default::default() }.pipeline();
     let request = SvgRequest { pipeline: Some(pipeline), presentation: MERMAN.presentation.render_policy(), ..Default::default() };
     match MERMAN.renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
         Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.svg().to_string()),
@@ -210,7 +210,7 @@ impl MarkdownPlugin for Mermaid {
     fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let Fence { key, source } = node.data::<Fence>().unwrap();
         let key = *key;
-        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).my(px(8.)).p(px(12.)).rounded(px(8.)).border_1().border_color(rgba(HAIRLINE)).bg(rgba(SURFACE));
+        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).my(px(8.)).p(px(12.)).rounded(px(10.)).border_1().border_color(rgba(SEPARATOR)).bg(rgba(WINDOW));
         match self.0.update(cx, |d, cx| d.get(key, source, cx)) {
             Diagram::Ready(tree) => {
                 let size = tree.size();
@@ -246,6 +246,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Instant;
+    use theme::WINDOW;
 
     fn image(w: u32, h: u32) -> Arc<RenderImage> {
         let buffer = image::ImageBuffer::from_raw(w, h, vec![0; (w * h * 4) as usize]).unwrap();
@@ -280,6 +281,13 @@ mod tests {
         assert_eq!((size.width.0, size.height.0), ((w * 2.).ceil() as i32, (h * 2.).ceil() as i32));
         let size = rasterize(&t, 10_000.).unwrap().size(0);
         assert_eq!(size.width.0.max(size.height.0), 8192);
+    }
+
+    #[test]
+    fn paints_the_canvas_in_the_window_colour() {
+        let t = tree("flowchart LR\n  A --> B\n").unwrap();
+        let [r, g, b, a] = WINDOW.to_be_bytes();
+        assert_eq!(rasterize(&t, 1.).unwrap().as_bytes(0).unwrap()[..4], [b, g, r, a]);
     }
 
     #[test]

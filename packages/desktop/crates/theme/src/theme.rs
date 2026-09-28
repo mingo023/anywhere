@@ -171,6 +171,8 @@ pub fn init(cx: &mut App) {
     t.foreground = rgba(TEXT).into();
     t.muted_foreground = rgba(TEXT_2).into();
     t.background = rgba(WINDOW).into();
+    // gpui-kit paints markdown code blocks and their copy-button backdrop with `muted`.
+    t.muted = rgba(WINDOW).into();
     t.caret = rgba(TEXT).into();
     t.mono_font_family = MONO.into();
     t.mono_font_size = px(13.);
