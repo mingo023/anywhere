@@ -33,6 +33,11 @@ pub fn pop<E: Styled>(e: E) -> E {
     e.bg(rgba(SURFACE)).rounded(px(26.)).shadow(vec![ring(SEPARATOR, 0.5), highlight(0xfffffff2), shadow(0x00000024, 18., 50.), shadow(0x0000000f, 2., 6.)])
 }
 
+/// A menu dropped `top` px below its `relative` parent, painted above later siblings and kept inside the window.
+pub fn dropdown(top: f32, menu: impl IntoElement) -> Div {
+    div().absolute().top(px(top)).left_0().child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
+}
+
 /// Translucent chrome for floating buttons and groups.
 pub fn glass<E: Styled>(e: E) -> E {
     e.bg(rgba(0xffffff9e)).shadow(vec![ring(HAIRLINE, 0.5), highlight(0xfffffff2), shadow(0x0000000a, 1., 2.), shadow(0x0000000f, 6., 20.)])
@@ -61,6 +66,10 @@ impl Variant {
     }
 }
 
+pub fn primary<E: Styled>(e: E) -> E {
+    e.bg(rgba(TEXT)).shadow(vec![highlight(0xffffff2e), shadow(0x0000002e, 4., 12.)])
+}
+
 pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, label: impl IntoElement) -> Stateful<Div> {
     let d = div()
         .id(id)
@@ -76,7 +85,7 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
         .whitespace_nowrap()
         .text_color(rgba(v.fg()));
     let d = match v {
-        Variant::Primary => d.bg(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(0xffffff2e), shadow(0x0000002e, 4., 12.)]),
+        Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD),
         Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM),
         Variant::Accent => d.bg(rgba(ACCENT)).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(0xffffff40), shadow(0x0a84ff59, 2., 6.)]),
         Variant::Secondary => d.bg(rgba(FILL_3)).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_4))),
@@ -230,8 +239,9 @@ pub fn status(id: impl Into<ElementId>, state: State) -> Div {
     }
 }
 
+/// The design's blank label still takes the pill's 5px gap, so the pill is wider on the right.
 fn mini_status(bg: u32, mark: impl IntoElement) -> AnyElement {
-    div().h(px(20.)).px(px(6.)).flex().flex_none().items_center().justify_center().rounded(px(10.)).bg(rgba(bg)).child(mark).into_any_element()
+    div().h(px(20.)).pl(px(7.)).pr(px(13.)).flex().flex_none().items_center().justify_center().rounded(px(10.)).bg(rgba(bg)).child(mark).into_any_element()
 }
 
 pub fn agent_badge(provider: &str, label: impl Into<SharedString>) -> Div {
@@ -320,7 +330,7 @@ pub fn repo_row(id: impl Into<ElementId>, name: &str, selected: bool, count: Opt
         .font_weight(FontWeight::SEMIBOLD)
         .hover(|s| s.bg(rgba(FILL_2)))
         .child(div().w(px(14.)).flex().justify_center().child(icon(if selected { "chevron-down" } else { "chevron-right" }, 12., TEXT_5)))
-        .child(repo_mark(name, selected, state == Some(State::Waiting), state == Some(State::Running)))
+        .child(repo_mark(name, false, false, false))
         .child(div().flex_1().truncate().child(name.to_string()))
         .children(count.map(|n| div().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_3)).child(n.to_string())))
         .map(|d| match state {
@@ -342,6 +352,12 @@ pub fn session_row(
     tags: Vec<String>,
 ) -> Stateful<Div> {
     let id = id.into();
+    // The design's browser sizes this line by the status's inline box, not the title.
+    let line = match state {
+        State::Waiting | State::Draft => 22.,
+        State::Done(..) => 18.,
+        _ => 20.7,
+    };
     div()
         .id(id.clone())
         .px(px(12.))
@@ -356,6 +372,7 @@ pub fn session_row(
         .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
         .child(
             div()
+                .h(px(line))
                 .flex()
                 .items_center()
                 .gap(px(8.))
@@ -370,6 +387,7 @@ pub fn session_row(
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_size(px(12.))
+                .line_height(px(15.))
                 .text_color(rgba(TEXT_2))
                 .child(dot(6., provider_color(provider)))
                 .child(provider_name(provider))
@@ -597,6 +615,7 @@ pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> D
         .items_center()
         .gap(px(6.))
         .text_size(px(12.))
+        .line_height(px(15.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(TEXT_3))
         .child(label.into())
@@ -719,7 +738,7 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .cursor_pointer()
         .text_size(px(13.5))
         .text_color(rgba(TEXT_3))
-        .child(icon(icon_name, 14., TEXT_3))
+        .child(icon(icon_name, 15., TEXT_3))
         .child(div().flex_1().child(label.to_string()))
         .child(div().text_size(px(11.5)).text_color(rgba(TEXT_4)).child(keys.to_string()))
 }
@@ -727,11 +746,11 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
 pub fn worktree_row(id: impl Into<ElementId>, label: String, branch: String, main: bool, selected: bool, state: Option<State>) -> Stateful<Div> {
     let id = id.into();
     let lead = if main {
-        icon("folder", 13., TEXT_3).into_any_element()
+        icon("folder", 13., TEXT_4).into_any_element()
     } else if selected {
         dot(8., ACCENT).shadow(vec![ring(ACCENT_RING, 3.)]).into_any_element()
     } else {
-        div().size(px(7.)).rounded(px(4.)).border_1().border_color(rgba(TEXT_5)).into_any_element()
+        div().size(px(7.)).rounded(px(4.)).border(px(1.5)).border_color(rgba(TEXT_5)).into_any_element()
     };
     div()
         .id(id.clone())
@@ -753,17 +772,18 @@ pub fn worktree_row(id: impl Into<ElementId>, label: String, branch: String, mai
                 .flex_1()
                 .min_w_0()
                 .flex()
-                .items_baseline()
-                .gap(px(8.))
+                .flex_col()
+                .gap(px(1.))
                 .child(
                     div()
-                        .flex_none()
+                        .truncate()
                         .text_size(px(14.))
+                        .line_height(px(17.))
                         .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
                         .text_color(rgba(if selected || main { TEXT } else { TEXT_BODY }))
                         .child(label),
                 )
-                .child(div().min_w_0().truncate().font_family(MONO).text_size(px(11.)).text_color(rgba(TEXT_4)).child(branch)),
+                .child(div().truncate().font_family(MONO).text_size(px(11.)).line_height(px(14.)).text_color(rgba(TEXT_4)).child(branch)),
         )
         .children(state.map(|s| match s {
             State::Waiting => mini_status(WAITING_BG, dot(6., WAITING)),

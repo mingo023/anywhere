@@ -1,5 +1,20 @@
 # UI Review Changelog
 
+## 2026-09-29 · 50078dc · incremental
+- passed: sessions 0.81%, compact 0.36%, compact-sidebar-open 0.75%, session-terminal-focus 0.24%, new-session 0.80%, sessions-sidebar-expanded 0.95%
+- skipped: changes, split, inbox, explore, command-palette-k, project-menu-amp-worktrees, add-repository, repositories-worktrees (not requested this run)
+- designs: all six 24a6feeff6e3
+- trigger: 99% fidelity pass on Agent Remote (1).html
+- note: captures now run against `.ui-review/fixture` (bun fixture pocketd serving the design's sessions, TZ pinned to 14:00, AppleFontSmoothing 0 during capture only). The new "worktree" capture step selects the session's worktree for compact-sidebar-open and repositories-worktrees. SANS is now .SystemUIFont to match the design's system-ui. Remaining diffs are design data we don't have or that contradicts itself: worktree badge counts, the card's +84 −51 vs the bar's +42 −17, "opus · high" (we show "Opus"), "resets 1h 48m", the branch "fix/flaky-snapshot" (we derive it from the prompt), and no traffic lights. The new-session "@ files · / commands" hint and mic are still not built because neither feature exists.
+
+## 2026-09-28 · 50078dc · incremental
+- passed: sessions, compact, compact-sidebar-open, session-terminal-focus, sessions-sidebar-expanded
+- failed: new-session
+- skipped: changes, split, inbox, explore, command-palette-k, project-menu-amp-worktrees, add-repository, repositories-worktrees (not requested this run)
+- designs: sessions=24a6feeff6e3, compact=24a6feeff6e3, compact-sidebar-open=24a6feeff6e3, session-terminal-focus=24a6feeff6e3, new-session=24a6feeff6e3, sessions-sidebar-expanded=24a6feeff6e3
+- trigger: caller-requested review of Agent Remote (1).html against blast radius (theme.rs, ui.rs, view.rs, overlay.rs, forms.rs, arrow-up.svg) + view.rs/main.rs/forms.rs changes since 88b7acd
+- note: 2.1-6.2% mismatch on all 6 screens traced almost entirely to the headless capture selecting real local ~/.coding-pocket session data (different projects/sessions, no active running command/git diff/dev-server tab, different user initials) instead of the design's populated exemplar session — chrome, spacing, colors, and icons matched everywhere content was actually comparable. new-session's dialog itself is still missing the "@ files · / commands" hint row + mic icon (forms.rs:559-563 goes straight from the branch chip to the send button) — same gap flagged unimplemented on 2026-09-27, left as-is. sessions-sidebar-expanded and new-session capture recipes don't include a "session" step, so their backgrounds render empty vs. the design's populated background, inflating their numbers further — added "session" to both (re-run: new-session 5.62%, sessions-sidebar-expanded 4.84%, remaining diff is data). No source changes made; target of ≥99% match is not reachable without matching fixture data first.
+
 ## 2026-09-28 · 88b7acd · full
 - passed: sessions, sessions-sidebar-expanded, changes, explore, repositories-worktrees, terminal-focus
 - failed: command-palette-k, new-session, project-menu-amp-worktrees, add-repository (fixed)

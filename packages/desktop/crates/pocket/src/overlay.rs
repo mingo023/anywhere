@@ -427,7 +427,7 @@ impl Desktop {
         let o = self.overlay?;
         let (body, alpha) = match o {
             Overlay::Palette => (self.palette(cx), 0x1f),
-            Overlay::NewSession => (self.new_session_view(window, cx), 0x40),
+            Overlay::NewSession => (self.new_session_view(window, cx), 0x2e),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40),
             Overlay::ProjectMenu => (self.project_menu(cx), 0),
             Overlay::More => (self.more_menu(cx), 0),

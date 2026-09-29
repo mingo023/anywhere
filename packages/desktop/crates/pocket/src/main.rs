@@ -27,7 +27,7 @@ use std::time::Duration;
 use store::Store;
 use workspace::{Tab, Workspace};
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab]);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -40,6 +40,13 @@ pub enum Side {
     Sessions,
     Explorer,
     Changes,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Layout {
+    Sidebars,
+    Compact,
+    Focus,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -95,7 +102,9 @@ pub struct Desktop {
     side: Side,
     wide: bool,
     rail_open: bool,
-    focus: bool,
+    layout: Layout,
+    panel: bool,
+    tab_menu: bool,
     session: Option<String>,
     workspaces: HashMap<String, Workspace>,
     intents: VecDeque<Intent>,
@@ -196,7 +205,9 @@ impl Desktop {
             side: Side::Sessions,
             wide: false,
             rail_open: false,
-            focus: false,
+            layout: Layout::Sidebars,
+            panel: false,
+            tab_menu: false,
             session: None,
             workspaces: HashMap::new(),
             intents: VecDeque::new(),
@@ -451,14 +462,23 @@ impl Desktop {
 
     /// Opens a login shell in the session's folder, as a new tab or a split of the active one.
     pub fn new_shell(&mut self, split: Option<bool>, cx: &mut Context<Self>) {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        self.run_in_session(&format!("{shell} -l"), split, cx);
+    }
+
+    pub fn new_agent_tab(&mut self, provider: &str, cx: &mut Context<Self>) {
+        self.tab_menu = false;
+        self.run_in_session(provider, None, cx);
+    }
+
+    fn run_in_session(&mut self, cmdline: &str, split: Option<bool>, cx: &mut Context<Self>) {
         let Some(parent) = self.session.clone() else { return };
         let Some(cwd) = self.cwd_of(&parent) else { return };
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         let intent = match split {
             Some(down) => Intent::Split(parent, down),
             None => Intent::Tab(parent),
         };
-        self.spawn(&format!("{shell} -l"), &cwd, intent, cx);
+        self.spawn(cmdline, &cwd, intent, cx);
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -725,16 +745,35 @@ impl Desktop {
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
         self.wide = !self.wide;
+        (self.layout, self.panel) = (Layout::Sidebars, false);
         cx.notify();
     }
 
     fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
-        self.rail_open = !self.rail_open;
+        if self.layout == Layout::Compact {
+            self.panel = !self.panel;
+        } else {
+            self.rail_open = !self.rail_open;
+        }
         cx.notify();
     }
 
+    pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.tab_menu = false;
+        self.new_shell(None, cx);
+    }
+
+    /// The compact layout only exists beside the wide sidebar; the narrow rail goes straight to focus.
     fn toggle_focus(&mut self, _: &ToggleFocus, _: &mut Window, cx: &mut Context<Self>) {
-        self.focus = !self.focus;
+        if self.panel {
+            self.panel = false;
+        } else {
+            self.layout = match self.layout {
+                Layout::Sidebars if self.wide => Layout::Compact,
+                Layout::Sidebars | Layout::Compact => Layout::Focus,
+                Layout::Focus => Layout::Sidebars,
+            };
+        }
         cx.notify();
     }
 
@@ -815,6 +854,7 @@ fn main() {
             KeyBinding::new("cmd-b", ToggleSidebar, None),
             KeyBinding::new("cmd-\\", ToggleRail, None),
             KeyBinding::new("cmd-.", ToggleFocus, None),
+            KeyBinding::new("cmd-t", NewTab, None),
             KeyBinding::new("cmd-shift-n", NewWorktree, None),
             KeyBinding::new("cmd-,", ProjectSettings, None),
             KeyBinding::new("cmd-enter", OpenSession, None),

@@ -3,7 +3,7 @@ use gpui_kit::*;
 use std::borrow::Cow;
 use std::sync::Arc;
 
-pub const SANS: &str = "Geist";
+pub const SANS: &str = ".SystemUIFont";
 pub const MONO: &str = "Geist Mono";
 
 pub const TEXT: u32 = 0x111113ff;
@@ -144,7 +144,7 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "arrow-right", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "clock", "comment", "compose", "copy",
+    "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "clock", "comment", "compose", "copy",
     "external", "file", "filter", "folder", "forward", "inbox", "merge", "mic", "more", "plus", "prompt", "search", "send", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "unfold", "worktree", "x", "x-bold",
 );

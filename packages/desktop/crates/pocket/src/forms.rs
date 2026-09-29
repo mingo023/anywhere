@@ -35,6 +35,13 @@ pub struct NewForm {
     run_setup: bool,
     provider: &'static str,
     perm: Perm,
+    picker: Option<Picker>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Picker {
+    Agent,
+    Branch,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -90,52 +97,65 @@ fn typed_or(input: &Entity<InputState>, fallback: impl FnOnce() -> String, cx: &
     if v.is_empty() { fallback() } else { v }
 }
 
-fn pick_card(id: &'static str, label: &str, value: impl IntoElement, chevron: bool) -> Stateful<Div> {
+fn chip(id: &'static str, open: bool) -> Stateful<Div> {
     div()
         .id(id)
-        .flex_1()
-        .min_w_0()
-        .h(px(54.))
-        .px(px(12.))
+        .h(px(30.))
+        .pl(px(10.))
+        .pr(px(8.))
         .flex()
-        .flex_col()
-        .justify_center()
-        .gap(px(3.))
-        .rounded(px(12.))
-        .bg(rgba(SURFACE))
-        .shadow(vec![ui::ring(SEPARATOR, 0.5)])
-        .when(chevron, |d| d.cursor_pointer())
-        .child(div().text_size(px(11.5)).text_color(rgba(TEXT_3)).child(label.to_string()))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .text_size(px(13.5))
-                .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).overflow_hidden().child(value))
-                .when(chevron, |d| d.child(icon("chevron-down", 12., TEXT_4))),
-        )
+        .flex_none()
+        .items_center()
+        .gap(px(7.))
+        .rounded(px(8.))
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .bg(rgba(if open { FILL_3 } else { FILL_2 }))
+        .hover(|s| s.bg(rgba(FILL_3)))
 }
 
-fn check_item(id: &'static str, on: bool, label: &str) -> Stateful<Div> {
+fn pick_head(label: &str) -> Div {
+    div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child(label.to_string())
+}
+
+fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElement>, label: Div, meta: Option<String>) -> Stateful<Div> {
     div()
         .id(id)
+        .h(px(34.))
+        .px(px(8.))
         .flex()
+        .flex_none()
         .items_center()
-        .gap(px(6.))
+        .gap(px(9.))
+        .rounded(px(6.))
         .cursor_pointer()
-        .text_size(px(12.5))
-        .text_color(rgba(TEXT_2))
-        .child(ui::checkbox(on))
-        .child(label.to_string())
+        .text_size(px(13.))
+        .when(selected, |d| d.bg(rgba(FILL_2)))
+        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
+        .children(lead)
+        .child(label.min_w_0().truncate().font_weight(FontWeight::MEDIUM))
+        .child(div().ml_auto().pl(px(10.)).flex_none().text_size(px(12.)).text_color(rgba(TEXT_4)).children(meta))
+        .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
+}
+
+fn picker_menu(id: &'static str, width: f32, rows: Vec<AnyElement>, cx: &mut Context<Desktop>) -> Stateful<Div> {
+    ui::pop(div().id(id))
+        .w(px(width))
+        .max_h(px(360.))
+        .overflow_y_scroll()
+        .p(px(5.))
+        .rounded(px(10.))
+        .flex()
+        .flex_col()
+        .children(rows)
+        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.new_form.picker = None;
+            cx.notify();
+        }))
 }
 
 fn field(label: &str, body: impl IntoElement) -> Div {
     div().flex_1().min_w_0().flex().flex_col().gap(px(6.)).child(ui::field_label(label.to_string())).child(body)
-}
-
-fn row_label(label: &str) -> Div {
-    div().text_size(px(13.)).text_color(rgba(TEXT_3)).child(label.to_string())
 }
 
 fn footer(note: impl IntoElement, cancel: Stateful<Div>, submit: Stateful<Div>) -> Div {
@@ -144,7 +164,7 @@ fn footer(note: impl IntoElement, cancel: Stateful<Div>, submit: Stateful<Div>) 
 
 impl NewForm {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe the task…").rows(4));
+        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4));
         let branch = cx.new(|cx| InputState::new(window, cx));
         let subs = vec![
             cx.subscribe_in(&prompt, window, |this, prompt, ev: &InputEvent, window, cx| match ev {
@@ -171,6 +191,7 @@ impl NewForm {
             run_setup: false,
             provider: "claude",
             perm: Perm::Ask,
+            picker: None,
         };
         (form, subs)
     }
@@ -254,6 +275,7 @@ impl Desktop {
         });
         f.mode = Mode::NewWorktree;
         f.perm = Perm::Ask;
+        f.picker = None;
         if let Some(repo) = self.project.clone() {
             self.pick_repo(repo, cx);
         }
@@ -280,13 +302,17 @@ impl Desktop {
             (current, branches)
         });
         cx.spawn(async move |this, cx| {
-            let (current, branches) = task.await;
+            let (current, mut branches) = task.await;
             this.update(cx, |d, cx| {
                 let f = &mut d.new_form;
                 if f.repo.as_ref() != Some(&repo) {
                     return;
                 }
-                f.base = default_base(branches.iter().map(|(b, _)| b.as_str()), &cfg.base, &current);
+                let default = default_base(branches.iter().map(|(b, _)| b.as_str()), &cfg.base, &current);
+                if !branches.is_empty() {
+                    branches[..=default].rotate_right(1);
+                }
+                f.base = 0;
                 (f.current, f.branches) = (current, branches);
                 cx.notify();
             })
@@ -398,199 +424,190 @@ impl Desktop {
         cx.notify();
     }
 
+    pub fn close_picker(&mut self) -> bool {
+        self.new_form.picker.take().is_some()
+    }
+
+    fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
+        let f = &mut self.new_form;
+        f.picker = (f.picker != Some(picker)).then_some(picker);
+        cx.notify();
+    }
+
+    fn agent_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let f = &self.new_form;
+        let mut rows = Vec::new();
+        for provider in ["claude", "codex"] {
+            let model = self.model_hint(provider).unwrap_or_else(|| "Default model".into());
+            rows.push(pick_head(provider_name(provider)).into_any_element());
+            rows.push(
+                pick_row(provider, f.provider == provider, Some(ui::dot(7., provider_color(provider))), div().child(model), None)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        (this.new_form.provider, this.new_form.picker) = (provider, None);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        rows.push(pick_head("Permissions").into_any_element());
+        for (perm, label) in [(Perm::Ask, "Ask"), (Perm::AutoEdit, "Auto-edit"), (Perm::Plan, "Plan only")] {
+            rows.push(
+                pick_row(label, f.perm == perm, None::<Div>, div().child(label), None)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        (this.new_form.perm, this.new_form.picker) = (perm, None);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        picker_menu("agent-menu", 260., rows, cx)
+    }
+
+    fn branch_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let f = &self.new_form;
+        let now = crate::view::now_ms();
+        let branch = |name: &str| div().font_family(MONO).text_size(px(12.5)).child(name.to_string());
+        let mut rows = Vec::new();
+        for (i, (name, at)) in f.branches.iter().enumerate() {
+            match i {
+                0 => rows.push(pick_head("Default").into_any_element()),
+                1 => rows.push(pick_head("Recent").into_any_element()),
+                _ => {}
+            }
+            let meta = at.map(|s| crate::view::ago_long(s * 1000, now));
+            rows.push(
+                pick_row(("base", i), f.mode == Mode::NewWorktree && f.base == i, Some(icon("branch", 13., TEXT_3)), branch(name), meta)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        (this.new_form.mode, this.new_form.base, this.new_form.picker) = (Mode::NewWorktree, i, None);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        let repo = f.repo.clone().unwrap_or_default();
+        let trees: Vec<&git::Worktree> = self.worktrees.get(&repo).into_iter().flatten().filter(|w| !w.main).collect();
+        if !trees.is_empty() {
+            rows.push(pick_head("Existing worktree").into_any_element());
+        }
+        for (i, w) in trees.into_iter().enumerate() {
+            rows.push(
+                pick_row(("existing", i), f.mode == Mode::Existing && f.existing == i, Some(icon("worktree", 13., TEXT_3)), branch(&w.branch), Some(basename(&w.path)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        (this.new_form.mode, this.new_form.existing, this.new_form.picker) = (Mode::Existing, i, None);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        rows.push(pick_head("Current checkout").into_any_element());
+        rows.push(
+            pick_row("current", f.mode == Mode::Current, Some(icon("folder", 13., TEXT_3)), branch(&f.current), None)
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    (this.new_form.mode, this.new_form.picker) = (Mode::Current, None);
+                    cx.notify();
+                }))
+                .into_any_element(),
+        );
+        picker_menu("branch-menu", 300., rows, cx)
+    }
+
     pub fn new_session_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form;
-        let repos = self.projects();
         let repo = f.repo.clone().unwrap_or_default();
-        let ix = repos.iter().position(|p| *p == repo);
-        let now = crate::view::now_ms();
-        let prompt = div()
-            .min_h(px(120.))
-            .p(px(16.))
-            .rounded(px(16.))
-            .bg(rgba(SURFACE))
-            .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(0x0000000a, 1., 3.)])
-            .text_size(px(15.))
-            .line_height(px(23.))
-            .child(Textarea::new(&f.prompt).appearance(false));
-        let workspace = div().flex().items_center().child(row_label("Workspace")).child(div().flex_1()).child(
-            div().id("workspace-mode").child(ui::segmented(
-                vec![
-                    Segment { icon: Some("worktree"), value: Mode::NewWorktree, label: "New worktree".into(), badge: None },
-                    Segment { icon: None, value: Mode::Existing, label: "Existing worktree".into(), badge: None },
-                    Segment { icon: None, value: Mode::Current, label: "Current checkout".into(), badge: None },
-                ],
-                f.mode,
-                false,
-                false,
-                |this: &mut Self, v, cx| {
-                    this.new_form.mode = v;
-                    cx.notify();
-                },
-                cx,
-            )),
-        );
-        let repo_value = div()
+        let name = self.repo_name(&repo);
+        let close = ui::icon_button_sized("form-close", "x", 28., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let header = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(4.))
+            .pb(px(2.))
+            .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child("New session"))
+            .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(rgba(TEXT_3)).child(ui::repo_tile(&crate::view::initials(&name), 18., false, false, false)).child(name))
+            .child(div().ml_auto().child(close));
+        let mut model = self.model_hint(f.provider).unwrap_or_else(|| "Default model".into());
+        match f.perm {
+            Perm::Ask => {}
+            Perm::AutoEdit => model.push_str(" · auto-edit"),
+            Perm::Plan => model.push_str(" · plan only"),
+        }
+        let agent = chip("form-agent", f.picker == Some(Picker::Agent))
+            .child(ui::dot(7., provider_color(f.provider)))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(f.provider)))
+            .child(div().text_color(rgba(TEXT_3)).child(model))
+            .child(icon("chevron-down", 12., TEXT_4))
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.toggle_picker(Picker::Agent, cx);
+            }));
+        let base = f.branches.get(f.base).map(|(b, _)| b.clone()).unwrap_or_default();
+        let target = match f.mode {
+            Mode::NewWorktree => base.clone(),
+            Mode::Existing => self.existing_worktree().map(|w| w.branch.clone()).unwrap_or_default(),
+            Mode::Current => f.current.clone(),
+        };
+        let branch = chip("form-branch", f.picker == Some(Picker::Branch))
+            .child(icon("branch", 14., TEXT_3))
+            .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(target))
+            .child(icon("chevron-down", 12., TEXT_4))
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.toggle_picker(Picker::Branch, cx);
+            }));
+        let agent_menu = (f.picker == Some(Picker::Agent)).then(|| ui::dropdown(36., self.agent_picker(cx)));
+        let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., self.branch_picker(cx)));
+        let ready = self.session_ready(cx);
+        let send = ui::primary(div().id("form-start").ml_auto().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
+            .child(icon("arrow-up", 16., WHITE))
+            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
+            .when(!ready, |d| d.opacity(0.5).cursor_default());
+        let composer = div()
+            .flex()
+            .flex_col()
+            .rounded(px(14.))
+            .bg(rgba(WHITE))
+            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(0x1111130a, 1., 2.)])
+            // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
+            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&f.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25))))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .pt(px(6.))
+                    .px(px(10.))
+                    .pb(px(10.))
+                    .text_size(px(13.))
+                    .child(div().relative().child(agent).children(agent_menu))
+                    .child(div().relative().child(branch).children(branch_menu))
+                    .child(send),
+            );
+        let mono = |s: String| div().font_family(MONO).text_color(rgba(TEXT_2)).child(s);
+        let width = self.new_branch(cx).chars().count().max(8);
+        let summary: Vec<AnyElement> = match f.mode {
+            Mode::NewWorktree => vec![
+                div().child("New worktree on").into_any_element(),
+                // GPUI inputs don't size to their text; Geist Mono advances 0.6em.
+                div().w(px(width as f32 * 7.2 + 2.)).font_family(MONO).child(Input::new(&f.branch).appearance(false).p_0().max_h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(rgba(TEXT_2))).into_any_element(),
+                div().child("from").into_any_element(),
+                mono(base).into_any_element(),
+            ],
+            Mode::Existing => vec![div().child("Existing worktree").into_any_element(), mono(self.existing_worktree().map(|w| tilde(&w.path)).unwrap_or_default()).into_any_element()],
+            Mode::Current => vec![div().child("Current checkout").into_any_element(), mono(tilde(&repo)).into_any_element()],
+        };
+        let footer = div()
             .flex()
             .items_center()
             .gap(px(6.))
-            .child(ui::swatch(self.repo_color(&repo), 14., 4.))
-            .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(self.repo_name(&repo)))
-            .children(ix.filter(|_| repos.len() > 1).map(|i| div().flex_none().text_size(px(12.)).text_color(rgba(TEXT_4)).child(format!("{} of {}", i + 1, repos.len()))));
-        let next_repo = ix.map(|i| repos[(i + 1) % repos.len()].clone());
-        let repo_card = pick_card("form-repo", "Repository", repo_value, repos.len() > 1)
-            .when_some(next_repo.filter(|_| repos.len() > 1), |d, next| d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.pick_repo(next.clone(), cx);
-                cx.notify();
-            })));
-        let branch_mark = |name: String, at: Option<i64>| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(icon("branch", 12., TEXT_3))
-                .child(div().truncate().font_family(MONO).text_size(px(13.)).child(name))
-                .children(at.map(|s| div().flex_none().text_size(px(12.)).text_color(rgba(TEXT_4)).child(format!("· {}", crate::view::ago_long(s * 1000, now)))))
-        };
-        let cards = match f.mode {
-            Mode::NewWorktree => {
-                let (base, at) = f.branches.get(f.base).cloned().unwrap_or_default();
-                let count = f.branches.len();
-                let base_card = pick_card("form-base", "Base branch", branch_mark(base, at), count > 1).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.new_form.base = (this.new_form.base + 1) % count.max(1);
-                    cx.notify();
-                }));
-                let typed = !f.branch.read(cx).value().is_empty();
-                let branch = div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .w_full()
-                    .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&f.branch).appearance(false).p_0().text_size(px(13.))))
-                    .when(!typed, |d| d.child(div().flex_none().text_size(px(11.5)).text_color(rgba(TEXT_4)).child("from task")));
-                vec![repo_card, base_card, pick_card("form-branch", "New branch", branch, false)]
-            }
-            Mode::Existing => {
-                let trees: Vec<git::Worktree> = self.worktrees.get(&repo).into_iter().flatten().filter(|w| !w.main).cloned().collect();
-                let count = trees.len();
-                let value = match trees.get(f.existing) {
-                    Some(w) => branch_mark(w.branch.clone(), None).child(div().truncate().text_size(px(12.)).text_color(rgba(TEXT_4)).child(basename(&w.path))),
-                    None => div().text_color(rgba(TEXT_4)).child("No worktrees yet"),
-                };
-                let card = pick_card("form-existing", "Worktree", value, count > 1).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.new_form.existing = (this.new_form.existing + 1) % count.max(1);
-                    cx.notify();
-                }));
-                vec![repo_card, card]
-            }
-            Mode::Current => vec![repo_card, pick_card("form-current", "Branch", branch_mark(f.current.clone(), None), false)],
-        };
-        let path = match f.mode {
-            Mode::NewWorktree => Some(format!("{}/{}", self.worktrees_dir(&repo), self.new_branch(cx).replace('/', "-"))),
-            Mode::Existing => self.existing_worktree().map(|w| w.path.clone()),
-            Mode::Current => Some(repo.clone()),
-        };
-        let has_setup = self.store.repos.get(&repo).is_some_and(|r| !r.setup.is_empty());
-        let path_row = path.map(|p| {
-            div()
-                .h(px(34.))
-                .px(px(12.))
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .rounded(px(10.))
-                .bg(rgba(FILL_2))
-                .child(icon("folder", 13., TEXT_3))
-                .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.5)).text_color(rgba(TEXT_BODY)).child(tilde(&p)))
-                .when(f.mode == Mode::NewWorktree, |d| {
-                    d.child(check_item("form-copy", f.copy_env, "Copy .env files").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.new_form.copy_env = !this.new_form.copy_env;
-                        cx.notify();
-                    })))
-                    .when(has_setup, |d| {
-                        d.child(check_item("form-setup", f.run_setup, "Run setup").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.new_form.run_setup = !this.new_form.run_setup;
-                            cx.notify();
-                        })))
-                    })
-                })
-        });
-        let model = |provider: &str| {
-            let latest = self.agents.list.iter().filter(|a| a.provider == provider && a.model.is_some()).max_by_key(|a| a.updated_at);
-            latest.map(agents::model_label).unwrap_or_else(|| "Default model".into())
-        };
-        let agent = |id: &'static str, provider: &'static str, name: &str, color: u32| {
-            let selected = f.provider == provider;
-            div()
-                .id(id)
-                .flex_1()
-                .h(px(60.))
-                .px(px(14.))
-                .flex()
-                .flex_col()
-                .justify_center()
-                .gap(px(2.))
-                .rounded(px(14.))
-                .cursor_pointer()
-                .bg(rgba(SURFACE))
-                .shadow(vec![if selected { ui::ring(color, 1.5) } else { ui::ring(SEPARATOR, 0.5) }])
-                .child(div().flex().items_center().gap(px(8.)).child(ui::dot(8., color)).child(div().text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).child(name.to_string())))
-                .child(div().text_size(px(12.5)).text_color(rgba(TEXT_3)).child(model(provider)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.new_form.provider = provider;
-                    cx.notify();
-                }))
-        };
-        let agents = div()
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .child(row_label("Agent"))
-            .child(div().flex().gap(px(8.)).child(agent("form-claude", "claude", "Claude Code", AGENT_CLAUDE)).child(agent("form-codex", "codex", "Codex", AGENT_CODEX)));
-        let perms = div().flex().items_center().gap(px(12.)).child(row_label("Permissions")).child(
-            div().id("form-perm").child(ui::segmented(
-                vec![
-                    Segment { icon: None, value: Perm::Ask, label: "Ask".into(), badge: None },
-                    Segment { icon: None, value: Perm::AutoEdit, label: "Auto-edit".into(), badge: None },
-                    Segment { icon: None, value: Perm::Plan, label: "Plan only".into(), badge: None },
-                ],
-                f.perm,
-                false,
-                false,
-                |this: &mut Self, v, cx| {
-                    this.new_form.perm = v;
-                    cx.notify();
-                },
-                cx,
-            )),
-        );
-        let ready = self.session_ready(cx);
-        let cancel = ui::large(ui::button("form-cancel", Variant::Ghost, None, "Cancel").text_color(rgba(TEXT)))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let start = ui::large(ui::button("form-start", Variant::Primary, None, "Start session"))
-            .child(ui::button_kbd("⌘↵"))
-            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
-            .when(!ready, |d| d.opacity(0.5).cursor_default());
-        let close = ui::icon_button("form-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        ui::modal(
-            "New session",
-            700.,
-            70.,
-            close,
-            [
-                prompt.into_any_element(),
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .child(workspace)
-                    .child(div().flex().gap(px(8.)).children(cards))
-                    .children(path_row)
-                    .into_any_element(),
-                agents.into_any_element(),
-                perms.into_any_element(),
-                footer("Opens in a new terminal tab", cancel, start).into_any_element(),
-            ],
+            .px(px(6.))
+            .text_size(px(12.))
+            .text_color(rgba(TEXT_3))
+            .whitespace_nowrap()
+            .children(summary)
+            .child(div().ml_auto().text_color(rgba(TEXT_4)).child("⌘↵ to start · esc to cancel"));
+        div().absolute().top(px(110.)).left_0().right_0().flex().justify_center().child(
+            // The design's 0.5px border renders 1px wide and insets the sheet's content.
+            ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).occlude().child(header).child(composer).child(footer),
         )
     }
 

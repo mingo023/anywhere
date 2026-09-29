@@ -8,7 +8,7 @@ pub struct Metrics {
     pub line: f32,
 }
 
-pub const MAIN: Metrics = Metrics { size: 13., line: 21. };
+pub const MAIN: Metrics = Metrics { size: 13., line: 22. };
 pub const SMALL: Metrics = Metrics { size: 12., line: 19. };
 
 /// Sizes the pane's session to its bounds and, for the focused pane, takes the IME input.
@@ -83,7 +83,7 @@ pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
                 _ => runs.push(run),
             }
         }
-        rows.push(div().h(px(m.line)).whitespace_nowrap().child(StyledText::new(text).with_runs(runs)));
+        rows.push(div().h(px(m.line)).flex_none().whitespace_nowrap().child(StyledText::new(text).with_runs(runs)));
     }
-    div().children(rows)
+    div().size_full().flex().flex_col().justify_end().children(rows)
 }
