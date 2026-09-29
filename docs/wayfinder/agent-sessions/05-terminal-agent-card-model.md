@@ -30,3 +30,5 @@ Terms are in `CONTEXT.md`: Terminal, Session, Agent, Conversation.
 - **Agent exits, shell lives:** the card keeps the last agent's title and a faded provider badge until a new agent runs in the session. A session that never ran an agent shows its command line, as today.
 - **Worktree:** fixed by the top-level terminal's launch cwd, for life. `cd` elsewhere doesn't move the card; branch and Changes follow the session's worktree.
 - **Agent = process.** `/clear` or `/resume` switches the agent's conversation, and the timeline and title follow it. The phone keeps one entry per agent.
+
+Superseded by `docs/adr/0002-sessions-are-agents-terminals-belong-to-worktrees.md`: a session is now one agent, and terminals belong to worktrees.

@@ -123,7 +123,7 @@ Ticket 06, 08.
 
 - Client message `agent.view {id, agentIds}`: the full set of agents this connection shows now; empty when the window is unfocused or the app is in the background. pocketd drops a connection's set on disconnect. An agent is seen while any connection's set holds it.
 - Client message `agent.seen {id, agentIds}`: one-shot, clears Done (the inbox's "Mark all read").
-- Desktop sends `agent.view` = agents whose terminals are visible panes in the selected session's active tab, while its window is active and the Sessions screen shows; `[]` otherwise. Resent on change only.
+- Desktop sends `agent.view` = agents whose terminals are visible panes in the selected worktree's active tab, while its window is active and the Sessions screen shows; `[]` otherwise. Resent on change only.
 - Phone sends `agent.view [id]` while ChatScreen is open and `AppState` is `active`; `[]` otherwise.
 
 ## 6. Wire
@@ -147,7 +147,7 @@ Client messages `agent.view` and `agent.seen`, both `{type, id, agentIds: string
 
 **Ops socket:**
 - pocketd's `session` package becomes `terminal` (`Terminal`, `Manager`), and the `sessions` event becomes `terminals`. Mechanical, first PR.
-- `Info` gains `foreground`, `lastProvider`, `lastTitle` (the last agent in that terminal, kept after it exits: the card's faded badge).
+- `Info` gains `foreground`, `lastProvider`, `lastTitle` (the last agent in that terminal, kept after it exits).
 - The attach stream gains `{ev: "foreground", id, text}`.
 - The `hook` op gains `id` (terminal) and `pid` (nearest claude ancestor).
 - The 1 s `list` poll stays.
@@ -158,7 +158,8 @@ Ticket 09 (agent-decided). Summary; the ticket has the full list.
 
 - Labels follow the glossary. `ui::State`: `Waiting` → `NeedsYou`, `Running` → `Working`, today's `Done(a, r)` → `Idle(a, r)`, new `Done(a, r)` (accent dot + diffstat). Failed stays red ✕.
 - Desktop `Status`: `NeedsYou, Failed, Done, Working, Idle`, in urgency order. Card sections: Needs you, Done (failed first), Working, Earlier today, Earlier.
-- A session card shows its most urgent attached agent. Agentless sessions show activity (`npm run dev`, `at prompt`, `exited 1`) and no pill; after the last agent exits, `lastTitle` with a faded provider badge.
+- A session card is one agent (ADR 0002): its title ("New session" until it has one), a status pill and a provider dot. No branch, tab chips or time. An exited agent's card stays until its terminal closes or the user closes it. Agentless terminals have no card; they are tabs of their worktree.
+- Worktree rows and the column title show the branch ("main" for the main worktree), never a session title.
 - Rail and worktree rows roll up Needs you, then Done, then Working; agentless and not-attached terminals never roll up; Merged wins.
 - Not attached: a muted "Not attached" chip, and a one-line pane banner: claude "Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."; codex "This codex runs without the app-server, so Pocket can't see its status."
 - Inbox and bell: Needs you + Done. "Mark all read" sends `agent.seen`.

@@ -5,15 +5,23 @@ Watch and drive coding agents running on a Mac, from the desktop app and the pho
 ## Language
 
 **Terminal**:
-One PTY that pocketd owns. A terminal the desktop opens runs the user's login shell, which starts any agent inside it, and ends only when that shell exits. One started with `pocketd run` runs its command directly.
+One PTY that pocketd owns. A terminal the desktop opens runs the user's login shell, which starts any agent inside it, and ends only when that shell exits. One started with `pocketd run` runs its command directly. It belongs to the worktree holding its launch directory, for life.
 _Avoid_: pane, PTY session, pocketd session
+
+**Project**:
+A git repository added to Pocket, listed on the rail. Selecting it selects its main worktree, the repository's own checkout. A terminal launched outside every project adds its folder as a project while the folder has terminals; a folder that isn't a repository is its own only worktree.
+_Avoid_: repository, repo, folder
+
+**Worktree**:
+A git worktree of a project, listed on the sidebar. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
+_Avoid_: workspace, branch
 
 **Login shell**:
 The shell set on the user's macOS account with `chsh`, such as fish. It stays the same no matter how the app was launched.
 _Avoid_: TERM, $SHELL, default shell
 
 **Session**:
-What the session list shows as one card: a top-level terminal plus the terminals opened as its tabs and splits. It belongs to the worktree holding its top-level terminal's launch directory, for life.
+What the session list shows as one card: one agent, from launch to exit. Running `claude` then `codex` in one terminal makes two sessions; `/clear` keeps the session. It ends when its agent exits, and stays listed until its terminal closes or the user closes it. Closing a running session closes its terminal. It belongs to its terminal's worktree, wherever the agent `cd`s.
 _Avoid_: card, workspace, tab
 
 **Agent**:
@@ -31,7 +39,7 @@ _Avoid_: session id, transcript
 ### Status
 
 **Status**:
-Where an agent stands, from the user's view. One of Needs you, Done, Working, Idle, in that order of urgency. A session shows its most urgent agent's status; terminals without an agent have none.
+Where an agent stands, from the user's view. One of Needs you, Done, Working, Idle, in that order of urgency. A session shows its agent's status; terminals without an agent have none.
 
 **Needs you**:
 The agent can't continue until the user answers something: a permission, a question, a dialog. Clears only when answered.
