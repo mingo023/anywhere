@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -20,6 +22,8 @@ import (
 const (
 	defaultPage         = 200
 	defaultHelloTimeout = 10 * time.Second
+	defaultPingInterval = 20 * time.Second
+	defaultPingTimeout  = 10 * time.Second
 )
 
 type Server struct {
@@ -30,10 +34,14 @@ type Server struct {
 	Hub      *hub.Hub
 	// HelloTimeout closes connections still unauthenticated after it; zero means defaultHelloTimeout.
 	HelloTimeout time.Duration
+
+	pingInterval, pingTimeout time.Duration
+	conns                     atomic.Int64
 }
 
 type conn struct {
 	s      *Server
+	key    string
 	ws     *websocket.Conn
 	ctx    context.Context
 	cancel func()
@@ -49,12 +57,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws.SetReadLimit(1 << 20)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	c := &conn{s: s, ws: ws, ctx: ctx, cancel: cancel}
+	c := &conn{s: s, key: strconv.FormatInt(s.conns.Add(1), 10), ws: ws, ctx: ctx, cancel: cancel}
+	defer s.Agents.DropView(c.key)
 	defer func() {
 		if c.stop != nil {
 			c.stop()
 		}
 	}()
+	go c.keepalive()
 	helloCtx, cancelHello := context.WithTimeout(ctx, cmp.Or(s.HelloTimeout, defaultHelloTimeout))
 	defer cancelHello()
 	for {
@@ -68,6 +78,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.handle(raw)
+	}
+}
+
+// keepalive closes a connection whose peer stopped answering, so a sleeping phone's view doesn't mark turns seen.
+func (c *conn) keepalive() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-time.After(cmp.Or(c.s.pingInterval, defaultPingInterval)):
+		}
+		ctx, cancel := context.WithTimeout(c.ctx, cmp.Or(c.s.pingTimeout, defaultPingTimeout))
+		err := c.ws.Ping(ctx)
+		cancel()
+		if err != nil {
+			c.ws.CloseNow()
+			return
+		}
 	}
 }
 
@@ -133,6 +161,14 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return nil
 	case "agent.list":
 		c.send(proto.NewAgentList(m.ID, c.s.Agents.List()))
+		return nil
+	case "agent.view":
+		c.s.Agents.SetView(c.key, m.AgentIDs)
+		c.send(proto.NewAck(m.ID))
+		return nil
+	case "agent.seen":
+		c.s.Agents.MarkSeen(m.AgentIDs)
+		c.send(proto.NewAck(m.ID))
 		return nil
 	}
 	a, err := c.s.Agents.Get(m.AgentID)

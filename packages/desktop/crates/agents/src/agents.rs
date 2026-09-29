@@ -2,18 +2,26 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::io::ErrorKind;
+use std::net::TcpStream;
 use std::path::Path;
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
 use tungstenite::Message;
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Summary {
     pub id: String,
+    pub terminal_id: String,
     pub title: String,
     pub cwd: String,
     pub provider: String,
     pub model: Option<String>,
     pub status: String,
+    pub failed: bool,
+    pub attached: bool,
+    pub compacting: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -26,7 +34,6 @@ pub struct Item {
     pub ts: i64,
     pub kind: String,
     pub text: String,
-    pub ok: bool,
     pub error: String,
     pub duration_ms: i64,
     pub usage: Option<Usage>,
@@ -37,13 +44,6 @@ pub struct Item {
 #[serde(default)]
 pub struct Call {
     pub detail: Detail,
-}
-
-impl Item {
-    /// Both providers end an interrupted turn with a not-ok result, but the user stopped it.
-    pub fn failed(&self) -> bool {
-        !self.ok && self.error != "interrupted"
-    }
 }
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
@@ -74,8 +74,6 @@ pub struct Permission {
     pub agent_id: String,
     pub tool_name: String,
     pub detail: Detail,
-    #[serde(skip)]
-    pub at: i64,
 }
 
 impl Permission {
@@ -143,19 +141,14 @@ impl Agents {
                 }
                 t.sort_by_key(|x| x.seq);
             }
-            Event::Asked(mut p) => {
+            Event::Asked(p) => {
                 if !self.pending.iter().any(|x| x.request_id == p.request_id) {
-                    p.at = chrono::Utc::now().timestamp_millis();
                     self.pending.push(p);
                 }
             }
             Event::Resolved(id) => self.pending.retain(|p| p.request_id != id),
             Event::Connected => self.pending.clear(),
         }
-    }
-
-    pub fn needs_you(&self, id: &str) -> bool {
-        self.pending.iter().any(|p| p.agent_id == id)
     }
 
     pub fn last_result(&self, id: &str) -> Option<&Item> {
@@ -207,31 +200,61 @@ fn token(home: &Path) -> Option<(String, u16)> {
     Some((v["token"].as_str()?.to_string(), v["port"].as_u64()? as u16))
 }
 
+/// Client messages for pocketd. They wait in a queue while it is unreachable.
+#[derive(Clone)]
+pub struct Outbox(Sender<String>);
+
+impl Outbox {
+    pub fn view(&self, ids: &[String]) {
+        self.send(json!({"type": "agent.view", "id": "view", "agentIds": ids}));
+    }
+
+    pub fn seen(&self, ids: &[String]) {
+        self.send(json!({"type": "agent.seen", "id": "seen", "agentIds": ids}));
+    }
+
+    fn send(&self, m: Value) {
+        let _ = self.0.send(m.to_string());
+    }
+}
+
 /// Follows pocketd's phone protocol on localhost: the agent list and every agent's timeline.
-pub fn connect(home: &Path) -> UnboundedReceiver<Event> {
+pub fn connect(home: &Path) -> (Outbox, UnboundedReceiver<Event>) {
     let (tx, rx) = unbounded();
+    let (out, queue) = channel();
     let home = home.to_path_buf();
     std::thread::spawn(move || {
         loop {
-            let _ = run(&home, &tx);
+            let _ = run(&home, &tx, &queue);
             if tx.is_closed() {
                 return;
             }
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
     });
-    rx
+    (Outbox(out), rx)
 }
 
-fn run(home: &Path, tx: &UnboundedSender<Event>) -> Option<()> {
+fn run(home: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<String>) -> Option<()> {
     let (tok, port) = token(home)?;
-    let (mut ws, _) = tungstenite::connect(format!("ws://127.0.0.1:{port}")).ok()?;
-    let hello = json!({"type": "hello", "id": "h", "token": tok, "clientId": "desktop", "protocolVersion": 2});
+    let stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
+    let (mut ws, _) = tungstenite::client(format!("ws://127.0.0.1:{port}"), stream).ok()?;
+    // Reads time out so the loop gets to send the queue even while pocketd is quiet.
+    ws.get_ref().set_read_timeout(Some(Duration::from_millis(100))).ok()?;
+    let hello = json!({"type": "hello", "id": "h", "token": tok, "clientId": "desktop", "protocolVersion": 3});
     ws.send(Message::text(hello.to_string())).ok()?;
     tx.unbounded_send(Event::Connected).ok()?;
     let mut known: Vec<String> = Vec::new();
     loop {
-        let Message::Text(raw) = ws.read().ok()? else { continue };
+        for m in queue.try_iter() {
+            ws.send(Message::text(m)).ok()?;
+        }
+        let raw = match ws.read() {
+            Ok(Message::Text(raw)) => raw,
+            Ok(_) => continue,
+            Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => continue,
+            Err(_) => return None,
+        };
         let Ok(f) = serde_json::from_str::<Frame>(&raw) else { continue };
         let mut fresh: Vec<String> = Vec::new();
         let ev = match f.kind.as_str() {
@@ -268,6 +291,7 @@ fn run(home: &Path, tx: &UnboundedSender<Event>) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
 
     fn summary(provider: &str, model: Option<&str>) -> Summary {
         Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() }
@@ -299,10 +323,9 @@ mod tests {
         let mut a = Agents::default();
         a.apply(Event::Asked(p.clone()));
         a.apply(Event::Asked(p));
-        assert!(a.needs_you("a"));
         assert_eq!(a.pending.len(), 1);
         a.apply(Event::Resolved("r1".into()));
-        assert!(!a.needs_you("a"));
+        assert!(a.pending.is_empty());
         a.apply(Event::Asked(Permission { request_id: "r2".into(), ..Default::default() }));
         a.apply(Event::Connected);
         assert!(a.pending.is_empty());
@@ -318,9 +341,29 @@ mod tests {
     }
 
     #[test]
-    fn an_interrupted_turn_has_not_failed() {
-        let result = |error: &str| Item { kind: "result".into(), error: error.into(), ..Default::default() };
-        assert!(!result("interrupted").failed());
-        assert!(result("boom").failed());
+    fn decodes_a_v3_summary() {
+        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_failed.json")).unwrap();
+        let a = f.agent.unwrap();
+        assert_eq!((a.terminal_id.as_str(), a.status.as_str(), a.failed, a.attached, a.compacting), ("t1", "done", true, true, false));
+    }
+
+    #[test]
+    fn sends_queued_messages_while_pocketd_is_quiet() {
+        let server = TcpListener::bind("127.0.0.1:0").unwrap();
+        let home = std::env::temp_dir().join(format!("pocket-agents-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("config.json"), json!({"token": "t", "port": server.local_addr().unwrap().port()}).to_string()).unwrap();
+        let (out, _events) = connect(&home);
+        let (peer, _) = server.accept().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut ws = tungstenite::accept(peer).unwrap();
+        let read = |ws: &mut tungstenite::WebSocket<TcpStream>| serde_json::from_str::<Value>(ws.read().unwrap().to_text().unwrap()).unwrap();
+
+        assert_eq!(read(&mut ws)["type"], "hello");
+        out.view(&["a1".into()]);
+        assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
+        out.seen(&["a1".into()]);
+        assert_eq!(read(&mut ws), json!({"type": "agent.seen", "id": "seen", "agentIds": ["a1"]}));
+        std::fs::remove_dir_all(&home).unwrap();
     }
 }

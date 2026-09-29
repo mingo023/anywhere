@@ -1,22 +1,17 @@
 use theme::*;
 use ui::{self, State, Variant, icon_button, kbd};
+use crate::status::Status;
 use crate::view::{ago, basename, column, drag_area, empty, now_ms};
 use crate::{Desktop, Screen, termview};
+use agents::{Agents, Summary};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cmp::Reverse;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Kind {
-    Ask,
-    Failed,
-    Done,
-}
-
 pub struct Note {
-    pub key: String,
     pub agent: String,
-    pub kind: Kind,
+    pub terminal: String,
+    pub status: Status,
     pub title: String,
     pub subtitle: String,
     pub at: i64,
@@ -26,42 +21,43 @@ fn first_line(s: &str) -> String {
     s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string()
 }
 
-impl Desktop {
-    /// Open permission asks first, then today's finished turns that haven't been marked read.
-    pub fn notes(&self) -> Vec<Note> {
-        let title = |id: &str| self.agents.get(id).map(|a| a.title.clone()).unwrap_or_default();
-        let mut asks: Vec<Note> = self
-            .agents
-            .pending
-            .iter()
-            .map(|p| Note { key: p.request_id.clone(), agent: p.agent_id.clone(), kind: Kind::Ask, title: p.ask(), subtitle: title(&p.agent_id), at: p.at })
-            .collect();
-        asks.sort_by_key(|n| Reverse(n.at));
-        let today = chrono::Local::now().date_naive();
-        let mut done: Vec<Note> = self
-            .agents
-            .list
-            .iter()
-            .filter_map(|a| {
-                let r = self.agents.last_result(&a.id)?;
-                let key = format!("{}:{}", a.id, r.id);
-                let day = chrono::DateTime::from_timestamp_millis(r.ts)?.with_timezone(&chrono::Local).date_naive();
-                if day != today || self.read.contains(&key) {
-                    return None;
-                }
-                let (kind, title, subtitle) = if !r.failed() {
-                    (Kind::Done, a.title.clone(), first_line(self.agents.last_text(&a.id).unwrap_or_default()))
-                } else {
-                    (Kind::Failed, format!("{} failed", a.title), first_line(&r.error))
-                };
-                Some(Note { key, agent: a.id.clone(), kind, title, subtitle, at: r.ts })
-            })
-            .collect();
-        done.sort_by_key(|n| Reverse(n.at));
-        asks.extend(done);
-        asks
-    }
+fn noted(a: &Summary) -> Option<Status> {
+    Status::of(a).filter(Status::alerting)
+}
 
+pub fn count(agents: &Agents) -> usize {
+    agents.list.iter().filter(|a| noted(a).is_some()).count()
+}
+
+/// Agents that need you, then the failed and done ones nobody has seen yet.
+pub fn notes(agents: &Agents) -> Vec<Note> {
+    let mut out: Vec<Note> = agents
+        .list
+        .iter()
+        .filter_map(|a| {
+            let status = noted(a)?;
+            let (title, subtitle) = match (status, agents.pending.iter().find(|p| p.agent_id == a.id)) {
+                (Status::NeedsYou, Some(p)) => (p.ask(), a.title.clone()),
+                (Status::Failed, _) => (format!("{} failed", a.title), first_line(agents.last_result(&a.id).map_or("", |r| r.error.as_str()))),
+                _ => (a.title.clone(), first_line(agents.last_text(&a.id).unwrap_or_default())),
+            };
+            Some(Note { agent: a.id.clone(), terminal: a.terminal_id.clone(), status, title, subtitle, at: a.updated_at })
+        })
+        .collect();
+    out.sort_by_key(|n| (n.status, Reverse(n.at)));
+    out
+}
+
+/// Keeps the selection on the focused note as the list changes. If that note left, drops focus
+/// so keystrokes never reach a terminal the user didn't pick.
+pub fn reselect(notes: &[Note], focused: Option<&str>, i: usize) -> (usize, Option<String>) {
+    match notes.iter().position(|n| focused == Some(n.terminal.as_str())) {
+        Some(j) => (j, Some(notes[j].terminal.clone())),
+        None => (i.min(notes.len().saturating_sub(1)), None),
+    }
+}
+
+impl Desktop {
     pub fn open_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.screen = Screen::Inbox;
         self.select_note(0, cx);
@@ -69,9 +65,9 @@ impl Desktop {
     }
 
     fn select_note(&mut self, i: usize, cx: &mut Context<Self>) {
-        let notes = self.notes();
+        let notes = notes(&self.agents);
         self.inbox = i.min(notes.len().saturating_sub(1));
-        self.focused = notes.get(self.inbox).map(|n| n.agent.clone());
+        self.focused = notes.get(self.inbox).map(|n| n.terminal.clone());
         cx.notify();
     }
 
@@ -91,9 +87,9 @@ impl Desktop {
     }
 
     pub fn inbox_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let notes = self.notes();
+        let notes = notes(&self.agents);
         let total = notes.len();
-        let asks = notes.iter().filter(|n| n.kind == Kind::Ask).count();
+        let asks = notes.iter().filter(|n| n.status == Status::NeedsYou).count();
         let now = now_ms();
         let header = drag_area(div())
             .h(px(52.))
@@ -107,9 +103,11 @@ impl Desktop {
             .child(icon_button("inbox-filter", "filter"))
             .child(
                 ui::button("mark-read", Variant::Ghost, None, "Mark all read").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        let keys: Vec<String> = this.notes().into_iter().filter(|n| n.kind != Kind::Ask).map(|n| n.key).collect();
-                        this.read.extend(keys);
-                        this.select_note(this.inbox, cx);
+                        let ids: Vec<String> = crate::inbox::notes(&this.agents).into_iter().filter(|n| n.status != Status::NeedsYou).map(|n| n.agent).collect();
+                        if !ids.is_empty() {
+                            this.outbox.seen(&ids);
+                        }
+                        this.select_note(0, cx);
                     })),
             );
         let section = |label: &str, count: usize| {
@@ -139,7 +137,7 @@ impl Desktop {
                 list = list.child(section("NEEDS YOU", asks));
             }
             if i == asks {
-                list = list.child(section("TODAY", total - asks));
+                list = list.child(section("DONE", total - asks));
             }
             list = list.child(self.note_row(i, n, now, cx));
         }
@@ -151,10 +149,10 @@ impl Desktop {
 
     fn note_row(&self, i: usize, n: Note, now: i64, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = i == self.inbox;
-        let (glyph, color) = match n.kind {
-            Kind::Ask => ("shield", WAITING_TEXT),
-            Kind::Failed => ("x", FAILED),
-            Kind::Done => ("check", RUNNING_TEXT),
+        let (glyph, color) = match n.status {
+            Status::NeedsYou => ("shield", WAITING_TEXT),
+            Status::Failed => ("x", FAILED),
+            _ => ("check", ACCENT),
         };
         let project = self.project_name(&n.agent);
         let provider = self.agents.get(&n.agent).map(|a| provider_name(&a.provider)).unwrap_or("Shell");
@@ -210,7 +208,7 @@ impl Desktop {
     }
 
     pub fn inbox_detail(&mut self, cx: &mut Context<Self>) -> Div {
-        let Some(n) = self.notes().into_iter().nth(self.inbox) else {
+        let Some(n) = notes(&self.agents).into_iter().nth(self.inbox) else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(rgba(TEXT_3)).child("You're all caught up.");
         };
         let project = self.project_name(&n.agent);
@@ -226,18 +224,18 @@ impl Desktop {
             .items_center()
             .gap(px(10.))
             .text_size(px(14.))
-            .child(ui::repo_mark(&project, false, false, false))
+            .child(ui::repo_mark(&project, false, None))
             .child(div().text_color(rgba(TEXT_2)).child(project))
             .child(div().text_color(rgba(TEXT_6)).child("/"))
             .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(title))
-            .when(n.kind == Kind::Ask, |d| {
-                d.child(ui::status("waiting", State::Waiting)).child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(format!("{}:{:02}", secs / 60, secs % 60)))
+            .when(n.status == Status::NeedsYou, |d| {
+                d.child(ui::status("needs-you", State::NeedsYou)).child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(format!("{}:{:02}", secs / 60, secs % 60)))
             })
             .child(div().flex_1())
             .child(ui::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.select_session(agent.clone(), window, cx)
+                this.focus_agent(&agent, window, cx)
             })));
-        let pane = self.pane(&n.agent, None, &termview::MAIN, cx);
+        let pane = self.pane(&n.terminal, None, &termview::MAIN, cx);
         let hints = div()
             .h(px(36.))
             .flex_none()
@@ -266,7 +264,51 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::first_line;
+    use super::{Note, count, first_line, notes, reselect};
+    use crate::status::Status;
+    use agents::{Agents, Item, Permission, Summary};
+
+    fn agent(id: &str, status: &str, at: i64) -> Summary {
+        Summary { id: id.into(), terminal_id: format!("t-{id}"), title: id.to_uppercase(), status: status.into(), attached: true, updated_at: at, ..Default::default() }
+    }
+
+    #[test]
+    fn selection_follows_the_focused_note_else_clamps_and_drops_focus() {
+        let note = |t: &str| Note { agent: t.into(), terminal: t.into(), status: Status::NeedsYou, title: String::new(), subtitle: String::new(), at: 0 };
+        assert_eq!(reselect(&[note("new"), note("a"), note("b")], Some("a"), 0), (1, Some("a".to_string())));
+        assert_eq!(reselect(&[note("a"), note("b")], Some("c"), 2), (1, None));
+        assert_eq!(reselect(&[note("a")], None, 4), (0, None));
+    }
+
+    #[test]
+    fn lists_agents_that_need_you_then_failed_then_done() {
+        let mut agents = Agents::default();
+        agents.list = vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), Summary { attached: false, ..agent("blind", "done", 9) }];
+        agents.pending = vec![Permission { agent_id: "ask".into(), tool_name: "Bash".into(), ..Default::default() }];
+        agents.timelines.insert("done".into(), vec![Item { kind: "assistant".into(), text: "\nTagged v2\nmore".into(), ..Default::default() }]);
+        agents.timelines.insert("fail".into(), vec![Item { kind: "result".into(), error: "exit 1".into(), ..Default::default() }]);
+        let got: Vec<(String, Status, String, String)> = notes(&agents).into_iter().map(|n| (n.terminal, n.status, n.title, n.subtitle)).collect();
+        let want = [("t-ask", Status::NeedsYou, "Wants to use Bash", "ASK"), ("t-fail", Status::Failed, "FAIL failed", "exit 1"), ("t-done", Status::Done, "DONE", "Tagged v2")];
+        assert_eq!(got, want.map(|(t, s, a, b)| (t.to_string(), s, a.to_string(), b.to_string())));
+        assert_eq!(count(&agents), 3);
+    }
+
+    #[test]
+    fn lists_the_newest_first_within_a_section() {
+        let mut agents = Agents::default();
+        agents.list = vec![agent("old", "done", 1), agent("ask", "needsYou", 2), agent("new", "done", 5), agent("ask2", "needsYou", 7)];
+        let got: Vec<String> = notes(&agents).into_iter().map(|n| n.agent).collect();
+        assert_eq!(got, vec!["ask2", "ask", "new", "old"]);
+    }
+
+    #[test]
+    fn a_needs_you_agent_without_an_open_ask_reads_its_title_and_last_text() {
+        let mut agents = Agents::default();
+        agents.list = vec![agent("ask", "needsYou", 0)];
+        agents.timelines.insert("ask".into(), vec![Item { kind: "assistant".into(), text: "Which branch?".into(), ..Default::default() }]);
+        let n = &notes(&agents)[0];
+        assert_eq!((n.title.as_str(), n.subtitle.as_str()), ("ASK", "Which branch?"));
+    }
 
     #[test]
     fn first_line_skips_blank_lines() {

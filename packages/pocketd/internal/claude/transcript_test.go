@@ -68,22 +68,17 @@ func TestMapDetails(t *testing.T) {
 	}
 }
 
-func TestGlobFollowsAccount(t *testing.T) {
-	if got := Glob([]string{"CLAUDE_CONFIG_DIR=/acct"}, "s1"); got != "/acct/projects/*/s1.jsonl" {
-		t.Fatal(got)
-	}
-}
-
 func TestTailWaitsForFileAndPartialLines(t *testing.T) {
 	dir := t.TempDir()
 	lines := make(chan string, 10)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go Tail(ctx, filepath.Join(dir, "*", "s.jsonl"), func(b []byte) { lines <- string(b) })
+	path := filepath.Join(dir, `[p] *?\`, "s.jsonl")
+	go Tail(ctx, path, func(b []byte) { lines <- string(b) })
 
 	time.Sleep(3 * poll)
-	os.Mkdir(filepath.Join(dir, "p"), 0o700)
-	f, _ := os.Create(filepath.Join(dir, "p", "s.jsonl"))
+	os.Mkdir(filepath.Dir(path), 0o700)
+	f, _ := os.Create(path)
 	defer f.Close()
 	f.WriteString("one\ntw")
 	expectLine(t, lines, "one")

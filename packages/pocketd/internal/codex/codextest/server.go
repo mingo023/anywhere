@@ -31,12 +31,14 @@ type Server struct {
 	answer Answer
 	calls  chan Frame
 	ready  chan struct{}
+	srv    *http.Server
 	mu     sync.Mutex
 	ws     *websocket.Conn
+	conns  map[*websocket.Conn]bool // true once initialized
 }
 
 // Start listens on sock. Push goes to the newest connection: a session
-// connects after the short-lived ones that list threads.
+// connects after the watcher.
 func Start(t *testing.T, sock string, answer Answer) *Server {
 	t.Helper()
 	os.MkdirAll(filepath.Dir(sock), 0o700)
@@ -44,11 +46,29 @@ func Start(t *testing.T, sock string, answer Answer) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{t: t, Sock: sock, answer: answer, calls: make(chan Frame, 1000), ready: make(chan struct{})}
-	srv := &http.Server{Handler: http.HandlerFunc(s.serve)}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	s := &Server{t: t, Sock: sock, answer: answer, calls: make(chan Frame, 1000), ready: make(chan struct{}), conns: map[*websocket.Conn]bool{}}
+	s.srv = &http.Server{Handler: http.HandlerFunc(s.serve)}
+	go s.srv.Serve(ln)
+	t.Cleanup(s.Close)
 	return s
+}
+
+// Close stops the server and drops its connections, which http.Server.Close
+// leaves open once hijacked.
+func (s *Server) Close() {
+	s.srv.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ws := range s.conns {
+		ws.CloseNow()
+	}
+}
+
+// Conns counts the clients still connected.
+func (s *Server) Conns() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.conns)
 }
 
 func OK(string, json.RawMessage) (any, string) { return map[string]any{}, "" }
@@ -58,9 +78,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	s.mu.Lock()
+	s.conns[ws] = false
+	s.mu.Unlock()
 	for {
 		_, raw, err := ws.Read(context.Background())
 		if err != nil {
+			s.mu.Lock()
+			delete(s.conns, ws)
+			s.mu.Unlock()
 			return
 		}
 		var f Frame
@@ -78,6 +104,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if f.Method == "initialize" {
 			s.mu.Lock()
 			s.ws = ws
+			s.conns[ws] = true
 			s.mu.Unlock()
 			select {
 			case <-s.ready:
@@ -106,6 +133,18 @@ func (s *Server) Push(method string, id any, params string) {
 	ws := s.ws
 	s.mu.Unlock()
 	s.write(ws, msg)
+}
+
+func (s *Server) Broadcast(method, params string) {
+	<-s.ready
+	raw, _ := json.Marshal(map[string]any{"method": method, "params": json.RawMessage(params)})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ws, up := range s.conns {
+		if up {
+			ws.Write(context.Background(), websocket.MessageText, raw)
+		}
+	}
 }
 
 func (s *Server) wait(what string, ok func(Frame) bool) Frame {

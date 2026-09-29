@@ -14,6 +14,11 @@ pub struct Info {
     pub cmd: String,
     pub args: Vec<String>,
     pub cwd: String,
+    pub foreground: String,
+    #[serde(rename = "lastProvider")]
+    pub last_provider: String,
+    #[serde(rename = "lastTitle")]
+    pub last_title: String,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -27,6 +32,7 @@ pub struct Msg {
     pub data: Option<String>,
     pub items: Vec<Info>,
     pub error: String,
+    pub text: String,
 }
 
 impl Msg {
@@ -120,8 +126,17 @@ mod tests {
 
     #[test]
     fn decodes_session_list_ignoring_unknown_fields() {
-        let m: Msg = serde_json::from_str(r#"{"ev":"sessions","items":[{"id":"a","cmd":"claude","args":["-c"],"cwd":"/w","cols":80,"rows":24}]}"#).unwrap();
-        assert_eq!(m.items, vec![Info { id: "a".into(), cmd: "claude".into(), args: vec!["-c".into()], cwd: "/w".into() }]);
+        let m: Msg = serde_json::from_str(r#"{"ev":"terminals","items":[{"id":"a","cmd":"claude","args":["-c"],"cwd":"/w","cols":80,"rows":24}]}"#).unwrap();
+        assert_eq!(m.items, vec![Info { id: "a".into(), cmd: "claude".into(), args: vec!["-c".into()], cwd: "/w".into(), ..Default::default() }]);
+    }
+
+    #[test]
+    fn decodes_terminal_activity() {
+        let m: Msg = serde_json::from_str(r#"{"ev":"terminals","items":[{"id":"a","cmd":"zsh","cwd":"/w","foreground":"npm run dev","lastProvider":"claude","lastTitle":"Fix CI"}]}"#).unwrap();
+        let i = &m.items[0];
+        assert_eq!((i.foreground.as_str(), i.last_provider.as_str(), i.last_title.as_str()), ("npm run dev", "claude", "Fix CI"));
+        let m: Msg = serde_json::from_str(r#"{"ev":"foreground","id":"a","text":"cargo test"}"#).unwrap();
+        assert_eq!(m.text, "cargo test");
     }
 
     #[test]

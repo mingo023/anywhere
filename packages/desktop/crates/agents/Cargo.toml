@@ -8,7 +8,6 @@ publish.workspace = true
 path = "src/agents.rs"
 
 [dependencies]
-chrono.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

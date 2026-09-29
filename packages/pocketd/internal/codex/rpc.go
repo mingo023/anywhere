@@ -22,12 +22,13 @@ type Handler interface {
 }
 
 type Client struct {
-	ws      *websocket.Conn
-	h       Handler
-	mu      sync.Mutex
-	next    int
-	pending map[string]chan frame
-	done    chan struct{}
+	ws       *websocket.Conn
+	h        Handler
+	handlers sync.WaitGroup
+	mu       sync.Mutex
+	next     int
+	pending  map[string]chan frame
+	done     chan struct{}
 }
 
 type frame struct {
@@ -55,7 +56,7 @@ func Dial(ctx context.Context, sock string, h Handler) (*Client, error) {
 	ws.SetReadLimit(64 << 20)
 	c := &Client{ws: ws, h: h, pending: map[string]chan frame{}, done: make(chan struct{})}
 	go c.read()
-	if _, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "pocketd", "title": nil, "version": "0"}, "capabilities": nil}); err != nil {
+	if _, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "codex_app_server_daemon", "title": nil, "version": "0"}, "capabilities": nil}); err != nil {
 		ws.CloseNow()
 		return nil, err
 	}
@@ -83,11 +84,11 @@ func (c *Client) read() {
 		}
 		if f.Method != "" {
 			prev, next := handled, make(chan struct{})
-			go func() {
+			c.handlers.Go(func() {
 				<-prev
 				c.handle(f)
 				close(next)
-			}()
+			})
 			handled = next
 			continue
 		}
@@ -150,30 +151,12 @@ func (c *Client) Reply(id json.RawMessage, result any) error {
 
 func (c *Client) Done() <-chan struct{} { return c.done }
 
-func (c *Client) Close() { c.ws.CloseNow() }
-
-type nopHandler struct{}
-
-func (nopHandler) Notify(string, json.RawMessage)                   {}
-func (nopHandler) Request(json.RawMessage, string, json.RawMessage) {}
-
-func Loaded(ctx context.Context, sock string) ([]string, error) {
-	c, err := Dial(ctx, sock, nopHandler{})
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	res, err := c.Call(ctx, "thread/loaded/list", map[string]any{})
-	if err != nil {
-		return nil, err
-	}
-	var r struct {
-		Data []string `json:"data"`
-	}
-	if err := json.Unmarshal(res, &r); err != nil {
-		return nil, err
-	}
-	return r.Data, nil
+// Close returns once the handler has taken its last message, so the handler
+// must not call it.
+func (c *Client) Close() {
+	c.ws.CloseNow()
+	<-c.done
+	c.handlers.Wait()
 }
 
 // Sock is the app-server control socket for the account in env.

@@ -6,11 +6,12 @@ mod inbox;
 mod mermaid;
 mod overlay;
 mod sessions;
+mod status;
 mod syntax;
 mod termview;
 mod view;
 
-use agents::{Agents, Summary};
+use agents::{Agents, Event, Outbox, Summary};
 use daemon::{Daemon, Msg};
 use futures::StreamExt;
 use git::Repo;
@@ -19,7 +20,8 @@ use gpui_kit::component::text::TextViewState;
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use serde_json::json;
-use sessions::Sessions;
+use sessions::{Session, Sessions};
+use status::{Card, Status};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -50,24 +52,6 @@ pub enum Layout {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum Status {
-    NeedsYou,
-    Working,
-    Done,
-    Failed,
-}
-
-#[derive(Clone)]
-pub struct Card {
-    pub id: String,
-    pub provider: String,
-    pub title: String,
-    pub cwd: String,
-    pub at: i64,
-    pub status: Status,
-}
-
-#[derive(Clone, Copy, PartialEq)]
 pub enum Overlay {
     Palette,
     NewSession,
@@ -94,6 +78,10 @@ enum Intent {
 
 pub struct Desktop {
     daemon: Daemon,
+    outbox: Outbox,
+    viewing: Option<Vec<String>>,
+    statuses: HashMap<String, Status>,
+    alerted: HashSet<String>,
     sessions: Sessions,
     agents: Agents,
     store: Store,
@@ -130,7 +118,6 @@ pub struct Desktop {
     git_run: u64,
     git_done: u64,
     inbox: usize,
-    read: HashSet<String>,
     error: Option<String>,
     root: FocusHandle,
     term_focus: FocusHandle,
@@ -171,7 +158,7 @@ fn under(cwd: &str, project: &str) -> bool {
 }
 
 impl Desktop {
-    fn new(daemon: Daemon, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(daemon: Daemon, outbox: Outbox, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions, files and actions…"));
         let comment_input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
         let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
@@ -197,6 +184,10 @@ impl Desktop {
         _subs.extend(repo_subs);
         Self {
             daemon,
+            outbox,
+            viewing: None,
+            statuses: HashMap::new(),
+            alerted: HashSet::new(),
             sessions: Sessions::default(),
             agents: Agents::default(),
             project: store.projects.first().cloned(),
@@ -233,7 +224,6 @@ impl Desktop {
             git_run: 0,
             git_done: 0,
             inbox: 0,
-            read: HashSet::new(),
             error: None,
             root: cx.focus_handle(),
             term_focus: cx.focus_handle(),
@@ -270,9 +260,73 @@ impl Desktop {
         }
     }
 
+    fn on_agents(&mut self, ev: Event, cx: &mut Context<Self>) {
+        if let (Event::Connected, Some(ids)) = (&ev, &self.viewing) {
+            self.outbox.view(ids);
+        }
+        if let Event::Agents(list) = &ev {
+            // Notifications outlive the app, so any listed agent may still have one from before a restart.
+            self.alerted.extend(list.iter().map(|a| a.id.clone()));
+        }
+        self.agents.apply(ev);
+        if self.screen == Screen::Inbox {
+            (self.inbox, self.focused) = inbox::reselect(&inbox::notes(&self.agents), self.focused.as_deref(), self.inbox);
+        }
+        self.sync_alerts(cx);
+        cx.notify();
+    }
+
+    fn sync_alerts(&mut self, cx: &mut App) {
+        let now: HashMap<String, Status> = self.agents.list.iter().filter_map(|a| Some((a.id.clone(), Status::of(a)?))).collect();
+        let (show, dismiss) = status::alerts(&self.statuses, &now, &self.alerted, self.viewing.as_deref().unwrap_or_default());
+        for id in dismiss {
+            cx.dismiss_system_notification(&id);
+            self.alerted.remove(&id);
+        }
+        for id in show.into_iter().filter(|_| !self.capturing) {
+            let Some(a) = self.agents.get(&id) else { continue };
+            let title = if a.title.is_empty() { theme::provider_name(&a.provider).to_string() } else { a.title.clone() };
+            cx.show_system_notification(SystemNotification { tag: id.clone().into(), title: title.into(), body: now[&id].label().into(), actions: Vec::new() });
+            self.alerted.insert(id);
+        }
+        self.statuses = now;
+    }
+
+    fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
+        let top = self.store.parent(&term).unwrap_or(&term).to_string();
+        self.side = Side::Sessions;
+        let w = self.workspace(&top);
+        if let Some(i) = w.tab_of(&term) {
+            w.active = i;
+        }
+        self.open_session(top, Some(term), window, cx);
+    }
+
+    /// The terminals on screen: the selected session's active tab, unless a preview covers it.
+    fn visible_panes(&mut self) -> Vec<String> {
+        let preview = (self.side == Side::Changes && self.diff_file.is_some()) || (self.side == Side::Explorer && self.file.is_some());
+        let Some(id) = self.session.clone().filter(|_| self.screen == Screen::Sessions && !preview) else { return Vec::new() };
+        match self.workspace(&id).active() {
+            Some(Tab::Term(rows)) => rows.concat(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn sync_view(&mut self, window: &Window, cx: &mut App) {
+        let panes = if window.is_window_active() { self.visible_panes() } else { Vec::new() };
+        self.sessions.see_exits(&panes);
+        let ids = status::view_set(&panes, &self.agents.list);
+        if self.viewing.as_ref() != Some(&ids) {
+            self.outbox.view(&ids);
+            self.viewing = Some(ids);
+            self.sync_alerts(cx);
+        }
+    }
+
     fn on_msg(&mut self, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match m.ev.as_str() {
-            "sessions" => {
+            "terminals" => {
                 let items = m.items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
                 for id in self.sessions.sync(items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
@@ -339,44 +393,23 @@ impl Desktop {
 
     pub fn cards(&self, project: &str) -> Vec<Card> {
         let projects = self.projects();
-        let mine = |cwd: &str| self.project_of(cwd, &projects).is_some_and(|p| p == project);
         let mut out: Vec<Card> = self
-            .agents
-            .list
+            .sessions
+            .items
             .iter()
-            .filter(|a| mine(&a.cwd) && self.store.parent(&a.id).is_none())
-            .map(|a| Card {
-                id: a.id.clone(),
-                provider: a.provider.clone(),
-                title: if a.title.is_empty() { "New session".into() } else { a.title.clone() },
-                cwd: a.cwd.clone(),
-                at: a.updated_at,
-                status: match () {
-                    _ if self.agents.needs_you(&a.id) => Status::NeedsYou,
-                    _ if a.status == "running" || a.status == "compacting" => Status::Working,
-                    _ if self.sessions.get(&a.id).is_some_and(|s| s.failed()) || self.agents.last_result(&a.id).is_some_and(|r| r.failed()) => Status::Failed,
-                    _ => Status::Done,
-                },
+            .filter(|s| self.store.parent(&s.info.id).is_none() && self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
+            .map(|s| {
+                let terms: Vec<&Session> = std::iter::once(s).chain(self.store.children_of(&s.info.id).filter_map(|c| self.sessions.get(c))).collect();
+                status::card(&terms, &self.agents.list)
             })
             .collect();
-        for s in &self.sessions.items {
-            if mine(&s.info.cwd) && self.store.parent(&s.info.id).is_none() && self.agents.get(&s.info.id).is_none() {
-                out.push(Card {
-                    id: s.info.id.clone(),
-                    provider: s.info.cmd.clone(),
-                    title: view::command_line(&s.info),
-                    cwd: s.info.cwd.clone(),
-                    at: 0,
-                    status: if s.failed() { Status::Failed } else { Status::Done },
-                });
-            }
-        }
         out.sort_by_key(|c| std::cmp::Reverse(c.at));
         out
     }
 
-    pub fn summary(&self, id: &str) -> Option<&Summary> {
-        self.agents.get(id)
+    /// The agent in `terminal`: the live one, else the last to exit.
+    pub fn summary(&self, terminal: &str) -> Option<&Summary> {
+        self.agents.list.iter().filter(|a| a.terminal_id == terminal).max_by_key(|a| (a.status != "closed", a.updated_at))
     }
 
     pub fn cwd_of(&self, id: &str) -> Option<String> {
@@ -410,14 +443,18 @@ impl Desktop {
     }
 
     pub fn select_session(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.screen = Screen::Sessions;
-        if let Some(p) = self.cwd_of(&id).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
-            self.project = Some(p);
-        }
         let pane = match self.workspace(&id).active() {
             Some(Tab::Term(rows)) => rows.first().and_then(|r| r.first()).cloned(),
             _ => None,
         };
+        self.open_session(id, pane, window, cx);
+    }
+
+    fn open_session(&mut self, id: String, pane: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        self.screen = Screen::Sessions;
+        if let Some(p) = self.cwd_of(&id).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
+            self.project = Some(p);
+        }
         self.session = Some(id);
         if let Some(pane) = pane {
             self.focus_pane(pane, window, cx);
@@ -727,8 +764,8 @@ impl Desktop {
         if self.screen != Screen::Inbox {
             return;
         }
-        if let Some(n) = self.notes().into_iter().nth(self.inbox) {
-            self.select_session(n.agent, window, cx);
+        if let Some(n) = inbox::notes(&self.agents).into_iter().nth(self.inbox) {
+            self.focus_agent(&n.agent, window, cx);
         }
     }
 
@@ -841,7 +878,7 @@ fn main() {
         std::process::exit(1)
     });
     let home = path.parent().unwrap_or(&path).to_path_buf();
-    let mut agent_rx = agents::connect(&home);
+    let (outbox, mut agent_rx) = agents::connect(&home);
     let store = Store::load(&home);
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
@@ -885,12 +922,7 @@ fn main() {
                 .detach();
                 cx.spawn(async move |this, cx| {
                     while let Some(ev) = agent_rx.next().await {
-                        if this.update(cx, |d: &mut Desktop, cx| {
-                            d.agents.apply(ev);
-                            cx.notify();
-                        })
-                        .is_err()
-                        {
+                        if this.update(cx, |d: &mut Desktop, cx| d.on_agents(ev, cx)).is_err() {
                             break;
                         }
                     }
@@ -907,7 +939,13 @@ fn main() {
                     }
                 })
                 .detach();
-                Desktop::new(daemon, store, window, cx)
+                let handle = window.window_handle();
+                let this = cx.weak_entity();
+                cx.on_system_notification_response(move |r, cx| {
+                    cx.activate(true);
+                    let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
+                });
+                Desktop::new(daemon, outbox, store, window, cx)
             });
             cx.new(|cx| Root::new(view, window, cx))
         })

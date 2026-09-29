@@ -72,6 +72,25 @@ func TestStartEpochStopsMerging(t *testing.T) {
 	}
 }
 
+func TestClearDropsItemsButKeepsCounting(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash"}, 1)
+	tl.Apply(Event{Kind: "assistant_text", Text: "a"}, 2)
+	tl.Clear()
+	if items, _ := tl.Page(0, 200); len(items) != 0 {
+		t.Fatalf("items survived: %v", items)
+	}
+	if epoch, seq := tl.State(); epoch != 1 || seq != 2 {
+		t.Fatalf("state: epoch %d seq %d", epoch, seq)
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "t1", OK: true}, 3); ok {
+		t.Fatal("tool from the old conversation updated")
+	}
+	if it, _ := tl.Apply(Event{Kind: "assistant_text", Text: "b"}, 4); it.Seq != 3 || it.Text != "b" {
+		t.Fatalf("after clear: %+v", it)
+	}
+}
+
 func TestOutputIsClamped(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash"}, 1)

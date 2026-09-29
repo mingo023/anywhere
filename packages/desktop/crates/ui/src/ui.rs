@@ -192,13 +192,15 @@ pub fn segmented<V: 'static, T: Copy + PartialEq + 'static>(
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum State {
-    Waiting,
-    Running,
+    NeedsYou,
+    Working,
     Failed,
     Merged,
     Sent,
     Draft,
     Done(usize, usize),
+    Idle(usize, usize),
+    NotAttached,
 }
 
 pub fn diffstat(added: usize, removed: usize) -> Div {
@@ -229,13 +231,15 @@ pub fn status(id: impl Into<ElementId>, state: State) -> Div {
             .text_color(rgba(fg))
     };
     match state {
-        State::Waiting => pill(WAITING_BG, WAITING_TEXT).child(dot(6., WAITING)).child("Waiting"),
-        State::Running => pill(RUNNING_BG, RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Running"),
+        State::NeedsYou => pill(WAITING_BG, WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
+        State::Working => pill(RUNNING_BG, RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Working"),
         State::Failed => pill(FAILED_BG, FAILED).child(icon("x-bold", 11., FAILED)).child("Failed"),
         State::Merged => pill(MERGED_BG, MERGED).child(icon("merge", 11., MERGED)).child("Merged"),
         State::Sent => pill(FILL_3, TEXT_2).child(icon("check", 11., TEXT_2)).child("Sent"),
         State::Draft => pill(ACCENT_BG, ACCENT).child(dot(6., ACCENT)).child("Draft"),
-        State::Done(added, removed) => diffstat(added, removed),
+        State::Done(added, removed) => div().flex().flex_none().items_center().gap(px(6.)).child(dot(6., ACCENT)).child(diffstat(added, removed)),
+        State::Idle(added, removed) => diffstat(added, removed),
+        State::NotAttached => pill(FILL_3, TEXT_3).child("Not attached"),
     }
 }
 
@@ -285,14 +289,24 @@ pub fn kbd(keys: &str) -> Div {
 }
 
 /// One letter for a repository, taken from its last dash-separated word: "app-ios" is I.
-pub fn repo_mark(name: &str, selected: bool, waiting: bool, running: bool) -> Div {
+pub fn repo_mark(name: &str, selected: bool, state: Option<State>) -> Div {
     let word = name.rsplit('-').find(|w| !w.is_empty()).unwrap_or(name);
     let letter = word.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
-    repo_tile(&letter, 22., selected, waiting, running)
+    repo_tile(&letter, 22., selected, state)
 }
 
-/// A repository's initials on a square tile, dotted top-right while it waits and bottom-right while it runs.
-pub fn repo_tile(letters: &str, size: f32, selected: bool, waiting: bool, running: bool) -> Div {
+/// The color that marks a state asking for a look: Needs you, Failed or Done.
+pub fn alert_color(state: State) -> Option<u32> {
+    match state {
+        State::NeedsYou => Some(WAITING),
+        State::Failed => Some(FAILED),
+        State::Done(..) => Some(ACCENT),
+        _ => None,
+    }
+}
+
+/// A repository's initials on a square tile, dotted top-right when it asks for a look and bottom-right while it works.
+pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>) -> Div {
     let badge = |d: Div, color: u32| d.absolute().right(px(-2.)).size(px(9.)).rounded(px(5.)).bg(rgba(color)).shadow(vec![ring(WHITE, 2.)]);
     let scale = if letters.chars().count() > 1 { 0.34 } else { 0.5 };
     div()
@@ -310,8 +324,8 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, waiting: bool, runnin
             d.bg(rgba(SURFACE)).text_color(rgba(TEXT_2)).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }, shadow(0x0000000a, 1., 1.)])
         })
         .child(letters.to_string())
-        .when(waiting, |d| d.child(badge(div().top(px(-2.)), WAITING)))
-        .when(running, |d| d.child(badge(div().bottom(px(-2.)), RUNNING)))
+        .children(state.and_then(alert_color).map(|c| badge(div().top(px(-2.)), c)))
+        .when(state == Some(State::Working), |d| d.child(badge(div().bottom(px(-2.)), RUNNING)))
 }
 
 pub fn repo_row(id: impl Into<ElementId>, name: &str, selected: bool, count: Option<usize>, state: Option<State>, spin: impl Into<ElementId>) -> Stateful<Div> {
@@ -330,14 +344,18 @@ pub fn repo_row(id: impl Into<ElementId>, name: &str, selected: bool, count: Opt
         .font_weight(FontWeight::SEMIBOLD)
         .hover(|s| s.bg(rgba(FILL_2)))
         .child(div().w(px(14.)).flex().justify_center().child(icon(if selected { "chevron-down" } else { "chevron-right" }, 12., TEXT_5)))
-        .child(repo_mark(name, false, false, false))
+        .child(repo_mark(name, false, None))
         .child(div().flex_1().truncate().child(name.to_string()))
         .children(count.map(|n| div().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_3)).child(n.to_string())))
         .map(|d| match state {
-            Some(State::Waiting) => d.child(dot(7., WAITING)),
-            Some(State::Running) => d.child(spinner(spin, 11., RUNNING_TEXT)),
-            _ => d,
+            Some(State::Working) => d.child(spinner(spin, 11., RUNNING_TEXT)),
+            Some(s) => d.children(alert_color(s).map(|c| dot(7., c))),
+            None => d,
         })
+}
+
+pub fn provider_label(provider: &str, faded: bool) -> Div {
+    div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(dot(6., provider_color(provider))).child(provider_name(provider))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -345,8 +363,8 @@ pub fn session_row(
     id: impl Into<ElementId>,
     selected: bool,
     title: String,
-    state: State,
-    provider: &str,
+    state: Option<State>,
+    lead: impl IntoElement,
     branch: String,
     when: String,
     tags: Vec<String>,
@@ -354,8 +372,8 @@ pub fn session_row(
     let id = id.into();
     // The design's browser sizes this line by the status's inline box, not the title.
     let line = match state {
-        State::Waiting | State::Draft => 22.,
-        State::Done(..) => 18.,
+        Some(State::NeedsYou | State::Draft) => 22.,
+        Some(State::Done(..) | State::Idle(..)) => 18.,
         _ => 20.7,
     };
     div()
@@ -377,7 +395,7 @@ pub fn session_row(
                 .items_center()
                 .gap(px(8.))
                 .child(div().flex_1().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)).child(title))
-                .child(status(id, state)),
+                .children(state.map(|s| status(id, s))),
         )
         .child(
             div()
@@ -389,8 +407,7 @@ pub fn session_row(
                 .text_size(px(12.))
                 .line_height(px(15.))
                 .text_color(rgba(TEXT_2))
-                .child(dot(6., provider_color(provider)))
-                .child(provider_name(provider))
+                .child(lead)
                 .child(div().text_color(rgba(TEXT_6)).child("·"))
                 .child(icon("worktree", 12., TEXT_4))
                 .child(div().min_w_0().truncate().font_family(MONO).text_size(px(11.5)).child(branch))
@@ -786,8 +803,10 @@ pub fn worktree_row(id: impl Into<ElementId>, label: String, branch: String, mai
                 .child(div().truncate().font_family(MONO).text_size(px(11.)).line_height(px(14.)).text_color(rgba(TEXT_4)).child(branch)),
         )
         .children(state.map(|s| match s {
-            State::Waiting => mini_status(WAITING_BG, dot(6., WAITING)),
-            State::Running => mini_status(RUNNING_BG, spinner(id.clone(), 11., RUNNING_TEXT)),
+            State::NeedsYou => mini_status(WAITING_BG, dot(6., WAITING)),
+            State::Failed => mini_status(FAILED_BG, icon("x", 11., FAILED)),
+            State::Done(..) => mini_status(ACCENT_BG, dot(6., ACCENT)),
+            State::Working => mini_status(RUNNING_BG, spinner(id.clone(), 11., RUNNING_TEXT)),
             _ => status(id, s).into_any_element(),
         }))
 }

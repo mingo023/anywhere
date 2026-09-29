@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	Version          = 2
+	Version          = 3
 	ToolOutputLimit  = 64 * 1024
 	DiffPreviewLines = 24
 	DiffLineChars    = 160
@@ -167,11 +167,15 @@ func (it Item) MarshalJSON() ([]byte, error) {
 
 type AgentSummary struct {
 	ID                string `json:"id"`
+	TerminalID        string `json:"terminalId"`
 	Title             string `json:"title"`
 	Cwd               string `json:"cwd"`
 	Provider          string `json:"provider"`
 	Model             string `json:"model,omitempty"`
 	Status            string `json:"status"`
+	Failed            bool   `json:"failed,omitempty"`
+	Attached          bool   `json:"attached"`
+	Compacting        bool   `json:"compacting,omitempty"`
 	Epoch             int64  `json:"epoch"`
 	MaxSeq            int64  `json:"maxSeq"`
 	ProviderSessionID string `json:"providerSessionId,omitempty"`

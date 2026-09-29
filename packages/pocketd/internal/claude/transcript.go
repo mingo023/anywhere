@@ -7,11 +7,9 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"pocketd/internal/envdir"
 	"pocketd/internal/timeline"
 )
 
@@ -131,21 +129,14 @@ func textOf(raw json.RawMessage) string {
 	return out.String()
 }
 
-// Glob matches the transcript for sessionID under the account in env.
-func Glob(env []string, sessionID string) string {
-	return filepath.Join(envdir.Lookup(env, "CLAUDE_CONFIG_DIR", ".claude"), "projects", "*", sessionID+".jsonl")
-}
-
 const poll = 100 * time.Millisecond
 
-// Tail waits for a file matching glob, then calls fn with each complete line
+// Tail waits for the file at path, then calls fn with each complete line
 // until ctx ends, and with the lines already written when it does.
-func Tail(ctx context.Context, glob string, fn func([]byte)) {
+func Tail(ctx context.Context, path string, fn func([]byte)) {
 	var f *os.File
 	for f == nil {
-		if matches, _ := filepath.Glob(glob); len(matches) > 0 {
-			f, _ = os.Open(matches[0])
-		}
+		f, _ = os.Open(path)
 		if f == nil && !sleep(ctx) {
 			return
 		}

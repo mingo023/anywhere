@@ -2,151 +2,197 @@ package daemon
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"os/exec"
-	"path/filepath"
 	"slices"
-	"sync"
-	"sync/atomic"
+	"strings"
 	"time"
 
 	"pocketd/internal/agent"
 	"pocketd/internal/codex"
-	"pocketd/internal/session"
+	"pocketd/internal/timeline"
 )
 
-var CodexThreadWait = 30 * time.Second
+// CodexMapWindow is how long after an Enter a thread that turns active is
+// taken for the one that codex started.
+var CodexMapWindow = 3 * time.Second
 
-// spawnCodex runs the TUI against the account's app-server so pocketd can
-// join the same thread as a second client.
-func (d *Daemon) spawnCodex(spec session.Spec) (*session.Session, error) {
-	bin, err := session.LookPath(spec.Cmd, spec.Env)
-	if err != nil {
-		return nil, err
+func (d *Daemon) attachCodex(pr *presence) {
+	if embedded(pr.argv, pr.env) {
+		pr.a.SetAttached(false)
+		return
 	}
-	start := exec.Command(bin, "app-server", "daemon", "start")
-	start.Env = spec.Env
-	// The daemon it forks may keep our output pipes open for its lifetime.
-	start.WaitDelay = time.Second
-	if out, err := start.CombinedOutput(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
-		return nil, fmt.Errorf("codex app-server daemon start: %v: %s", err, out)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	pr.sock = codex.Sock(pr.env)
+	if d.watchers[pr.sock] != nil {
+		return
 	}
-	sock := codex.Sock(spec.Env)
-	// The new thread is found by diffing the loaded list around the spawn,
-	// so two spawns on one account must not overlap.
-	lock, _ := d.codexLocks.LoadOrStore(lockKey(sock), &sync.Mutex{})
-	mu := lock.(*sync.Mutex)
-	mu.Lock()
-	// The lock is held for at most CodexThreadWait so a TUI parked on its
-	// trust prompts doesn't block other spawns; its watcher keeps going unlocked.
-	ctx, cancel := context.WithTimeout(context.Background(), CodexThreadWait)
-	release := sync.OnceFunc(func() { cancel(); mu.Unlock() })
-	before, err := codex.Loaded(ctx, sock)
-	if err == nil {
-		spec.Args = append([]string{"--remote", "unix://" + sock, "-C", spec.Cwd}, spec.Args...)
-		var s *session.Session
-		if s, err = d.Sessions.Spawn(spec); err == nil {
-			go func() {
-				<-ctx.Done()
-				release()
-			}()
-			go func() {
-				threadID := d.newThread(sock, before, s.Done())
-				release()
-				if threadID != "" {
-					d.followCodex(s, sock, spec.Cwd, threadID)
-				}
-			}()
-			return s, nil
-		}
+	if d.watchers == nil {
+		d.watchers = map[string]context.CancelFunc{}
 	}
-	release()
-	return nil, err
-}
-
-// newThread claims the first thread loaded after before that no other spawn claimed.
-func (d *Daemon) newThread(sock string, before []string, exited <-chan struct{}) string {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		select {
-		case <-exited:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-	for {
-		ids, _ := codex.Loaded(ctx, sock)
-		for _, id := range ids {
-			if slices.Contains(before, id) {
-				continue
-			}
-			if _, taken := d.codexThreads.LoadOrStore(id, true); !taken {
-				return id
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ""
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
+	d.watchers[pr.sock] = cancel
+	go codex.Watch(ctx, pr.sock, &codexSock{d: d, sock: pr.sock, nonRoot: map[string]bool{}})
 }
 
-func lockKey(sock string) string {
-	abs, _ := filepath.Abs(sock)
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return real
+var embeddedFlags = []string{"--no-daemon", "--oss", "-p", "--profile", "-c", "--config", "--enable", "--disable",
+	"--search", "--strict-config", "--dangerously-bypass-hook-trust", "--remote"}
+
+// embedded is a codex that bypasses the account's app-server, so no watcher
+// sees its threads.
+func embedded(argv, env []string) bool {
+	if len(argv) > 1 && (argv[1] == "exec" || argv[1] == "e") {
+		return true
 	}
-	return abs
+	for _, arg := range argv[1:] {
+		if flag, _, _ := strings.Cut(arg, "="); slices.Contains(embeddedFlags, flag) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "CODEX_EXEC_SERVER_URL=") })
 }
 
-func (d *Daemon) followCodex(s *session.Session, sock, cwd, threadID string) {
-	drv := &codexDriver{s: s}
-	d.track(s, s.Info().ID, cwd, "codex", func(a *agent.Agent) agent.Driver { drv.a = a; return drv }, func(ctx context.Context, a *agent.Agent) {
-		thread, err := codex.Open(ctx, sock, threadID, a.ID(), a, d.Broker)
-		if err != nil {
-			<-ctx.Done()
+// unwatch stops the watcher on sock once no codex uses it. d.mu is held.
+func (d *Daemon) unwatch(sock string) {
+	for _, pr := range d.present {
+		if pr.sock == sock {
 			return
 		}
-		drv.thread.Store(thread)
-		defer thread.Close()
-		select {
-		case <-ctx.Done():
-		case <-thread.Done():
+	}
+	if stop := d.watchers[sock]; stop != nil {
+		stop()
+		delete(d.watchers, sock)
+	}
+}
+
+type codexSock struct {
+	d       *Daemon
+	sock    string
+	nonRoot map[string]bool // unlocked: Watch hands over one broadcast at a time
+}
+
+func (w *codexSock) Connected() {}
+
+func (w *codexSock) ThreadStarted(id string, root bool) {
+	if !root {
+		w.nonRoot[id] = true
+	}
+}
+
+func (w *codexSock) ThreadStatus(id, typ string, flags []string) {
+	pr := w.bound(id)
+	if pr == nil && typ == "active" && !w.nonRoot[id] {
+		if pr = w.typedIn(); pr != nil {
+			w.d.bind(pr, id)
 		}
-	})
-}
-
-// codexDriver types into the TUI until the thread has its first turn:
-// the app-server refuses to resume it before then.
-type codexDriver struct {
-	s      *session.Session
-	a      *agent.Agent
-	thread atomic.Pointer[codex.Session]
-}
-
-func (c *codexDriver) Prompt(text string) error {
-	if t := c.thread.Load(); t != nil {
-		return t.Prompt(text)
 	}
-	return c.s.Prompt(text)
-}
-
-func (c *codexDriver) Interrupt() error {
-	if t := c.thread.Load(); t != nil {
-		return t.Interrupt()
+	if pr == nil {
+		return
 	}
-	return c.s.Write([]byte{0x1b})
-}
-
-func (c *codexDriver) Compact() error {
-	c.a.SetCompacting()
-	if t := c.thread.Load(); t != nil {
-		return t.Compact()
+	switch {
+	case typ == "active" && (slices.Contains(flags, "waitingOnApproval") || slices.Contains(flags, "waitingOnUserInput")):
+		pr.a.NeedsYou()
+	case typ == "active":
+		pr.a.Working()
+	case typ == "idle":
+		pr.a.TurnEnded(false)
+	case typ == "systemError":
+		pr.a.TurnEnded(true)
 	}
-	return c.s.Prompt("/compact")
 }
 
-func (c *codexDriver) Close() { c.s.Close() }
+func (w *codexSock) ThreadClosed(id string) {
+	delete(w.nonRoot, id)
+	if pr := w.bound(id); pr != nil {
+		pr.mu.Lock()
+		defer pr.mu.Unlock()
+		pr.unfollow()
+		pr.thread, pr.unfollow = "", nil
+	}
+}
+
+func (w *codexSock) bound(thread string) *presence {
+	w.d.mu.Lock()
+	defer w.d.mu.Unlock()
+	for _, pr := range w.d.present {
+		if pr.sock != w.sock {
+			continue
+		}
+		pr.mu.Lock()
+		ok := pr.thread == thread
+		pr.mu.Unlock()
+		if ok {
+			return pr
+		}
+	}
+	return nil
+}
+
+// typedIn is the codex on the socket that got Enter last, within
+// CodexMapWindow, unless its thread is running: that Enter went to it.
+func (w *codexSock) typedIn() *presence {
+	w.d.mu.Lock()
+	defer w.d.mu.Unlock()
+	var last *presence
+	var at time.Time
+	for _, pr := range w.d.present {
+		if pr.sock != w.sock {
+			continue
+		}
+		pr.mu.Lock()
+		enter, thread := pr.enter, pr.thread
+		pr.mu.Unlock()
+		status := pr.a.Summary().Status
+		running := thread != "" && (status == "working" || status == "needsYou")
+		if !running && time.Since(enter) < CodexMapWindow && enter.After(at) {
+			last, at = pr, enter
+		}
+	}
+	return last
+}
+
+// bind follows thread in pr's timeline, which starts over even for the same
+// thread, as the follower replays it all. The old follower stops first, so
+// none of its events land in the new timeline.
+func (d *Daemon) bind(pr *presence, thread string) {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	if pr.unfollow != nil {
+		pr.unfollow()
+	}
+	if pr.a.Summary().ProviderSessionID == thread {
+		pr.a.Timeline.Clear()
+	}
+	ctx, cancel := context.WithCancel(pr.ctx)
+	done := make(chan struct{})
+	pr.thread, pr.enter, pr.unfollow = thread, time.Time{}, func() {
+		cancel()
+		<-done
+	}
+	pr.a.SetConversation(thread)
+	go func() {
+		defer close(done)
+		d.follow(ctx, pr, thread)
+	}()
+}
+
+func (d *Daemon) follow(ctx context.Context, pr *presence, thread string) {
+	s, err := codex.Open(ctx, pr.sock, thread, pr.a.ID(), codexSink{pr.a}, d.Broker)
+	if err != nil {
+		return
+	}
+	defer s.Close()
+	select {
+	case <-ctx.Done():
+	case <-s.Done():
+	}
+}
+
+// codexSink takes a thread's timeline and title; the watcher sets the status.
+type codexSink struct{ *agent.Agent }
+
+func (s codexSink) Apply(e timeline.Event) {
+	s.Record(e)
+	if e.Kind == "compacted" {
+		s.Compacted()
+	}
+}

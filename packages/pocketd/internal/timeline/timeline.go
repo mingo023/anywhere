@@ -55,6 +55,15 @@ func (t *Timeline) StartEpoch() int64 {
 	return t.epoch
 }
 
+// Clear drops a finished conversation. seq keeps counting so a phone's sinceSeq never matches a new item.
+func (t *Timeline) Clear() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.items = nil
+	t.epoch++
+	t.reset()
+}
+
 func (t *Timeline) State() (epoch, maxSeq int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

@@ -4,10 +4,12 @@
   "agents": [
     {
       "id": "a1",
+      "terminalId": "t1",
       "title": "fix tests",
       "cwd": "/w",
       "provider": "claude",
       "status": "idle",
+      "attached": true,
       "epoch": 1,
       "maxSeq": 3,
       "providerSessionId": "s1",

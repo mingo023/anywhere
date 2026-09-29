@@ -14,15 +14,25 @@ var update = flag.Bool("update", false, "rewrite testdata/golden")
 func ptr[T any](v T) *T { return &v }
 
 func summary() AgentSummary {
-	return AgentSummary{ID: "a1", Title: "fix tests", Cwd: "/w", Provider: "claude", Status: "idle", Epoch: 1, MaxSeq: 3, ProviderSessionID: "s1", CreatedAt: 1, UpdatedAt: 2}
+	return AgentSummary{ID: "a1", TerminalID: "t1", Title: "fix tests", Cwd: "/w", Provider: "claude", Status: "idle", Attached: true, Epoch: 1, MaxSeq: 3, ProviderSessionID: "s1", CreatedAt: 1, UpdatedAt: 2}
+}
+
+func with(f func(*AgentSummary)) AgentSummary {
+	s := summary()
+	f(&s)
+	return s
 }
 
 var serverGolden = map[string]any{
-	"hello_ok":        NewHelloOK("h1", "mac"),
-	"agent_list":      NewAgentList("l1", []AgentSummary{summary()}),
-	"agent_list_push": NewAgentList("", nil),
-	"agent_update":    NewAgentUpdate(summary()),
-	"stream_user":     NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "hi"}),
+	"hello_ok":            NewHelloOK("h1", "mac"),
+	"agent_list":          NewAgentList("l1", []AgentSummary{summary()}),
+	"agent_list_push":     NewAgentList("", nil),
+	"agent_update":        NewAgentUpdate(summary()),
+	"agent_update_failed": NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Failed = "done", true })),
+	"agent_update_compacting": NewAgentUpdate(with(func(s *AgentSummary) {
+		s.Status, s.Compacting, s.Attached, s.ProviderSessionID = "working", true, false, ""
+	})),
+	"stream_user": NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "hi"}),
 	"stream_tool_running": NewAgentStream("a1", 1, Item{ID: "i2", Seq: 2, Ts: 11, Kind: "tool", Call: &ToolCall{
 		ToolUseID: "t1", Name: "Bash", Status: "running", Detail: ToolDetail{Kind: "shell", Command: "ls"},
 	}}),
@@ -99,6 +109,11 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.timeline","id":"1","agentId":"a","limit":null}`,
 		`{"type":"agent.prompt","id":"1","agentId":"a","text":null}`,
 		`{"type":"agent.close","id":null,"agentId":"a"}`,
+		`{"type":"agent.view","id":"1"}`,
+		`{"type":"agent.view","id":"1","agentIds":null}`,
+		`{"type":"agent.seen","id":"1","agentIds":"a1"}`,
+		`{"type":"agent.seen","id":"1","agentIds":[1]}`,
+		`{"type":"agent.seen","id":"1","agentIds":["a1",null]}`,
 		`null`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
@@ -114,6 +129,7 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"agent.list","id":"1","agentId":5}`,
 		`{"type":"agent.timeline","id":"1","agentId":"a","sinceSeq":1.5,"limit":2.5}`,
 		`{"type":"hello","id":"1","token":"","clientId":"","protocolVersion":2.0}`,
+		`{"type":"agent.view","id":"1","agentIds":[]}`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != nil {
 			t.Errorf("%s: %v", raw, err)

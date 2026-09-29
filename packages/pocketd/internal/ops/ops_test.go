@@ -3,13 +3,14 @@ package ops
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"pocketd/internal/session"
+	"pocketd/internal/terminal"
 )
 
 func serve(t *testing.T, srv *Server) string {
@@ -58,7 +59,7 @@ func recv(t *testing.T, c *Conn, ev string) Msg {
 }
 
 func TestSpawnAttachAndScreen(t *testing.T) {
-	c := start(t, &Server{Sessions: session.NewManager()})
+	c := start(t, &Server{Terminals: terminal.NewManager()})
 	c.Send(Msg{Op: "spawn", Cmd: "sh", Args: []string{"-c", "read x; echo got:$x; sleep 5"}, Cols: 40, Rows: 5})
 	id := recv(t, c, "spawned").ID
 
@@ -80,44 +81,44 @@ func TestSpawnAttachAndScreen(t *testing.T) {
 	t.Fatal("prompt never reached the process")
 }
 
-func TestListShowsLiveSessions(t *testing.T) {
-	c := start(t, &Server{Sessions: session.NewManager()})
+func TestListShowsLiveTerminals(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager()})
 	c.Send(Msg{Op: "spawn", Cmd: "sleep", Args: []string{"5"}})
 	id := recv(t, c, "spawned").ID
 	c.Send(Msg{Op: "list"})
-	items := recv(t, c, "sessions").Items
+	items := recv(t, c, "terminals").Items
 	if len(items) != 1 || items[0].ID != id || items[0].Cmd != "sleep" {
 		t.Fatalf("items = %+v", items)
 	}
 }
 
-func TestUnknownSessionIsAnError(t *testing.T) {
-	c := start(t, &Server{Sessions: session.NewManager()})
+func TestUnknownTerminalIsAnError(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager()})
 	c.Send(Msg{Op: "input", ID: "nope"})
-	if m := recv(t, c, "error"); m.Error != "no such session" {
+	if m := recv(t, c, "error"); m.Error != "no such terminal" {
 		t.Fatalf("error = %q", m.Error)
 	}
 }
 
 func TestHookBlocksUntilAnswered(t *testing.T) {
 	answer := make(chan []byte)
-	c := start(t, &Server{Sessions: session.NewManager(), Hook: func(_ context.Context, p []byte) []byte {
-		return append(<-answer, p...)
+	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(_ context.Context, m Msg) []byte {
+		return fmt.Appendf(<-answer, "%s/%d/%s", m.ID, m.Pid, m.Data)
 	}})
-	c.Send(Msg{Op: "hook", Data: []byte("x")})
+	c.Send(Msg{Op: "hook", ID: "t1", Pid: 42, Data: []byte("x")})
 	c.Send(Msg{Op: "list"})
-	if m, _ := c.Recv(); m.Ev != "sessions" {
+	if m, _ := c.Recv(); m.Ev != "terminals" {
 		t.Fatalf("hook answered before its decision: %+v", m)
 	}
 	answer <- []byte("seen:")
-	if m := recv(t, c, "hook"); string(m.Data) != "seen:x" {
+	if m := recv(t, c, "hook"); string(m.Data) != "seen:t1/42/x" {
 		t.Fatalf("data = %q", m.Data)
 	}
 }
 
 func TestHookIsCancelledWhenTheCallerLeaves(t *testing.T) {
 	cancelled := make(chan struct{})
-	c := start(t, &Server{Sessions: session.NewManager(), Hook: func(ctx context.Context, _ []byte) []byte {
+	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(ctx context.Context, _ Msg) []byte {
 		<-ctx.Done()
 		close(cancelled)
 		return nil
@@ -132,7 +133,7 @@ func TestHookIsCancelledWhenTheCallerLeaves(t *testing.T) {
 }
 
 func TestErrorReplies(t *testing.T) {
-	c := start(t, &Server{Sessions: session.NewManager(), Spawn: func(Msg) (*session.Session, error) {
+	c := start(t, &Server{Terminals: terminal.NewManager(), Spawn: func(Msg) (*terminal.Terminal, error) {
 		return nil, errors.New("no such command")
 	}})
 	c.Send(Msg{Op: "hook"})
@@ -146,7 +147,7 @@ func TestErrorReplies(t *testing.T) {
 }
 
 func TestUnknownOpIsAnError(t *testing.T) {
-	c := start(t, &Server{Sessions: session.NewManager()})
+	c := start(t, &Server{Terminals: terminal.NewManager()})
 	c.Send(Msg{Op: "spawn", Cmd: "sleep", Args: []string{"5"}})
 	id := recv(t, c, "spawned").ID
 	c.Send(Msg{Op: "bogus", ID: id})
@@ -156,14 +157,14 @@ func TestUnknownOpIsAnError(t *testing.T) {
 }
 
 func TestSocketIsPrivate(t *testing.T) {
-	st, err := os.Stat(serve(t, &Server{Sessions: session.NewManager()}))
+	st, err := os.Stat(serve(t, &Server{Terminals: terminal.NewManager()}))
 	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("%v %v", st.Mode(), err)
 	}
 }
 
 func TestSnapshotPrecedesLiveOutput(t *testing.T) {
-	path := serve(t, &Server{Sessions: session.NewManager()})
+	path := serve(t, &Server{Terminals: terminal.NewManager()})
 	c := dial(t, path)
 	c.Send(Msg{Op: "spawn", Cmd: "yes", Cols: 20, Rows: 5})
 	id := recv(t, c, "spawned").ID
@@ -176,4 +177,17 @@ func TestSnapshotPrecedesLiveOutput(t *testing.T) {
 		a.Close()
 	}
 	c.Send(Msg{Op: "close", ID: id})
+}
+
+func TestAttachStreamsForeground(t *testing.T) {
+	terms := terminal.NewManager()
+	c := start(t, &Server{Terminals: terms})
+	c.Send(Msg{Op: "spawn", Cmd: "sleep", Args: []string{"5"}})
+	id := recv(t, c, "spawned").ID
+	c.Send(Msg{Op: "attach", ID: id})
+	recv(t, c, "snapshot")
+	terms.Get(id).SetForeground("npm run dev")
+	if m := recv(t, c, "foreground"); m.ID != id || m.Text != "npm run dev" {
+		t.Fatalf("%+v", m)
+	}
 }

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export const AgentStatus = Schema.Literal("initializing", "idle", "running", "compacting", "error", "closed");
+export const AgentStatus = Schema.Literal("needsYou", "done", "working", "idle", "closed");
 export type AgentStatus = typeof AgentStatus.Type;
 
 export const Decision = Schema.Literal("allow", "deny");
@@ -82,11 +82,15 @@ export type TimelineItem = typeof TimelineItem.Type;
 
 export const AgentSummary = Schema.Struct({
   id: Schema.String,
+  terminalId: Schema.String,
   title: Schema.String,
   cwd: Schema.String,
   provider: Schema.String,
   model: Schema.optional(Schema.String),
   status: AgentStatus,
+  failed: Schema.optional(Schema.Boolean),
+  attached: Schema.Boolean,
+  compacting: Schema.optional(Schema.Boolean),
   epoch: Schema.Number,
   maxSeq: Schema.Number,
   providerSessionId: Schema.optional(Schema.String),

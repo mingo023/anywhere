@@ -177,35 +177,6 @@ func TestDesktopAnswerClosesCard(t *testing.T) {
 	t.Fatal("card still open")
 }
 
-func TestPromptInterruptCompact(t *testing.T) {
-	srv, s, _, _ := open(t, emptyThread)
-	if err := s.Interrupt(); err != nil {
-		t.Fatal(err)
-	}
-	s.Prompt("hi")
-	if got := string(srv.Next("turn/start").Params); got != `{"input":[{"text":"hi","text_elements":[],"type":"text"}],"threadId":"th1"}` {
-		t.Fatal(got)
-	}
-	srv.Push("turn/started", nil, `{"threadId":"th1","turn":{"id":"t3","items":[],"status":"inProgress"}}`)
-	for range 100 {
-		s.mu.Lock()
-		started := s.turnID == "t3"
-		s.mu.Unlock()
-		if started {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	s.Interrupt()
-	if got := string(srv.Next("turn/interrupt").Params); got != `{"threadId":"th1","turnId":"t3"}` {
-		t.Fatal(got)
-	}
-	s.Compact()
-	if got := string(srv.Next("thread/compact/start").Params); got != `{"threadId":"th1"}` {
-		t.Fatal(got)
-	}
-}
-
 func waitOpen(t *testing.T, b *broker.Broker) proto.PermissionRequest {
 	t.Helper()
 	for range 200 {

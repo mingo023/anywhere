@@ -9,25 +9,26 @@ import (
 	"path/filepath"
 	"sync"
 
-	"pocketd/internal/session"
+	"pocketd/internal/terminal"
 )
 
 type Msg struct {
-	Op    string         `json:"op,omitempty"`
-	Ev    string         `json:"ev,omitempty"`
-	ID    string         `json:"id,omitempty"`
-	Cmd   string         `json:"cmd,omitempty"`
-	Args  []string       `json:"args,omitempty"`
-	Cwd   string         `json:"cwd,omitempty"`
-	Env   []string       `json:"env,omitempty"`
-	Cols  int            `json:"cols,omitempty"`
-	Rows  int            `json:"rows,omitempty"`
-	TTY   bool           `json:"tty,omitempty"`
-	Text  string         `json:"text,omitempty"`
-	Data  []byte         `json:"data,omitempty"`
-	Code  int            `json:"code,omitempty"`
-	Items []session.Info `json:"items,omitempty"`
-	Error string         `json:"error,omitempty"`
+	Op    string          `json:"op,omitempty"`
+	Ev    string          `json:"ev,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Pid   int             `json:"pid,omitempty"`
+	Cmd   string          `json:"cmd,omitempty"`
+	Args  []string        `json:"args,omitempty"`
+	Cwd   string          `json:"cwd,omitempty"`
+	Env   []string        `json:"env,omitempty"`
+	Cols  int             `json:"cols,omitempty"`
+	Rows  int             `json:"rows,omitempty"`
+	TTY   bool            `json:"tty,omitempty"`
+	Text  string          `json:"text,omitempty"`
+	Data  []byte          `json:"data,omitempty"`
+	Code  int             `json:"code,omitempty"`
+	Items []terminal.Info `json:"items,omitempty"`
+	Error string          `json:"error,omitempty"`
 }
 
 type Conn struct {
@@ -76,9 +77,9 @@ func Listen(path string) (net.Listener, error) {
 }
 
 type Server struct {
-	Sessions *session.Manager
-	Spawn    func(Msg) (*session.Session, error)
-	Hook     func(ctx context.Context, payload []byte) []byte
+	Terminals *terminal.Manager
+	Spawn     func(Msg) (*terminal.Terminal, error)
+	Hook      func(ctx context.Context, m Msg) []byte
 }
 
 func (s *Server) Serve(ln net.Listener) error {
@@ -91,11 +92,11 @@ func (s *Server) Serve(ln net.Listener) error {
 	}
 }
 
-func (s *Server) spawn(m Msg) (*session.Session, error) {
+func (s *Server) spawn(m Msg) (*terminal.Terminal, error) {
 	if s.Spawn != nil {
 		return s.Spawn(m)
 	}
-	return s.Sessions.Spawn(session.Spec{Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows})
+	return s.Terminals.Spawn(terminal.Spec{Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows})
 }
 
 func (s *Server) handle(c *Conn) {
@@ -115,47 +116,47 @@ func (s *Server) handle(c *Conn) {
 		}
 		switch m.Op {
 		case "list":
-			c.Send(Msg{Ev: "sessions", Items: s.Sessions.List()})
+			c.Send(Msg{Ev: "terminals", Items: s.Terminals.List()})
 			continue
 		case "spawn":
-			sess, err := s.spawn(m)
+			t, err := s.spawn(m)
 			if err != nil {
 				c.Send(Msg{Ev: "error", Error: err.Error()})
 				continue
 			}
-			c.Send(Msg{Ev: "spawned", ID: sess.Info().ID})
+			c.Send(Msg{Ev: "spawned", ID: t.Info().ID})
 			continue
 		case "hook":
 			if s.Hook == nil {
 				c.Send(Msg{Ev: "error", Error: "hooks unsupported"})
 				continue
 			}
-			go func() { c.Send(Msg{Ev: "hook", Data: s.Hook(ctx, m.Data)}) }()
+			go func() { c.Send(Msg{Ev: "hook", Data: s.Hook(ctx, m)}) }()
 			continue
 		}
-		sess := s.Sessions.Get(m.ID)
-		if sess == nil {
-			c.Send(Msg{Ev: "error", ID: m.ID, Error: "no such session"})
+		t := s.Terminals.Get(m.ID)
+		if t == nil {
+			c.Send(Msg{Ev: "error", ID: m.ID, Error: "no such terminal"})
 			continue
 		}
 		switch m.Op {
 		case "attach":
-			detach, err := attach(c, sess, m)
+			detach, err := attach(c, t, m)
 			if err != nil {
 				c.Send(Msg{Ev: "error", ID: m.ID, Error: err.Error()})
 				continue
 			}
 			detaches = append(detaches, detach)
 		case "input":
-			sess.Write(m.Data)
+			t.Write(m.Data)
 		case "prompt":
-			sess.Prompt(m.Text)
+			t.Prompt(m.Text)
 		case "resize":
-			sess.Resize(m.Cols, m.Rows)
+			t.Resize(m.Cols, m.Rows)
 		case "screen":
-			c.Send(Msg{Ev: "screen", ID: m.ID, Text: sess.Screen()})
+			c.Send(Msg{Ev: "screen", ID: m.ID, Text: t.Screen()})
 		case "close":
-			sess.Close()
+			t.Close()
 		default:
 			c.Send(Msg{Ev: "error", ID: m.ID, Error: "unknown op " + m.Op})
 		}
@@ -164,12 +165,12 @@ func (s *Server) handle(c *Conn) {
 
 // attach sends the snapshot before any event. Events arrive from the moment
 // Attach subscribes, before the snapshot can be sent, so they wait in pending.
-func attach(c *Conn, sess *session.Session, m Msg) (func(), error) {
+func attach(c *Conn, t *terminal.Terminal, m Msg) (func(), error) {
 	var mu sync.Mutex
 	var pending []Msg
 	ready := false
-	snap, detach, err := sess.Attach(m.TTY, func(e session.Event) {
-		ev := Msg{Ev: e.Kind, ID: m.ID, Data: e.Data, Cols: e.Cols, Rows: e.Rows, Code: e.Code}
+	snap, detach, err := t.Attach(m.TTY, func(e terminal.Event) {
+		ev := Msg{Ev: e.Kind, ID: m.ID, Data: e.Data, Cols: e.Cols, Rows: e.Rows, Code: e.Code, Text: e.Text}
 		mu.Lock()
 		defer mu.Unlock()
 		if !ready {
@@ -181,7 +182,7 @@ func attach(c *Conn, sess *session.Session, m Msg) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	info := sess.Info()
+	info := t.Info()
 	mu.Lock()
 	defer mu.Unlock()
 	c.Send(Msg{Ev: "snapshot", ID: m.ID, Cols: info.Cols, Rows: info.Rows, Data: snap})

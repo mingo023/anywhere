@@ -20,18 +20,16 @@ type Sink interface {
 // Session follows one thread: it maps app-server items to timeline events
 // and forwards approvals to the phone.
 type Session struct {
-	c        *Client
-	threadID string
-	agentID  string
-	sink     Sink
-	broker   *broker.Broker
-	ctx      context.Context
-	cancel   context.CancelFunc
+	c       *Client
+	agentID string
+	sink    Sink
+	broker  *broker.Broker
+	ctx     context.Context
+	cancel  context.CancelFunc
 
 	mu       sync.Mutex
 	ready    bool
 	queued   []func()
-	turnID   string
 	streamed map[string]bool
 	details  map[string]proto.ToolDetail
 }
@@ -73,7 +71,7 @@ var ResumeRetry = 500 * time.Millisecond
 // thread has its first turn, so it retries until ctx ends.
 func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker) (*Session, error) {
 	sctx, cancel := context.WithCancel(context.Background())
-	s := &Session{threadID: threadID, agentID: agentID, sink: sink, broker: b, ctx: sctx, cancel: cancel,
+	s := &Session{agentID: agentID, sink: sink, broker: b, ctx: sctx, cancel: cancel,
 		streamed: map[string]bool{}, details: map[string]proto.ToolDetail{}}
 	c, err := Dial(ctx, sock, s)
 	if err != nil {
@@ -116,9 +114,7 @@ func (s *Session) replay(res json.RawMessage) {
 				s.completed(it)
 			}
 		}
-		if t.Status == "inProgress" {
-			s.turnID = t.ID
-		} else {
+		if t.Status != "inProgress" {
 			s.turnDone(t)
 		}
 	}
@@ -154,8 +150,6 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 	}
 	s.run(func() {
 		switch method {
-		case "turn/started":
-			s.turnID = p.Turn.ID
 		case "item/started":
 			s.started(p.Item)
 		case "item/completed":
@@ -226,7 +220,6 @@ func (s *Session) turnDone(t turn) {
 	} else if t.Status == "interrupted" {
 		e.Error = "interrupted"
 	}
-	s.turnID = ""
 	s.sink.Apply(e)
 }
 
@@ -283,27 +276,6 @@ func (s *Session) ask(id json.RawMessage, name string, detail proto.ToolDetail) 
 	case "deny":
 		s.c.Reply(id, map[string]string{"decision": "decline"})
 	}
-}
-
-func (s *Session) Prompt(text string) error {
-	_, err := s.c.Call(s.ctx, "turn/start", map[string]any{"threadId": s.threadID, "input": []any{map[string]any{"type": "text", "text": text, "text_elements": []any{}}}})
-	return err
-}
-
-func (s *Session) Interrupt() error {
-	s.mu.Lock()
-	turnID := s.turnID
-	s.mu.Unlock()
-	if turnID == "" {
-		return nil
-	}
-	_, err := s.c.Call(s.ctx, "turn/interrupt", map[string]any{"threadId": s.threadID, "turnId": turnID})
-	return err
-}
-
-func (s *Session) Compact() error {
-	_, err := s.c.Call(s.ctx, "thread/compact/start", map[string]any{"threadId": s.threadID})
-	return err
 }
 
 func (s *Session) Done() <-chan struct{} { return s.c.Done() }

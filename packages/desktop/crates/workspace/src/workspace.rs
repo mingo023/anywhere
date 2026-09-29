@@ -35,6 +35,10 @@ impl Workspace {
         }
     }
 
+    pub fn tab_of(&self, id: &str) -> Option<usize> {
+        self.tabs.iter().position(|t| matches!(t, Tab::Term(rows) if rows.iter().flatten().any(|p| p == id)))
+    }
+
     pub fn open_changes(&mut self) {
         self.active = match self.tabs.iter().position(|t| *t == Tab::Changes) {
             Some(i) => i,
@@ -116,5 +120,13 @@ mod tests {
         assert_eq!(w.active, 1);
         assert_eq!(w.close_tab(1), Vec::<String>::new());
         assert_eq!(w.active, 0);
+    }
+
+    #[test]
+    fn finds_the_tab_holding_a_pane() {
+        let mut w = Workspace::new("a", ["b"].into_iter());
+        w.split("c".into(), true);
+        w.open_changes();
+        assert_eq!((w.tab_of("c"), w.tab_of("b"), w.tab_of("x")), (Some(0), Some(1), None));
     }
 }

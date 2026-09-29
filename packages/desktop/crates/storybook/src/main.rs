@@ -100,13 +100,15 @@ impl Render for Storybook {
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(ui::status("waiting", State::Waiting))
-                    .child(ui::status("running", State::Running))
+                    .child(ui::status("needs-you", State::NeedsYou))
+                    .child(ui::status("working", State::Working))
                     .child(ui::status("failed", State::Failed))
                     .child(ui::status("merged", State::Merged))
                     .child(ui::status("sent", State::Sent))
                     .child(ui::status("draft", State::Draft))
-                    .child(ui::status("done", State::Done(84, 51))),
+                    .child(ui::status("done", State::Done(84, 51)))
+                    .child(ui::status("idle", State::Idle(84, 51)))
+                    .child(ui::status("not-attached", State::NotAttached)),
             ))
             .child(story(
                 "Badges, tags, keys",
@@ -122,31 +124,32 @@ impl Render for Storybook {
             ))
             .child(story(
                 "Repository mark",
-                "Filled dark when selected, dot for waiting / running",
+                "Filled dark when selected, dot for needs you / done / working",
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(ui::repo_mark("app", false, false, false))
-                    .child(ui::repo_mark("android", true, false, false))
-                    .child(ui::repo_mark("ios", false, true, false))
-                    .child(ui::repo_mark("hk", false, false, true)),
+                    .child(ui::repo_mark("app", false, None))
+                    .child(ui::repo_mark("android", true, None))
+                    .child(ui::repo_mark("ios", false, Some(State::NeedsYou)))
+                    .child(ui::repo_mark("web", false, Some(State::Done(0, 0))))
+                    .child(ui::repo_mark("hk", false, Some(State::Working))),
             ))
             .child(story(
                 "Repository row",
                 "Sidebar rail",
                 list()
                     .child(ui::repo_row("repo-android", "app-android", true, Some(3), None, "spin-android"))
-                    .child(ui::repo_row("repo-ios", "app-ios", false, None, Some(State::Waiting), "spin-ios"))
-                    .child(ui::repo_row("repo-web", "web", false, None, Some(State::Running), "spin-web")),
+                    .child(ui::repo_row("repo-ios", "app-ios", false, None, Some(State::NeedsYou), "spin-ios"))
+                    .child(ui::repo_row("repo-web", "web", false, None, Some(State::Working), "spin-web")),
             ))
             .child(story(
                 "Session row",
                 "Sessions tab of the column",
                 list()
-                    .child(ui::session_row("s1", true, "Fix stale terminal reveal".into(), State::Waiting, "codex", "fix/restore-handoff".into(), "2m".into(), vec![]))
-                    .child(ui::session_row("s2", false, "Split restore hook into two files".into(), State::Running, "claude", "refactor/restore-hook".into(), "now".into(), vec!["2 sub-agents".into(), "pnpm dev".into()]))
-                    .child(ui::session_row("s3", false, "Upgrade to RN 0.81".into(), State::Failed, "codex", "chore/rn-081".into(), "3h".into(), vec![]))
-                    .child(ui::session_row("s4", false, "Migrate legacy hooks".into(), State::Done(28, 11), "codex", "chore/migrate-hooks".into(), "6m".into(), vec![])),
+                    .child(ui::session_row("s1", true, "Fix stale terminal reveal".into(), Some(State::NeedsYou), ui::provider_label("codex", false), "fix/restore-handoff".into(), "2m".into(), vec![]))
+                    .child(ui::session_row("s2", false, "Split restore hook into two files".into(), Some(State::Working), ui::provider_label("claude", false), "refactor/restore-hook".into(), "now".into(), vec!["2 sub-agents".into(), "pnpm dev".into()]))
+                    .child(ui::session_row("s3", false, "Upgrade to RN 0.81".into(), Some(State::Failed), ui::provider_label("codex", false), "chore/rn-081".into(), "3h".into(), vec![]))
+                    .child(ui::session_row("s4", false, "Migrate legacy hooks".into(), Some(State::Idle(28, 11)), ui::provider_label("codex", true), "chore/migrate-hooks".into(), "6m".into(), vec![])),
             ))
             .child(story(
                 "File rows",
@@ -174,9 +177,9 @@ impl Render for Storybook {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(ui::repo_tile("AN", 38., true, false, false))
-                    .child(ui::repo_tile("iO", 38., false, true, false))
-                    .child(ui::repo_tile("HK", 38., false, false, true))
+                    .child(ui::repo_tile("AN", 38., true, None))
+                    .child(ui::repo_tile("iO", 38., false, Some(State::NeedsYou)))
+                    .child(ui::repo_tile("HK", 38., false, Some(State::Working)))
                     .child(ui::add_tile("rail-add", 38.))
                     .child(ui::count_badge(2))
                     .child(ui::avatar("MN", 32.)),
@@ -186,7 +189,7 @@ impl Render for Storybook {
                 "Nested under the selected repository",
                 list()
                     .child(ui::worktree_row("w1", "main".into(), "~/code/app-android".into(), true, false, None))
-                    .child(ui::worktree_row("w2", "restore-handoff".into(), "fix/restore-handoff".into(), false, true, Some(State::Waiting)))
+                    .child(ui::worktree_row("w2", "restore-handoff".into(), "fix/restore-handoff".into(), false, true, Some(State::NeedsYou)))
                     .child(ui::worktree_row("w3", "migrate-hooks".into(), "chore/migrate-hooks".into(), false, false, Some(State::Merged))),
             ))
             .child(story(

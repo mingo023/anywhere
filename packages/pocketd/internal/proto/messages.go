@@ -3,6 +3,7 @@ package proto
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 )
 
 type ClientMessage struct {
@@ -19,6 +20,7 @@ type ClientMessage struct {
 	Decision        string
 	Option          string
 	Message         string
+	AgentIDs        []string
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -46,6 +48,17 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		_, has := fields[key]
 		return !has || get(key, dst)
 	}
+	stringList := func(key string, dst *[]string) bool {
+		var items []*string
+		if !get(key, &items) || slices.Contains(items, nil) {
+			return false
+		}
+		*dst = make([]string, len(items))
+		for n, item := range items {
+			(*dst)[n] = *item
+		}
+		return true
+	}
 	ok := get("type", &m.Type) && get("id", &m.ID)
 	switch {
 	case !ok:
@@ -56,6 +69,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
 	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close":
 		ok = get("agentId", &m.AgentID)
+	case m.Type == "agent.view", m.Type == "agent.seen":
+		ok = stringList("agentIds", &m.AgentIDs)
 	case m.Type == "agent.timeline":
 		ok = get("agentId", &m.AgentID) && optional("sinceSeq", &m.SinceSeq) && optional("limit", &m.Limit) &&
 			(m.Limit == nil || *m.Limit >= 1 && *m.Limit <= 500)

@@ -1,28 +1,34 @@
-package session
+package terminal
 
 import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/creack/pty"
 
+	"pocketd/internal/proc"
 	"pocketd/internal/vt"
 )
 
 type Info struct {
-	ID   string   `json:"id"`
-	Cmd  string   `json:"cmd"`
-	Args []string `json:"args,omitempty"`
-	Cwd  string   `json:"cwd"`
-	Cols int      `json:"cols"`
-	Rows int      `json:"rows"`
+	ID           string   `json:"id"`
+	Cmd          string   `json:"cmd"`
+	Args         []string `json:"args,omitempty"`
+	Cwd          string   `json:"cwd"`
+	Cols         int      `json:"cols"`
+	Rows         int      `json:"rows"`
+	Foreground   string   `json:"foreground,omitempty"`
+	LastProvider string   `json:"lastProvider,omitempty"`
+	LastTitle    string   `json:"lastTitle,omitempty"`
 }
 
 type Spec struct {
@@ -41,6 +47,7 @@ type Event struct {
 	Cols int
 	Rows int
 	Code int
+	Text string
 }
 
 type subscriber struct {
@@ -48,7 +55,7 @@ type subscriber struct {
 	tty bool
 }
 
-type Session struct {
+type Terminal struct {
 	info   Info
 	mu     sync.Mutex
 	pty    *os.File
@@ -58,15 +65,17 @@ type Session struct {
 	done   chan struct{}
 	code   int
 	closed bool
+	input  func(id string, b []byte)
 }
 
 type Manager struct {
-	mu       sync.Mutex
-	sessions map[string]*Session
+	mu        sync.Mutex
+	terminals map[string]*Terminal
+	OnInput   func(id string, b []byte) // sees each Write, before the process does
 }
 
 func NewManager() *Manager {
-	return &Manager{sessions: map[string]*Session{}}
+	return &Manager{terminals: map[string]*Terminal{}}
 }
 
 func NewID() string {
@@ -102,7 +111,7 @@ func LookPath(cmd string, env []string) (string, error) {
 	return "", &exec.Error{Name: cmd, Err: exec.ErrNotFound}
 }
 
-func (m *Manager) Spawn(spec Spec) (*Session, error) {
+func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 	if spec.ID == "" {
 		spec.ID = NewID()
 	}
@@ -123,12 +132,13 @@ func (m *Manager) Spawn(spec Spec) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{
-		info: Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows},
-		pty:  f,
-		cmd:  cmd,
-		subs: map[*subscriber]bool{},
-		done: make(chan struct{}),
+	s := &Terminal{
+		info:  Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows},
+		pty:   f,
+		cmd:   cmd,
+		subs:  map[*subscriber]bool{},
+		done:  make(chan struct{}),
+		input: m.OnInput,
 	}
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
 	if err != nil {
@@ -137,35 +147,41 @@ func (m *Manager) Spawn(spec Spec) (*Session, error) {
 		return nil, err
 	}
 	m.mu.Lock()
-	m.sessions[s.info.ID] = s
+	m.terminals[s.info.ID] = s
 	m.mu.Unlock()
 	go s.pump(func() {
 		m.mu.Lock()
-		delete(m.sessions, s.info.ID)
+		delete(m.terminals, s.info.ID)
 		m.mu.Unlock()
 	})
 	return s, nil
 }
 
-func (m *Manager) Get(id string) *Session {
+func (m *Manager) Get(id string) *Terminal {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.sessions[id]
+	return m.terminals[id]
 }
 
 func (m *Manager) List() []Info {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := []Info{}
-	for _, s := range m.sessions {
+	for _, s := range m.terminals {
 		out = append(out, s.Info())
 	}
 	return out
 }
 
+func (m *Manager) All() []*Terminal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Collect(maps.Values(m.terminals))
+}
+
 // replyToQuery runs under s.mu (inside vt.Write). A real terminal attached
 // through `pocketd run` answers queries itself; answering twice corrupts input.
-func (s *Session) replyToQuery(b []byte) {
+func (s *Terminal) replyToQuery(b []byte) {
 	for sub := range s.subs {
 		if sub.tty {
 			return
@@ -174,7 +190,7 @@ func (s *Session) replyToQuery(b []byte) {
 	s.pty.Write(b)
 }
 
-func (s *Session) pump(onExit func()) {
+func (s *Terminal) pump(onExit func()) {
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := s.pty.Read(buf)
@@ -201,25 +217,52 @@ func (s *Session) pump(onExit func()) {
 	close(s.done)
 }
 
-func (s *Session) broadcast(e Event) {
+func (s *Terminal) broadcast(e Event) {
 	for sub := range s.subs {
 		sub.fn(e)
 	}
 }
 
-func (s *Session) Info() Info {
+func (s *Terminal) Info() Info {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.info
 }
 
-// Attach returns a snapshot of the screen and streams every later event to
-// fn. fn runs with the session locked, so it must not call back into s.
-func (s *Session) Attach(tty bool, fn func(Event)) (snapshot []byte, detach func(), err error) {
+func (s *Terminal) Pid() int { return s.cmd.Process.Pid }
+
+func (s *Terminal) Pgrp() (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return nil, nil, errors.New("session closed")
+		return 0, nil
+	}
+	return proc.Foreground(s.pty)
+}
+
+func (s *Terminal) SetForeground(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.info.Foreground == text {
+		return
+	}
+	s.info.Foreground = text
+	s.broadcast(Event{Kind: "foreground", Text: text})
+}
+
+func (s *Terminal) SetLast(provider, title string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.info.LastProvider, s.info.LastTitle = provider, title
+}
+
+// Attach returns a snapshot of the screen and streams every later event to
+// fn. fn runs with the terminal locked, so it must not call back into s.
+func (s *Terminal) Attach(tty bool, fn func(Event)) (snapshot []byte, detach func(), err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil, nil, errors.New("terminal closed")
 	}
 	sub := &subscriber{fn: fn, tty: tty}
 	s.subs[sub] = true
@@ -230,14 +273,17 @@ func (s *Session) Attach(tty bool, fn func(Event)) (snapshot []byte, detach func
 	}, nil
 }
 
-func (s *Session) Write(b []byte) error {
+func (s *Terminal) Write(b []byte) error {
+	if s.input != nil {
+		s.input(s.info.ID, b)
+	}
 	_, err := s.pty.Write(b)
 	return err
 }
 
 // Prompt types text, then Enter. TUIs treat a fast "text\r" burst as a paste
 // and keep the newline, so Enter goes out after a pause.
-func (s *Session) Prompt(text string) error {
+func (s *Terminal) Prompt(text string) error {
 	if err := s.Write([]byte(text)); err != nil {
 		return err
 	}
@@ -248,7 +294,7 @@ func (s *Session) Prompt(text string) error {
 	return nil
 }
 
-func (s *Session) Resize(cols, rows int) {
+func (s *Terminal) Resize(cols, rows int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -260,7 +306,7 @@ func (s *Session) Resize(cols, rows int) {
 	s.broadcast(Event{Kind: "resize", Cols: cols, Rows: rows})
 }
 
-func (s *Session) Screen() string {
+func (s *Terminal) Screen() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -269,13 +315,13 @@ func (s *Session) Screen() string {
 	return s.vt.Plain()
 }
 
-func (s *Session) Close() {
+func (s *Terminal) Close() {
 	s.cmd.Process.Kill()
 }
 
-func (s *Session) Done() <-chan struct{} { return s.done }
+func (s *Terminal) Done() <-chan struct{} { return s.done }
 
-func (s *Session) ExitCode() int {
+func (s *Terminal) ExitCode() int {
 	<-s.done
 	return s.code
 }

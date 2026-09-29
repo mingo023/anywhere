@@ -3,6 +3,7 @@ use crate::termview::{self, Metrics};
 use ui::{self, Segment, State, dot, icon_button_sized};
 use theme::*;
 use workspace::Tab;
+use crate::status::{self, Kind, SECTIONS, section};
 use crate::{Card, Desktop, Layout, Overlay, Screen, Side, Status};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -80,10 +81,11 @@ pub fn drag_area(d: Div) -> Div {
 
 pub fn state(status: Status, added: usize, removed: usize) -> State {
     match status {
-        Status::NeedsYou => State::Waiting,
-        Status::Working => State::Running,
+        Status::NeedsYou => State::NeedsYou,
         Status::Failed => State::Failed,
         Status::Done => State::Done(added, removed),
+        Status::Working => State::Working,
+        Status::Idle => State::Idle(added, removed),
     }
 }
 
@@ -110,15 +112,12 @@ impl Desktop {
         self.store.repos.get(path).map(|r| r.color).filter(|c| *c != 0).unwrap_or_else(fallback)
     }
 
+    pub fn roll_up(&self, p: &str) -> Option<(Status, usize)> {
+        status::roll_up(self.cards(p).iter().map(|c| c.status))
+    }
+
     pub fn project_state(&self, p: &str) -> Option<State> {
-        let cards = self.cards(p);
-        if cards.iter().any(|c| c.status == Status::NeedsYou) {
-            Some(State::Waiting)
-        } else if cards.iter().any(|c| c.status == Status::Working) {
-            Some(State::Running)
-        } else {
-            None
-        }
+        self.roll_up(p).map(|(s, _)| state(s, 0, 0))
     }
 
     pub fn open(&mut self, o: Overlay, window: &mut Window, cx: &mut Context<Self>) {
@@ -146,20 +145,19 @@ impl Desktop {
         let rule = div().h(px(0.5)).flex_none().bg(rgba(SEPARATOR_STRONG));
         let add = cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx));
         let inbox = cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx));
-        let asks = self.agents.pending.len();
+        let notes = crate::inbox::count(&self.agents);
         let me = if self.initials.is_empty() { "ME".to_string() } else { self.initials.clone() };
         let rail = drag_area(ui::side(div())).w(px(if open { 240. } else { 72. })).flex_none().h_full().pb(px(12.)).flex().flex_col();
         if !open {
             let tiles = self.projects().into_iter().enumerate().map(|(i, p)| {
                 let selected = self.screen == Screen::Sessions && self.project.as_ref() == Some(&p);
-                let state = self.project_state(&p);
-                let tile = ui::repo_tile(&initials(&self.repo_name(&p)), 38., selected, state == Some(State::Waiting), state == Some(State::Running));
+                let tile = ui::repo_tile(&initials(&self.repo_name(&p)), 38., selected, self.project_state(&p));
                 div().id(("rail-project", i)).cursor_pointer().child(tile).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
             });
             let bell = icon_button_sized("rail-bell", "bell", 38., if self.screen == Screen::Inbox { TEXT } else { TEXT_2 })
                 .relative()
                 .rounded(px(11.))
-                .when(asks > 0, |d| d.child(ui::count_badge(asks)))
+                .when(notes > 0, |d| d.child(ui::count_badge(notes)))
                 .on_click(inbox);
             return rail
                 .pt(px(37.))
@@ -176,16 +174,19 @@ impl Desktop {
         let row = |id: ElementId| div().id(id).h(px(40.)).px(px(8.)).flex().flex_none().items_center().gap(px(10.)).rounded(px(10.)).cursor_pointer().hover(|s| s.bg(rgba(FILL_2)));
         let rows = self.projects().into_iter().enumerate().map(|(i, p)| {
             let selected = self.screen == Screen::Sessions && self.project.as_ref() == Some(&p);
-            let state = self.project_state(&p);
-            let waiting = self.cards(&p).iter().filter(|c| c.status == Status::NeedsYou).count();
-            let note = match state {
-                Some(State::Waiting) => Some((format!("{waiting} waiting"), WAITING_TEXT)),
-                Some(State::Running) => Some(("Running".to_string(), RUNNING_TEXT)),
-                _ => None,
-            };
+            let roll = self.roll_up(&p);
+            let note = roll.map(|r| {
+                let color = match r.0 {
+                    Status::NeedsYou => WAITING_TEXT,
+                    Status::Failed => FAILED,
+                    Status::Done => ACCENT,
+                    _ => RUNNING_TEXT,
+                };
+                (status::roll_up_label(r), color)
+            });
             row(("rail-row", i).into())
                 .when(selected, |d| d.bg(rgba(FILL_3)))
-                .child(ui::repo_tile(&initials(&self.repo_name(&p)), 28., selected, state == Some(State::Waiting), state == Some(State::Running)))
+                .child(ui::repo_tile(&initials(&self.repo_name(&p)), 28., selected, roll.map(|(s, _)| state(s, 0, 0))))
                 .child(
                     div()
                         .flex_1()
@@ -230,7 +231,7 @@ impl Desktop {
                     .hover(|s| s.bg(rgba(FILL_2)))
                     .child(icon("bell", 17., TEXT))
                     .child(div().flex_1().pl(px(3.)).child("Notifications"))
-                    .when(asks > 0, |d| d.child(ui::count_badge(asks).relative().top_0().right_0()))
+                    .when(notes > 0, |d| d.child(ui::count_badge(notes).relative().top_0().right_0()))
                     .on_click(inbox),
             )
             .child(div().h(px(44.)).pl(px(6.)).pr(px(8.)).flex().flex_none().items_center().gap(px(10.)).child(ui::avatar(&me, 32.)).child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Account")))
@@ -340,12 +341,8 @@ impl Desktop {
             let branch = if w.main { tilde(&w.path) } else { w.branch.clone() };
             let state = if !w.main && self.merged.contains(&w.branch) {
                 Some(State::Merged)
-            } else if mine.iter().any(|c| c.status == Status::NeedsYou) {
-                Some(State::Waiting)
-            } else if mine.iter().any(|c| c.status == Status::Working) {
-                Some(State::Running)
             } else {
-                None
+                status::roll_up(mine.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0))
             };
             let selected = self.worktree.as_ref() == Some(&w.path);
             let path = w.path.clone();
@@ -431,11 +428,11 @@ impl Desktop {
         })
     }
 
-    /// The compact layout's rail: the project's live sessions, other busy repositories, and new session.
+    /// The compact layout's rail: the project's non-idle sessions and the selected one, other non-idle repositories, and new session.
     fn nav(&self, cx: &mut Context<Self>) -> Div {
         let rule = || div().w(px(28.)).h(px(0.5)).my(px(4.)).flex_none().bg(rgba(SEPARATOR_STRONG));
         let mark = |name: &str, selected: bool, state: Option<State>| {
-            ui::repo_mark(name, selected, state == Some(State::Waiting), state == Some(State::Running)).size(px(24.)).text_size(px(12.))
+            ui::repo_mark(name, selected, state).size(px(24.)).text_size(px(12.))
         };
         let toggle = div()
             .id("nav-panel")
@@ -453,8 +450,8 @@ impl Desktop {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_rail(&crate::ToggleRail, window, cx)));
         let project = self.project.clone().unwrap_or_default();
         let badge = |d: Div, color: u32| d.absolute().right(px(3.)).size(px(8.)).rounded(px(4.)).bg(rgba(color)).shadow(vec![ui::ring(SURFACE_SUNKEN, 2.)]);
-        let mut live: Vec<Card> = self.cards(&project).into_iter().filter(|c| matches!(c.status, Status::NeedsYou | Status::Working) || self.session.as_ref() == Some(&c.id)).collect();
-        live.sort_by_key(|c| c.status != Status::NeedsYou);
+        let mut live: Vec<Card> = self.cards(&project).into_iter().filter(|c| c.status != Status::Idle || self.session.as_ref() == Some(&c.id)).collect();
+        live.sort_by_key(|c| c.status);
         let sessions = live.into_iter().enumerate().map(|(i, c)| {
             let selected = self.session.as_ref() == Some(&c.id);
             let id = c.id.clone();
@@ -471,7 +468,7 @@ impl Desktop {
                 .when(selected, |d| d.bg(rgba(WHITE)).shadow(ui::row_shadow()))
                 .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
                 .child(icon("terminal", 17., provider_color(&c.provider)))
-                .when(c.status == Status::NeedsYou, |d| d.child(badge(div().top(px(3.)), WAITING)))
+                .children(ui::alert_color(state(c.status, 0, 0)).map(|color| badge(div().top(px(3.)), color)))
                 .when(c.status == Status::Working, |d| d.child(badge(div().bottom(px(3.)), RUNNING)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_session(id.clone(), window, cx)))
         });
@@ -624,7 +621,7 @@ impl Desktop {
             .text_size(px(12.))
             .line_height(px(17.))
             .text_color(rgba(TEXT_3))
-            .child(ui::repo_tile(&letter, 16., false, false, false))
+            .child(ui::repo_tile(&letter, 16., false, None))
             .child(name)
             .child(div().text_color(rgba(TEXT_6)).child("/"))
             .child(if tree.as_ref().is_some_and(|t| !t.main) { "worktree" } else { "main" });
@@ -669,22 +666,21 @@ impl Desktop {
         };
         let now = now_ms();
         let tree = self.worktree.clone();
-        let cards: Vec<Card> = self
+        let mut cards: Vec<Card> = self
             .cards(&project)
             .into_iter()
             .filter(|c| tree.as_ref().is_none_or(|t| self.worktree_of(&c.cwd).is_some_and(|w| &w.path == t)))
             .collect();
-        let group = |c: &Card| match c.status {
-            Status::NeedsYou => 0,
-            Status::Working => 1,
-            // The design's worktree view keeps finished sessions under one heading.
-            _ if !self.wide && today(c.at) => 2,
-            _ => 3,
-        };
+        cards.sort_by_key(|c| c.status);
         let mut body = div().pt(px(2.)).px(px(8.)).pb(px(8.)).flex().flex_col().gap(px(2.));
         let mut i = 0;
-        for (g, label) in ["Needs you", "Running", "Earlier today", "Earlier"].into_iter().enumerate() {
-            let mine: Vec<Card> = cards.iter().filter(|c| group(c) == g).cloned().collect();
+        for (g, label) in SECTIONS.into_iter().enumerate() {
+            let mine: Vec<Card> = cards
+                .iter()
+                // The design's worktree view keeps finished sessions under one heading.
+                .filter(|c| section(c.status, !self.wide && today(c.at)) == g)
+                .cloned()
+                .collect();
             if mine.is_empty() {
                 continue;
             }
@@ -704,7 +700,16 @@ impl Desktop {
         let (added, removed) = repo.map(|r| r.totals()).unwrap_or_default();
         let tags = self.store.children_of(&c.id).map(|child| self.pane_label(child)).collect();
         let id = c.id.clone();
-        ui::session_row(("card", i), selected, c.title, state(c.status, added, removed), &c.provider, branch, ago(c.at, now), tags)
+        let pill = match c.kind {
+            Kind::Shell(_) => None,
+            Kind::NotAttached => Some(State::NotAttached),
+            _ => Some(state(c.status, added, removed)),
+        };
+        let lead = match &c.kind {
+            Kind::Shell(activity) => div().min_w_0().truncate().child(activity.clone()),
+            kind => ui::provider_label(&c.provider, *kind == Kind::Ended),
+        };
+        ui::session_row(("card", i), selected, c.title, pill, lead, branch, ago(c.at, now), tags)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_session(id.clone(), window, cx)))
     }
 
@@ -832,21 +837,24 @@ impl Desktop {
         };
         let count = |text: String| if p.len() > 1 { format!("{text} · {} panes", p.len()) } else { text };
         if let Some(a) = self.summary(&p[0]) {
-            let state = if self.agents.needs_you(&p[0]) {
-                Some(WAITING)
-            } else if a.status == "running" || a.status == "compacting" {
-                Some(RUNNING)
-            } else {
-                None
+            let mark = match Status::of(a) {
+                Some(Status::NeedsYou) => Some(dot(6., WAITING).into_any_element()),
+                Some(Status::Failed) => Some(icon("x", 12., FAILED).into_any_element()),
+                Some(Status::Done) => Some(dot(6., ACCENT).into_any_element()),
+                Some(Status::Working) => Some(dot(6., RUNNING).into_any_element()),
+                _ => None,
             };
-            return row.child(dot(7., provider_color(&a.provider))).child(label(count(provider_name(&a.provider).into()))).children(state.map(|c| dot(6., c)));
+            return row.child(dot(7., provider_color(&a.provider))).child(label(count(provider_name(&a.provider).into()))).children(mark);
         }
-        let mark = match self.sessions.get(&p[0]).map(|s| s.exit) {
-            Some(None) => dot(6., RUNNING).into_any_element(),
-            Some(Some(c)) if c != 0 => icon("x", 12., FAILED).into_any_element(),
+        let s = self.sessions.get(&p[0]);
+        let busy = s.and_then(|s| s.busy());
+        let mark = match s {
+            Some(s) if s.failed() => icon("x", 12., FAILED).into_any_element(),
+            _ if busy.is_some() => dot(6., RUNNING).into_any_element(),
             _ => dot(6., TEXT_5).into_any_element(),
         };
-        row.child(icon("prompt", 13., TEXT_3)).child(label(count(self.pane_label(&p[0])))).child(mark)
+        let text = busy.map_or_else(|| self.pane_label(&p[0]), str::to_string);
+        row.child(icon("prompt", 13., TEXT_3)).child(label(count(text))).child(mark)
     }
 
     fn term_tabs(&mut self, parent: &str, cx: &mut Context<Self>) -> Div {
@@ -1045,6 +1053,9 @@ impl Desktop {
             Some(a) => format!("{} — {}", a.provider, basename(&a.cwd)),
             None => self.pane_label(id),
         };
+        let banner = self.summary(id).and_then(status::banner).map(|text| {
+            div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(rgba(SEPARATOR)).bg(rgba(FILL_2)).text_size(px(12.)).text_color(rgba(TEXT_2)).child(text)
+        });
         let body = match self.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
             Some(t) => {
                 let (f, cells) = t.frame();
@@ -1090,6 +1101,7 @@ impl Desktop {
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
             .children(header)
+            .children(banner)
             .child(
                 div()
                     .flex_1()
@@ -1112,6 +1124,7 @@ impl Desktop {
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_code(window, cx);
+        self.sync_view(window, cx);
         let lead = match self.layout {
             Layout::Sidebars if self.wide => Some(self.aside(cx)),
             Layout::Sidebars => Some(self.rail(cx)),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 	"pocketd/internal/daemon"
 	"pocketd/internal/hub"
 	"pocketd/internal/ops"
-	"pocketd/internal/session"
+	"pocketd/internal/terminal"
 	"pocketd/internal/wsserver"
 )
 
@@ -30,19 +31,24 @@ func serve(sock string) error {
 	}
 	h := hub.New()
 	d := &daemon.Daemon{
-		Sessions: session.NewManager(),
-		Agents:   agent.NewRegistry(h),
-		Broker:   broker.New(h),
-		Home:     config.Home(),
-		Exe:      exe,
-		Sock:     sock,
+		Terminals: terminal.NewManager(),
+		Agents:    agent.NewRegistry(h),
+		Broker:    broker.New(h),
+		Home:      config.Home(),
+		Exe:       exe,
+		Sock:      sock,
 	}
+	if err := d.WritePlugin(); err != nil {
+		return err
+	}
+	d.Terminals.OnInput = d.Input
 	host, _ := os.Hostname()
 	phones, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.Port))
 	if err != nil {
 		return err
 	}
 	go http.Serve(phones, &wsserver.Server{Token: cfg.Token, Hostname: host, Agents: d.Agents, Broker: d.Broker, Hub: h})
+	go d.Watch(context.Background())
 
 	ln, err := ops.Listen(sock)
 	if err != nil {
@@ -51,7 +57,7 @@ func serve(sock string) error {
 	fmt.Println("pocketd listening on", sock)
 	fmt.Printf("phone: ws://%s:%d\n", tailscaleIP(), cfg.Port)
 	fmt.Println("token:", cfg.Token)
-	return (&ops.Server{Sessions: d.Sessions, Spawn: d.Spawn, Hook: d.Hook}).Serve(ln)
+	return (&ops.Server{Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook}).Serve(ln)
 }
 
 func tailscaleIP() string {

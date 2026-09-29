@@ -36,10 +36,11 @@ pub struct Entry {
 
 fn status_word(s: Status) -> &'static str {
     match s {
-        Status::NeedsYou => "waiting",
-        Status::Working => "running",
+        Status::NeedsYou => "needs you",
         Status::Failed => "failed",
         Status::Done => "done",
+        Status::Working => "working",
+        Status::Idle => "idle",
     }
 }
 
@@ -79,7 +80,7 @@ impl Desktop {
             })
             .filter(|(_, c)| hit(&c.title))
             .collect();
-        cards.sort_by_key(|(_, c)| (c.status != Status::NeedsYou, c.status != Status::Working, Reverse(c.at)));
+        cards.sort_by_key(|(_, c)| (c.status, Reverse(c.at)));
         let sessions: Vec<Entry> = cards
             .into_iter()
             .take(5)
@@ -301,7 +302,8 @@ impl Desktop {
                     Status::NeedsYou => dot(6., WAITING).into_any_element(),
                     Status::Working => spinner(("menu-spin", i), 11., RUNNING_TEXT).into_any_element(),
                     Status::Failed => icon("x", 11., FAILED).into_any_element(),
-                    Status::Done => div().into_any_element(),
+                    Status::Done => dot(6., ACCENT).into_any_element(),
+                    Status::Idle => div().into_any_element(),
                 };
                 let title = match c.status {
                     Status::Failed => format!("{} · idle {}", c.title, ago(c.at, now_ms())),

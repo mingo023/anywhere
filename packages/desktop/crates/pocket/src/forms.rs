@@ -523,7 +523,7 @@ impl Desktop {
             .px(px(4.))
             .pb(px(2.))
             .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child("New session"))
-            .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(rgba(TEXT_3)).child(ui::repo_tile(&crate::view::initials(&name), 18., false, false, false)).child(name))
+            .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(rgba(TEXT_3)).child(ui::repo_tile(&crate::view::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let mut model = self.model_hint(f.provider).unwrap_or_else(|| "Default model".into());
         match f.perm {

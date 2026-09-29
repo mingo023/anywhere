@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -22,9 +23,12 @@ type Message struct {
 	Message string `json:"message"`
 	AgentID string `json:"agentId"`
 	Agent   struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-		Title  string `json:"title"`
+		ID                string `json:"id"`
+		TerminalID        string `json:"terminalId"`
+		ProviderSessionID string `json:"providerSessionId"`
+		Status            string `json:"status"`
+		Title             string `json:"title"`
+		Attached          bool   `json:"attached"`
 	} `json:"agent"`
 	Agents []struct {
 		ID string `json:"id"`
@@ -61,7 +65,7 @@ func (h *Harness) Phone() *Phone {
 	})
 	h.t.Cleanup(func() { ws.CloseNow() })
 	p := &Phone{t: h.t, ws: ws}
-	p.Send(map[string]any{"type": "hello", "id": "hello", "token": h.Token, "clientId": "e2e", "protocolVersion": 2})
+	p.Send(map[string]any{"type": "hello", "id": "hello", "token": h.Token, "clientId": "e2e", "protocolVersion": 3})
 	p.WaitFor("hello.ok", func(m Message) bool { return m.Type == "hello.ok" })
 	return p
 }
@@ -93,16 +97,33 @@ func (p *Phone) WaitFor(what string, ok func(Message) bool) Message {
 	}
 }
 
+// WaitAll reads messages until each of oks has matched one, in any order.
+func (p *Phone) WaitAll(what string, oks ...func(Message) bool) {
+	p.t.Helper()
+	p.WaitFor(what, func(m Message) bool {
+		oks = slices.DeleteFunc(oks, func(ok func(Message) bool) bool { return ok(m) })
+		return len(oks) == 0
+	})
+}
+
+func streamOf(agentID, kind, text string) func(Message) bool {
+	return func(m Message) bool {
+		return m.Type == "agent.stream" && m.AgentID == agentID && m.Item.Kind == kind && m.Item.Text == text
+	}
+}
+
+func statusOf(agentID, status string) func(Message) bool {
+	return func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.ID == agentID && m.Agent.Status == status
+	}
+}
+
 func (p *Phone) WaitStream(agentID, kind, text string) Message {
 	p.t.Helper()
-	return p.WaitFor(fmt.Sprintf("%s %q", kind, text), func(m Message) bool {
-		return m.Type == "agent.stream" && m.AgentID == agentID && m.Item.Kind == kind && m.Item.Text == text
-	})
+	return p.WaitFor(fmt.Sprintf("%s %q", kind, text), streamOf(agentID, kind, text))
 }
 
 func (p *Phone) WaitStatus(agentID, status string) {
 	p.t.Helper()
-	p.WaitFor("status "+status, func(m Message) bool {
-		return m.Type == "agent.update" && m.Agent.ID == agentID && m.Agent.Status == status
-	})
+	p.WaitFor("status "+status, statusOf(agentID, status))
 }

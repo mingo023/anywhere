@@ -29,6 +29,7 @@ type Session = {
   compact: (agentId: string) => void;
   interrupt: (agentId: string) => void;
   loadTimeline: (agentId: string) => void;
+  view: (agentIds: readonly string[]) => void;
   resolvePermission: (requestId: string, decision: "allow" | "deny", answer?: PermissionAnswer) => void;
   clearError: () => void;
 };
@@ -84,6 +85,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const view = useCallback(
+    (agentIds: readonly string[]) => clientRef.current?.send({ type: "agent.view", agentIds }),
+    [],
+  );
+
   const value = useMemo<Session>(
     () => ({
       state,
@@ -106,13 +112,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       compact: (agentId) => clientRef.current?.send({ type: "agent.compact", agentId }),
       interrupt: (agentId) => clientRef.current?.send({ type: "agent.interrupt", agentId }),
       loadTimeline,
+      view,
       resolvePermission: (requestId, decision, answer) => {
         setPermission(undefined);
         clientRef.current?.send({ type: "permission.resolve", requestId, decision, ...answer });
       },
       clearError: () => setError(undefined),
     }),
-    [state, agents, timelines, permission, error, connect, loadTimeline],
+    [state, agents, timelines, permission, error, connect, loadTimeline, view],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

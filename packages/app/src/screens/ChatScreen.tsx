@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, AppState, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { d, font } from "../design";
 import type { TimelineItem } from "@pocket/protocol";
@@ -36,6 +36,17 @@ function useKeyboard() {
   return { height, offset };
 }
 
+function useActive(): boolean {
+  const [active, setActive] = useState(AppState.currentState === "active");
+
+  useEffect(() => {
+    const change = AppState.addEventListener("change", (state) => setActive(state === "active"));
+    return () => change.remove();
+  }, []);
+
+  return active;
+}
+
 /** A composer command, not a prompt: it drives the daemon's compaction instead of reaching the model. */
 function isCompact(text: string): boolean {
   return /^\/compact$/i.test(text.trim());
@@ -66,7 +77,8 @@ function diffTotals(items: readonly TimelineItem[]): { added: number; removed: n
 }
 
 export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () => void }) {
-  const { agents, timelines, permission, error, clearError, loadTimeline, prompt, compact, interrupt } = useSession();
+  const { agents, timelines, permission, error, clearError, loadTimeline, view, prompt, compact, interrupt } =
+    useSession();
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.id === agentId);
   const provider = providerLabel[agent?.provider ?? ""] ?? "Agent";
@@ -74,16 +86,23 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
   const items = timelines[agentId] ?? [];
   const diff = useMemo(() => diffTotals(items), [items]);
 
-  const compacting = agent?.status === "compacting";
-  const busy = agent?.status === "running" || compacting;
+  const compacting = agent?.compacting === true;
+  const busy = agent?.status === "working";
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [dockHeight, setDockHeight] = useState(0);
   const keyboard = useKeyboard();
+  const active = useActive();
 
   useEffect(() => {
     loadTimeline(agentId);
   }, [agentId, loadTimeline]);
+
+  useEffect(() => {
+    if (!active) return;
+    view([agentId]);
+    return () => view([]);
+  }, [agentId, active, view]);
 
   useEffect(() => {
     setStartedAt(busy ? Date.now() : null);

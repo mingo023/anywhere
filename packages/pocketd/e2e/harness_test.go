@@ -69,13 +69,7 @@ func Start(t *testing.T) *Harness {
 		Home:      home,
 		Sock:      filepath.Join(home, "pocketd.sock"),
 		ClaudeDir: filepath.Join(home, "claude"),
-		Port:      freePort(t),
 		Token:     "test-token",
-		log:       &bytes.Buffer{},
-	}
-	config := fmt.Sprintf(`{"token":%q,"port":%d}`, h.Token, h.Port)
-	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(config), 0o600); err != nil {
-		t.Fatal(err)
 	}
 	h.Env = append(os.Environ(),
 		"POCKET_HOME="+home,
@@ -83,27 +77,59 @@ func Start(t *testing.T) *Harness {
 		"CLAUDE_CONFIG_DIR="+h.ClaudeDir,
 		"PATH="+filepath.Join(binDir, "fake")+":"+os.Getenv("PATH"),
 	)
+	// Another process can take the free port before pocketd listens on it.
+	for try := 1; !h.serve(); try++ {
+		if try == 5 || !strings.Contains(h.log.String(), "address already in use") {
+			t.Fatal("pocketd exited")
+		}
+	}
+	return h
+}
+
+// serve starts pocketd on a free port and reports whether it came up.
+func (h *Harness) serve() bool {
+	log := &bytes.Buffer{}
+	h.Port, h.log = freePort(h.t), log
+	config := fmt.Sprintf(`{"token":%q,"port":%d}`, h.Token, h.Port)
+	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
+		h.t.Fatal(err)
+	}
 	cmd := exec.Command(filepath.Join(binDir, "pocketd"), "serve")
 	cmd.Env = h.Env
-	cmd.Stdout, cmd.Stderr = h.log, h.log
+	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
+		h.t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		cmd.Process.Kill()
+	exited := make(chan struct{})
+	go func() {
 		cmd.Wait()
-		if t.Failed() {
-			t.Logf("pocketd output:\n%s", h.log)
+		close(exited)
+	}()
+	h.t.Cleanup(func() {
+		cmd.Process.Kill()
+		<-exited
+		if h.t.Failed() {
+			h.t.Logf("pocketd output:\n%s", log)
 		}
 	})
 	h.eventually("ops socket", func() bool {
+		select {
+		case <-exited:
+			return true
+		default:
+		}
 		c, err := ops.Dial(h.Sock)
 		if err == nil {
 			c.Close()
 		}
 		return err == nil
 	})
-	return h
+	select {
+	case <-exited:
+		return false
+	default:
+		return true
+	}
 }
 
 func (h *Harness) eventually(what string, ok func() bool) {
@@ -128,7 +154,7 @@ func (h *Harness) Ops() *ops.Conn {
 	return c
 }
 
-// Spawn starts cmd the way `pocketd run` would from h.Home and returns the session id.
+// Spawn starts cmd the way `pocketd run` would from h.Home and returns the terminal id.
 func (h *Harness) Spawn(cmd string, args ...string) string {
 	h.t.Helper()
 	c := h.Ops()
@@ -148,12 +174,17 @@ func (h *Harness) SpawnReady(cmd string) string {
 	return id
 }
 
-// StartClaude starts pocketd with a phone connected and a ready claude.
-func StartClaude(t *testing.T) (*Harness, *Phone, string) {
+// StartClaude starts pocketd with a phone connected and a ready claude, and
+// returns the claude's terminal and agent.
+func StartClaude(t *testing.T) (h *Harness, phone *Phone, term, agent string) {
 	t.Helper()
-	h := Start(t)
-	phone := h.Phone()
-	return h, phone, h.SpawnReady("claude")
+	h = Start(t)
+	phone = h.Phone()
+	term = h.SpawnReady("claude")
+	agent = phone.WaitFor("the claude's agent", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.TerminalID == term && m.Agent.ProviderSessionID != "" && m.Agent.Attached
+	}).Agent.ID
+	return h, phone, term, agent
 }
 
 func (h *Harness) Screen(id string) string {

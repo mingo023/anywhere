@@ -72,7 +72,7 @@ func (p *phone) recv() map[string]any {
 }
 
 func (p *phone) hello() {
-	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":2}`)
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3}`)
 	if m := p.recv(); m["type"] != "hello.ok" {
 		p.t.Fatalf("%v", m)
 	}
@@ -90,8 +90,8 @@ func (p *phone) closed() bool {
 
 func TestRejectsWrongTokenAndVersion(t *testing.T) {
 	for _, hello := range []string{
-		`{"type":"hello","id":"h","token":"nope","clientId":"c","protocolVersion":2}`,
-		`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":1}`,
+		`{"type":"hello","id":"h","token":"nope","clientId":"c","protocolVersion":3}`,
+		`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":2}`,
 	} {
 		_, _, p := setup(t)
 		p.send(hello)
@@ -177,7 +177,7 @@ func TestStreamsAndPagesTimeline(t *testing.T) {
 	reg, _, p := setup(t)
 	p.hello()
 	a, _ := reg.Get("a1")
-	a.Apply(timeline.Event{Kind: "user", Text: "hi"})
+	a.Record(timeline.Event{Kind: "user", Text: "hi"})
 	var sawStream bool
 	for !sawStream {
 		m := p.recv()
@@ -200,7 +200,7 @@ func TestPagesTimeline(t *testing.T) {
 	reg, _, p := setup(t)
 	a, _ := reg.Get("a1")
 	for range 5 {
-		a.Apply(timeline.Event{Kind: "user", Text: "x"})
+		a.Record(timeline.Event{Kind: "user", Text: "x"})
 	}
 	p.hello()
 	for _, c := range []struct {
@@ -233,5 +233,86 @@ func TestResolvingAClosedRequestFails(t *testing.T) {
 	p.send(`{"type":"permission.resolve","id":"r","requestId":"perm-9","decision":"allow"}`)
 	if m := p.recv(); m["message"] != "Permission request is no longer open" || m["id"] != "r" {
 		t.Fatalf("%v", m)
+	}
+}
+
+func TestAnAgentOnScreenEndsIdleUntilItsPhoneLeaves(t *testing.T) {
+	reg, _, p := setup(t)
+	p.hello()
+	p.send(`{"type":"agent.view","id":"v1","agentIds":["a1"]}`)
+	if m := p.recv(); m["type"] != "ack" || m["id"] != "v1" {
+		t.Fatalf("%v", m)
+	}
+	a, _ := reg.Get("a1")
+	a.Working()
+	a.TurnEnded(false)
+	if s := a.Summary().Status; s != "idle" {
+		t.Fatalf("viewed agent ended %s", s)
+	}
+	p.ws.Close(websocket.StatusNormalClosure, "")
+	for deadline := time.Now().Add(5 * time.Second); a.Summary().Status != "done"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("view outlived its connection")
+		}
+		a.Working()
+		a.TurnEnded(false)
+	}
+}
+
+func TestSeenClearsDone(t *testing.T) {
+	reg, _, p := setup(t)
+	a, _ := reg.Get("a1")
+	a.Working()
+	a.TurnEnded(false)
+	p.hello()
+	p.send(`{"type":"agent.seen","id":"s1","agentIds":["a1"]}`)
+	m := p.recv()
+	for m["type"] == "agent.update" {
+		m = p.recv()
+	}
+	if m["type"] != "ack" || m["id"] != "s1" || a.Summary().Status != "idle" {
+		t.Fatalf("%v %+v", m, a.Summary())
+	}
+}
+
+func fastPings(s *Server) { s.pingInterval, s.pingTimeout = 10*time.Millisecond, 50*time.Millisecond }
+
+func TestAPhoneThatStopsAnsweringPingsLosesItsView(t *testing.T) {
+	reg, _, p := setup(t, fastPings)
+	p.hello()
+	p.send(`{"type":"agent.view","id":"v1","agentIds":["a1"]}`)
+	if m := p.recv(); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	a, _ := reg.Get("a1")
+	for deadline := time.Now().Add(5 * time.Second); a.Summary().Status != "done"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("view outlived a silent phone")
+		}
+		a.Working()
+		a.TurnEnded(false)
+	}
+}
+
+func TestAPhoneAnsweringPingsKeepsItsView(t *testing.T) {
+	reg, _, p := setup(t, fastPings)
+	p.hello()
+	p.send(`{"type":"agent.view","id":"v1","agentIds":["a1"]}`)
+	if m := p.recv(); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	go func() {
+		for {
+			if _, _, err := p.ws.Read(context.Background()); err != nil {
+				return
+			}
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+	a, _ := reg.Get("a1")
+	a.Working()
+	a.TurnEnded(false)
+	if s := a.Summary().Status; s != "idle" {
+		t.Fatalf("answering phone lost its view: %s", s)
 	}
 }

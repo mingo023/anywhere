@@ -51,8 +51,14 @@ func TestHandshakeThenCall(t *testing.T) {
 		return map[string]any{}, ""
 	})
 	c, _ := dial(t, s)
-	if s.Next("initialize").ID == nil || s.Next("initialized").Method != "initialized" {
+	init := s.Next("initialize")
+	var p struct{ ClientInfo struct{ Name string } }
+	json.Unmarshal(init.Params, &p)
+	if init.ID == nil || s.Next("initialized").Method != "initialized" {
 		t.Fatal("handshake")
+	}
+	if p.ClientInfo.Name != "codex_app_server_daemon" {
+		t.Fatalf("clientInfo.name %q originates the user's threads", p.ClientInfo.Name)
 	}
 	res, err := c.Call(context.Background(), "thread/loaded/list", map[string]any{})
 	if err != nil || string(res) != `{"data":["th1"]}` {
@@ -135,4 +141,35 @@ func TestHandlerMayCall(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Call from a handler deadlocked")
 	}
+}
+
+type stuck struct{ in, release chan struct{} }
+
+func (h stuck) Notify(string, json.RawMessage) {
+	h.in <- struct{}{}
+	<-h.release
+}
+func (stuck) Request(json.RawMessage, string, json.RawMessage) {}
+
+func TestCloseWaitsForTheHandler(t *testing.T) {
+	s := codextest.Start(t, sock(t), codextest.OK)
+	h := stuck{in: make(chan struct{}), release: make(chan struct{})}
+	c, err := Dial(context.Background(), s.Sock, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Push("turn/started", nil, `{}`)
+	<-h.in
+	closed := make(chan struct{})
+	go func() {
+		c.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while the handler ran")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(h.release)
+	<-closed
 }
