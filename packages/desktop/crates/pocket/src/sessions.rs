@@ -5,31 +5,20 @@ pub struct Session {
     pub info: Info,
     pub term: Option<Term>,
     pub exit: Option<i32>,
-    pub closed: bool,
-    pub exit_seen: bool,
 }
 
 impl Session {
-    /// A session this window closed was killed, so its exit code says nothing about the agent.
     pub fn failed(&self) -> bool {
-        !self.closed && self.exit.is_some_and(|c| c != 0)
+        self.exit.is_some_and(|c| c != 0)
     }
 
     /// The command running in the foreground, while the terminal is up and not at its prompt.
     pub fn busy(&self) -> Option<&str> {
         Some(self.info.foreground.as_str()).filter(|f| self.exit.is_none() && !f.is_empty())
     }
-
-    pub fn activity(&self) -> String {
-        match (self.exit, self.busy()) {
-            (Some(c), _) => format!("exited {c}"),
-            (None, Some(f)) => f.to_string(),
-            (None, None) => "at prompt".into(),
-        }
-    }
 }
 
-/// pocketd's sessions this window is attached to. Exited ones stay until closed so their last screen can be read.
+/// pocketd's terminals this window is attached to. Exited ones stay until closed so their last screen can be read.
 #[derive(Default)]
 pub struct Sessions {
     pub items: Vec<Session>,
@@ -45,7 +34,7 @@ impl Sessions {
                 Some(s) => s.info = info,
                 None => {
                     added.push(info.id.clone());
-                    self.items.push(Session { info, term: None, exit: None, closed: false, exit_seen: false });
+                    self.items.push(Session { info, term: None, exit: None });
                 }
             }
         }
@@ -65,12 +54,6 @@ impl Sessions {
             "exit" => s.exit = Some(m.code),
             "foreground" => s.info.foreground = m.text.clone(),
             _ => {}
-        }
-    }
-
-    pub fn see_exits(&mut self, panes: &[String]) {
-        for s in self.items.iter_mut().filter(|s| s.exit.is_some() && panes.contains(&s.info.id)) {
-            s.exit_seen = true;
         }
     }
 
@@ -136,22 +119,11 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_session_killed_by_its_close_has_not_failed() {
-        let mut s = Sessions::default();
-        s.sync(vec![info("a"), info("b")]);
-        s.get_mut("a").unwrap().closed = true;
-        s.apply(&Msg { code: -1, ..msg("exit", "a", "") });
-        s.apply(&Msg { code: -1, ..msg("exit", "b", "") });
-        assert!(!s.get("a").unwrap().failed());
-        assert!(s.get("b").unwrap().failed());
-    }
-
-    #[test]
     fn sync_refreshes_what_the_list_says_about_known_sessions() {
         let mut s = Sessions::default();
         s.sync(vec![info("a")]);
-        assert_eq!(s.sync(vec![Info { last_title: "Fix CI".into(), ..info("a") }]), Vec::<String>::new());
-        assert_eq!(s.get("a").unwrap().info.last_title, "Fix CI");
+        assert_eq!(s.sync(vec![Info { foreground: "npm run dev".into(), ..info("a") }]), Vec::<String>::new());
+        assert_eq!(s.get("a").unwrap().info.foreground, "npm run dev");
     }
 
     #[test]
@@ -163,26 +135,5 @@ mod tests {
         assert_eq!(s.get("a").unwrap().busy(), Some("npm run dev"));
         s.apply(&Msg { code: 1, ..msg("exit", "a", "") });
         assert_eq!(s.get("a").unwrap().busy(), None);
-    }
-
-    #[test]
-    fn activity_reads_the_foreground_the_prompt_or_the_exit_code() {
-        let mut s = Sessions::default();
-        s.sync(vec![info("a"), info("b"), Info { foreground: "npm run dev".into(), ..info("c") }]);
-        s.apply(&Msg { code: 1, ..msg("exit", "a", "") });
-        let got: Vec<String> = s.items.iter().map(Session::activity).collect();
-        assert_eq!(got, vec!["exited 1", "at prompt", "npm run dev"]);
-    }
-
-    #[test]
-    fn only_exits_on_screen_are_seen() {
-        let mut s = Sessions::default();
-        s.sync(vec![info("a"), info("b"), info("c")]);
-        for id in ["a", "b"] {
-            s.apply(&Msg { code: 1, ..msg("exit", id, "") });
-        }
-        s.see_exits(&["a".into(), "c".into()]);
-        let got: Vec<bool> = s.items.iter().map(|s| s.exit_seen).collect();
-        assert_eq!(got, vec![true, false, false]);
     }
 }

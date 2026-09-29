@@ -60,8 +60,8 @@ func TestClaudeTypedInAShellIsAnAgent(t *testing.T) {
 	h.WaitScreen(id, "echo: hello")
 	c.Send(ops.Msg{Op: "input", ID: id, Data: []byte{0x03}})
 	phone.WaitStatus(a.ID, "closed")
-	c.Send(ops.Msg{Op: "list"})
-	if m, _ := c.Recv(); len(m.Items) != 1 || m.Items[0].LastProvider != "claude" {
-		t.Fatalf("list: %+v", m.Items)
-	}
+	phone.Send(map[string]any{"type": "agent.list", "id": "l"})
+	phone.WaitFor("closed agent still listed", func(m Message) bool {
+		return m.Type == "agent.list" && m.ID == "l" && len(m.Agents) == 1 && m.Agents[0].ID == a.ID
+	})
 }

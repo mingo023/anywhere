@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentSummary } from "@pocket/protocol";
-import { applyAgentUpdate } from "../src/agents.ts";
+import { applyAgentUpdate, liveAgents } from "../src/agents.ts";
 
 const agent = (id: string, status: AgentSummary["status"]) => ({ id, status }) as AgentSummary;
 
@@ -14,4 +14,8 @@ test("an update replaces in place and a new agent goes first", () => {
   const list = [agent("a", "idle"), agent("b", "idle")];
   assert.deepEqual(applyAgentUpdate(list, agent("b", "working")), [agent("a", "idle"), agent("b", "working")]);
   assert.deepEqual(applyAgentUpdate(list, agent("c", "idle")), [agent("c", "idle"), ...list]);
+});
+
+test("a listed closed agent is left out", () => {
+  assert.deepEqual(liveAgents([agent("a", "idle"), agent("b", "closed")]), [agent("a", "idle")]);
 });

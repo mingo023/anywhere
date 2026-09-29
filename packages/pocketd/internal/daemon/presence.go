@@ -107,9 +107,7 @@ func (d *Daemon) endAgent(pr *presence) {
 	}
 	pr.mu.Unlock()
 	d.Broker.DenyAll(pr.a.ID())
-	// Before Remove: a client that sees the agent closed must find its last title.
-	pr.t.SetLast(pr.provider, pr.a.Summary().Title)
-	d.Agents.Remove(pr.a.ID())
+	d.Agents.Close(pr.a.ID())
 }
 
 type termDriver struct {

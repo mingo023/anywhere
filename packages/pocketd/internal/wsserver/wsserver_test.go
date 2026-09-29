@@ -316,3 +316,15 @@ func TestAPhoneAnsweringPingsKeepsItsView(t *testing.T) {
 		t.Fatalf("answering phone lost its view: %s", s)
 	}
 }
+
+func TestClosingAClosedAgentForgetsIt(t *testing.T) {
+	reg, _, p := setup(t)
+	p.hello()
+	reg.Close("a1")
+	p.send(`{"type":"agent.close","id":"c","agentId":"a1"}`)
+	for m := p.recv(); m["type"] != "ack" || m["id"] != "c"; m = p.recv() {
+	}
+	if len(reg.List()) != 0 {
+		t.Fatal("closed agent still listed")
+	}
+}

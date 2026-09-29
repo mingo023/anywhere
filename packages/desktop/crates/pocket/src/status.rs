@@ -1,7 +1,4 @@
-use crate::sessions::Session;
-use crate::view::command_line;
 use agents::Summary;
-use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 /// Variants run from most to least urgent; cards and roll-ups sort on that order.
@@ -48,10 +45,8 @@ impl Status {
 pub enum Kind {
     Agent,
     NotAttached,
-    /// Its last agent exited; the card keeps that agent's title and a faded provider badge.
+    /// The agent exited; its card stays, with a faded provider badge, until its terminal closes.
     Ended,
-    /// No agent ever ran here, so the card reads what the terminal does.
-    Shell(String),
 }
 
 #[derive(Clone)]
@@ -65,33 +60,22 @@ pub struct Card {
     pub kind: Kind,
 }
 
-/// A session's card. `terms[0]` is its top-level terminal; the rest are its tabs and splits.
-pub fn card(terms: &[&Session], agents: &[Summary]) -> Card {
-    let top = terms[0];
-    let rank = |a: &&Summary| (Status::of(a).is_none(), a.status == "closed", Status::of(a), a.terminal_id != top.info.id, Reverse(a.updated_at));
-    let lead = agents.iter().filter(|a| terms.iter().any(|t| t.info.id == a.terminal_id)).min_by_key(rank);
-    let kind = match lead {
-        None if top.info.last_provider.is_empty() => Kind::Shell(top.activity()),
-        Some(a) if a.status != "closed" && a.attached => Kind::Agent,
-        Some(a) if a.status != "closed" => Kind::NotAttached,
-        _ => Kind::Ended,
-    };
-    let (provider, title) = match lead {
-        Some(a) => (a.provider.clone(), a.title.clone()),
-        None if top.info.last_provider.is_empty() => (top.info.cmd.clone(), command_line(&top.info)),
-        None => (top.info.last_provider.clone(), top.info.last_title.clone()),
+/// An agent's card, placed by the folder its terminal started in.
+pub fn card(a: &Summary, cwd: &str) -> Card {
+    let kind = if a.status == "closed" {
+        Kind::Ended
+    } else if a.attached {
+        Kind::Agent
+    } else {
+        Kind::NotAttached
     };
     Card {
-        id: top.info.id.clone(),
-        provider,
-        title: if title.is_empty() { "New session".into() } else { title },
-        cwd: top.info.cwd.clone(),
-        at: lead.map_or(0, |a| a.updated_at),
-        status: match lead.and_then(Status::of) {
-            Some(s) => s,
-            None if kind == Kind::Ended && top.failed() && !top.exit_seen => Status::Failed,
-            None => Status::Idle,
-        },
+        id: a.id.clone(),
+        provider: a.provider.clone(),
+        title: if a.title.is_empty() { "New session".into() } else { a.title.clone() },
+        cwd: cwd.to_string(),
+        at: a.updated_at,
+        status: Status::of(a).unwrap_or(Status::Idle),
         kind,
     }
 }
@@ -153,15 +137,9 @@ pub fn alerts(before: &HashMap<String, Status>, now: &HashMap<String, Status>, s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daemon::Info;
 
     fn agent(terminal: &str, status: &str) -> Summary {
         Summary { id: format!("agent-{terminal}"), terminal_id: terminal.into(), status: status.into(), attached: true, ..Default::default() }
-    }
-
-    fn term(id: &str) -> Session {
-        let info = Info { id: id.into(), cmd: "/bin/zsh".into(), args: vec!["-l".into()], cwd: "/w".into(), ..Default::default() };
-        Session { info, term: None, exit: None, closed: false, exit_seen: false }
     }
 
     #[test]
@@ -184,61 +162,27 @@ mod tests {
     }
 
     #[test]
-    fn a_card_shows_its_most_urgent_agent_across_tabs() {
-        let (top, tab) = (term("t1"), term("t2"));
-        let agents = [Summary { title: "Top".into(), updated_at: 5, ..agent("t1", "idle") }, Summary { title: "Fix".into(), updated_at: 1, ..agent("t2", "needsYou") }];
-        let c = card(&[&top, &tab], &agents);
-        assert_eq!((c.id.as_str(), c.title.as_str(), c.status, c.at, c.kind), ("t1", "Fix", Status::NeedsYou, 1, Kind::Agent));
+    fn a_card_is_its_agent_in_its_terminals_folder() {
+        let a = Summary { title: "Fix".into(), cwd: "/elsewhere".into(), updated_at: 5, ..agent("t1", "working") };
+        let c = card(&a, "/w");
+        assert_eq!((c.id.as_str(), c.title.as_str(), c.cwd.as_str(), c.at, c.status, c.kind), ("agent-t1", "Fix", "/w", 5, Status::Working, Kind::Agent));
     }
 
     #[test]
-    fn agents_in_other_sessions_do_not_count() {
-        let c = card(&[&term("t1")], &[agent("x", "working")]);
-        assert_eq!((c.title.as_str(), c.provider.as_str(), c.status, c.at), ("zsh", "/bin/zsh", Status::Idle, 0));
-        assert_eq!(c.kind, Kind::Shell("at prompt".into()));
+    fn a_detached_agent_reads_not_attached_and_idle() {
+        let c = card(&Summary { attached: false, ..agent("t1", "needsYou") }, "/w");
+        assert_eq!((c.kind, c.status), (Kind::NotAttached, Status::Idle));
     }
 
     #[test]
-    fn an_agentless_card_shows_its_exit_but_never_fails() {
-        let c = card(&[&Session { exit: Some(1), ..term("t1") }], &[]);
-        assert_eq!((c.kind, c.status), (Kind::Shell("exited 1".into()), Status::Idle));
-    }
-
-    #[test]
-    fn a_card_keeps_its_last_agent_after_it_exits() {
-        let mut top = term("t1");
-        (top.info.last_provider, top.info.last_title) = ("claude".into(), "Fix CI".into());
-        let c = card(&[&top], &[]);
-        assert_eq!((c.kind, c.provider.as_str(), c.title.as_str(), c.status), (Kind::Ended, "claude", "Fix CI", Status::Idle));
-        top.exit = Some(1);
-        assert_eq!(card(&[&top], &[]).status, Status::Failed);
-    }
-
-    #[test]
-    fn a_crashed_agents_card_clears_once_its_exit_is_seen() {
-        let mut top = Session { exit: Some(1), exit_seen: true, ..term("t1") };
-        top.info.last_provider = "claude".into();
-        assert_eq!(card(&[&top], &[]).status, Status::Idle);
-    }
-
-    #[test]
-    fn closed_and_detached_agents_rank_below_attached_ones() {
-        let (top, tab) = (term("t1"), term("t2"));
-        let agents = [
-            Summary { title: "Gone".into(), updated_at: 9, ..agent("t1", "closed") },
-            Summary { title: "Blind".into(), attached: false, ..agent("t1", "working") },
-            Summary { title: "Tab".into(), ..agent("t2", "idle") },
-        ];
-        assert_eq!(card(&[&top, &tab], &agents).title, "Tab");
-        let blind = card(&[&top], &agents[..2]);
-        assert_eq!((blind.title.as_str(), blind.kind, blind.status), ("Blind", Kind::NotAttached, Status::Idle));
-        let gone = card(&[&top], &agents[..1]);
-        assert_eq!((gone.title.as_str(), gone.kind), ("Gone", Kind::Ended));
+    fn an_exited_agent_is_an_ended_idle_card() {
+        let c = card(&Summary { title: "Fix CI".into(), provider: "claude".into(), ..agent("t1", "closed") }, "/w");
+        assert_eq!((c.kind, c.status, c.title.as_str(), c.provider.as_str()), (Kind::Ended, Status::Idle, "Fix CI", "claude"));
     }
 
     #[test]
     fn an_untitled_agent_reads_new_session() {
-        assert_eq!(card(&[&term("t1")], &[agent("t1", "working")]).title, "New session");
+        assert_eq!(card(&agent("t1", "working"), "/w").title, "New session");
     }
 
     #[test]

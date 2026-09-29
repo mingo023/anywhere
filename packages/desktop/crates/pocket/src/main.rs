@@ -20,7 +20,7 @@ use gpui_kit::component::text::TextViewState;
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use serde_json::json;
-use sessions::{Session, Sessions};
+use sessions::Sessions;
 use status::{Card, Status};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
@@ -71,7 +71,6 @@ pub struct Comment {
 }
 
 enum Intent {
-    Session,
     Tab(String),
     Split(String, bool),
 }
@@ -292,22 +291,35 @@ impl Desktop {
         self.statuses = now;
     }
 
-    fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    /// Shows an agent's session: its worktree, the tab holding its terminal, and that pane focused.
+    pub fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
-        let top = self.store.parent(&term).unwrap_or(&term).to_string();
+        let Some(cwd) = self.sessions.get(&term).map(|s| s.info.cwd.clone()) else { return };
+        let Some(tree) = self.tree_of(&cwd) else { return };
+        self.show_tree(&cwd, &tree);
         self.side = Side::Sessions;
-        let w = self.workspace(&top);
+        self.session = Some(id.to_string());
+        let w = self.workspace(&tree);
         if let Some(i) = w.tab_of(&term) {
             w.active = i;
         }
-        self.open_session(top, Some(term), window, cx);
+        self.focus_pane(term, window, cx);
+        self.refresh_git(cx);
     }
 
-    /// The terminals on screen: the selected session's active tab, unless a preview covers it.
+    fn show_tree(&mut self, cwd: &str, tree: &str) {
+        if let Some(p) = self.project_of(cwd, &self.projects()).cloned() {
+            self.project = Some(p);
+        }
+        self.screen = Screen::Sessions;
+        self.worktree = Some(tree.to_string());
+    }
+
+    /// The terminals on screen: the worktree's active tab, unless a preview covers it.
     fn visible_panes(&mut self) -> Vec<String> {
         let preview = (self.side == Side::Changes && self.diff_file.is_some()) || (self.side == Side::Explorer && self.file.is_some());
-        let Some(id) = self.session.clone().filter(|_| self.screen == Screen::Sessions && !preview) else { return Vec::new() };
-        match self.workspace(&id).active() {
+        let Some(tree) = self.cwd().filter(|_| self.screen == Screen::Sessions && !preview) else { return Vec::new() };
+        match self.workspace(&tree).active() {
             Some(Tab::Term(rows)) => rows.concat(),
             _ => Vec::new(),
         }
@@ -315,7 +327,6 @@ impl Desktop {
 
     fn sync_view(&mut self, window: &Window, cx: &mut App) {
         let panes = if window.is_window_active() { self.visible_panes() } else { Vec::new() };
-        self.sessions.see_exits(&panes);
         let ids = status::view_set(&panes, &self.agents.list);
         if self.viewing.as_ref() != Some(&ids) {
             self.outbox.view(&ids);
@@ -338,9 +349,9 @@ impl Desktop {
             "spawned" => {
                 self.error = None;
                 match self.intents.pop_front() {
-                    Some(Intent::Session) | None => self.select_session(m.id.clone(), window, cx),
-                    Some(Intent::Tab(parent)) => self.adopt(m.id.clone(), parent, None, window, cx),
-                    Some(Intent::Split(parent, down)) => self.adopt(m.id.clone(), parent, Some(down), window, cx),
+                    Some(Intent::Tab(tree)) => self.adopt(m.id.clone(), tree, None, window, cx),
+                    Some(Intent::Split(tree, down)) => self.adopt(m.id.clone(), tree, Some(down), window, cx),
+                    None => {}
                 }
                 self.daemon.send(json!({"op": "list"}));
             }
@@ -360,37 +371,25 @@ impl Desktop {
     }
 
     /// Closes panes whose shell exited cleanly, as Terminal.app does; a failed one stays so its error can be read.
-    /// A session's top-level terminal stays while any of its tabs or splits does.
     fn close_clean_exits(&mut self, id: &str, cx: &mut Context<Self>) {
-        let clean = |this: &Self, id: &str| this.sessions.get(id).is_some_and(|s| s.exit == Some(0));
-        let top = self.store.children.iter().find(|(c, _)| c == id).map_or(id.to_string(), |(_, p)| p.clone());
-        if top != id && clean(self, id) {
+        if self.sessions.get(id).is_some_and(|s| s.exit == Some(0)) {
             self.close_pane(id, cx);
-        }
-        if clean(self, &top) && self.store.children_of(&top).next().is_none() {
-            if self.session.as_deref() == Some(top.as_str()) {
-                self.session = None;
-            }
-            self.close_pane(&top, cx);
         }
     }
 
-    fn adopt(&mut self, id: String, parent: String, split: Option<bool>, window: &mut Window, cx: &mut Context<Self>) {
-        self.store.children.push((id.clone(), parent.clone()));
-        self.store.save();
-        let w = self.workspace(&parent);
+    fn adopt(&mut self, id: String, tree: String, split: Option<bool>, window: &mut Window, cx: &mut Context<Self>) {
+        let w = self.workspace(&tree);
         match split {
             Some(down) => w.split(id.clone(), down),
             None => w.add_tab(id.clone()),
         }
+        self.show_tree(&tree, &tree);
         self.focus_pane(id, window, cx);
     }
 
     pub fn projects(&self) -> Vec<String> {
         let mut out = self.store.projects.clone();
-        let live = self.agents.list.iter().filter(|a| a.status != "closed").map(|a| &a.cwd);
-        let sessions = self.sessions.items.iter().filter(|s| self.store.parent(&s.info.id).is_none()).map(|s| &s.info.cwd);
-        for cwd in live.chain(sessions) {
+        for cwd in self.sessions.items.iter().map(|s| &s.info.cwd) {
             if self.project_of(cwd, &out).is_none() {
                 out.push(cwd.clone());
             }
@@ -411,41 +410,55 @@ impl Desktop {
         self.worktrees.values().flatten().filter(|w| under(cwd, &w.path)).max_by_key(|w| w.path.len())
     }
 
+    /// The worktree a folder belongs to: the git worktree holding it, else the project it is in.
+    pub fn tree_of(&self, cwd: &str) -> Option<String> {
+        self.worktree_of(cwd).map(|w| w.path.clone()).or_else(|| self.project_of(cwd, &self.projects()).cloned())
+    }
+
     pub fn cards(&self, project: &str) -> Vec<Card> {
         let projects = self.projects();
         let mut out: Vec<Card> = self
-            .sessions
-            .items
+            .agents
+            .list
             .iter()
-            .filter(|s| self.store.parent(&s.info.id).is_none() && self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
-            .map(|s| {
-                let terms: Vec<&Session> = std::iter::once(s).chain(self.store.children_of(&s.info.id).filter_map(|c| self.sessions.get(c))).collect();
-                status::card(&terms, &self.agents.list)
-            })
+            .filter_map(|a| Some((a, self.sessions.get(&a.terminal_id)?)))
+            .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
+            .map(|(a, s)| status::card(a, &s.info.cwd))
             .collect();
         out.sort_by_key(|c| std::cmp::Reverse(c.at));
         out
     }
 
-    /// The agent in `terminal`: the live one, else the last to exit.
+    /// The live agent in `terminal`.
     pub fn summary(&self, terminal: &str) -> Option<&Summary> {
-        self.agents.list.iter().filter(|a| a.terminal_id == terminal).max_by_key(|a| (a.status != "closed", a.updated_at))
+        self.agents.list.iter().find(|a| a.terminal_id == terminal && a.status != "closed")
     }
 
     pub fn cwd_of(&self, id: &str) -> Option<String> {
         self.agents.get(id).map(|a| a.cwd.clone()).or_else(|| self.sessions.get(id).map(|s| s.info.cwd.clone()))
     }
 
+    /// The worktree on screen: the one picked, else the project's main one.
     pub fn cwd(&self) -> Option<String> {
-        self.session.as_deref().and_then(|id| self.cwd_of(id)).or_else(|| self.project.clone())
+        self.worktree.clone().or_else(|| self.tree_of(self.project.as_deref()?))
     }
 
     pub fn repo(&self) -> Option<&Repo> {
         self.repos.get(&self.cwd()?)
     }
 
-    fn workspace(&mut self, id: &str) -> &mut Workspace {
-        self.workspaces.entry(id.to_string()).or_insert_with(|| Workspace::new(id, self.store.children_of(id)))
+    fn workspace(&mut self, tree: &str) -> &mut Workspace {
+        let (mut mine, mut theirs) = (Vec::new(), Vec::new());
+        for s in &self.sessions.items {
+            match self.tree_of(&s.info.cwd) {
+                Some(t) if t == tree => mine.push(s.info.id.clone()),
+                Some(_) => theirs.push(s.info.id.clone()),
+                None => {}
+            }
+        }
+        let w = self.workspaces.entry(tree.to_string()).or_default();
+        w.sync(&mine, &theirs);
+        w
     }
 
     pub fn select_project(&mut self, p: String, cx: &mut Context<Self>) {
@@ -462,30 +475,9 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn select_session(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        let pane = match self.workspace(&id).active() {
-            Some(Tab::Term(rows)) => rows.first().and_then(|r| r.first()).cloned(),
-            _ => None,
-        };
-        self.open_session(id, pane, window, cx);
-    }
-
-    fn open_session(&mut self, id: String, pane: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        self.screen = Screen::Sessions;
-        if let Some(p) = self.cwd_of(&id).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
-            self.project = Some(p);
-        }
-        self.session = Some(id);
-        if let Some(pane) = pane {
-            self.focus_pane(pane, window, cx);
-        }
-        self.refresh_git(cx);
-        cx.notify();
-    }
-
     pub fn select_tab(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(id) = self.session.clone() else { return };
-        let w = self.workspace(&id);
+        let Some(tree) = self.cwd() else { return };
+        let w = self.workspace(&tree);
         w.active = i;
         match w.active() {
             Some(Tab::Term(rows)) => {
@@ -512,25 +504,24 @@ impl Desktop {
     }
 
 
-    /// Opens a login shell in the session's folder, as a new tab or a split of the active one.
+    /// Opens a login shell in the worktree's folder, as a new tab or a split of the active one.
     pub fn new_shell(&mut self, split: Option<bool>, cx: &mut Context<Self>) {
-        self.run_in_session(split, daemon::shell_op, cx);
+        self.run_in_tree(split, daemon::shell_op, cx);
     }
 
     pub fn new_agent_tab(&mut self, provider: &str, cx: &mut Context<Self>) {
         self.tab_menu = false;
         let argv = [provider.to_string()];
-        self.run_in_session(None, |cwd| daemon::agent_op(&argv, cwd), cx);
+        self.run_in_tree(None, |cwd| daemon::agent_op(&argv, cwd), cx);
     }
 
-    fn run_in_session(&mut self, split: Option<bool>, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
-        let Some(parent) = self.session.clone() else { return };
-        let Some(cwd) = self.cwd_of(&parent) else { return };
+    fn run_in_tree(&mut self, split: Option<bool>, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
+        let Some(tree) = self.cwd() else { return };
         let intent = match split {
-            Some(down) => Intent::Split(parent, down),
-            None => Intent::Tab(parent),
+            Some(down) => Intent::Split(tree.clone(), down),
+            None => Intent::Tab(tree.clone()),
         };
-        self.send_spawn(op(&cwd), intent, cx);
+        self.send_spawn(op(&tree), intent, cx);
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -540,24 +531,27 @@ impl Desktop {
         self.sessions.remove(id);
         self.closed.insert(id.to_string());
         self.sized.remove(id);
-        self.workspaces.remove(id);
         for w in self.workspaces.values_mut() {
             w.remove(id);
         }
-        self.store.children.retain(|(c, _)| c != id);
-        self.store.save();
         cx.notify();
     }
 
+    /// Ends a session: a running agent goes with its terminal, an ended one only leaves the list.
+    pub fn close_session(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(a) = self.agents.get(id) else { return };
+        if a.status == "closed" {
+            self.outbox.close(id);
+        } else {
+            let term = a.terminal_id.clone();
+            self.close_pane(&term, cx);
+        }
+    }
+
     pub fn close_tab(&mut self, i: usize, cx: &mut Context<Self>) {
-        let Some(parent) = self.session.clone() else { return };
-        for id in self.workspace(&parent).close_tab(i) {
-            if id != parent {
-                self.close_pane(&id, cx);
-            } else if let Some(s) = self.sessions.get_mut(&id).filter(|s| s.exit.is_none()) {
-                s.closed = true;
-                self.daemon.send(json!({"op": "close", "id": id}));
-            }
+        let Some(tree) = self.cwd() else { return };
+        for id in self.workspace(&tree).close_tab(i) {
+            self.close_pane(&id, cx);
         }
         cx.notify();
     }
@@ -761,7 +755,8 @@ impl Desktop {
         if text.is_empty() {
             return;
         }
-        self.daemon.send(json!({"op": "prompt", "id": target, "text": format!("{path} {}: {text}", lines.to_lowercase())}));
+        let Some(terminal) = self.agents.get(&target).map(|a| a.terminal_id.clone()) else { return };
+        self.daemon.send(json!({"op": "prompt", "id": terminal, "text": format!("{path} {}: {text}", lines.to_lowercase())}));
         if let Some(comment) = self.new_comment(path, lines, text) {
             self.comments.push(comment);
         }
@@ -791,7 +786,7 @@ impl Desktop {
         if let Some(id) = waiting.get(next).cloned() {
             self.overlay = None;
             self.side = Side::Sessions;
-            self.select_session(id, window, cx);
+            self.focus_agent(&id, window, cx);
         }
     }
 

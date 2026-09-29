@@ -51,7 +51,7 @@ func fakeAgent(t *testing.T, name string) string {
 
 func agentIn(d *Daemon, term *terminal.Terminal) (proto.AgentSummary, bool) {
 	for _, a := range d.Agents.List() {
-		if a.TerminalID == term.Info().ID {
+		if a.TerminalID == term.Info().ID && a.Status != "closed" {
 			return a, true
 		}
 	}
@@ -70,12 +70,12 @@ func waitAgent(t *testing.T, d *Daemon, term *terminal.Terminal) proto.AgentSumm
 	return a
 }
 
-func waitGone(t *testing.T, d *Daemon, id string) {
+func waitClosed(t *testing.T, d *Daemon, id string) {
 	t.Helper()
-	eventually(t, "agent gone", func() bool {
+	eventually(t, "agent closed", func() bool {
 		d.poll()
-		_, err := d.Agents.Get(id)
-		return err != nil
+		a, err := d.Agents.Get(id)
+		return err == nil && a.Summary().Status == "closed"
 	})
 }
 
@@ -93,13 +93,8 @@ func TestClaudeInATerminalIsAnAgentWhileItRuns(t *testing.T) {
 	if a.Provider != "claude" || !a.Attached || a.ID == term.Info().ID || a.Status != "idle" {
 		t.Fatalf("agent = %+v", a)
 	}
-	ag, _ := d.Agents.Get(a.ID)
-	ag.SetTitle("Fix the login bug")
 	term.Write([]byte{0x03})
-	waitGone(t, d, a.ID)
-	if i := term.Info(); i.LastProvider != "claude" || i.LastTitle != "Fix the login bug" {
-		t.Fatalf("info = %+v", i)
-	}
+	waitClosed(t, d, a.ID)
 }
 
 func TestANewClaudePidIsANewAgent(t *testing.T) {
@@ -115,8 +110,8 @@ func TestANewClaudePidIsANewAgent(t *testing.T) {
 	if a, ok := agentIn(d, term); !ok || a.ID == first.ID {
 		t.Fatalf("agent = %+v, %v", a, ok)
 	}
-	if _, err := d.Agents.Get(first.ID); err == nil {
-		t.Fatal("the first agent is still listed")
+	if a, err := d.Agents.Get(first.ID); err != nil || a.Summary().Status != "closed" {
+		t.Fatal("the first agent is not kept closed")
 	}
 }
 
@@ -131,7 +126,7 @@ func TestClosingADetectedAgentStopsOnlyItsProcess(t *testing.T) {
 	eventually(t, "open request", func() bool { return len(d.Broker.Open()) == 1 })
 	ag, _ := d.Agents.Get(a.ID)
 	ag.Driver().Close()
-	waitGone(t, d, a.ID)
+	waitClosed(t, d, a.ID)
 	select {
 	case got := <-answer:
 		if got.Decision != "deny" {

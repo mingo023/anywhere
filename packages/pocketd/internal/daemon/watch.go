@@ -32,6 +32,11 @@ func (d *Daemon) poll() {
 	for _, pr := range d.exited() {
 		d.endAgent(pr)
 	}
+	for _, a := range d.Agents.List() {
+		if a.Status == "closed" && d.Terminals.Get(a.TerminalID) == nil {
+			d.Agents.Forget(a.ID)
+		}
+	}
 }
 
 // exited finds agents whose terminal closed before a poll saw them leave.

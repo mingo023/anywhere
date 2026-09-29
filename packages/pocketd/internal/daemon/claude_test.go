@@ -110,16 +110,16 @@ func TestACompactKeepsTheTranscriptWhereItWas(t *testing.T) {
 	}
 }
 
-func TestAnEndingClaudeLeavesItsLastTitle(t *testing.T) {
+func TestAnEndingClaudeKeepsItsLastTitle(t *testing.T) {
 	d := newDaemon(t)
-	term, pr := claudeIn(t, d)
+	_, pr := claudeIn(t, d)
 	path := transcript(t, "hi")
 	hookFrom(d, pr, sessionStart("s1", path))
 	eventually(t, "the transcript", func() bool { return pr.a.Summary().Title == "hi" })
 	appendLine(t, path, strings.Repeat(`{"type":"progress"}`+"\n", 20000)+`{"type":"ai-title","aiTitle":"Fix the login bug"}`)
 	d.endAgent(pr)
-	if i := term.Info(); i.LastTitle != "Fix the login bug" {
-		t.Fatalf("info = %+v", i)
+	if s := pr.a.Summary(); s.Status != "closed" || s.Title != "Fix the login bug" {
+		t.Fatalf("summary = %+v", s)
 	}
 }
 

@@ -213,6 +213,10 @@ impl Outbox {
         self.send(json!({"type": "agent.seen", "id": "seen", "agentIds": ids}));
     }
 
+    pub fn close(&self, id: &str) {
+        self.send(json!({"type": "agent.close", "id": "close", "agentId": id}));
+    }
+
     fn send(&self, m: Value) {
         let _ = self.0.send(m.to_string());
     }
@@ -364,6 +368,8 @@ mod tests {
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
         out.seen(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.seen", "id": "seen", "agentIds": ["a1"]}));
+        out.close("a1");
+        assert_eq!(read(&mut ws), json!({"type": "agent.close", "id": "close", "agentId": "a1"}));
         std::fs::remove_dir_all(&home).unwrap();
     }
 }

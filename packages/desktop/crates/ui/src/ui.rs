@@ -358,17 +358,7 @@ pub fn provider_label(provider: &str, faded: bool) -> Div {
     div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(dot(6., provider_color(provider))).child(provider_name(provider))
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn session_row(
-    id: impl Into<ElementId>,
-    selected: bool,
-    title: String,
-    state: Option<State>,
-    lead: impl IntoElement,
-    branch: String,
-    when: String,
-    tags: Vec<String>,
-) -> Stateful<Div> {
+pub fn session_row(id: impl Into<ElementId>, selected: bool, title: String, state: Option<State>, lead: impl IntoElement) -> Stateful<Div> {
     let id = id.into();
     // The design's browser sizes this line by the status's inline box, not the title.
     let line = match state {
@@ -407,13 +397,8 @@ pub fn session_row(
                 .text_size(px(12.))
                 .line_height(px(15.))
                 .text_color(rgba(TEXT_2))
-                .child(lead)
-                .child(div().text_color(rgba(TEXT_6)).child("·"))
-                .child(icon("worktree", 12., TEXT_4))
-                .child(div().min_w_0().truncate().font_family(MONO).text_size(px(11.5)).child(branch))
-                .child(div().ml_auto().flex_none().text_color(rgba(TEXT_4)).child(when)),
+                .child(lead),
         )
-        .when(!tags.is_empty(), |d| d.child(div().mt(px(2.)).flex().gap(px(6.)).children(tags.into_iter().map(tag))))
 }
 
 /// Git's one-letter status for a file: M, A or D.

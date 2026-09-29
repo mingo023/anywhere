@@ -123,7 +123,7 @@ impl Render for Storybook {
                     .child(ui::kbd("↑ ↓")),
             ))
             .child(story(
-                "Repository mark",
+                "Project mark",
                 "Filled dark when selected, dot for needs you / done / working",
                 div()
                     .flex()
@@ -135,7 +135,7 @@ impl Render for Storybook {
                     .child(ui::repo_mark("hk", false, Some(State::Working))),
             ))
             .child(story(
-                "Repository row",
+                "Project row",
                 "Sidebar rail",
                 list()
                     .child(ui::repo_row("repo-android", "app-android", true, Some(3), None, "spin-android"))
@@ -146,10 +146,10 @@ impl Render for Storybook {
                 "Session row",
                 "Sessions tab of the column",
                 list()
-                    .child(ui::session_row("s1", true, "Fix stale terminal reveal".into(), Some(State::NeedsYou), ui::provider_label("codex", false), "fix/restore-handoff".into(), "2m".into(), vec![]))
-                    .child(ui::session_row("s2", false, "Split restore hook into two files".into(), Some(State::Working), ui::provider_label("claude", false), "refactor/restore-hook".into(), "now".into(), vec!["2 sub-agents".into(), "pnpm dev".into()]))
-                    .child(ui::session_row("s3", false, "Upgrade to RN 0.81".into(), Some(State::Failed), ui::provider_label("codex", false), "chore/rn-081".into(), "3h".into(), vec![]))
-                    .child(ui::session_row("s4", false, "Migrate legacy hooks".into(), Some(State::Idle(28, 11)), ui::provider_label("codex", true), "chore/migrate-hooks".into(), "6m".into(), vec![])),
+                    .child(ui::session_row("s1", true, "Fix stale terminal reveal".into(), Some(State::NeedsYou), ui::provider_label("codex", false)))
+                    .child(ui::session_row("s2", false, "Split restore hook into two files".into(), Some(State::Working), ui::provider_label("claude", false)))
+                    .child(ui::session_row("s3", false, "Upgrade to RN 0.81".into(), Some(State::Failed), ui::provider_label("codex", false)))
+                    .child(ui::session_row("s4", false, "Migrate legacy hooks".into(), Some(State::Idle(28, 11)), ui::provider_label("codex", true))),
             ))
             .child(story(
                 "File rows",
@@ -172,7 +172,7 @@ impl Render for Storybook {
             ))
             .child(story(
                 "Rail",
-                "Repository tiles, add tile, inbox badge, avatar",
+                "Project tiles, add tile, inbox badge, avatar",
                 div()
                     .flex()
                     .items_center()
@@ -186,11 +186,11 @@ impl Render for Storybook {
             ))
             .child(story(
                 "Worktrees",
-                "Nested under the selected repository",
+                "Nested under the selected project",
                 list()
                     .child(ui::worktree_row("w1", "main".into(), "~/code/app-android".into(), true, false, None))
-                    .child(ui::worktree_row("w2", "restore-handoff".into(), "fix/restore-handoff".into(), false, true, Some(State::NeedsYou)))
-                    .child(ui::worktree_row("w3", "migrate-hooks".into(), "chore/migrate-hooks".into(), false, false, Some(State::Merged))),
+                    .child(ui::worktree_row("w2", "fix/restore-handoff".into(), "~/.worktrees/app-android/fix-restore-handoff".into(), false, true, Some(State::NeedsYou)))
+                    .child(ui::worktree_row("w3", "chore/migrate-hooks".into(), "~/.worktrees/app-android/chore-migrate-hooks".into(), false, false, Some(State::Merged))),
             ))
             .child(story(
                 "Palette and menus",

@@ -302,7 +302,7 @@ impl Desktop {
                 ui::button("ask-file", Variant::Ghost, Some("sparkle"), "Ask about this file").text_color(rgba(TEXT)).on_click(cx.listener(
                     move |this, _: &ClickEvent, window, cx| {
                         this.open(Overlay::NewSession, window, cx);
-                        this.reset_new_form(Some(prompt.clone()), window, cx);
+                        this.reset_new_form(Some(prompt.clone()), false, window, cx);
                     },
                 )),
             )

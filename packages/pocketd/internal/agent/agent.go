@@ -82,15 +82,21 @@ func (r *Registry) Get(id string) (*Agent, error) {
 	return nil, fmt.Errorf("Unknown agent: %s", id)
 }
 
-// Remove marks the agent closed for every phone, then forgets it.
-func (r *Registry) Remove(id string) {
+// Close marks the agent closed for every phone; it stays listed until Forget.
+func (r *Registry) Close(id string) {
 	r.mu.Lock()
 	a := r.agents[id]
-	delete(r.agents, id)
 	r.mu.Unlock()
 	if a != nil {
 		a.update(true, func() { a.closed = true })
 	}
+}
+
+func (r *Registry) Forget(id string) {
+	r.mu.Lock()
+	delete(r.agents, id)
+	r.mu.Unlock()
+	r.hub.Publish(proto.NewAgentList("", r.List()))
 }
 
 func (r *Registry) List() []proto.AgentSummary {

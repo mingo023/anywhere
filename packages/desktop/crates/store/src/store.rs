@@ -19,8 +19,6 @@ pub struct RepoConfig {
 #[serde(default)]
 pub struct Store {
     pub projects: Vec<String>,
-    /// (child, parent): shells opened as tabs of a session.
-    pub children: Vec<(String, String)>,
     /// Keyed by the repository's path in `projects`.
     pub repos: BTreeMap<String, RepoConfig>,
     #[serde(skip)]
@@ -40,14 +38,6 @@ impl Store {
             let _ = std::fs::write(&self.path, raw);
         }
     }
-
-    pub fn parent(&self, id: &str) -> Option<&str> {
-        self.children.iter().find(|(c, _)| c == id).map(|(_, p)| p.as_str())
-    }
-
-    pub fn children_of<'a>(&'a self, parent: &'a str) -> impl Iterator<Item = &'a str> {
-        self.children.iter().filter(move |(_, p)| p == parent).map(|(c, _)| c.as_str())
-    }
 }
 
 #[cfg(test)]
@@ -60,13 +50,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut s = Store::load(&dir);
         s.projects.push("/w".into());
-        s.children.push(("c".into(), "p".into()));
         s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], ..Default::default() });
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);
-        assert_eq!(back.parent("c"), Some("p"));
-        assert_eq!(back.children_of("p").collect::<Vec<_>>(), vec!["c"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -597,9 +597,10 @@ impl Desktop {
     }
 
     fn session_chip(&self, id: &str) -> (u32, String, String) {
-        let provider = self.summary(id).map(|a| a.provider.clone()).unwrap_or_default();
-        let branch = self.cwd_of(id).and_then(|c| self.repos.get(&c)).map(|r| r.branch.clone()).unwrap_or_default();
-        (provider_color(&provider), self.pane_label(id), branch)
+        let a = self.agents.get(id);
+        let provider = a.map(|a| a.provider.clone()).unwrap_or_default();
+        let branch = a.and_then(|a| self.sessions.get(&a.terminal_id)).and_then(|s| self.repos.get(&s.info.cwd)).map(|r| r.branch.clone()).unwrap_or_default();
+        (provider_color(&provider), provider, branch)
     }
 
     fn target_picker(&self, target: Option<String>, cx: &mut Context<Self>) -> Div {

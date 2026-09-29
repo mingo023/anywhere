@@ -9,13 +9,6 @@ use theme::*;
 use ui::{Segment, Variant};
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum Mode {
-    NewWorktree,
-    Existing,
-    Current,
-}
-
-#[derive(Clone, Copy, PartialEq)]
 pub enum Perm {
     Ask,
     AutoEdit,
@@ -25,12 +18,10 @@ pub enum Perm {
 pub struct NewForm {
     prompt: Entity<TextareaState>,
     branch: Entity<InputState>,
-    mode: Mode,
+    worktree: bool,
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,
     base: usize,
-    current: String,
-    existing: usize,
     copy_env: bool,
     run_setup: bool,
     provider: &'static str,
@@ -181,12 +172,10 @@ impl NewForm {
         let form = Self {
             prompt,
             branch,
-            mode: Mode::NewWorktree,
+            worktree: false,
             repo: None,
             branches: Vec::new(),
             base: 0,
-            current: String::new(),
-            existing: 0,
             copy_env: false,
             run_setup: false,
             provider: "claude",
@@ -261,7 +250,7 @@ impl Desktop {
         .detach();
     }
 
-    pub fn reset_new_form(&mut self, prompt: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = prompt.unwrap_or_default();
         let placeholder = slug(&text);
         let f = &mut self.new_form;
@@ -273,7 +262,7 @@ impl Desktop {
             s.set_value("", window, cx);
             s.set_placeholder(placeholder, window, cx);
         });
-        f.mode = Mode::NewWorktree;
+        f.worktree = worktree;
         f.perm = Perm::Ask;
         f.picker = None;
         if let Some(repo) = self.project.clone() {
@@ -283,13 +272,10 @@ impl Desktop {
 
     fn pick_repo(&mut self, repo: String, cx: &mut Context<Self>) {
         let cfg = self.store.repos.get(&repo).cloned().unwrap_or_default();
-        let existing = self.worktrees.get(&repo).into_iter().flatten().filter(|w| !w.main).position(|w| self.worktree.as_ref() == Some(&w.path));
         let f = &mut self.new_form;
         f.repo = Some(repo.clone());
         f.branches.clear();
-        f.current.clear();
         f.base = 0;
-        f.existing = existing.unwrap_or(0);
         f.copy_env = !cfg.copy.is_empty();
         f.run_setup = !cfg.setup.is_empty();
         let dir = repo.clone();
@@ -313,7 +299,7 @@ impl Desktop {
                     branches[..=default].rotate_right(1);
                 }
                 f.base = 0;
-                (f.current, f.branches) = (current, branches);
+                f.branches = branches;
                 cx.notify();
             })
             .ok();
@@ -337,17 +323,12 @@ impl Desktop {
         )
     }
 
-    fn existing_worktree(&self) -> Option<&git::Worktree> {
-        let repo = self.new_form.repo.as_ref()?;
-        self.worktrees.get(repo)?.iter().filter(|w| !w.main).nth(self.new_form.existing)
-    }
-
     fn session_ready(&self, cx: &App) -> bool {
-        match self.new_form.mode {
-            _ if self.new_form.repo.is_none() => false,
-            Mode::NewWorktree => !self.new_branch(cx).is_empty() && !self.new_form.branches.is_empty(),
-            Mode::Existing => self.existing_worktree().is_some(),
-            Mode::Current => true,
+        let f = &self.new_form;
+        if f.worktree {
+            f.repo.is_some() && !self.new_branch(cx).is_empty() && !f.branches.is_empty()
+        } else {
+            self.cwd().is_some()
         }
     }
 
@@ -356,7 +337,6 @@ impl Desktop {
             return;
         }
         let f = &self.new_form;
-        let Some(repo) = f.repo.clone() else { return };
         let prompt = f.prompt.read(cx).value().trim().to_string();
         let mut args: Vec<String> = match (f.provider, f.perm) {
             (_, Perm::Ask) => vec![],
@@ -367,13 +347,12 @@ impl Desktop {
         };
         args.extend((!prompt.is_empty()).then_some(prompt));
         let argv: Vec<String> = std::iter::once(f.provider.to_string()).chain(args).collect();
-        match f.mode {
-            Mode::Current => self.send_spawn(daemon::agent_op(&argv, &repo), Intent::Session, cx),
-            Mode::Existing => {
-                let Some(path) = self.existing_worktree().map(|w| w.path.clone()) else { return };
-                self.send_spawn(daemon::agent_op(&argv, &path), Intent::Session, cx);
-            }
-            Mode::NewWorktree => {
+        let worktree = f.worktree;
+        match self.cwd().filter(|_| !worktree) {
+            Some(tree) => self.send_spawn(daemon::agent_op(&argv, &tree), Intent::Tab(tree), cx),
+            None => {
+                let f = &self.new_form;
+                let Some(repo) = f.repo.clone() else { return };
                 let branch = self.new_branch(cx);
                 let path = format!("{}/{}", self.worktrees_dir(&repo), branch.replace('/', "-"));
                 let base = f.branches.get(f.base).map(|(b, _)| b.clone()).unwrap_or_default();
@@ -400,7 +379,7 @@ impl Desktop {
                     let res = task.await;
                     this.update(cx, |d, cx| {
                         match res {
-                            Ok(path) => d.send_spawn(daemon::agent_op(&argv, &path), Intent::Session, cx),
+                            Ok(path) => d.send_spawn(daemon::agent_op(&argv, &path), Intent::Tab(path), cx),
                             Err(e) => d.error = Some(e),
                         }
                         d.refresh_git(cx);
@@ -415,7 +394,9 @@ impl Desktop {
     }
 
     pub fn new_worktree(&mut self, _: &crate::NewWorktree, window: &mut Window, cx: &mut Context<Self>) {
-        self.open(Overlay::NewSession, window, cx);
+        self.overlay = Some(Overlay::NewSession);
+        self.reset_new_form(None, true, window, cx);
+        cx.notify();
     }
 
     pub fn project_settings(&mut self, _: &crate::ProjectSettings, window: &mut Window, cx: &mut Context<Self>) {
@@ -476,38 +457,14 @@ impl Desktop {
             }
             let meta = at.map(|s| crate::view::ago_long(s * 1000, now));
             rows.push(
-                pick_row(("base", i), f.mode == Mode::NewWorktree && f.base == i, Some(icon("branch", 13., TEXT_3)), branch(name), meta)
+                pick_row(("base", i), f.base == i, Some(icon("branch", 13., TEXT_3)), branch(name), meta)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.new_form.mode, this.new_form.base, this.new_form.picker) = (Mode::NewWorktree, i, None);
+                        (this.new_form.base, this.new_form.picker) = (i, None);
                         cx.notify();
                     }))
                     .into_any_element(),
             );
         }
-        let repo = f.repo.clone().unwrap_or_default();
-        let trees: Vec<&git::Worktree> = self.worktrees.get(&repo).into_iter().flatten().filter(|w| !w.main).collect();
-        if !trees.is_empty() {
-            rows.push(pick_head("Existing worktree").into_any_element());
-        }
-        for (i, w) in trees.into_iter().enumerate() {
-            rows.push(
-                pick_row(("existing", i), f.mode == Mode::Existing && f.existing == i, Some(icon("worktree", 13., TEXT_3)), branch(&w.branch), Some(basename(&w.path)))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.new_form.mode, this.new_form.existing, this.new_form.picker) = (Mode::Existing, i, None);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        rows.push(pick_head("Current checkout").into_any_element());
-        rows.push(
-            pick_row("current", f.mode == Mode::Current, Some(icon("folder", 13., TEXT_3)), branch(&f.current), None)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    (this.new_form.mode, this.new_form.picker) = (Mode::Current, None);
-                    cx.notify();
-                }))
-                .into_any_element(),
-        );
         picker_menu("branch-menu", 300., rows, cx)
     }
 
@@ -522,7 +479,7 @@ impl Desktop {
             .gap(px(8.))
             .px(px(4.))
             .pb(px(2.))
-            .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child("New session"))
+            .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child(if f.worktree { "New worktree" } else { "New session" }))
             .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(rgba(TEXT_3)).child(ui::repo_tile(&crate::view::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let mut model = self.model_hint(f.provider).unwrap_or_else(|| "Default model".into());
@@ -541,19 +498,16 @@ impl Desktop {
                 this.toggle_picker(Picker::Agent, cx);
             }));
         let base = f.branches.get(f.base).map(|(b, _)| b.clone()).unwrap_or_default();
-        let target = match f.mode {
-            Mode::NewWorktree => base.clone(),
-            Mode::Existing => self.existing_worktree().map(|w| w.branch.clone()).unwrap_or_default(),
-            Mode::Current => f.current.clone(),
-        };
-        let branch = chip("form-branch", f.picker == Some(Picker::Branch))
-            .child(icon("branch", 14., TEXT_3))
-            .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(target))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_picker(Picker::Branch, cx);
-            }));
+        let branch = f.worktree.then(|| {
+            chip("form-branch", f.picker == Some(Picker::Branch))
+                .child(icon("branch", 14., TEXT_3))
+                .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(base.clone()))
+                .child(icon("chevron-down", 12., TEXT_4))
+                .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.toggle_picker(Picker::Branch, cx);
+                }))
+        });
         let agent_menu = (f.picker == Some(Picker::Agent)).then(|| ui::dropdown(36., self.agent_picker(cx)));
         let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., self.branch_picker(cx)));
         let ready = self.session_ready(cx);
@@ -579,21 +533,22 @@ impl Desktop {
                     .pb(px(10.))
                     .text_size(px(13.))
                     .child(div().relative().child(agent).children(agent_menu))
-                    .child(div().relative().child(branch).children(branch_menu))
+                    .children(branch.map(|b| div().relative().child(b).children(branch_menu)))
                     .child(send),
             );
         let mono = |s: String| div().font_family(MONO).text_color(rgba(TEXT_2)).child(s);
-        let width = self.new_branch(cx).chars().count().max(8);
-        let summary: Vec<AnyElement> = match f.mode {
-            Mode::NewWorktree => vec![
+        let summary: Vec<AnyElement> = if f.worktree {
+            let width = self.new_branch(cx).chars().count().max(8);
+            vec![
                 div().child("New worktree on").into_any_element(),
                 // GPUI inputs don't size to their text; Geist Mono advances 0.6em.
                 div().w(px(width as f32 * 7.2 + 2.)).font_family(MONO).child(Input::new(&f.branch).appearance(false).p_0().max_h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(rgba(TEXT_2))).into_any_element(),
                 div().child("from").into_any_element(),
                 mono(base).into_any_element(),
-            ],
-            Mode::Existing => vec![div().child("Existing worktree").into_any_element(), mono(self.existing_worktree().map(|w| tilde(&w.path)).unwrap_or_default()).into_any_element()],
-            Mode::Current => vec![div().child("Current checkout").into_any_element(), mono(tilde(&repo)).into_any_element()],
+            ]
+        } else {
+            let place = self.repo().map(|r| r.branch.clone()).or_else(|| self.cwd().map(|c| tilde(&c))).unwrap_or_default();
+            vec![div().child("In").into_any_element(), mono(place).into_any_element()]
         };
         let footer = div()
             .flex()
@@ -906,7 +861,7 @@ impl Desktop {
         let label = match () {
             _ if f.busy => "Cloning…",
             _ if editing => "Save",
-            _ => "Add repository",
+            _ => "Add project",
         };
         let cancel = ui::large(ui::button("repo-cancel", Variant::Ghost, None, "Cancel").text_color(rgba(TEXT)))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
@@ -914,7 +869,7 @@ impl Desktop {
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_repo(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let close = ui::icon_button("repo-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let title = if editing { "Repository settings" } else { "Add repository" };
+        let title = if editing { "Project settings" } else { "Add project" };
         let mut body: Vec<AnyElement> = Vec::new();
         if !editing {
             body.push(source.into_any_element());

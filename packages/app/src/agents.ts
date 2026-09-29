@@ -8,3 +8,7 @@ export function applyAgentUpdate(agents: readonly AgentSummary[], agent: AgentSu
   next[at] = agent;
   return next;
 }
+
+export function liveAgents(agents: readonly AgentSummary[]): readonly AgentSummary[] {
+  return agents.filter((a) => a.status !== "closed");
+}

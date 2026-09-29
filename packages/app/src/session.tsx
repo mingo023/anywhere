@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { AgentSummary, PermissionRequest, ServerMessage, TimelineItem } from "@pocket/protocol";
 import { PocketClient, type ConnectionState } from "./client";
-import { applyAgentUpdate } from "./agents";
+import { applyAgentUpdate, liveAgents } from "./agents";
 
 type Timelines = Record<string, readonly TimelineItem[]>;
 
@@ -47,7 +47,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const onMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
       case "agent.list":
-        setAgents(msg.agents);
+        setAgents(liveAgents(msg.agents));
         break;
       case "agent.update":
         setAgents((prev) => applyAgentUpdate(prev, msg.agent));

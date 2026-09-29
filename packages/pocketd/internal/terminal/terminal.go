@@ -20,15 +20,13 @@ import (
 )
 
 type Info struct {
-	ID           string   `json:"id"`
-	Cmd          string   `json:"cmd"`
-	Args         []string `json:"args,omitempty"`
-	Cwd          string   `json:"cwd"`
-	Cols         int      `json:"cols"`
-	Rows         int      `json:"rows"`
-	Foreground   string   `json:"foreground,omitempty"`
-	LastProvider string   `json:"lastProvider,omitempty"`
-	LastTitle    string   `json:"lastTitle,omitempty"`
+	ID         string   `json:"id"`
+	Cmd        string   `json:"cmd"`
+	Args       []string `json:"args,omitempty"`
+	Cwd        string   `json:"cwd"`
+	Cols       int      `json:"cols"`
+	Rows       int      `json:"rows"`
+	Foreground string   `json:"foreground,omitempty"`
 }
 
 type Spec struct {
@@ -248,12 +246,6 @@ func (s *Terminal) SetForeground(text string) {
 	}
 	s.info.Foreground = text
 	s.broadcast(Event{Kind: "foreground", Text: text})
-}
-
-func (s *Terminal) SetLast(provider, title string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.info.LastProvider, s.info.LastTitle = provider, title
 }
 
 // Attach returns a snapshot of the screen and streams every later event to

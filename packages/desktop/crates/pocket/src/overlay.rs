@@ -116,7 +116,7 @@ impl Desktop {
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
         let actions = [
             Entry { pick: Pick::New, lead: Lead::Icon("sparkle"), title: format!("New session in {project}"), detail: String::new(), keys: Some("⌘ N") },
-            Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: Some("⌘ ↵") },
+            Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: None },
             Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Jump to next waiting session".into(), detail: String::new(), keys: Some("⌘ J") },
         ]
         .into_iter()
@@ -125,19 +125,10 @@ impl Desktop {
         [("Sessions", sessions), ("Files", files), ("Actions", actions)].into_iter().filter(|(_, e)| !e.is_empty()).collect()
     }
 
-    fn activate(&mut self, pick: Pick, split: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn activate(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = None;
         match pick {
-            Pick::Session(id) => match self.session.clone().filter(|s| split && *s != id) {
-                Some(current) => {
-                    self.workspace(&current).split(id.clone(), false);
-                    self.focus_pane(id, window, cx);
-                }
-                None => {
-                    self.side = Side::Sessions;
-                    self.select_session(id, window, cx);
-                }
-            },
+            Pick::Session(id) => self.focus_agent(&id, window, cx),
             Pick::File(path) => {
                 self.screen = Screen::Sessions;
                 self.open_file(path, cx);
@@ -162,7 +153,7 @@ impl Desktop {
             "escape" => self.close_overlay(window, cx),
             "enter" => {
                 if let Some(e) = entries.get(self.palette_ix.min(last)) {
-                    self.activate(e.pick.clone(), ev.keystroke.modifiers.platform, window, cx);
+                    self.activate(e.pick.clone(), window, cx);
                 }
             }
             _ => return,
@@ -191,7 +182,7 @@ impl Desktop {
                 let keys = e.keys.or((i == selected).then_some("↵"));
                 let pick = e.pick.clone();
                 body = body.child(ui::palette_row(("palette-row", i), i == selected, lead, e.title, e.detail, keys).on_click(cx.listener(
-                    move |this, ev: &ClickEvent, window, cx| this.activate(pick.clone(), ev.modifiers().platform, window, cx),
+                    move |this, _: &ClickEvent, window, cx| this.activate(pick.clone(), window, cx),
                 )));
             }
         }
@@ -224,7 +215,6 @@ impl Desktop {
             .text_color(rgba(TEXT_4))
             .child(hint("↑↓", "navigate"))
             .child(hint("↵", "open"))
-            .child(hint("⌘↵", "open in split"))
             .child(div().ml_auto().child(scope));
         div().absolute().top(px(120.)).left_0().right_0().flex().justify_center().child(
             ui::pop(div().w(px(660.)).rounded(px(22.)).overflow_hidden().flex().flex_col())
@@ -361,7 +351,7 @@ impl Desktop {
         let left = if self.wide { 292. } else if self.rail_open { 260. } else { 92. };
         ui::pop(div().absolute().left(px(left)).top(px(62.)).w(px(438.)).p(px(8.)).pt(px(14.)).rounded(px(20.)).flex().flex_col())
             .occlude()
-            .child(label(format!("Repositories in {name}")))
+            .child(label(format!("Projects in {name}")))
             .children(repos)
             .child(rule())
             .child(div().flex().items_center().pr(px(10.)).child(label(format!("Worktrees · {}", trees.len())).flex_1().pb_0()).children(clean))
@@ -370,7 +360,7 @@ impl Desktop {
             .child(menu_row("menu-new-worktree", "worktree", "New worktree…", Some("⌘⇧N")).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.new_worktree(&crate::NewWorktree, window, cx)
             })))
-            .child(menu_row("menu-add-repo", "plus", "Add repository to project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            .child(menu_row("menu-add-repo", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.open(Overlay::AddRepo, window, cx)
             })))
             .child(menu_row("menu-settings", "settings", "Project settings", Some("⌘,")).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -393,7 +383,7 @@ impl Desktop {
                 })))
                 .child(menu_row("more-close", "x", "Close session", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     if let Some(id) = this.session.take() {
-                        this.close_pane(&id, cx);
+                        this.close_session(&id, cx);
                     }
                     this.close_overlay(window, cx);
                 })));

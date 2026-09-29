@@ -127,7 +127,7 @@ impl Desktop {
         self.overlay = Some(o);
         match o {
             Overlay::Palette => self.open_palette(window, cx),
-            Overlay::NewSession => self.reset_new_form(None, window, cx),
+            Overlay::NewSession => self.reset_new_form(None, false, window, cx),
             Overlay::AddRepo => self.reset_repo_form(None, window, cx),
             Overlay::ProjectMenu | Overlay::More => {}
         }
@@ -213,7 +213,7 @@ impl Desktop {
                 row("rail-add".into())
                     .text_color(rgba(TEXT_2))
                     .child(ui::add_tile("rail-add-tile", 28.))
-                    .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Add repository"))
+                    .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Add project"))
                     .on_click(add),
             )
             .child(div().flex_1())
@@ -268,7 +268,7 @@ impl Desktop {
             .text_size(px(12.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(rgba(TEXT_3))
-            .child(div().flex_1().child("Repositories"))
+            .child(div().flex_1().child("Projects"))
             .child(
                 icon_button_sized("aside-add", "plus", 22., TEXT_3)
                     .rounded(px(6.))
@@ -296,7 +296,7 @@ impl Desktop {
             .items_center()
             .gap(px(6.))
             .child(
-                ui::button("aside-add-repo", ui::Variant::Glass, Some("plus"), "Add repository")
+                ui::button("aside-add-repo", ui::Variant::Glass, Some("plus"), "Add project")
                     .flex_1()
                     .h(px(36.))
                     .rounded(px(17.))
@@ -325,7 +325,7 @@ impl Desktop {
             .child(foot)
     }
 
-    /// A worktree's sessions, the one needing you first: it names the worktree.
+    /// A worktree's sessions, the one needing you first.
     fn tree_cards(&self, project: &str, tree: &str) -> Vec<Card> {
         let mut out: Vec<Card> = self.cards(project).into_iter().filter(|c| self.worktree_of(&c.cwd).is_some_and(|w| w.path == tree)).collect();
         out.sort_by_key(|c| c.status != Status::NeedsYou);
@@ -339,20 +339,20 @@ impl Desktop {
             (w, cards)
         }).collect();
         trees.sort_by_key(|(w, cards)| (!w.main, std::cmp::Reverse(cards.iter().map(|c| c.at).max())));
+        let current = self.cwd();
         for (i, (w, mine)) in trees.into_iter().enumerate() {
-            let label = if w.main { "main".to_string() } else { mine.first().map_or_else(|| w.branch.clone(), |c| c.title.clone()) };
-            let branch = if w.main { tilde(&w.path) } else { w.branch.clone() };
+            let label = if w.main { "main".to_string() } else { w.branch.clone() };
             let state = if !w.main && self.merged.contains(&w.branch) {
                 Some(State::Merged)
             } else {
                 status::roll_up(mine.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0))
             };
-            let selected = self.worktree.as_ref() == Some(&w.path);
+            let selected = current.as_ref() == Some(&w.path);
             let path = w.path.clone();
             out.push(
-                ui::worktree_row(("aside-tree", i), label, branch, w.main, selected, state)
+                ui::worktree_row(("aside-tree", i), label, tilde(&w.path), w.main, selected, state)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.worktree = if this.worktree.as_ref() == Some(&path) { None } else { Some(path.clone()) };
+                        this.worktree = Some(path.clone());
                         this.session = None;
                         cx.notify();
                     }))
@@ -473,7 +473,7 @@ impl Desktop {
                 .child(icon("terminal", 17., provider_color(&c.provider)))
                 .children(ui::alert_color(state(c.status, 0, 0)).map(|color| badge(div().top(px(3.)), color)))
                 .when(c.status == Status::Working, |d| d.child(badge(div().bottom(px(3.)), RUNNING)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_session(id.clone(), window, cx)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))
         });
         let repos = self.projects().into_iter().filter(|p| *p != project).filter_map(|p| self.project_state(&p).map(|st| (p, st))).enumerate().map(|(i, (p, st))| {
             div()
@@ -610,11 +610,12 @@ impl Desktop {
                 .child(search)
                 .child(compose);
         }
-        let tree = self.worktree.as_deref().and_then(|t| self.worktrees.values().flatten().find(|w| w.path == t)).cloned();
+        let tree = self.cwd().and_then(|t| self.worktrees.values().flatten().find(|w| w.path == t)).cloned();
         let repo = tree.as_ref().and_then(|t| self.repos.get(&t.path)).or_else(|| self.repos.get(&project));
         let title = match &tree {
-            Some(t) if !t.main => self.tree_cards(&project, &t.path).into_iter().next().map_or_else(|| t.branch.clone(), |c| c.title),
-            _ => name.clone(),
+            Some(t) if t.main => "main".to_string(),
+            Some(t) => t.branch.clone(),
+            None => name.clone(),
         };
         let letter: String = initials(&name).chars().take(1).collect();
         let crumb = div()
@@ -665,14 +666,13 @@ impl Desktop {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx)));
         let list = div().id("cards").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().when(!self.wide, |d| d.child(start));
         let Some(project) = self.project.clone() else {
-            return list.child(empty("Add a repository with + to start."));
+            return list.child(empty("Add a project with + to start."));
         };
-        let now = now_ms();
-        let tree = self.worktree.clone();
+        let tree = self.cwd();
         let mut cards: Vec<Card> = self
             .cards(&project)
             .into_iter()
-            .filter(|c| tree.as_ref().is_none_or(|t| self.worktree_of(&c.cwd).is_some_and(|w| &w.path == t)))
+            .filter(|c| self.tree_of(&c.cwd) == tree)
             .collect();
         cards.sort_by_key(|c| c.status);
         let mut body = div().pt(px(2.)).px(px(8.)).pb(px(8.)).flex().flex_col().gap(px(2.));
@@ -689,31 +689,24 @@ impl Desktop {
             }
             body = body.child(ui::section_header(label, Some(mine.len())));
             for c in mine {
-                body = body.child(self.card(i, c, now, cx));
+                body = body.child(self.card(i, c, cx));
                 i += 1;
             }
         }
         list.child(body)
     }
 
-    fn card(&self, i: usize, c: Card, now: i64, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn card(&self, i: usize, c: Card, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = self.session.as_ref() == Some(&c.id);
-        let repo = self.repos.get(&c.cwd);
-        let branch = repo.map(|r| r.branch.clone()).unwrap_or_default();
-        let (added, removed) = repo.map(|r| r.totals()).unwrap_or_default();
-        let tags = self.store.children_of(&c.id).map(|child| self.pane_label(child)).collect();
+        let (added, removed) = self.repos.get(&c.cwd).map(|r| r.totals()).unwrap_or_default();
         let id = c.id.clone();
         let pill = match c.kind {
-            Kind::Shell(_) => None,
-            Kind::NotAttached => Some(State::NotAttached),
-            _ => Some(state(c.status, added, removed)),
+            Kind::NotAttached => State::NotAttached,
+            _ => state(c.status, added, removed),
         };
-        let lead = match &c.kind {
-            Kind::Shell(activity) => div().min_w_0().truncate().child(activity.clone()),
-            kind => ui::provider_label(&c.provider, *kind == Kind::Ended),
-        };
-        ui::session_row(("card", i), selected, c.title, pill, lead, branch, ago(c.at, now), tags)
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_session(id.clone(), window, cx)))
+        let lead = ui::provider_label(&c.provider, c.kind == Kind::Ended);
+        ui::session_row(("card", i), selected, c.title, Some(pill), lead)
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))
     }
 
     fn main_view(&mut self, cx: &mut Context<Self>) -> Div {
@@ -721,8 +714,8 @@ impl Desktop {
             (Screen::Inbox, _) => self.inbox_detail(cx),
             (_, Side::Changes) if self.diff_file.is_some() => self.diff_view(cx),
             (_, Side::Explorer) if self.file.is_some() => self.file_view(cx),
-            _ => match self.session.clone() {
-                Some(id) => self.session_page(&id, cx),
+            _ => match self.cwd().filter(|t| !self.workspace(t).tabs.is_empty()) {
+                Some(tree) => self.session_page(&tree, cx),
                 None => self.blank_page(cx),
             },
         };
@@ -730,7 +723,7 @@ impl Desktop {
     }
 
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {
-        let text = if self.project.is_none() { "Add a repository to begin." } else { "Pick a session, or start a new one." };
+        let text = if self.project.is_none() { "Add a project to begin." } else { "Pick a session, or start a new one." };
         div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(
             div()
                 .flex_1()
@@ -753,7 +746,7 @@ impl Desktop {
     }
 
     pub fn pane_label(&self, id: &str) -> String {
-        match (self.summary(id).filter(|a| a.status != "closed"), self.sessions.get(id)) {
+        match (self.summary(id), self.sessions.get(id)) {
             (Some(a), _) => a.provider.clone(),
             (None, Some(s)) => s.busy().map_or_else(|| command_line(&s.info), str::to_string),
             (None, None) => "session".into(),
@@ -785,7 +778,7 @@ impl Desktop {
             .child(div().ml_auto().flex().flex_none().items_center().gap(px(8.)).child(right))
     }
 
-    fn session_page(&mut self, id: &str, cx: &mut Context<Self>) -> Div {
+    fn session_page(&mut self, tree: &str, cx: &mut Context<Self>) -> Div {
         let (added, removed) = self.repo().map(|r| r.totals()).unwrap_or_default();
         let diff = (added + removed > 0).then(|| {
             div()
@@ -818,10 +811,10 @@ impl Desktop {
             .pl(px(pad))
             .pr(px(10.))
             .children(toggle)
-            .child(self.term_tabs(id, cx))
+            .child(self.term_tabs(tree, cx))
             .child(status)
             .child(right);
-        let body = match self.workspace(id).active() {
+        let body = match self.workspace(tree).active() {
             Some(Tab::Term(rows)) => {
                 let rows = rows.clone();
                 self.panes(rows, cx)
@@ -860,8 +853,8 @@ impl Desktop {
         row.child(icon("prompt", 13., TEXT_3)).child(label(count(text))).child(mark)
     }
 
-    fn term_tabs(&mut self, parent: &str, cx: &mut Context<Self>) -> Div {
-        let w = self.workspace(parent);
+    fn term_tabs(&mut self, tree: &str, cx: &mut Context<Self>) -> Div {
+        let w = self.workspace(tree);
         let active = w.active;
         let tabs: Vec<Option<Vec<String>>> =
             w.tabs.iter().map(|t| if let Tab::Term(r) = t { Some(r.iter().flatten().cloned().collect()) } else { None }).collect();
@@ -870,30 +863,27 @@ impl Desktop {
             .enumerate()
             .map(|(i, panes)| {
                 let selected = i == active;
-                let closable = panes.as_ref().is_none_or(|p| !p.iter().any(|id| id == parent));
-                let close = closable.then(|| {
-                    div()
-                        .id(("close-tab", i))
-                        .size(px(20.))
-                        .mr(px(4.))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(5.))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(rgba(FILL_3)))
-                        .child(icon("x", 11., TEXT_4))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.close_tab(i, cx);
-                        }))
-                });
+                let close = div()
+                    .id(("close-tab", i))
+                    .size(px(20.))
+                    .mr(px(4.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(5.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgba(FILL_3)))
+                    .child(icon("x", 11., TEXT_4))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.close_tab(i, cx);
+                    }));
                 let tab = div()
                     .id(("tab", i))
                     .h(px(28.))
                     .pl(px(10.))
-                    .pr(px(if closable { 6. } else { 10. }))
+                    .pr(px(6.))
                     .flex()
                     .items_center()
                     .cursor_pointer()
@@ -910,7 +900,7 @@ impl Desktop {
                     .when(selected, |d| d.bg(rgba(WHITE)).shadow(ui::row_shadow()).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)))
                     .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_2)).hover(|s| s.bg(rgba(FILL_2))))
                     .child(tab)
-                    .children(close)
+                    .child(close)
             })
             .collect();
         let plus = div()

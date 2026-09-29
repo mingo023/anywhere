@@ -10,7 +10,7 @@ type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 const STEPS: [(&str, Step); 14] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
-            d.select_session(card.id, window, cx);
+            d.focus_agent(&card.id, window, cx);
         }
     }),
     ("worktree", |d, _, _| d.worktree = d.cwd().and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
@@ -30,7 +30,7 @@ const STEPS: [(&str, Step); 14] = [
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
-    ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), window, cx)),
+    ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("project-menu", |d, window, cx| d.open(Overlay::ProjectMenu, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
 ];

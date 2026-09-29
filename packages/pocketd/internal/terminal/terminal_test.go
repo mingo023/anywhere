@@ -136,14 +136,6 @@ func TestSetForegroundBroadcastsOnlyChanges(t *testing.T) {
 	}
 }
 
-func TestSetLastLandsInInfo(t *testing.T) {
-	s := spawn(t, NewManager(), "sleep 5")
-	s.SetLast("claude", "Fix the login bug")
-	if i := s.Info(); i.LastProvider != "claude" || i.LastTitle != "Fix the login bug" {
-		t.Fatalf("info = %+v", i)
-	}
-}
-
 func TestPgrpIsTheChildUntilExit(t *testing.T) {
 	m := NewManager()
 	s := spawn(t, m, "sleep 5")

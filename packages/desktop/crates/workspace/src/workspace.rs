@@ -1,24 +1,31 @@
-/// The tabs of one session: terminal tabs hold rows of panes, each a pocketd session id.
+/// The tabs of one worktree: terminal tabs hold rows of panes, each a pocketd terminal id.
 #[derive(Debug, PartialEq)]
 pub enum Tab {
     Term(Vec<Vec<String>>),
     Changes,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Workspace {
     pub tabs: Vec<Tab>,
     pub active: usize,
 }
 
 impl Workspace {
-    pub fn new<'a>(id: &'a str, children: impl Iterator<Item = &'a str>) -> Self {
-        let tabs = std::iter::once(id).chain(children).map(|c| Tab::Term(vec![vec![c.to_string()]])).collect();
-        Self { tabs, active: 0 }
-    }
-
     pub fn active(&self) -> Option<&Tab> {
         self.tabs.get(self.active)
+    }
+
+    /// Gives each of `mine` not yet shown its own tab and drops panes of `theirs`; unknown panes stay, since a just-spawned terminal is not listed yet.
+    pub fn sync(&mut self, mine: &[String], theirs: &[String]) {
+        for id in theirs {
+            self.remove(id);
+        }
+        for id in mine {
+            if self.tab_of(id).is_none() {
+                self.tabs.push(Tab::Term(vec![vec![id.clone()]]));
+            }
+        }
     }
 
     pub fn add_tab(&mut self, id: String) {
@@ -84,15 +91,34 @@ mod tests {
         Tab::Term(rows.iter().map(|r| r.iter().map(|s| s.to_string()).collect()).collect())
     }
 
+    fn with(ids: &[&str]) -> Workspace {
+        let mut w = Workspace::default();
+        w.sync(&ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(), &[]);
+        w
+    }
+
     #[test]
-    fn restores_children_as_tabs() {
-        let w = Workspace::new("a", ["b", "c"].into_iter());
-        assert_eq!(w.tabs, vec![term(&[&["a"]]), term(&[&["b"]]), term(&[&["c"]])]);
+    fn sync_gives_each_new_terminal_a_tab_and_drops_moved_ones() {
+        let mut w = with(&["a", "b"]);
+        w.split("c".into(), true);
+        w.active = 1;
+        w.sync(&["a", "b", "c", "d"].map(String::from), &[]);
+        assert_eq!(w.tabs, vec![term(&[&["a"], &["c"]]), term(&[&["b"]]), term(&[&["d"]])]);
+        w.sync(&[], &["a".to_string()]);
+        assert_eq!((w.tabs, w.active), (vec![term(&[&["c"]]), term(&[&["b"]]), term(&[&["d"]])], 1));
+    }
+
+    #[test]
+    fn sync_keeps_a_pane_not_listed_yet() {
+        let mut w = Workspace::default();
+        w.add_tab("x".into());
+        w.sync(&["a".to_string()], &[]);
+        assert_eq!(w.tabs, vec![term(&[&["x"]]), term(&[&["a"]])]);
     }
 
     #[test]
     fn splits_right_into_the_last_row_and_down_into_a_new_one() {
-        let mut w = Workspace::new("a", std::iter::empty());
+        let mut w = with(&["a"]);
         w.split("b".into(), true);
         w.split("c".into(), false);
         assert_eq!(w.tabs, vec![term(&[&["a"], &["b", "c"]])]);
@@ -104,7 +130,7 @@ mod tests {
 
     #[test]
     fn removing_the_last_pane_drops_its_tab_and_keeps_the_selection() {
-        let mut w = Workspace::new("a", ["b", "c"].into_iter());
+        let mut w = with(&["a", "b", "c"]);
         w.active = 2;
         w.remove("b");
         assert_eq!(w.tabs, vec![term(&[&["a"]]), term(&[&["c"]])]);
@@ -113,7 +139,7 @@ mod tests {
 
     #[test]
     fn closing_a_tab_returns_its_sessions() {
-        let mut w = Workspace::new("a", ["b"].into_iter());
+        let mut w = with(&["a", "b"]);
         w.split("c".into(), true);
         w.open_changes();
         assert_eq!(w.close_tab(1), vec!["b".to_string()]);
@@ -124,7 +150,7 @@ mod tests {
 
     #[test]
     fn finds_the_tab_holding_a_pane() {
-        let mut w = Workspace::new("a", ["b"].into_iter());
+        let mut w = with(&["a", "b"]);
         w.split("c".into(), true);
         w.open_changes();
         assert_eq!((w.tab_of("c"), w.tab_of("b"), w.tab_of("x")), (Some(0), Some(1), None));
