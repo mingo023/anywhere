@@ -62,9 +62,12 @@ pub fn ago_long(ms: i64, now: i64) -> String {
 }
 
 /// "/bin/zsh -l" reads as "zsh": the login flag the desktop adds says nothing about the pane.
+/// A login shell shows as its name only: the script it may run to start an agent is ours, not the user's.
 pub fn command_line(info: &Info) -> String {
-    let args = info.args.iter().filter(|a| *a != "-l").cloned();
-    std::iter::once(basename(&info.cmd)).chain(args).collect::<Vec<_>>().join(" ")
+    if info.args.first().is_some_and(|a| a == "-l") {
+        return basename(&info.cmd);
+    }
+    std::iter::once(basename(&info.cmd)).chain(info.args.iter().cloned()).collect::<Vec<_>>().join(" ")
 }
 
 pub fn id(s: String) -> ElementId {
@@ -750,9 +753,9 @@ impl Desktop {
     }
 
     pub fn pane_label(&self, id: &str) -> String {
-        match (self.summary(id), self.sessions.get(id)) {
+        match (self.summary(id).filter(|a| a.status != "closed"), self.sessions.get(id)) {
             (Some(a), _) => a.provider.clone(),
-            (None, Some(s)) => command_line(&s.info),
+            (None, Some(s)) => s.busy().map_or_else(|| command_line(&s.info), str::to_string),
             (None, None) => "session".into(),
         }
     }
@@ -1194,9 +1197,11 @@ mod tests {
     }
 
     #[test]
-    fn command_line_hides_the_login_flag() {
+    fn login_shells_show_as_their_name() {
         let info = Info { cmd: "/bin/zsh".into(), args: vec!["-l".into()], ..Default::default() };
         assert_eq!(command_line(&info), "zsh");
+        let info = Info { cmd: "/opt/homebrew/bin/fish".into(), args: ["-l", "-c", "$argv; exec fish -l", "claude"].map(String::from).to_vec(), ..Default::default() };
+        assert_eq!(command_line(&info), "fish");
         let info = Info { cmd: "pnpm".into(), args: vec!["dev".into(), "--port".into(), "8081".into()], ..Default::default() };
         assert_eq!(command_line(&info), "pnpm dev --port 8081");
     }

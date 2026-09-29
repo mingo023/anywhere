@@ -350,9 +350,29 @@ impl Desktop {
                 }
                 self.error = Some(m.error);
             }
+            "exit" => {
+                self.sessions.apply(&m);
+                self.close_clean_exits(&m.id, cx);
+            }
             _ => self.sessions.apply(&m),
         }
         cx.notify();
+    }
+
+    /// Closes panes whose shell exited cleanly, as Terminal.app does; a failed one stays so its error can be read.
+    /// A session's top-level terminal stays while any of its tabs or splits does.
+    fn close_clean_exits(&mut self, id: &str, cx: &mut Context<Self>) {
+        let clean = |this: &Self, id: &str| this.sessions.get(id).is_some_and(|s| s.exit == Some(0));
+        let top = self.store.children.iter().find(|(c, _)| c == id).map_or(id.to_string(), |(_, p)| p.clone());
+        if top != id && clean(self, id) {
+            self.close_pane(id, cx);
+        }
+        if clean(self, &top) && self.store.children_of(&top).next().is_none() {
+            if self.session.as_deref() == Some(top.as_str()) {
+                self.session = None;
+            }
+            self.close_pane(&top, cx);
+        }
     }
 
     fn adopt(&mut self, id: String, parent: String, split: Option<bool>, window: &mut Window, cx: &mut Context<Self>) {
@@ -484,11 +504,6 @@ impl Desktop {
         cx.notify();
     }
 
-    fn spawn(&mut self, cmdline: &str, cwd: &str, intent: Intent, cx: &mut Context<Self>) {
-        let Some(op) = daemon::spawn_op(cmdline, cwd) else { return };
-        self.send_spawn(op, intent, cx);
-    }
-
     fn send_spawn(&mut self, op: serde_json::Value, intent: Intent, cx: &mut Context<Self>) {
         self.daemon.send(op);
         self.intents.push_back(intent);
@@ -499,23 +514,23 @@ impl Desktop {
 
     /// Opens a login shell in the session's folder, as a new tab or a split of the active one.
     pub fn new_shell(&mut self, split: Option<bool>, cx: &mut Context<Self>) {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-        self.run_in_session(&format!("{shell} -l"), split, cx);
+        self.run_in_session(split, daemon::shell_op, cx);
     }
 
     pub fn new_agent_tab(&mut self, provider: &str, cx: &mut Context<Self>) {
         self.tab_menu = false;
-        self.run_in_session(provider, None, cx);
+        let argv = [provider.to_string()];
+        self.run_in_session(None, |cwd| daemon::agent_op(&argv, cwd), cx);
     }
 
-    fn run_in_session(&mut self, cmdline: &str, split: Option<bool>, cx: &mut Context<Self>) {
+    fn run_in_session(&mut self, split: Option<bool>, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
         let Some(parent) = self.session.clone() else { return };
         let Some(cwd) = self.cwd_of(&parent) else { return };
         let intent = match split {
             Some(down) => Intent::Split(parent, down),
             None => Intent::Tab(parent),
         };
-        self.spawn(cmdline, &cwd, intent, cx);
+        self.send_spawn(op(&cwd), intent, cx);
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {

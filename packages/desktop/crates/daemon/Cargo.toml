@@ -10,5 +10,6 @@ path = "src/daemon.rs"
 [dependencies]
 base64.workspace = true
 futures.workspace = true
+libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true

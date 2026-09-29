@@ -366,12 +366,12 @@ impl Desktop {
             (_, Perm::Plan) => vec!["-s".into(), "read-only".into()],
         };
         args.extend((!prompt.is_empty()).then_some(prompt));
-        let provider = f.provider;
+        let argv: Vec<String> = std::iter::once(f.provider.to_string()).chain(args).collect();
         match f.mode {
-            Mode::Current => self.send_spawn(daemon::spawn_argv(provider, args, &repo), Intent::Session, cx),
+            Mode::Current => self.send_spawn(daemon::agent_op(&argv, &repo), Intent::Session, cx),
             Mode::Existing => {
                 let Some(path) = self.existing_worktree().map(|w| w.path.clone()) else { return };
-                self.send_spawn(daemon::spawn_argv(provider, args, &path), Intent::Session, cx);
+                self.send_spawn(daemon::agent_op(&argv, &path), Intent::Session, cx);
             }
             Mode::NewWorktree => {
                 let branch = self.new_branch(cx);
@@ -389,7 +389,7 @@ impl Desktop {
                         std::fs::copy(Path::new(&repo).join(&rel), to).ok();
                     }
                     if !setup.is_empty() {
-                        let out = std::process::Command::new("sh").args(["-c", &setup]).current_dir(&path).output().map_err(|e| e.to_string())?;
+                        let out = std::process::Command::new(daemon::login_shell()).args(["-l", "-c", &setup]).env_clear().envs(daemon::terminal_env()).current_dir(&path).output().map_err(|e| e.to_string())?;
                         if !out.status.success() {
                             return Err(format!("Setup failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
                         }
@@ -400,7 +400,7 @@ impl Desktop {
                     let res = task.await;
                     this.update(cx, |d, cx| {
                         match res {
-                            Ok(path) => d.send_spawn(daemon::spawn_argv(provider, args, &path), Intent::Session, cx),
+                            Ok(path) => d.send_spawn(daemon::agent_op(&argv, &path), Intent::Session, cx),
                             Err(e) => d.error = Some(e),
                         }
                         d.refresh_git(cx);

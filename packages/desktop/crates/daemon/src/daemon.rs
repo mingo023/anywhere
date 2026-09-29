@@ -2,10 +2,11 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::ffi::CStr;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -64,17 +65,60 @@ fn resolve_cwd(cwd: &str, home: &str) -> String {
     }
 }
 
-/// Builds a spawn op for a command line typed in the new-session form. The
-/// desktop's own env goes along so pocketd resolves the command on this PATH.
-pub fn spawn_op(cmdline: &str, cwd: &str) -> Option<Value> {
-    let mut words = cmdline.split_whitespace();
-    let cmd = words.next()?;
-    Some(spawn_argv(cmd, words.map(str::to_string).collect(), cwd))
+/// The shell on the user's account, set with `chsh`. `$SHELL` is whatever the app was launched from.
+pub fn login_shell() -> &'static str {
+    static SHELL: OnceLock<String> = OnceLock::new();
+    SHELL.get_or_init(|| {
+        let pw = unsafe { libc::getpwuid(libc::getuid()) };
+        let shell = (!pw.is_null()).then(|| unsafe { (*pw).pw_shell }).filter(|s| !s.is_null());
+        shell.map(|s| unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into())
+    })
 }
 
-/// Like `spawn_op`, but each argument goes through untouched, so a prompt with spaces stays one argument.
-pub fn spawn_argv(cmd: &str, args: Vec<String>, cwd: &str) -> Value {
-    let env: Vec<String> = std::env::vars().map(|(k, v)| format!("{k}={v}")).collect();
+/// A new terminal's env, as Terminal.app gives it: the account's basics, nothing from the terminal that launched the app.
+/// The login shell builds the rest.
+pub fn terminal_env() -> Vec<(String, String)> {
+    terminal_env_in(|k| std::env::var(k).ok().filter(|v| !v.is_empty()), login_shell())
+}
+
+fn terminal_env_in(env: impl Fn(&str) -> Option<String>, shell: &str) -> Vec<(String, String)> {
+    let kept = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK", "__CF_USER_TEXT_ENCODING"].into_iter().filter_map(|k| Some((k.to_string(), env(k)?)));
+    let set = [
+        ("LANG", env("LANG").unwrap_or_else(|| "en_US.UTF-8".into())),
+        ("PATH", "/usr/bin:/bin:/usr/sbin:/sbin".into()),
+        ("SHELL", shell.into()),
+        ("TERM", "xterm-256color".into()),
+        ("COLORTERM", "truecolor".into()),
+        ("TERM_PROGRAM", "Pocket".into()),
+    ];
+    kept.chain(set.map(|(k, v)| (k.to_string(), v))).collect()
+}
+
+pub fn shell_op(cwd: &str) -> Value {
+    spawn_op(login_shell(), vec!["-l".into()], cwd)
+}
+
+/// Runs an agent inside the login shell, which takes over once the agent exits, so the user lands at their prompt.
+pub fn agent_op(argv: &[String], cwd: &str) -> Value {
+    spawn_op(login_shell(), agent_args(login_shell(), argv), cwd)
+}
+
+/// The agent's argv goes to the shell as arguments rather than inside the script, so no shell's quoting rules can garble a prompt.
+fn agent_args(shell: &str, argv: &[String]) -> Vec<String> {
+    let back = format!("exec '{shell}' -l");
+    let mut args = vec!["-l".to_string(), "-c".to_string()];
+    if Path::new(shell).file_name().is_some_and(|n| n == "fish") {
+        args.push(format!("$argv; {back}"));
+    } else {
+        // `sh -c` binds the first argument after the script to $0.
+        args.extend([format!("\"$@\"; {back}"), shell.to_string()]);
+    }
+    args.extend(argv.iter().cloned());
+    args
+}
+
+fn spawn_op(cmd: &str, args: Vec<String>, cwd: &str) -> Value {
+    let env: Vec<String> = terminal_env().into_iter().map(|(k, v)| format!("{k}={v}")).collect();
     let cwd = resolve_cwd(cwd, &std::env::var("HOME").unwrap_or_default());
     json!({"op": "spawn", "cmd": cmd, "args": args, "cwd": cwd, "env": env, "cols": 120, "rows": 36})
 }
@@ -158,13 +202,47 @@ mod tests {
     }
 
     #[test]
-    fn spawn_op_splits_the_command_line() {
-        let op = spawn_op("  codex -s read-only ", "/w").unwrap();
-        assert_eq!(op["cmd"], "codex");
-        assert_eq!(op["args"], json!(["-s", "read-only"]));
+    fn shells_run_in_the_login_shell() {
+        let op = shell_op("/w");
+        assert_eq!(op["cmd"], login_shell());
+        assert_eq!(op["args"], json!(["-l"]));
         assert_eq!(op["cwd"], "/w");
-        assert!(op["env"].as_array().unwrap().iter().any(|e| e.as_str().unwrap().starts_with("PATH=")));
-        assert_eq!(spawn_op("   ", "/w"), None);
+    }
+
+    #[test]
+    fn agents_hand_their_argv_to_the_shell_untouched() {
+        let argv: Vec<String> = ["claude", "it's a \\ \"prompt\"\n"].map(String::from).to_vec();
+        assert_eq!(agent_args("/opt/homebrew/bin/fish", &argv), ["-l", "-c", "$argv; exec '/opt/homebrew/bin/fish' -l", "claude", "it's a \\ \"prompt\"\n"]);
+        assert_eq!(agent_args("/bin/zsh", &argv), ["-l", "-c", "\"$@\"; exec '/bin/zsh' -l", "/bin/zsh", "claude", "it's a \\ \"prompt\"\n"]);
+    }
+
+    #[test]
+    fn agents_come_back_to_the_prompt_in_real_shells() {
+        for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
+            let argv = ["printf", "[%s]", "it's a \\ \"prompt\""].map(String::from);
+            let mut args = agent_args(shell, &argv);
+            args[2] = args[2].replace("exec", "echo");
+            let home = std::env::temp_dir().join("pocket-desktop-no-home");
+            let out = std::process::Command::new(shell).args(&args).env_clear().env("HOME", &home).env("PATH", "/usr/bin:/bin").output().unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout), format!("[it's a \\ \"prompt\"]{shell} -l\n"), "{shell}");
+        }
+    }
+
+    #[test]
+    fn terminals_start_from_the_account_not_the_launching_terminal() {
+        let launched = |k: &str| match k {
+            "HOME" => Some("/h".to_string()),
+            "USER" => Some("u".to_string()),
+            "TERM" => Some("tmux-256color".to_string()),
+            "TMUX" => Some("/tmp/tmux".to_string()),
+            "PATH" => Some("/somewhere".to_string()),
+            _ => None,
+        };
+        let env = terminal_env_in(launched, "/opt/homebrew/bin/fish");
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        assert_eq!((get("HOME"), get("USER"), get("TMUX")), (Some("/h"), Some("u"), None));
+        assert_eq!((get("SHELL"), get("TERM"), get("COLORTERM")), (Some("/opt/homebrew/bin/fish"), Some("xterm-256color"), Some("truecolor")));
+        assert_eq!((get("PATH"), get("LANG")), (Some("/usr/bin:/bin:/usr/sbin:/sbin"), Some("en_US.UTF-8")));
     }
 
     #[test]

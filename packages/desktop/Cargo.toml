@@ -41,6 +41,7 @@ gpui-kit = { version = "0.6.6", features = [
 ] }
 image = { version = "0.25", default-features = false }
 imara-diff = "0.2"
+libc = "0.2"
 merman = { version = "=0.8.0-alpha.6", default-features = false, features = ["svg", "layout-cytoscape"] }
 resvg = "0.46"
 serde = { version = "1", features = ["derive"] }

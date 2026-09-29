@@ -5,8 +5,12 @@ Watch and drive coding agents running on a Mac, from the desktop app and the pho
 ## Language
 
 **Terminal**:
-One PTY that pocketd owns, running a shell or an agent directly.
+One PTY that pocketd owns. A terminal the desktop opens runs the user's login shell, which starts any agent inside it, and ends only when that shell exits. One started with `pocketd run` runs its command directly.
 _Avoid_: pane, PTY session, pocketd session
+
+**Login shell**:
+The shell set on the user's macOS account with `chsh`, such as fish. It stays the same no matter how the app was launched.
+_Avoid_: TERM, $SHELL, default shell
 
 **Session**:
 What the session list shows as one card: a top-level terminal plus the terminals opened as its tabs and splits. It belongs to the worktree holding its top-level terminal's launch directory, for life.
