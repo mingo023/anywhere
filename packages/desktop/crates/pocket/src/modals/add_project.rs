@@ -23,12 +23,17 @@ enum Probe {
 }
 
 pub struct RepoForm {
-    source: Source,
-    path: Option<String>,
-    probe: Option<Probe>,
     url: Entity<InputState>,
     name: Entity<InputState>,
     setup: Entity<InputState>,
+    draft: RepoDraft,
+}
+
+/// The form's choices besides its text inputs.
+struct RepoDraft {
+    source: Source,
+    path: Option<String>,
+    probe: Option<Probe>,
     color: u32,
     branches: Vec<String>,
     base: usize,
@@ -37,6 +42,52 @@ pub struct RepoForm {
     editing: Option<String>,
     busy: bool,
     error: Option<String>,
+}
+
+impl Default for RepoDraft {
+    fn default() -> Self {
+        Self {
+            source: Source::Local,
+            path: None,
+            probe: None,
+            color: PALETTE[0],
+            branches: Vec::new(),
+            base: 0,
+            worktrees: String::new(),
+            copy: Vec::new(),
+            editing: None,
+            busy: false,
+            error: None,
+        }
+    }
+}
+
+impl RepoDraft {
+    fn fallback_name(&self, url: &str) -> String {
+        match self.source {
+            Source::Local => self.path.as_deref().map(basename).unwrap_or_default(),
+            Source::Clone => repo_from_url(url),
+        }
+    }
+
+    fn ready(&self, name: &str, url: &str) -> bool {
+        let named = !name.is_empty();
+        match self.source {
+            _ if self.busy => false,
+            Source::Local => named && matches!(self.probe, Some(Probe::Git { .. })),
+            Source::Clone => named && self.path.is_some() && !url.trim().is_empty(),
+        }
+    }
+
+    fn add_copies(&mut self, repo: &str, paths: Vec<PathBuf>) {
+        for p in paths {
+            let Ok(rel) = p.strip_prefix(repo) else { continue };
+            let rel = rel.to_string_lossy().into_owned();
+            if !self.copy.contains(&rel) {
+                self.copy.push(rel);
+            }
+        }
+    }
 }
 
 fn repo_from_url(url: &str) -> String {
@@ -63,23 +114,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        let form = Self {
-            source: Source::Local,
-            path: None,
-            probe: None,
-            url,
-            name,
-            setup,
-            color: PALETTE[0],
-            branches: Vec::new(),
-            base: 0,
-            worktrees: String::new(),
-            copy: Vec::new(),
-            editing: None,
-            busy: false,
-            error: None,
-        };
-        (form, subs)
+        (Self { url, name, setup, draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -99,14 +134,7 @@ impl Desktop {
 
     fn repo_form_name(&self, cx: &App) -> String {
         let f = &self.repo_form;
-        typed_or(
-            &f.name,
-            || match f.source {
-                Source::Local => f.path.as_deref().map(basename).unwrap_or_default(),
-                Source::Clone => repo_from_url(&f.url.read(cx).value()),
-            },
-            cx,
-        )
+        typed_or(&f.name, || f.draft.fallback_name(&f.url.read(cx).value()), cx)
     }
 
     pub fn project_settings(&mut self, _: &crate::actions::ProjectSettings, window: &mut Window, cx: &mut Context<Self>) {
@@ -123,17 +151,7 @@ impl Desktop {
             None => PALETTE[self.projects().len() % PALETTE.len()],
         };
         let f = &mut self.repo_form;
-        f.source = Source::Local;
-        f.path = None;
-        f.probe = None;
-        f.color = color;
-        f.branches.clear();
-        f.base = 0;
-        f.worktrees = cfg.worktrees;
-        f.copy = cfg.copy;
-        f.editing = editing.clone();
-        f.busy = false;
-        f.error = None;
+        f.draft = RepoDraft { color, worktrees: cfg.worktrees, copy: cfg.copy, editing: editing.clone(), ..RepoDraft::default() };
         f.url.update(cx, |s, cx| s.set_value("", window, cx));
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
@@ -148,18 +166,18 @@ impl Desktop {
     fn set_repo_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let base = self.store.repos.get(&path).map(|r| r.base.clone()).unwrap_or_default();
         let f = &mut self.repo_form;
-        f.path = Some(path.clone());
-        if f.source == Source::Clone {
+        f.draft.path = Some(path.clone());
+        if f.draft.source == Source::Clone {
             return;
         }
-        f.probe = Some(Probe::Loading);
+        f.draft.probe = Some(Probe::Loading);
         f.name.update(cx, |s, cx| s.set_placeholder(basename(&path), window, cx));
         let dir = path.clone();
         let task = cx.background_executor().spawn(async move { (git::read(&dir), git::branches(&dir), git::remotes(&dir)) });
         cx.spawn(async move |this, cx| {
             let (repo, branches, remotes) = task.await;
             this.update(cx, |d, cx| {
-                let f = &mut d.repo_form;
+                let f = &mut d.repo_form.draft;
                 if f.path.as_ref() != Some(&path) {
                     return;
                 }
@@ -179,12 +197,7 @@ impl Desktop {
 
     fn repo_ready(&self, cx: &App) -> bool {
         let f = &self.repo_form;
-        let named = !self.repo_form_name(cx).is_empty();
-        match f.source {
-            _ if f.busy => false,
-            Source::Local => named && matches!(f.probe, Some(Probe::Git { .. })),
-            Source::Clone => named && f.path.is_some() && !f.url.read(cx).value().trim().is_empty(),
-        }
+        f.draft.ready(&self.repo_form_name(cx), &f.url.read(cx).value())
     }
 
     fn save_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -192,23 +205,23 @@ impl Desktop {
             return;
         }
         let f = &self.repo_form;
-        let Some(path) = f.path.clone() else { return };
+        let Some(path) = f.draft.path.clone() else { return };
         let name = self.repo_form_name(cx);
         let cfg = RepoConfig {
             name: name.clone(),
-            color: f.color,
-            base: f.branches.get(f.base).cloned().unwrap_or_default(),
-            worktrees: f.worktrees.clone(),
+            color: f.draft.color,
+            base: f.draft.branches.get(f.draft.base).cloned().unwrap_or_default(),
+            worktrees: f.draft.worktrees.clone(),
             setup: f.setup.read(cx).value().trim().to_string(),
-            copy: f.copy.clone(),
+            copy: f.draft.copy.clone(),
         };
-        if f.source == Source::Local {
+        if f.draft.source == Source::Local {
             return self.add_repo(path, cfg, window, cx);
         }
         let url = f.url.read(cx).value().trim().to_string();
         let dest = format!("{path}/{name}");
-        self.repo_form.busy = true;
-        self.repo_form.error = None;
+        self.repo_form.draft.busy = true;
+        self.repo_form.draft.error = None;
         let task = cx.background_executor().spawn({
             let dest = dest.clone();
             async move { git::clone(&url, &dest) }
@@ -216,10 +229,10 @@ impl Desktop {
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
             this.update_in(cx, |d, window, cx| {
-                d.repo_form.busy = false;
+                d.repo_form.draft.busy = false;
                 match res {
                     Ok(()) => d.add_repo(dest, cfg, window, cx),
-                    Err(e) => d.repo_form.error = Some(e),
+                    Err(e) => d.repo_form.draft.error = Some(e),
                 }
                 cx.notify();
             })
@@ -238,7 +251,7 @@ impl Desktop {
     }
 
     fn folder_card(&self, cx: &mut Context<Self>) -> Div {
-        let f = &self.repo_form;
+        let f = &self.repo_form.draft;
         let clone = f.source == Source::Clone;
         let title = match (&f.path, clone) {
             (Some(p), true) => format!("Clone into {}", tilde(p)),
@@ -296,11 +309,11 @@ impl Desktop {
         let f = &self.repo_form;
         let source = div().id("repo-source").child(ui::segmented(
             vec![Segment { icon: Some("folder"), value: Source::Local, label: "Local folder".into(), badge: None }, Segment { icon: Some("external"), value: Source::Clone, label: "Clone from URL".into(), badge: None }],
-            f.source,
+            f.draft.source,
             false,
             true,
             |this: &mut Self, v, cx| {
-                let f = &mut this.repo_form;
+                let f = &mut this.repo_form.draft;
                 f.source = v;
                 f.path = (v == Source::Clone).then(|| format!("{}/code", home())).filter(|p| Path::new(p).is_dir());
                 f.probe = None;
@@ -309,7 +322,7 @@ impl Desktop {
             },
             cx,
         ));
-        let url = (f.source == Source::Clone).then(|| {
+        let url = (f.draft.source == Source::Clone).then(|| {
             ui::field_box().child(icon("external", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.url).appearance(false).p_0().text_size(px(13.))))
         });
         let colors = div().h(px(38.)).flex().items_center().gap(px(4.)).children(PALETTE.iter().enumerate().map(|(i, &c)| {
@@ -321,10 +334,10 @@ impl Desktop {
                 .justify_center()
                 .rounded(px(9.))
                 .cursor_pointer()
-                .when(c == f.color, |d| d.shadow(vec![ui::ring(c, 1.5)]))
+                .when(c == f.draft.color, |d| d.shadow(vec![ui::ring(c, 1.5)]))
                 .child(ui::swatch(c, 22., 7.))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.repo_form.color = c;
+                    this.repo_form.draft.color = c;
                     cx.notify();
                 }))
         }));
@@ -333,8 +346,8 @@ impl Desktop {
             .gap(px(14.))
             .child(field("Name", ui::field_box().child(div().flex_1().child(Input::new(&f.name).appearance(false).p_0().text_size(px(14.))))))
             .child(field("Colour", colors));
-        let count = f.branches.len();
-        let base_name = f.branches.get(f.base).cloned().unwrap_or_else(|| "Default branch".into());
+        let count = f.draft.branches.len();
+        let base_name = f.draft.branches.get(f.draft.base).cloned().unwrap_or_else(|| "Default branch".into());
         let base = ui::field_box()
             .id("repo-base")
             .when(count > 1, |d| d.cursor_pointer())
@@ -342,17 +355,17 @@ impl Desktop {
             .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(13.)).child(base_name))
             .child(icon("chevron-down", 12., TEXT_4))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.repo_form.base = (this.repo_form.base + 1) % count.max(1);
+                this.repo_form.draft.base = (this.repo_form.draft.base + 1) % count.max(1);
                 cx.notify();
             }));
-        let folder = if f.worktrees.is_empty() { format!("~/.worktrees/{name}") } else { tilde(&f.worktrees) };
+        let folder = if f.draft.worktrees.is_empty() { format!("~/.worktrees/{name}") } else { tilde(&f.draft.worktrees) };
         let worktrees = ui::field_box()
             .child(icon("folder", 13., TEXT_3))
             .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(13.)).child(folder))
             .child(ui::link("repo-worktrees", "Change").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.pick_path(true, window, cx, |d, paths, _, _| {
                     if let Some(p) = paths.into_iter().next() {
-                        d.repo_form.worktrees = p.to_string_lossy().into_owned();
+                        d.repo_form.draft.worktrees = p.to_string_lossy().into_owned();
                     }
                 })
             })));
@@ -365,14 +378,14 @@ impl Desktop {
             "When a worktree is created",
             ui::field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.setup).appearance(false).p_0().text_size(px(13.)))),
         );
-        let repo = f.path.clone().filter(|_| f.source == Source::Local);
+        let repo = f.draft.path.clone().filter(|_| f.draft.source == Source::Local);
         let copies = div()
             .flex()
             .flex_wrap()
             .items_center()
             .gap(px(6.))
             .child(div().mr(px(2.)).text_size(px(12.5)).text_color(rgba(TEXT_3)).child("Copy into each worktree"))
-            .children(f.copy.iter().enumerate().map(|(i, rel)| {
+            .children(f.draft.copy.iter().enumerate().map(|(i, rel)| {
                 ui::tag(rel.clone())
                     .id(("repo-copy", i))
                     .gap(px(4.))
@@ -381,33 +394,25 @@ impl Desktop {
                     .text_color(rgba(TEXT))
                     .child(icon("x", 9., TEXT_4))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.repo_form.copy.remove(i);
+                        this.repo_form.draft.copy.remove(i);
                         cx.notify();
                     }))
             }))
             .when_some(repo, |d, repo| {
                 d.child(ui::link("repo-add-file", "+ Add file").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     let repo = repo.clone();
-                    this.pick_path(false, window, cx, move |d, paths, _, _| {
-                        for p in paths {
-                            let Ok(rel) = p.strip_prefix(&repo) else { continue };
-                            let rel = rel.to_string_lossy().into_owned();
-                            if !d.repo_form.copy.contains(&rel) {
-                                d.repo_form.copy.push(rel);
-                            }
-                        }
-                    })
+                    this.pick_path(false, window, cx, move |d, paths, _, _| d.repo_form.draft.add_copies(&repo, paths))
                 })))
             });
-        let editing = f.editing.is_some();
-        let note = match &f.error {
+        let editing = f.draft.editing.is_some();
+        let note = match &f.draft.error {
             Some(e) => div().truncate().text_color(rgba(FAILED)).child(e.clone()),
             None if editing || name.is_empty() => div(),
             None => div().truncate().child(format!("Adds {name} to the project rail")),
         };
         let ready = self.repo_ready(cx);
         let label = match () {
-            _ if f.busy => "Cloning…",
+            _ if f.draft.busy => "Cloning…",
             _ if editing => "Save",
             _ => "Add project",
         };
@@ -436,12 +441,57 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::repo_from_url;
+    use super::{Probe, RepoDraft, Source, repo_from_url};
+    use std::path::PathBuf;
 
     #[test]
     fn repo_name_comes_from_the_url() {
         assert_eq!(repo_from_url("https://github.com/org/app-ios.git"), "app-ios");
         assert_eq!(repo_from_url("git@github.com:org/app-ios.git"), "app-ios");
         assert_eq!(repo_from_url("https://github.com/org/web/ "), "web");
+    }
+
+    fn local(probe: Option<Probe>) -> RepoDraft {
+        RepoDraft { path: Some("/src/app".into()), probe, ..RepoDraft::default() }
+    }
+
+    #[test]
+    fn a_local_folder_is_ready_once_named_and_found_to_be_a_git_repository() {
+        let git = || Some(Probe::Git { branch: "main".into(), clean: true, remotes: 1 });
+        assert!(local(git()).ready("app", ""));
+        assert!(!local(git()).ready("", ""));
+        assert!(!local(Some(Probe::Loading)).ready("app", ""));
+        assert!(!local(Some(Probe::NotGit)).ready("app", ""));
+        assert!(!local(None).ready("app", ""));
+        assert!(!RepoDraft { busy: true, ..local(git()) }.ready("app", ""));
+    }
+
+    #[test]
+    fn a_clone_is_ready_once_named_with_a_url_and_a_destination_while_not_already_cloning() {
+        let clone = RepoDraft { source: Source::Clone, path: Some("/code".into()), ..RepoDraft::default() };
+        let url = "https://github.com/org/app.git";
+        assert!(clone.ready("app", url));
+        assert!(!clone.ready("", url));
+        assert!(!clone.ready("app", "  "));
+        assert!(!RepoDraft { path: None, ..clone }.ready("app", url));
+        let clone = RepoDraft { source: Source::Clone, path: Some("/code".into()), busy: true, ..RepoDraft::default() };
+        assert!(!clone.ready("app", url));
+    }
+
+    #[test]
+    fn an_unnamed_project_takes_its_folder_name_or_the_repository_in_its_url() {
+        let url = "git@github.com:org/web.git";
+        assert_eq!(local(None).fallback_name(url), "app");
+        assert_eq!(RepoDraft::default().fallback_name(url), "");
+        let clone = RepoDraft { source: Source::Clone, path: Some("/code".into()), ..RepoDraft::default() };
+        assert_eq!(clone.fallback_name(url), "web");
+    }
+
+    #[test]
+    fn picked_files_are_copied_by_their_repository_path_once_and_outside_files_are_skipped() {
+        let mut draft = RepoDraft { copy: vec![".env".into()], ..RepoDraft::default() };
+        let picked = ["/src/app/.env", "/src/app/config/local.toml", "/elsewhere/key", "/src/app/config/local.toml"].map(PathBuf::from);
+        draft.add_copies("/src/app", picked.into());
+        assert_eq!(draft.copy, [".env", "config/local.toml"]);
     }
 }
