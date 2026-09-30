@@ -13,6 +13,7 @@ const BUDGET: usize = 64 << 20;
 const MAX_SIDE: f32 = 8192.;
 // Diagrams painted this recently are on screen, so eviction spares them.
 const IN_USE: Duration = Duration::from_millis(250);
+const FADE: Duration = Duration::from_millis(200);
 
 struct Merman {
     renderer: Renderer,
@@ -119,12 +120,13 @@ pub struct Diagrams {
     md: WeakEntity<TextViewState>,
     items: HashMap<u64, Diagram>,
     images: HashMap<u64, (Arc<RenderImage>, Instant)>,
+    rastered: HashMap<u64, Instant>,
     rastering: HashSet<u64>,
 }
 
 impl Diagrams {
     pub fn new(md: &Entity<TextViewState>) -> Self {
-        Self { md: md.downgrade(), items: HashMap::new(), images: HashMap::new(), rastering: HashSet::new() }
+        Self { md: md.downgrade(), items: HashMap::new(), images: HashMap::new(), rastered: HashMap::new(), rastering: HashSet::new() }
     }
 
     fn get(&mut self, key: u64, source: &SharedString, cx: &mut Context<Self>) -> Diagram {
@@ -161,7 +163,10 @@ impl Diagrams {
                 this.rastering.remove(&key);
                 match image {
                     Ok(image) => {
-                        this.images.insert(key, (image, Instant::now()));
+                        let now = Instant::now();
+                        this.images.insert(key, (image, now));
+                        this.rastered.retain(|_, t| t.elapsed() < FADE * 2);
+                        this.rastered.insert(key, now);
                     }
                     Err(e) => {
                         this.items.insert(key, Diagram::Failed(e.into()));
@@ -214,7 +219,10 @@ impl MarkdownPlugin for Mermaid {
         match self.0.update(cx, |d, cx| d.get(key, source, cx)) {
             Diagram::Ready(tree) => {
                 let size = tree.size();
-                let image = self.0.read(cx).images.get(&key).map(|(image, _)| image.clone());
+                let d = self.0.read(cx);
+                let image = d.images.get(&key).map(|(image, _)| image.clone());
+                // Fresh for twice the fade, so dropping the animation can't cut it short; cached images scrolled back into view don't fade.
+                let fresh = d.rastered.get(&key).is_some_and(|t| t.elapsed() < FADE * 2);
                 let diagrams = self.0.clone();
                 let paint = canvas(|_, _, _| {}, move |_, _, window, cx| diagrams.update(cx, |d, cx| d.painted(key, &tree, window, cx)));
                 frame.overflow_x_scroll().child(
@@ -224,7 +232,13 @@ impl MarkdownPlugin for Mermaid {
                         .w(px(size.width()))
                         .h(px(size.height()))
                         .child(paint.absolute().size_full())
-                        .children(image.map(|image| img(ImageSource::Render(image)).size_full())),
+                        .children(image.map(|image| {
+                            let image = img(ImageSource::Render(image)).size_full();
+                            match fresh {
+                                true => image.with_animation(("mermaid-in", key), Animation::new(FADE).with_easing(ease_out_quint()), |i, t| i.opacity(t)).into_any_element(),
+                                false => image.into_any_element(),
+                            }
+                        })),
                 )
             }
             Diagram::Pending => frame.text_size(px(12.)).text_color(rgba(TEXT_3)).child("Rendering diagram…"),

@@ -192,7 +192,7 @@ impl Desktop {
     /// The expanded sidebar: projects with their worktrees.
     fn aside(&self, cx: &mut Context<Self>) -> Div {
         let top = drag_area(div())
-            .h(px(46.))
+            .h(px(42.))
             .flex()
             .flex_none()
             .items_center()
@@ -283,10 +283,11 @@ impl Desktop {
         let kept = self.store.projects.iter().any(|k| k == p);
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
         let git = self.worktrees.get(p).is_some_and(|w| !w.is_empty());
-        let open = git && !self.store.collapsed.contains(p);
+        let branched = self.worktrees.get(p).is_some_and(|w| w.iter().any(|w| !w.main));
+        let open = branched && !self.store.collapsed.contains(p);
         let cards = if open { self.tree_cards(p, &main) } else { self.cards(p) };
         let setting_up = !open && self.worktrees.get(p).into_iter().flatten().any(|w| self.setting_up(&w.path));
-        let lead = if git {
+        let lead = if branched {
             let target = p.to_string();
             ui::chevron(("aside-chevron", i), open)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -338,15 +339,13 @@ impl Desktop {
                         .into_any_element(),
                 );
             }
-            if trees.is_empty() {
-                out.push(self.new_worktree_row(p, cx));
-            }
         }
         let to = p.to_string();
         div()
             .flex()
             .flex_col()
             .gap(px(1.))
+            .when(open, |d| d.pb(px(6.)))
             .children(out)
             .when(kept, |d| {
                 d.drag_over::<DragProject>(move |s, d, _, _| if d.ix == i { s } else { s.shadow(ui::drop_line(d.ix < i)) }).on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
@@ -423,27 +422,6 @@ impl Desktop {
                     .into_any_element(),
             ],
         }
-    }
-
-    fn new_worktree_row(&self, p: &str, cx: &mut Context<Self>) -> AnyElement {
-        let target = p.to_string();
-        div()
-            .id(id(format!("aside-new-worktree:{p}")))
-            .h(px(32.))
-            .pl(px(25.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(7.))
-            .rounded(px(9.))
-            .cursor_pointer()
-            .text_size(px(13.))
-            .text_color(rgba(TEXT_4))
-            .hover(|s| s.bg(rgba(FILL_2)))
-            .child(div().w(px(22.)).flex().flex_none().justify_center().child(icon("plus", 12., TEXT_4)))
-            .child("New worktree")
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.new_worktree_in(target.clone(), window, cx)))
-            .into_any_element()
     }
 
     /// Context left in each provider's newest open session.
@@ -643,8 +621,6 @@ impl Desktop {
     }
 
     fn column_header(&self, cx: &mut Context<Self>) -> Div {
-        let search = icon_button_sized("column-search", "search", 28., TEXT_2)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
         let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx)));
         div()
@@ -654,7 +630,6 @@ impl Desktop {
             .items_center()
             .gap(px(4.))
             .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).child("Workspace"))
-            .child(search)
             .child(add)
     }
 
@@ -753,9 +728,8 @@ impl Desktop {
         };
         match self.layout {
             // Leaves room for the window's traffic lights once the sidebars are hidden.
-            Layout::Focus => (82., Some(toggle("sidebar-expand", cx))),
-            Layout::Compact => (14., None),
-            Layout::Sidebars => (24., None),
+            Layout::Focus => (91., Some(toggle("sidebar-expand", cx))),
+            Layout::Compact | Layout::Sidebars => (24., None),
         }
     }
 
@@ -865,6 +839,8 @@ impl Desktop {
                     .justify_center()
                     .rounded(px(5.))
                     .cursor_pointer()
+                    .opacity(0.)
+                    .group_hover("term-tab", |s| s.opacity(1.))
                     .hover(|s| s.bg(rgba(FILL_3)))
                     .child(icon("x", 11., TEXT_4))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -882,6 +858,7 @@ impl Desktop {
                     .child(self.tab_lead(panes))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_tab(i, window, cx)));
                 div()
+                    .group("term-tab")
                     .h(px(28.))
                     .flex()
                     .flex_none()
@@ -936,7 +913,8 @@ impl Desktop {
             .h(px(40.))
             .items_center()
             .gap(px(2.))
-            .child(div().flex().min_w_0().items_center().gap(px(2.)).overflow_hidden().children(items))
+            // The padding keeps the selected tab's shadow inside the clip, else only its corners show; the margin undoes the shift.
+            .child(div().flex().min_w_0().items_center().gap(px(2.)).p(px(3.)).m(px(-3.)).overflow_hidden().children(items))
             .child(div().relative().flex().flex_none().items_center().gap(px(2.)).child(plus).child(chevron).children(menu))
     }
 

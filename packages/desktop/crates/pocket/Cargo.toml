@@ -29,3 +29,6 @@ term.workspace = true
 theme.workspace = true
 ui.workspace = true
 workspace.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit.workspace = true

@@ -14,6 +14,7 @@ use gpui_kit::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use theme::*;
 use ui::{self, Segment, Variant, dot};
 
@@ -199,10 +200,11 @@ impl Desktop {
     pub fn explorer(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let touched = self.touched();
         let go = ui::trigger_field("go-to-file", "search", "Go to file…", "⌘P")
-            .mx(px(14.))
+            .mx(px(8.))
+            .mt(px(8.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::GoToFile, window, cx)));
         let chips = div()
-            .px(px(14.))
+            .px(px(8.))
             .pt(px(10.))
             .pb(px(4.))
             .flex()
@@ -267,6 +269,20 @@ impl Desktop {
         }
     }
 
+    fn copy_path(&mut self, path: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(path.to_string()));
+        let reset = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(1500)).await;
+            this.update(cx, |this, cx| {
+                this.path_copied = None;
+                cx.notify();
+            })
+            .ok();
+        });
+        self.path_copied = Some((path.to_string(), reset));
+        cx.notify();
+    }
+
     pub fn file_view(&mut self, cx: &mut Context<Self>) -> Div {
         let Some(path) = self.file.clone() else { return div() };
         let root = self.explore_root().unwrap_or_default();
@@ -306,13 +322,13 @@ impl Desktop {
                     },
                 )),
             )
-            .child(
-                ui::button("open-editor", Variant::Ghost, Some("external"), "Open in editor")
-                    .text_color(rgba(TEXT))
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_with_system(Path::new(&opened)))),
-            )
             .child(ui::icon_group([
-                ui::group_button("copy-path", "copy").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))),
+                ui::group_button("open-editor", "external").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_with_system(Path::new(&opened)))),
+                match self.path_copied.as_ref().is_some_and(|(p, _)| *p == copy) {
+                    true => ui::group_button_swapped("copy-path", "check"),
+                    false => ui::group_button("copy-path", "copy"),
+                }
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.copy_path(&copy, cx))),
                 ui::group_button("file-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
             ]));
         let (status_color, status_label) = status_word(self.file_status(&path));

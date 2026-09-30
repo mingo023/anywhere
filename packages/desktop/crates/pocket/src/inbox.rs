@@ -161,7 +161,7 @@ impl Desktop {
             .gap(px(12.))
             .rounded(px(12.))
             .cursor_pointer()
-            .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(ui::row_shadow()))
+            .when(selected, |d| d.bg(rgba(FILL_3)))
             .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
             .child(
                 div()
@@ -172,7 +172,7 @@ impl Desktop {
                     .justify_center()
                     .rounded(px(8.))
                     .bg(rgba(SURFACE))
-                    .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(0x0000000a, 1., 1.)])
+                    .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
                     .child(icon(glyph, 13., color)),
             )
             .child(

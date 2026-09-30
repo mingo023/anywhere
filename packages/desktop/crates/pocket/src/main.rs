@@ -168,6 +168,8 @@ pub struct Desktop {
     md: Entity<TextViewState>,
     diagrams: Entity<mermaid::Diagrams>,
     md_source: bool,
+    /// The copied path and the timer that turns its check back; a new copy replaces, and so cancels, the old one.
+    path_copied: Option<(String, Task<()>)>,
     touched_only: bool,
     comments: Vec<Comment>,
     viewed: HashSet<String>,
@@ -205,6 +207,8 @@ impl Desktop {
                 InputEvent::Change => cx.notify(),
                 _ => {}
             }),
+            // The setting changes in System Settings, so the window coming back is when it may have.
+            cx.observe_window_activation(window, |_, _, cx| follow_reduce_motion(cx)),
         ];
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
@@ -278,6 +282,7 @@ impl Desktop {
             md,
             diagrams,
             md_source: false,
+            path_copied: None,
             touched_only: false,
             comments: Vec::new(),
             viewed: HashSet::new(),
@@ -1018,6 +1023,12 @@ impl EntityInputHandler for Desktop {
     }
 }
 
+/// GPUI leaves `reduce_motion` to the app; this mirrors the macOS setting into it.
+fn follow_reduce_motion(cx: &mut App) {
+    #[cfg(target_os = "macos")]
+    cx.set_reduce_motion(objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion());
+}
+
 fn main() {
     let capture = capture::Capture::from_args();
     let path = daemon::sock_path();
@@ -1031,6 +1042,7 @@ fn main() {
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
         theme::init(cx);
+        follow_reduce_motion(cx);
         cx.bind_keys([
             KeyBinding::new("cmd-k", OpenPalette, None),
             KeyBinding::new("cmd-p", GoToFile, None),
@@ -1050,7 +1062,7 @@ fn main() {
             titlebar: Some(TitlebarOptions {
                 title: Some("Coding Pocket".into()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(5.), px(14.))),
+                traffic_light_position: Some(point(px(14.), px(14.))),
             }),
             ..Default::default()
         };

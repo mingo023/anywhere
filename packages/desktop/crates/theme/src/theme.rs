@@ -26,7 +26,6 @@ pub const FILL_4: u32 = 0x11111311;
 pub const HAIRLINE: u32 = 0x11111312;
 pub const SEPARATOR: u32 = 0x11111317;
 pub const SEPARATOR_STRONG: u32 = 0x1111131f;
-pub const ROW_SELECTED: u32 = 0xffffffeb;
 
 pub const ACCENT: u32 = 0x5b5bd6ff;
 pub const ACCENT_BG: u32 = 0x5b5bd61c;

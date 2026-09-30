@@ -5317,6 +5317,7 @@ dependencies = [
  "image",
  "keys",
  "merman",
+ "objc2-app-kit 0.3.2",
  "resvg 0.46.0",
  "serde_json",
  "store",

@@ -105,20 +105,13 @@ pub fn button_kbd(keys: &str) -> Div {
     div().text_size(px(12.)).font_weight(FontWeight::NORMAL).opacity(0.7).child(keys.to_string())
 }
 
+fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
+    div().id(id).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(rgba(FILL_3)))
+}
+
 fn glyph_button(id: impl Into<ElementId>, name: &str, w: f32, h: f32, radius: f32, color: u32) -> Stateful<Div> {
     let glyph = if w >= 34. && w == h { 17. } else { 16. };
-    div()
-        .id(id)
-        .w(px(w))
-        .h(px(h))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(radius))
-        .cursor_pointer()
-        .hover(|s| s.bg(rgba(FILL_3)))
-        .child(icon(name, glyph, color))
+    glyph_frame(id, w, h, radius).child(icon(name, glyph, color))
 }
 
 pub fn icon_button(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
@@ -135,6 +128,12 @@ pub fn icon_group(buttons: impl IntoIterator<Item = Stateful<Div>>) -> Div {
 
 pub fn group_button(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
     glyph_button(id, name, 34., 30., 15., TEXT)
+}
+
+/// A group button whose glyph fades in, for one that just swapped it.
+pub fn group_button_swapped(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
+    let fade = Animation::new(std::time::Duration::from_millis(120)).with_easing(ease_out_quint());
+    glyph_frame(id, 34., 30., 15.).child(icon(name, 16., TEXT).with_animation("swap-in", fade, |i, t| i.opacity(t)))
 }
 
 pub struct Segment<T> {
@@ -302,7 +301,7 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>)
         .font_weight(FontWeight::SEMIBOLD)
         .when(selected, |d| d.bg(rgba(TEXT)).text_color(rgba(WHITE)))
         .when(!selected, |d| {
-            d.bg(rgba(SURFACE)).text_color(rgba(TEXT_2)).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }, shadow(0x0000000a, 1., 1.)])
+            d.bg(rgba(SURFACE)).text_color(rgba(TEXT_2)).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }])
         })
         .child(letters.to_string())
         .children(state.and_then(alert_color).map(|c| badge(div().top(px(-2.)), c)))
@@ -323,7 +322,7 @@ fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         .gap(px(7.))
         .rounded(px(9.))
         .cursor_pointer()
-        .when(selected, |d| d.bg(rgba(0xffffffe6)).shadow(row_shadow()))
+        .when(selected, |d| d.bg(rgba(FILL_4)))
         .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
 }
 
@@ -536,7 +535,7 @@ pub fn change_row(
         .gap(px(10.))
         .rounded(px(12.))
         .cursor_pointer()
-        .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(row_shadow()))
+        .when(selected, |d| d.bg(rgba(FILL_3)))
         .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
         .child(check)
         .child(
@@ -616,14 +615,14 @@ pub fn avatar(initials: &str, size: f32) -> Div {
         .child(initials.to_string())
 }
 
-/// Crumbs separated by slashes; the last one is the current page.
+/// Crumbs separated by slashes; the last one is the current page and truncates only once the others have. Past that, the first crumbs clip.
 pub fn breadcrumb(crumbs: Vec<String>) -> Div {
     let last = crumbs.len().saturating_sub(1);
-    div().flex().min_w_0().items_center().gap(px(8.)).text_size(px(13.)).whitespace_nowrap().children(crumbs.into_iter().enumerate().flat_map(|(i, c)| {
+    div().flex().min_w_0().overflow_hidden().justify_end().items_center().gap(px(8.)).text_size(px(13.)).whitespace_nowrap().children(crumbs.into_iter().enumerate().flat_map(|(i, c)| {
         let crumb = div()
             .truncate()
             .when(i == last, |d| d.min_w(px(60.)).text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD))
-            .when(i != last, |d| d.flex_none().text_color(rgba(TEXT_2)).font_weight(FontWeight(450.)))
+            .when(i != last, |d| d.min_w(px(24.)).flex_shrink(100.).text_color(rgba(TEXT_2)).font_weight(FontWeight(450.)))
             .child(c);
         let slash = (i > 0).then(|| div().flex_none().text_color(rgba(TEXT_6)).child("/"));
         slash.into_iter().chain([crumb])
@@ -631,18 +630,18 @@ pub fn breadcrumb(crumbs: Vec<String>) -> Div {
 }
 
 pub fn page_bar() -> Div {
-    div().h(px(44.)).pl(px(14.)).pr(px(12.)).flex().flex_none().items_center().gap(px(8.))
+    div().h(px(42.)).pl(px(14.)).pr(px(12.)).flex().flex_none().items_center().gap(px(8.))
 }
 
 pub fn meta_item() -> Div {
     div().h(px(22.)).flex().flex_none().items_center().gap(px(6.)).text_size(px(12.5)).text_color(rgba(TEXT_2)).whitespace_nowrap()
 }
 
-/// Meta items after the breadcrumb, split by small dots; clipped when the bar runs out of room.
+/// Meta items in the room the breadcrumb leaves; ones that don't fit wrap onto a clipped second line, so none shows half cut.
 pub fn meta_row(items: Vec<AnyElement>) -> Div {
-    let n = items.len();
-    div().ml(px(8.)).min_w_0().flex().items_center().gap(px(10.)).overflow_hidden().children(items.into_iter().enumerate().flat_map(move |(i, item)| {
-        [Some(item), (i + 1 < n).then(|| dot(3., TEXT_6).into_any_element())].into_iter().flatten()
+    // The empty lead holds the first line, so even the first item can wrap away.
+    div().ml(px(8.)).flex_1().min_w_0().h(px(22.)).flex().flex_wrap().items_center().overflow_hidden().child(div()).children(items.into_iter().enumerate().map(|(i, item)| {
+        div().flex().flex_none().items_center().gap(px(10.)).when(i > 0, |d| d.pl(px(10.)).child(dot(3., TEXT_6))).child(item)
     }))
 }
 
@@ -789,7 +788,7 @@ pub fn chip(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         .cursor_pointer()
         .text_size(px(12.))
         .whitespace_nowrap()
-        .when(selected, |d| d.bg(rgba(0xffffffcc)).text_color(rgba(TEXT)).shadow(vec![ring(FILL_3, 1.)]))
+        .when(selected, |d| d.bg(rgba(FILL_4)).text_color(rgba(TEXT)))
         .when(!selected, |d| d.text_color(rgba(TEXT_2)).hover(|s| s.bg(rgba(FILL_2))))
 }
 
@@ -818,12 +817,13 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .child(div().text_size(px(11.5)).text_color(rgba(TEXT_4)).child(keys.to_string()))
 }
 
-/// Indented so its name lines up with its project's: 4 + chevron 14 + 7 + mark 22 + 7.
+/// Indented past the project row's chevron (4 + 14 + gap 7) so its glyph sits under the project's mark and its name under the project's.
 pub fn worktree_row(id: impl Into<ElementId>, name: String, selected: bool) -> Stateful<Div> {
     sidebar_row(id, selected)
-        .pl(px(54.))
+        .pl(px(25.))
         .text_size(px(13.5))
         .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
         .text_color(rgba(if selected { TEXT } else { TEXT_BODY }))
+        .child(div().w(px(22.)).flex().flex_none().justify_center().child(icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 })))
         .child(div().flex_1().min_w_0().truncate().child(name))
 }
