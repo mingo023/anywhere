@@ -628,10 +628,7 @@ impl Desktop {
             if !all.is_empty() {
                 git::set_staged(&cwd, &all, true);
             }
-            let mut argv = vec!["git", "commit", "-q"];
-            argv.extend(if amend { ["--amend"].as_slice() } else { &[] });
-            argv.extend(if message.is_empty() { ["--no-edit"].as_slice() } else { ["-F", "-"].as_slice() });
-            let committed = daemon::run_login(&argv, &cwd, &message).map(drop);
+            let committed = daemon::run_login(&git::commit_argv(amend, &message), &cwd, &message).map(drop);
             let pushed = if committed.is_ok() && kind == CommitKind::Push { push(&cwd) } else { Ok(()) };
             (committed, pushed)
         });
@@ -702,9 +699,8 @@ impl Desktop {
     }
 }
 
-/// Pushes the branch, setting its upstream on the first push.
 fn push(cwd: &str) -> Result<(), String> {
-    daemon::run_login(&["git", "-c", "push.autoSetupRemote=true", "push"], cwd, "").map(drop)
+    daemon::run_login(git::PUSH, cwd, "").map(drop)
 }
 
 #[cfg(test)]

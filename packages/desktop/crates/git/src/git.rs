@@ -202,6 +202,17 @@ pub fn discard(cwd: &str, paths: &[String]) {
     }
 }
 
+/// `git commit` taking `message` on stdin. Amending keeps the last message when `message` is empty.
+pub fn commit_argv(amend: bool, message: &str) -> Vec<&'static str> {
+    let mut argv = vec!["git", "commit", "-q"];
+    argv.extend(if amend { ["--amend"].as_slice() } else { &[] });
+    argv.extend(if message.is_empty() { ["--no-edit"].as_slice() } else { ["-F", "-"].as_slice() });
+    argv
+}
+
+/// Pushes the branch, setting its upstream on the first push.
+pub const PUSH: &[&str] = &["git", "-c", "push.autoSetupRemote=true", "push"];
+
 const MAX_CONTEXT: usize = 60_000;
 
 /// What a commit message is written from: recent subjects for style, then the diff to commit (only the staged part when `staged`).
@@ -512,6 +523,63 @@ mod tests {
         assert!(staged.starts_with("Recent commit subjects:\ninit\n"));
         assert!(staged.contains("+staged") && !staged.contains("New file: b"));
         assert!(commit_context(r, false).contains("New file: b"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn run_argv(repo: &Path, argv: &[&str], input: &str) -> bool {
+        use std::io::Write;
+        let mut child = Command::new(argv[0]).args(&argv[1..]).current_dir(repo).stdin(std::process::Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        child.wait().unwrap().success()
+    }
+
+    fn committer(repo: &Path) {
+        for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false")] {
+            assert!(Command::new("git").arg("-C").arg(repo).args(["config", k, v]).status().unwrap().success());
+        }
+    }
+
+    #[test]
+    fn commit_argv_commits_the_staged_files_with_the_message_from_stdin() {
+        let dir = scratch_repo("commit");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        std::fs::write(repo.join("a"), "edited\n").unwrap();
+        set_staged(r, &["a".into()], true);
+        assert!(run_argv(&repo, &commit_argv(false, "Edit a"), "Edit a"));
+        assert_eq!(lines(git(r, &["log", "--format=%s"])), ["Edit a", "init"]);
+        assert!(read(r).unwrap().files.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn amending_without_a_message_keeps_the_last_one_and_with_one_replaces_it() {
+        let dir = scratch_repo("amend");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        std::fs::write(repo.join("a"), "edited\n").unwrap();
+        set_staged(r, &["a".into()], true);
+        assert!(run_argv(&repo, &commit_argv(true, ""), ""));
+        assert_eq!(lines(git(r, &["log", "--format=%s"])), ["init"]);
+        assert!(read(r).unwrap().files.is_empty());
+        assert!(run_argv(&repo, &commit_argv(true, "Start"), "Start"));
+        assert_eq!(lines(git(r, &["log", "--format=%s"])), ["Start"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_first_push_sets_the_upstream() {
+        let dir = scratch_repo("push");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        let remote = dir.join("remote.git");
+        assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
+        assert!(git(r, &["remote", "add", "origin", remote.to_str().unwrap()]).is_some());
+        assert!(git(r, &["switch", "-qc", "feature"]).is_some());
+        assert!(run_argv(&repo, PUSH, ""));
+        assert_eq!(git(r, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap().trim(), "origin/feature");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
