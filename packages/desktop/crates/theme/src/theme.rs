@@ -1,7 +1,7 @@
 use gpui_kit::component::highlighter::HighlightTheme;
 use gpui_kit::*;
 use std::borrow::Cow;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub const SANS: &str = ".SystemUIFont";
 pub const MONO: &str = "Geist Mono";
@@ -115,6 +115,29 @@ pub fn icon(name: &str, size: f32, color: u32) -> Svg {
     svg().path(format!("icons/{name}.svg")).size(px(size)).flex_none().text_color(rgba(color))
 }
 
+fn material() -> &'static serde_json::Value {
+    static MANIFEST: OnceLock<serde_json::Value> = OnceLock::new();
+    MANIFEST.get_or_init(|| serde_json::from_str(include_str!("../assets/material/icons.json")).expect("material manifest parses"))
+}
+
+/// Material Icon Theme's icon for the last component of `path`, matched like VS Code: the whole name, then its extensions longest first.
+fn material_icon(path: &str, folder: bool, open: bool) -> &'static str {
+    let m = material();
+    let name = path.rsplit('/').next().unwrap_or(path).to_lowercase();
+    match (folder, open) {
+        (true, true) => m["foldersOpen"][&name].as_str().unwrap_or("folder-open"),
+        (true, false) => m["folders"][&name].as_str().unwrap_or("folder"),
+        _ => m["names"][&name]
+            .as_str()
+            .or_else(|| name.match_indices('.').find_map(|(i, _)| m["extensions"][&name[i + 1..]].as_str()))
+            .unwrap_or("file"),
+    }
+}
+
+pub fn file_icon(path: &str, folder: bool, open: bool, size: f32) -> Img {
+    img(format!("icons/material/{}.svg", material_icon(path, folder, open))).size(px(size)).flex_none()
+}
+
 pub fn spinner(id: impl Into<ElementId>, size: f32, color: u32) -> impl IntoElement {
     icon("spinner", size, color).with_animation(id, Animation::new(std::time::Duration::from_secs(1)).repeat(), |s, t| {
         s.with_transformation(Transformation::rotate(percentage(t)))
@@ -146,9 +169,11 @@ const ICONS: &[(&str, &[u8])] = embed!(
     "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "trash", "unfold", "worktree", "x", "x-bold",
 );
 
+const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));
+
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        if let Some((_, bytes)) = ICONS.iter().find(|(p, _)| *p == path) {
+        if let Some((_, bytes)) = ICONS.iter().chain(MATERIAL).find(|(p, _)| *p == path) {
             return Ok(Some(Cow::Borrowed(bytes)));
         }
         gpui_kit::assets::Assets.load(path)
@@ -179,9 +204,32 @@ pub fn init(cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{SYN_COMMENT, SYN_FN, SYN_KEYWORD, SYN_STRING, highlight_theme};
+    use super::{MATERIAL, SYN_COMMENT, SYN_FN, SYN_KEYWORD, SYN_STRING, highlight_theme, material, material_icon};
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::rgba;
+
+    #[test]
+    fn matches_material_icons_like_vscode() {
+        assert_eq!(material_icon("CHANGELOG.md", false, false), "changelog");
+        assert_eq!(material_icon("src/.gitignore", false, false), "git");
+        assert_eq!(material_icon("a.test.ts", false, false), "test-ts");
+        assert_eq!(material_icon("main.rs", false, false), "rust");
+        assert_eq!(material_icon("pnpm-lock.yaml", false, false), "pnpm_light");
+        assert_eq!(material_icon("Makefile.unknown-ext", false, false), "file");
+        assert_eq!(material_icon("src", true, false), "folder-src");
+        assert_eq!(material_icon("src", true, true), "folder-src-open");
+        assert_eq!(material_icon("nothing-special", true, true), "folder-open");
+    }
+
+    #[test]
+    fn embeds_every_material_icon_the_manifest_names() {
+        let m = material().as_object().unwrap();
+        let named = m.values().flat_map(|s| s.as_object().unwrap().values()).filter_map(|v| v.as_str());
+        for name in named.chain(["file", "folder", "folder-open"]) {
+            let path = format!("icons/material/{name}.svg");
+            assert!(MATERIAL.iter().any(|(p, _)| *p == path), "{path} is not embedded");
+        }
+    }
 
     #[test]
     fn colours_syntax_with_our_tokens() {

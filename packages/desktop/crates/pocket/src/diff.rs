@@ -8,6 +8,7 @@ use crate::{Comment, Desktop, Overlay};
 use gpui_kit::component::input::{Escape, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::HashSet;
 use std::ops::{Range, RangeInclusive};
 
 const NUM: f32 = 44.;
@@ -16,6 +17,28 @@ const ROW: f32 = 22.;
 
 const MAX_COLORED: usize = 512 * 1024;
 const MAX_WORD_LINES: usize = 5;
+
+type Sides = (Vec<Spans>, Vec<Spans>);
+
+pub struct DiffLoad {
+    path: String,
+    open: HashSet<usize>,
+    lines: Vec<Line>,
+    source: (String, String),
+    colors: Option<(Sides, Vec<Spans>)>,
+}
+
+/// Reads and diffs `path`, colouring it only when the lines differ from `shown`. Run off the UI thread.
+pub fn read_diff(cwd: &str, path: String, open: HashSet<usize>, shown: &[Line]) -> DiffLoad {
+    let (old, new) = git::texts(cwd, &path);
+    let lines = git::diff_texts(&old, &new, &open);
+    let colors = (lines != shown).then(|| {
+        let syntax = syntax(&path, &old, &new);
+        let hl = highlights(&lines, &syntax.0, &syntax.1);
+        (syntax, hl)
+    });
+    DiffLoad { path, open, lines, source: (old, new), colors }
+}
 
 /// Syntax colours for every line of the old and new file; none when either is too big to parse quickly. Run off the UI thread.
 pub fn syntax(path: &str, old: &str, new: &str) -> (Vec<Spans>, Vec<Spans>) {
@@ -298,6 +321,18 @@ impl Desktop {
             .child(rows.size_full())
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
             .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
+    }
+
+    /// Shows `load` unless another file or fold state was picked while it ran.
+    pub fn apply_diff(&mut self, load: DiffLoad) -> bool {
+        if self.diff_file.as_ref() != Some(&load.path) || load.open != self.diff_open {
+            return false;
+        }
+        self.diff_source = load.source;
+        if let Some((syntax, hl)) = load.colors {
+            (self.diff_syntax, self.diff_hl) = (syntax, hl);
+        }
+        self.set_diff(load.lines, true)
     }
 
     pub fn set_diff(&mut self, lines: Vec<Line>, reset: bool) -> bool {

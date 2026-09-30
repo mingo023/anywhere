@@ -144,6 +144,7 @@ pub struct Desktop {
     changes_menu: bool,
     changes_tree: bool,
     changes_folded: HashSet<String>,
+    changes_scroll: UniformListScrollHandle,
     initials: String,
     tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     git_run: u64,
@@ -181,7 +182,6 @@ pub struct Desktop {
     md_source: bool,
     /// The copied path and the timer that turns its check back; a new copy replaces, and so cancels, the old one.
     path_copied: Option<(String, Task<()>)>,
-    touched_only: bool,
     comments: Vec<Comment>,
     viewed: HashSet<String>,
     new_form: forms::NewForm,
@@ -273,6 +273,7 @@ impl Desktop {
             changes_menu: false,
             changes_tree: false,
             changes_folded: HashSet::new(),
+            changes_scroll: UniformListScrollHandle::new(),
             initials: String::new(),
             tree: HashMap::new(),
             git_run: 0,
@@ -308,7 +309,6 @@ impl Desktop {
             diagrams,
             md_source: false,
             path_copied: None,
-            touched_only: false,
             comments: Vec::new(),
             viewed: HashSet::new(),
             new_form,
@@ -781,16 +781,7 @@ impl Desktop {
                 let r = git::read(&c);
                 (c, r)
             }).collect();
-            let diff = diff.map(|(cwd, path)| {
-                let (old, new) = git::texts(&cwd, &path);
-                let lines = git::diff_texts(&old, &new, &open);
-                let spans = (lines != shown).then(|| {
-                    let syntax = diff::syntax(&path, &old, &new);
-                    let hl = diff::highlights(&lines, &syntax.0, &syntax.1);
-                    (syntax, hl)
-                });
-                (lines, (old, new), spans, path, open)
-            });
+            let diff = diff.map(|(cwd, path)| diff::read_diff(&cwd, path, open, &shown));
             let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
             let tree = dirs.into_iter().map(|d| {
                 let listing = view::list_dir(&d);
@@ -820,12 +811,8 @@ impl Desktop {
                     d.code_stale |= fresh;
                     (d.file_preview, d.file_diff) = (preview, lines);
                 }
-                if let Some((lines, source, spans, _, _)) = diff.filter(|(.., p, open)| d.diff_file.as_ref() == Some(p) && *open == d.diff_open) {
-                    d.diff_source = source;
-                    if let Some((syntax, hl)) = spans {
-                        (d.diff_syntax, d.diff_hl) = (syntax, hl);
-                    }
-                    changed |= d.set_diff(lines, true);
+                if let Some(load) = diff {
+                    changed |= d.apply_diff(load);
                 }
                 if changed {
                     cx.notify();
@@ -854,7 +841,19 @@ impl Desktop {
         if self.diff_file.is_none() {
             self.diff_file = self.repo().and_then(|r| r.files.first()).map(|f| f.path.clone());
         }
-        self.refresh_git(cx);
+        let Some((cwd, path)) = self.cwd().zip(self.diff_file.clone()) else { return };
+        let (open, shown) = (self.diff_open.clone(), self.diff.clone());
+        let task = cx.background_executor().spawn(async move { diff::read_diff(&cwd, path, open, &shown) });
+        cx.spawn(async move |this, cx| {
+            let load = task.await;
+            this.update(cx, |d, cx| {
+                if d.apply_diff(load) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Starts a comment on line `i` of the diff, or with `extend` stretches the open one to it.
@@ -1106,7 +1105,12 @@ fn main() {
                 cx.spawn(async move |this, cx| {
                     for tick in 0u64.. {
                         poll.send(json!({"op": "list"}));
-                        if tick % 2 == 0 && this.update(cx, |d: &mut Desktop, cx| d.refresh_git(cx)).is_err() {
+                        let refresh = |d: &mut Desktop, cx: &mut Context<Desktop>| {
+                            if d.git_done == d.git_run {
+                                d.refresh_git(cx);
+                            }
+                        };
+                        if tick % 2 == 0 && this.update(cx, refresh).is_err() {
                             break;
                         }
                         cx.background_executor().timer(Duration::from_secs(1)).await;

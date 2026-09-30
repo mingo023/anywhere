@@ -496,7 +496,7 @@ pub fn tree_row(
         .when(selected, |d| d.bg(rgba(ACCENT_BG)).font_weight(FontWeight::SEMIBOLD))
         .when(!selected, |d| d.font_weight(FontWeight(450.)).hover(|s| s.bg(rgba(FILL_2))))
         .child(div().w(px(12.)).flex().when(folder, |d| d.child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))))
-        .child(icon(if folder { "folder" } else { "file" }, 14., TEXT_3))
+        .child(file_icon(&label, folder, open, 16.))
         .child(div().flex_1().truncate().child(label))
         .when(touched, |d| d.child(dot(6., AGENT_CODEX)))
         .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(rgba(git_color(g))).child(g.to_string())))

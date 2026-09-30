@@ -203,39 +203,12 @@ impl Desktop {
             .mx(px(8.))
             .mt(px(8.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::GoToFile, window, cx)));
-        let chips = div()
-            .px(px(8.))
-            .pt(px(10.))
-            .pb(px(4.))
-            .flex()
-            .gap(px(4.))
-            .child(ui::chip("all-files", !self.touched_only).child("All files").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.touched_only = false;
-                cx.notify();
-            })))
-            .child(
-                ui::chip("touched-files", self.touched_only)
-                    .child(dot(6., AGENT_CODEX))
-                    .child(format!("Touched by agents · {}", touched.len()))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.touched_only = true;
-                        cx.notify();
-                    })),
-            );
         let mut rows = Vec::new();
-        match self.explore_root() {
-            Some(root) if self.touched_only => {
-                for path in &touched {
-                    let label = path.strip_prefix(&root).unwrap_or(path).trim_start_matches('/').to_string();
-                    rows.push(self.file_row(path.clone(), label, 0, true, cx));
-                }
-            }
-            Some(root) => self.tree(Path::new(&root), 0, &touched, &mut rows, cx),
-            None => {}
+        if let Some(root) = self.explore_root() {
+            self.tree(Path::new(&root), 0, &touched, &mut rows, cx);
         }
-        let list = div().id("explorer").flex_1().min_h_0().px(px(8.)).pb(px(8.)).overflow_y_scroll().flex().flex_col().gap(px(1.));
-        let list = if rows.is_empty() && self.touched_only { list.child(empty("No files touched by agents yet.")) } else { list.children(rows) };
-        div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(chips).child(list)
+        let list = div().id("explorer").flex_1().min_h_0().px(px(8.)).pt(px(8.)).pb(px(8.)).overflow_y_scroll().flex().flex_col().gap(px(1.)).children(rows);
+        div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list)
     }
 
     fn file_row(&self, path: String, label: String, depth: usize, touched: bool, cx: &mut Context<Self>) -> Stateful<Div> {

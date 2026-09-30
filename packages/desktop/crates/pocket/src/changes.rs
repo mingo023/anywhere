@@ -3,9 +3,11 @@ use crate::view::empty;
 use crate::{Confirm, Desktop, Overlay};
 use git::{FileStat, Repo};
 use gpui_kit::component::input::Textarea;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashSet};
+use std::ops::Range;
 use theme::*;
 use ui::icon_button_sized;
 
@@ -35,9 +37,14 @@ impl Section {
     }
 }
 
-enum Item<'a> {
+enum Item {
     Dir { key: String, label: String, depth: usize, open: bool },
-    File { file: &'a FileStat, depth: usize },
+    File { file: FileStat, depth: usize },
+}
+
+enum Row {
+    Header(Section, Vec<String>),
+    Item(Section, Item),
 }
 
 /// The folder every file in `files` continues into below `base`, if they share one.
@@ -48,7 +55,7 @@ fn common_dir<'a>(files: &[&'a FileStat], base: &str) -> Option<&'a str> {
 }
 
 /// Folders first, each chain of single-folder folders merged into one row, then the files directly under `base`.
-fn tree<'a>(files: &[&'a FileStat], base: &str, depth: usize, section: Section, folded: &HashSet<String>, out: &mut Vec<Item<'a>>) {
+fn tree(files: &[&FileStat], base: &str, depth: usize, section: Section, folded: &HashSet<String>, out: &mut Vec<Item>) {
     let mut dirs: BTreeMap<&str, Vec<&FileStat>> = BTreeMap::new();
     let mut leaves = Vec::new();
     for &f in files {
@@ -69,7 +76,7 @@ fn tree<'a>(files: &[&'a FileStat], base: &str, depth: usize, section: Section, 
             tree(&sub, &path, depth + 1, section, folded, out);
         }
     }
-    out.extend(leaves.into_iter().map(|file| Item::File { file, depth }));
+    out.extend(leaves.into_iter().map(|file| Item::File { file: file.clone(), depth }));
 }
 
 fn action(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
@@ -94,7 +101,7 @@ fn count_pill(n: usize) -> Div {
 }
 
 fn row(id: impl Into<ElementId>, depth: usize) -> Stateful<Div> {
-    div().id(id).h(px(28.)).pl(px(8. + depth as f32 * 14.)).pr(px(6.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).cursor_pointer()
+    div().id(id).w_full().h(px(28.)).pl(px(8. + depth as f32 * 14.)).pr(px(6.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).cursor_pointer()
 }
 
 impl Desktop {
@@ -103,22 +110,55 @@ impl Desktop {
         let Some(repo) = self.repo().cloned() else {
             return panel.child(empty("Not a git repository."));
         };
-        let staged: Vec<&FileStat> = repo.files.iter().filter(|f| f.staged).collect();
-        let unstaged: Vec<&FileStat> = repo.files.iter().filter(|f| f.unstaged).collect();
-        let list = div()
-            .id("changes")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .px(px(8.))
-            .pb(px(8.))
-            .flex()
-            .flex_col()
-            .when(!staged.is_empty(), |d| d.child(self.section(Section::Staged, &staged, cx)))
-            .when(!unstaged.is_empty(), |d| d.child(self.section(Section::Changes, &unstaged, cx)))
-            .when(repo.files.is_empty(), |d| d.child(empty("No changes.")))
-            .children(self.notes(&repo, cx));
-        panel.child(self.changes_header(&repo, cx)).child(self.commit_box(&repo, cx)).child(list)
+        let rows = self.change_rows(&repo);
+        let list = uniform_list(
+            "changes",
+            rows.len(),
+            cx.processor(move |this, range: Range<usize>, _, cx| {
+                rows[range]
+                    .iter()
+                    .map(|row| match row {
+                        Row::Header(s, paths) => this.section(*s, paths, cx).into_any_element(),
+                        Row::Item(s, item) => this.tree_item(*s, item, cx),
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.changes_scroll)
+        .size_full()
+        .px(px(8.))
+        .pt(px(6.))
+        .pb(px(8.));
+        let list = div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes_scroll);
+        let notes = self.notes(&repo, cx);
+        panel
+            .child(self.changes_header(&repo, cx))
+            .child(self.commit_box(&repo, cx))
+            .map(|d| if repo.files.is_empty() { d.child(empty("No changes.")) } else { d.child(list) })
+            .when(!notes.is_empty(), |d| d.child(div().id("change-notes").flex_none().max_h(px(240.)).overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col().children(notes)))
+    }
+
+    /// One uniform-height row per section header, folder and file, so the list only renders what's in view.
+    fn change_rows(&self, repo: &Repo) -> Vec<Row> {
+        let mut rows = Vec::new();
+        for s in [Section::Staged, Section::Changes] {
+            let files: Vec<&FileStat> = repo.files.iter().filter(|f| if s == Section::Staged { f.staged } else { f.unstaged }).collect();
+            if files.is_empty() {
+                continue;
+            }
+            rows.push(Row::Header(s, files.iter().map(|f| f.path.clone()).collect()));
+            if self.changes_folded.contains(s.key()) {
+                continue;
+            }
+            let mut items = Vec::new();
+            if self.changes_tree {
+                tree(&files, "", 0, s, &self.changes_folded, &mut items);
+            } else {
+                items.extend(files.iter().map(|&f| Item::File { file: f.clone(), depth: 0 }));
+            }
+            rows.extend(items.into_iter().map(|item| Row::Item(s, item)));
+        }
+        rows
     }
 
     fn changes_header(&self, repo: &Repo, cx: &mut Context<Self>) -> Div {
@@ -289,10 +329,11 @@ impl Desktop {
         div().flex_none().px(px(10.)).pb(px(6.)).flex().flex_col().gap(px(8.)).child(field).child(button).children(error)
     }
 
-    fn section(&self, s: Section, files: &[&FileStat], cx: &mut Context<Self>) -> Div {
+    fn section(&self, s: Section, paths: &[String], cx: &mut Context<Self>) -> Stateful<Div> {
         let key = s.key();
         let open = !self.changes_folded.contains(key);
-        let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+        let count = paths.len();
+        let paths = paths.to_vec();
         let actions = match s {
             Section::Staged => vec![action("unstage-all", "minus").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
@@ -312,11 +353,11 @@ impl Desktop {
                 ]
             }
         };
-        let header = div()
+        div()
             .id(key)
             .group(SECTION_GROUP)
+            .w_full()
             .h(px(28.))
-            .mt(px(6.))
             .pl(px(6.))
             .pr(px(6.))
             .flex()
@@ -338,42 +379,35 @@ impl Desktop {
                     .child(if s == Section::Staged { "Staged Changes" } else { "Changes" }),
             )
             .child(div().flex().gap(px(2.)).opacity(0.).group_hover(SECTION_GROUP, |st| st.opacity(1.)).children(actions))
-            .child(count_pill(files.len()))
+            .child(count_pill(count))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if !this.changes_folded.remove(key) {
                     this.changes_folded.insert(key.to_string());
                 }
                 cx.notify();
-            }));
-        let rows: Vec<AnyElement> = if !open {
-            Vec::new()
-        } else if self.changes_tree {
-            let mut items = Vec::new();
-            tree(files, "", 0, s, &self.changes_folded, &mut items);
-            items.into_iter().map(|item| self.tree_item(s, item, cx)).collect()
-        } else {
-            files.iter().map(|f| self.change_row(s, f, 0, false, cx).into_any_element()).collect()
-        };
-        div().flex().flex_col().child(header).children(rows)
+            }))
     }
 
-    fn tree_item(&self, s: Section, item: Item, cx: &mut Context<Self>) -> AnyElement {
+    fn tree_item(&self, s: Section, item: &Item, cx: &mut Context<Self>) -> AnyElement {
         match item {
-            Item::File { file, depth } => self.change_row(s, file, depth, true, cx).into_any_element(),
-            Item::Dir { key, label, depth, open } => row(ElementId::Name(key.clone().into()), depth)
-                .hover(|st| st.bg(rgba(FILL_1)))
-                .text_size(px(13.5))
-                .font_weight(FontWeight(450.))
-                .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
-                .child(icon("folder", 14., TEXT_3))
-                .child(div().flex_1().min_w_0().truncate().child(label))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if !this.changes_folded.remove(&key) {
-                        this.changes_folded.insert(key.clone());
-                    }
-                    cx.notify();
-                }))
-                .into_any_element(),
+            Item::File { file, depth } => self.change_row(s, file, *depth, self.changes_tree, cx).into_any_element(),
+            Item::Dir { key, label, depth, open } => {
+                let (key, open) = (key.clone(), *open);
+                row(ElementId::Name(key.clone().into()), *depth)
+                    .hover(|st| st.bg(rgba(FILL_1)))
+                    .text_size(px(13.5))
+                    .font_weight(FontWeight(450.))
+                    .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
+                    .child(file_icon(label, true, open, 16.))
+                    .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if !this.changes_folded.remove(&key) {
+                            this.changes_folded.insert(key.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            }
         }
     }
 
@@ -409,7 +443,7 @@ impl Desktop {
             .when(selected, |d| d.bg(rgba(FILL_3)))
             .when(!selected, |d| d.hover(|st| st.bg(rgba(FILL_1))))
             .when(in_tree, |d| d.child(div().w(px(12.)).flex_none()))
-            .child(icon("file", 14., TEXT_3))
+            .child(file_icon(name, false, false, 16.))
             .child(
                 div()
                     .flex_1()
@@ -503,8 +537,16 @@ impl Desktop {
         std::iter::once(ui::section_header("Comments", Some(notes.len())).into_any_element()).chain(notes.into_iter().map(IntoElement::into_any_element)).collect()
     }
 
+    /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.
     pub fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
         let Some(cwd) = self.cwd() else { return };
+        let picked: HashSet<&String> = paths.iter().collect();
+        for f in self.repos.get_mut(&cwd).into_iter().flat_map(|r| r.files.iter_mut()).filter(|f| picked.contains(&f.path)) {
+            (f.staged, f.unstaged) = (staged, !staged);
+        }
+        // Drops refreshes already running: they read the index from before this change.
+        self.git_run += 1;
+        cx.notify();
         let task = cx.background_executor().spawn(async move { git::set_staged(&cwd, &paths, staged) });
         cx.spawn(async move |this, cx| {
             task.await;

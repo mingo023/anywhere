@@ -22,6 +22,7 @@ enum Lead {
     Waiting,
     Running,
     Provider(String),
+    File,
     Icon(&'static str),
 }
 
@@ -118,7 +119,7 @@ impl Desktop {
                     (false, true) => format!("{dir} · modified"),
                     _ => dir,
                 };
-                Entry { pick: Pick::File(format!("{root}/{p}")), lead: Lead::Icon("file"), title: basename(p), detail, keys: None }
+                Entry { pick: Pick::File(format!("{root}/{p}")), lead: Lead::File, title: basename(p), detail, keys: None }
             })
             .collect();
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
@@ -185,6 +186,7 @@ impl Desktop {
                     Lead::Waiting => dot(8., WAITING).into_any_element(),
                     Lead::Running => spinner(("palette-spin", i), 12., RUNNING_TEXT).into_any_element(),
                     Lead::Provider(p) => dot(8., provider_color(p)).into_any_element(),
+                    Lead::File => file_icon(&e.title, false, false, 16.).into_any_element(),
                     Lead::Icon(name) => icon(name, 13., TEXT_2).into_any_element(),
                 };
                 let keys = e.keys.or((i == selected).then_some("↵"));
