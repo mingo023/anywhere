@@ -22,6 +22,39 @@ pub enum CommitKind {
     Amend,
 }
 
+#[derive(Debug, PartialEq)]
+enum CommitStep {
+    Skip,
+    AskMessage,
+    /// `stage` holds every changed path when none is staged, so the commit takes them all.
+    Run { stage: Vec<String>, busy: &'static str },
+}
+
+/// Commits the staged files, or every change when none is staged. Amending keeps the last message unless a new one is typed.
+fn commit_step(files: &[FileStat], kind: CommitKind, message: &str, busy: bool) -> CommitStep {
+    let amend = kind == CommitKind::Amend;
+    if busy || (!amend && files.is_empty()) {
+        return CommitStep::Skip;
+    }
+    if !amend && message.is_empty() {
+        return CommitStep::AskMessage;
+    }
+    let stage = if amend || files.iter().any(|f| f.staged) { Vec::new() } else { files.iter().map(|f| f.path.clone()).collect() };
+    CommitStep::Run { stage, busy: if amend { "Amending…" } else { "Committing…" } }
+}
+
+fn commit_label(files: &[FileStat], busy: Option<&'static str>) -> &'static str {
+    match busy {
+        Some(busy) => busy,
+        None if !files.is_empty() && !files.iter().any(|f| f.staged) => "Commit All",
+        None => "Commit",
+    }
+}
+
+fn commit_ready(files: &[FileStat], message: &str, busy: bool) -> bool {
+    !files.is_empty() && !message.trim().is_empty() && !busy
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Section {
     Staged,
@@ -77,6 +110,42 @@ fn tree(files: &[&FileStat], base: &str, depth: usize, section: Section, folded:
         }
     }
     out.extend(leaves.into_iter().map(|file| Item::File { file: file.clone(), depth }));
+}
+
+/// One uniform-height row per section header, folder and file, so the list only renders what's in view.
+fn change_rows(files: &[FileStat], as_tree: bool, folded: &HashSet<String>) -> Vec<Row> {
+    let mut rows = Vec::new();
+    for s in [Section::Staged, Section::Changes] {
+        let files: Vec<&FileStat> = files.iter().filter(|f| if s == Section::Staged { f.staged } else { f.unstaged }).collect();
+        if files.is_empty() {
+            continue;
+        }
+        rows.push(Row::Header(s, files.iter().map(|f| f.path.clone()).collect()));
+        if folded.contains(s.key()) {
+            continue;
+        }
+        let mut items = Vec::new();
+        if as_tree {
+            tree(&files, "", 0, s, folded, &mut items);
+        } else {
+            items.extend(files.iter().map(|&f| Item::File { file: f.clone(), depth: 0 }));
+        }
+        rows.extend(items.into_iter().map(|item| Row::Item(s, item)));
+    }
+    rows
+}
+
+fn flip_staged(files: &mut [FileStat], paths: &[String], staged: bool) {
+    let picked: HashSet<&String> = paths.iter().collect();
+    for f in files.iter_mut().filter(|f| picked.contains(&f.path)) {
+        (f.staged, f.unstaged) = (staged, !staged);
+    }
+}
+
+fn toggle_fold(folded: &mut HashSet<String>, key: &str) {
+    if !folded.remove(key) {
+        folded.insert(key.to_string());
+    }
 }
 
 fn action(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
@@ -146,7 +215,7 @@ impl Desktop {
         let Some(repo) = self.repo().cloned() else {
             return panel.child(empty("Not a git repository."));
         };
-        let rows = self.change_rows(&repo);
+        let rows = change_rows(&repo.files, self.changes.tree, &self.changes.folded);
         let list = uniform_list(
             "changes",
             rows.len(),
@@ -172,29 +241,6 @@ impl Desktop {
             .child(self.commit_box(&repo, cx))
             .map(|d| if repo.files.is_empty() { d.child(empty("No changes.")) } else { d.child(list) })
             .when(!notes.is_empty(), |d| d.child(div().id("change-notes").flex_none().max_h(px(240.)).overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col().children(notes)))
-    }
-
-    /// One uniform-height row per section header, folder and file, so the list only renders what's in view.
-    fn change_rows(&self, repo: &Repo) -> Vec<Row> {
-        let mut rows = Vec::new();
-        for s in [Section::Staged, Section::Changes] {
-            let files: Vec<&FileStat> = repo.files.iter().filter(|f| if s == Section::Staged { f.staged } else { f.unstaged }).collect();
-            if files.is_empty() {
-                continue;
-            }
-            rows.push(Row::Header(s, files.iter().map(|f| f.path.clone()).collect()));
-            if self.changes.folded.contains(s.key()) {
-                continue;
-            }
-            let mut items = Vec::new();
-            if self.changes.tree {
-                tree(&files, "", 0, s, &self.changes.folded, &mut items);
-            } else {
-                items.extend(files.iter().map(|&f| Item::File { file: f.clone(), depth: 0 }));
-            }
-            rows.extend(items.into_iter().map(|item| Row::Item(s, item)));
-        }
-        rows
     }
 
     fn changes_header(&self, repo: &Repo, cx: &mut Context<Self>) -> Div {
@@ -261,7 +307,6 @@ impl Desktop {
 
     fn commit_box(&self, repo: &Repo, cx: &mut Context<Self>) -> Div {
         let has_changes = !repo.files.is_empty();
-        let message = !self.changes.input.read(cx).value().trim().is_empty();
         let write = div()
             .id("commit-write")
             .size(px(24.))
@@ -286,12 +331,8 @@ impl Desktop {
             .text_size(px(13.))
             .child(div().flex_1().min_w_0().child(Textarea::new(&self.changes.input).appearance(false)))
             .child(write);
-        let label = match self.changes.busy {
-            Some(busy) => busy,
-            None if has_changes && !repo.files.iter().any(|f| f.staged) => "Commit All",
-            None => "Commit",
-        };
-        let ready = has_changes && message && self.changes.busy.is_none();
+        let label = commit_label(&repo.files, self.changes.busy);
+        let ready = commit_ready(&repo.files, &self.changes.input.read(cx).value(), self.changes.busy.is_some());
         let commit = div()
             .id("commit")
             .flex_1()
@@ -417,9 +458,7 @@ impl Desktop {
             .child(div().flex().gap(px(2.)).opacity(0.).group_hover(SECTION_GROUP, |st| st.opacity(1.)).children(actions))
             .child(count_pill(count))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if !this.changes.folded.remove(key) {
-                    this.changes.folded.insert(key.to_string());
-                }
+                toggle_fold(&mut this.changes.folded, key);
                 cx.notify();
             }))
     }
@@ -437,9 +476,7 @@ impl Desktop {
                     .child(file_icon(label, true, open, 16.))
                     .child(div().flex_1().min_w_0().truncate().child(label.clone()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if !this.changes.folded.remove(&key) {
-                            this.changes.folded.insert(key.clone());
-                        }
+                        toggle_fold(&mut this.changes.folded, &key);
                         cx.notify();
                     }))
                     .into_any_element()
@@ -577,9 +614,8 @@ impl Desktop {
     /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.
     pub fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
         let Some(cwd) = self.cwd() else { return };
-        let picked: HashSet<&String> = paths.iter().collect();
-        for f in self.repos.get_mut(&cwd).into_iter().flat_map(|r| r.files.iter_mut()).filter(|f| picked.contains(&f.path)) {
-            (f.staged, f.unstaged) = (staged, !staged);
+        if let Some(repo) = self.repos.get_mut(&cwd) {
+            flip_staged(&mut repo.files, &paths, staged);
         }
         // Drops refreshes already running: they read the index from before this change.
         self.git_run += 1;
@@ -608,21 +644,20 @@ impl Desktop {
         .detach();
     }
 
-    /// Commits the staged files, or every change when none is staged. Amending keeps the last message unless a new one is typed.
     pub fn commit(&mut self, kind: CommitKind, window: &mut Window, cx: &mut Context<Self>) {
         self.changes.commit_menu = false;
         let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
         let message = self.changes.input.read(cx).value().trim().to_string();
+        let (all, busy) = match commit_step(&repo.files, kind, &message, self.changes.busy.is_some()) {
+            CommitStep::Skip => return cx.notify(),
+            CommitStep::AskMessage => {
+                self.changes.input.update(cx, |s, cx| s.focus(window, cx));
+                return cx.notify();
+            }
+            CommitStep::Run { stage, busy } => (stage, busy),
+        };
         let amend = kind == CommitKind::Amend;
-        if self.changes.busy.is_some() || (!amend && repo.files.is_empty()) {
-            return cx.notify();
-        }
-        if !amend && message.is_empty() {
-            self.changes.input.update(cx, |s, cx| s.focus(window, cx));
-            return cx.notify();
-        }
-        let all: Vec<String> = if amend || repo.files.iter().any(|f| f.staged) { Vec::new() } else { repo.files.iter().map(|f| f.path.clone()).collect() };
-        self.changes.busy = Some(if amend { "Amending…" } else { "Committing…" });
+        self.changes.busy = Some(busy);
         self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
             if !all.is_empty() {
@@ -705,12 +740,121 @@ fn push(cwd: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, Section, tree};
+    use super::{CommitKind, CommitStep, Item, Row, Section, change_rows, commit_label, commit_ready, commit_step, flip_staged, toggle_fold, tree};
     use git::FileStat;
     use std::collections::HashSet;
 
     fn file(path: &str) -> FileStat {
         FileStat { path: path.into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M' }
+    }
+
+    fn staged(path: &str) -> FileStat {
+        FileStat { staged: true, unstaged: false, ..file(path) }
+    }
+
+    fn rows(files: &[FileStat], tree: bool, folded: &[&str]) -> Vec<String> {
+        let folded: HashSet<String> = folded.iter().map(|k| k.to_string()).collect();
+        change_rows(files, tree, &folded)
+            .into_iter()
+            .map(|row| match row {
+                Row::Header(s, paths) => format!("{}: {}", s.key(), paths.join(" ")),
+                Row::Item(s, Item::Dir { label, depth, .. }) => format!("{}{}:{label}/", "  ".repeat(depth + 1), s.key()),
+                Row::Item(s, Item::File { file, depth }) => format!("{}{}:{}", "  ".repeat(depth + 1), s.key(), file.path),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn change_rows_list_staged_files_then_the_rest_each_under_its_header() {
+        let untracked = FileStat { status: 'A', ..file("new.rs") };
+        let both = FileStat { staged: true, ..file("both.rs") };
+        let files = [file("a.rs"), staged("b.rs"), both, untracked];
+        assert_eq!(
+            rows(&files, false, &[]),
+            ["staged: b.rs both.rs", "  staged:b.rs", "  staged:both.rs", "changes: a.rs both.rs new.rs", "  changes:a.rs", "  changes:both.rs", "  changes:new.rs"]
+        );
+    }
+
+    #[test]
+    fn change_rows_skip_empty_sections_and_keep_a_folded_sections_header_with_all_its_paths() {
+        let files = [file("a.rs"), file("src/b.rs")];
+        assert_eq!(rows(&files, false, &["changes"]), ["changes: a.rs src/b.rs"]);
+        assert_eq!(rows(&files, true, &["changes"]), ["changes: a.rs src/b.rs"]);
+    }
+
+    #[test]
+    fn change_rows_fold_a_folder_only_in_its_own_section() {
+        let files = [file("src/a.rs"), staged("src/b.rs")];
+        assert_eq!(rows(&files, true, &["changes:src/"]), ["staged: src/b.rs", "  staged:src/", "    staged:src/b.rs", "changes: src/a.rs", "  changes:src/"]);
+    }
+
+    #[test]
+    fn toggling_a_fold_twice_opens_it_again() {
+        let mut folded = HashSet::from(["staged".to_string()]);
+        toggle_fold(&mut folded, "changes:src/");
+        assert_eq!(folded, HashSet::from(["staged".to_string(), "changes:src/".to_string()]));
+        toggle_fold(&mut folded, "changes:src/");
+        assert_eq!(folded, HashSet::from(["staged".to_string()]));
+    }
+
+    #[test]
+    fn nothing_commits_while_git_works() {
+        for kind in [CommitKind::Commit, CommitKind::Push, CommitKind::Amend] {
+            assert_eq!(commit_step(&[staged("a.rs")], kind, "Edit a", true), CommitStep::Skip);
+        }
+    }
+
+    #[test]
+    fn with_nothing_changed_only_amend_runs() {
+        assert_eq!(commit_step(&[], CommitKind::Commit, "Edit a", false), CommitStep::Skip);
+        assert_eq!(commit_step(&[], CommitKind::Push, "Edit a", false), CommitStep::Skip);
+        assert_eq!(commit_step(&[], CommitKind::Amend, "", false), CommitStep::Run { stage: vec![], busy: "Amending…" });
+    }
+
+    #[test]
+    fn a_commit_without_a_message_asks_for_one_but_amend_keeps_the_last() {
+        let files = [staged("a.rs")];
+        assert_eq!(commit_step(&files, CommitKind::Commit, "", false), CommitStep::AskMessage);
+        assert_eq!(commit_step(&files, CommitKind::Push, "", false), CommitStep::AskMessage);
+        assert_eq!(commit_step(&files, CommitKind::Amend, "", false), CommitStep::Run { stage: vec![], busy: "Amending…" });
+    }
+
+    #[test]
+    fn a_commit_takes_every_change_when_none_is_staged_and_only_the_staged_otherwise() {
+        let loose = [file("a.rs"), FileStat { status: 'A', ..file("new.rs") }];
+        assert_eq!(commit_step(&loose, CommitKind::Commit, "Edit", false), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
+        assert_eq!(commit_step(&loose, CommitKind::Push, "Edit", false), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
+        assert_eq!(commit_step(&loose, CommitKind::Amend, "Edit", false), CommitStep::Run { stage: vec![], busy: "Amending…" });
+        let mixed = [file("a.rs"), staged("b.rs")];
+        assert_eq!(commit_step(&mixed, CommitKind::Commit, "Edit", false), CommitStep::Run { stage: vec![], busy: "Committing…" });
+    }
+
+    #[test]
+    fn the_commit_button_says_commit_all_when_nothing_is_staged_and_what_git_does_while_busy() {
+        assert_eq!(commit_label(&[file("a.rs")], None), "Commit All");
+        assert_eq!(commit_label(&[file("a.rs"), staged("b.rs")], None), "Commit");
+        assert_eq!(commit_label(&[], None), "Commit");
+        assert_eq!(commit_label(&[file("a.rs")], Some("Pushing…")), "Pushing…");
+    }
+
+    #[test]
+    fn commit_is_ready_with_changes_a_message_and_git_idle() {
+        let files = [file("a.rs")];
+        assert!(commit_ready(&files, "Edit a", false));
+        assert!(!commit_ready(&files, " \n", false));
+        assert!(!commit_ready(&[], "Edit a", false));
+        assert!(!commit_ready(&files, "Edit a", true));
+    }
+
+    #[test]
+    fn staging_leaves_each_picked_file_wholly_staged_or_wholly_unstaged() {
+        let both = FileStat { staged: true, ..file("both.rs") };
+        let mut files = [file("a.rs"), both.clone(), file("c.rs")];
+        flip_staged(&mut files, &["a.rs".into(), "both.rs".into()], true);
+        assert_eq!(files, [staged("a.rs"), staged("both.rs"), file("c.rs")]);
+        let mut files = [staged("a.rs"), both];
+        flip_staged(&mut files, &["a.rs".into(), "both.rs".into()], false);
+        assert_eq!(files, [file("a.rs"), file("both.rs")]);
     }
 
     fn labels(files: &[FileStat], folded: &HashSet<String>) -> Vec<String> {
