@@ -213,13 +213,7 @@ impl Desktop {
     fn show_doc(&mut self, doc: Doc, cx: &mut Context<Self>) {
         match doc {
             Doc::File(path) => {
-                if self.preview.file.as_ref() != Some(&path) {
-                    self.preview.file = Some(path);
-                    self.preview.preview = None;
-                    self.preview.diff.clear();
-                    self.preview.stale = true;
-                    self.preview.md_source = false;
-                }
+                self.preview.open(path);
                 self.load_file(cx);
             }
             Doc::Diff(path) => {
