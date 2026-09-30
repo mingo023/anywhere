@@ -3,6 +3,7 @@ use crate::{Desktop, Intent, Overlay};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use store::RepoConfig;
 use theme::*;
@@ -17,7 +18,10 @@ pub enum Perm {
 
 pub struct NewForm {
     prompt: Entity<TextareaState>,
-    branch: Entity<InputState>,
+    name: Entity<InputState>,
+    /// Branches and worktree folders a new worktree's name must not reuse.
+    taken: HashSet<String>,
+    seed: usize,
     worktree: bool,
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,
@@ -65,8 +69,51 @@ pub struct RepoForm {
 }
 
 fn slug(prompt: &str) -> String {
-    let words: Vec<String> = prompt.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).take(4).map(str::to_lowercase).collect();
-    if words.is_empty() { String::new() } else { format!("task/{}", words.join("-")) }
+    prompt.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).take(4).map(str::to_lowercase).collect::<Vec<_>>().join("-")
+}
+
+const ADJECTIVES: [&str; 8] = ["brave", "calm", "eager", "fuzzy", "keen", "lucky", "quiet", "swift"];
+const NOUNS: [&str; 8] = ["otter", "heron", "maple", "comet", "falcon", "cedar", "koala", "lynx"];
+
+/// Case-insensitive because APFS is; a branch `a/b` owns the name `a`.
+fn is_taken(name: &str, taken: &HashSet<String>) -> bool {
+    taken.iter().any(|t| t.split('/').next().unwrap_or(t).eq_ignore_ascii_case(name))
+}
+
+fn free_name(seed: usize, taken: &HashSet<String>) -> String {
+    let count = ADJECTIVES.len() * NOUNS.len();
+    (0..count).map(|i| (seed + i) % count).map(|n| format!("{}-{}", ADJECTIVES[n / NOUNS.len()], NOUNS[n % NOUNS.len()])).find(|n| !is_taken(n, taken)).unwrap_or_else(|| unique("worktree", taken))
+}
+
+/// `base`, or `base-2`, `base-3`… when taken.
+fn unique(base: &str, taken: &HashSet<String>) -> String {
+    std::iter::once(base.to_string()).chain((2..).map(|n| format!("{base}-{n}"))).find(|n| !is_taken(n, taken)).unwrap()
+}
+
+/// The name a worktree gets when the user leaves Name empty: the prompt's slug, else a random one.
+fn auto_name(prompt: &str, seed: usize, taken: &HashSet<String>) -> String {
+    match slug(prompt) {
+        s if s.is_empty() => free_name(seed, taken),
+        s => unique(&s, taken),
+    }
+}
+
+/// Why `name` can't name a new worktree and its branch, if it can't.
+fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
+    let valid = !name.is_empty()
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+        && !name.starts_with(['-', '.'])
+        && !name.ends_with('.')
+        && !name.ends_with(".lock")
+        && !name.contains("..")
+        && name != "HEAD";
+    if is_taken(name, taken) {
+        Some("A worktree or branch with this name already exists")
+    } else if !valid {
+        Some("Use letters, digits, - _ or .")
+    } else {
+        None
+    }
 }
 
 fn repo_from_url(url: &str) -> String {
@@ -149,29 +196,35 @@ fn field(label: &str, body: impl IntoElement) -> Div {
     div().flex_1().min_w_0().flex().flex_col().gap(px(6.)).child(ui::field_label(label.to_string())).child(body)
 }
 
-fn footer(note: impl IntoElement, cancel: Stateful<Div>, submit: Stateful<Div>) -> Div {
+pub fn footer(note: impl IntoElement, cancel: Stateful<Div>, submit: Stateful<Div>) -> Div {
     div().pt(px(4.)).flex().items_center().gap(px(8.)).child(div().flex_1().min_w_0().text_size(px(13.)).text_color(rgba(TEXT_4)).child(note)).child(cancel).child(submit)
 }
 
 impl NewForm {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4));
-        let branch = cx.new(|cx| InputState::new(window, cx));
+        let name = cx.new(|cx| InputState::new(window, cx));
         let subs = vec![
             cx.subscribe_in(&prompt, window, |this, prompt, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
                 InputEvent::Change => {
-                    let slug = slug(&prompt.read(cx).value());
-                    this.new_form.branch.update(cx, |b, cx| b.set_placeholder(slug, window, cx));
+                    let f = &this.new_form;
+                    let name = auto_name(&prompt.read(cx).value(), f.seed, &f.taken);
+                    this.new_form.name.update(cx, |b, cx| b.set_placeholder(name, window, cx));
                     cx.notify();
                 }
                 _ => {}
             }),
-            cx.subscribe(&branch, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe_in(&name, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
+                _ => cx.notify(),
+            }),
         ];
         let form = Self {
             prompt,
-            branch,
+            name,
+            taken: HashSet::new(),
+            seed: 0,
             worktree: false,
             repo: None,
             branches: Vec::new(),
@@ -252,26 +305,33 @@ impl Desktop {
 
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = prompt.unwrap_or_default();
-        let placeholder = slug(&text);
         let f = &mut self.new_form;
+        f.seed = crate::view::now_ms() as usize;
+        f.taken.clear();
+        let placeholder = auto_name(&text, f.seed, &f.taken);
         f.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
-        f.branch.update(cx, |s, cx| {
+        f.name.update(cx, |s, cx| {
             s.set_value("", window, cx);
             s.set_placeholder(placeholder, window, cx);
         });
         f.worktree = worktree;
         f.perm = Perm::Ask;
         f.picker = None;
-        if let Some(repo) = self.project.clone() {
-            self.pick_repo(repo, cx);
+        match self.project.clone() {
+            Some(repo) => self.pick_repo(repo, window, cx),
+            None => {
+                f.repo = None;
+                f.branches.clear();
+            }
         }
     }
 
-    fn pick_repo(&mut self, repo: String, cx: &mut Context<Self>) {
+    fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let cfg = self.store.repos.get(&repo).cloned().unwrap_or_default();
+        let folders = self.worktrees_dir(&repo);
         let f = &mut self.new_form;
         f.repo = Some(repo.clone());
         f.branches.clear();
@@ -281,15 +341,18 @@ impl Desktop {
         let dir = repo.clone();
         let task = cx.background_executor().spawn(async move {
             let current = git::read(&dir).map(|r| r.branch).unwrap_or_default();
-            let branches: Vec<(String, Option<i64>)> = git::branches(&dir).into_iter().take(20).map(|b| {
-                let at = git::committed_at(&dir, &b);
-                (b, at)
+            let all = git::branches(&dir);
+            let branches: Vec<(String, Option<i64>)> = all.iter().take(20).map(|b| {
+                let at = git::committed_at(&dir, b);
+                (b.clone(), at)
             }).collect();
-            (current, branches)
+            let entries = std::fs::read_dir(&folders).into_iter().flatten().flatten();
+            let taken: HashSet<String> = all.into_iter().chain(entries.filter_map(|e| e.file_name().into_string().ok())).collect();
+            (current, branches, taken)
         });
-        cx.spawn(async move |this, cx| {
-            let (current, mut branches) = task.await;
-            this.update(cx, |d, cx| {
+        cx.spawn_in(window, async move |this, cx| {
+            let (current, mut branches, taken) = task.await;
+            this.update_in(cx, |d, window, cx| {
                 let f = &mut d.new_form;
                 if f.repo.as_ref() != Some(&repo) {
                     return;
@@ -300,6 +363,9 @@ impl Desktop {
                 }
                 f.base = 0;
                 f.branches = branches;
+                f.taken = taken;
+                let name = auto_name(&f.prompt.read(cx).value(), f.seed, &f.taken);
+                f.name.update(cx, |s, cx| s.set_placeholder(name, window, cx));
                 cx.notify();
             })
             .ok();
@@ -307,8 +373,9 @@ impl Desktop {
         .detach();
     }
 
-    fn new_branch(&self, cx: &App) -> String {
-        typed_or(&self.new_form.branch, || slug(&self.new_form.prompt.read(cx).value()), cx)
+    fn new_name(&self, cx: &App) -> String {
+        let f = &self.new_form;
+        typed_or(&f.name, || auto_name(&f.prompt.read(cx).value(), f.seed, &f.taken), cx)
     }
 
     fn repo_form_name(&self, cx: &App) -> String {
@@ -326,7 +393,7 @@ impl Desktop {
     fn session_ready(&self, cx: &App) -> bool {
         let f = &self.new_form;
         if f.worktree {
-            f.repo.is_some() && !self.new_branch(cx).is_empty() && !f.branches.is_empty()
+            f.repo.is_some() && !f.branches.is_empty() && name_problem(&self.new_name(cx), &f.taken).is_none()
         } else {
             self.cwd().is_some()
         }
@@ -353,13 +420,14 @@ impl Desktop {
             None => {
                 let f = &self.new_form;
                 let Some(repo) = f.repo.clone() else { return };
-                let branch = self.new_branch(cx);
-                let path = format!("{}/{}", self.worktrees_dir(&repo), branch.replace('/', "-"));
+                let name = self.new_name(cx);
+                let path = format!("{}/{name}", self.worktrees_dir(&repo));
                 let base = f.branches.get(f.base).map(|(b, _)| b.clone()).unwrap_or_default();
                 let copy = if f.copy_env { self.copy_list(&repo) } else { Vec::new() };
                 let setup = self.store.repos.get(&repo).map(|r| r.setup.clone()).filter(|_| f.run_setup).unwrap_or_default();
+                let project = repo.clone();
                 let task = cx.background_executor().spawn(async move {
-                    git::add_worktree(&repo, &path, &branch, &base)?;
+                    git::add_worktree(&repo, &path, &name, &base)?;
                     for rel in copy {
                         let to = Path::new(&path).join(&rel);
                         if let Some(dir) = to.parent() {
@@ -367,19 +435,17 @@ impl Desktop {
                         }
                         std::fs::copy(Path::new(&repo).join(&rel), to).ok();
                     }
-                    if !setup.is_empty() {
-                        let out = std::process::Command::new(daemon::login_shell()).args(["-l", "-c", &setup]).env_clear().envs(daemon::terminal_env()).current_dir(&path).output().map_err(|e| e.to_string())?;
-                        if !out.status.success() {
-                            return Err(format!("Setup failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
-                        }
-                    }
-                    Ok(path)
+                    Ok::<_, String>(path)
                 });
                 cx.spawn(async move |this, cx| {
                     let res = task.await;
                     this.update(cx, |d, cx| {
+                        if res.is_ok() && d.store.collapsed.remove(&project) {
+                            d.store.save();
+                        }
                         match res {
-                            Ok(path) => d.send_spawn(daemon::agent_op(&argv, &path), Intent::Tab(path), cx),
+                            Ok(path) if setup.is_empty() => d.send_spawn(daemon::agent_op(&argv, &path), Intent::Tab(path), cx),
+                            Ok(path) => d.send_spawn(daemon::setup_op(&setup, &argv, &path), Intent::Setup(path), cx),
                             Err(e) => d.error = Some(e),
                         }
                         d.refresh_git(cx);
@@ -394,12 +460,19 @@ impl Desktop {
     }
 
     pub fn new_worktree(&mut self, _: &crate::NewWorktree, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menus();
         self.overlay = Some(Overlay::NewSession);
         self.reset_new_form(None, true, window, cx);
         cx.notify();
     }
 
+    pub fn new_worktree_in(&mut self, p: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_project(p, cx);
+        self.new_worktree(&crate::NewWorktree, window, cx);
+    }
+
     pub fn project_settings(&mut self, _: &crate::ProjectSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menus();
         self.overlay = Some(Overlay::AddRepo);
         self.reset_repo_form(self.project.clone(), window, cx);
         cx.notify();
@@ -515,6 +588,13 @@ impl Desktop {
             .child(icon("arrow-up", 16., WHITE))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
+        let problem = if f.worktree { name_problem(&self.new_name(cx), &f.taken) } else { None };
+        let name_field = f.worktree.then(|| {
+            ui::field_box()
+                .child(icon("worktree", 14., TEXT_3))
+                .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&f.name).appearance(false).p_0().text_size(px(13.))))
+                .children(problem.map(|p| div().flex_none().text_size(px(12.)).text_color(rgba(FAILED)).child(p)))
+        });
         let composer = div()
             .flex()
             .flex_col()
@@ -538,11 +618,9 @@ impl Desktop {
             );
         let mono = |s: String| div().font_family(MONO).text_color(rgba(TEXT_2)).child(s);
         let summary: Vec<AnyElement> = if f.worktree {
-            let width = self.new_branch(cx).chars().count().max(8);
             vec![
-                div().child("New worktree on").into_any_element(),
-                // GPUI inputs don't size to their text; Geist Mono advances 0.6em.
-                div().w(px(width as f32 * 7.2 + 2.)).font_family(MONO).child(Input::new(&f.branch).appearance(false).p_0().max_h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(rgba(TEXT_2))).into_any_element(),
+                div().child("New branch").into_any_element(),
+                mono(self.new_name(cx)).into_any_element(),
                 div().child("from").into_any_element(),
                 mono(base).into_any_element(),
             ]
@@ -562,7 +640,7 @@ impl Desktop {
             .child(div().ml_auto().text_color(rgba(TEXT_4)).child("⌘↵ to start · esc to cancel"));
         div().absolute().top(px(110.)).left_0().right_0().flex().justify_center().child(
             // The design's 0.5px border renders 1px wide and insets the sheet's content.
-            ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).occlude().child(header).child(composer).child(footer),
+            ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).occlude().child(header).children(name_field).child(composer).child(footer),
         )
     }
 
@@ -679,9 +757,7 @@ impl Desktop {
     }
 
     fn add_repo(&mut self, path: String, cfg: RepoConfig, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.store.projects.contains(&path) {
-            self.store.projects.push(path.clone());
-        }
+        self.store.add(&path);
         self.store.repos.insert(path.clone(), cfg);
         self.store.save();
         self.close_overlay(window, cx);
@@ -888,13 +964,38 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{repo_from_url, slug};
+    use super::{auto_name, name_problem, repo_from_url, slug};
+    use std::collections::HashSet;
 
     #[test]
-    fn slug_names_a_branch_after_the_prompt() {
-        assert_eq!(slug("The RestoreView snapshot fails on CI"), "task/the-restoreview-snapshot-fails");
-        assert_eq!(slug("fix: flaky!"), "task/fix-flaky");
+    fn slug_names_a_worktree_after_the_prompt() {
+        assert_eq!(slug("The RestoreView snapshot fails on CI"), "the-restoreview-snapshot-fails");
+        assert_eq!(slug("fix: flaky!"), "fix-flaky");
         assert_eq!(slug("  …  "), "");
+    }
+
+    #[test]
+    fn an_empty_name_falls_back_to_a_free_one() {
+        let taken: HashSet<String> = ["fix-flaky", "brave-otter", "Brave-Heron", "Fix-Login", "fix-login-2", "release/1.0"].map(String::from).into();
+        assert_eq!(auto_name("fix: flaky!", 0, &taken), "fix-flaky-2");
+        assert_eq!(auto_name("Fix login", 0, &taken), "fix-login-3");
+        assert_eq!(auto_name("Release", 0, &taken), "release-2");
+        assert_eq!(auto_name("Add dark mode", 0, &taken), "add-dark-mode");
+        assert_eq!(auto_name("", 0, &taken), "brave-maple");
+        assert_eq!(auto_name("", 63, &HashSet::new()), "swift-lynx");
+        assert_eq!(auto_name("", 64, &HashSet::new()), "brave-otter");
+    }
+
+    #[test]
+    fn a_name_must_be_free_and_valid_for_git() {
+        let taken: HashSet<String> = ["main", "Foo", "fix/login"].map(String::from).into();
+        assert_eq!(name_problem("fix-login_2.0", &taken), None);
+        for used in ["main", "foo", "fix"] {
+            assert_eq!(name_problem(used, &taken), Some("A worktree or branch with this name already exists"), "{used}");
+        }
+        for bad in ["", "fix login", "fix/login", "-x", ".x", "x.", "a..b", "x.lock", "tên", "HEAD"] {
+            assert_eq!(name_problem(bad, &taken), Some("Use letters, digits, - _ or ."), "{bad}");
+        }
     }
 
     #[test]

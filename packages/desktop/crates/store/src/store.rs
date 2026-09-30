@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// How a repository shows in the rail and how new worktrees of it are made.
@@ -21,6 +21,8 @@ pub struct Store {
     pub projects: Vec<String>,
     /// Keyed by the repository's path in `projects`.
     pub repos: BTreeMap<String, RepoConfig>,
+    /// Project paths whose worktrees are hidden on the sidebar.
+    pub collapsed: BTreeSet<String>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -38,6 +40,31 @@ impl Store {
             let _ = std::fs::write(&self.path, raw);
         }
     }
+
+    pub fn add(&mut self, path: &str) {
+        if !self.projects.iter().any(|p| p == path) {
+            self.projects.push(path.to_string());
+        }
+    }
+
+    /// Forgets `path`'s place on the sidebar but keeps its settings, so adding it back restores them.
+    pub fn remove(&mut self, path: &str) {
+        self.projects.retain(|p| p != path);
+        self.collapsed.remove(path);
+    }
+
+    pub fn toggle(&mut self, path: &str) {
+        if !self.collapsed.remove(path) {
+            self.collapsed.insert(path.to_string());
+        }
+    }
+
+    /// Puts project `from` where `to` is, shifting the ones between.
+    pub fn move_project(&mut self, from: &str, to: &str) {
+        let (Some(i), Some(j)) = (self.projects.iter().position(|p| p == from), self.projects.iter().position(|p| p == to)) else { return };
+        let p = self.projects.remove(i);
+        self.projects.insert(j, p);
+    }
 }
 
 #[cfg(test)]
@@ -50,10 +77,38 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut s = Store::load(&dir);
         s.projects.push("/w".into());
+        s.collapsed.insert("/w".into());
         s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], ..Default::default() });
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_dragged_project_takes_the_place_of_the_one_it_lands_on() {
+        let mut s = Store { projects: ["a", "b", "c", "d"].map(String::from).to_vec(), ..Default::default() };
+        s.move_project("a", "c");
+        assert_eq!(s.projects, ["b", "c", "a", "d"]);
+        s.move_project("d", "b");
+        assert_eq!(s.projects, ["d", "b", "c", "a"]);
+        s.move_project("x", "b");
+        assert_eq!(s.projects, ["d", "b", "c", "a"]);
+    }
+
+    #[test]
+    fn removing_a_project_keeps_its_settings() {
+        let mut s = Store::default();
+        s.add("/w");
+        s.add("/w");
+        s.repos.insert("/w".into(), RepoConfig { name: "w".into(), ..Default::default() });
+        s.toggle("/w");
+        assert_eq!((s.projects.len(), s.collapsed.contains("/w")), (1, true));
+        s.remove("/w");
+        assert!(s.projects.is_empty() && s.collapsed.is_empty());
+        assert!(s.repos.contains_key("/w"));
+        s.toggle("/w");
+        s.toggle("/w");
+        assert!(!s.collapsed.contains("/w"));
     }
 }

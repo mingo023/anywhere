@@ -9,11 +9,11 @@ One PTY that pocketd owns. A terminal the desktop opens runs the user's login sh
 _Avoid_: pane, PTY session, pocketd session
 
 **Project**:
-A git repository added to Pocket, listed on the rail. Selecting it selects its main worktree, the repository's own checkout. A terminal launched outside every project adds its folder as a project while the folder has terminals; a folder that isn't a repository is its own only worktree.
+A git repository added to Pocket, listed on the sidebar in the user's order. Selecting it selects its main worktree, the repository's own checkout, which the project's own row stands for. A terminal launched outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves the repository on disk.
 _Avoid_: repository, repo, folder
 
 **Worktree**:
-A git worktree of a project, listed on the sidebar. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
+A git worktree of a project, listed under it on the sidebar by its name: the name of its folder, which stays when its branch changes. One Pocket creates starts on a new branch of the same name. Deleting a worktree closes its terminals and removes its folder but keeps its branch; the main worktree can't be deleted. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
 _Avoid_: workspace, branch
 
 **Login shell**:

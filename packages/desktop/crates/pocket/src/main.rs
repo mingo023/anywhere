@@ -64,6 +64,20 @@ pub enum Overlay {
     NewSession,
     AddRepo,
     More,
+    Confirm,
+}
+
+#[derive(Clone)]
+pub enum Confirm {
+    RemoveProject(String),
+    DeleteWorktree { project: String, tree: String, branch: String, dirty: usize },
+}
+
+/// The sidebar row whose `⋯` menu is open.
+#[derive(Clone, PartialEq)]
+pub enum RowMenu {
+    Project(String),
+    Tree { project: String, tree: String },
 }
 
 /// A comment sent to an agent about lines of a file, kept so the diff can show it until resolved.
@@ -79,6 +93,7 @@ pub struct Comment {
 enum Intent {
     Tab(String),
     Split(String, bool),
+    Setup(String),
 }
 
 pub struct Desktop {
@@ -137,8 +152,11 @@ pub struct Desktop {
     palette_all: bool,
     palette_files: Vec<String>,
     worktrees: HashMap<String, Vec<git::Worktree>>,
-    merged: HashSet<String>,
     worktree: Option<String>,
+    /// Terminal → worktree while the terminal runs the worktree's setup before its agent.
+    setups: HashMap<String, String>,
+    confirm: Option<Confirm>,
+    row_menu: Option<RowMenu>,
     file: Option<String>,
     file_preview: Option<explore::Preview>,
     file_diff: Vec<git::Line>,
@@ -245,8 +263,10 @@ impl Desktop {
             palette_all: true,
             palette_files: Vec::new(),
             worktrees: HashMap::new(),
-            merged: HashSet::new(),
             worktree: None,
+            setups: HashMap::new(),
+            confirm: None,
+            row_menu: None,
             file: None,
             file_preview: None,
             file_diff: Vec::new(),
@@ -277,6 +297,8 @@ impl Desktop {
             self.alerted.extend(list.iter().map(|a| a.id.clone()));
         }
         self.agents.apply(ev);
+        let agents = &self.agents;
+        self.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
         if self.screen == Screen::Inbox {
             (self.inbox, self.focused) = inbox::reselect(&inbox::notes(&self.agents), self.focused.as_deref(), self.inbox);
         }
@@ -351,6 +373,8 @@ impl Desktop {
                 for id in self.sessions.sync(items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
+                let sessions = &self.sessions;
+                self.setups.retain(|id, _| sessions.get(id).is_some());
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
                 }
@@ -360,6 +384,10 @@ impl Desktop {
                 match self.intents.pop_front() {
                     Some(Intent::Tab(tree)) => self.adopt(m.id.clone(), tree, None, window, cx),
                     Some(Intent::Split(tree, down)) => self.adopt(m.id.clone(), tree, Some(down), window, cx),
+                    Some(Intent::Setup(tree)) => {
+                        self.setups.insert(m.id.clone(), tree.clone());
+                        self.adopt(m.id.clone(), tree, None, window, cx)
+                    }
                     None => {}
                 }
                 self.daemon.send(json!({"op": "list"}));
@@ -372,6 +400,7 @@ impl Desktop {
             }
             "exit" => {
                 self.sessions.apply(&m);
+                self.setups.remove(&m.id);
                 self.close_clean_exits(&m.id, cx);
             }
             _ => self.sessions.apply(&m),
@@ -473,14 +502,29 @@ impl Desktop {
     pub fn select_project(&mut self, p: String, cx: &mut Context<Self>) {
         self.screen = Screen::Sessions;
         if self.project.as_ref() != Some(&p) {
-            self.project = Some(p);
-            self.session = None;
-            self.worktree = None;
-            self.diff_file = None;
-            self.file = None;
-            self.tree.clear();
+            self.set_project(Some(p));
             self.refresh_git(cx);
         }
+        cx.notify();
+    }
+
+    fn set_project(&mut self, p: Option<String>) {
+        self.project = p;
+        self.session = None;
+        self.worktree = None;
+        self.diff_file = None;
+        self.file = None;
+        self.tree.clear();
+    }
+
+    /// Shows worktree `tree` of project `p`; `None` is the project's main worktree.
+    pub fn select_tree(&mut self, p: String, tree: Option<String>, cx: &mut Context<Self>) {
+        self.select_project(p, cx);
+        if self.worktree != tree {
+            self.worktree = tree;
+            self.refresh_git(cx);
+        }
+        self.session = None;
         cx.notify();
     }
 
@@ -540,6 +584,7 @@ impl Desktop {
         self.sessions.remove(id);
         self.closed.insert(id.to_string());
         self.sized.remove(id);
+        self.setups.remove(id);
         for w in self.workspaces.values_mut() {
             w.remove(id);
         }
@@ -563,6 +608,104 @@ impl Desktop {
             self.close_pane(&id, cx);
         }
         cx.notify();
+    }
+
+    fn project_terminals(&self, p: &str) -> Vec<String> {
+        let projects = self.projects();
+        self.sessions.items.iter().filter(|s| self.project_of(&s.info.cwd, &projects).is_some_and(|o| o == p)).map(|s| s.info.id.clone()).collect()
+    }
+
+    fn tree_terminals(&self, tree: &str) -> Vec<String> {
+        self.sessions.items.iter().filter(|s| self.tree_of(&s.info.cwd).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
+    }
+
+    /// Returns whether a menu was open.
+    fn close_menus(&mut self) -> bool {
+        let open = self.tab_menu || self.row_menu.is_some();
+        (self.tab_menu, self.row_menu) = (false, None);
+        open
+    }
+
+    fn keep_project(&mut self, p: &str, cx: &mut Context<Self>) {
+        self.store.add(p);
+        self.store.save();
+        self.refresh_git(cx);
+        cx.notify();
+    }
+
+    /// Closes the project's terminals and takes it off the sidebar; its folder is untouched.
+    fn remove_project(&mut self, p: &str, cx: &mut Context<Self>) {
+        for id in self.project_terminals(p) {
+            self.close_pane(&id, cx);
+        }
+        self.store.remove(p);
+        self.store.save();
+        self.worktrees.remove(p);
+        if self.project.as_deref() == Some(p) {
+            self.set_project(None);
+            if let Some(next) = self.projects().into_iter().next() {
+                self.select_tree(next, None, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn ask_remove_project(&mut self, p: String, cx: &mut Context<Self>) {
+        if self.project_terminals(&p).is_empty() {
+            self.remove_project(&p, cx);
+        } else {
+            self.confirm = Some(Confirm::RemoveProject(p));
+            self.overlay = Some(Overlay::Confirm);
+        }
+        cx.notify();
+    }
+
+    /// Asks first when deleting would close terminals or lose uncommitted changes.
+    fn ask_delete_worktree(&mut self, project: String, tree: String, cx: &mut Context<Self>) {
+        let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).unwrap_or_default();
+        let dir = tree.clone();
+        let task = cx.background_executor().spawn(async move { git::read(&dir).map(|r| r.files.len()) });
+        cx.spawn(async move |this, cx| {
+            let dirty = task.await;
+            this.update(cx, |d, cx| {
+                if dirty == Some(0) && d.tree_terminals(&tree).is_empty() {
+                    d.delete_worktree(project, tree, cx);
+                } else {
+                    d.confirm = Some(Confirm::DeleteWorktree { project, tree, branch, dirty: dirty.unwrap_or(0) });
+                    d.overlay = Some(Overlay::Confirm);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Closes the worktree's terminals and deletes its folder; its branch stays.
+    fn delete_worktree(&mut self, project: String, tree: String, cx: &mut Context<Self>) {
+        let dir = tree.clone();
+        let task = cx.background_executor().spawn(async move { git::remove_worktree(&project, &dir) });
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            this.update(cx, |d, cx| {
+                match res {
+                    Err(e) => d.error = Some(e),
+                    Ok(()) => {
+                        for id in d.tree_terminals(&tree) {
+                            d.close_pane(&id, cx);
+                        }
+                        d.workspaces.remove(&tree);
+                        if d.worktree.as_ref() == Some(&tree) {
+                            (d.worktree, d.session) = (None, None);
+                        }
+                    }
+                }
+                d.refresh_git(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
 
@@ -592,7 +735,6 @@ impl Desktop {
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
         let cwds = self.git_cwds();
         let projects = self.store.projects.clone();
-        let current = self.project.clone();
         let file = self.file.clone().map(|f| {
             let changed = self.file_status(&f).is_some();
             (f, changed)
@@ -628,23 +770,19 @@ impl Desktop {
                 let w = git::worktrees(&p);
                 (p, w)
             }).collect();
-            let merged: HashSet<String> = current.map(|p| {
-                let base = git::read(&p).map(|r| r.branch).unwrap_or_default();
-                git::merged(&p, &base).into_iter().collect()
-            }).unwrap_or_default();
             let file = file.map(|(f, changed)| explore::load(&f, changed));
-            (repos, diff, initials, tree, worktrees, merged, file)
+            (repos, diff, initials, tree, worktrees, file)
         });
         cx.spawn(async move |this, cx| {
-            let (repos, diff, initials, tree, worktrees, merged, file) = task.await;
+            let (repos, diff, initials, tree, worktrees, file) = task.await;
             this.update(cx, |d, cx| {
                 if run != d.git_run {
                     return;
                 }
                 d.git_done = run;
                 let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
-                let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees || merged != d.merged;
-                (d.repos, d.tree, d.initials, d.worktrees, d.merged) = (repos, tree, initials, worktrees, merged);
+                let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees;
+                (d.repos, d.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
                 if let Some((_, preview, lines)) = file.filter(|(p, _, _)| d.file.as_ref() == Some(p)) {
                     let preview = Some(preview);
                     let fresh = preview != d.file_preview || lines != d.file_diff;

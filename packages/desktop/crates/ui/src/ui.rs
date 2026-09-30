@@ -54,12 +54,13 @@ pub enum Variant {
     Secondary,
     Ghost,
     Accent,
+    Danger,
 }
 
 impl Variant {
     pub fn fg(self) -> u32 {
         match self {
-            Variant::Primary | Variant::Accent => WHITE,
+            Variant::Primary | Variant::Accent | Variant::Danger => WHITE,
             Variant::Glass | Variant::Secondary => TEXT,
             Variant::Ghost => TEXT_2,
         }
@@ -90,6 +91,7 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
         Variant::Accent => d.bg(rgba(ACCENT)).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(0xffffff40), shadow(0x0a84ff59, 2., 6.)]),
         Variant::Secondary => d.bg(rgba(FILL_3)).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_4))),
         Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_3))),
+        Variant::Danger => d.bg(rgba(FAILED)).font_weight(FontWeight::SEMIBOLD),
     };
     d.children(icon_name.map(|n| icon(n, 14., v.fg()))).child(label)
 }
@@ -195,7 +197,6 @@ pub enum State {
     NeedsYou,
     Working,
     Failed,
-    Merged,
     Sent,
     Draft,
     Done(usize, usize),
@@ -234,35 +235,12 @@ pub fn status(id: impl Into<ElementId>, state: State) -> Div {
         State::NeedsYou => pill(WAITING_BG, WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
         State::Working => pill(RUNNING_BG, RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Working"),
         State::Failed => pill(FAILED_BG, FAILED).child(icon("x-bold", 11., FAILED)).child("Failed"),
-        State::Merged => pill(MERGED_BG, MERGED).child(icon("merge", 11., MERGED)).child("Merged"),
         State::Sent => pill(FILL_3, TEXT_2).child(icon("check", 11., TEXT_2)).child("Sent"),
         State::Draft => pill(ACCENT_BG, ACCENT).child(dot(6., ACCENT)).child("Draft"),
         State::Done(added, removed) => div().flex().flex_none().items_center().gap(px(6.)).child(dot(6., ACCENT)).child(diffstat(added, removed)),
         State::Idle(added, removed) => diffstat(added, removed),
         State::NotAttached => pill(FILL_3, TEXT_3).child("Not attached"),
     }
-}
-
-/// The design's blank label still takes the pill's 5px gap, so the pill is wider on the right.
-fn mini_status(bg: u32, mark: impl IntoElement) -> AnyElement {
-    div().h(px(20.)).pl(px(7.)).pr(px(13.)).flex().flex_none().items_center().justify_center().rounded(px(10.)).bg(rgba(bg)).child(mark).into_any_element()
-}
-
-pub fn agent_badge(provider: &str, label: impl Into<SharedString>) -> Div {
-    div()
-        .h(px(22.))
-        .px(px(8.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(5.))
-        .rounded(px(11.))
-        .bg(rgba(FILL_2))
-        .text_size(px(12.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .whitespace_nowrap()
-        .child(dot(7., provider_color(provider)))
-        .child(label.into())
 }
 
 pub fn tag(label: impl Into<SharedString>) -> Div {
@@ -289,10 +267,13 @@ pub fn kbd(keys: &str) -> Div {
 }
 
 /// One letter for a repository, taken from its last dash-separated word: "app-ios" is I.
-pub fn repo_mark(name: &str, selected: bool, state: Option<State>) -> Div {
+fn mark_letter(name: &str) -> String {
     let word = name.rsplit('-').find(|w| !w.is_empty()).unwrap_or(name);
-    let letter = word.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
-    repo_tile(&letter, 22., selected, state)
+    word.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()
+}
+
+pub fn repo_mark(name: &str, selected: bool, state: Option<State>) -> Div {
+    repo_tile(&mark_letter(name), 22., selected, state)
 }
 
 /// The color that marks a state asking for a look: Needs you, Failed or Done.
@@ -328,30 +309,117 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>)
         .when(state == Some(State::Working), |d| d.child(badge(div().bottom(px(-2.)), RUNNING)))
 }
 
-pub fn repo_row(id: impl Into<ElementId>, name: &str, selected: bool, count: Option<usize>, state: Option<State>, spin: impl Into<ElementId>) -> Stateful<Div> {
+const ROW_GROUP: &str = "sidebar-row";
+
+fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
     div()
         .id(id)
-        .h(px(34.))
-        .pl(px(6.))
-        .pr(px(8.))
+        .group(ROW_GROUP)
+        .h(px(32.))
+        .pr(px(6.))
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(9.))
+        .gap(px(7.))
         .rounded(px(9.))
         .cursor_pointer()
+        .when(selected, |d| d.bg(rgba(0xffffffe6)).shadow(row_shadow()))
+        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
+}
+
+/// `kept` is false for a project Pocket shows only while it has terminals: its mark is dashed and its name dim.
+pub fn repo_row(id: impl Into<ElementId>, lead: impl IntoElement, name: &str, selected: bool, kept: bool) -> Stateful<Div> {
+    let mark = if kept {
+        repo_mark(name, false, None)
+    } else {
+        div()
+            .size(px(22.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(6.))
+            .border(px(1.))
+            .border_dashed()
+            .border_color(rgba(TEXT_5))
+            .text_size(px(11.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgba(TEXT_3))
+            .child(mark_letter(name))
+    };
+    sidebar_row(id, selected)
+        .pl(px(4.))
         .text_size(px(14.5))
         .font_weight(FontWeight::SEMIBOLD)
-        .hover(|s| s.bg(rgba(FILL_2)))
-        .child(div().w(px(14.)).flex().justify_center().child(icon(if selected { "chevron-down" } else { "chevron-right" }, 12., TEXT_5)))
-        .child(repo_mark(name, false, None))
-        .child(div().flex_1().truncate().child(name.to_string()))
-        .children(count.map(|n| div().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_3)).child(n.to_string())))
-        .map(|d| match state {
-            Some(State::Working) => d.child(spinner(spin, 11., RUNNING_TEXT)),
-            Some(s) => d.children(alert_color(s).map(|c| dot(7., c))),
-            None => d,
-        })
+        .child(lead)
+        .child(mark)
+        .child(div().flex_1().min_w_0().truncate().when(!kept, |d| d.text_color(rgba(TEXT_3))).child(name.to_string()))
+}
+
+pub fn chevron(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .w(px(14.))
+        .h(px(20.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .hover(|s| s.bg(rgba(FILL_3)))
+        .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
+}
+
+/// A row's status mark: a spinner while working, a dot when it asks for a look.
+pub fn indicator(id: impl Into<ElementId>, state: Option<State>) -> Option<AnyElement> {
+    match state? {
+        State::Working => Some(spinner(id, 11., RUNNING_TEXT).into_any_element()),
+        s => alert_color(s).map(|c| dot(7., c).into_any_element()),
+    }
+}
+
+pub fn setting_up(id: impl Into<ElementId>) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(5.))
+        .text_size(px(12.))
+        .font_weight(FontWeight::NORMAL)
+        .text_color(rgba(TEXT_4))
+        .child(spinner(id, 11., TEXT_4))
+        .child("Setting up…")
+}
+
+/// A sidebar row's right end: its status mark, swapped for its buttons while the row is hovered or its menu is open.
+pub fn row_trail(mark: Option<AnyElement>, buttons: Vec<AnyElement>, open: bool) -> Div {
+    let width = buttons.len() as f32 * 24. - 2.;
+    div()
+        .relative()
+        .h_full()
+        .min_w(px(width))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_end()
+        .children(mark.map(|m| div().flex().items_center().map(|d| if open { d.opacity(0.) } else { d.group_hover(ROW_GROUP, |s| s.opacity(0.)) }).child(m)))
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .right_0()
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .when(!open, |d| d.opacity(0.).group_hover(ROW_GROUP, |s| s.opacity(1.)))
+                .children(buttons),
+        )
+}
+
+/// The accent line a dragged row lands on: under the row when moving down, over it when moving up.
+pub fn drop_line(below: bool) -> Vec<BoxShadow> {
+    vec![BoxShadow { inset: true, ..shadow(ACCENT, if below { -2. } else { 2. }, 0.) }]
 }
 
 pub fn provider_label(provider: &str, faded: bool) -> Div {
@@ -678,7 +746,7 @@ pub fn palette_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
         .children(keys.map(kbd))
 }
 
-pub fn menu_row(id: impl Into<ElementId>, icon_name: &str, label: &str, keys: Option<&str>) -> Stateful<Div> {
+fn menu_item(id: impl Into<ElementId>, icon_name: &str, label: &str, tint: u32, hover: u32) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(32.))
@@ -690,10 +758,22 @@ pub fn menu_row(id: impl Into<ElementId>, icon_name: &str, label: &str, keys: Op
         .rounded(px(8.))
         .cursor_pointer()
         .text_size(px(13.5))
-        .hover(|s| s.bg(rgba(FILL_2)))
-        .child(icon(icon_name, 14., TEXT_2))
+        .hover(move |s| s.bg(rgba(hover)))
+        .child(icon(icon_name, 14., tint))
         .child(div().flex_1().child(label.to_string()))
-        .children(keys.map(kbd))
+}
+
+pub fn menu_row(id: impl Into<ElementId>, icon_name: &str, label: &str, keys: Option<&str>) -> Stateful<Div> {
+    menu_item(id, icon_name, label, TEXT_2, FILL_2).children(keys.map(kbd))
+}
+
+/// A menu row that destroys something; menus keep it last, behind a divider.
+pub fn danger_row(id: impl Into<ElementId>, icon_name: &str, label: &str) -> Stateful<Div> {
+    menu_item(id, icon_name, label, FAILED, FAILED_BG).text_color(rgba(FAILED))
+}
+
+pub fn menu_divider() -> Div {
+    div().h(px(0.5)).mx(px(8.)).my(px(4.)).flex_none().bg(rgba(SEPARATOR))
 }
 
 pub fn chip(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
@@ -738,53 +818,12 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .child(div().text_size(px(11.5)).text_color(rgba(TEXT_4)).child(keys.to_string()))
 }
 
-pub fn worktree_row(id: impl Into<ElementId>, label: String, branch: String, main: bool, selected: bool, state: Option<State>) -> Stateful<Div> {
-    let id = id.into();
-    let lead = if main {
-        icon("folder", 13., TEXT_4).into_any_element()
-    } else if selected {
-        dot(8., ACCENT).shadow(vec![ring(ACCENT_RING, 3.)]).into_any_element()
-    } else {
-        div().size(px(7.)).rounded(px(4.)).border(px(1.5)).border_color(rgba(TEXT_5)).into_any_element()
-    };
-    div()
-        .id(id.clone())
-        .min_h(px(32.))
-        .py(px(5.))
-        .pl(px(34.))
-        .pr(px(8.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(10.))
-        .rounded(px(9.))
-        .cursor_pointer()
-        .when(selected, |d| d.bg(rgba(0xffffffe6)).shadow(row_shadow()))
-        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
-        .child(div().w(px(14.)).flex().flex_none().justify_center().child(lead))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(1.))
-                .child(
-                    div()
-                        .truncate()
-                        .text_size(px(14.))
-                        .line_height(px(17.))
-                        .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
-                        .text_color(rgba(if selected || main { TEXT } else { TEXT_BODY }))
-                        .child(label),
-                )
-                .child(div().truncate().font_family(MONO).text_size(px(11.)).line_height(px(14.)).text_color(rgba(TEXT_4)).child(branch)),
-        )
-        .children(state.map(|s| match s {
-            State::NeedsYou => mini_status(WAITING_BG, dot(6., WAITING)),
-            State::Failed => mini_status(FAILED_BG, icon("x", 11., FAILED)),
-            State::Done(..) => mini_status(ACCENT_BG, dot(6., ACCENT)),
-            State::Working => mini_status(RUNNING_BG, spinner(id.clone(), 11., RUNNING_TEXT)),
-            _ => status(id, s).into_any_element(),
-        }))
+/// Indented so its name lines up with its project's: 4 + chevron 14 + 7 + mark 22 + 7.
+pub fn worktree_row(id: impl Into<ElementId>, name: String, selected: bool) -> Stateful<Div> {
+    sidebar_row(id, selected)
+        .pl(px(54.))
+        .text_size(px(13.5))
+        .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
+        .text_color(rgba(if selected { TEXT } else { TEXT_BODY }))
+        .child(div().flex_1().min_w_0().truncate().child(name))
 }

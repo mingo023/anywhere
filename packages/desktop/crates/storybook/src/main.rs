@@ -67,7 +67,8 @@ impl Render for Storybook {
                     .gap(px(12.))
                     .child(ui::button("comment", Variant::Accent, None, "Comment").child(ui::button_kbd("⌘↵")))
                     .child(ui::button("resolve", Variant::Secondary, Some("check"), "Resolve"))
-                    .child(ui::button("cancel", Variant::Ghost, None, "Cancel")),
+                    .child(ui::button("cancel", Variant::Ghost, None, "Cancel"))
+                    .child(ui::button("delete", Variant::Danger, None, "Delete")),
             ))
             .child(story(
                 "Icon button & group",
@@ -103,7 +104,6 @@ impl Render for Storybook {
                     .child(ui::status("needs-you", State::NeedsYou))
                     .child(ui::status("working", State::Working))
                     .child(ui::status("failed", State::Failed))
-                    .child(ui::status("merged", State::Merged))
                     .child(ui::status("sent", State::Sent))
                     .child(ui::status("draft", State::Draft))
                     .child(ui::status("done", State::Done(84, 51)))
@@ -111,13 +111,11 @@ impl Render for Storybook {
                     .child(ui::status("not-attached", State::NotAttached)),
             ))
             .child(story(
-                "Badges, tags, keys",
-                "Agent badges; hairline tags",
+                "Tags, keys",
+                "Hairline tags",
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(ui::agent_badge("codex", "Codex"))
-                    .child(ui::agent_badge("claude", "Claude"))
                     .child(ui::tag("2 sub-agents"))
                     .child(ui::kbd("⌘ K"))
                     .child(ui::kbd("↑ ↓")),
@@ -138,9 +136,9 @@ impl Render for Storybook {
                 "Project row",
                 "Sidebar rail",
                 list()
-                    .child(ui::repo_row("repo-android", "app-android", true, Some(3), None, "spin-android"))
-                    .child(ui::repo_row("repo-ios", "app-ios", false, None, Some(State::NeedsYou), "spin-ios"))
-                    .child(ui::repo_row("repo-web", "web", false, None, Some(State::Working), "spin-web")),
+                    .child(ui::repo_row("repo-android", ui::chevron("chev-android", true), "app-android", true, true))
+                    .child(ui::repo_row("repo-ios", ui::chevron("chev-ios", false), "app-ios", false, true).children(ui::indicator("spin-ios", Some(State::NeedsYou))))
+                    .child(ui::repo_row("repo-scratch", div().w(px(14.)).flex_none(), "scratch", false, false).children(ui::indicator("spin-scratch", Some(State::Working)))),
             ))
             .child(story(
                 "Session row",
@@ -188,9 +186,9 @@ impl Render for Storybook {
                 "Worktrees",
                 "Nested under the selected project",
                 list()
-                    .child(ui::worktree_row("w1", "main".into(), "~/code/app-android".into(), true, false, None))
-                    .child(ui::worktree_row("w2", "fix/restore-handoff".into(), "~/.worktrees/app-android/fix-restore-handoff".into(), false, true, Some(State::NeedsYou)))
-                    .child(ui::worktree_row("w3", "chore/migrate-hooks".into(), "~/.worktrees/app-android/chore-migrate-hooks".into(), false, false, Some(State::Merged))),
+                    .child(ui::worktree_row("w1", "fix-login".into(), true))
+                    .child(ui::worktree_row("w2", "brave-otter".into(), false).child(ui::row_trail(ui::indicator("w2-spin", Some(State::NeedsYou)), vec![ui::icon_button_sized("w2-more", "more", 22., TEXT_3).rounded(px(6.)).into_any_element()], false)))
+                    .child(ui::worktree_row("w3", "add-dark-mode".into(), false).children(ui::indicator("w3-spin", Some(State::Working)))),
             ))
             .child(story(
                 "Palette and menus",
@@ -200,7 +198,9 @@ impl Render for Storybook {
                     .child(ui::palette_row("p1", true, ui::dot(7., WAITING), "Fix stale terminal reveal".into(), "app-android · Codex · waiting".into(), None))
                     .child(ui::palette_row("p2", false, icon("sparkle", 13., TEXT_2), "New session in app-android".into(), String::new(), Some("⌘ N")))
                     .child(ui::menu_row("m1", "worktree", "New worktree…", Some("⌘ ⇧ N")))
-                    .child(ui::menu_row("m2", "settings", "Project settings", Some("⌘ ,"))),
+                    .child(ui::menu_row("m2", "settings", "Project settings", Some("⌘ ,")))
+                    .child(ui::menu_divider())
+                    .child(ui::danger_row("m3", "trash", "Delete worktree…")),
             ))
             .child(story(
                 "Form controls",

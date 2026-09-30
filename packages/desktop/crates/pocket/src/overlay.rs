@@ -1,11 +1,11 @@
-use crate::view::basename;
-use crate::{Card, Desktop, Overlay, Screen, Side, Status};
+use crate::view::{basename, tilde};
+use crate::{Card, Confirm, Desktop, Overlay, Screen, Side, Status};
 use gpui_kit::component::input::Input;
 use gpui_kit::*;
 use std::cmp::Reverse;
 use std::path::Path;
 use theme::*;
-use ui::{self, dot, menu_row};
+use ui::{self, Variant, dot, menu_row};
 
 #[derive(Clone)]
 pub enum Pick {
@@ -45,6 +45,14 @@ fn status_word(s: Status) -> &'static str {
 
 fn hint(keys: &str, label: &str) -> Div {
     div().flex().items_center().gap(px(4.)).child(div().text_color(rgba(TEXT_3)).child(keys.to_string())).child(label.to_string())
+}
+
+fn closes(n: usize) -> Option<String> {
+    match n {
+        0 => None,
+        1 => Some("Closes 1 terminal".into()),
+        n => Some(format!("Closes {n} terminals")),
+    }
 }
 
 impl Desktop {
@@ -256,6 +264,47 @@ impl Desktop {
         })))
     }
 
+    fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
+        let (title, action, facts, dirty): (String, &str, Vec<String>, usize) = match &self.confirm {
+            Some(Confirm::RemoveProject(p)) => (
+                format!("Remove {}?", self.repo_name(p)),
+                "Remove",
+                closes(self.project_terminals(p).len()).into_iter().chain(["The repository stays on disk".to_string()]).collect(),
+                0,
+            ),
+            Some(Confirm::DeleteWorktree { tree, branch, dirty, .. }) => (
+                format!("Delete {}?", basename(tree)),
+                "Delete",
+                closes(self.tree_terminals(tree).len()).into_iter().chain([format!("Deletes the folder {}", tilde(tree)), format!("Keeps the branch {branch}")]).collect(),
+                *dirty,
+            ),
+            None => return div(),
+        };
+        let bullet = |text: String| div().flex().gap(px(8.)).text_size(px(13.5)).text_color(rgba(TEXT_2)).child("•").child(text);
+        let mut body = vec![div().flex().flex_col().gap(px(6.)).children(facts.into_iter().map(bullet)).into_any_element()];
+        if dirty > 0 {
+            let files = if dirty == 1 { "file" } else { "files" };
+            body.push(
+                div().px(px(12.)).py(px(10.)).rounded(px(10.)).bg(rgba(FAILED_BG)).text_size(px(13.)).text_color(rgba(FAILED)).child(format!("{dirty} uncommitted {files} will be lost.")).into_any_element(),
+            );
+        }
+        let cancel = ui::large(ui::button("confirm-cancel", Variant::Ghost, None, "Cancel").text_color(rgba(TEXT)))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let submit = ui::large(ui::button("confirm-go", Variant::Danger, None, action)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
+        body.push(crate::forms::footer("", cancel, submit).into_any_element());
+        let close = ui::icon_button("confirm-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        ui::modal(&title, 440., 160., close, body)
+    }
+
+    fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.confirm.take() {
+            Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
+            Some(Confirm::DeleteWorktree { project, tree, .. }) => self.delete_worktree(project, tree, cx),
+            None => {}
+        }
+        self.close_overlay(window, cx);
+    }
+
     pub fn overlay_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let o = self.overlay?;
         let (body, alpha) = match o {
@@ -263,6 +312,7 @@ impl Desktop {
             Overlay::NewSession => (self.new_session_view(window, cx), 0x2e),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40),
             Overlay::More => (self.more_menu(cx), 0),
+            Overlay::Confirm => (self.confirm_view(cx), 0x2e),
         };
         Some(
             div()

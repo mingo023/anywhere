@@ -137,19 +137,16 @@ fn parse_worktrees(out: &str) -> Vec<Worktree> {
         .collect()
 }
 
-/// The repository's checkouts, main one first.
+/// The repository's checkouts: the main one, then the rest oldest first.
 pub fn worktrees(cwd: &str) -> Vec<Worktree> {
-    parse_worktrees(&git(cwd, &["worktree", "list", "--porcelain"]).unwrap_or_default())
+    let mut out = parse_worktrees(&git(cwd, &["worktree", "list", "--porcelain"]).unwrap_or_default());
+    out.sort_by_cached_key(|w| (!w.main, std::fs::metadata(&w.path).and_then(|m| m.created()).ok()));
+    out
 }
 
 /// Local branches, most recently committed first.
 pub fn branches(cwd: &str) -> Vec<String> {
     lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]))
-}
-
-/// Branches already merged into `base`, other than `base` itself.
-pub fn merged(cwd: &str, base: &str) -> Vec<String> {
-    lines(git(cwd, &["branch", "--merged", base, "--format=%(refname:short)"])).into_iter().filter(|b| b != base).collect()
 }
 
 pub fn remotes(cwd: &str) -> usize {
@@ -168,6 +165,12 @@ pub fn ls_files(cwd: &str) -> Vec<String> {
 
 pub fn add_worktree(repo: &str, path: &str, branch: &str, base: &str) -> Result<(), String> {
     let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "add", "-b", branch, path, base]).output().map_err(|e| e.to_string())?;
+    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+}
+
+/// Deletes the worktree's folder, uncommitted changes included; its branch stays.
+pub fn remove_worktree(repo: &str, path: &str) -> Result<(), String> {
+    let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "remove", "--force", path]).output().map_err(|e| e.to_string())?;
     if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
@@ -399,6 +402,47 @@ mod tests {
         assert_eq!((w[0].path.as_str(), w[0].branch.as_str(), w[0].main), ("/r", "main", true));
         assert_eq!((w[1].branch.as_str(), w[1].main), ("fix/a", false));
         assert_eq!(w[2].branch, "detached");
+    }
+
+    fn scratch_repo(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("pocket-git-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let run = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success());
+        run(&["init", "-q"]);
+        std::fs::write(repo.join("a"), "a\n").unwrap();
+        run(&["add", "."]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "init"]);
+        dir
+    }
+
+    #[test]
+    fn lists_worktrees_main_first_then_oldest_first() {
+        let dir = scratch_repo("order");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        for name in ["zeta", "alpha", "mid"] {
+            add_worktree(r, dir.join(name).to_str().unwrap(), name, "HEAD").unwrap();
+        }
+        let names: Vec<String> = worktrees(r).iter().map(|w| w.path.rsplit('/').next().unwrap().to_string()).collect();
+        assert_eq!(names, ["repo", "zeta", "alpha", "mid"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn removing_a_worktree_deletes_its_folder_but_keeps_its_branch() {
+        let dir = scratch_repo("remove");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        let tree = dir.join("fix");
+        add_worktree(r, tree.to_str().unwrap(), "fix", "HEAD").unwrap();
+        std::fs::write(tree.join("draft"), "unsaved\n").unwrap();
+        remove_worktree(r, tree.to_str().unwrap()).unwrap();
+        assert!(!tree.exists());
+        assert!(branches(r).contains(&"fix".to_string()));
+        assert_eq!(worktrees(r).len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

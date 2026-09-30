@@ -54,8 +54,6 @@ pub const DIFF_ADD_WORD: u32 = 0x30a46c40;
 pub const DIFF_DEL_WORD: u32 = 0xe5484d38;
 
 pub const MODIFIED: u32 = 0xad5700ff;
-pub const MERGED: u32 = 0x8250dfff;
-pub const MERGED_BG: u32 = 0x8250df1f;
 pub const TEAL: u32 = 0x0e7c86ff;
 pub const TEAL_BG: u32 = 0x0f9d8a14;
 
@@ -145,8 +143,8 @@ macro_rules! embed {
 
 const ICONS: &[(&str, &[u8])] = embed!(
     "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "clock", "comment", "compose", "copy",
-    "external", "file", "filter", "folder", "forward", "inbox", "merge", "mic", "more", "plus", "prompt", "search", "send", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "unfold", "worktree", "x", "x-bold",
+    "external", "file", "filter", "folder", "forward", "inbox", "mic", "more", "plus", "prompt", "search", "send", "settings", "shield",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "trash", "unfold", "worktree", "x", "x-bold",
 );
 
 impl AssetSource for Assets {
