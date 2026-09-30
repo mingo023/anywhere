@@ -588,6 +588,7 @@ impl Desktop {
             (_, Side::Explorer) => self.explorer(cx).into_any_element(),
             (_, Side::Changes) => self.changes_list(cx).into_any_element(),
         };
+        let totals = self.repo().filter(|r| !r.files.is_empty()).map(|r| r.totals());
         let tabs = [(Side::Sessions, "Sessions"), (Side::Explorer, "Explorer"), (Side::Changes, "Changes")].into_iter().enumerate().map(|(i, (side, label))| {
             let selected = self.side == side;
             div()
@@ -602,7 +603,10 @@ impl Desktop {
                 .text_size(px(13.))
                 .when(selected, |d| d.bg(rgba(FILL_4)).text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD))
                 .when(!selected, |d| d.text_color(rgba(TEXT_2)).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_2))))
-                .child(label)
+                .map(|d| match (side, totals) {
+                    (Side::Changes, Some((added, removed))) => d.child(ui::meta_diff(added, removed, 12.5)),
+                    _ => d.child(label),
+                })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.side = side;
                     if side == Side::Changes {

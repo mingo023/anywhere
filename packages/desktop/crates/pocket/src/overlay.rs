@@ -279,6 +279,15 @@ impl Desktop {
                 closes(self.tree_terminals(tree).len()).into_iter().chain([format!("Deletes the folder {}", tilde(tree)), format!("Keeps the branch {branch}")]).collect(),
                 *dirty,
             ),
+            Some(Confirm::Discard(paths)) => {
+                let untracked = self.repo().map_or(0, |r| r.files.iter().filter(|f| f.status == 'A' && !f.staged && paths.contains(&f.path)).count());
+                let title = match paths.as_slice() {
+                    [one] => format!("Discard changes to {}?", basename(one)),
+                    many => format!("Discard changes to {} files?", many.len()),
+                };
+                let deletes = (untracked > 0).then(|| format!("Deletes {untracked} untracked {}", if untracked == 1 { "file" } else { "files" }));
+                (title, "Discard", std::iter::once("Unstaged edits can't be restored".to_string()).chain(deletes).collect(), 0)
+            }
             None => return div(),
         };
         let bullet = |text: String| div().flex().gap(px(8.)).text_size(px(13.5)).text_color(rgba(TEXT_2)).child("•").child(text);
@@ -301,6 +310,7 @@ impl Desktop {
         match self.confirm.take() {
             Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
             Some(Confirm::DeleteWorktree { project, tree, .. }) => self.delete_worktree(project, tree, cx),
+            Some(Confirm::Discard(paths)) => self.discard(paths, cx),
             None => {}
         }
         self.close_overlay(window, cx);

@@ -1,6 +1,6 @@
 use git::{self, Kind, Line};
 use theme::*;
-use ui::{self, Segment, Variant, checkbox, diffstat, dot};
+use ui::{self, Segment, Variant, checkbox, dot};
 use crate::explore::status_word;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::view::{ago_long, empty, now_ms};
@@ -119,12 +119,12 @@ fn changed(old: &[Row], new: &[Row]) -> (Range<usize>, usize) {
     (head..old.len() - tail, new.len() - head - tail)
 }
 
-fn ordered((a, b): (usize, usize)) -> RangeInclusive<usize> {
+pub(crate) fn ordered((a, b): (usize, usize)) -> RangeInclusive<usize> {
     a.min(b)..=a.max(b)
 }
 
 /// First and last line numbers picked, counted on the new side unless the range only removes lines (then `true`).
-fn span(lines: &[Line], range: RangeInclusive<usize>) -> Option<(usize, usize, bool)> {
+pub(crate) fn span(lines: &[Line], range: RangeInclusive<usize>) -> Option<(usize, usize, bool)> {
     let picked: Vec<&Line> = lines.get(range)?.iter().filter(|l| l.kind != Kind::Hunk).collect();
     let new: Vec<usize> = picked.iter().filter_map(|l| l.new).collect();
     let old_side = new.is_empty();
@@ -174,7 +174,7 @@ fn fold_start(lines: &[Line], i: usize) -> Option<usize> {
     (hidden > 0).then(|| git::hunk_start(&lines[i].text, '+') - hidden)
 }
 
-fn line_label((lo, hi): (usize, usize)) -> String {
+pub(crate) fn line_label((lo, hi): (usize, usize)) -> String {
     if lo == hi { format!("L{lo}") } else { format!("L{lo}-{hi}") }
 }
 
@@ -223,99 +223,6 @@ fn add_button(left: f32) -> Div {
 }
 
 impl Desktop {
-    pub fn changes_list(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let list = div().id("changes").flex_1().overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col();
-        let Some(repo) = self.repo().cloned() else {
-            return list.child(empty("Not a git repository."));
-        };
-        let (added, removed) = repo.totals();
-        let count = repo.files.len();
-        let branch = div()
-            .mt(px(6.))
-            .px(px(14.))
-            .py(px(12.))
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .rounded(px(14.))
-            .bg(rgba(0xffffffb3))
-            .shadow(vec![ui::ring(HAIRLINE, 0.5)])
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .font_family(MONO)
-                    .text_size(px(12.5))
-                    .child(icon("branch", 12., TEXT_3))
-                    .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(repo.branch.clone()))
-                    .when_some(repo.base.clone(), |d, base| d.child(div().flex_none().text_color(rgba(TEXT_4)).child(format!("→ {base}")))),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .text_size(px(12.5))
-                    .text_color(rgba(TEXT_3))
-                    .child(format!("{count} file{}", if count == 1 { "" } else { "s" }))
-                    .child(diffstat(added, removed))
-                    .child(div().text_color(rgba(TEXT_5)).child("·"))
-                    .child(format!("{} commit{} ahead", repo.ahead, if repo.ahead == 1 { "" } else { "s" })),
-            );
-        let files = repo.files.iter().enumerate().map(|(i, f)| {
-            let selected = self.diff_file.as_ref() == Some(&f.path);
-            let (path, on) = (f.path.clone(), f.staged);
-            let open = f.path.clone();
-            let check = div().id(("stage", i)).flex().child(checkbox(on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.stage(path.clone(), !on, cx);
-            }));
-            let comments = self.comments.iter().filter(|c| c.path == f.path).count();
-            ui::change_row(("file", i), check, &f.path, selected, f.added, f.removed, comments)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(open.clone()), cx)))
-        });
-        let note = |id: ElementId, label: String, state: ui::State, text: String, path: String| {
-            div()
-                .id(id.clone())
-                .px(px(10.))
-                .py(px(6.))
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .rounded(px(10.))
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba(FILL_1)))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(label))
-                        .child(ui::status(id, state)),
-                )
-                .child(div().truncate().text_size(px(13.5)).text_color(rgba(TEXT_BODY)).child(text))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(path.clone()), cx)))
-        };
-        let mut notes: Vec<Stateful<Div>> = self
-            .comments
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| repo.files.iter().any(|f| f.path == c.path))
-            .map(|(i, c)| note(ElementId::NamedInteger("note".into(), i as u64), line_label(c.lines), ui::State::Sent, c.text.clone(), c.path.clone()))
-            .collect();
-        let draft = self.comment_input.read(cx).value().trim().to_string();
-        if let (true, false, Some(path), Some((lo, hi, _))) =
-            (self.composing, draft.is_empty(), self.diff_file.clone(), self.selection.and_then(|s| span(&self.diff, ordered(s))))
-        {
-            notes.push(note("draft".into(), line_label((lo, hi)), ui::State::Draft, draft, path));
-        }
-        list.child(branch)
-            .child(ui::section_header("Changed", Some(count)))
-            .child(div().flex().flex_col().gap(px(2.)).children(files))
-            .when(!notes.is_empty(), |d| d.child(ui::section_header("Comments", Some(notes.len()))).children(notes))
-    }
-
     pub fn diff_view(&mut self, cx: &mut Context<Self>) -> Div {
         let Some(path) = self.diff_file.clone() else {
             return empty("No changes.");

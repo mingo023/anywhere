@@ -10,6 +10,7 @@ pub struct FileStat {
     pub added: usize,
     pub removed: usize,
     pub staged: bool,
+    pub unstaged: bool,
     /// Git's status letter: M, A or D.
     pub status: char,
 }
@@ -59,17 +60,18 @@ fn numstat(out: &str) -> Vec<(String, usize, usize)> {
 pub fn read(cwd: &str) -> Option<Repo> {
     let branch = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
     let staged = lines(git(cwd, &["diff", "--cached", "--name-only"]));
+    let unstaged = lines(git(cwd, &["diff", "--name-only"]));
     let statuses = name_status(&git(cwd, &["diff", "HEAD", "--name-status"]).unwrap_or_default());
     let mut files: Vec<FileStat> = numstat(&git(cwd, &["diff", "HEAD", "--numstat", "--histogram"]).unwrap_or_default())
         .into_iter()
         .map(|(path, added, removed)| {
             let status = statuses.iter().find(|(p, _)| *p == path).map_or('M', |(_, s)| *s);
-            FileStat { staged: staged.contains(&path), path, added, removed, status }
+            FileStat { staged: staged.contains(&path), unstaged: unstaged.contains(&path), path, added, removed, status }
         })
         .collect();
     for path in lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) {
         let added = std::fs::read_to_string(std::path::Path::new(cwd).join(&path)).map(|s| s.lines().count()).unwrap_or(0);
-        files.push(FileStat { path, added, removed: 0, staged: false, status: 'A' });
+        files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A' });
     }
     let base = if branch == "main" || branch == "master" {
         git(cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string())
@@ -179,9 +181,40 @@ pub fn clone(url: &str, dest: &str) -> Result<(), String> {
     if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
-pub fn set_staged(cwd: &str, path: &str, staged: bool) {
-    let args: &[&str] = if staged { &["add", "--", path] } else { &["reset", "-q", "--", path] };
-    git(cwd, args);
+fn with_paths<'a>(args: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
+    args.iter().copied().chain(["--"]).chain(paths.iter().map(String::as_str)).collect()
+}
+
+pub fn set_staged(cwd: &str, paths: &[String], staged: bool) {
+    let args: &[&str] = if staged { &["add", "-A"] } else { &["reset", "-q"] };
+    git(cwd, &with_paths(args, paths));
+}
+
+/// Throws away the unstaged edits to `paths`, deleting the untracked ones.
+pub fn discard(cwd: &str, paths: &[String]) {
+    let untracked = lines(git(cwd, &with_paths(&["ls-files", "--others", "--exclude-standard"], paths)));
+    let tracked: Vec<String> = paths.iter().filter(|p| !untracked.contains(p)).cloned().collect();
+    if !untracked.is_empty() {
+        git(cwd, &with_paths(&["clean", "-fq"], &untracked));
+    }
+    if !tracked.is_empty() {
+        git(cwd, &with_paths(&["checkout", "-q"], &tracked));
+    }
+}
+
+const MAX_CONTEXT: usize = 60_000;
+
+/// What a commit message is written from: recent subjects for style, then the diff to commit (only the staged part when `staged`).
+pub fn commit_context(cwd: &str, staged: bool) -> String {
+    let subjects = lines(git(cwd, &["log", "-n", "10", "--format=%s"])).join("\n");
+    let diff = git(cwd, if staged { &["diff", "--cached"] } else { &["diff", "HEAD"] }).unwrap_or_default();
+    let new = if staged { Vec::new() } else { lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) };
+    let mut out = format!("Recent commit subjects:\n{subjects}\n\nDiff:\n{diff}");
+    out.extend(new.iter().map(|p| format!("\nNew file: {p}")));
+    if out.len() > MAX_CONTEXT {
+        out.truncate(out.floor_char_boundary(MAX_CONTEXT));
+    }
+    out
 }
 
 pub fn user_initials(cwd: &str) -> String {
@@ -442,6 +475,43 @@ mod tests {
         assert!(!tree.exists());
         assert!(branches(r).contains(&"fix".to_string()));
         assert_eq!(worktrees(r).len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn stages_unstages_and_discards() {
+        let dir = scratch_repo("stage");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        std::fs::write(repo.join("a"), "edited\n").unwrap();
+        std::fs::write(repo.join("new"), "fresh\n").unwrap();
+        let flags = |path: &str| read(r).unwrap().files.iter().find(|f| f.path == path).map(|f| (f.staged, f.unstaged));
+        assert_eq!((flags("a"), flags("new")), (Some((false, true)), Some((false, true))));
+        set_staged(r, &["a".into(), "new".into()], true);
+        assert_eq!((flags("a"), flags("new")), (Some((true, false)), Some((true, false))));
+        std::fs::write(repo.join("a"), "edited twice\n").unwrap();
+        assert_eq!(flags("a"), Some((true, true)));
+        discard(r, &["a".into()]);
+        assert_eq!(std::fs::read_to_string(repo.join("a")).unwrap(), "edited\n");
+        set_staged(r, &["a".into(), "new".into()], false);
+        assert_eq!(flags("a"), Some((false, true)));
+        discard(r, &["a".into(), "new".into()]);
+        assert!(read(r).unwrap().files.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn commit_context_holds_only_the_staged_diff_when_asked() {
+        let dir = scratch_repo("context");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        std::fs::write(repo.join("a"), "staged\n").unwrap();
+        set_staged(r, &["a".into()], true);
+        std::fs::write(repo.join("b"), "loose\n").unwrap();
+        let staged = commit_context(r, true);
+        assert!(staged.starts_with("Recent commit subjects:\ninit\n"));
+        assert!(staged.contains("+staged") && !staged.contains("New file: b"));
+        assert!(commit_context(r, false).contains("New file: b"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

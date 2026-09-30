@@ -1,4 +1,5 @@
 mod capture;
+mod changes;
 mod diff;
 mod explore;
 mod forms;
@@ -71,6 +72,7 @@ pub enum Overlay {
 pub enum Confirm {
     RemoveProject(String),
     DeleteWorktree { project: String, tree: String, branch: String, dirty: usize },
+    Discard(Vec<String>),
 }
 
 /// The sidebar row whose `⋯` menu is open.
@@ -133,6 +135,15 @@ pub struct Desktop {
     comment_input: Entity<TextareaState>,
     comment_target: Option<String>,
     target_menu: bool,
+    commit_input: Entity<TextareaState>,
+    /// What the commit button says while git works.
+    busy: Option<&'static str>,
+    writing: bool,
+    commit_error: Option<String>,
+    commit_menu: bool,
+    changes_menu: bool,
+    changes_tree: bool,
+    changes_folded: HashSet<String>,
     initials: String,
     tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     git_run: u64,
@@ -188,6 +199,7 @@ impl Desktop {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions, files and actions…"));
         let session_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let comment_input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
+        let commit_input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Message (⌘↩ to commit)").auto_grow(1, 8));
         let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
         let code_marks = code.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
         let md = cx.new(|cx| TextViewState::markdown("", cx));
@@ -204,6 +216,11 @@ impl Desktop {
             cx.subscribe(&session_search, |_, _, _: &InputEvent, cx| cx.notify()),
             cx.subscribe_in(&comment_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { secondary: true, .. } => this.submit_comment(window, cx),
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            }),
+            cx.subscribe_in(&commit_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { secondary: true, .. } => this.commit(changes::CommitKind::Commit, window, cx),
                 InputEvent::Change => cx.notify(),
                 _ => {}
             }),
@@ -248,6 +265,14 @@ impl Desktop {
             comment_input,
             comment_target: None,
             target_menu: false,
+            commit_input,
+            busy: None,
+            writing: false,
+            commit_error: None,
+            commit_menu: false,
+            changes_menu: false,
+            changes_tree: false,
+            changes_folded: HashSet::new(),
             initials: String::new(),
             tree: HashMap::new(),
             git_run: 0,
@@ -626,8 +651,8 @@ impl Desktop {
 
     /// Returns whether a menu was open.
     fn close_menus(&mut self) -> bool {
-        let open = self.tab_menu || self.row_menu.is_some();
-        (self.tab_menu, self.row_menu) = (false, None);
+        let open = self.tab_menu || self.row_menu.is_some() || self.commit_menu || self.changes_menu;
+        (self.tab_menu, self.row_menu, self.commit_menu, self.changes_menu) = (false, None, false, false);
         open
     }
 
@@ -830,16 +855,6 @@ impl Desktop {
             self.diff_file = self.repo().and_then(|r| r.files.first()).map(|f| f.path.clone());
         }
         self.refresh_git(cx);
-    }
-
-    pub fn stage(&mut self, path: String, staged: bool, cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
-        let task = cx.background_executor().spawn(async move { git::set_staged(&cwd, &path, staged) });
-        cx.spawn(async move |this, cx| {
-            task.await;
-            this.update(cx, |d, cx| d.refresh_git(cx)).ok();
-        })
-        .detach();
     }
 
     /// Starts a comment on line `i` of the diff, or with `extend` stretches the open one to it.

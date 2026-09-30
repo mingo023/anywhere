@@ -6,6 +6,7 @@ use std::ffi::CStr;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
@@ -120,6 +121,42 @@ fn agent_args(shell: &str, setup: &str, argv: &[String]) -> Vec<String> {
     args
 }
 
+/// Runs `argv` in `cwd` under the login shell, so it finds the tools the user's terminal would, with `input` on stdin.
+/// Its output, or on failure what it printed.
+pub fn run_login(argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
+    run_in(login_shell(), terminal_env(), argv, cwd, input)
+}
+
+fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
+    let fish = Path::new(shell).file_name().is_some_and(|n| n == "fish");
+    let mut cmd = Command::new(shell);
+    cmd.args(["-l", "-c", if fish { "$argv" } else { "\"$@\"" }]);
+    if !fish {
+        cmd.arg(shell);
+    }
+    let mut child = cmd
+        .args(argv)
+        .current_dir(cwd)
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    let input = input.to_string();
+    // Written from its own thread: a child that prints before reading all of it would fill its pipe while this one waits.
+    std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
+    if out.status.success() {
+        Ok(text(&out.stdout))
+    } else {
+        Err(Some(text(&out.stderr)).filter(|e| !e.is_empty()).unwrap_or_else(|| text(&out.stdout)))
+    }
+}
+
 fn spawn_op(cmd: &str, args: Vec<String>, cwd: &str) -> Value {
     let env: Vec<String> = terminal_env().into_iter().map(|(k, v)| format!("{k}={v}")).collect();
     let cwd = resolve_cwd(cwd, &std::env::var("HOME").unwrap_or_default());
@@ -227,6 +264,17 @@ mod tests {
             let home = std::env::temp_dir().join("pocket-desktop-no-home");
             let out = std::process::Command::new(shell).args(&args).env_clear().env("HOME", &home).env("PATH", "/usr/bin:/bin").output().unwrap();
             assert_eq!(String::from_utf8_lossy(&out.stdout), format!("[it's a \\ \"prompt\"]{shell} -l\n"), "{shell}");
+        }
+    }
+
+    #[test]
+    fn runs_argv_in_real_shells_with_stdin() {
+        for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
+            let home = std::env::temp_dir().join("pocket-desktop-no-home");
+            let env = vec![("HOME".to_string(), home.to_string_lossy().into_owned()), ("PATH".to_string(), "/usr/bin:/bin".to_string())];
+            let ok = run_in(shell, env.clone(), &["sh", "-c", "cat; printf '[%s]' \"$1\"", "sh", "it's \"x\""], "/", "in\n");
+            assert_eq!(ok, Ok("in\n[it's \"x\"]".to_string()), "{shell}");
+            assert_eq!(run_in(shell, env, &["sh", "-c", "echo out; echo oops >&2; exit 3"], "/", ""), Err("oops".to_string()), "{shell}");
         }
     }
 
