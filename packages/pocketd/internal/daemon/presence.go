@@ -107,7 +107,7 @@ func (d *Daemon) endAgent(pr *presence) {
 	}
 	pr.mu.Unlock()
 	d.Broker.DenyAll(pr.a.ID())
-	d.Agents.Close(pr.a.ID())
+	d.Agents.Remove(pr.a.ID())
 }
 
 type termDriver struct {

@@ -127,6 +127,7 @@ impl Agents {
     pub fn apply(&mut self, ev: Event) {
         match ev {
             Event::Agents(list) => self.list = list,
+            Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
             Event::Agent(a) => match self.list.iter_mut().find(|x| x.id == a.id) {
                 Some(x) => *x = a,
                 None => self.list.push(a),
@@ -211,10 +212,6 @@ impl Outbox {
 
     pub fn seen(&self, ids: &[String]) {
         self.send(json!({"type": "agent.seen", "id": "seen", "agentIds": ids}));
-    }
-
-    pub fn close(&self, id: &str) {
-        self.send(json!({"type": "agent.close", "id": "close", "agentId": id}));
     }
 
     fn send(&self, m: Value) {
@@ -310,6 +307,16 @@ mod tests {
     }
 
     #[test]
+    fn an_exited_agent_leaves_the_list() {
+        let mut a = Agents::default();
+        let agent = |id: &str, status: &str| Summary { id: id.into(), status: status.into(), ..Default::default() };
+        a.apply(Event::Agents(vec![agent("a", "idle"), agent("b", "working")]));
+        a.apply(Event::Agent(agent("a", "closed")));
+        a.apply(Event::Agent(agent("c", "closed")));
+        assert_eq!(a.list, vec![agent("b", "working")]);
+    }
+
+    #[test]
     fn stream_items_upsert_in_seq_order() {
         let mut a = Agents::default();
         let item = |id: &str, seq, text: &str| Item { id: id.into(), seq, kind: "assistant".into(), text: text.into(), ..Default::default() };
@@ -368,8 +375,6 @@ mod tests {
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
         out.seen(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.seen", "id": "seen", "agentIds": ["a1"]}));
-        out.close("a1");
-        assert_eq!(read(&mut ws), json!({"type": "agent.close", "id": "close", "agentId": "a1"}));
         std::fs::remove_dir_all(&home).unwrap();
     }
 }

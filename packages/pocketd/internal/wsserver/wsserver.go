@@ -195,11 +195,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.compact":
 		err = a.Driver().Compact()
 	case "agent.close":
-		if a.Summary().Status == "closed" {
-			c.s.Agents.Forget(a.ID())
-		} else {
-			a.Driver().Close()
-		}
+		a.Driver().Close()
 	}
 	if err != nil {
 		return err

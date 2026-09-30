@@ -50,7 +50,7 @@ impl Desktop {
             Kind::NotAttached => State::NotAttached,
             _ => state(c.status, added, removed),
         };
-        let lead = ui::provider_label(&c.provider, c.kind == Kind::Ended);
+        let lead = ui::provider_label(&c.provider, false);
         let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone());
         ui::session_row(("card", i), selected, lead, ago(c.at, now_ms()), c.title, branch, Some(pill))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))

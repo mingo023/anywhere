@@ -61,7 +61,7 @@ func TestClaudeTypedInAShellIsAnAgent(t *testing.T) {
 	c.Send(ops.Msg{Op: "input", ID: id, Data: []byte{0x03}})
 	phone.WaitStatus(a.ID, "closed")
 	phone.Send(map[string]any{"type": "agent.list", "id": "l"})
-	phone.WaitFor("closed agent still listed", func(m Message) bool {
-		return m.Type == "agent.list" && m.ID == "l" && len(m.Agents) == 1 && m.Agents[0].ID == a.ID
+	phone.WaitFor("exited agent unlisted", func(m Message) bool {
+		return m.Type == "agent.list" && m.ID == "l" && len(m.Agents) == 0
 	})
 }

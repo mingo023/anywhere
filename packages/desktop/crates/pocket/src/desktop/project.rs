@@ -44,9 +44,9 @@ impl Desktop {
         out
     }
 
-    /// The live agent in `terminal`.
+    /// The agent in `terminal`.
     pub fn summary(&self, terminal: &str) -> Option<&Summary> {
-        self.agents.list.iter().find(|a| a.terminal_id == terminal && a.status != "closed")
+        self.agents.list.iter().find(|a| a.terminal_id == terminal)
     }
 
     pub fn cwd_of(&self, id: &str) -> Option<String> {

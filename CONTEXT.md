@@ -21,7 +21,7 @@ The shell set on the user's macOS account with `chsh`, such as fish. It stays th
 _Avoid_: TERM, $SHELL, default shell
 
 **Session**:
-What the session list shows as one card: one agent, from launch to exit. Running `claude` then `codex` in one terminal makes two sessions; `/clear` keeps the session. It ends when its agent exits, and stays listed until its terminal closes or the user closes it. Closing a running session closes its terminal. It belongs to its terminal's worktree, wherever the agent `cd`s.
+What the session list shows as one card: one agent, from launch to exit. Running `claude` then `codex` in one terminal makes two sessions; `/clear` keeps the session. It ends, and leaves the list, when its agent exits. Closing a session closes its terminal. It belongs to its terminal's worktree, wherever the agent `cd`s.
 _Avoid_: card, workspace, tab
 
 **Agent**:

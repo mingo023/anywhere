@@ -83,12 +83,12 @@ func TestAITitleWins(t *testing.T) {
 	}
 }
 
-func TestClosePublishesClosedAndKeepsTheAgent(t *testing.T) {
+func TestRemovePublishesClosed(t *testing.T) {
 	h := hub.New()
 	r := NewRegistry(h)
 	a := r.Add("a1", "/w", "claude", fakeDriver{})
 	ch, _ := h.Subscribe()
-	r.Close("a1")
+	r.Remove("a1")
 	a.Working()
 	a.SetCompacting()
 	a.SetTitle("late")
@@ -96,26 +96,8 @@ func TestClosePublishesClosedAndKeepsTheAgent(t *testing.T) {
 	if m := drain(ch); len(m) != 1 || m[0].Agent.Status != "closed" {
 		t.Fatalf("%+v", m)
 	}
-	if _, err := r.Get("a1"); err != nil {
-		t.Fatal(err)
-	}
-	if l := r.List(); len(l) != 1 || l[0].Status != "closed" {
-		t.Fatalf("%+v", l)
-	}
-}
-
-func TestForgetDropsTheAgentAndPushesTheList(t *testing.T) {
-	h := hub.New()
-	r := NewRegistry(h)
-	r.Add("a1", "/w", "claude", fakeDriver{})
-	r.Close("a1")
-	ch, _ := h.Subscribe()
-	r.Forget("a1")
 	if _, err := r.Get("a1"); err == nil || err.Error() != "Unknown agent: a1" {
 		t.Fatal(err)
-	}
-	if m := drain(ch); len(m) != 1 || m[0].Type != "agent.list" {
-		t.Fatalf("%+v", m)
 	}
 	if len(r.List()) != 0 {
 		t.Fatal("still listed")

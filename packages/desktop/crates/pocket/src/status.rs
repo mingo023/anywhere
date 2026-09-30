@@ -45,8 +45,6 @@ impl Status {
 pub enum Kind {
     Agent,
     NotAttached,
-    /// The agent exited; its card stays, with a faded provider badge, until its terminal closes.
-    Ended,
 }
 
 #[derive(Clone)]
@@ -62,13 +60,7 @@ pub struct Card {
 
 /// An agent's card, placed by the folder its terminal started in.
 pub fn card(a: &Summary, cwd: &str) -> Card {
-    let kind = if a.status == "closed" {
-        Kind::Ended
-    } else if a.attached {
-        Kind::Agent
-    } else {
-        Kind::NotAttached
-    };
+    let kind = if a.attached { Kind::Agent } else { Kind::NotAttached };
     Card {
         id: a.id.clone(),
         provider: a.provider.clone(),
@@ -99,7 +91,7 @@ pub fn roll_up(statuses: impl IntoIterator<Item = Status>) -> Option<(Status, us
 
 /// Why Pocket can't see the status of a live agent that is not attached.
 pub fn banner(a: &Summary) -> Option<&'static str> {
-    if a.attached || a.status == "closed" {
+    if a.attached {
         return None;
     }
     match a.provider.as_str() {
@@ -109,9 +101,9 @@ pub fn banner(a: &Summary) -> Option<&'static str> {
     }
 }
 
-/// The live agents in `panes`, sorted so an unchanged view compares equal.
+/// The agents in `panes`, sorted so an unchanged view compares equal.
 pub fn view_set(panes: &[String], agents: &[Summary]) -> Vec<String> {
-    let mut ids: Vec<String> = agents.iter().filter(|a| a.status != "closed" && panes.contains(&a.terminal_id)).map(|a| a.id.clone()).collect();
+    let mut ids: Vec<String> = agents.iter().filter(|a| panes.contains(&a.terminal_id)).map(|a| a.id.clone()).collect();
     ids.sort();
     ids
 }
@@ -164,12 +156,6 @@ mod tests {
     }
 
     #[test]
-    fn an_exited_agent_is_an_ended_idle_card() {
-        let c = card(&Summary { title: "Fix CI".into(), provider: "claude".into(), ..agent("t1", "closed") }, "/w");
-        assert_eq!((c.kind, c.status, c.title.as_str(), c.provider.as_str()), (Kind::Ended, Status::Idle, "Fix CI", "claude"));
-    }
-
-    #[test]
     fn an_untitled_agent_reads_new_session() {
         assert_eq!(card(&agent("t1", "working"), "/w").title, "New session");
     }
@@ -194,13 +180,12 @@ mod tests {
         let blind = |provider: &str, status: &str| Summary { provider: provider.into(), attached: false, ..agent("t", status) };
         assert_eq!(banner(&blind("claude", "idle")), Some("Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."));
         assert_eq!(banner(&blind("codex", "working")), Some("This codex runs without the app-server, so Pocket can't see its status."));
-        assert_eq!(banner(&blind("claude", "closed")), None);
         assert_eq!(banner(&Summary { provider: "claude".into(), ..agent("t", "idle") }), None);
     }
 
     #[test]
-    fn views_the_live_agents_of_visible_panes() {
-        let agents = [Summary { id: "b".into(), ..agent("t2", "idle") }, Summary { id: "a".into(), ..agent("t1", "working") }, Summary { id: "c".into(), ..agent("t1", "closed") }, agent("t3", "idle")];
+    fn views_the_agents_of_visible_panes() {
+        let agents = [Summary { id: "b".into(), ..agent("t2", "idle") }, Summary { id: "a".into(), ..agent("t1", "working") }, agent("t3", "idle")];
         assert_eq!(view_set(&["t1".into(), "t2".into()], &agents), vec!["a", "b"]);
     }
 

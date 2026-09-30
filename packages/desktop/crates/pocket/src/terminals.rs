@@ -162,15 +162,11 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Ends a session: a running agent goes with its terminal, an ended one only leaves the list.
+    /// Ends a session with its terminal.
     pub fn close_session(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(a) = self.agents.get(id) else { return };
-        if a.status == "closed" {
-            self.outbox.close(id);
-        } else {
-            let term = a.terminal_id.clone();
-            self.close_pane(&term, cx);
-        }
+        let term = a.terminal_id.clone();
+        self.close_pane(&term, cx);
     }
 
     pub fn close_tab(&mut self, i: usize, cx: &mut Context<Self>) {

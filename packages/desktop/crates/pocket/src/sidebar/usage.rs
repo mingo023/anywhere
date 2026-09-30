@@ -4,10 +4,10 @@ use gpui_kit::*;
 use theme::*;
 use ui::{self, dot};
 
-/// Context left in each provider's newest open session.
+/// Context left in each provider's newest session.
 fn usage(agents: &Agents) -> Vec<(&'static str, u64)> {
     let latest = |p: &str| {
-        let a = agents.list.iter().filter(|a| a.provider == p && a.status != "closed").max_by_key(|a| a.updated_at)?;
+        let a = agents.list.iter().filter(|a| a.provider == p).max_by_key(|a| a.updated_at)?;
         agents.context_left(&a.id)
     };
     ["claude", "codex"].into_iter().filter_map(|p| latest(p).map(|left| (p, left))).collect()
@@ -52,12 +52,11 @@ mod tests {
     }
 
     #[test]
-    fn usage_reads_the_context_left_in_each_providers_newest_open_session() {
+    fn usage_reads_the_context_left_in_each_providers_newest_session() {
         let mut agents = Agents::default();
         session(&mut agents, "codex", "codex", "idle", 1, 100_000);
         session(&mut agents, "old", "claude", "working", 1, 20_000);
         session(&mut agents, "new", "claude", "idle", 2, 40_000);
-        session(&mut agents, "closed", "claude", "closed", 3, 0);
         assert_eq!(usage(&agents), vec![("claude", 80), ("codex", 50)]);
     }
 
