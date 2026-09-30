@@ -7,6 +7,10 @@ use theme::*;
 use ui::{self, dot};
 use workspace::{Doc, Tab};
 
+pub fn tab_label(text: String, panes: usize) -> String {
+    if panes > 1 { format!("{text} · {panes} panes") } else { text }
+}
+
 impl Desktop {
     fn tab_lead(&self, tab: &Tab) -> Div {
         let row = div().flex().items_center().gap(px(7.));
@@ -24,7 +28,7 @@ impl Desktop {
                 return row.child(file_icon(path, false, false, 14.)).child(label(basename(path))).children(totals);
             }
         };
-        let count = |text: String| if p.len() > 1 { format!("{text} · {} panes", p.len()) } else { text };
+        let count = |text: String| tab_label(text, p.len());
         if let Some(a) = self.summary(&p[0]) {
             let mark = match Status::of(a) {
                 Some(Status::NeedsYou) => Some(dot(6., WAITING).into_any_element()),
@@ -164,5 +168,16 @@ impl Desktop {
             .gap(px(2.))
             .child(div().relative().flex().min_w_0().child(strip).when(offset < px(0.), |d| d.child(fade(true))).when(offset > -max, |d| d.child(fade(false))))
             .child(div().relative().flex().flex_none().items_center().gap(px(2.)).child(plus).child(chevron).children(menu))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tab_label;
+
+    #[test]
+    fn a_split_tab_counts_its_panes() {
+        assert_eq!(tab_label("claude".into(), 1), "claude");
+        assert_eq!(tab_label("claude".into(), 3), "claude · 3 panes");
     }
 }

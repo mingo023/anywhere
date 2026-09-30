@@ -136,4 +136,13 @@ mod tests {
         s.apply(&Msg { code: 1, ..msg("exit", "a", "") });
         assert_eq!(s.get("a").unwrap().busy(), None);
     }
+
+    #[test]
+    fn only_a_nonzero_exit_counts_as_failed() {
+        let mut s = Sessions::default();
+        s.sync(vec![info("a"), info("b"), info("c")]);
+        s.apply(&Msg { code: 0, ..msg("exit", "a", "") });
+        s.apply(&Msg { code: 2, ..msg("exit", "b", "") });
+        assert_eq!(["a", "b", "c"].map(|id| s.get(id).unwrap().failed()), [false, true, false]);
+    }
 }

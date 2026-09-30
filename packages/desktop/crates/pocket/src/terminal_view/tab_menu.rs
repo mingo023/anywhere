@@ -1,13 +1,18 @@
 use crate::desktop::Desktop;
+use agents::Summary;
 use gpui_kit::*;
 use theme::*;
 use ui::{self, dot};
 
+/// The last model seen for `provider`, as a short label.
+pub fn model_hint(list: &[Summary], provider: &str) -> Option<String> {
+    let latest = list.iter().filter(|a| a.provider == provider && a.model.is_some()).max_by_key(|a| a.updated_at)?;
+    Some(agents::model_label(latest))
+}
+
 impl Desktop {
-    /// The last model seen for `provider`, as a short label.
     pub fn model_hint(&self, provider: &str) -> Option<String> {
-        let latest = self.agents.list.iter().filter(|a| a.provider == provider && a.model.is_some()).max_by_key(|a| a.updated_at)?;
-        Some(agents::model_label(latest))
+        model_hint(&self.agents.list, provider)
     }
 
     pub(crate) fn tab_menu_view(&self, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -63,5 +68,28 @@ impl Desktop {
                 this.terminal.tab_menu = false;
                 cx.notify();
             }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model_hint;
+    use agents::Summary;
+
+    fn agent(provider: &str, model: Option<&str>, updated_at: i64) -> Summary {
+        Summary { provider: provider.into(), model: model.map(String::from), updated_at, ..Default::default() }
+    }
+
+    #[test]
+    fn the_model_hint_is_the_last_model_the_provider_used() {
+        let list = [agent("claude", Some("claude-opus-4-1"), 2), agent("claude", Some("claude-sonnet-4-5"), 1), agent("codex", Some("gpt-5"), 3)];
+        assert_eq!(model_hint(&list, "claude").as_deref(), Some("Opus 4.1"));
+    }
+
+    #[test]
+    fn agents_that_have_not_reported_a_model_give_no_hint() {
+        let list = [agent("claude", Some("claude-opus-4-1"), 1), agent("claude", None, 2), agent("codex", None, 3)];
+        assert_eq!(model_hint(&list, "claude").as_deref(), Some("Opus 4.1"));
+        assert_eq!(model_hint(&list, "codex"), None);
     }
 }
