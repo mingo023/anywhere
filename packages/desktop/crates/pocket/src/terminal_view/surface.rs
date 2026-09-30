@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use term::{Cell, Frame, WIDE_SPACER_TAIL};
-use theme::{MONO, TEXT, WHITE};
+use theme::{MONO, ON_TEXT, TEXT};
 use gpui_kit::*;
 
 pub struct Metrics {
@@ -39,8 +39,8 @@ fn color([r, g, b]: [u8; 3]) -> Hsla {
 
 /// Paints with the card's ink and paper where the program leaves colors at their defaults.
 pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
-    let ink: Hsla = rgba(TEXT).into();
-    let paper: Hsla = rgba(WHITE).into();
+    let ink: Hsla = TEXT.into();
+    let paper: Hsla = ON_TEXT.into();
     let mut rows = Vec::new();
     for (y, row) in cells.chunks(f.cols.max(1) as usize).enumerate() {
         let mut text = String::new();

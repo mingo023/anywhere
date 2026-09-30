@@ -100,7 +100,7 @@ impl Desktop {
             .items_center()
             .text_size(px(12.))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(TEXT_3))
+            .text_color(TEXT_3)
             .child(div().flex_1().child("Projects"))
             .child(
                 icon_button_sized("aside-add", "plus", 22., TEXT_3)

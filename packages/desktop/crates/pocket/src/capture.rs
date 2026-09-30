@@ -10,7 +10,7 @@ use std::time::Duration;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 12] = [
+const STEPS: [(&str, Step); 13] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -34,6 +34,7 @@ const STEPS: [(&str, Step); 12] = [
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
+    ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
 ];
 
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,
@@ -113,6 +114,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     (d.layout, d.panel, d.terminal.tab_menu) = (Layout::Sidebars, false, false);
     (d.session, d.worktree, d.terminal.focused, d.diff.file, d.preview.file) = (None, None, None, None, None);
     d.workspaces.clear();
+    d.set_appearance(WindowAppearance::Light, window, cx);
 }
 
 /// Waits for the latest git refresh to land, then lays out a frame: nothing else draws a hidden window.

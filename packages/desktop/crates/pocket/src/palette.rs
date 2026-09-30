@@ -46,7 +46,7 @@ fn status_word(s: Status) -> &'static str {
 }
 
 fn hint(keys: &str, label: &str) -> Div {
-    div().flex().items_center().gap(px(4.)).child(div().text_color(rgba(TEXT_3)).child(keys.to_string())).child(label.to_string())
+    div().flex().items_center().gap(px(4.)).child(div().text_color(TEXT_3).child(keys.to_string())).child(label.to_string())
 }
 
 #[derive(Debug, PartialEq)]
@@ -230,7 +230,7 @@ impl Desktop {
         let mut n = 0;
         let mut body = div().id("palette-results").max_h(px(460.)).overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col();
         for (label, entries) in sections {
-            body = body.child(div().pt(px(12.)).pb(px(6.)).px(px(12.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_4)).child(label));
+            body = body.child(div().pt(px(12.)).pb(px(6.)).px(px(12.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_4).child(label));
             for e in entries {
                 let i = n;
                 n += 1;
@@ -249,7 +249,7 @@ impl Desktop {
             }
         }
         if total == 0 {
-            body = body.child(div().p(px(20.)).text_size(px(13.5)).text_color(rgba(TEXT_3)).child("No matches."));
+            body = body.child(div().p(px(20.)).text_size(px(13.5)).text_color(TEXT_3).child("No matches."));
         }
         let input = div()
             .h(px(60.))
@@ -259,10 +259,10 @@ impl Desktop {
             .items_center()
             .gap(px(12.))
             .border_b(px(0.5))
-            .border_color(rgba(SEPARATOR))
+            .border_color(SEPARATOR)
             .child(icon("search", 17., TEXT_3))
             .child(div().flex_1().text_size(px(17.)).child(Input::new(&self.palette.filter).appearance(false).p_0().text_size(px(17.))))
-            .child(div().text_size(px(12.)).text_color(rgba(TEXT_4)).child("esc"));
+            .child(div().text_size(px(12.)).text_color(TEXT_4).child("esc"));
         let scope = if self.palette.all { "Tab to filter by project" } else { "Tab to search all projects" };
         let footer = div()
             .h(px(40.))
@@ -272,9 +272,9 @@ impl Desktop {
             .items_center()
             .gap(px(16.))
             .border_t(px(0.5))
-            .border_color(rgba(SEPARATOR))
+            .border_color(SEPARATOR)
             .text_size(px(12.))
-            .text_color(rgba(TEXT_4))
+            .text_color(TEXT_4)
             .child(hint("↑↓", "navigate"))
             .child(hint("↵", "open"))
             .child(div().ml_auto().child(scope));

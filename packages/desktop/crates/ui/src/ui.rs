@@ -2,35 +2,35 @@ use theme::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-pub fn shadow(color: u32, y: f32, blur: f32) -> BoxShadow {
-    BoxShadow { color: rgba(color).into(), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(0.), inset: false }
+pub fn shadow(color: impl Into<Hsla>, y: f32, blur: f32) -> BoxShadow {
+    BoxShadow { color: color.into(), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(0.), inset: false }
 }
 
-pub fn ring(color: u32, width: f32) -> BoxShadow {
+pub fn ring(color: impl Into<Hsla>, width: f32) -> BoxShadow {
     BoxShadow { spread_radius: px(width), ..shadow(color, 0., 0.) }
 }
 
-fn highlight(color: u32) -> BoxShadow {
+fn highlight(color: impl Into<Hsla>) -> BoxShadow {
     BoxShadow { inset: true, ..shadow(color, 1., 0.) }
 }
 
 pub fn row_shadow() -> Vec<BoxShadow> {
-    vec![shadow(0x1111130f, 1., 2.), ring(0x1111130f, 0.5)]
+    vec![shadow(rgba(0x1111130f), 1., 2.), ring(rgba(0x1111130f), 0.5)]
 }
 
 /// Flat surface that holds content.
 pub fn page<E: Styled>(e: E) -> E {
-    e.bg(rgba(PAGE))
+    e.bg(PAGE)
 }
 
 /// Translucent chrome for the rail and sidebar column, split from the next pane by a hairline.
 pub fn side<E: Styled>(e: E) -> E {
-    e.bg(rgba(0xfafafbb3)).border_r(px(0.5)).border_color(rgba(SEPARATOR))
+    e.bg(SIDE).border_r(px(0.5)).border_color(SEPARATOR)
 }
 
 /// Floating menus and sheets.
 pub fn pop<E: Styled>(e: E) -> E {
-    e.bg(rgba(SURFACE)).rounded(px(26.)).shadow(vec![ring(SEPARATOR, 0.5), highlight(0xfffffff2), shadow(0x00000024, 18., 50.), shadow(0x0000000f, 2., 6.)])
+    e.bg(POPOVER).rounded(px(26.)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(rgba(0x00000024), 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
 }
 
 /// A menu dropped `top` px below its `relative` parent, painted above later siblings and kept inside the window.
@@ -40,11 +40,11 @@ pub fn dropdown(top: f32, menu: impl IntoElement) -> Div {
 
 /// Translucent chrome for floating buttons and groups.
 pub fn glass<E: Styled>(e: E) -> E {
-    e.bg(rgba(0xffffff9e)).shadow(vec![ring(HAIRLINE, 0.5), highlight(0xfffffff2), shadow(0x0000000a, 1., 2.), shadow(0x0000000f, 6., 20.)])
+    e.bg(GLASS).shadow(vec![ring(HAIRLINE, 0.5), highlight(HIGHLIGHT), shadow(rgba(0x0000000a), 1., 2.), shadow(rgba(0x0000000f), 6., 20.)])
 }
 
-pub fn dot(size: f32, color: u32) -> Div {
-    div().size(px(size)).flex_none().rounded(px(size / 2.)).bg(rgba(color))
+pub fn dot(size: f32, color: Token) -> Div {
+    div().size(px(size)).flex_none().rounded(px(size / 2.)).bg(color)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -58,9 +58,10 @@ pub enum Variant {
 }
 
 impl Variant {
-    pub fn fg(self) -> u32 {
+    pub fn fg(self) -> Token {
         match self {
-            Variant::Primary | Variant::Accent | Variant::Danger => WHITE,
+            Variant::Primary => ON_TEXT,
+            Variant::Accent | Variant::Danger => WHITE,
             Variant::Glass | Variant::Secondary => TEXT,
             Variant::Ghost => TEXT_2,
         }
@@ -68,7 +69,7 @@ impl Variant {
 }
 
 pub fn primary<E: Styled>(e: E) -> E {
-    e.bg(rgba(TEXT)).shadow(vec![highlight(0xffffff2e), shadow(0x0000002e, 4., 12.)])
+    e.bg(TEXT).shadow(vec![highlight(rgba(0xffffff2e)), shadow(rgba(0x0000002e), 4., 12.)])
 }
 
 pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, label: impl IntoElement) -> Stateful<Div> {
@@ -84,14 +85,14 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
         .cursor_pointer()
         .text_size(px(13.))
         .whitespace_nowrap()
-        .text_color(rgba(v.fg()));
+        .text_color(v.fg());
     let d = match v {
         Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD),
         Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM),
-        Variant::Accent => d.bg(rgba(ACCENT)).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(0xffffff40), shadow(0x0a84ff59, 2., 6.)]),
-        Variant::Secondary => d.bg(rgba(FILL_3)).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_4))),
-        Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_3))),
-        Variant::Danger => d.bg(rgba(FAILED)).font_weight(FontWeight::SEMIBOLD),
+        Variant::Accent => d.bg(ACCENT).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0a84ff59), 2., 6.)]),
+        Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)),
+        Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)),
+        Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD),
     };
     d.children(icon_name.map(|n| icon(n, 14., v.fg()))).child(label)
 }
@@ -106,10 +107,10 @@ pub fn button_kbd(keys: &str) -> Div {
 }
 
 fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
-    div().id(id).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(rgba(FILL_3)))
+    div().id(id).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3))
 }
 
-fn glyph_button(id: impl Into<ElementId>, name: &str, w: f32, h: f32, radius: f32, color: u32) -> Stateful<Div> {
+fn glyph_button(id: impl Into<ElementId>, name: &str, w: f32, h: f32, radius: f32, color: Token) -> Stateful<Div> {
     let glyph = if w >= 34. && w == h { 17. } else { 16. };
     glyph_frame(id, w, h, radius).child(icon(name, glyph, color))
 }
@@ -118,7 +119,7 @@ pub fn icon_button(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
     glyph_button(id, name, 28., 28., 7., TEXT_2)
 }
 
-pub fn icon_button_sized(id: impl Into<ElementId>, name: &str, size: f32, color: u32) -> Stateful<Div> {
+pub fn icon_button_sized(id: impl Into<ElementId>, name: &str, size: f32, color: Token) -> Stateful<Div> {
     glyph_button(id, name, size, size, 7., color)
 }
 
@@ -153,7 +154,7 @@ pub fn segmented<V: 'static, T: Copy + PartialEq + 'static>(
 ) -> Div {
     let on = std::rc::Rc::new(on);
     let (h, r, ir, fs) = if small { (24., 11., 8., 12.) } else { (30., 12., 9., 13.5) };
-    div().p(px(3.)).flex().gap(px(2.)).rounded(px(r)).bg(rgba(FILL_3)).children(items.into_iter().enumerate().map(|(i, s)| {
+    div().p(px(3.)).flex().gap(px(2.)).rounded(px(r)).bg(FILL_3).children(items.into_iter().enumerate().map(|(i, s)| {
         let on = on.clone();
         let v = s.value;
         let selected = v == active;
@@ -171,20 +172,20 @@ pub fn segmented<V: 'static, T: Copy + PartialEq + 'static>(
             .text_size(px(fs))
             .whitespace_nowrap()
             .when(selected, |d| {
-                d.bg(rgba(SURFACE)).shadow(vec![shadow(0x0000001a, 1., 3.), ring(0x0000000d, 0.5)]).text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD)
+                d.bg(SURFACE).shadow(vec![shadow(rgba(0x0000001a), 1., 3.), ring(rgba(0x0000000d), 0.5)]).text_color(TEXT).font_weight(FontWeight::SEMIBOLD)
             })
-            .when(!selected, |d| d.text_color(rgba(TEXT_2)).font_weight(FontWeight::MEDIUM))
+            .when(!selected, |d| d.text_color(TEXT_2).font_weight(FontWeight::MEDIUM))
             .children(s.icon.map(|name| icon(name, fs - 1.5, if selected { TEXT } else { TEXT_2 })))
             .child(s.label)
             .children(s.badge.map(|b| {
                 div()
                     .px(px(5.))
                     .rounded(px(8.))
-                    .bg(rgba(HAIRLINE))
+                    .bg(HAIRLINE)
                     .text_size(px(11.))
                     .line_height(px(16.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgba(TEXT_2))
+                    .text_color(TEXT_2)
                     .child(b)
             }))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| on(this, v, cx)))
@@ -210,12 +211,12 @@ pub fn diffstat(added: usize, removed: usize) -> Div {
         .gap(px(6.))
         .font_family(MONO)
         .text_size(px(11.))
-        .child(div().text_color(rgba(DIFF_ADD_TEXT)).child(format!("+{added}")))
-        .child(div().text_color(rgba(DIFF_DEL_TEXT)).child(format!("−{removed}")))
+        .child(div().text_color(DIFF_ADD_TEXT).child(format!("+{added}")))
+        .child(div().text_color(DIFF_DEL_TEXT).child(format!("−{removed}")))
 }
 
 pub fn status(id: impl Into<ElementId>, state: State) -> Div {
-    let pill = |bg: u32, fg: u32| {
+    let pill = |bg: Token, fg: Token| {
         div()
             .h(px(20.))
             .pl(px(7.))
@@ -225,10 +226,10 @@ pub fn status(id: impl Into<ElementId>, state: State) -> Div {
             .items_center()
             .gap(px(5.))
             .rounded(px(10.))
-            .bg(rgba(bg))
+            .bg(bg)
             .text_size(px(11.5))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(fg))
+            .text_color(fg)
     };
     match state {
         State::NeedsYou => pill(WAITING_BG, WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
@@ -250,10 +251,10 @@ pub fn tag(label: impl Into<SharedString>) -> Div {
         .flex_none()
         .items_center()
         .rounded(px(10.))
-        .bg(rgba(SURFACE))
+        .bg(SURFACE)
         .shadow(vec![ring(SEPARATOR_STRONG, 0.5)])
         .text_size(px(11.5))
-        .text_color(rgba(TEXT_2))
+        .text_color(TEXT_2)
         .whitespace_nowrap()
         .child(label.into())
 }
@@ -261,7 +262,7 @@ pub fn tag(label: impl Into<SharedString>) -> Div {
 /// One chip per space-separated key, so "⌘ K" renders as ⌘ and K.
 pub fn kbd(keys: &str) -> Div {
     div().flex().flex_none().gap(px(4.)).children(keys.split_whitespace().map(|k| {
-        div().px(px(6.)).py(px(1.)).rounded(px(5.)).bg(rgba(FILL_4)).font_family(MONO).text_size(px(11.)).line_height(px(16.)).text_color(rgba(TEXT_2)).child(k.to_string())
+        div().px(px(6.)).py(px(1.)).rounded(px(5.)).bg(FILL_4).font_family(MONO).text_size(px(11.)).line_height(px(16.)).text_color(TEXT_2).child(k.to_string())
     }))
 }
 
@@ -276,7 +277,7 @@ pub fn repo_mark(name: &str, selected: bool, state: Option<State>) -> Div {
 }
 
 /// The color that marks a state asking for a look: Needs you, Failed or Done.
-pub fn alert_color(state: State) -> Option<u32> {
+pub fn alert_color(state: State) -> Option<Token> {
     match state {
         State::NeedsYou => Some(WAITING),
         State::Failed => Some(FAILED),
@@ -287,7 +288,7 @@ pub fn alert_color(state: State) -> Option<u32> {
 
 /// A repository's initials on a square tile, dotted top-right when it asks for a look and bottom-right while it works.
 pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>) -> Div {
-    let badge = |d: Div, color: u32| d.absolute().right(px(-2.)).size(px(9.)).rounded(px(5.)).bg(rgba(color)).shadow(vec![ring(WHITE, 2.)]);
+    let badge = |d: Div, color: Token| d.absolute().right(px(-2.)).size(px(9.)).rounded(px(5.)).bg(color).shadow(vec![ring(CUTOUT, 2.)]);
     let scale = if letters.chars().count() > 1 { 0.34 } else { 0.5 };
     div()
         .relative()
@@ -299,9 +300,9 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>)
         .rounded(px((size * 0.27).round()))
         .text_size(px((size * scale).round()))
         .font_weight(FontWeight::SEMIBOLD)
-        .when(selected, |d| d.bg(rgba(TEXT)).text_color(rgba(WHITE)))
+        .when(selected, |d| d.bg(TEXT).text_color(ON_TEXT))
         .when(!selected, |d| {
-            d.bg(rgba(SURFACE)).text_color(rgba(TEXT_2)).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }])
+            d.bg(SURFACE).text_color(TEXT_2).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }])
         })
         .child(letters.to_string())
         .children(state.and_then(alert_color).map(|c| badge(div().top(px(-2.)), c)))
@@ -322,8 +323,8 @@ fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         .gap(px(7.))
         .rounded(px(9.))
         .cursor_pointer()
-        .when(selected, |d| d.bg(rgba(FILL_4)))
-        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
+        .when(selected, |d| d.bg(FILL_4))
+        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
 }
 
 /// `kept` is false for a project Pocket shows only while it has terminals: its mark is dashed and its name dim.
@@ -340,10 +341,10 @@ pub fn repo_row(id: impl Into<ElementId>, lead: impl IntoElement, name: &str, se
             .rounded(px(6.))
             .border(px(1.))
             .border_dashed()
-            .border_color(rgba(TEXT_5))
+            .border_color(TEXT_5)
             .text_size(px(11.))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(TEXT_3))
+            .text_color(TEXT_3)
             .child(mark_letter(name))
     };
     sidebar_row(id, selected)
@@ -352,7 +353,7 @@ pub fn repo_row(id: impl Into<ElementId>, lead: impl IntoElement, name: &str, se
         .font_weight(FontWeight::SEMIBOLD)
         .child(lead)
         .child(mark)
-        .child(div().flex_1().min_w_0().truncate().when(!kept, |d| d.text_color(rgba(TEXT_3))).child(name.to_string()))
+        .child(div().flex_1().min_w_0().truncate().when(!kept, |d| d.text_color(TEXT_3)).child(name.to_string()))
 }
 
 pub fn chevron(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
@@ -365,7 +366,7 @@ pub fn chevron(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .rounded(px(4.))
-        .hover(|s| s.bg(rgba(FILL_3)))
+        .hover(|s| s.bg(FILL_3))
         .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
 }
 
@@ -385,7 +386,7 @@ pub fn setting_up(id: impl Into<ElementId>) -> Div {
         .gap(px(5.))
         .text_size(px(12.))
         .font_weight(FontWeight::NORMAL)
-        .text_color(rgba(TEXT_4))
+        .text_color(TEXT_4)
         .child(spinner(id, 11., TEXT_4))
         .child("Setting up…")
 }
@@ -427,7 +428,7 @@ pub fn provider_label(provider: &str, faded: bool) -> Div {
 
 pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: String, title: String, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
     let id = id.into();
-    let line = || div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(rgba(TEXT_3));
+    let line = || div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_3);
     div()
         .id(id.clone())
         .px(px(10.))
@@ -438,10 +439,10 @@ pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
         .gap(px(4.))
         .rounded(px(8.))
         .cursor_pointer()
-        .when(selected, |d| d.bg(rgba(FILL_3)))
-        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
+        .when(selected, |d| d.bg(FILL_3))
+        .when(!selected, |d| d.hover(|s| s.bg(FILL_1)))
         .child(line().child(div().flex_1().min_w_0().flex().child(lead)).child(when))
-        .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)).child(title))
+        .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
         .child(
             line()
                 .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_3)).child(div().truncate().child(b))))
@@ -451,7 +452,7 @@ pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
 
 /// A card's status as coloured text: the pill's mark and label without its background.
 pub fn status_label(id: impl Into<ElementId>, state: State) -> Div {
-    let label = |color: u32| div().flex().flex_none().items_center().gap(px(5.)).font_weight(FontWeight::MEDIUM).text_color(rgba(color));
+    let label = |color: Token| div().flex().flex_none().items_center().gap(px(5.)).font_weight(FontWeight::MEDIUM).text_color(color);
     match state {
         State::NeedsYou => label(WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
         State::Working => label(RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Running"),
@@ -462,7 +463,7 @@ pub fn status_label(id: impl Into<ElementId>, state: State) -> Div {
 }
 
 /// Git's one-letter status for a file: M, A or D.
-pub fn git_color(letter: char) -> u32 {
+pub fn git_color(letter: char) -> Token {
     match letter {
         'A' => RUNNING_TEXT,
         'D' => FAILED,
@@ -493,13 +494,13 @@ pub fn tree_row(
         .rounded(px(8.))
         .cursor_pointer()
         .text_size(px(13.5))
-        .when(selected, |d| d.bg(rgba(ACCENT_BG)).font_weight(FontWeight::SEMIBOLD))
-        .when(!selected, |d| d.font_weight(FontWeight(450.)).hover(|s| s.bg(rgba(FILL_2))))
+        .when(selected, |d| d.bg(ACCENT_BG).font_weight(FontWeight::SEMIBOLD))
+        .when(!selected, |d| d.font_weight(FontWeight(450.)).hover(|s| s.bg(FILL_2)))
         .child(div().w(px(12.)).flex().when(folder, |d| d.child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))))
         .child(file_icon(&label, folder, open, 16.))
         .child(div().flex_1().truncate().child(label))
         .when(touched, |d| d.child(dot(6., AGENT_CODEX)))
-        .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(rgba(git_color(g))).child(g.to_string())))
+        .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
 }
 
 pub fn checkbox(on: bool) -> Div {
@@ -510,8 +511,8 @@ pub fn checkbox(on: bool) -> Div {
         .items_center()
         .justify_center()
         .rounded(px(4.))
-        .when(on, |d| d.bg(rgba(TEXT)).child(icon("check", 11., WHITE)))
-        .when(!on, |d| d.bg(rgba(SURFACE)).shadow(vec![ring(SEPARATOR_STRONG, 1.)]))
+        .when(on, |d| d.bg(TEXT).child(icon("check", 11., ON_TEXT)))
+        .when(!on, |d| d.bg(SURFACE).shadow(vec![ring(SEPARATOR_STRONG, 1.)]))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -535,8 +536,8 @@ pub fn change_row(
         .gap(px(10.))
         .rounded(px(12.))
         .cursor_pointer()
-        .when(selected, |d| d.bg(rgba(FILL_3)))
-        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
+        .when(selected, |d| d.bg(FILL_3))
+        .when(!selected, |d| d.hover(|s| s.bg(FILL_1)))
         .child(check)
         .child(
             div()
@@ -546,7 +547,7 @@ pub fn change_row(
                 .flex_col()
                 .gap(px(1.))
                 .child(div().truncate().text_size(px(13.5)).font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM }).child(file.to_string()))
-                .when(!dir.is_empty(), |d| d.child(div().truncate().font_family(MONO).text_size(px(11.)).text_color(rgba(TEXT_4)).child(dir.to_string()))),
+                .when(!dir.is_empty(), |d| d.child(div().truncate().font_family(MONO).text_size(px(11.)).text_color(TEXT_4).child(dir.to_string()))),
         )
         .when(comments > 0, |d| {
             d.child(
@@ -556,7 +557,7 @@ pub fn change_row(
                     .gap(px(3.))
                     .text_size(px(11.5))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgba(WAITING_TEXT))
+                    .text_color(WAITING_TEXT)
                     .child(icon("comment", 11., WAITING_TEXT))
                     .child(comments.to_string()),
             )
@@ -575,9 +576,9 @@ pub fn add_tile(id: impl Into<ElementId>, size: f32) -> Stateful<Div> {
         .rounded(px((size * 0.29).round()))
         .border_1()
         .border_dashed()
-        .border_color(rgba(0x00000040))
+        .border_color(Token::new(0x00000040, 0xebebeb40))
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(FILL_2)))
+        .hover(|s| s.bg(FILL_2))
         .child(icon("plus", 16., TEXT_3))
 }
 
@@ -593,10 +594,10 @@ pub fn count_badge(count: usize) -> Div {
         .items_center()
         .justify_center()
         .rounded(px(8.))
-        .bg(rgba(WAITING))
+        .bg(WAITING)
         .text_size(px(10.))
         .font_weight(FontWeight::BOLD)
-        .text_color(rgba(WHITE))
+        .text_color(WHITE)
         .child(count.to_string())
 }
 
@@ -608,10 +609,10 @@ pub fn avatar(initials: &str, size: f32) -> Div {
         .items_center()
         .justify_center()
         .rounded(px(size / 2.))
-        .bg(rgba(TEXT))
+        .bg(TEXT)
         .text_size(px(11.))
         .font_weight(FontWeight::BOLD)
-        .text_color(rgba(WHITE))
+        .text_color(ON_TEXT)
         .child(initials.to_string())
 }
 
@@ -621,10 +622,10 @@ pub fn breadcrumb(crumbs: Vec<String>) -> Div {
     div().flex().min_w_0().overflow_hidden().justify_end().items_center().gap(px(8.)).text_size(px(13.)).whitespace_nowrap().children(crumbs.into_iter().enumerate().flat_map(|(i, c)| {
         let crumb = div()
             .truncate()
-            .when(i == last, |d| d.min_w(px(60.)).text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD))
-            .when(i != last, |d| d.min_w(px(24.)).flex_shrink(100.).text_color(rgba(TEXT_2)).font_weight(FontWeight(450.)))
+            .when(i == last, |d| d.min_w(px(60.)).text_color(TEXT).font_weight(FontWeight::SEMIBOLD))
+            .when(i != last, |d| d.min_w(px(24.)).flex_shrink(100.).text_color(TEXT_2).font_weight(FontWeight(450.)))
             .child(c);
-        let slash = (i > 0).then(|| div().flex_none().text_color(rgba(TEXT_6)).child("/"));
+        let slash = (i > 0).then(|| div().flex_none().text_color(TEXT_6).child("/"));
         slash.into_iter().chain([crumb])
     }))
 }
@@ -634,7 +635,7 @@ pub fn page_bar() -> Div {
 }
 
 pub fn meta_item() -> Div {
-    div().h(px(22.)).flex().flex_none().items_center().gap(px(6.)).text_size(px(12.5)).text_color(rgba(TEXT_2)).whitespace_nowrap()
+    div().h(px(22.)).flex().flex_none().items_center().gap(px(6.)).text_size(px(12.5)).text_color(TEXT_2).whitespace_nowrap()
 }
 
 /// Meta items in the room the breadcrumb leaves; ones that don't fit wrap onto a clipped second line, so none shows half cut.
@@ -653,18 +654,18 @@ pub fn meta_diff(added: usize, removed: usize, size: f32) -> Div {
         .gap(px(size * 0.6))
         .font_family(MONO)
         .text_size(px(size))
-        .child(div().text_color(rgba(RUNNING_TEXT)).child(format!("+{added}")))
-        .child(div().text_color(rgba(FAILED)).child(format!("−{removed}")))
+        .child(div().text_color(RUNNING_TEXT).child(format!("+{added}")))
+        .child(div().text_color(FAILED).child(format!("−{removed}")))
 }
 
 pub fn meta_value(text: impl Into<SharedString>) -> Div {
-    div().text_color(rgba(TEXT)).font_weight(FontWeight::MEDIUM).child(text.into())
+    div().text_color(TEXT).font_weight(FontWeight::MEDIUM).child(text.into())
 }
 
 /// How much of the context window is left, drawn as a 32px bar.
 pub fn context_bar(left: f32) -> Div {
     let used = (1. - left).clamp(0., 1.);
-    div().w(px(32.)).h(px(4.)).rounded(px(2.)).bg(rgba(SEPARATOR_STRONG)).child(div().h_full().w(px(32. * used)).rounded(px(2.)).bg(rgba(if used > 0.8 { WAITING } else { TEXT })))
+    div().w(px(32.)).h(px(4.)).rounded(px(2.)).bg(SEPARATOR_STRONG).child(div().h_full().w(px(32. * used)).rounded(px(2.)).bg(if used > 0.8 { WAITING } else { TEXT }))
 }
 
 pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> Div {
@@ -679,7 +680,7 @@ pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> D
         .text_size(px(12.))
         .line_height(px(15.))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(rgba(TEXT_3))
+        .text_color(TEXT_3)
         .child(label.into())
         .children(count.map(|n| div().font_weight(FontWeight::MEDIUM).child(n.to_string())))
 }
@@ -689,7 +690,7 @@ pub fn swatch(color: u32, size: f32, radius: f32) -> Div {
 }
 
 pub fn field_label(label: impl Into<SharedString>) -> Div {
-    div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child(label.into())
+    div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.into())
 }
 
 pub fn field_box() -> Div {
@@ -700,7 +701,7 @@ pub fn field_box() -> Div {
         .items_center()
         .gap(px(8.))
         .rounded(px(11.))
-        .bg(rgba(0xffffffd9))
+        .bg(Token::new(0xffffffd9, 0xebebeb14))
         .shadow(vec![ring(SEPARATOR, 0.5)])
 }
 
@@ -737,15 +738,15 @@ pub fn palette_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
         .rounded(px(10.))
         .cursor_pointer()
         .text_size(px(14.))
-        .when(selected, |d| d.bg(rgba(ACCENT_BG)))
-        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
-        .child(div().size(px(24.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(rgba(FILL_3)).child(lead))
+        .when(selected, |d| d.bg(ACCENT_BG))
+        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
+        .child(div().size(px(24.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_3).child(lead))
         .child(div().flex_none().max_w(px(320.)).truncate().font_weight(FontWeight::MEDIUM).child(title))
-        .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(rgba(TEXT_4)).child(detail))
+        .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(TEXT_4).child(detail))
         .children(keys.map(kbd))
 }
 
-fn menu_item(id: impl Into<ElementId>, icon_name: &str, label: &str, tint: u32, hover: u32) -> Stateful<Div> {
+fn menu_item(id: impl Into<ElementId>, icon_name: &str, label: &str, tint: Token, hover: Token) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(32.))
@@ -757,7 +758,7 @@ fn menu_item(id: impl Into<ElementId>, icon_name: &str, label: &str, tint: u32, 
         .rounded(px(8.))
         .cursor_pointer()
         .text_size(px(13.5))
-        .hover(move |s| s.bg(rgba(hover)))
+        .hover(move |s| s.bg(hover))
         .child(icon(icon_name, 14., tint))
         .child(div().flex_1().child(label.to_string()))
 }
@@ -768,11 +769,11 @@ pub fn menu_row(id: impl Into<ElementId>, icon_name: &str, label: &str, keys: Op
 
 /// A menu row that destroys something; menus keep it last, behind a divider.
 pub fn danger_row(id: impl Into<ElementId>, icon_name: &str, label: &str) -> Stateful<Div> {
-    menu_item(id, icon_name, label, FAILED, FAILED_BG).text_color(rgba(FAILED))
+    menu_item(id, icon_name, label, FAILED, FAILED_BG).text_color(FAILED)
 }
 
 pub fn menu_divider() -> Div {
-    div().h(px(0.5)).mx(px(8.)).my(px(4.)).flex_none().bg(rgba(SEPARATOR))
+    div().h(px(0.5)).mx(px(8.)).my(px(4.)).flex_none().bg(SEPARATOR)
 }
 
 pub fn chip(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
@@ -788,12 +789,12 @@ pub fn chip(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         .cursor_pointer()
         .text_size(px(12.))
         .whitespace_nowrap()
-        .when(selected, |d| d.bg(rgba(FILL_4)).text_color(rgba(TEXT)))
-        .when(!selected, |d| d.text_color(rgba(TEXT_2)).hover(|s| s.bg(rgba(FILL_2))))
+        .when(selected, |d| d.bg(FILL_4).text_color(TEXT))
+        .when(!selected, |d| d.text_color(TEXT_2).hover(|s| s.bg(FILL_2)))
 }
 
 pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-    div().id(id).flex_none().cursor_pointer().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(rgba(ACCENT)).whitespace_nowrap().child(label.into())
+    div().id(id).flex_none().cursor_pointer().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ACCENT).whitespace_nowrap().child(label.into())
 }
 
 /// Rounded search-like field that opens something when clicked.
@@ -807,14 +808,14 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .items_center()
         .gap(px(8.))
         .rounded(px(12.))
-        .bg(rgba(0xffffffb3))
+        .bg(Token::new(0xffffffb3, 0xebebeb0d))
         .shadow(vec![ring(HAIRLINE, 0.5)])
         .cursor_pointer()
         .text_size(px(13.5))
-        .text_color(rgba(TEXT_3))
+        .text_color(TEXT_3)
         .child(icon(icon_name, 15., TEXT_3))
         .child(div().flex_1().child(label.to_string()))
-        .child(div().text_size(px(11.5)).text_color(rgba(TEXT_4)).child(keys.to_string()))
+        .child(div().text_size(px(11.5)).text_color(TEXT_4).child(keys.to_string()))
 }
 
 /// Indented past the project row's chevron (4 + 14 + gap 7) so its glyph sits under the project's mark and its name under the project's.
@@ -823,7 +824,7 @@ pub fn worktree_row(id: impl Into<ElementId>, name: String, selected: bool) -> S
         .pl(px(25.))
         .text_size(px(13.5))
         .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
-        .text_color(rgba(if selected { TEXT } else { TEXT_BODY }))
+        .text_color(if selected { TEXT } else { TEXT_BODY })
         .child(div().w(px(22.)).flex().flex_none().justify_center().child(icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 })))
         .child(div().flex_1().min_w_0().truncate().child(name))
 }

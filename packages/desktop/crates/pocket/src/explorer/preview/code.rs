@@ -24,7 +24,7 @@ pub fn decorations(text: &str, marks: &HashMap<usize, bool>) -> Vec<TextDecorati
         .filter_map(|(i, line)| {
             let modified = *marks.get(&(i + 1))?;
             let start = line.as_ptr() as usize - text.as_ptr() as usize;
-            let bg = HighlightStyle { background_color: Some(rgba(if modified { WAITING_BG } else { RUNNING_BG }).into()), ..Default::default() };
+            let bg = HighlightStyle { background_color: Some(if modified { WAITING_BG } else { RUNNING_BG }.into()), ..Default::default() };
             Some(TextDecoration::new(start..start + line.len(), bg))
         })
         .collect()
@@ -33,7 +33,7 @@ pub fn decorations(text: &str, marks: &HashMap<usize, bool>) -> Vec<TextDecorati
 /// The read-only editor a text file shows in.
 pub fn code_pane(code: &Entity<EditorState>) -> Div {
     pane()
-        .bg(rgba(SURFACE_SUNKEN))
+        .bg(SURFACE_SUNKEN)
         .child(Editor::new(code).readonly(true).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))
 }
 
@@ -41,7 +41,6 @@ pub fn code_pane(code: &Entity<EditorState>) -> Div {
 mod tests {
     use super::{decorations, gutter};
     use git::{Kind, Line};
-    use gpui_kit::rgba;
     use std::collections::HashMap;
     use theme::{RUNNING_BG, WAITING_BG};
 
@@ -49,8 +48,8 @@ mod tests {
     fn tints_changed_lines() {
         let d = decorations("a\nbb\nccc\n", &HashMap::from([(2, true), (3, false)]));
         assert_eq!(d.iter().map(|d| d.range.clone()).collect::<Vec<_>>(), vec![2..4, 5..8]);
-        assert_eq!(d[0].style.background_color, Some(rgba(WAITING_BG).into()));
-        assert_eq!(d[1].style.background_color, Some(rgba(RUNNING_BG).into()));
+        assert_eq!(d[0].style.background_color, Some(WAITING_BG.into()));
+        assert_eq!(d[1].style.background_color, Some(RUNNING_BG.into()));
     }
 
     #[test]

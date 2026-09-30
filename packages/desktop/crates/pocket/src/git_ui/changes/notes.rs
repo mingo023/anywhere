@@ -16,16 +16,16 @@ impl Desktop {
                 .gap(px(4.))
                 .rounded(px(10.))
                 .cursor_pointer()
-                .hover(|s| s.bg(rgba(FILL_1)))
+                .hover(|s| s.bg(FILL_1))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(WAITING_TEXT)).child(label))
+                        .child(div().font_family(MONO).text_size(px(11.5)).text_color(WAITING_TEXT).child(label))
                         .child(ui::status(id, state)),
                 )
-                .child(div().truncate().text_size(px(13.5)).text_color(rgba(TEXT_BODY)).child(text))
+                .child(div().truncate().text_size(px(13.5)).text_color(TEXT_BODY).child(text))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(path.clone()), cx)))
         };
         let mut notes: Vec<Stateful<Div>> = self

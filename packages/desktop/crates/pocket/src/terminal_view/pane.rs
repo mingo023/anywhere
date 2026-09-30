@@ -69,9 +69,9 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(px(0.5))
-            .bg(rgba(SEPARATOR))
+            .bg(SEPARATOR)
             .border_t(px(0.5))
-            .border_color(rgba(SEPARATOR))
+            .border_color(SEPARATOR)
             .key_context(keys::CONTEXT)
             .track_focus(&self.terminal.focus)
             .on_key_down(cx.listener(Self::on_term_key))
@@ -84,14 +84,14 @@ impl Desktop {
         let known = self.terminals.sessions.get(id).is_some();
         let title = pane_title(self.summary(id), self.terminals.sessions.get(id));
         let banner = self.summary(id).and_then(status::banner).map(|text| {
-            div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(rgba(SEPARATOR)).bg(rgba(FILL_2)).text_size(px(12.)).text_color(rgba(TEXT_2)).child(text)
+            div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
         });
         let body = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
             Some(t) => {
                 let (f, cells) = t.frame();
                 surface::screen(&f, cells, m)
             }
-            None => div().text_color(rgba(TEXT_3)).child(if known { "Connecting…" } else { "This session is not running." }),
+            None => div().text_color(TEXT_3).child(if known { "Connecting…" } else { "This session is not running." }),
         };
         let close_id = id.to_string();
         let header = n.map(|n| {
@@ -103,8 +103,8 @@ impl Desktop {
                 .flex()
                 .items_center()
                 .border_b(px(0.5))
-                .border_color(rgba(SEPARATOR))
-                .text_color(rgba(if focused { TEXT } else { TEXT_3 }))
+                .border_color(SEPARATOR)
+                .text_color(if focused { TEXT } else { TEXT_3 })
                 .font_family(MONO)
                 .text_size(px(11.5))
                 .child(div().flex_1().truncate().child(format!("{n} · {title}")))
@@ -126,7 +126,7 @@ impl Desktop {
             .min_h_0()
             .flex()
             .flex_col()
-            .bg(rgba(SURFACE_SUNKEN))
+            .bg(SURFACE_SUNKEN)
             .when(focused && n.is_some(), |d| d.shadow(vec![BoxShadow { inset: true, ..ui::ring(SEPARATOR_STRONG, 0.5) }]))
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
@@ -142,11 +142,11 @@ impl Desktop {
                     .font_family(MONO)
                     .text_size(px(m.size))
                     .line_height(px(m.line))
-                    .text_color(rgba(TEXT))
+                    .text_color(TEXT)
                     .child(screen),
             )
             .children(exit.map(|c| {
-                div().px(px(24.)).pb(px(12.)).text_size(px(12.)).text_color(rgba(if c == 0 { TEXT_3 } else { FAILED })).child(format!("Process exited with code {c}"))
+                div().px(px(24.)).pb(px(12.)).text_size(px(12.)).text_color(if c == 0 { TEXT_3 } else { FAILED }).child(format!("Process exited with code {c}"))
             }))
     }
 }

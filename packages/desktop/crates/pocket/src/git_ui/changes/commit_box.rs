@@ -21,20 +21,21 @@ impl Desktop {
             .rounded(px(7.))
             .map(|d| if self.changes.writing { d.child(spinner("commit-writing", 13., TEXT_3)) } else { d.child(icon("sparkle", 14., TEXT_3)) })
             .when(has_changes && !self.changes.writing, |d| {
-                d.cursor_pointer().hover(|s| s.bg(rgba(FILL_3))).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.write_message(window, cx)))
+                d.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.write_message(window, cx)))
             })
             .when(!has_changes, |d| d.opacity(0.4));
         let field = div()
             .flex()
             .items_start()
             .rounded(px(10.))
-            .bg(rgba(SURFACE))
+            .bg(SURFACE)
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
             .text_size(px(13.))
             .child(div().flex_1().min_w_0().child(Textarea::new(&self.changes.input).appearance(false)))
             .child(write);
         let label = commit_label(&repo.files, self.changes.busy);
         let ready = commit_ready(&repo.files, &self.changes.input.read(cx).value(), self.changes.busy.is_some());
+        let wash = Token::new(0xffffff1a, 0x1717171a);
         let commit = div()
             .id("commit")
             .flex_1()
@@ -44,10 +45,10 @@ impl Desktop {
             .justify_center()
             .gap(px(6.))
             .rounded_l(px(9.))
-            .map(|d| if self.changes.busy.is_some() { d.child(spinner("commit-busy", 13., WHITE)) } else { d.child(icon("check", 14., WHITE)) })
+            .map(|d| if self.changes.busy.is_some() { d.child(spinner("commit-busy", 13., ON_TEXT)) } else { d.child(icon("check", 14., ON_TEXT)) })
             .child(label)
-            .when(ready, |d| d.cursor_pointer().hover(|s| s.bg(rgba(0xffffff1a))))
-            .when(!ready, |d| d.text_color(rgba(0xffffff8c)))
+            .when(ready, |d| d.cursor_pointer().hover(|s| s.bg(wash)))
+            .when(!ready, |d| d.text_color(Token::new(0xffffff8c, 0x1717178c)))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Commit, window, cx)));
         let menu_open = self.changes.commit_menu;
         let chevron = div()
@@ -60,11 +61,11 @@ impl Desktop {
             .justify_center()
             .rounded_r(px(9.))
             .border_l(px(0.5))
-            .border_color(rgba(0xffffff33))
+            .border_color(Token::new(0xffffff33, 0x17171733))
             .cursor_pointer()
-            .hover(|s| s.bg(rgba(0xffffff1a)))
-            .when(menu_open, |d| d.bg(rgba(0xffffff1a)))
-            .child(icon("chevron-down", 12., WHITE))
+            .hover(|s| s.bg(wash))
+            .when(menu_open, |d| d.bg(wash))
+            .child(icon("chevron-down", 12., ON_TEXT))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.changes.commit_menu = !this.changes.commit_menu;
@@ -87,7 +88,7 @@ impl Desktop {
         let button = ui::primary(div().relative().h(px(30.)).flex().rounded(px(9.)))
             .text_size(px(13.))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(WHITE))
+            .text_color(ON_TEXT)
             .child(commit)
             .child(chevron)
             .when(menu_open, |d| d.child(ui::dropdown(34., menu)));
@@ -99,10 +100,10 @@ impl Desktop {
                 .px(px(10.))
                 .py(px(8.))
                 .rounded(px(9.))
-                .bg(rgba(FAILED_BG))
+                .bg(FAILED_BG)
                 .font_family(MONO)
                 .text_size(px(11.5))
-                .text_color(rgba(FAILED))
+                .text_color(FAILED)
                 .child(e)
         });
         div().flex_none().px(px(10.)).pb(px(6.)).flex().flex_col().gap(px(8.)).child(field).child(button).children(error)

@@ -31,12 +31,12 @@ impl Desktop {
                 .items_center()
                 .gap(px(12.))
                 .rounded(px(12.))
-                .bg(rgba(0xffffff8c))
+                .bg(Token::new(0xffffff8c, 0xebebeb0d))
                 .shadow(vec![ui::ring(FILL_3, 0.5)])
                 .text_size(px(12.))
-                .text_color(rgba(TEXT_2))
+                .text_color(TEXT_2)
                 .children(parts)
-                .child(div().ml_auto().text_color(rgba(TEXT_4)).child("context left"))
+                .child(div().ml_auto().text_color(TEXT_4).child("context left"))
         })
     }
 }

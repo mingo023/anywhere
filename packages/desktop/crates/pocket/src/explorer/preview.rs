@@ -90,7 +90,7 @@ pub fn size(bytes: usize) -> String {
 }
 
 fn pane() -> Div {
-    div().flex_1().min_h_0().border_t(px(0.5)).border_color(rgba(SEPARATOR))
+    div().flex_1().min_h_0().border_t(px(0.5)).border_color(SEPARATOR)
 }
 
 /// The editors a file previews in.
@@ -250,7 +250,7 @@ impl Desktop {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(rgba(SURFACE_SUNKEN))
+                .bg(SURFACE_SUNKEN)
                 .child(img(PathBuf::from(&path)).max_w_full().max_h_full().object_fit(ObjectFit::Contain))
                 .into_any_element(),
             Body::Note(note) => empty(note).into_any_element(),

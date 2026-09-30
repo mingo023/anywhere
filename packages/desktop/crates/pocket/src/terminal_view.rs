@@ -60,7 +60,7 @@ impl Desktop {
                 .child(ui::meta_diff(added, removed, 12.))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx)))
         });
-        let error = self.error.clone().map(|e| div().min_w_0().truncate().mr(px(6.)).text_size(px(12.5)).text_color(rgba(FAILED)).child(e));
+        let error = self.error.clone().map(|e| div().min_w_0().truncate().mr(px(6.)).text_size(px(12.5)).text_color(FAILED).child(e));
         let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().children(error);
         let right = div()
             .flex()
@@ -94,7 +94,7 @@ impl Desktop {
             Some(Tab::Doc(Doc::Diff(p))) if self.diff.file.as_ref() == Some(&p) => self.diff_view(cx),
             Some(Tab::Doc(_)) | None => div().flex_1(),
         };
-        div().flex_1().min_h_0().flex().flex_col().bg(rgba(SURFACE_SUNKEN)).child(bar).child(body)
+        div().flex_1().min_h_0().flex().flex_col().bg(SURFACE_SUNKEN).child(bar).child(body)
     }
 }
 

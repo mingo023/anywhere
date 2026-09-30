@@ -79,6 +79,7 @@ impl Desktop {
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
             cx.observe_window_activation(window, |_, _, cx| follow_reduce_motion(cx)),
+            cx.observe_window_appearance(window, |this, window, cx| this.set_appearance(window.appearance(), window, cx)),
         ];
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
@@ -141,6 +142,13 @@ impl Desktop {
         }
         self.focus_pane(term, window, cx);
         self.refresh_git(cx);
+    }
+
+    pub(crate) fn set_appearance(&mut self, appearance: WindowAppearance, window: &mut Window, cx: &mut Context<Self>) {
+        theme::set_appearance(appearance, cx);
+        window.set_background_appearance(theme::window_background());
+        self.recolor_diff(cx);
+        cx.notify();
     }
 
     pub(crate) fn show_tree(&mut self, cwd: &str, tree: &str) {
@@ -283,7 +291,7 @@ impl Desktop {
                 .justify_center()
                 .gap(px(14.))
                 .text_size(px(14.))
-                .text_color(rgba(TEXT_3))
+                .text_color(TEXT_3)
                 .child(text)
                 .when(self.project.is_some(), |d| {
                     d.child(
@@ -313,10 +321,10 @@ impl Render for Desktop {
             .relative()
             .size_full()
             .flex()
-            .bg(rgba(WINDOW))
+            .bg(WINDOW)
             .font_family(SANS)
             .line_height(relative(1.2))
-            .text_color(rgba(TEXT))
+            .text_color(TEXT)
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 if ev.keystroke.key != "escape" {

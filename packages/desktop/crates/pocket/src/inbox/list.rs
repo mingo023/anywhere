@@ -47,7 +47,7 @@ impl Desktop {
                 .flex()
                 .text_size(px(12.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgba(TEXT_3))
+                .text_color(TEXT_3)
                 .child(div().flex_1().child(label.to_string()))
                 .child(div().font_family(MONO).font_weight(FontWeight::MEDIUM).child(count.to_string()))
         };
@@ -94,8 +94,8 @@ impl Desktop {
             .gap(px(12.))
             .rounded(px(12.))
             .cursor_pointer()
-            .when(selected, |d| d.bg(rgba(FILL_3)))
-            .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
+            .when(selected, |d| d.bg(FILL_3))
+            .when(!selected, |d| d.hover(|s| s.bg(FILL_1)))
             .child(
                 div()
                     .size(px(26.))
@@ -104,7 +104,7 @@ impl Desktop {
                     .items_center()
                     .justify_center()
                     .rounded(px(8.))
-                    .bg(rgba(SURFACE))
+                    .bg(SURFACE)
                     .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
                     .child(icon(glyph, 13., color)),
             )
@@ -121,14 +121,14 @@ impl Desktop {
                             .items_center()
                             .gap(px(6.))
                             .text_size(px(12.))
-                            .text_color(rgba(TEXT_2))
+                            .text_color(TEXT_2)
                             .child(div().font_weight(FontWeight::SEMIBOLD).child(project))
-                            .child(div().text_color(rgba(TEXT_6)).child("·"))
+                            .child(div().text_color(TEXT_6).child("·"))
                             .child(div().flex_1().truncate().child(provider))
-                            .child(div().text_color(rgba(TEXT_4)).child(ago(n.at, now))),
+                            .child(div().text_color(TEXT_4).child(ago(n.at, now))),
                     )
                     .child(div().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(n.title))
-                    .child(div().truncate().text_size(px(12.)).text_color(rgba(TEXT_2)).child(n.subtitle)),
+                    .child(div().truncate().text_size(px(12.)).text_color(TEXT_2).child(n.subtitle)),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_note(i, cx);

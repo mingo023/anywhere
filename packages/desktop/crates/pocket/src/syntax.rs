@@ -35,7 +35,7 @@ pub fn line_spans(language: &str, text: &str) -> Vec<Spans> {
     let mut hl = SyntaxHighlighter::new(language);
     hl.update(None, &Rope::from(text), None);
     let mut out = vec![Vec::new(); lines.len()];
-    for (r, style) in hl.styles(&(0..text.len()), &*theme::highlight_theme()) {
+    for (r, style) in hl.styles(&(0..text.len()), &*theme::highlight_theme(theme::is_dark())) {
         if style.color.is_none() {
             continue;
         }
@@ -54,15 +54,14 @@ pub fn line_spans(language: &str, text: &str) -> Vec<Spans> {
 #[cfg(test)]
 mod tests {
     use super::{language_for, line_spans};
-    use gpui_kit::rgba;
     use std::ops::Range;
-    use theme::{SYN_COMMENT, SYN_FN, SYN_KEYWORD};
+    use theme::{SYN_COMMENT, SYN_FN, SYN_KEYWORD, Token};
 
     #[test]
     fn colours_each_line_by_its_own_offsets() {
         let spans = line_spans("rust", "fn main() {\n    // hi\n}\n");
         assert_eq!(spans.len(), 3);
-        let has = |line: usize, range: Range<usize>, c: u32| spans[line].iter().any(|(r, s)| *r == range && s.color == Some(rgba(c).into()));
+        let has = |line: usize, range: Range<usize>, c: Token| spans[line].iter().any(|(r, s)| *r == range && s.color == Some(c.into()));
         assert!(has(0, 0..2, SYN_KEYWORD));
         assert!(has(0, 3..7, SYN_FN));
         assert!(has(1, 4..9, SYN_COMMENT));

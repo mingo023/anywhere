@@ -46,6 +46,7 @@ fn main() {
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(14.), px(14.))),
             }),
+            window_background: theme::window_background(),
             ..Default::default()
         };
         if capture.is_some() {
@@ -93,7 +94,8 @@ fn main() {
                 });
                 Desktop::new(daemon, outbox, store, window, cx)
             });
-            cx.new(|cx| Root::new(view, window, cx))
+            // Root paints gpui-kit's opaque background, which would hide the blurred desktop in dark.
+            cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
         })
         .expect("open window");
         match capture {

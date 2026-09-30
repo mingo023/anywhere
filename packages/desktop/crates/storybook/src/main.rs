@@ -26,7 +26,7 @@ fn story(title: &'static str, detail: &'static str, content: impl IntoElement) -
         .flex()
         .gap(px(24.))
         .border_t_1()
-        .border_color(rgba(HAIRLINE))
+        .border_color(HAIRLINE)
         .child(
             div()
                 .w(px(200.))
@@ -35,17 +35,17 @@ fn story(title: &'static str, detail: &'static str, content: impl IntoElement) -
                 .flex_col()
                 .gap(px(4.))
                 .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(title))
-                .child(div().text_size(px(12.)).text_color(rgba(TEXT_2)).child(detail)),
+                .child(div().text_size(px(12.)).text_color(TEXT_2).child(detail)),
         )
         .child(div().flex_1().flex().flex_wrap().items_center().gap(px(12.)).child(content))
 }
 
 fn list() -> Div {
-    div().w(px(320.)).p(px(6.)).flex().flex_col().gap(px(2.)).rounded(px(16.)).bg(rgba(SURFACE_SUNKEN)).shadow(vec![ui::ring(HAIRLINE, 0.5)])
+    div().w(px(320.)).p(px(6.)).flex().flex_col().gap(px(2.)).rounded(px(16.)).bg(SURFACE_SUNKEN).shadow(vec![ui::ring(HAIRLINE, 0.5)])
 }
 
 fn swatch(label: &'static str, material: fn(Div) -> Div) -> Div {
-    material(div().size(px(120.)).p(px(12.)).text_size(px(12.)).text_color(rgba(TEXT_2)).child(label))
+    material(div().size(px(120.)).p(px(12.)).text_size(px(12.)).text_color(TEXT_2).child(label))
 }
 
 impl Render for Storybook {
@@ -227,10 +227,10 @@ impl Render for Storybook {
             .size_full()
             .overflow_y_scroll()
             .p(px(24.))
-            .bg(rgba(WINDOW))
+            .bg(WINDOW)
             .font_family(SANS)
             .line_height(relative(1.2))
-            .text_color(rgba(TEXT))
+            .text_color(TEXT)
             .child(ui::page(div().px(px(40.)).pt(px(40.)).pb(px(20.))).child(div().pb(px(20.)).text_size(px(28.)).font_weight(FontWeight::BOLD).child("Components")).child(board))
     }
 }

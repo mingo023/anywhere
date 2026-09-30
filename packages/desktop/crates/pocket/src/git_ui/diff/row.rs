@@ -6,7 +6,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
-fn colors(kind: Kind) -> (Option<u32>, u32, &'static str) {
+fn colors(kind: Kind) -> (Option<Token>, Token, &'static str) {
     match kind {
         Kind::Hunk => (Some(FILL_2), TEXT_3, ""),
         Kind::Add => (Some(DIFF_ADD_BG), DIFF_ADD_TEXT, "+"),
@@ -22,7 +22,7 @@ fn number(n: Option<usize>, picked: bool) -> Div {
         .pr(px(8.))
         .flex()
         .justify_end()
-        .text_color(rgba(if picked { ACCENT } else { TEXT_4 }))
+        .text_color(if picked { ACCENT } else { TEXT_4 })
         .child(n.map(|n| n.to_string()).unwrap_or_default())
 }
 
@@ -42,8 +42,8 @@ fn hunk(lines: &[Line], i: usize) -> Div {
         .flex()
         .items_center()
         .gap(px(10.))
-        .bg(rgba(FILL_1))
-        .text_color(rgba(TEXT_4))
+        .bg(FILL_1)
+        .text_color(TEXT_4)
         .whitespace_nowrap()
         .overflow_hidden()
         .child(icon("unfold", 11., TEXT_4))
@@ -65,16 +65,16 @@ fn code(l: &Line, hl: Option<&Spans>, numbers: Vec<Option<usize>>, picked: bool)
         .min_h(px(ROW))
         .flex()
         .items_start()
-        .when_some(bg, |d, bg| d.bg(rgba(bg)))
-        .when(picked, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(rgba(ACCENT))))
+        .when_some(bg, |d, bg| d.bg(bg))
+        .when(picked, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(ACCENT)))
         .children(numbers.into_iter().map(|n| number(n, picked)))
-        .child(div().w(px(SIGN)).flex_none().flex().justify_center().text_color(rgba(fg)).child(sign))
+        .child(div().w(px(SIGN)).flex_none().flex().justify_center().text_color(fg).child(sign))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .pr(px(20.))
-                .text_color(rgba(TEXT_BODY))
+                .text_color(TEXT_BODY)
                 .child(StyledText::new(SharedString::from(l.text.clone())).with_highlights(hl.cloned().unwrap_or_default())),
         )
 }
@@ -89,7 +89,7 @@ fn add_button(left: f32) -> Div {
         .items_center()
         .justify_center()
         .rounded(px(6.))
-        .bg(rgba(ACCENT))
+        .bg(ACCENT)
         .shadow(vec![ui::shadow(ACCENT_GLOW, 1., 3.)])
         .child(icon("plus", 13., WHITE))
 }
@@ -118,7 +118,7 @@ impl Desktop {
     fn fold(&self, id: &'static str, i: usize, cx: &mut Context<Self>) -> Stateful<Div> {
         let row = hunk(&self.diff.lines, i).id((id, i));
         match fold_start(&self.diff.lines, i) {
-            Some(start) => row.cursor_pointer().hover(|s| s.bg(rgba(FILL_2))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.expand(start, cx))),
+            Some(start) => row.cursor_pointer().hover(|s| s.bg(FILL_2)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.expand(start, cx))),
             None => row,
         }
     }
@@ -131,7 +131,7 @@ impl Desktop {
             Row::Split(l, r) => {
                 let mut side = |id, i: Option<usize>, n: fn(&Line) -> Option<usize>| match i {
                     Some(i) => self.cell(id, i, vec![n(&self.diff.lines[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
-                    None => div().flex_1().min_h(px(ROW)).bg(rgba(SURFACE_SUNKEN)).into_any_element(),
+                    None => div().flex_1().min_h(px(ROW)).bg(SURFACE_SUNKEN).into_any_element(),
                 };
                 div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()
             }

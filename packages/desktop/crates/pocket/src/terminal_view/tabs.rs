@@ -71,7 +71,7 @@ impl Desktop {
                     .cursor_pointer()
                     .opacity(0.)
                     .group_hover("term-tab", |s| s.opacity(1.))
-                    .hover(|s| s.bg(rgba(FILL_3)))
+                    .hover(|s| s.bg(FILL_3))
                     .child(icon("x", 11., TEXT_4))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
@@ -96,8 +96,8 @@ impl Desktop {
                     .rounded(px(7.))
                     .text_size(px(12.5))
                     .whitespace_nowrap()
-                    .when(selected, |d| d.bg(rgba(WHITE)).shadow(ui::row_shadow()).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)))
-                    .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(rgba(TEXT_2)).hover(|s| s.bg(rgba(FILL_2))))
+                    .when(selected, |d| d.bg(SURFACE).shadow(ui::row_shadow()).font_weight(FontWeight::SEMIBOLD).text_color(TEXT))
+                    .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(TEXT_2).hover(|s| s.bg(FILL_2)))
                     .child(tab)
                     .child(close)
             })
@@ -112,7 +112,7 @@ impl Desktop {
             .justify_center()
             .rounded(px(7.))
             .cursor_pointer()
-            .hover(|s| s.bg(rgba(FILL_3)))
+            .hover(|s| s.bg(FILL_3))
             .child(icon("plus", 15., TEXT_2))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(None, cx)));
         let chevron = div()
@@ -125,8 +125,8 @@ impl Desktop {
             .justify_center()
             .rounded(px(6.))
             .cursor_pointer()
-            .when(self.terminal.tab_menu, |d| d.bg(rgba(FILL_3)))
-            .hover(|s| s.bg(rgba(FILL_3)))
+            .when(self.terminal.tab_menu, |d| d.bg(FILL_3))
+            .hover(|s| s.bg(FILL_3))
             .child(icon("chevron-down", 12., TEXT_3))
             // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -143,7 +143,8 @@ impl Desktop {
         }
         let (offset, max) = (self.terminal.tab_scroll.offset().x, self.terminal.tab_scroll.max_offset().x);
         let fade = |left: bool| {
-            let (solid, clear) = (rgba(SURFACE_SUNKEN), rgba(SURFACE_SUNKEN & 0xffffff00));
+            let solid: Hsla = SURFACE_SUNKEN.into();
+            let (solid, clear) = (solid, solid.opacity(0.));
             let (from, to) = if left { (solid, clear) } else { (clear, solid) };
             div().absolute().top_0().bottom_0().w(px(24.)).when(left, |d| d.left_0()).when(!left, |d| d.right_0()).bg(linear_gradient(90., linear_color_stop(from, 0.), linear_color_stop(to, 1.)))
         };

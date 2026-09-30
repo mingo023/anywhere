@@ -31,7 +31,7 @@ pub fn touched(files: &[FileStat], root: &str, edited: impl Fn(&str) -> bool) ->
     files.iter().map(|f| format!("{root}/{}", f.path)).filter(|p| edited(p)).collect()
 }
 
-pub fn status_word(status: Option<char>) -> (u32, &'static str) {
+pub fn status_word(status: Option<char>) -> (Token, &'static str) {
     match status {
         Some('A') => (RUNNING, "Added"),
         Some('D') => (FAILED, "Deleted"),

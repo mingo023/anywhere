@@ -23,10 +23,10 @@ fn count_pill(n: usize) -> Div {
         .items_center()
         .justify_center()
         .rounded(px(9.))
-        .bg(rgba(FILL_3))
+        .bg(FILL_3)
         .text_size(px(11.))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(rgba(TEXT_2))
+        .text_color(TEXT_2)
         .child(n.to_string())
 }
 
@@ -72,7 +72,7 @@ impl Desktop {
             .gap(px(6.))
             .rounded(px(8.))
             .cursor_pointer()
-            .hover(|st| st.bg(rgba(FILL_1)))
+            .hover(|st| st.bg(FILL_1))
             .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
             .child(
                 div()
@@ -81,7 +81,7 @@ impl Desktop {
                     .truncate()
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgba(TEXT_3))
+                    .text_color(TEXT_3)
                     .child(if s == Section::Staged { "Staged Changes" } else { "Changes" }),
             )
             .child(div().flex().gap(px(2.)).opacity(0.).group_hover(SECTION_GROUP, |st| st.opacity(1.)).children(actions))
@@ -98,7 +98,7 @@ impl Desktop {
             Item::Dir { key, label, depth, open } => {
                 let (key, open) = (key.clone(), *open);
                 row(ElementId::Name(key.clone().into()), *depth)
-                    .hover(|st| st.bg(rgba(FILL_1)))
+                    .hover(|st| st.bg(FILL_1))
                     .text_size(px(13.5))
                     .font_weight(FontWeight(450.))
                     .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
@@ -142,8 +142,8 @@ impl Desktop {
         let open = f.path.clone();
         row(id("file"), depth)
             .group(ROW_GROUP)
-            .when(selected, |d| d.bg(rgba(FILL_3)))
-            .when(!selected, |d| d.hover(|st| st.bg(rgba(FILL_1))))
+            .when(selected, |d| d.bg(FILL_3))
+            .when(!selected, |d| d.hover(|st| st.bg(FILL_1)))
             .when(in_tree, |d| d.child(div().w(px(12.)).flex_none()))
             .child(file_icon(name, false, false, 16.))
             .child(
@@ -165,7 +165,7 @@ impl Desktop {
                             .when(f.status == 'D', |d| d.line_through())
                             .child(name.to_string()),
                     )
-                    .when(!in_tree && !dir.is_empty(), |d| d.child(div().min_w_0().truncate().text_size(px(12.)).text_color(rgba(TEXT_4)).child(dir.to_string()))),
+                    .when(!in_tree && !dir.is_empty(), |d| d.child(div().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_4).child(dir.to_string()))),
             )
             .when(comments > 0, |d| {
                 d.child(
@@ -176,7 +176,7 @@ impl Desktop {
                         .gap(px(3.))
                         .text_size(px(11.5))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgba(WAITING_TEXT))
+                        .text_color(WAITING_TEXT)
                         .child(icon("comment", 11., WAITING_TEXT))
                         .child(comments.to_string()),
                 )
@@ -191,7 +191,7 @@ impl Desktop {
                     .font_family(MONO)
                     .text_size(px(11.))
                     .font_weight(FontWeight::BOLD)
-                    .text_color(rgba(ui::git_color(f.status)))
+                    .text_color(ui::git_color(f.status))
                     .child(f.status.to_string()),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(open.clone()), cx)))

@@ -15,7 +15,7 @@ impl Desktop {
         ));
         let open = self.changes.menu;
         // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
-        let more = icon_button_sized("changes-more", "more", 26., TEXT_3).when(open, |d| d.bg(rgba(FILL_3))).capture_any_mouse_down(cx.listener(
+        let more = icon_button_sized("changes-more", "more", 26., TEXT_3).when(open, |d| d.bg(FILL_3)).capture_any_mouse_down(cx.listener(
             |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.changes.menu = !this.changes.menu;
@@ -39,7 +39,7 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .gap(px(4.))
-                    .text_color(rgba(TEXT_3))
+                    .text_color(TEXT_3)
                     .child(icon("branch", 12., TEXT_3))
                     .child(div().truncate().font_family(MONO).text_size(px(12.)).child(repo.branch.clone())),
             )
@@ -48,7 +48,7 @@ impl Desktop {
     }
 
     fn changes_menu_view(&self, repo: &Repo, cx: &mut Context<Self>) -> Stateful<Div> {
-        let info = |text: String| div().h(px(26.)).px(px(10.)).flex().items_center().text_size(px(12.5)).text_color(rgba(TEXT_3)).child(text);
+        let info = |text: String| div().h(px(26.)).px(px(10.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_3).child(text);
         let base = repo.base.as_ref().map(|b| format!("{} → {b}", repo.branch));
         let counts = repo.base.is_some().then(|| format!("{} ahead · {} behind", repo.ahead, repo.behind));
         ui::pop(div().id("changes-menu"))

@@ -280,9 +280,9 @@ impl Desktop {
             .items_center()
             .gap(px(12.))
             .rounded(px(14.))
-            .bg(rgba(SURFACE))
+            .bg(SURFACE)
             .shadow(vec![ui::ring(SEPARATOR, 0.5)])
-            .child(div().size(px(36.)).flex().flex_none().items_center().justify_center().rounded(px(10.)).bg(rgba(FILL_2)).child(icon("folder", 16., TEXT_2)))
+            .child(div().size(px(36.)).flex().flex_none().items_center().justify_center().rounded(px(10.)).bg(FILL_2).child(icon("folder", 16., TEXT_2)))
             .child(
                 div()
                     .flex_1()
@@ -291,7 +291,7 @@ impl Desktop {
                     .flex_col()
                     .gap(px(2.))
                     .child(div().truncate().font_family(MONO).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(title))
-                    .child(div().flex().items_center().gap(px(4.)).text_size(px(12.5)).text_color(rgba(color)).children(mark.map(|m| icon(m, 12., color))).child(line)),
+                    .child(div().flex().items_center().gap(px(4.)).text_size(px(12.5)).text_color(color).children(mark.map(|m| icon(m, 12., color))).child(line)),
             )
             .when(f.editing.is_none(), |d| {
                 d.child(ui::button("repo-choose", Variant::Secondary, None, "Choose…").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -334,7 +334,7 @@ impl Desktop {
                 .justify_center()
                 .rounded(px(9.))
                 .cursor_pointer()
-                .when(c == f.draft.color, |d| d.shadow(vec![ui::ring(c, 1.5)]))
+                .when(c == f.draft.color, |d| d.shadow(vec![ui::ring(rgba(c), 1.5)]))
                 .child(ui::swatch(c, 22., 7.))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.repo_form.draft.color = c;
@@ -372,7 +372,7 @@ impl Desktop {
         let layout = div()
             .flex()
             .gap(px(14.))
-            .child(field("Default base branch", base).child(div().text_size(px(12.)).text_color(rgba(TEXT_4)).child("New worktrees branch off this unless you pick another.")))
+            .child(field("Default base branch", base).child(div().text_size(px(12.)).text_color(TEXT_4).child("New worktrees branch off this unless you pick another.")))
             .child(field("Worktrees folder", worktrees));
         let setup = field(
             "When a worktree is created",
@@ -384,14 +384,14 @@ impl Desktop {
             .flex_wrap()
             .items_center()
             .gap(px(6.))
-            .child(div().mr(px(2.)).text_size(px(12.5)).text_color(rgba(TEXT_3)).child("Copy into each worktree"))
+            .child(div().mr(px(2.)).text_size(px(12.5)).text_color(TEXT_3).child("Copy into each worktree"))
             .children(f.draft.copy.iter().enumerate().map(|(i, rel)| {
                 ui::tag(rel.clone())
                     .id(("repo-copy", i))
                     .gap(px(4.))
                     .cursor_pointer()
                     .font_family(MONO)
-                    .text_color(rgba(TEXT))
+                    .text_color(TEXT)
                     .child(icon("x", 9., TEXT_4))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.repo_form.draft.copy.remove(i);
@@ -406,7 +406,7 @@ impl Desktop {
             });
         let editing = f.draft.editing.is_some();
         let note = match &f.draft.error {
-            Some(e) => div().truncate().text_color(rgba(FAILED)).child(e.clone()),
+            Some(e) => div().truncate().text_color(FAILED).child(e.clone()),
             None if editing || name.is_empty() => div(),
             None => div().truncate().child(format!("Adds {name} to the project rail")),
         };
@@ -416,7 +416,7 @@ impl Desktop {
             _ if editing => "Save",
             _ => "Add project",
         };
-        let cancel = ui::large(ui::button("repo-cancel", Variant::Ghost, None, "Cancel").text_color(rgba(TEXT)))
+        let cancel = ui::large(ui::button("repo-cancel", Variant::Ghost, None, "Cancel").text_color(TEXT))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let submit = ui::large(ui::button("repo-submit", Variant::Primary, None, label))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_repo(window, cx))))

@@ -44,10 +44,12 @@ pub struct DiffLoad {
     lines: Vec<Line>,
     source: (String, String),
     colors: Option<(Sides, Vec<Spans>)>,
+    dark: bool,
 }
 
 /// Reads and diffs `path`, colouring it only when the lines differ from `shown`. Run off the UI thread.
 pub fn read_diff(cwd: &str, path: String, open: HashSet<usize>, shown: &[Line]) -> DiffLoad {
+    let dark = theme::is_dark();
     let (old, new) = git::texts(cwd, &path);
     let lines = git::diff_texts(&old, &new, &open);
     let colors = (lines != shown).then(|| {
@@ -55,7 +57,7 @@ pub fn read_diff(cwd: &str, path: String, open: HashSet<usize>, shown: &[Line]) 
         let hl = highlights(&lines, &syntax.0, &syntax.1);
         (syntax, hl)
     });
-    DiffLoad { path, open, lines, source: (old, new), colors }
+    DiffLoad { path, open, lines, source: (old, new), colors, dark }
 }
 
 /// Syntax colours for every line of the old and new file; none when either is too big to parse quickly. Run off the UI thread.
@@ -67,8 +69,8 @@ pub fn syntax(path: &str, old: &str, new: &str) -> (Vec<Spans>, Vec<Spans>) {
     (line_spans(language, old), line_spans(language, new))
 }
 
-fn tint(syntax: Spans, words: Vec<Range<usize>>, color: u32) -> Spans {
-    let bg = HighlightStyle { background_color: Some(rgba(color).into()), ..Default::default() };
+fn tint(syntax: Spans, words: Vec<Range<usize>>, color: Token) -> Spans {
+    let bg = HighlightStyle { background_color: Some(color.into()), ..Default::default() };
     combine_highlights(syntax, words.into_iter().map(|r| (r, bg))).collect()
 }
 
@@ -323,16 +325,14 @@ impl DiffState {
         (state, subs)
     }
 
-    /// Shows `load` unless another file or fold state was picked while it ran.
+    /// Shows `load` unless another file, fold state or appearance was picked while it ran.
     pub fn apply(&mut self, load: DiffLoad) -> bool {
-        if self.file.as_ref() != Some(&load.path) || load.open != self.open {
+        if self.file.as_ref() != Some(&load.path) || load.open != self.open || load.colors.is_some() && load.dark != theme::is_dark() {
             return false;
         }
         self.source = load.source;
-        if let Some((syntax, hl)) = load.colors {
-            (self.syntax, self.hl) = (syntax, hl);
-        }
-        self.set_lines(load.lines, true)
+        let recolored = load.colors.map(|(syntax, hl)| (self.syntax, self.hl) = (syntax, hl)).is_some();
+        self.set_lines(load.lines, true) | recolored
     }
 
     pub fn set_lines(&mut self, lines: Vec<Line>, reset: bool) -> bool {
@@ -442,9 +442,9 @@ impl Desktop {
         div()
             .flex_1()
             .min_h_0()
-            .bg(rgba(PAGE))
+            .bg(PAGE)
             .border_t(px(0.5))
-            .border_color(rgba(SEPARATOR))
+            .border_color(SEPARATOR)
             .overflow_hidden()
             .font_family(MONO)
             .text_size(px(12.5))
@@ -475,8 +475,18 @@ impl Desktop {
     }
 
     pub(crate) fn load_diff(&mut self, cx: &mut Context<Self>) {
+        let shown = self.diff.lines.clone();
+        self.read_diff_in_background(shown, cx);
+    }
+
+    /// Colours the shown diff again, for a new appearance.
+    pub(crate) fn recolor_diff(&mut self, cx: &mut Context<Self>) {
+        self.read_diff_in_background(Vec::new(), cx);
+    }
+
+    fn read_diff_in_background(&mut self, shown: Vec<Line>, cx: &mut Context<Self>) {
         let Some((cwd, path)) = self.cwd().zip(self.diff.file.clone()) else { return };
-        let (open, shown) = (self.diff.open.clone(), self.diff.lines.clone());
+        let open = self.diff.open.clone();
         let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, open, &shown) });
         cx.spawn(async move |this, cx| {
             let load = task.await;
@@ -561,8 +571,8 @@ impl Desktop {
 mod tests {
     use super::{Comment, Pick, Row, changed, comment_target, highlights, label, notes, remap, rows};
     use git::parse;
-    use gpui_kit::{HighlightStyle, rgba};
-    use theme::{DIFF_ADD_WORD, DIFF_DEL_WORD, SYN_FN, SYN_KEYWORD, SYN_STRING};
+    use gpui_kit::HighlightStyle;
+    use theme::{DIFF_ADD_WORD, DIFF_DEL_WORD, SYN_FN, SYN_KEYWORD, SYN_STRING, Token};
 
     const DIFF: &str = "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n";
     const TWO_HUNKS: &str = "@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -9,1 +9,1 @@\n-x\n+y\n";
@@ -805,8 +815,8 @@ mod tests {
         assert_eq!(changed(&[], &old), (0..0, 3));
     }
 
-    fn color(c: u32) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
-        vec![(0..1, HighlightStyle { color: Some(rgba(c).into()), ..Default::default() })]
+    fn color(c: Token) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+        vec![(0..1, HighlightStyle { color: Some(c.into()), ..Default::default() })]
     }
 
     #[test]
@@ -814,8 +824,8 @@ mod tests {
         let l = parse("@@ -1,2 +1,2 @@\n-let a = 1;\n+let b = 1;\n ctx\n");
         let hl = highlights(&l, &[], &[]);
         let tint = |i: usize| hl[i].iter().filter_map(|(r, s)| Some((r.clone(), s.background_color?))).collect::<Vec<_>>();
-        assert_eq!(tint(1), vec![(4..5, rgba(DIFF_DEL_WORD).into())]);
-        assert_eq!(tint(2), vec![(4..5, rgba(DIFF_ADD_WORD).into())]);
+        assert_eq!(tint(1), vec![(4..5, DIFF_DEL_WORD.into())]);
+        assert_eq!(tint(2), vec![(4..5, DIFF_ADD_WORD.into())]);
         assert!(hl[3].is_empty());
     }
 
@@ -823,16 +833,16 @@ mod tests {
     fn takes_syntax_from_each_side_and_skips_uneven_runs() {
         let l = parse("@@ -2,1 +2,2 @@\n-x\n+y\n+z\n");
         let hl = highlights(&l, &[vec![], color(SYN_KEYWORD)], &[vec![], color(SYN_FN), color(SYN_STRING)]);
-        assert_eq!(hl[1][0].1.color, Some(rgba(SYN_KEYWORD).into()));
-        assert_eq!(hl[2][0].1.color, Some(rgba(SYN_FN).into()));
-        assert_eq!(hl[3][0].1.color, Some(rgba(SYN_STRING).into()));
+        assert_eq!(hl[1][0].1.color, Some(SYN_KEYWORD.into()));
+        assert_eq!(hl[2][0].1.color, Some(SYN_FN.into()));
+        assert_eq!(hl[3][0].1.color, Some(SYN_STRING.into()));
         assert!(hl.iter().flatten().all(|(_, s)| s.background_color.is_none()));
     }
 
     #[test]
     fn drops_syntax_that_no_longer_fits_the_line() {
         let l = parse("@@ -1,1 +1,1 @@\n a\n");
-        let long = vec![(0..5, HighlightStyle { color: Some(rgba(SYN_FN).into()), ..Default::default() })];
+        let long = vec![(0..5, HighlightStyle { color: Some(SYN_FN.into()), ..Default::default() })];
         assert!(highlights(&l, &[], &[long])[1].is_empty());
     }
 }

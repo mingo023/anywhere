@@ -58,12 +58,12 @@ impl Desktop {
             None => return div(),
         };
         let warning = text.warning();
-        let bullet = |text: String| div().flex().gap(px(8.)).text_size(px(13.5)).text_color(rgba(TEXT_2)).child("•").child(text);
+        let bullet = |text: String| div().flex().gap(px(8.)).text_size(px(13.5)).text_color(TEXT_2).child("•").child(text);
         let mut body = vec![div().flex().flex_col().gap(px(6.)).children(text.facts.into_iter().map(bullet)).into_any_element()];
         if let Some(warning) = warning {
-            body.push(div().px(px(12.)).py(px(10.)).rounded(px(10.)).bg(rgba(FAILED_BG)).text_size(px(13.)).text_color(rgba(FAILED)).child(warning).into_any_element());
+            body.push(div().px(px(12.)).py(px(10.)).rounded(px(10.)).bg(FAILED_BG).text_size(px(13.)).text_color(FAILED).child(warning).into_any_element());
         }
-        let cancel = ui::large(ui::button("confirm-cancel", Variant::Ghost, None, "Cancel").text_color(rgba(TEXT)))
+        let cancel = ui::large(ui::button("confirm-cancel", Variant::Ghost, None, "Cancel").text_color(TEXT))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let submit = ui::large(ui::button("confirm-go", Variant::Danger, None, text.action)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
         body.push(crate::modals::form::footer("", cancel, submit).into_any_element());

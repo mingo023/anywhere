@@ -17,7 +17,7 @@ impl Desktop {
             }));
         let column = self.column_view(cx);
         // GPUI has no backdrop blur, so the translucent sidebars sit on the dimmed window colour instead of over the page's text.
-        let sidebars = div().h_full().flex().bg(rgba(WINDOW)).shadow(vec![BoxShadow { offset: point(px(16.), px(0.)), ..ui::shadow(0x11111324, 0., 48.) }]).child(div().h_full().flex().bg(rgba(0x1111131a)).child(self.aside(cx)).child(column));
+        let sidebars = div().h_full().flex().bg(WINDOW_SOLID).shadow(vec![BoxShadow { offset: point(px(16.), px(0.)), ..ui::shadow(rgba(0x11111324), 0., 48.) }]).child(div().h_full().flex().bg(rgba(0x1111131a)).child(self.aside(cx)).child(column));
         div().absolute().top_0().bottom_0().left(px(56.)).right_0().flex().child(dim).child(sidebars)
     }
 }

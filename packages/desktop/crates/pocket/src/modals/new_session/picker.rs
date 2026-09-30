@@ -23,12 +23,12 @@ fn chip(id: &'static str, open: bool) -> Stateful<Div> {
         .rounded(px(8.))
         .whitespace_nowrap()
         .cursor_pointer()
-        .bg(rgba(if open { FILL_3 } else { FILL_2 }))
-        .hover(|s| s.bg(rgba(FILL_3)))
+        .bg(if open { FILL_3 } else { FILL_2 })
+        .hover(|s| s.bg(FILL_3))
 }
 
 fn pick_head(label: &str) -> Div {
-    div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child(label.to_string())
+    div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string())
 }
 
 fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElement>, label: Div, meta: Option<String>) -> Stateful<Div> {
@@ -43,11 +43,11 @@ fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElem
         .rounded(px(6.))
         .cursor_pointer()
         .text_size(px(13.))
-        .when(selected, |d| d.bg(rgba(FILL_2)))
-        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
+        .when(selected, |d| d.bg(FILL_2))
+        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
         .children(lead)
         .child(label.min_w_0().truncate().font_weight(FontWeight::MEDIUM))
-        .child(div().ml_auto().pl(px(10.)).flex_none().text_size(px(12.)).text_color(rgba(TEXT_4)).children(meta))
+        .child(div().ml_auto().pl(px(10.)).flex_none().text_size(px(12.)).text_color(TEXT_4).children(meta))
         .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
 }
 
@@ -142,7 +142,7 @@ impl Desktop {
         let agent = chip("form-agent", f.picker == Some(Picker::Agent))
             .child(ui::dot(7., provider_color(f.provider)))
             .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(f.provider)))
-            .child(div().text_color(rgba(TEXT_3)).child(model))
+            .child(div().text_color(TEXT_3).child(model))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();

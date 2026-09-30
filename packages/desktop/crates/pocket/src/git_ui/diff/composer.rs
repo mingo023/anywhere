@@ -18,8 +18,8 @@ impl Desktop {
             .items_center()
             .justify_between()
             .text_size(px(12.))
-            .child(div().font_family(MONO).font_weight(FontWeight::SEMIBOLD).text_color(rgba(ACCENT)).child(lines))
-            .child(div().text_color(rgba(TEXT_3)).child("esc to dismiss"));
+            .child(div().font_family(MONO).font_weight(FontWeight::SEMIBOLD).text_color(ACCENT).child(lines))
+            .child(div().text_color(TEXT_3).child("esc to dismiss"));
         let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.diff.input).appearance(false));
         let submit = ui::button("comment-submit", Variant::Accent, None, "Comment")
             .child(ui::button_kbd("⌘↵"))
@@ -35,7 +35,7 @@ impl Desktop {
             .items_center()
             .gap(px(8.))
             .border_t_1()
-            .border_color(rgba(HAIRLINE))
+            .border_color(HAIRLINE)
             .child(self.target_picker(target, cx))
             .child(div().flex_1())
             .child(cancel)
@@ -48,8 +48,8 @@ impl Desktop {
             .flex()
             .flex_col()
             .rounded(px(16.))
-            .bg(rgba(SURFACE))
-            .shadow(vec![ui::ring(ACCENT_RING, 1.), ui::shadow(0x1111131a, 8., 24.), ui::shadow(0x1111130f, 1., 2.)])
+            .bg(SURFACE)
+            .shadow(vec![ui::ring(ACCENT_RING, 1.), ui::shadow(rgba(0x1111131a), 8., 24.), ui::shadow(rgba(0x1111130f), 1., 2.)])
             .font_family(SANS)
             .whitespace_normal()
             .on_action(cx.listener(|this, _: &Escape, window, cx| this.cancel_comment(window, cx)))

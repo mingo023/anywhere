@@ -85,15 +85,15 @@ pub fn column() -> Div {
 pub fn doc_bar(crumbs: Vec<String>, meta: Vec<AnyElement>, right: impl IntoElement) -> Div {
     ui::page_bar()
         .border_t(px(0.5))
-        .border_color(rgba(SEPARATOR))
-        .bg(rgba(PAGE))
+        .border_color(SEPARATOR)
+        .bg(PAGE)
         .child(ui::breadcrumb(crumbs))
         .child(ui::meta_row(meta))
         .child(div().ml_auto().flex().flex_none().items_center().gap(px(8.)).child(right))
 }
 
 pub fn empty(text: impl Into<SharedString>) -> Div {
-    div().p(px(16.)).text_size(px(13.5)).text_color(rgba(TEXT_3)).child(text.into())
+    div().p(px(16.)).text_size(px(13.5)).text_color(TEXT_3).child(text.into())
 }
 
 impl Desktop {

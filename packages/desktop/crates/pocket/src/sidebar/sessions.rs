@@ -27,7 +27,7 @@ impl Desktop {
             .items_center()
             .gap(px(9.))
             .border_b(px(0.5))
-            .border_color(rgba(SEPARATOR))
+            .border_color(SEPARATOR)
             .child(icon("search", 14., TEXT_3))
             .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.search).appearance(false).p_0().text_size(px(13.))));
         let list = div().id("cards").flex_1().min_h_0().overflow_y_scroll();

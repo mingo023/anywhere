@@ -337,13 +337,13 @@ impl Desktop {
             .px(px(4.))
             .pb(px(2.))
             .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child(if f.worktree { "New worktree" } else { "New session" }))
-            .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(rgba(TEXT_3)).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
+            .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let agent = self.agent_select(cx);
         let branch = f.worktree.then(|| self.branch_select(cx));
         let ready = self.session_ready(cx);
         let send = ui::primary(div().id("form-start").ml_auto().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
-            .child(icon("arrow-up", 16., WHITE))
+            .child(icon("arrow-up", 16., ON_TEXT))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let problem = if f.worktree { name_problem(&self.new_name(cx), &f.taken) } else { None };
@@ -351,14 +351,14 @@ impl Desktop {
             ui::field_box()
                 .child(icon("worktree", 14., TEXT_3))
                 .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&self.new_form.name).appearance(false).p_0().text_size(px(13.))))
-                .children(problem.map(|p| div().flex_none().text_size(px(12.)).text_color(rgba(FAILED)).child(p)))
+                .children(problem.map(|p| div().flex_none().text_size(px(12.)).text_color(FAILED).child(p)))
         });
         let composer = div()
             .flex()
             .flex_col()
             .rounded(px(14.))
-            .bg(rgba(WHITE))
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(0x1111130a, 1., 2.)])
+            .bg(SURFACE)
+            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.)])
             // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
             .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&self.new_form.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25))))
             .child(
@@ -374,7 +374,7 @@ impl Desktop {
                     .children(branch)
                     .child(send),
             );
-        let mono = |s: String| div().font_family(MONO).text_color(rgba(TEXT_2)).child(s);
+        let mono = |s: String| div().font_family(MONO).text_color(TEXT_2).child(s);
         let summary: Vec<AnyElement> = if f.worktree {
             vec![
                 div().child("New branch").into_any_element(),
@@ -392,10 +392,10 @@ impl Desktop {
             .gap(px(6.))
             .px(px(6.))
             .text_size(px(12.))
-            .text_color(rgba(TEXT_3))
+            .text_color(TEXT_3)
             .whitespace_nowrap()
             .children(summary)
-            .child(div().ml_auto().text_color(rgba(TEXT_4)).child("⌘↵ to start · esc to cancel"));
+            .child(div().ml_auto().text_color(TEXT_4).child("⌘↵ to start · esc to cancel"));
         div().absolute().top(px(110.)).left_0().right_0().flex().justify_center().child(
             // The design's 0.5px border renders 1px wide and insets the sheet's content.
             ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).occlude().child(header).children(name_field).child(composer).child(footer),

@@ -29,8 +29,8 @@ impl Desktop {
                 .rounded(px(8.))
                 .cursor_pointer()
                 .text_size(px(13.))
-                .when(selected, |d| d.bg(rgba(FILL_4)).text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD))
-                .when(!selected, |d| d.text_color(rgba(TEXT_2)).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_2))))
+                .when(selected, |d| d.bg(FILL_4).text_color(TEXT).font_weight(FontWeight::SEMIBOLD))
+                .when(!selected, |d| d.text_color(TEXT_2).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_2)))
                 .map(|d| match (side, totals) {
                     (Side::Changes, Some((added, removed))) => d.child(ui::meta_diff(added, removed, 12.5)),
                     _ => d.child(label),
@@ -40,10 +40,10 @@ impl Desktop {
                     cx.notify();
                 }))
         });
-        let tabs = div().p(px(8.)).flex().flex_none().gap(px(4.)).border_b(px(0.5)).border_color(rgba(SEPARATOR)).children(tabs);
+        let tabs = div().p(px(8.)).flex().flex_none().gap(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).children(tabs);
         let column = column()
             .w(px(self.width(Column::Sessions, 334.)))
-            .child(drag_area(self.column_header(cx)).h(px(42.)).flex_none().border_b(px(0.5)).border_color(rgba(SEPARATOR)))
+            .child(drag_area(self.column_header(cx)).h(px(42.)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
             .child(tabs)
             .child(body);
         self.resizable(column, Column::Sessions, cx)

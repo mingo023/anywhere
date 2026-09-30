@@ -5,7 +5,7 @@ use theme::*;
 use ui::dot;
 
 impl Desktop {
-    fn session_chip(&self, id: &str) -> (u32, String, String) {
+    fn session_chip(&self, id: &str) -> (Token, String, String) {
         let a = self.agents.get(id);
         let provider = a.map(|a| a.provider.clone()).unwrap_or_default();
         let branch = a.and_then(|a| self.terminals.sessions.get(&a.terminal_id)).and_then(|s| self.repos.get(&s.info.cwd)).map(|r| r.branch.clone()).unwrap_or_default();
@@ -22,9 +22,9 @@ impl Desktop {
             .items_center()
             .gap(px(7.))
             .rounded(px(16.))
-            .bg(rgba(FILL_3))
+            .bg(FILL_3)
             .cursor_pointer()
-            .hover(|s| s.bg(rgba(FILL_4)))
+            .hover(|s| s.bg(FILL_4))
             .text_size(px(13.))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.diff.target_menu = !this.diff.target_menu;
@@ -36,10 +36,10 @@ impl Desktop {
                 pill.child(dot(7., color))
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
                     .when(!branch.is_empty(), |d| {
-                        d.child(div().text_color(rgba(TEXT_6)).child("·")).child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(TEXT_2)).child(branch))
+                        d.child(div().text_color(TEXT_6).child("·")).child(div().font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(branch))
                     })
             }
-            None => pill.text_color(rgba(TEXT_2)).child("No session"),
+            None => pill.text_color(TEXT_2).child("No session"),
         };
         let menu = self.diff.target_menu.then(|| {
             let cards = self.project.as_deref().map(|p| self.cards(p)).unwrap_or_default();
@@ -56,12 +56,12 @@ impl Desktop {
                     .gap(px(8.))
                     .rounded(px(10.))
                     .cursor_pointer()
-                    .hover(|s| s.bg(rgba(FILL_3)))
+                    .hover(|s| s.bg(FILL_3))
                     .text_size(px(13.))
                     .child(dot(7., color))
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
-                    .child(div().flex_1().min_w_0().truncate().text_color(rgba(TEXT_2)).child(c.title))
-                    .child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(TEXT_3)).child(branch))
+                    .child(div().flex_1().min_w_0().truncate().text_color(TEXT_2).child(c.title))
+                    .child(div().font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(branch))
                     .child(div().size(px(14.)).when(picked, |d| d.child(icon("check", 14., TEXT))))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.diff.target = Some(id.clone());

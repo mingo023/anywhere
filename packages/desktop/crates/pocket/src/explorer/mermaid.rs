@@ -20,11 +20,13 @@ struct Merman {
     presentation: ResolvedPresentation,
 }
 
-static MERMAN: LazyLock<Merman> = LazyLock::new(|| {
+static MERMAN: [LazyLock<Merman>; 2] = [LazyLock::new(|| merman(false)), LazyLock::new(|| merman(true))];
+
+fn merman(dark: bool) -> Merman {
     let roles = [
-        (ThemeRole::Canvas, WINDOW),
+        (ThemeRole::Canvas, WINDOW_SOLID),
         (ThemeRole::Surface, SURFACE_SUNKEN),
-        (ThemeRole::SurfaceAlt, WINDOW),
+        (ThemeRole::SurfaceAlt, WINDOW_SOLID),
         (ThemeRole::Text, TEXT),
         (ThemeRole::SubtleText, TEXT_3),
         (ThemeRole::Border, TEXT_6),
@@ -36,11 +38,12 @@ static MERMAN: LazyLock<Merman> = LazyLock::new(|| {
         (ThemeRole::NoteText, TEXT),
         (ThemeRole::Error, FAILED),
     ];
-    let theme = roles.into_iter().fold(HostTheme::new().try_with_font_family("Geist, sans-serif").unwrap(), |t, (role, c)| t.try_with_role(role, hex(c)).unwrap());
-    let presentation = Presentation::new().with_theme(theme.try_with_series_palette(PALETTE.map(hex)).unwrap()).resolve();
+    let flat = |c: u32| hex(c, dark);
+    let theme = roles.into_iter().fold(HostTheme::new().try_with_font_family("Geist, sans-serif").unwrap(), |t, (role, c)| t.try_with_role(role, flat(c.pick(dark))).unwrap());
+    let presentation = Presentation::new().with_theme(theme.try_with_series_palette(PALETTE.map(flat)).unwrap()).resolve();
     let renderer = Renderer::new().with_engine(presentation.materialize_engine(merman::Engine::new()));
     Merman { renderer, presentation }
-});
+}
 
 static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
     let mut options = Options::default();
@@ -52,26 +55,28 @@ static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
     options
 });
 
-/// Merman wants opaque colours, so translucent tokens are flattened onto white.
-fn hex(c: u32) -> String {
+/// Merman wants opaque colours, so translucent tokens are flattened onto white, or onto the window in dark.
+fn hex(c: u32, dark: bool) -> String {
+    let [br, bg, bb, _] = if dark { WINDOW_SOLID.pick(true) } else { 0xffffffff }.to_be_bytes();
     let a = (c & 0xff) as f32 / 255.;
-    let mix = |v: u32| ((v & 0xff) as f32 * a + 255. * (1. - a)).round() as u8;
-    format!("#{:02x}{:02x}{:02x}", mix(c >> 24), mix(c >> 16), mix(c >> 8))
+    let mix = |v: u32, base: u8| ((v & 0xff) as f32 * a + base as f32 * (1. - a)).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", mix(c >> 24, br), mix(c >> 16, bg), mix(c >> 8, bb))
 }
 
 /// Mermaid source as SVG that resvg can draw: labels are plain `<text>`, not `<foreignObject>`.
-fn svg(source: &str) -> Result<String, String> {
-    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, root_background_color: Some(hex(WINDOW)), ..Default::default() }.pipeline();
-    let request = SvgRequest { pipeline: Some(pipeline), presentation: MERMAN.presentation.render_policy(), ..Default::default() };
-    match MERMAN.renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
+fn svg(source: &str, dark: bool) -> Result<String, String> {
+    let merman = &*MERMAN[dark as usize];
+    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, root_background_color: Some(hex(WINDOW_SOLID.pick(dark), dark)), ..Default::default() }.pipeline();
+    let request = SvgRequest { pipeline: Some(pipeline), presentation: merman.presentation.render_policy(), ..Default::default() };
+    match merman.renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
         Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.svg().to_string()),
         Ok(_) => Err("Not a Mermaid diagram".into()),
         Err(e) => Err(e.to_string()),
     }
 }
 
-fn tree(source: &str) -> Result<Arc<Tree>, String> {
-    Tree::from_str(&svg(source)?, &USVG).map(Arc::new).map_err(|e| e.to_string())
+fn tree(source: &str, dark: bool) -> Result<Arc<Tree>, String> {
+    Tree::from_str(&svg(source, dark)?, &USVG).map(Arc::new).map_err(|e| e.to_string())
 }
 
 fn rasterize(tree: &Tree, scale: f32) -> Result<Arc<RenderImage>, String> {
@@ -115,7 +120,7 @@ enum Diagram {
     Failed(SharedString),
 }
 
-/// Diagrams keyed by source hash. Layout happens off the UI thread as soon as a fence is seen; pixels only for painted fences, within [`BUDGET`].
+/// Diagrams keyed by a hash of source and scheme. Layout happens off the UI thread as soon as a fence is seen; pixels only for painted fences, within [`BUDGET`].
 pub struct Diagrams {
     md: WeakEntity<TextViewState>,
     items: HashMap<u64, Diagram>,
@@ -129,14 +134,14 @@ impl Diagrams {
         Self { md: md.downgrade(), items: HashMap::new(), images: HashMap::new(), rastered: HashMap::new(), rastering: HashSet::new() }
     }
 
-    fn get(&mut self, key: u64, source: &SharedString, cx: &mut Context<Self>) -> Diagram {
+    fn get(&mut self, key: u64, source: &SharedString, dark: bool, cx: &mut Context<Self>) -> Diagram {
         if let Some(d) = self.items.get(&key) {
             return d.clone();
         }
         self.items.insert(key, Diagram::Pending);
         let source = source.clone();
         cx.spawn(async move |this, cx| {
-            let diagram = cx.background_spawn(async move { tree(&source) }).await;
+            let diagram = cx.background_spawn(async move { tree(&source, dark) }).await;
             this.update(cx, |this, cx| {
                 this.items.insert(key, diagram.map_or_else(|e| Diagram::Failed(e.into()), Diagram::Ready));
                 this.md.update(cx, |md, cx| md.invalidate_inline_layout(cx)).ok();
@@ -185,7 +190,8 @@ impl Diagrams {
 }
 
 struct Fence {
-    key: u64,
+    /// Indexed by `dark`, since each scheme lays out its own colours.
+    keys: [u64; 2],
     source: SharedString,
 }
 
@@ -206,17 +212,21 @@ impl MarkdownPlugin for Mermaid {
         if code.lang.as_deref() != Some("mermaid") {
             return None;
         }
-        let mut hasher = DefaultHasher::new();
-        code.value.hash(&mut hasher);
-        let fence = Fence { key: hasher.finish(), source: code.value.clone().into() };
+        let key = |dark: bool| {
+            let mut hasher = DefaultHasher::new();
+            (&code.value, dark).hash(&mut hasher);
+            hasher.finish()
+        };
+        let fence = Fence { keys: [key(false), key(true)], source: code.value.clone().into() };
         Some(MarkdownNode::new("mermaid", fence).text(code.value.clone()).markdown(cx.node_source(node).unwrap_or(&code.value).to_string()))
     }
 
     fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let Fence { key, source } = node.data::<Fence>().unwrap();
-        let key = *key;
-        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).my(px(8.)).p(px(12.)).rounded(px(10.)).border_1().border_color(rgba(SEPARATOR)).bg(rgba(WINDOW));
-        match self.0.update(cx, |d, cx| d.get(key, source, cx)) {
+        let Fence { keys, source } = node.data::<Fence>().unwrap();
+        let dark = theme::is_dark();
+        let key = keys[dark as usize];
+        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).my(px(8.)).p(px(12.)).rounded(px(10.)).border_1().border_color(SEPARATOR).bg(WINDOW_SOLID);
+        match self.0.update(cx, |d, cx| d.get(key, source, dark, cx)) {
             Diagram::Ready(tree) => {
                 let size = tree.size();
                 let d = self.0.read(cx);
@@ -241,14 +251,14 @@ impl MarkdownPlugin for Mermaid {
                         })),
                 )
             }
-            Diagram::Pending => frame.text_size(px(12.)).text_color(rgba(TEXT_3)).child("Rendering diagram…"),
+            Diagram::Pending => frame.text_size(px(12.)).text_color(TEXT_3).child("Rendering diagram…"),
             Diagram::Failed(error) => frame
                 .flex()
                 .flex_col()
                 .gap(px(6.))
                 .text_size(px(12.))
-                .child(div().text_color(rgba(FAILED)).child(error))
-                .child(div().font_family(MONO).text_color(rgba(TEXT_2)).child(source.clone())),
+                .child(div().text_color(FAILED).child(error))
+                .child(div().font_family(MONO).text_color(TEXT_2).child(source.clone())),
         }
     }
 }
@@ -260,7 +270,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Instant;
-    use theme::WINDOW;
+    use theme::WINDOW_SOLID;
 
     fn image(w: u32, h: u32) -> Arc<RenderImage> {
         let buffer = image::ImageBuffer::from_raw(w, h, vec![0; (w * h * 4) as usize]).unwrap();
@@ -268,15 +278,17 @@ mod tests {
     }
 
     #[test]
-    fn flattens_translucent_tokens_onto_white() {
-        assert_eq!(hex(0x5b5bd6ff), "#5b5bd6");
-        assert_eq!(hex(0x00000000), "#ffffff");
-        assert_eq!(hex(0x00000080), "#7f7f7f");
+    fn flattens_translucent_tokens_onto_the_canvas() {
+        assert_eq!(hex(0x5b5bd6ff, false), "#5b5bd6");
+        assert_eq!(hex(0x00000000, false), "#ffffff");
+        assert_eq!(hex(0x00000080, false), "#7f7f7f");
+        assert_eq!(hex(0x00000000, true), "#171717");
+        assert_eq!(hex(0xebebeb1a, true), "#2d2d2d");
     }
 
     #[test]
     fn renders_resvg_safe_svg_with_text_labels() {
-        let out = svg("flowchart LR\n  A[Open] --> B[Close]\n").unwrap();
+        let out = svg("flowchart LR\n  A[Open] --> B[Close]\n", false).unwrap();
         assert!(out.starts_with("<svg"));
         assert!(out.contains(">Open<"));
         assert!(!out.contains("<foreignObject"));
@@ -284,12 +296,12 @@ mod tests {
 
     #[test]
     fn reports_syntax_errors() {
-        assert!(svg("flowchart LR\n  A -->\n").unwrap_err().contains("parse error"));
+        assert!(svg("flowchart LR\n  A -->\n", false).unwrap_err().contains("parse error"));
     }
 
     #[test]
     fn rasterizes_at_scale_and_caps_the_long_side() {
-        let t = tree("flowchart LR\n  A --> B\n").unwrap();
+        let t = tree("flowchart LR\n  A --> B\n", false).unwrap();
         let (w, h) = (t.size().width(), t.size().height());
         let size = rasterize(&t, 2.).unwrap().size(0);
         assert_eq!((size.width.0, size.height.0), ((w * 2.).ceil() as i32, (h * 2.).ceil() as i32));
@@ -298,10 +310,12 @@ mod tests {
     }
 
     #[test]
-    fn paints_the_canvas_in_the_window_colour() {
-        let t = tree("flowchart LR\n  A --> B\n").unwrap();
-        let [r, g, b, a] = WINDOW.to_be_bytes();
-        assert_eq!(rasterize(&t, 1.).unwrap().as_bytes(0).unwrap()[..4], [b, g, r, a]);
+    fn paints_the_canvas_in_each_schemes_window_colour() {
+        for dark in [false, true] {
+            let t = tree("flowchart LR\n  A --> B\n", dark).unwrap();
+            let [r, g, b, a] = WINDOW_SOLID.pick(dark).to_be_bytes();
+            assert_eq!(rasterize(&t, 1.).unwrap().as_bytes(0).unwrap()[..4], [b, g, r, a]);
+        }
     }
 
     #[test]
