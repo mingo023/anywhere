@@ -2,7 +2,7 @@ pub(crate) mod sessions;
 
 use crate::desktop::Desktop;
 use crate::terminals::sessions::Sessions;
-use daemon::Msg;
+use daemon::{Info, Msg};
 use gpui_kit::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -26,56 +26,92 @@ impl Terminals {
     pub fn new() -> Self {
         Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), setups: HashMap::new() }
     }
+
+    /// Adopts pocketd's terminal list, minus the ones closed here; returns the ids that still need an attach.
+    pub(crate) fn listed(&mut self, items: Vec<Info>) -> Vec<String> {
+        let items = items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
+        let attach = self.sessions.sync(items);
+        let sessions = &self.sessions;
+        self.setups.retain(|id, _| sessions.get(id).is_some());
+        attach
+    }
+
+    /// Matches a spawned terminal to the oldest pending intent; returns the worktree to adopt it in and the split direction, if any.
+    pub(crate) fn spawned(&mut self, id: &str) -> Option<(String, Option<bool>)> {
+        match self.intents.pop_front()? {
+            Intent::Tab(tree) => Some((tree, None)),
+            Intent::Split(tree, down) => Some((tree, Some(down))),
+            Intent::Setup(tree) => {
+                self.setups.insert(id.to_string(), tree.clone());
+                Some((tree, None))
+            }
+        }
+    }
+
+    /// Records an exit and returns whether its pane should close: a clean exit closes, as Terminal.app does; a failed one stays so its error can be read.
+    pub(crate) fn exited(&mut self, m: &Msg) -> bool {
+        self.sessions.apply(m);
+        self.setups.remove(&m.id);
+        self.sessions.get(&m.id).is_some_and(|s| s.exit == Some(0))
+    }
+
+    /// Forgets a terminal for good, even if pocketd lists it again; returns whether it still runs and pocketd must end it.
+    pub(crate) fn close(&mut self, id: &str) -> bool {
+        let running = self.sessions.get(id).is_some_and(|s| s.exit.is_none());
+        self.sessions.remove(id);
+        self.closed.insert(id.to_string());
+        self.sized.remove(id);
+        self.setups.remove(id);
+        running
+    }
+
+    /// Records a pane's size and returns whether pocketd must resize its running terminal to it.
+    pub(crate) fn resize(&mut self, id: &str, cols: u16, rows: u16) -> bool {
+        if self.sized.get(id) == Some(&(cols, rows)) || !self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
+            return false;
+        }
+        self.sized.insert(id.to_string(), (cols, rows));
+        true
+    }
+
+    /// An error without a terminal id is pocketd refusing the oldest spawn.
+    pub(crate) fn errored(&mut self, id: &str) {
+        if id.is_empty() {
+            self.intents.pop_front();
+        }
+    }
 }
 
 impl Desktop {
     pub(crate) fn on_msg(&mut self, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match m.ev.as_str() {
             "terminals" => {
-                let items = m.items.into_iter().filter(|i| !self.terminals.closed.contains(&i.id)).collect();
-                for id in self.terminals.sessions.sync(items) {
+                for id in self.terminals.listed(m.items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
-                let sessions = &self.terminals.sessions;
-                self.terminals.setups.retain(|id, _| sessions.get(id).is_some());
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
                 }
             }
             "spawned" => {
                 self.error = None;
-                match self.terminals.intents.pop_front() {
-                    Some(Intent::Tab(tree)) => self.adopt(m.id.clone(), tree, None, window, cx),
-                    Some(Intent::Split(tree, down)) => self.adopt(m.id.clone(), tree, Some(down), window, cx),
-                    Some(Intent::Setup(tree)) => {
-                        self.terminals.setups.insert(m.id.clone(), tree.clone());
-                        self.adopt(m.id.clone(), tree, None, window, cx)
-                    }
-                    None => {}
+                if let Some((tree, split)) = self.terminals.spawned(&m.id) {
+                    self.adopt(m.id, tree, split, window, cx);
                 }
                 self.daemon.send(json!({"op": "list"}));
             }
             "error" => {
-                if m.id.is_empty() {
-                    self.terminals.intents.pop_front();
-                }
+                self.terminals.errored(&m.id);
                 self.error = Some(m.error);
             }
             "exit" => {
-                self.terminals.sessions.apply(&m);
-                self.terminals.setups.remove(&m.id);
-                self.close_clean_exits(&m.id, cx);
+                if self.terminals.exited(&m) {
+                    self.close_pane(&m.id, cx);
+                }
             }
             _ => self.terminals.sessions.apply(&m),
         }
         cx.notify();
-    }
-
-    /// Closes panes whose shell exited cleanly, as Terminal.app does; a failed one stays so its error can be read.
-    fn close_clean_exits(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.terminals.sessions.get(id).is_some_and(|s| s.exit == Some(0)) {
-            self.close_pane(id, cx);
-        }
     }
 
     fn adopt(&mut self, id: String, tree: String, split: Option<bool>, window: &mut Window, cx: &mut Context<Self>) {
@@ -116,13 +152,9 @@ impl Desktop {
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.terminals.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
+        if self.terminals.close(id) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
-        self.terminals.sessions.remove(id);
-        self.terminals.closed.insert(id.to_string());
-        self.terminals.sized.remove(id);
-        self.terminals.setups.remove(id);
         for w in self.workspaces.values_mut() {
             w.remove(id);
         }
@@ -155,9 +187,146 @@ impl Desktop {
         if self.capturing {
             return;
         }
-        if self.terminals.sized.get(id) != Some(&(cols, rows)) && self.terminals.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
+        if self.terminals.resize(id, cols, rows) {
             self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
-            self.terminals.sized.insert(id.to_string(), (cols, rows));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Intent, Terminals};
+    use daemon::{Info, Msg};
+    use std::collections::HashMap;
+
+    fn info(id: &str) -> Info {
+        Info { id: id.into(), cmd: "/bin/zsh".into(), cwd: "/w".into(), ..Default::default() }
+    }
+
+    fn exit(id: &str, code: i32) -> Msg {
+        Msg { ev: "exit".into(), id: id.into(), code, ..Default::default() }
+    }
+
+    #[test]
+    fn spawned_terminals_open_as_the_tab_asked_for() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Tab("/w".into()));
+        assert_eq!(t.spawned("a"), Some(("/w".to_string(), None)));
+    }
+
+    #[test]
+    fn spawned_terminals_take_intents_in_the_order_they_were_sent() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Split("/w".into(), true));
+        t.intents.push_back(Intent::Split("/v".into(), false));
+        assert_eq!(t.spawned("a"), Some(("/w".to_string(), Some(true))));
+        assert_eq!(t.spawned("b"), Some(("/v".to_string(), Some(false))));
+    }
+
+    #[test]
+    fn a_spawned_setup_opens_as_a_tab_and_marks_its_worktree_as_setting_up() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Setup("/w".into()));
+        assert_eq!(t.spawned("a"), Some(("/w".to_string(), None)));
+        assert_eq!(t.setups, HashMap::from([("a".to_string(), "/w".to_string())]));
+    }
+
+    #[test]
+    fn a_terminal_spawned_with_nothing_pending_is_left_alone() {
+        let mut t = Terminals::new();
+        assert_eq!(t.spawned("a"), None);
+        assert!(t.setups.is_empty());
+    }
+
+    #[test]
+    fn a_failed_spawn_drops_its_intent_but_a_terminal_error_does_not() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Tab("/w".into()));
+        t.intents.push_back(Intent::Tab("/v".into()));
+        t.errored("a");
+        t.errored("");
+        assert_eq!(t.spawned("b"), Some(("/v".to_string(), None)));
+    }
+
+    #[test]
+    fn closed_terminals_stay_closed_when_pocketd_still_lists_them() {
+        let mut t = Terminals::new();
+        t.closed.insert("a".into());
+        assert_eq!(t.listed(vec![info("a"), info("b")]), vec!["b"]);
+        assert!(t.sessions.get("a").is_none());
+    }
+
+    #[test]
+    fn a_setup_ends_when_its_terminal_leaves_the_list() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Setup("/w".into()));
+        t.intents.push_back(Intent::Setup("/v".into()));
+        t.spawned("a");
+        t.spawned("b");
+        t.listed(vec![info("a"), info("b")]);
+        t.listed(vec![info("b")]);
+        assert_eq!(t.setups, HashMap::from([("b".to_string(), "/v".to_string())]));
+    }
+
+    #[test]
+    fn a_clean_exit_closes_its_pane_and_a_failed_one_stays_to_be_read() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a"), info("b")]);
+        assert!(t.exited(&exit("a", 0)));
+        assert!(!t.exited(&exit("b", 1)));
+        assert_eq!(t.sessions.get("b").and_then(|s| s.exit), Some(1));
+    }
+
+    #[test]
+    fn the_exit_of_a_terminal_this_window_does_not_hold_closes_nothing() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a")]);
+        assert!(!t.exited(&exit("x", 0)));
+        assert_eq!(t.sessions.get("a").map(|s| s.exit), Some(None));
+    }
+
+    #[test]
+    fn a_setup_ends_when_its_terminal_exits() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Setup("/w".into()));
+        t.spawned("a");
+        t.listed(vec![info("a")]);
+        t.exited(&exit("a", 1));
+        assert!(t.setups.is_empty());
+    }
+
+    #[test]
+    fn closing_asks_pocketd_to_end_only_a_running_terminal() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a"), info("b")]);
+        t.exited(&exit("b", 1));
+        assert_eq!((t.close("a"), t.close("b"), t.close("x")), (true, false, false));
+    }
+
+    #[test]
+    fn a_closed_terminal_leaves_the_window_with_its_setup() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Setup("/w".into()));
+        t.spawned("a");
+        t.listed(vec![info("a")]);
+        t.close("a");
+        assert_eq!(t.listed(vec![info("a")]), Vec::<String>::new());
+        assert!(t.sessions.get("a").is_none());
+        assert!(t.setups.is_empty());
+    }
+
+    #[test]
+    fn a_running_terminal_is_resized_once_per_size() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a")]);
+        assert_eq!((t.resize("a", 80, 24), t.resize("a", 80, 24), t.resize("a", 100, 24)), (true, false, true));
+    }
+
+    #[test]
+    fn exited_and_unknown_terminals_are_not_resized() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a")]);
+        t.exited(&exit("a", 1));
+        assert_eq!((t.resize("a", 80, 24), t.resize("x", 80, 24)), (false, false));
     }
 }
