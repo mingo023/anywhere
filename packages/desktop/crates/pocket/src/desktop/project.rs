@@ -20,7 +20,7 @@ fn under(cwd: &str, project: &str) -> bool {
 impl Desktop {
     pub fn projects(&self) -> Vec<String> {
         let mut out = self.store.projects.clone();
-        for cwd in self.sessions.items.iter().map(|s| &s.info.cwd) {
+        for cwd in self.terminals.sessions.items.iter().map(|s| &s.info.cwd) {
             if self.project_of(cwd, &out).is_none() {
                 out.push(cwd.clone());
             }
@@ -52,7 +52,7 @@ impl Desktop {
             .agents
             .list
             .iter()
-            .filter_map(|a| Some((a, self.sessions.get(&a.terminal_id)?)))
+            .filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?)))
             .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
             .map(|(a, s)| status::card(a, &s.info.cwd))
             .collect();
@@ -66,7 +66,7 @@ impl Desktop {
     }
 
     pub fn cwd_of(&self, id: &str) -> Option<String> {
-        self.agents.get(id).map(|a| a.cwd.clone()).or_else(|| self.sessions.get(id).map(|s| s.info.cwd.clone()))
+        self.agents.get(id).map(|a| a.cwd.clone()).or_else(|| self.terminals.sessions.get(id).map(|s| s.info.cwd.clone()))
     }
 
     /// The worktree on screen: the one picked, else the project's main one.
@@ -80,7 +80,7 @@ impl Desktop {
 
     pub(crate) fn workspace(&mut self, tree: &str) -> &mut Workspace {
         let (mut mine, mut theirs) = (Vec::new(), Vec::new());
-        for s in &self.sessions.items {
+        for s in &self.terminals.sessions.items {
             match self.tree_of(&s.info.cwd) {
                 Some(t) if t == tree => mine.push(s.info.id.clone()),
                 Some(_) => theirs.push(s.info.id.clone()),
@@ -94,11 +94,11 @@ impl Desktop {
 
     pub(crate) fn project_terminals(&self, p: &str) -> Vec<String> {
         let projects = self.projects();
-        self.sessions.items.iter().filter(|s| self.project_of(&s.info.cwd, &projects).is_some_and(|o| o == p)).map(|s| s.info.id.clone()).collect()
+        self.terminals.sessions.items.iter().filter(|s| self.project_of(&s.info.cwd, &projects).is_some_and(|o| o == p)).map(|s| s.info.id.clone()).collect()
     }
 
     pub(crate) fn tree_terminals(&self, tree: &str) -> Vec<String> {
-        self.sessions.items.iter().filter(|s| self.tree_of(&s.info.cwd).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
+        self.terminals.sessions.items.iter().filter(|s| self.tree_of(&s.info.cwd).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
     }
 
     fn git_cwds(&self) -> Vec<String> {
@@ -116,14 +116,14 @@ impl Desktop {
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
         let cwds = self.git_cwds();
         let projects = self.store.projects.clone();
-        let file = self.file.clone().map(|f| {
+        let file = self.preview.file.clone().map(|f| {
             let changed = self.file_status(&f).is_some();
             (f, changed)
         });
-        let diff = self.cwd().zip(self.diff_file.clone());
-        let shown = self.diff.clone();
-        let open = self.diff_open.clone();
-        let mut dirs: Vec<PathBuf> = self.tree.keys().cloned().collect();
+        let diff = self.cwd().zip(self.diff.file.clone());
+        let shown = self.diff.lines.clone();
+        let open = self.diff.open.clone();
+        let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
         dirs.extend(self.explore_root().map(PathBuf::from));
         self.git_run += 1;
         let run = self.git_run;
@@ -153,9 +153,9 @@ impl Desktop {
                 }
                 d.git_done = run;
                 let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
-                let tree = explorer::merge_tree(tree, &d.tree, d.explore_root().as_deref().map(std::path::Path::new));
-                let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees;
-                (d.repos, d.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
+                let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
+                let mut changed = repos != d.repos || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
+                (d.repos, d.explorer.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
                 if let Some(file) = file {
                     changed |= d.apply_file(file);
                 }

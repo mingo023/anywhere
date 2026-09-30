@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, doc_bar, empty};
-use crate::explorer::mermaid::Mermaid;
+use crate::explorer::mermaid::{Diagrams, Mermaid};
 use crate::explorer::status_word;
 use crate::syntax::language_for;
 use crate::util::{ago_long, now_ms};
@@ -9,8 +9,8 @@ use gpui_kit::base::text::CodeBlock;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::highlighter::HighlightTheme;
-use gpui_kit::component::input::{Editor, TextDecoration};
-use gpui_kit::component::text::{TextView, TextViewStyle};
+use gpui_kit::component::input::{Editor, EditorState, TextDecoration, TextDecorationCollection};
+use gpui_kit::component::text::{TextView, TextViewState, TextViewStyle};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -153,9 +153,48 @@ fn code_actions(block: &CodeBlock) -> Div {
         .child(Clipboard::new("copy").value(block.code()))
 }
 
+pub struct PreviewState {
+    pub(crate) file: Option<String>,
+    pub(crate) preview: Option<Preview>,
+    pub(crate) diff: Vec<git::Line>,
+    pub(crate) code: Entity<EditorState>,
+    pub(crate) marks: TextDecorationCollection,
+    pub(crate) stale: bool,
+    pub(crate) code_file: Option<String>,
+    pub(crate) code_text: SharedString,
+    pub(crate) md: Entity<TextViewState>,
+    pub(crate) diagrams: Entity<Diagrams>,
+    pub(crate) md_source: bool,
+    /// The copied path and the timer that turns its check back; a new copy replaces, and so cancels, the old one.
+    pub(crate) path_copied: Option<(String, Task<()>)>,
+}
+
+impl PreviewState {
+    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> Self {
+        let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
+        let marks = code.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
+        let md = cx.new(|cx| TextViewState::markdown("", cx));
+        let diagrams = cx.new(|_| Diagrams::new(&md));
+        Self {
+            file: None,
+            preview: None,
+            diff: Vec::new(),
+            code,
+            marks,
+            stale: false,
+            code_file: None,
+            code_text: SharedString::default(),
+            md,
+            diagrams,
+            md_source: false,
+            path_copied: None,
+        }
+    }
+}
+
 impl Desktop {
     pub fn load_file(&mut self, cx: &mut Context<Self>) {
-        let Some(path) = self.file.clone() else { return };
+        let Some(path) = self.preview.file.clone() else { return };
         let changed = self.file_status(&path).is_some();
         let task = cx.background_executor().spawn(async move { load(&path, changed) });
         cx.spawn(async move |this, cx| {
@@ -172,13 +211,13 @@ impl Desktop {
 
     /// Shows `file` unless another file was opened while it loaded; returns whether anything changed.
     pub fn apply_file(&mut self, (path, preview, lines): (String, Preview, Vec<Line>)) -> bool {
-        if self.file.as_ref() != Some(&path) {
+        if self.preview.file.as_ref() != Some(&path) {
             return false;
         }
         let preview = Some(preview);
-        let fresh = preview != self.file_preview || lines != self.file_diff;
-        self.code_stale |= fresh;
-        (self.file_preview, self.file_diff) = (preview, lines);
+        let fresh = preview != self.preview.preview || lines != self.preview.diff;
+        self.preview.stale |= fresh;
+        (self.preview.preview, self.preview.diff) = (preview, lines);
         fresh
     }
 
@@ -187,17 +226,17 @@ impl Desktop {
         let reset = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(1500)).await;
             this.update(cx, |this, cx| {
-                this.path_copied = None;
+                this.preview.path_copied = None;
                 cx.notify();
             })
             .ok();
         });
-        self.path_copied = Some((path.to_string(), reset));
+        self.preview.path_copied = Some((path.to_string(), reset));
         cx.notify();
     }
 
     pub fn file_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let Some(path) = self.file.clone() else { return div() };
+        let Some(path) = self.preview.file.clone() else { return div() };
         let root = self.explore_root().unwrap_or_default();
         let rel = path.strip_prefix(&root).map(|r| r.trim_start_matches('/').to_string()).unwrap_or_else(|| path.clone());
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
@@ -205,7 +244,7 @@ impl Desktop {
         let prompt = format!("About {rel}: ");
         let copy = rel.clone();
         let opened = path.clone();
-        let text = match &self.file_preview {
+        let text = match &self.preview.preview {
             Some(Preview::Text(t)) => Some(t.as_str()),
             _ => None,
         };
@@ -217,11 +256,11 @@ impl Desktop {
             .when(markdown, |d| {
                 d.child(div().id("md-mode").child(ui::segmented(
                     vec![Segment { icon: None, value: false, label: "Preview".into(), badge: None }, Segment { icon: None, value: true, label: "Source".into(), badge: None }],
-                    self.md_source,
+                    self.preview.md_source,
                     true,
                     false,
                     |this, v, cx| {
-                        this.md_source = v;
+                        this.preview.md_source = v;
                         cx.notify();
                     },
                     cx,
@@ -237,7 +276,7 @@ impl Desktop {
             )
             .child(ui::icon_group([
                 ui::group_button("open-editor", "external").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_with_system(Path::new(&opened)))),
-                match self.path_copied.as_ref().is_some_and(|(p, _)| *p == copy) {
+                match self.preview.path_copied.as_ref().is_some_and(|(p, _)| *p == copy) {
                     true => ui::group_button_swapped("copy-path", "check"),
                     false => ui::group_button("copy-path", "copy"),
                 }
@@ -259,13 +298,13 @@ impl Desktop {
             None => status.into_any_element(),
         });
         let code = match text {
-            Some(_) if markdown && !self.md_source => pane()
+            Some(_) if markdown && !self.preview.md_source => pane()
                 .px(px(40.))
                 .py(px(32.))
                 .bg(rgba(PAGE))
                 .child(
-                    TextView::new(&self.md)
-                        .plugin(Mermaid(self.diagrams.clone()))
+                    TextView::new(&self.preview.md)
+                        .plugin(Mermaid(self.preview.diagrams.clone()))
                         .code_block_actions(|block, _, _| code_actions(block))
                         .selectable(true)
                         .scrollable(true)
@@ -275,9 +314,9 @@ impl Desktop {
                 .into_any_element(),
             Some(_) => pane()
                 .bg(rgba(SURFACE_SUNKEN))
-                .child(Editor::new(&self.code).readonly(true).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))
+                .child(Editor::new(&self.preview.code).readonly(true).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))
                 .into_any_element(),
-            None => match &self.file_preview {
+            None => match &self.preview.preview {
                 Some(Preview::Image) => pane()
                     .p(px(24.))
                     .flex()
@@ -303,20 +342,20 @@ impl Desktop {
 
     /// Loads the open file into the code editor after it changed, keeping the scroll position when the same file refreshes.
     pub fn sync_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !std::mem::take(&mut self.code_stale) {
+        if !std::mem::take(&mut self.preview.stale) {
             return;
         }
-        let text = match &self.file_preview {
+        let text = match &self.preview.preview {
             Some(Preview::Text(t)) => SharedString::from(t.clone()),
             _ => SharedString::default(),
         };
-        let same = self.code_file == self.file;
-        let reload = !same || text != self.code_text;
-        let language = language_for(self.file.as_deref().unwrap_or_default());
-        let marks = decorations(&text, &gutter(&self.file_diff));
-        self.code_file = self.file.clone();
-        self.code_text = text.clone();
-        self.code.update(cx, |s, cx| {
+        let same = self.preview.code_file == self.preview.file;
+        let reload = !same || text != self.preview.code_text;
+        let language = language_for(self.preview.file.as_deref().unwrap_or_default());
+        let marks = decorations(&text, &gutter(&self.preview.diff));
+        self.preview.code_file = self.preview.file.clone();
+        self.preview.code_text = text.clone();
+        self.preview.code.update(cx, |s, cx| {
             if !same {
                 s.set_highlighter(language, cx);
             }
@@ -328,10 +367,10 @@ impl Desktop {
                 }
             }
         });
-        self.code_marks.set(marks, cx);
+        self.preview.marks.set(marks, cx);
         if reload {
-            self.md.update(cx, |md, cx| {
-                md.set_text(&self.code_text, cx);
+            self.preview.md.update(cx, |md, cx| {
+                md.set_text(&self.preview.code_text, cx);
                 if !same {
                     md.list_state().scroll_to(ListOffset::default());
                 }

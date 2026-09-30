@@ -2,7 +2,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Screen};
 use crate::status::{Card, Status};
 use crate::util::basename;
-use gpui_kit::component::input::Input;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 use std::cmp::Reverse;
 use theme::*;
@@ -49,10 +49,30 @@ fn hint(keys: &str, label: &str) -> Div {
     div().flex().items_center().gap(px(4.)).child(div().text_color(rgba(TEXT_3)).child(keys.to_string())).child(label.to_string())
 }
 
+pub struct PaletteState {
+    pub(crate) filter: Entity<InputState>,
+    pub(crate) ix: usize,
+    pub(crate) all: bool,
+    pub(crate) files: Vec<String>,
+}
+
+impl PaletteState {
+    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions, files and actions…"));
+        let subs = vec![cx.subscribe(&filter, |this, _, ev: &InputEvent, cx| {
+            if let InputEvent::Change = ev {
+                this.palette.ix = 0;
+            }
+            cx.notify()
+        })];
+        (Self { filter, ix: 0, all: true, files: Vec::new() }, subs)
+    }
+}
+
 impl Desktop {
     pub fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.palette_ix = 0;
-        self.filter.update(cx, |s, cx| {
+        self.palette.ix = 0;
+        self.palette.filter.update(cx, |s, cx| {
             s.set_value("", window, cx);
             s.focus(window, cx);
         });
@@ -61,7 +81,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let files = task.await;
             this.update(cx, |d, cx| {
-                d.palette_files = files;
+                d.palette.files = files;
                 cx.notify();
             })
             .ok();
@@ -70,9 +90,9 @@ impl Desktop {
     }
 
     pub fn palette_sections(&self, cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
-        let q = self.filter.read(cx).value().to_lowercase();
+        let q = self.palette.filter.read(cx).value().to_lowercase();
         let hit = |s: &str| q.is_empty() || s.to_lowercase().contains(&q);
-        let projects = if self.palette_all { self.projects() } else { self.project.iter().cloned().collect() };
+        let projects = if self.palette.all { self.projects() } else { self.project.iter().cloned().collect() };
         let mut cards: Vec<(String, Card)> = projects
             .iter()
             .flat_map(|p| {
@@ -99,7 +119,7 @@ impl Desktop {
             .collect();
         let root = self.explore_root().unwrap_or_default();
         let changed: Vec<String> = self.repos.get(&root).map(|r| r.files.iter().map(|f| f.path.clone()).collect()).unwrap_or_default();
-        let mut paths: Vec<&String> = if q.is_empty() { changed.iter().take(3).collect() } else { self.palette_files.iter().filter(|p| hit(p)).collect() };
+        let mut paths: Vec<&String> = if q.is_empty() { changed.iter().take(3).collect() } else { self.palette.files.iter().filter(|p| hit(p)).collect() };
         paths.sort_by_key(|p| !changed.contains(p));
         let files = paths
             .into_iter()
@@ -145,15 +165,15 @@ impl Desktop {
         let entries: Vec<Entry> = self.palette_sections(cx).into_iter().flat_map(|(_, e)| e).collect();
         let last = entries.len().saturating_sub(1);
         match ev.keystroke.key.as_str() {
-            "up" => self.palette_ix = self.palette_ix.saturating_sub(1),
-            "down" => self.palette_ix = (self.palette_ix + 1).min(last),
+            "up" => self.palette.ix = self.palette.ix.saturating_sub(1),
+            "down" => self.palette.ix = (self.palette.ix + 1).min(last),
             "tab" => {
-                self.palette_all = !self.palette_all;
-                self.palette_ix = 0;
+                self.palette.all = !self.palette.all;
+                self.palette.ix = 0;
             }
             "escape" => self.close_overlay(window, cx),
             "enter" => {
-                if let Some(e) = entries.get(self.palette_ix.min(last)) {
+                if let Some(e) = entries.get(self.palette.ix.min(last)) {
                     self.activate(e.pick.clone(), window, cx);
                 }
             }
@@ -166,7 +186,7 @@ impl Desktop {
     pub(crate) fn palette(&mut self, cx: &mut Context<Self>) -> Div {
         let sections = self.palette_sections(cx);
         let total: usize = sections.iter().map(|(_, e)| e.len()).sum();
-        let selected = self.palette_ix.min(total.saturating_sub(1));
+        let selected = self.palette.ix.min(total.saturating_sub(1));
         let mut n = 0;
         let mut body = div().id("palette-results").max_h(px(460.)).overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col();
         for (label, entries) in sections {
@@ -201,9 +221,9 @@ impl Desktop {
             .border_b(px(0.5))
             .border_color(rgba(SEPARATOR))
             .child(icon("search", 17., TEXT_3))
-            .child(div().flex_1().text_size(px(17.)).child(Input::new(&self.filter).appearance(false).p_0().text_size(px(17.))))
+            .child(div().flex_1().text_size(px(17.)).child(Input::new(&self.palette.filter).appearance(false).p_0().text_size(px(17.))))
             .child(div().text_size(px(12.)).text_color(rgba(TEXT_4)).child("esc"));
-        let scope = if self.palette_all { "Tab to filter by project" } else { "Tab to search all projects" };
+        let scope = if self.palette.all { "Tab to filter by project" } else { "Tab to search all projects" };
         let footer = div()
             .h(px(40.))
             .px(px(20.))

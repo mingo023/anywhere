@@ -25,7 +25,7 @@ const STEPS: [(&str, Step); 12] = [
     }),
     ("changes", |d, _, cx| d.open_changes(None, cx)),
     ("comment", |d, window, cx| {
-        if let Some(i) = d.diff.iter().position(|l| l.kind == Kind::Add) {
+        if let Some(i) = d.diff.lines.iter().position(|l| l.kind == Kind::Add) {
             d.open_comment(i, window, cx);
         }
     }),
@@ -110,8 +110,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_comment(window, cx);
     d.close_overlay(window, cx);
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
-    (d.layout, d.panel, d.tab_menu) = (Layout::Sidebars, false, false);
-    (d.session, d.worktree, d.focused, d.diff_file, d.file) = (None, None, None, None, None);
+    (d.layout, d.panel, d.terminal.tab_menu) = (Layout::Sidebars, false, false);
+    (d.session, d.worktree, d.terminal.focused, d.diff.file, d.preview.file) = (None, None, None, None, None);
     d.workspaces.clear();
 }
 

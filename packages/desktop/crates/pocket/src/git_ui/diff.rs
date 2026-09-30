@@ -6,7 +6,7 @@ use crate::desktop::chrome::{Overlay, Side, doc_bar, empty};
 use crate::explorer::status_word;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::util::{ago_long, now_ms};
-use gpui_kit::component::input::{Escape, Textarea};
+use gpui_kit::component::input::{Escape, InputEvent, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde_json::json;
@@ -258,13 +258,64 @@ fn add_button(left: f32) -> Div {
         .child(icon("plus", 13., WHITE))
 }
 
+pub struct DiffState {
+    pub(crate) file: Option<String>,
+    pub(crate) lines: Vec<git::Line>,
+    pub(crate) rows: Vec<Row>,
+    pub(crate) list: ListState,
+    pub(crate) split: bool,
+    pub(crate) hl: Vec<Spans>,
+    pub(crate) open: HashSet<usize>,
+    pub(crate) source: (String, String),
+    pub(crate) syntax: (Vec<Spans>, Vec<Spans>),
+    pub(crate) selection: Option<(usize, usize)>,
+    pub(crate) dragging: bool,
+    pub(crate) composing: bool,
+    pub(crate) input: Entity<TextareaState>,
+    pub(crate) target: Option<String>,
+    pub(crate) target_menu: bool,
+    pub(crate) comments: Vec<Comment>,
+    pub(crate) viewed: HashSet<String>,
+}
+
+impl DiffState {
+    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
+        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| match ev {
+            InputEvent::PressEnter { secondary: true, .. } => this.submit_comment(window, cx),
+            InputEvent::Change => cx.notify(),
+            _ => {}
+        })];
+        let state = Self {
+            file: None,
+            lines: Vec::new(),
+            rows: Vec::new(),
+            list: ListState::new(0, ListAlignment::Top, px(400.)),
+            split: false,
+            hl: Vec::new(),
+            open: HashSet::new(),
+            source: Default::default(),
+            syntax: Default::default(),
+            selection: None,
+            dragging: false,
+            composing: false,
+            input,
+            target: None,
+            target_menu: false,
+            comments: Vec::new(),
+            viewed: HashSet::new(),
+        };
+        (state, subs)
+    }
+}
+
 impl Desktop {
     pub fn diff_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let Some(path) = self.diff_file.clone() else {
+        let Some(path) = self.diff.file.clone() else {
             return empty("No changes.");
         };
         let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned();
-        let viewed = self.viewed.contains(&path);
+        let viewed = self.diff.viewed.contains(&path);
         let toggle = path.clone();
         let right = div()
             .flex()
@@ -272,11 +323,11 @@ impl Desktop {
             .gap(px(8.))
             .child(div().id("diff-mode").child(ui::segmented(
                 vec![Segment { icon: None, value: false, label: "Unified".into(), badge: None }, Segment { icon: None, value: true, label: "Split".into(), badge: None }],
-                self.diff_split,
+                self.diff.split,
                 true,
                 false,
                 |this, v, cx| {
-                    this.diff_split = v;
+                    this.diff.split = v;
                     this.layout_diff(true);
                     cx.notify();
                 },
@@ -284,8 +335,8 @@ impl Desktop {
             )))
             .child(ui::button("viewed", Variant::Glass, None, div().flex().items_center().gap(px(7.)).child(checkbox(viewed)).child("Viewed")).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
-                    if !this.viewed.remove(&toggle) {
-                        this.viewed.insert(toggle.clone());
+                    if !this.diff.viewed.remove(&toggle) {
+                        this.diff.viewed.insert(toggle.clone());
                     }
                     cx.notify();
                 },
@@ -298,7 +349,7 @@ impl Desktop {
         if let Some(f) = &file {
             meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
         }
-        let comments = self.comments.iter().filter(|c| c.path == path).count();
+        let comments = self.diff.comments.iter().filter(|c| c.path == path).count();
         if comments > 0 {
             let label = format!("{comments} comment{}", if comments == 1 { "" } else { "s" });
             meta.push(ui::meta_item().child(icon("comment", 13., TEXT_2)).child(ui::meta_value(label)).into_any_element());
@@ -320,7 +371,7 @@ impl Desktop {
     }
 
     pub fn diff_box(&mut self, cx: &mut Context<Self>) -> Div {
-        let rows = list(self.diff_list.clone(), cx.processor(|this, ix, _, cx| this.diff_row(ix, cx))).pb(px(8.));
+        let rows = list(self.diff.list.clone(), cx.processor(|this, ix, _, cx| this.diff_row(ix, cx))).pb(px(8.));
         div()
             .flex_1()
             .min_h_0()
@@ -338,83 +389,83 @@ impl Desktop {
 
     /// Shows `load` unless another file or fold state was picked while it ran.
     pub fn apply_diff(&mut self, load: DiffLoad) -> bool {
-        if self.diff_file.as_ref() != Some(&load.path) || load.open != self.diff_open {
+        if self.diff.file.as_ref() != Some(&load.path) || load.open != self.diff.open {
             return false;
         }
-        self.diff_source = load.source;
+        self.diff.source = load.source;
         if let Some((syntax, hl)) = load.colors {
-            (self.diff_syntax, self.diff_hl) = (syntax, hl);
+            (self.diff.syntax, self.diff.hl) = (syntax, hl);
         }
         self.set_diff(load.lines, true)
     }
 
     pub fn set_diff(&mut self, lines: Vec<Line>, reset: bool) -> bool {
-        if lines == self.diff {
+        if lines == self.diff.lines {
             return false;
         }
-        self.selection = self.selection.and_then(|(a, b)| Some((remap(&self.diff, &lines, a)?, remap(&self.diff, &lines, b)?)));
-        self.diff = lines;
+        self.diff.selection = self.diff.selection.and_then(|(a, b)| Some((remap(&self.diff.lines, &lines, a)?, remap(&self.diff.lines, &lines, b)?)));
+        self.diff.lines = lines;
         self.layout_diff(reset);
         true
     }
 
     /// Shows the unchanged lines folded away from `start` on, keeping the scroll position.
     fn expand(&mut self, start: usize, cx: &mut Context<Self>) {
-        self.diff_open.insert(start);
-        let lines = git::diff_texts(&self.diff_source.0, &self.diff_source.1, &self.diff_open);
-        self.diff_hl = highlights(&lines, &self.diff_syntax.0, &self.diff_syntax.1);
+        self.diff.open.insert(start);
+        let lines = git::diff_texts(&self.diff.source.0, &self.diff.source.1, &self.diff.open);
+        self.diff.hl = highlights(&lines, &self.diff.syntax.0, &self.diff.syntax.1);
         self.set_diff(lines, false);
         cx.notify();
     }
 
     /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
     pub fn layout_diff(&mut self, reset: bool) {
-        let composer = self.selection.filter(|_| self.composing && !self.dragging).map(|s| *ordered(s).end());
-        let path = self.diff_file.as_deref();
+        let composer = self.diff.selection.filter(|_| self.diff.composing && !self.diff.dragging).map(|s| *ordered(s).end());
+        let path = self.diff.file.as_deref();
         let notes: Vec<(usize, usize)> =
-            self.comments.iter().enumerate().filter(|(_, c)| Some(c.path.as_str()) == path).filter_map(|(i, c)| Some((anchor(&self.diff, c)?, i))).collect();
-        let rows = rows(&self.diff, self.diff_split, composer, &notes);
+            self.diff.comments.iter().enumerate().filter(|(_, c)| Some(c.path.as_str()) == path).filter_map(|(i, c)| Some((anchor(&self.diff.lines, c)?, i))).collect();
+        let rows = rows(&self.diff.lines, self.diff.split, composer, &notes);
         if reset {
-            self.diff_list.reset(rows.len());
+            self.diff.list.reset(rows.len());
         } else {
-            let (range, count) = changed(&self.diff_rows, &rows);
-            self.diff_list.splice(range, count);
+            let (range, count) = changed(&self.diff.rows, &rows);
+            self.diff.list.splice(range, count);
         }
-        self.diff_rows = rows;
+        self.diff.rows = rows;
     }
 
     pub fn selection_label(&self) -> Option<String> {
-        label(&self.diff, ordered(self.selection?))
+        label(&self.diff.lines, ordered(self.diff.selection?))
     }
 
     pub fn new_comment(&self, path: String, label: String, text: String) -> Option<Comment> {
-        let (lo, hi, old_side) = span(&self.diff, ordered(self.selection?))?;
+        let (lo, hi, old_side) = span(&self.diff.lines, ordered(self.diff.selection?))?;
         Some(Comment { path, lines: (lo, hi), old_side, label, text, at: now_ms() })
     }
 
     fn resolve_comment(&mut self, i: usize, cx: &mut Context<Self>) {
-        if i < self.comments.len() {
-            self.comments.remove(i);
+        if i < self.diff.comments.len() {
+            self.diff.comments.remove(i);
             self.layout_diff(false);
             cx.notify();
         }
     }
 
     pub fn same_hunk(&self, a: usize, b: usize) -> bool {
-        !self.diff[a.min(b)..=a.max(b)].iter().any(|l| l.kind == Kind::Hunk)
+        !self.diff.lines[a.min(b)..=a.max(b)].iter().any(|l| l.kind == Kind::Hunk)
     }
 
     pub fn picked(&self, i: usize) -> bool {
-        self.selection.is_some_and(|s| ordered(s).contains(&i)) && self.diff[i].kind != Kind::Hunk
+        self.diff.selection.is_some_and(|s| ordered(s).contains(&i)) && self.diff.lines[i].kind != Kind::Hunk
     }
 
     /// One side of a row: pressing picks its line, dragging or shift-clicking stretches the pick; "+" or a drag opens the composer.
     fn cell(&self, id: &'static str, i: usize, numbers: Vec<Option<usize>>, add_at: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        if self.diff[i].kind == Kind::Hunk {
+        if self.diff.lines[i].kind == Kind::Hunk {
             return self.fold(id, i, cx);
         }
-        let row = code(&self.diff[i], self.diff_hl.get(i), numbers, self.picked(i)).id((id, i));
-        let last = self.selection.is_some_and(|s| *ordered(s).end() == i);
+        let row = code(&self.diff.lines[i], self.diff.hl.get(i), numbers, self.picked(i)).id((id, i));
+        let last = self.diff.selection.is_some_and(|s| *ordered(s).end() == i);
         row.group("diff-line")
             .cursor_pointer()
             .child(
@@ -429,21 +480,21 @@ impl Desktop {
 
     /// A hunk header; clicking it unfolds the lines hidden above it.
     fn fold(&self, id: &'static str, i: usize, cx: &mut Context<Self>) -> Stateful<Div> {
-        let row = hunk(&self.diff, i).id((id, i));
-        match fold_start(&self.diff, i) {
+        let row = hunk(&self.diff.lines, i).id((id, i));
+        match fold_start(&self.diff.lines, i) {
             Some(start) => row.cursor_pointer().hover(|s| s.bg(rgba(FILL_2))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.expand(start, cx))),
             None => row,
         }
     }
 
     fn diff_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(&row) = self.diff_rows.get(ix) else { return Empty.into_any_element() };
+        let Some(&row) = self.diff.rows.get(ix) else { return Empty.into_any_element() };
         match row {
-            Row::Unified(i) => self.cell("line", i, vec![self.diff[i].old, self.diff[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
-            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if self.diff[i].kind == Kind::Hunk => self.fold("fold", i, cx).w_full().into_any_element(),
+            Row::Unified(i) => self.cell("line", i, vec![self.diff.lines[i].old, self.diff.lines[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
+            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if self.diff.lines[i].kind == Kind::Hunk => self.fold("fold", i, cx).w_full().into_any_element(),
             Row::Split(l, r) => {
                 let mut side = |id, i: Option<usize>, n: fn(&Line) -> Option<usize>| match i {
-                    Some(i) => self.cell(id, i, vec![n(&self.diff[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
+                    Some(i) => self.cell(id, i, vec![n(&self.diff.lines[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
                     None => div().flex_1().min_h(px(ROW)).bg(rgba(SURFACE_SUNKEN)).into_any_element(),
                 };
                 div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()
@@ -456,7 +507,7 @@ impl Desktop {
     fn composer(&self, cx: &mut Context<Self>) -> Div {
         let lines = self.selection_label().unwrap_or_default();
         let target = self.comment_target();
-        let ready = target.is_some() && !self.comment_input.read(cx).value().trim().is_empty();
+        let ready = target.is_some() && !self.diff.input.read(cx).value().trim().is_empty();
         let head = div()
             .px(px(16.))
             .pt(px(12.))
@@ -466,7 +517,7 @@ impl Desktop {
             .text_size(px(12.))
             .child(div().font_family(MONO).font_weight(FontWeight::SEMIBOLD).text_color(rgba(ACCENT)).child(lines))
             .child(div().text_color(rgba(TEXT_3)).child("esc to dismiss"));
-        let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.comment_input).appearance(false));
+        let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.diff.input).appearance(false));
         let submit = ui::button("comment-submit", Variant::Accent, None, "Comment")
             .child(ui::button_kbd("⌘↵"))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.submit_comment(window, cx))))
@@ -490,7 +541,7 @@ impl Desktop {
             .mt(px(6.))
             .mb(px(10.))
             .mr(px(20.))
-            .ml(px(if self.diff_split { NUM + SIGN } else { 2. * NUM + SIGN }))
+            .ml(px(if self.diff.split { NUM + SIGN } else { 2. * NUM + SIGN }))
             .flex()
             .flex_col()
             .rounded(px(16.))
@@ -505,7 +556,7 @@ impl Desktop {
     }
 
     fn comment_card(&self, i: usize, cx: &mut Context<Self>) -> Div {
-        let Some(c) = self.comments.get(i) else { return div() };
+        let Some(c) = self.diff.comments.get(i) else { return div() };
         let head = div()
             .flex()
             .items_center()
@@ -535,7 +586,7 @@ impl Desktop {
             .mt(px(6.))
             .mb(px(10.))
             .mr(px(20.))
-            .ml(px(if self.diff_split { NUM + SIGN } else { 2. * NUM + SIGN }))
+            .ml(px(if self.diff.split { NUM + SIGN } else { 2. * NUM + SIGN }))
             .px(px(16.))
             .py(px(12.))
             .flex()
@@ -554,7 +605,7 @@ impl Desktop {
     fn session_chip(&self, id: &str) -> (u32, String, String) {
         let a = self.agents.get(id);
         let provider = a.map(|a| a.provider.clone()).unwrap_or_default();
-        let branch = a.and_then(|a| self.sessions.get(&a.terminal_id)).and_then(|s| self.repos.get(&s.info.cwd)).map(|r| r.branch.clone()).unwrap_or_default();
+        let branch = a.and_then(|a| self.terminals.sessions.get(&a.terminal_id)).and_then(|s| self.repos.get(&s.info.cwd)).map(|r| r.branch.clone()).unwrap_or_default();
         (provider_color(&provider), provider, branch)
     }
 
@@ -573,7 +624,7 @@ impl Desktop {
             .hover(|s| s.bg(rgba(FILL_4)))
             .text_size(px(13.))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.target_menu = !this.target_menu;
+                this.diff.target_menu = !this.diff.target_menu;
                 cx.notify();
             }));
         let pill = match &target {
@@ -587,7 +638,7 @@ impl Desktop {
             }
             None => pill.text_color(rgba(TEXT_2)).child("No session"),
         };
-        let menu = self.target_menu.then(|| {
+        let menu = self.diff.target_menu.then(|| {
             let cards = self.project.as_deref().map(|p| self.cards(p)).unwrap_or_default();
             let items = cards.into_iter().enumerate().map(|(i, c)| {
                 let (color, name, branch) = self.session_chip(&c.id);
@@ -610,8 +661,8 @@ impl Desktop {
                     .child(div().font_family(MONO).text_size(px(11.5)).text_color(rgba(TEXT_3)).child(branch))
                     .child(div().size(px(14.)).when(picked, |d| d.child(icon("check", 14., TEXT))))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.comment_target = Some(id.clone());
-                        this.target_menu = false;
+                        this.diff.target = Some(id.clone());
+                        this.diff.target_menu = false;
                         cx.notify();
                     }))
             });
@@ -624,7 +675,7 @@ impl Desktop {
                         .flex_col()
                         .children(items)
                         .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                            this.target_menu = false;
+                            this.diff.target_menu = false;
                             cx.notify();
                         })),
                 ),
@@ -635,7 +686,7 @@ impl Desktop {
     }
 
     pub fn open_changes(&mut self, path: Option<String>, cx: &mut Context<Self>) {
-        let path = path.or_else(|| self.diff_file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
+        let path = path.or_else(|| self.diff.file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
         self.side = Side::Changes;
         match path {
             Some(path) => self.open_doc(Doc::Diff(path), cx),
@@ -644,8 +695,8 @@ impl Desktop {
     }
 
     pub(crate) fn load_diff(&mut self, cx: &mut Context<Self>) {
-        let Some((cwd, path)) = self.cwd().zip(self.diff_file.clone()) else { return };
-        let (open, shown) = (self.diff_open.clone(), self.diff.clone());
+        let Some((cwd, path)) = self.cwd().zip(self.diff.file.clone()) else { return };
+        let (open, shown) = (self.diff.open.clone(), self.diff.lines.clone());
         let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, open, &shown) });
         cx.spawn(async move |this, cx| {
             let load = task.await;
@@ -661,73 +712,73 @@ impl Desktop {
 
     /// Starts a comment on line `i` of the diff, or with `extend` stretches the open one to it.
     pub fn select_line(&mut self, i: usize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let kept = self.selection.map(|(a, _)| a).filter(|&a| extend && self.same_hunk(a, i));
+        let kept = self.diff.selection.map(|(a, _)| a).filter(|&a| extend && self.same_hunk(a, i));
         if kept.is_none() {
-            self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
-            self.composing = false;
+            self.diff.input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.diff.composing = false;
         }
-        self.selection = Some((kept.unwrap_or(i), i));
-        self.dragging = true;
+        self.diff.selection = Some((kept.unwrap_or(i), i));
+        self.diff.dragging = true;
         self.layout_diff(false);
         cx.notify();
     }
 
     pub fn drag_to(&mut self, i: usize, pressed: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((anchor, end)) = self.selection.filter(|_| self.dragging) else { return };
+        let Some((anchor, end)) = self.diff.selection.filter(|_| self.diff.dragging) else { return };
         if !pressed {
             return self.end_drag(window, cx);
         }
         if end != i && self.same_hunk(anchor, i) {
-            self.selection = Some((anchor, i));
+            self.diff.selection = Some((anchor, i));
             cx.notify();
         }
     }
 
     pub fn end_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !std::mem::take(&mut self.dragging) {
+        if !std::mem::take(&mut self.diff.dragging) {
             return;
         }
-        if self.selection.is_some_and(|(a, b)| a != b) {
-            self.composing = true;
+        if self.diff.selection.is_some_and(|(a, b)| a != b) {
+            self.diff.composing = true;
         }
         self.layout_diff(false);
-        if self.composing {
-            self.comment_input.update(cx, |s, cx| s.focus(window, cx));
+        if self.diff.composing {
+            self.diff.input.update(cx, |s, cx| s.focus(window, cx));
         }
         cx.notify();
     }
 
     pub fn open_comment(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         if !self.picked(i) {
-            self.selection = Some((i, i));
-            self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.diff.selection = Some((i, i));
+            self.diff.input.update(cx, |s, cx| s.set_value("", window, cx));
         }
-        self.composing = true;
+        self.diff.composing = true;
         self.layout_diff(false);
-        self.comment_input.update(cx, |s, cx| s.focus(window, cx));
+        self.diff.input.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
 
     pub fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.selection = None;
-        self.composing = false;
-        self.target_menu = false;
+        self.diff.selection = None;
+        self.diff.composing = false;
+        self.diff.target_menu = false;
         self.layout_diff(false);
-        self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+        self.diff.input.update(cx, |s, cx| s.set_value("", window, cx));
         window.focus(&self.root, cx);
         cx.notify();
     }
 
     pub fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.comment_input.read(cx).value().trim().to_string();
-        let (Some(target), Some(path), Some(lines)) = (self.comment_target(), self.diff_file.clone(), self.selection_label()) else { return };
+        let text = self.diff.input.read(cx).value().trim().to_string();
+        let (Some(target), Some(path), Some(lines)) = (self.comment_target(), self.diff.file.clone(), self.selection_label()) else { return };
         if text.is_empty() {
             return;
         }
         let Some(terminal) = self.agents.get(&target).map(|a| a.terminal_id.clone()) else { return };
         self.daemon.send(json!({"op": "prompt", "id": terminal, "text": format!("{path} {}: {text}", lines.to_lowercase())}));
         if let Some(comment) = self.new_comment(path, lines, text) {
-            self.comments.push(comment);
+            self.diff.comments.push(comment);
         }
         self.cancel_comment(window, cx);
     }
@@ -736,7 +787,7 @@ impl Desktop {
     pub fn comment_target(&self) -> Option<String> {
         let cards = self.cards(self.project.as_deref()?);
         let live = |id: &String| cards.iter().any(|c| &c.id == id);
-        self.comment_target.clone().filter(live).or_else(|| self.session.clone().filter(live)).or_else(|| cards.first().map(|c| c.id.clone()))
+        self.diff.target.clone().filter(live).or_else(|| self.session.clone().filter(live)).or_else(|| cards.first().map(|c| c.id.clone()))
     }
 }
 

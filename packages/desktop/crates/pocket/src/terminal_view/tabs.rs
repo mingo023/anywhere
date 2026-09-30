@@ -35,7 +35,7 @@ impl Desktop {
             };
             return row.child(dot(7., provider_color(&a.provider))).child(label(count(provider_name(&a.provider).into()))).children(mark);
         }
-        let s = self.sessions.get(&p[0]);
+        let s = self.terminals.sessions.get(&p[0]);
         let busy = s.and_then(|s| s.busy());
         let mark = match s {
             Some(s) if s.failed() => icon("x", 12., FAILED).into_any_element(),
@@ -121,23 +121,23 @@ impl Desktop {
             .justify_center()
             .rounded(px(6.))
             .cursor_pointer()
-            .when(self.tab_menu, |d| d.bg(rgba(FILL_3)))
+            .when(self.terminal.tab_menu, |d| d.bg(rgba(FILL_3)))
             .hover(|s| s.bg(rgba(FILL_3)))
             .child(icon("chevron-down", 12., TEXT_3))
             // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                this.tab_menu = !this.tab_menu;
+                this.terminal.tab_menu = !this.terminal.tab_menu;
                 this.row_menu = None;
                 cx.notify();
             }));
-        let menu = self.tab_menu.then(|| ui::dropdown(29., self.tab_menu_view(cx)));
+        let menu = self.terminal.tab_menu.then(|| ui::dropdown(29., self.tab_menu_view(cx)));
         let shown = Some((tree.to_string(), active));
-        if self.tab_revealed != shown {
-            self.tab_scroll.scroll_to_item(active);
-            self.tab_revealed = shown;
+        if self.terminal.tab_revealed != shown {
+            self.terminal.tab_scroll.scroll_to_item(active);
+            self.terminal.tab_revealed = shown;
         }
-        let (offset, max) = (self.tab_scroll.offset().x, self.tab_scroll.max_offset().x);
+        let (offset, max) = (self.terminal.tab_scroll.offset().x, self.terminal.tab_scroll.max_offset().x);
         let fade = |left: bool| {
             let (solid, clear) = (rgba(SURFACE_SUNKEN), rgba(SURFACE_SUNKEN & 0xffffff00));
             let (from, to) = if left { (solid, clear) } else { (clear, solid) };
@@ -145,7 +145,7 @@ impl Desktop {
         };
         let strip = div()
             .id("tab-strip")
-            .track_scroll(&self.tab_scroll)
+            .track_scroll(&self.terminal.tab_scroll)
             .overflow_x_scroll()
             .flex()
             .min_w_0()
@@ -222,7 +222,7 @@ impl Desktop {
             .child(agent("tab-menu-claude", "claude", cx))
             .child(agent("tab-menu-codex", "codex", cx))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.tab_menu = false;
+                this.terminal.tab_menu = false;
                 cx.notify();
             }))
     }

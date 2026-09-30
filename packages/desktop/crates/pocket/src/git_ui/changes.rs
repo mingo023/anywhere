@@ -2,7 +2,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, empty};
 use crate::git_ui::diff::{line_label, ordered, span};
 use git::{FileStat, Repo};
-use gpui_kit::component::input::Textarea;
+use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -104,6 +104,42 @@ fn row(id: impl Into<ElementId>, depth: usize) -> Stateful<Div> {
     div().id(id).w_full().h(px(28.)).pl(px(8. + depth as f32 * 14.)).pr(px(6.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).cursor_pointer()
 }
 
+pub struct ChangesState {
+    pub(crate) input: Entity<TextareaState>,
+    /// What the commit button says while git works.
+    pub(crate) busy: Option<&'static str>,
+    pub(crate) writing: bool,
+    pub(crate) error: Option<String>,
+    pub(crate) commit_menu: bool,
+    pub(crate) menu: bool,
+    pub(crate) tree: bool,
+    pub(crate) folded: HashSet<String>,
+    pub(crate) scroll: UniformListScrollHandle,
+}
+
+impl ChangesState {
+    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Message (⌘↩ to commit)").auto_grow(1, 8));
+        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| match ev {
+            InputEvent::PressEnter { secondary: true, .. } => this.commit(CommitKind::Commit, window, cx),
+            InputEvent::Change => cx.notify(),
+            _ => {}
+        })];
+        let state = Self {
+            input,
+            busy: None,
+            writing: false,
+            error: None,
+            commit_menu: false,
+            menu: false,
+            tree: false,
+            folded: HashSet::new(),
+            scroll: UniformListScrollHandle::new(),
+        };
+        (state, subs)
+    }
+}
+
 impl Desktop {
     pub fn changes_list(&mut self, cx: &mut Context<Self>) -> Div {
         let panel = div().flex_1().min_h_0().flex().flex_col();
@@ -124,12 +160,12 @@ impl Desktop {
                     .collect::<Vec<_>>()
             }),
         )
-        .track_scroll(&self.changes_scroll)
+        .track_scroll(&self.changes.scroll)
         .size_full()
         .px(px(8.))
         .pt(px(6.))
         .pb(px(8.));
-        let list = div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes_scroll);
+        let list = div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes.scroll);
         let notes = self.notes(&repo, cx);
         panel
             .child(self.changes_header(&repo, cx))
@@ -147,12 +183,12 @@ impl Desktop {
                 continue;
             }
             rows.push(Row::Header(s, files.iter().map(|f| f.path.clone()).collect()));
-            if self.changes_folded.contains(s.key()) {
+            if self.changes.folded.contains(s.key()) {
                 continue;
             }
             let mut items = Vec::new();
-            if self.changes_tree {
-                tree(&files, "", 0, s, &self.changes_folded, &mut items);
+            if self.changes.tree {
+                tree(&files, "", 0, s, &self.changes.folded, &mut items);
             } else {
                 items.extend(files.iter().map(|&f| Item::File { file: f.clone(), depth: 0 }));
             }
@@ -162,19 +198,19 @@ impl Desktop {
     }
 
     fn changes_header(&self, repo: &Repo, cx: &mut Context<Self>) -> Div {
-        let view = icon_button_sized("changes-view", if self.changes_tree { "list-flat" } else { "list-tree" }, 26., TEXT_3).on_click(cx.listener(
+        let view = icon_button_sized("changes-view", if self.changes.tree { "list-flat" } else { "list-tree" }, 26., TEXT_3).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.changes_tree = !this.changes_tree;
+                this.changes.tree = !this.changes.tree;
                 cx.notify();
             },
         ));
-        let open = self.changes_menu;
+        let open = self.changes.menu;
         // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
         let more = icon_button_sized("changes-more", "more", 26., TEXT_3).when(open, |d| d.bg(rgba(FILL_3))).capture_any_mouse_down(cx.listener(
             |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                this.changes_menu = !this.changes_menu;
-                this.commit_menu = false;
+                this.changes.menu = !this.changes.menu;
+                this.changes.commit_menu = false;
                 cx.notify();
             },
         ));
@@ -214,7 +250,7 @@ impl Desktop {
             .flex_col()
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.changes_menu = false;
+                this.changes.menu = false;
                 cx.notify();
             }))
             .child(ui::menu_row("changes-push", "arrow-up", "Push", None).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.push(cx))))
@@ -225,7 +261,7 @@ impl Desktop {
 
     fn commit_box(&self, repo: &Repo, cx: &mut Context<Self>) -> Div {
         let has_changes = !repo.files.is_empty();
-        let message = !self.commit_input.read(cx).value().trim().is_empty();
+        let message = !self.changes.input.read(cx).value().trim().is_empty();
         let write = div()
             .id("commit-write")
             .size(px(24.))
@@ -236,8 +272,8 @@ impl Desktop {
             .items_center()
             .justify_center()
             .rounded(px(7.))
-            .map(|d| if self.writing { d.child(spinner("commit-writing", 13., TEXT_3)) } else { d.child(icon("sparkle", 14., TEXT_3)) })
-            .when(has_changes && !self.writing, |d| {
+            .map(|d| if self.changes.writing { d.child(spinner("commit-writing", 13., TEXT_3)) } else { d.child(icon("sparkle", 14., TEXT_3)) })
+            .when(has_changes && !self.changes.writing, |d| {
                 d.cursor_pointer().hover(|s| s.bg(rgba(FILL_3))).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.write_message(window, cx)))
             })
             .when(!has_changes, |d| d.opacity(0.4));
@@ -248,14 +284,14 @@ impl Desktop {
             .bg(rgba(SURFACE))
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
             .text_size(px(13.))
-            .child(div().flex_1().min_w_0().child(Textarea::new(&self.commit_input).appearance(false)))
+            .child(div().flex_1().min_w_0().child(Textarea::new(&self.changes.input).appearance(false)))
             .child(write);
-        let label = match self.busy {
+        let label = match self.changes.busy {
             Some(busy) => busy,
             None if has_changes && !repo.files.iter().any(|f| f.staged) => "Commit All",
             None => "Commit",
         };
-        let ready = has_changes && message && self.busy.is_none();
+        let ready = has_changes && message && self.changes.busy.is_none();
         let commit = div()
             .id("commit")
             .flex_1()
@@ -265,12 +301,12 @@ impl Desktop {
             .justify_center()
             .gap(px(6.))
             .rounded_l(px(9.))
-            .map(|d| if self.busy.is_some() { d.child(spinner("commit-busy", 13., WHITE)) } else { d.child(icon("check", 14., WHITE)) })
+            .map(|d| if self.changes.busy.is_some() { d.child(spinner("commit-busy", 13., WHITE)) } else { d.child(icon("check", 14., WHITE)) })
             .child(label)
             .when(ready, |d| d.cursor_pointer().hover(|s| s.bg(rgba(0xffffff1a))))
             .when(!ready, |d| d.text_color(rgba(0xffffff8c)))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Commit, window, cx)));
-        let menu_open = self.commit_menu;
+        let menu_open = self.changes.commit_menu;
         let chevron = div()
             .id("commit-more")
             .w(px(30.))
@@ -288,8 +324,8 @@ impl Desktop {
             .child(icon("chevron-down", 12., WHITE))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                this.commit_menu = !this.commit_menu;
-                this.changes_menu = false;
+                this.changes.commit_menu = !this.changes.commit_menu;
+                this.changes.menu = false;
                 cx.notify();
             }));
         let menu = ui::pop(div().id("commit-menu"))
@@ -300,7 +336,7 @@ impl Desktop {
             .flex_col()
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.commit_menu = false;
+                this.changes.commit_menu = false;
                 cx.notify();
             }))
             .child(ui::menu_row("commit-push", "arrow-up", "Commit & Push", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Push, window, cx))))
@@ -312,7 +348,7 @@ impl Desktop {
             .child(commit)
             .child(chevron)
             .when(menu_open, |d| d.child(ui::dropdown(34., menu)));
-        let error = self.commit_error.clone().map(|e| {
+        let error = self.changes.error.clone().map(|e| {
             div()
                 .id("commit-error")
                 .max_h(px(120.))
@@ -331,7 +367,7 @@ impl Desktop {
 
     fn section(&self, s: Section, paths: &[String], cx: &mut Context<Self>) -> Stateful<Div> {
         let key = s.key();
-        let open = !self.changes_folded.contains(key);
+        let open = !self.changes.folded.contains(key);
         let count = paths.len();
         let paths = paths.to_vec();
         let actions = match s {
@@ -381,8 +417,8 @@ impl Desktop {
             .child(div().flex().gap(px(2.)).opacity(0.).group_hover(SECTION_GROUP, |st| st.opacity(1.)).children(actions))
             .child(count_pill(count))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if !this.changes_folded.remove(key) {
-                    this.changes_folded.insert(key.to_string());
+                if !this.changes.folded.remove(key) {
+                    this.changes.folded.insert(key.to_string());
                 }
                 cx.notify();
             }))
@@ -390,7 +426,7 @@ impl Desktop {
 
     fn tree_item(&self, s: Section, item: &Item, cx: &mut Context<Self>) -> AnyElement {
         match item {
-            Item::File { file, depth } => self.change_row(s, file, *depth, self.changes_tree, cx).into_any_element(),
+            Item::File { file, depth } => self.change_row(s, file, *depth, self.changes.tree, cx).into_any_element(),
             Item::Dir { key, label, depth, open } => {
                 let (key, open) = (key.clone(), *open);
                 row(ElementId::Name(key.clone().into()), *depth)
@@ -401,8 +437,8 @@ impl Desktop {
                     .child(file_icon(label, true, open, 16.))
                     .child(div().flex_1().min_w_0().truncate().child(label.clone()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if !this.changes_folded.remove(&key) {
-                            this.changes_folded.insert(key.clone());
+                        if !this.changes.folded.remove(&key) {
+                            this.changes.folded.insert(key.clone());
                         }
                         cx.notify();
                     }))
@@ -413,9 +449,9 @@ impl Desktop {
 
     /// In the tree a file sits under its folder, so only its name shows, indented past the folders' chevrons.
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.diff_file.as_ref() == Some(&f.path);
+        let selected = self.diff.file.as_ref() == Some(&f.path);
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
-        let comments = self.comments.iter().filter(|c| c.path == f.path).count();
+        let comments = self.diff.comments.iter().filter(|c| c.path == f.path).count();
         let id = |kind: &str| ElementId::Name(format!("{kind}:{}:{}", s.key(), f.path).into());
         let path = f.path.clone();
         let actions = match s {
@@ -519,15 +555,16 @@ impl Desktop {
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(path.clone()), cx)))
         };
         let mut notes: Vec<Stateful<Div>> = self
+            .diff
             .comments
             .iter()
             .enumerate()
             .filter(|(_, c)| repo.files.iter().any(|f| f.path == c.path))
             .map(|(i, c)| note(ElementId::NamedInteger("note".into(), i as u64), line_label(c.lines), ui::State::Sent, c.text.clone(), c.path.clone()))
             .collect();
-        let draft = self.comment_input.read(cx).value().trim().to_string();
+        let draft = self.diff.input.read(cx).value().trim().to_string();
         if let (true, false, Some(path), Some((lo, hi, _))) =
-            (self.composing, draft.is_empty(), self.diff_file.clone(), self.selection.and_then(|s| span(&self.diff, ordered(s))))
+            (self.diff.composing, draft.is_empty(), self.diff.file.clone(), self.diff.selection.and_then(|s| span(&self.diff.lines, ordered(s))))
         {
             notes.push(note("draft".into(), line_label((lo, hi)), ui::State::Draft, draft, path));
         }
@@ -573,20 +610,20 @@ impl Desktop {
 
     /// Commits the staged files, or every change when none is staged. Amending keeps the last message unless a new one is typed.
     pub fn commit(&mut self, kind: CommitKind, window: &mut Window, cx: &mut Context<Self>) {
-        self.commit_menu = false;
+        self.changes.commit_menu = false;
         let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
-        let message = self.commit_input.read(cx).value().trim().to_string();
+        let message = self.changes.input.read(cx).value().trim().to_string();
         let amend = kind == CommitKind::Amend;
-        if self.busy.is_some() || (!amend && repo.files.is_empty()) {
+        if self.changes.busy.is_some() || (!amend && repo.files.is_empty()) {
             return cx.notify();
         }
         if !amend && message.is_empty() {
-            self.commit_input.update(cx, |s, cx| s.focus(window, cx));
+            self.changes.input.update(cx, |s, cx| s.focus(window, cx));
             return cx.notify();
         }
         let all: Vec<String> = if amend || repo.files.iter().any(|f| f.staged) { Vec::new() } else { repo.files.iter().map(|f| f.path.clone()).collect() };
-        self.busy = Some(if amend { "Amending…" } else { "Committing…" });
-        self.commit_error = None;
+        self.changes.busy = Some(if amend { "Amending…" } else { "Committing…" });
+        self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
             if !all.is_empty() {
                 git::set_staged(&cwd, &all, true);
@@ -601,11 +638,11 @@ impl Desktop {
         cx.spawn_in(window, async move |this, cx| {
             let (committed, pushed) = task.await;
             this.update_in(cx, |d, window, cx| {
-                d.busy = None;
+                d.changes.busy = None;
                 if committed.is_ok() {
-                    d.commit_input.update(cx, |s, cx| s.set_value("", window, cx));
+                    d.changes.input.update(cx, |s, cx| s.set_value("", window, cx));
                 }
-                d.commit_error = committed.err().or(pushed.err());
+                d.changes.error = committed.err().or(pushed.err());
                 d.refresh_git(cx);
                 cx.notify();
             })
@@ -616,16 +653,16 @@ impl Desktop {
     }
 
     fn push(&mut self, cx: &mut Context<Self>) {
-        self.changes_menu = false;
-        let Some(cwd) = self.cwd().filter(|_| self.busy.is_none()) else { return cx.notify() };
-        self.busy = Some("Pushing…");
-        self.commit_error = None;
+        self.changes.menu = false;
+        let Some(cwd) = self.cwd().filter(|_| self.changes.busy.is_none()) else { return cx.notify() };
+        self.changes.busy = Some("Pushing…");
+        self.changes.error = None;
         let task = cx.background_executor().spawn(async move { push(&cwd) });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {
-                d.busy = None;
-                d.commit_error = res.err();
+                d.changes.busy = None;
+                d.changes.error = res.err();
                 d.refresh_git(cx);
                 cx.notify();
             })
@@ -638,12 +675,12 @@ impl Desktop {
     /// Asks Claude Code for a message from what the commit would hold.
     fn write_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
-        if self.writing || repo.files.is_empty() {
+        if self.changes.writing || repo.files.is_empty() {
             return;
         }
         let staged = repo.files.iter().any(|f| f.staged);
-        self.writing = true;
-        self.commit_error = None;
+        self.changes.writing = true;
+        self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
             let context = git::commit_context(&cwd, staged);
             daemon::run_login(&["claude", "-p", "--model", "haiku", PROMPT], &cwd, &context)
@@ -651,10 +688,10 @@ impl Desktop {
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
             this.update_in(cx, |d, window, cx| {
-                d.writing = false;
+                d.changes.writing = false;
                 match res {
-                    Ok(text) => d.commit_input.update(cx, |s, cx| s.set_value(text, window, cx)),
-                    Err(e) => d.commit_error = Some(format!("Couldn't write a message: {e}")),
+                    Ok(text) => d.changes.input.update(cx, |s, cx| s.set_value(text, window, cx)),
+                    Err(e) => d.changes.error = Some(format!("Couldn't write a message: {e}")),
                 }
                 cx.notify();
             })

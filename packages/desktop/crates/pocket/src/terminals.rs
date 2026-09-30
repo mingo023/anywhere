@@ -1,9 +1,11 @@
 pub(crate) mod sessions;
 
 use crate::desktop::Desktop;
+use crate::terminals::sessions::Sessions;
 use daemon::Msg;
 use gpui_kit::*;
 use serde_json::json;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(crate) enum Intent {
     Tab(String),
@@ -11,27 +13,42 @@ pub(crate) enum Intent {
     Setup(String),
 }
 
+pub struct Terminals {
+    pub(crate) sessions: Sessions,
+    pub(crate) intents: VecDeque<Intent>,
+    pub(crate) closed: HashSet<String>,
+    pub(crate) sized: HashMap<String, (u16, u16)>,
+    /// Terminal → worktree while the terminal runs the worktree's setup before its agent.
+    pub(crate) setups: HashMap<String, String>,
+}
+
+impl Terminals {
+    pub fn new() -> Self {
+        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), setups: HashMap::new() }
+    }
+}
+
 impl Desktop {
     pub(crate) fn on_msg(&mut self, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match m.ev.as_str() {
             "terminals" => {
-                let items = m.items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
-                for id in self.sessions.sync(items) {
+                let items = m.items.into_iter().filter(|i| !self.terminals.closed.contains(&i.id)).collect();
+                for id in self.terminals.sessions.sync(items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
-                let sessions = &self.sessions;
-                self.setups.retain(|id, _| sessions.get(id).is_some());
+                let sessions = &self.terminals.sessions;
+                self.terminals.setups.retain(|id, _| sessions.get(id).is_some());
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
                 }
             }
             "spawned" => {
                 self.error = None;
-                match self.intents.pop_front() {
+                match self.terminals.intents.pop_front() {
                     Some(Intent::Tab(tree)) => self.adopt(m.id.clone(), tree, None, window, cx),
                     Some(Intent::Split(tree, down)) => self.adopt(m.id.clone(), tree, Some(down), window, cx),
                     Some(Intent::Setup(tree)) => {
-                        self.setups.insert(m.id.clone(), tree.clone());
+                        self.terminals.setups.insert(m.id.clone(), tree.clone());
                         self.adopt(m.id.clone(), tree, None, window, cx)
                     }
                     None => {}
@@ -40,23 +57,23 @@ impl Desktop {
             }
             "error" => {
                 if m.id.is_empty() {
-                    self.intents.pop_front();
+                    self.terminals.intents.pop_front();
                 }
                 self.error = Some(m.error);
             }
             "exit" => {
-                self.sessions.apply(&m);
-                self.setups.remove(&m.id);
+                self.terminals.sessions.apply(&m);
+                self.terminals.setups.remove(&m.id);
                 self.close_clean_exits(&m.id, cx);
             }
-            _ => self.sessions.apply(&m),
+            _ => self.terminals.sessions.apply(&m),
         }
         cx.notify();
     }
 
     /// Closes panes whose shell exited cleanly, as Terminal.app does; a failed one stays so its error can be read.
     fn close_clean_exits(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.sessions.get(id).is_some_and(|s| s.exit == Some(0)) {
+        if self.terminals.sessions.get(id).is_some_and(|s| s.exit == Some(0)) {
             self.close_pane(id, cx);
         }
     }
@@ -73,7 +90,7 @@ impl Desktop {
 
     pub(crate) fn send_spawn(&mut self, op: serde_json::Value, intent: Intent, cx: &mut Context<Self>) {
         self.daemon.send(op);
-        self.intents.push_back(intent);
+        self.terminals.intents.push_back(intent);
         self.error = None;
         cx.notify();
     }
@@ -84,7 +101,7 @@ impl Desktop {
     }
 
     pub fn new_agent_tab(&mut self, provider: &str, cx: &mut Context<Self>) {
-        self.tab_menu = false;
+        self.terminal.tab_menu = false;
         let argv = [provider.to_string()];
         self.run_in_tree(None, |cwd| daemon::agent_op(&argv, cwd), cx);
     }
@@ -99,13 +116,13 @@ impl Desktop {
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
+        if self.terminals.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
-        self.sessions.remove(id);
-        self.closed.insert(id.to_string());
-        self.sized.remove(id);
-        self.setups.remove(id);
+        self.terminals.sessions.remove(id);
+        self.terminals.closed.insert(id.to_string());
+        self.terminals.sized.remove(id);
+        self.terminals.setups.remove(id);
         for w in self.workspaces.values_mut() {
             w.remove(id);
         }
@@ -138,9 +155,9 @@ impl Desktop {
         if self.capturing {
             return;
         }
-        if self.sized.get(id) != Some(&(cols, rows)) && self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
+        if self.terminals.sized.get(id) != Some(&(cols, rows)) && self.terminals.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
             self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
-            self.sized.insert(id.to_string(), (cols, rows));
+            self.terminals.sized.insert(id.to_string(), (cols, rows));
         }
     }
 }

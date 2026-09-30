@@ -77,14 +77,14 @@ impl Desktop {
             .border_b(px(0.5))
             .border_color(rgba(SEPARATOR))
             .child(icon("search", 14., TEXT_3))
-            .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.session_search).appearance(false).p_0().text_size(px(13.))));
+            .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.search).appearance(false).p_0().text_size(px(13.))));
         let list = div().id("cards").flex_1().min_h_0().overflow_y_scroll();
         let wrap = div().flex_1().min_h_0().flex().flex_col().child(search);
         let Some(project) = self.project.clone() else {
             return wrap.child(list.child(empty("Add a project with + to start.")));
         };
         let tree = self.cwd();
-        let query = self.session_search.read(cx).value().to_lowercase();
+        let query = self.sidebar.search.read(cx).value().to_lowercase();
         let mut cards: Vec<Card> = self
             .cards(&project)
             .into_iter()

@@ -56,24 +56,35 @@ pub fn reselect(notes: &[Note], focused: Option<&str>, i: usize) -> (usize, Opti
     }
 }
 
+pub struct InboxState {
+    pub(crate) selected: usize,
+    pub(crate) focus: FocusHandle,
+}
+
+impl InboxState {
+    pub fn new(cx: &mut Context<Desktop>) -> Self {
+        Self { selected: 0, focus: cx.focus_handle() }
+    }
+}
+
 impl Desktop {
     pub fn open_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.screen = Screen::Inbox;
         self.select_note(0, cx);
-        window.focus(&self.inbox_focus, cx);
+        window.focus(&self.inbox.focus, cx);
     }
 
     fn select_note(&mut self, i: usize, cx: &mut Context<Self>) {
         let notes = notes(&self.agents);
-        self.inbox = i.min(notes.len().saturating_sub(1));
-        self.focused = notes.get(self.inbox).map(|n| n.terminal.clone());
+        self.inbox.selected = i.min(notes.len().saturating_sub(1));
+        self.terminal.focused = notes.get(self.inbox.selected).map(|n| n.terminal.clone());
         cx.notify();
     }
 
     fn on_inbox_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         match ev.keystroke.key.as_str() {
-            "j" | "down" => self.select_note(self.inbox + 1, cx),
-            "k" | "up" => self.select_note(self.inbox.saturating_sub(1), cx),
+            "j" | "down" => self.select_note(self.inbox.selected + 1, cx),
+            "k" | "up" => self.select_note(self.inbox.selected.saturating_sub(1), cx),
             _ => return,
         }
         cx.stop_propagation();
@@ -125,7 +136,7 @@ impl Desktop {
             .id("notes")
             .flex_1()
             .overflow_y_scroll()
-            .track_focus(&self.inbox_focus)
+            .track_focus(&self.inbox.focus)
             .on_key_down(cx.listener(Self::on_inbox_key))
             .p(px(8.))
             .flex()
@@ -147,7 +158,7 @@ impl Desktop {
     }
 
     fn note_row(&self, i: usize, n: Note, now: i64, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = i == self.inbox;
+        let selected = i == self.inbox.selected;
         let (glyph, color) = match n.status {
             Status::NeedsYou => ("shield", WAITING_TEXT),
             Status::Failed => ("x", FAILED),
@@ -202,12 +213,12 @@ impl Desktop {
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_note(i, cx);
-                window.focus(&this.inbox_focus, cx);
+                window.focus(&this.inbox.focus, cx);
             }))
     }
 
     pub fn inbox_detail(&mut self, cx: &mut Context<Self>) -> Div {
-        let Some(n) = notes(&self.agents).into_iter().nth(self.inbox) else {
+        let Some(n) = notes(&self.agents).into_iter().nth(self.inbox.selected) else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(rgba(TEXT_3)).child("You're all caught up.");
         };
         let project = self.project_name(&n.agent);
@@ -256,7 +267,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .child(header)
-            .child(div().flex_1().min_h_0().px(px(10.)).pt(px(10.)).flex().track_focus(&self.term_focus).on_key_down(cx.listener(Self::on_term_key)).child(pane))
+            .child(div().flex_1().min_h_0().px(px(10.)).pt(px(10.)).flex().track_focus(&self.terminal.focus).on_key_down(cx.listener(Self::on_term_key)).child(pane))
             .child(hints)
     }
 
@@ -264,7 +275,7 @@ impl Desktop {
         if self.screen != Screen::Inbox {
             return;
         }
-        if let Some(n) = notes(&self.agents).into_iter().nth(self.inbox) {
+        if let Some(n) = notes(&self.agents).into_iter().nth(self.inbox.selected) {
             self.focus_agent(&n.agent, window, cx);
         }
     }

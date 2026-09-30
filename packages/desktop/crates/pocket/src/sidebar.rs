@@ -5,6 +5,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, Overlay, RowMenu, Screen, drag_area, id, state};
 use crate::status::{self, Card};
 use crate::util::basename;
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -23,6 +24,18 @@ fn row_mark(key: &str, setting_up: bool, cards: &[Card]) -> Option<AnyElement> {
 struct DragProject {
     path: String,
     ix: usize,
+}
+
+pub struct SidebarState {
+    pub(crate) search: Entity<InputState>,
+}
+
+impl SidebarState {
+    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
+        let subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
+        (Self { search }, subs)
+    }
 }
 
 impl Desktop {
@@ -103,7 +116,7 @@ impl Desktop {
     }
 
     fn setting_up(&self, tree: &str) -> bool {
-        self.setups.values().any(|t| t == tree)
+        self.terminals.setups.values().any(|t| t == tree)
     }
 
     fn open_row_menu(menu: RowMenu, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
@@ -201,7 +214,7 @@ impl Desktop {
             move |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.row_menu = (this.row_menu.as_ref() != Some(&toggle)).then(|| toggle.clone());
-                this.tab_menu = false;
+                this.terminal.tab_menu = false;
                 cx.notify();
             },
         ));

@@ -24,21 +24,37 @@ pub fn command_line(info: &Info) -> String {
     std::iter::once(basename(&info.cmd)).chain(info.args.iter().cloned()).collect::<Vec<_>>().join(" ")
 }
 
+pub struct TerminalViewState {
+    pub(crate) focus: FocusHandle,
+    pub(crate) focused: Option<String>,
+    pub(crate) marked: Option<usize>,
+    pub(crate) tab_scroll: ScrollHandle,
+    /// The worktree and tab last scrolled into view, so a tab is revealed once when it becomes active rather than every frame.
+    pub(crate) tab_revealed: Option<(String, usize)>,
+    pub(crate) tab_menu: bool,
+}
+
+impl TerminalViewState {
+    pub fn new(cx: &mut Context<Desktop>) -> Self {
+        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false }
+    }
+}
+
 impl Desktop {
     pub fn focus_pane(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.focused = Some(id);
-        window.focus(&self.term_focus, cx);
+        self.terminal.focused = Some(id);
+        window.focus(&self.terminal.focus, cx);
         cx.notify();
     }
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
-        self.tab_menu = false;
+        self.terminal.tab_menu = false;
         self.new_shell(None, cx);
     }
 
     pub(crate) fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(id) = self.focused.clone() else { return };
-        let Some(s) = self.sessions.get(&id) else { return };
+        let Some(id) = self.terminal.focused.clone() else { return };
+        let Some(s) = self.terminals.sessions.get(&id) else { return };
         let app_cursor = s.term.as_ref().is_some_and(|t| t.app_cursor());
         if let Some(bytes) = keys::key_bytes(&ev.keystroke, app_cursor) {
             self.daemon.input(&id, &bytes);
@@ -47,7 +63,7 @@ impl Desktop {
     }
 
     pub fn pane_label(&self, id: &str) -> String {
-        match (self.summary(id), self.sessions.get(id)) {
+        match (self.summary(id), self.terminals.sessions.get(id)) {
             (Some(a), _) => a.provider.clone(),
             (None, Some(s)) => s.busy().map_or_else(|| command_line(&s.info), str::to_string),
             (None, None) => "session".into(),
@@ -95,8 +111,8 @@ impl Desktop {
             .child(right);
         let body = match self.workspace(tree).active().cloned() {
             Some(Tab::Term(rows)) => self.panes(rows, cx),
-            Some(Tab::Doc(Doc::File(p))) if self.file.as_ref() == Some(&p) => self.file_view(cx),
-            Some(Tab::Doc(Doc::Diff(p))) if self.diff_file.as_ref() == Some(&p) => self.diff_view(cx),
+            Some(Tab::Doc(Doc::File(p))) if self.preview.file.as_ref() == Some(&p) => self.file_view(cx),
+            Some(Tab::Doc(Doc::Diff(p))) if self.diff.file.as_ref() == Some(&p) => self.diff_view(cx),
             Some(Tab::Doc(_)) | None => div().flex_1(),
         };
         div().flex_1().min_h_0().flex().flex_col().bg(rgba(SURFACE_SUNKEN)).child(bar).child(body)
@@ -127,15 +143,15 @@ impl Desktop {
             .border_t(px(0.5))
             .border_color(rgba(SEPARATOR))
             .key_context(keys::CONTEXT)
-            .track_focus(&self.term_focus)
+            .track_focus(&self.terminal.focus)
             .on_key_down(cx.listener(Self::on_term_key))
             .children(out)
     }
 
     pub fn pane(&mut self, id: &str, n: Option<usize>, m: &'static Metrics, cx: &mut Context<Self>) -> Div {
-        let focused = self.focused.as_deref() == Some(id);
-        let exit = self.sessions.get(id).and_then(|s| s.exit);
-        let known = self.sessions.get(id).is_some();
+        let focused = self.terminal.focused.as_deref() == Some(id);
+        let exit = self.terminals.sessions.get(id).and_then(|s| s.exit);
+        let known = self.terminals.sessions.get(id).is_some();
         let title = match self.summary(id) {
             Some(a) => format!("{} — {}", a.provider, basename(&a.cwd)),
             None => self.pane_label(id),
@@ -143,7 +159,7 @@ impl Desktop {
         let banner = self.summary(id).and_then(status::banner).map(|text| {
             div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(rgba(SEPARATOR)).bg(rgba(FILL_2)).text_size(px(12.)).text_color(rgba(TEXT_2)).child(text)
         });
-        let body = match self.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
+        let body = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
             Some(t) => {
                 let (f, cells) = t.frame();
                 surface::screen(&f, cells, m)
@@ -175,7 +191,7 @@ impl Desktop {
             .relative()
             .size_full()
             .overflow_hidden()
-            .child(surface::surface(cx.entity(), id.to_string(), m, focused.then(|| self.term_focus.clone())))
+            .child(surface::surface(cx.entity(), id.to_string(), m, focused.then(|| self.terminal.focus.clone())))
             .child(body);
         div()
             .flex_1()
@@ -219,16 +235,16 @@ impl EntityInputHandler for Desktop {
     }
 
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.marked.map(|len| 0..len)
+        self.terminal.marked.map(|len| 0..len)
     }
 
     fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
-        self.marked = None;
+        self.terminal.marked = None;
     }
 
     fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, _: &mut Context<Self>) {
-        self.marked = None;
-        if let Some(id) = &self.focused {
+        self.terminal.marked = None;
+        if let Some(id) = &self.terminal.focused {
             self.daemon.input(id, text.as_bytes());
         }
     }
@@ -241,7 +257,7 @@ impl EntityInputHandler for Desktop {
         _: &mut Window,
         _: &mut Context<Self>,
     ) {
-        self.marked = (!text.is_empty()).then(|| text.encode_utf16().count());
+        self.terminal.marked = (!text.is_empty()).then(|| text.encode_utf16().count());
     }
 
     fn bounds_for_range(&mut self, _: Range<usize>, _: Bounds<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<Bounds<Pixels>> {

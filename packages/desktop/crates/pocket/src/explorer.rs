@@ -28,6 +28,16 @@ pub fn status_word(status: Option<char>) -> (u32, &'static str) {
     }
 }
 
+pub struct ExplorerState {
+    pub(crate) tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
+}
+
+impl ExplorerState {
+    pub fn new() -> Self {
+        Self { tree: HashMap::new() }
+    }
+}
+
 impl Desktop {
     /// The folder Explore browses: the chosen worktree, else the project.
     pub fn explore_root(&self) -> Option<String> {
@@ -53,7 +63,7 @@ impl Desktop {
     }
 
     pub fn go_to_file(&mut self, _: &crate::actions::GoToFile, window: &mut Window, cx: &mut Context<Self>) {
-        self.palette_all = false;
+        self.palette.all = false;
         self.open(Overlay::Palette, window, cx);
     }
 
@@ -72,26 +82,26 @@ impl Desktop {
     }
 
     fn file_row(&self, path: String, label: String, depth: usize, touched: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.file.as_ref() == Some(&path);
+        let selected = self.preview.file.as_ref() == Some(&path);
         let git = self.file_status(&path);
         ui::tree_row(id(format!("tree-{path}")), label, false, false, depth, selected, touched, git)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_file(path.clone(), cx)))
     }
 
     fn tree(&self, dir: &Path, depth: usize, touched: &[String], rows: &mut Vec<Stateful<Div>>, cx: &mut Context<Self>) {
-        for (is_dir, path) in self.tree.get(dir).cloned().unwrap_or_default() {
+        for (is_dir, path) in self.explorer.tree.get(dir).cloned().unwrap_or_default() {
             let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
             let key = path.to_string_lossy().to_string();
             if !is_dir {
                 rows.push(self.file_row(key.clone(), label, depth, touched.contains(&key), cx));
                 continue;
             }
-            let open = self.tree.contains_key(&path);
+            let open = self.explorer.tree.contains_key(&path);
             let target = path.clone();
             rows.push(ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
-                    if this.tree.remove(&target).is_none() {
-                        this.tree.insert(target.clone(), list_dir(&target));
+                    if this.explorer.tree.remove(&target).is_none() {
+                        this.explorer.tree.insert(target.clone(), list_dir(&target));
                     }
                     cx.notify();
                 },
