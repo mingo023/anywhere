@@ -134,10 +134,10 @@ impl Desktop {
                 let mut changed = repos != d.repos || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.repos, d.explorer.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
                 if let Some(file) = file {
-                    changed |= d.apply_file(file);
+                    changed |= d.preview.apply(file);
                 }
                 if let Some(load) = diff {
-                    changed |= d.apply_diff(load);
+                    changed |= d.diff.apply(load);
                 }
                 if changed {
                     cx.notify();

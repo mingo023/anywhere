@@ -220,7 +220,7 @@ impl Desktop {
                 if self.diff.file.as_ref() != Some(&path) {
                     self.diff.pick.range = None;
                     self.diff.open.clear();
-                    self.set_diff(Vec::new(), true);
+                    self.diff.set_lines(Vec::new(), true);
                     self.diff.file = Some(path);
                 }
                 self.load_diff(cx);

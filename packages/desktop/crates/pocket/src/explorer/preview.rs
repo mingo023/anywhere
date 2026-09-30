@@ -230,17 +230,13 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let file = task.await;
             this.update(cx, |d, cx| {
-                if d.apply_file(file) {
+                if d.preview.apply(file) {
                     cx.notify();
                 }
             })
             .ok();
         })
         .detach();
-    }
-
-    pub fn apply_file(&mut self, file: (String, Preview, Vec<Line>)) -> bool {
-        self.preview.apply(file)
     }
 
     pub fn file_view(&mut self, cx: &mut Context<Self>) -> Div {

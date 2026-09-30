@@ -454,14 +454,6 @@ impl Desktop {
             .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, window, cx| this.end_drag(window, cx)))
     }
 
-    pub fn apply_diff(&mut self, load: DiffLoad) -> bool {
-        self.diff.apply(load)
-    }
-
-    pub fn set_diff(&mut self, lines: Vec<Line>, reset: bool) -> bool {
-        self.diff.set_lines(lines, reset)
-    }
-
     fn expand(&mut self, start: usize, cx: &mut Context<Self>) {
         self.diff.expand(start);
         cx.notify();
@@ -489,7 +481,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let load = task.await;
             this.update(cx, |d, cx| {
-                if d.apply_diff(load) {
+                if d.diff.apply(load) {
                     cx.notify();
                 }
             })
