@@ -265,6 +265,12 @@ mod tests {
         assert_eq!(ids(in_tree(cards, Some("/p"), tree_of)), vec!["a", "c"]);
     }
 
+    #[test]
+    fn no_tree_holds_the_cards_outside_every_tree() {
+        let cards = vec![card("a", "/p"), card("d", "/lost")];
+        assert_eq!(ids(in_tree(cards, None, tree_of)), vec!["d"]);
+    }
+
     fn tree(path: &str, main: bool) -> git::Worktree {
         git::Worktree { path: path.into(), branch: String::new(), main }
     }
@@ -295,11 +301,5 @@ mod tests {
         let selected = |collapsed, current| ProjectRow::new(Some(&trees), collapsed, &HashMap::new()).selected(current, "/p");
         let got = [selected(true, Some("/wt")), selected(false, Some("/wt")), selected(false, Some("/p")), selected(true, None)];
         assert_eq!(got, [true, false, true, false]);
-    }
-
-    #[test]
-    fn no_tree_holds_the_cards_outside_every_tree() {
-        let cards = vec![card("a", "/p"), card("d", "/lost")];
-        assert_eq!(ids(in_tree(cards, None, tree_of)), vec!["d"]);
     }
 }
