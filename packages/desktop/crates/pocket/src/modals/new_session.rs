@@ -1,3 +1,5 @@
+mod picker;
+
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{default_base, home, typed_or};
@@ -6,11 +8,12 @@ use crate::util::tilde;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use picker::Picker;
 use std::collections::HashSet;
 use std::path::Path;
 use theme::*;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Perm {
     Ask,
     AutoEdit,
@@ -20,6 +23,11 @@ pub enum Perm {
 pub struct NewForm {
     prompt: Entity<TextareaState>,
     name: Entity<InputState>,
+    draft: Draft,
+}
+
+/// The form's choices besides its text inputs.
+struct Draft {
     /// Branches and worktree folders a new worktree's name must not reuse.
     taken: HashSet<String>,
     seed: usize,
@@ -34,10 +42,32 @@ pub struct NewForm {
     picker: Option<Picker>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Picker {
-    Agent,
-    Branch,
+impl Default for Draft {
+    fn default() -> Self {
+        Self {
+            taken: HashSet::new(),
+            seed: 0,
+            worktree: false,
+            repo: None,
+            branches: Vec::new(),
+            base: 0,
+            copy_env: false,
+            run_setup: false,
+            provider: "claude",
+            perm: Perm::Ask,
+            picker: None,
+        }
+    }
+}
+
+impl Draft {
+    fn base_branch(&self) -> String {
+        self.branches.get(self.base).map(|(b, _)| b.clone()).unwrap_or_default()
+    }
+
+    fn auto_name(&self, prompt: &str) -> String {
+        auto_name(prompt, self.seed, &self.taken)
+    }
 }
 
 fn slug(prompt: &str) -> String {
@@ -88,63 +118,6 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
     }
 }
 
-fn chip(id: &'static str, open: bool) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(30.))
-        .pl(px(10.))
-        .pr(px(8.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(7.))
-        .rounded(px(8.))
-        .whitespace_nowrap()
-        .cursor_pointer()
-        .bg(rgba(if open { FILL_3 } else { FILL_2 }))
-        .hover(|s| s.bg(rgba(FILL_3)))
-}
-
-fn pick_head(label: &str) -> Div {
-    div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child(label.to_string())
-}
-
-fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElement>, label: Div, meta: Option<String>) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(34.))
-        .px(px(8.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(9.))
-        .rounded(px(6.))
-        .cursor_pointer()
-        .text_size(px(13.))
-        .when(selected, |d| d.bg(rgba(FILL_2)))
-        .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
-        .children(lead)
-        .child(label.min_w_0().truncate().font_weight(FontWeight::MEDIUM))
-        .child(div().ml_auto().pl(px(10.)).flex_none().text_size(px(12.)).text_color(rgba(TEXT_4)).children(meta))
-        .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
-}
-
-fn picker_menu(id: &'static str, width: f32, rows: Vec<AnyElement>, cx: &mut Context<Desktop>) -> Stateful<Div> {
-    ui::pop(div().id(id))
-        .w(px(width))
-        .max_h(px(360.))
-        .overflow_y_scroll()
-        .p(px(5.))
-        .rounded(px(10.))
-        .flex()
-        .flex_col()
-        .children(rows)
-        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.new_form.picker = None;
-            cx.notify();
-        }))
-}
-
 impl NewForm {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4));
@@ -153,8 +126,7 @@ impl NewForm {
             cx.subscribe_in(&prompt, window, |this, prompt, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
                 InputEvent::Change => {
-                    let f = &this.new_form;
-                    let name = auto_name(&prompt.read(cx).value(), f.seed, &f.taken);
+                    let name = this.new_form.draft.auto_name(&prompt.read(cx).value());
                     this.new_form.name.update(cx, |b, cx| b.set_placeholder(name, window, cx));
                     cx.notify();
                 }
@@ -165,22 +137,7 @@ impl NewForm {
                 _ => cx.notify(),
             }),
         ];
-        let form = Self {
-            prompt,
-            name,
-            taken: HashSet::new(),
-            seed: 0,
-            worktree: false,
-            repo: None,
-            branches: Vec::new(),
-            base: 0,
-            copy_env: false,
-            run_setup: false,
-            provider: "claude",
-            perm: Perm::Ask,
-            picker: None,
-        };
-        (form, subs)
+        (Self { prompt, name, draft: Draft::default() }, subs)
     }
 }
 
@@ -203,9 +160,9 @@ impl Desktop {
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
-        f.seed = crate::util::now_ms() as usize;
-        f.taken.clear();
-        let placeholder = auto_name(&text, f.seed, &f.taken);
+        f.draft.seed = crate::util::now_ms() as usize;
+        f.draft.taken.clear();
+        let placeholder = f.draft.auto_name(&text);
         f.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
@@ -214,14 +171,14 @@ impl Desktop {
             s.set_value("", window, cx);
             s.set_placeholder(placeholder, window, cx);
         });
-        f.worktree = worktree;
-        f.perm = Perm::Ask;
-        f.picker = None;
+        f.draft.worktree = worktree;
+        f.draft.perm = Perm::Ask;
+        f.draft.picker = None;
         match self.project.clone() {
             Some(repo) => self.pick_repo(repo, window, cx),
             None => {
-                f.repo = None;
-                f.branches.clear();
+                f.draft.repo = None;
+                f.draft.branches.clear();
             }
         }
     }
@@ -229,7 +186,7 @@ impl Desktop {
     fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let cfg = self.store.repos.get(&repo).cloned().unwrap_or_default();
         let folders = self.worktrees_dir(&repo);
-        let f = &mut self.new_form;
+        let f = &mut self.new_form.draft;
         f.repo = Some(repo.clone());
         f.branches.clear();
         f.base = 0;
@@ -251,17 +208,17 @@ impl Desktop {
             let (current, mut branches, taken) = task.await;
             this.update_in(cx, |d, window, cx| {
                 let f = &mut d.new_form;
-                if f.repo.as_ref() != Some(&repo) {
+                if f.draft.repo.as_ref() != Some(&repo) {
                     return;
                 }
                 let default = default_base(branches.iter().map(|(b, _)| b.as_str()), &cfg.base, &current);
                 if !branches.is_empty() {
                     branches[..=default].rotate_right(1);
                 }
-                f.base = 0;
-                f.branches = branches;
-                f.taken = taken;
-                let name = auto_name(&f.prompt.read(cx).value(), f.seed, &f.taken);
+                f.draft.base = 0;
+                f.draft.branches = branches;
+                f.draft.taken = taken;
+                let name = f.draft.auto_name(&f.prompt.read(cx).value());
                 f.name.update(cx, |s, cx| s.set_placeholder(name, window, cx));
                 cx.notify();
             })
@@ -272,11 +229,11 @@ impl Desktop {
 
     fn new_name(&self, cx: &App) -> String {
         let f = &self.new_form;
-        typed_or(&f.name, || auto_name(&f.prompt.read(cx).value(), f.seed, &f.taken), cx)
+        typed_or(&f.name, || f.draft.auto_name(&f.prompt.read(cx).value()), cx)
     }
 
     fn session_ready(&self, cx: &App) -> bool {
-        let f = &self.new_form;
+        let f = &self.new_form.draft;
         if f.worktree {
             f.repo.is_some() && !f.branches.is_empty() && name_problem(&self.new_name(cx), &f.taken).is_none()
         } else {
@@ -288,8 +245,8 @@ impl Desktop {
         if !self.session_ready(cx) {
             return;
         }
-        let f = &self.new_form;
-        let prompt = f.prompt.read(cx).value().trim().to_string();
+        let prompt = self.new_form.prompt.read(cx).value().trim().to_string();
+        let f = &self.new_form.draft;
         let mut args: Vec<String> = match (f.provider, f.perm) {
             (_, Perm::Ask) => vec![],
             ("claude", Perm::AutoEdit) => vec!["--permission-mode".into(), "acceptEdits".into()],
@@ -303,11 +260,11 @@ impl Desktop {
         match self.cwd().filter(|_| !worktree) {
             Some(tree) => self.send_spawn(daemon::agent_op(&argv, &tree), Intent::Tab(tree), cx),
             None => {
-                let f = &self.new_form;
+                let f = &self.new_form.draft;
                 let Some(repo) = f.repo.clone() else { return };
                 let name = self.new_name(cx);
                 let path = format!("{}/{name}", self.worktrees_dir(&repo));
-                let base = f.branches.get(f.base).map(|(b, _)| b.clone()).unwrap_or_default();
+                let base = f.base_branch();
                 let copy = if f.copy_env { self.copy_list(&repo) } else { Vec::new() };
                 let setup = self.store.repos.get(&repo).map(|r| r.setup.clone()).filter(|_| f.run_setup).unwrap_or_default();
                 let project = repo.clone();
@@ -356,71 +313,8 @@ impl Desktop {
         self.new_worktree(&crate::actions::NewWorktree, window, cx);
     }
 
-    pub fn close_picker(&mut self) -> bool {
-        self.new_form.picker.take().is_some()
-    }
-
-    fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
-        let f = &mut self.new_form;
-        f.picker = (f.picker != Some(picker)).then_some(picker);
-        cx.notify();
-    }
-
-    fn agent_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let f = &self.new_form;
-        let mut rows = Vec::new();
-        for provider in ["claude", "codex"] {
-            let model = self.model_hint(provider).unwrap_or_else(|| "Default model".into());
-            rows.push(pick_head(provider_name(provider)).into_any_element());
-            rows.push(
-                pick_row(provider, f.provider == provider, Some(ui::dot(7., provider_color(provider))), div().child(model), None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.new_form.provider, this.new_form.picker) = (provider, None);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        rows.push(pick_head("Permissions").into_any_element());
-        for (perm, label) in [(Perm::Ask, "Ask"), (Perm::AutoEdit, "Auto-edit"), (Perm::Plan, "Plan only")] {
-            rows.push(
-                pick_row(label, f.perm == perm, None::<Div>, div().child(label), None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.new_form.perm, this.new_form.picker) = (perm, None);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        picker_menu("agent-menu", 260., rows, cx)
-    }
-
-    fn branch_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let f = &self.new_form;
-        let now = crate::util::now_ms();
-        let branch = |name: &str| div().font_family(MONO).text_size(px(12.5)).child(name.to_string());
-        let mut rows = Vec::new();
-        for (i, (name, at)) in f.branches.iter().enumerate() {
-            match i {
-                0 => rows.push(pick_head("Default").into_any_element()),
-                1 => rows.push(pick_head("Recent").into_any_element()),
-                _ => {}
-            }
-            let meta = at.map(|s| crate::util::ago_long(s * 1000, now));
-            rows.push(
-                pick_row(("base", i), f.base == i, Some(icon("branch", 13., TEXT_3)), branch(name), meta)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.new_form.base, this.new_form.picker) = (i, None);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        picker_menu("branch-menu", 300., rows, cx)
-    }
-
     pub fn new_session_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
-        let f = &self.new_form;
+        let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
         let name = self.repo_name(&repo);
         let close = ui::icon_button_sized("form-close", "x", 28., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
@@ -433,34 +327,8 @@ impl Desktop {
             .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child(if f.worktree { "New worktree" } else { "New session" }))
             .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(rgba(TEXT_3)).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
-        let mut model = self.model_hint(f.provider).unwrap_or_else(|| "Default model".into());
-        match f.perm {
-            Perm::Ask => {}
-            Perm::AutoEdit => model.push_str(" · auto-edit"),
-            Perm::Plan => model.push_str(" · plan only"),
-        }
-        let agent = chip("form-agent", f.picker == Some(Picker::Agent))
-            .child(ui::dot(7., provider_color(f.provider)))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(f.provider)))
-            .child(div().text_color(rgba(TEXT_3)).child(model))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_picker(Picker::Agent, cx);
-            }));
-        let base = f.branches.get(f.base).map(|(b, _)| b.clone()).unwrap_or_default();
-        let branch = f.worktree.then(|| {
-            chip("form-branch", f.picker == Some(Picker::Branch))
-                .child(icon("branch", 14., TEXT_3))
-                .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(base.clone()))
-                .child(icon("chevron-down", 12., TEXT_4))
-                .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.toggle_picker(Picker::Branch, cx);
-                }))
-        });
-        let agent_menu = (f.picker == Some(Picker::Agent)).then(|| ui::dropdown(36., self.agent_picker(cx)));
-        let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., self.branch_picker(cx)));
+        let agent = self.agent_select(cx);
+        let branch = f.worktree.then(|| self.branch_select(cx));
         let ready = self.session_ready(cx);
         let send = ui::primary(div().id("form-start").ml_auto().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
             .child(icon("arrow-up", 16., WHITE))
@@ -470,7 +338,7 @@ impl Desktop {
         let name_field = f.worktree.then(|| {
             ui::field_box()
                 .child(icon("worktree", 14., TEXT_3))
-                .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&f.name).appearance(false).p_0().text_size(px(13.))))
+                .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&self.new_form.name).appearance(false).p_0().text_size(px(13.))))
                 .children(problem.map(|p| div().flex_none().text_size(px(12.)).text_color(rgba(FAILED)).child(p)))
         });
         let composer = div()
@@ -480,7 +348,7 @@ impl Desktop {
             .bg(rgba(WHITE))
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(0x1111130a, 1., 2.)])
             // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
-            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&f.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25))))
+            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&self.new_form.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25))))
             .child(
                 div()
                     .flex()
@@ -490,8 +358,8 @@ impl Desktop {
                     .px(px(10.))
                     .pb(px(10.))
                     .text_size(px(13.))
-                    .child(div().relative().child(agent).children(agent_menu))
-                    .children(branch.map(|b| div().relative().child(b).children(branch_menu)))
+                    .child(agent)
+                    .children(branch)
                     .child(send),
             );
         let mono = |s: String| div().font_family(MONO).text_color(rgba(TEXT_2)).child(s);
@@ -500,7 +368,7 @@ impl Desktop {
                 div().child("New branch").into_any_element(),
                 mono(self.new_name(cx)).into_any_element(),
                 div().child("from").into_any_element(),
-                mono(base).into_any_element(),
+                mono(f.base_branch()).into_any_element(),
             ]
         } else {
             let place = self.repo().map(|r| r.branch.clone()).or_else(|| self.cwd().map(|c| tilde(&c))).unwrap_or_default();
