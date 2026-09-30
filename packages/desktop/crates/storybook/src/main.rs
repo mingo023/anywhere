@@ -146,10 +146,10 @@ impl Render for Storybook {
                 "Session row",
                 "Sessions tab of the column",
                 list()
-                    .child(ui::session_row("s1", true, "Fix stale terminal reveal".into(), Some(State::NeedsYou), ui::provider_label("codex", false)))
-                    .child(ui::session_row("s2", false, "Split restore hook into two files".into(), Some(State::Working), ui::provider_label("claude", false)))
-                    .child(ui::session_row("s3", false, "Upgrade to RN 0.81".into(), Some(State::Failed), ui::provider_label("codex", false)))
-                    .child(ui::session_row("s4", false, "Migrate legacy hooks".into(), Some(State::Idle(28, 11)), ui::provider_label("codex", true))),
+                    .child(ui::session_row("s1", true, ui::provider_label("codex", false), "2m".into(), "Fix stale terminal reveal".into(), Some("fix/restore-handoff".into()), Some(State::NeedsYou)))
+                    .child(ui::session_row("s2", false, ui::provider_label("claude", false), "now".into(), "Split restore hook into two files".into(), Some("refactor/restore-hook".into()), Some(State::Working)))
+                    .child(ui::session_row("s3", false, ui::provider_label("codex", false), "3h".into(), "Upgrade to RN 0.81".into(), Some("chore/rn-081".into()), Some(State::Failed)))
+                    .child(ui::session_row("s4", false, ui::provider_label("codex", true), "6m".into(), "Migrate legacy hooks".into(), Some("chore/migrate-hooks".into()), Some(State::Idle(28, 11)))),
             ))
             .child(story(
                 "File rows",

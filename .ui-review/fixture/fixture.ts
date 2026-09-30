@@ -96,8 +96,9 @@ for (const [key, agents] of trees) {
 
 const now = Date.now();
 const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.repo));
+const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const summaries = scenario.agents.map((a) => ({
-  id: a.id, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, status: a.status,
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, status: status(a),
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
 }));
 const left = { claude: 62, codex: 41 };
@@ -108,7 +109,7 @@ const timeline = (a: Agent) => [{
 
 const children = scenario.agents.flatMap((a) => (a.children ?? []).map((argv, i) => ({ id: `${a.id}-tab${i}`, parent: a.id, argv, cwd: cwd(a) })));
 const sessions = [
-  ...scenario.agents.filter((a) => a.term).map((a) => ({ id: a.id, cmd: a.term!, args: [], cwd: cwd(a) })),
+  ...scenario.agents.map((a) => ({ id: a.id, cmd: a.term ?? a.provider, args: [], cwd: cwd(a) })),
   ...children.map((c) => ({ id: c.id, cmd: c.argv[0], args: c.argv.slice(1), cwd: c.cwd })),
 ];
 
@@ -143,7 +144,7 @@ const CODEX = [
 ];
 const ROWS = 37;
 const screen = (id: string) => {
-  const body = sessions.find((s) => s.id === id)?.cmd === "codex" ? CODEX : [];
+  const body = scenario.agents.find((a) => a.id === id)?.term === "codex" ? CODEX : [];
   return `${ESC}?25l` + [...Array(ROWS - body.length).fill(""), ...body].join("\r\n");
 };
 
@@ -164,7 +165,7 @@ Bun.listen<Conn>({
       for (const line of lines.filter(Boolean)) {
         const op = JSON.parse(line);
         const reply = (msg: object) => (sock.data.out += JSON.stringify(msg) + "\n");
-        if (op.op === "list") reply({ ev: "sessions", items: sessions });
+        if (op.op === "list") reply({ ev: "terminals", items: sessions });
         if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
       }
       flush(sock);

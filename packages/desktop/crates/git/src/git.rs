@@ -176,10 +176,6 @@ pub fn clone(url: &str, dest: &str) -> Result<(), String> {
     if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
-pub fn remove_worktree(repo: &str, path: &str) -> bool {
-    git(repo, &["worktree", "remove", path]).is_some()
-}
-
 pub fn set_staged(cwd: &str, path: &str, staged: bool) {
     let args: &[&str] = if staged { &["add", "--", path] } else { &["reset", "-q", "--", path] };
     git(cwd, args);

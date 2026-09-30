@@ -358,47 +358,40 @@ pub fn provider_label(provider: &str, faded: bool) -> Div {
     div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(dot(6., provider_color(provider))).child(provider_name(provider))
 }
 
-pub fn session_row(id: impl Into<ElementId>, selected: bool, title: String, state: Option<State>, lead: impl IntoElement) -> Stateful<Div> {
+pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: String, title: String, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
     let id = id.into();
-    // The design's browser sizes this line by the status's inline box, not the title.
-    let line = match state {
-        Some(State::NeedsYou | State::Draft) => 22.,
-        Some(State::Done(..) | State::Idle(..)) => 18.,
-        _ => 20.7,
-    };
+    let line = || div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(rgba(TEXT_3));
     div()
         .id(id.clone())
-        .px(px(12.))
+        .px(px(10.))
         .py(px(10.))
         .flex()
         .flex_none()
         .flex_col()
         .gap(px(4.))
-        .rounded(px(12.))
+        .rounded(px(8.))
         .cursor_pointer()
-        .when(selected, |d| d.bg(rgba(ROW_SELECTED)).shadow(row_shadow()))
+        .when(selected, |d| d.bg(rgba(FILL_3)))
         .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_1))))
+        .child(line().child(div().flex_1().min_w_0().flex().child(lead)).child(when))
+        .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)).child(title))
         .child(
-            div()
-                .h(px(line))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(div().flex_1().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT)).child(title))
-                .children(state.map(|s| status(id, s))),
+            line()
+                .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_3)).child(div().truncate().child(b))))
+                .children(state.map(|s| status_label(id, s))),
         )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_size(px(12.))
-                .line_height(px(15.))
-                .text_color(rgba(TEXT_2))
-                .child(lead),
-        )
+}
+
+/// A card's status as coloured text: the pill's mark and label without its background.
+pub fn status_label(id: impl Into<ElementId>, state: State) -> Div {
+    let label = |color: u32| div().flex().flex_none().items_center().gap(px(5.)).font_weight(FontWeight::MEDIUM).text_color(rgba(color));
+    match state {
+        State::NeedsYou => label(WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
+        State::Working => label(RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Running"),
+        State::Failed => label(FAILED).child("Failed"),
+        State::NotAttached => label(TEXT_3).child("Not attached"),
+        s => status(id, s),
+    }
 }
 
 /// Git's one-letter status for a file: M, A or D.

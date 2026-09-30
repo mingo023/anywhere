@@ -1,5 +1,13 @@
 # UI Review Changelog
 
+## 2026-09-29 · b15b94e · full
+- passed: none
+- failed: sessions 4.54% (Workspace column only)
+- skipped: sessions-sidebar-expanded, changes, split, inbox, explore, command-palette-k, new-session, add-repository, repositories-worktrees, compact, compact-sidebar-open, session-terminal-focus (no design)
+- designs: sessions=e13c86beb40e
+- trigger: caller-requested review of "v2 · Sessions@1x.png", scoped to the Workspace column (header, tabs, search, session cards); blast radius (forms.rs, overlay.rs, view.rs, arrow-up.svg, theme.rs) + view.rs/workspace.rs/termview.rs changed since 50078dc
+- note: cropped both images to the Workspace column (design x72-420, impl x112-808@2x) so the intentionally-narrower 56pt rail (design 72pt) doesn't skew alignment; also not flagged per caller: no vertical divider between rail and column, no filter button, "Explorer" label, missing Changes badge, project dropdown removed, rail initials from fixture. Chrome (title, tabs, search row) matches design almost exactly. The one real issue: card order. Design's 6 sample cards keep fixture/insertion order (Needs You, Running, Running, Idle, Failed, Idle) — Upgrade to RN 0.81 (Failed) sits 5th, below both Running cards. The app re-sorts by urgency (`cards.sort_by_key(|c| c.status)`, view.rs:700, using the Ord on `Status` in status.rs:6-12: NeedsYou < Failed < Done < Working < Idle), which bubbles the Failed card to 2nd, ahead of the two Running sessions. That single swap is the entire 4.54% mismatch — rows 1 and 6 match exactly; rows 2-5 all differ only because of the one card's position.
+
 ## 2026-09-29 · 50078dc · incremental
 - passed: sessions 0.81%, compact 0.36%, compact-sidebar-open 0.75%, session-terminal-focus 0.24%, new-session 0.80%, sessions-sidebar-expanded 0.95%
 - skipped: changes, split, inbox, explore, command-palette-k, project-menu-amp-worktrees, add-repository, repositories-worktrees (not requested this run)

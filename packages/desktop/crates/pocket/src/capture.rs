@@ -1,4 +1,4 @@
-use crate::{Desktop, Layout, Overlay, Screen, Side, Status, ToggleFocus, ToggleRail, ToggleSidebar};
+use crate::{Desktop, Layout, Overlay, Screen, Side, Status, ToggleFocus, ToggleRail};
 use git::Kind;
 use gpui_kit::component::Root;
 use gpui_kit::*;
@@ -7,7 +7,7 @@ use std::time::Duration;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 14] = [
+const STEPS: [(&str, Step); 12] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -15,7 +15,6 @@ const STEPS: [(&str, Step); 14] = [
     }),
     ("worktree", |d, _, _| d.worktree = d.cwd().and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
     ("rail", |d, window, cx| d.toggle_rail(&ToggleRail, window, cx)),
-    ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
     ("explore", |d, _, cx| {
         d.side = Side::Explorer;
@@ -31,7 +30,6 @@ const STEPS: [(&str, Step); 14] = [
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
-    ("project-menu", |d, window, cx| d.open(Overlay::ProjectMenu, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
 ];
 
@@ -108,7 +106,7 @@ impl Capture {
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_comment(window, cx);
     d.close_overlay(window, cx);
-    (d.screen, d.side, d.wide, d.rail_open) = (Screen::Sessions, Side::Sessions, false, false);
+    (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
     (d.layout, d.panel, d.tab_menu) = (Layout::Sidebars, false, false);
     (d.session, d.worktree, d.focused, d.diff_file, d.file) = (None, None, None, None, None);
 }

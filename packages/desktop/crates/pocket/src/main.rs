@@ -29,7 +29,7 @@ use std::time::Duration;
 use store::Store;
 use workspace::{Tab, Workspace};
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleSidebar, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab]);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -51,12 +51,18 @@ pub enum Layout {
     Focus,
 }
 
+/// A sidebar column whose right edge the user drags.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Column {
+    Projects,
+    Sessions,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Overlay {
     Palette,
     NewSession,
     AddRepo,
-    ProjectMenu,
     More,
 }
 
@@ -87,9 +93,9 @@ pub struct Desktop {
     project: Option<String>,
     screen: Screen,
     side: Side,
-    wide: bool,
-    rail_open: bool,
     layout: Layout,
+    /// Indexed by `Column`; `None` keeps the design's width.
+    widths: [Option<f32>; 2],
     panel: bool,
     tab_menu: bool,
     session: Option<String>,
@@ -123,6 +129,7 @@ pub struct Desktop {
     inbox_focus: FocusHandle,
     focused: Option<String>,
     filter: Entity<InputState>,
+    session_search: Entity<InputState>,
     sized: HashMap<String, (u16, u16)>,
     marked: Option<usize>,
     overlay: Option<Overlay>,
@@ -159,6 +166,7 @@ fn under(cwd: &str, project: &str) -> bool {
 impl Desktop {
     fn new(daemon: Daemon, outbox: Outbox, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions, files and actions…"));
+        let session_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let comment_input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
         let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
         let code_marks = code.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
@@ -173,6 +181,7 @@ impl Desktop {
                 }
                 cx.notify()
             }),
+            cx.subscribe(&session_search, |_, _, _: &InputEvent, cx| cx.notify()),
             cx.subscribe_in(&comment_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { secondary: true, .. } => this.submit_comment(window, cx),
                 InputEvent::Change => cx.notify(),
@@ -193,9 +202,8 @@ impl Desktop {
             store,
             screen: Screen::Sessions,
             side: Side::Sessions,
-            wide: false,
-            rail_open: false,
             layout: Layout::Sidebars,
+            widths: [None; 2],
             panel: false,
             tab_menu: false,
             session: None,
@@ -229,6 +237,7 @@ impl Desktop {
             inbox_focus: cx.focus_handle(),
             focused: None,
             filter,
+            session_search,
             sized: HashMap::new(),
             marked: None,
             overlay: None,
@@ -790,19 +799,11 @@ impl Desktop {
         }
     }
 
-    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        self.wide = !self.wide;
-        (self.layout, self.panel) = (Layout::Sidebars, false);
-        cx.notify();
-    }
-
     fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
         if self.layout == Layout::Compact {
             self.panel = !self.panel;
-        } else {
-            self.rail_open = !self.rail_open;
+            cx.notify();
         }
-        cx.notify();
     }
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
@@ -810,14 +811,13 @@ impl Desktop {
         self.new_shell(None, cx);
     }
 
-    /// The compact layout only exists beside the wide sidebar; the narrow rail goes straight to focus.
     fn toggle_focus(&mut self, _: &ToggleFocus, _: &mut Window, cx: &mut Context<Self>) {
         if self.panel {
             self.panel = false;
         } else {
             self.layout = match self.layout {
-                Layout::Sidebars if self.wide => Layout::Compact,
-                Layout::Sidebars | Layout::Compact => Layout::Focus,
+                Layout::Sidebars => Layout::Compact,
+                Layout::Compact => Layout::Focus,
                 Layout::Focus => Layout::Sidebars,
             };
         }
@@ -898,7 +898,6 @@ fn main() {
             KeyBinding::new("cmd-p", GoToFile, None),
             KeyBinding::new("cmd-n", StartSession, None),
             KeyBinding::new("cmd-j", NextWaiting, None),
-            KeyBinding::new("cmd-b", ToggleSidebar, None),
             KeyBinding::new("cmd-\\", ToggleRail, None),
             KeyBinding::new("cmd-.", ToggleFocus, None),
             KeyBinding::new("cmd-t", NewTab, None),

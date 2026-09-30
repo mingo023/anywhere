@@ -80,8 +80,6 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
     }
 }
 
-pub const SECTIONS: [&str; 5] = ["Needs you", "Done", "Working", "Earlier today", "Earlier"];
-
 pub fn section(status: Status, today: bool) -> usize {
     match status {
         Status::NeedsYou => 0,
@@ -97,15 +95,6 @@ pub fn roll_up(statuses: impl IntoIterator<Item = Status>) -> Option<(Status, us
     let all: Vec<Status> = statuses.into_iter().collect();
     let top = all.iter().copied().min().filter(|s| *s != Status::Idle)?;
     Some((top, all.iter().filter(|s| section(**s, true) == section(top, true)).count()))
-}
-
-pub fn roll_up_label((status, n): (Status, usize)) -> String {
-    match status {
-        Status::NeedsYou if n == 1 => "1 needs you".into(),
-        Status::NeedsYou => format!("{n} need you"),
-        Status::Failed | Status::Done => format!("{n} done"),
-        _ => "Working".into(),
-    }
 }
 
 /// Why Pocket can't see the status of a live agent that is not attached.
@@ -187,8 +176,8 @@ mod tests {
 
     #[test]
     fn sections_put_failed_with_done_and_split_idle_by_day() {
-        let got: Vec<_> = [(Status::NeedsYou, false), (Status::Failed, false), (Status::Done, true), (Status::Working, true), (Status::Idle, true), (Status::Idle, false)].iter().map(|(s, t)| SECTIONS[section(*s, *t)]).collect();
-        assert_eq!(got, vec!["Needs you", "Done", "Done", "Working", "Earlier today", "Earlier"]);
+        let got: Vec<_> = [(Status::NeedsYou, false), (Status::Failed, false), (Status::Done, true), (Status::Working, true), (Status::Idle, true), (Status::Idle, false)].iter().map(|(s, t)| section(*s, *t)).collect();
+        assert_eq!(got, vec![0, 1, 1, 2, 3, 4]);
     }
 
     #[test]
@@ -198,12 +187,6 @@ mod tests {
         assert_eq!(roll_up([Working, NeedsYou, Done, NeedsYou]), Some((NeedsYou, 2)));
         assert_eq!(roll_up([Idle, Working]), Some((Working, 1)));
         assert_eq!(roll_up([Idle]), None);
-    }
-
-    #[test]
-    fn labels_a_roll_up() {
-        let got: Vec<String> = [(Status::NeedsYou, 1), (Status::NeedsYou, 2), (Status::Done, 1), (Status::Failed, 3), (Status::Working, 2)].into_iter().map(roll_up_label).collect();
-        assert_eq!(got, vec!["1 needs you", "2 need you", "1 done", "3 done", "Working"]);
     }
 
     #[test]

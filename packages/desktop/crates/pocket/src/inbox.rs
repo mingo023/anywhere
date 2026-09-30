@@ -25,10 +25,6 @@ fn noted(a: &Summary) -> Option<Status> {
     Status::of(a).filter(Status::alerting)
 }
 
-pub fn count(agents: &Agents) -> usize {
-    agents.list.iter().filter(|a| noted(a).is_some()).count()
-}
-
 /// Agents that need you, then the failed and done ones nobody has seen yet.
 pub fn notes(agents: &Agents) -> Vec<Note> {
     let mut out: Vec<Note> = agents
@@ -264,7 +260,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Note, count, first_line, notes, reselect};
+    use super::{Note, first_line, notes, reselect};
     use crate::status::Status;
     use agents::{Agents, Item, Permission, Summary};
 
@@ -290,7 +286,6 @@ mod tests {
         let got: Vec<(String, Status, String, String)> = notes(&agents).into_iter().map(|n| (n.terminal, n.status, n.title, n.subtitle)).collect();
         let want = [("t-ask", Status::NeedsYou, "Wants to use Bash", "ASK"), ("t-fail", Status::Failed, "FAIL failed", "exit 1"), ("t-done", Status::Done, "DONE", "Tagged v2")];
         assert_eq!(got, want.map(|(t, s, a, b)| (t.to_string(), s, a.to_string(), b.to_string())));
-        assert_eq!(count(&agents), 3);
     }
 
     #[test]

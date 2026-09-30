@@ -1,7 +1,6 @@
-use crate::view::{ago, basename, now_ms, tilde};
+use crate::view::basename;
 use crate::{Card, Desktop, Overlay, Screen, Side, Status};
 use gpui_kit::component::input::Input;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cmp::Reverse;
 use std::path::Path;
@@ -226,148 +225,6 @@ impl Desktop {
         )
     }
 
-    fn project_menu(&mut self, cx: &mut Context<Self>) -> Div {
-        let current = self.project.clone().unwrap_or_default();
-        let name = self.repo_name(&current);
-        let repos = self.projects().into_iter().enumerate().map(|(i, p)| {
-            let selected = p == current;
-            let target = p.clone();
-            div()
-                .id(("menu-repo", i))
-                .h(px(30.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .rounded(px(8.))
-                .cursor_pointer()
-                .when(selected, |d| d.bg(rgba(ACCENT_BG)))
-                .when(!selected, |d| d.hover(|s| s.bg(rgba(FILL_2))))
-                .child(ui::swatch(self.repo_color(&p), 14., 4.))
-                .child(div().text_size(px(14.)).font_weight(FontWeight::MEDIUM).child(self.repo_name(&p)))
-                .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(11.)).text_color(rgba(TEXT_4)).child(tilde(&p)))
-                .when(selected, |d| d.child(icon("check", 13., ACCENT)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.select_project(target.clone(), cx);
-                    this.close_overlay(window, cx);
-                }))
-        });
-        let trees = self.worktrees.get(&current).cloned().unwrap_or_default();
-        let merged: Vec<String> = trees.iter().filter(|w| !w.main && self.merged.contains(&w.branch)).map(|w| w.path.clone()).collect();
-        let cards = self.cards(&current);
-        let rows = trees.iter().enumerate().map(|(i, w)| {
-            let card = cards.iter().find(|c| self.worktree_of(&c.cwd).is_some_and(|x| x.path == w.path));
-            let repo = self.repos.get(&w.path);
-            let is_merged = merged.contains(&w.path);
-            let right = if w.main {
-                div().text_size(px(11.5)).text_color(rgba(TEXT_4)).child("main checkout").into_any_element()
-            } else if is_merged {
-                let path = w.path.clone();
-                div()
-                    .id(("menu-clean", i))
-                    .px(px(8.))
-                    .py(px(2.))
-                    .rounded(px(10.))
-                    .cursor_pointer()
-                    .bg(rgba(MERGED_BG))
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(rgba(MERGED))
-                    .child("Merged · Clean up")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_worktrees(vec![path.clone()], cx)))
-                    .into_any_element()
-            } else if let Some(r) = repo.filter(|r| r.ahead + r.behind > 0 || card.is_some_and(|c| matches!(c.status, Status::NeedsYou | Status::Working))) {
-                let counts = [(r.ahead > 0).then(|| format!("↑{}", r.ahead)), (r.behind > 0).then(|| format!("↓{}", r.behind))];
-                div().flex().gap(px(6.)).font_family(MONO).text_size(px(11.5)).text_color(rgba(TEXT_3)).children(counts.into_iter().flatten()).into_any_element()
-            } else {
-                let path = w.path.clone();
-                ui::button(("menu-remove", i), ui::Variant::Secondary, None, "Remove")
-                    .h(px(24.))
-                    .px(px(10.))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_worktrees(vec![path.clone()], cx)))
-                    .into_any_element()
-            };
-            let session = card.map(|c| {
-                let mark = match c.status {
-                    Status::NeedsYou => dot(6., WAITING).into_any_element(),
-                    Status::Working => spinner(("menu-spin", i), 11., RUNNING_TEXT).into_any_element(),
-                    Status::Failed => icon("x", 11., FAILED).into_any_element(),
-                    Status::Done => dot(6., ACCENT).into_any_element(),
-                    Status::Idle => div().into_any_element(),
-                };
-                let title = match c.status {
-                    Status::Failed => format!("{} · idle {}", c.title, ago(c.at, now_ms())),
-                    _ => c.title.clone(),
-                };
-                div().flex().items_center().gap(px(5.)).text_size(px(12.5)).text_color(rgba(TEXT_2)).child(mark).child(title)
-            });
-            let target = w.path.clone();
-            div()
-                .id(("menu-tree", i))
-                .py(px(6.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .rounded(px(10.))
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba(FILL_2)))
-                .child(
-                    div()
-                        .size(px(28.))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(8.))
-                        .bg(rgba(FILL_3))
-                        .child(icon(if w.main { "folder" } else { "worktree" }, 13., TEXT_3)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(1.))
-                        .child(div().truncate().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::BOLD).child(if w.main { "main".to_string() } else { w.branch.clone() }))
-                        .child(div().truncate().font_family(MONO).text_size(px(11.)).text_color(rgba(TEXT_4)).child(tilde(&w.path)))
-                        .children(session),
-                )
-                .child(right)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.worktree = Some(target.clone());
-                    this.session = None;
-                    this.close_overlay(window, cx);
-                }))
-        });
-        let clean = (!merged.is_empty()).then(|| {
-            let all = merged.clone();
-            ui::link("clean-merged", format!("Clean up merged ({})", merged.len()))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_worktrees(all.clone(), cx)))
-        });
-        let label = |text: String| div().px(px(10.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child(text);
-        let rule = || div().mx(px(8.)).my(px(8.)).h(px(0.5)).bg(rgba(SEPARATOR));
-        let left = if self.wide { 292. } else if self.rail_open { 260. } else { 92. };
-        ui::pop(div().absolute().left(px(left)).top(px(62.)).w(px(438.)).p(px(8.)).pt(px(14.)).rounded(px(20.)).flex().flex_col())
-            .occlude()
-            .child(label(format!("Projects in {name}")))
-            .children(repos)
-            .child(rule())
-            .child(div().flex().items_center().pr(px(10.)).child(label(format!("Worktrees · {}", trees.len())).flex_1().pb_0()).children(clean))
-            .child(div().id("menu-trees").max_h(px(400.)).overflow_y_scroll().pt(px(4.)).flex().flex_col().children(rows))
-            .child(rule())
-            .child(menu_row("menu-new-worktree", "worktree", "New worktree…", Some("⌘⇧N")).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.new_worktree(&crate::NewWorktree, window, cx)
-            })))
-            .child(menu_row("menu-add-repo", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.open(Overlay::AddRepo, window, cx)
-            })))
-            .child(menu_row("menu-settings", "settings", "Project settings", Some("⌘,")).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.project_settings(&crate::ProjectSettings, window, cx)
-            })))
-    }
-
     fn more_menu(&mut self, cx: &mut Context<Self>) -> Div {
         let menu = ui::pop(div().absolute().right(px(22.)).top(px(58.)).w(px(230.)).p(px(6.)).rounded(px(16.)).flex().flex_col()).occlude();
         let path = match self.side {
@@ -399,29 +256,12 @@ impl Desktop {
         })))
     }
 
-    pub fn remove_worktrees(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        let Some(repo) = self.project.clone() else { return };
-        let task = cx.background_executor().spawn(async move { paths.iter().filter(|p| !git::remove_worktree(&repo, p)).count() });
-        cx.spawn(async move |this, cx| {
-            let failed = task.await;
-            this.update(cx, |d, cx| {
-                if failed > 0 {
-                    d.error = Some(format!("Couldn't remove {failed} worktree(s); they may have uncommitted changes."));
-                }
-                d.refresh_git(cx);
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     pub fn overlay_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let o = self.overlay?;
         let (body, alpha) = match o {
             Overlay::Palette => (self.palette(cx), 0x1f),
             Overlay::NewSession => (self.new_session_view(window, cx), 0x2e),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40),
-            Overlay::ProjectMenu => (self.project_menu(cx), 0),
             Overlay::More => (self.more_menu(cx), 0),
         };
         Some(

@@ -1,10 +1,11 @@
 use daemon::Info;
 use crate::termview::{self, Metrics};
-use ui::{self, Segment, State, dot, icon_button_sized};
+use ui::{self, State, dot, icon_button_sized};
 use theme::*;
 use workspace::Tab;
-use crate::status::{self, Kind, SECTIONS, section};
-use crate::{Card, Desktop, Layout, Overlay, Screen, Side, Status};
+use crate::status::{self, Kind};
+use crate::{Card, Column, Desktop, Layout, Overlay, Screen, Side, Status};
+use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
@@ -100,11 +101,6 @@ pub fn empty(text: impl Into<SharedString>) -> Div {
     div().p(px(16.)).text_size(px(13.5)).text_color(rgba(TEXT_3)).child(text.into())
 }
 
-fn today(ms: i64) -> bool {
-    let local = |t: chrono::DateTime<chrono::Utc>| t.with_timezone(&chrono::Local).date_naive();
-    chrono::DateTime::from_timestamp_millis(ms).is_some_and(|t| local(t) == chrono::Local::now().date_naive())
-}
-
 impl Desktop {
     pub fn repo_name(&self, path: &str) -> String {
         self.store.repos.get(path).map(|r| r.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| basename(path))
@@ -129,7 +125,7 @@ impl Desktop {
             Overlay::Palette => self.open_palette(window, cx),
             Overlay::NewSession => self.reset_new_form(None, false, window, cx),
             Overlay::AddRepo => self.reset_repo_form(None, window, cx),
-            Overlay::ProjectMenu | Overlay::More => {}
+            Overlay::More => {}
         }
         cx.notify();
     }
@@ -140,104 +136,41 @@ impl Desktop {
         cx.notify();
     }
 
-    fn rail(&self, cx: &mut Context<Self>) -> Div {
-        let open = self.rail_open;
-        let toggle = icon_button_sized("rail-toggle", if open { "sidebar-collapse" } else { "sidebar-expand" }, 30., TEXT_2)
-            .rounded(px(7.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_rail(&crate::ToggleRail, window, cx)));
-        let rule = div().h(px(0.5)).flex_none().bg(rgba(SEPARATOR_STRONG));
-        let add = cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx));
-        let inbox = cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx));
-        let notes = crate::inbox::count(&self.agents);
-        let me = if self.initials.is_empty() { "ME".to_string() } else { self.initials.clone() };
-        let rail = drag_area(ui::side(div())).w(px(if open { 240. } else { 72. })).flex_none().h_full().pb(px(12.)).flex().flex_col();
-        if !open {
-            let tiles = self.projects().into_iter().enumerate().map(|(i, p)| {
-                let selected = self.screen == Screen::Sessions && self.project.as_ref() == Some(&p);
-                let tile = ui::repo_tile(&initials(&self.repo_name(&p)), 38., selected, self.project_state(&p));
-                div().id(("rail-project", i)).cursor_pointer().child(tile).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
+    /// The user's width for `col`, the design's `fallback` until they drag its edge.
+    pub fn width(&self, col: Column, fallback: f32) -> f32 {
+        self.widths[col as usize].unwrap_or(fallback)
+    }
+
+    /// Lets the user drag `d`'s right edge to resize `col`.
+    pub fn resizable(&self, d: Div, col: Column, cx: &mut Context<Self>) -> Div {
+        // Occludes so the press starts a resize, not the drag area's window move.
+        let handle = div()
+            .id(("resize-column", col as usize))
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_0()
+            .w(px(5.))
+            .occlude()
+            .cursor_col_resize()
+            .on_drag(col, |_, _, _, cx| {
+                cx.stop_propagation();
+                cx.new(|_| EmptyView)
             });
-            let bell = icon_button_sized("rail-bell", "bell", 38., if self.screen == Screen::Inbox { TEXT } else { TEXT_2 })
-                .relative()
-                .rounded(px(11.))
-                .when(notes > 0, |d| d.child(ui::count_badge(notes)))
-                .on_click(inbox);
-            return rail
-                .pt(px(37.))
-                .items_center()
-                .gap(px(12.))
-                .child(toggle)
-                .child(rule.w(px(26.)).mt(px(4.)).mb(px(2.)))
-                .children(tiles)
-                .child(ui::add_tile("rail-add", 38.).on_click(add))
-                .child(div().flex_1())
-                .child(bell)
-                .child(ui::avatar(&me, 32.));
-        }
-        let row = |id: ElementId| div().id(id).h(px(40.)).px(px(8.)).flex().flex_none().items_center().gap(px(10.)).rounded(px(10.)).cursor_pointer().hover(|s| s.bg(rgba(FILL_2)));
-        let rows = self.projects().into_iter().enumerate().map(|(i, p)| {
-            let selected = self.screen == Screen::Sessions && self.project.as_ref() == Some(&p);
-            let roll = self.roll_up(&p);
-            let note = roll.map(|r| {
-                let color = match r.0 {
-                    Status::NeedsYou => WAITING_TEXT,
-                    Status::Failed => FAILED,
-                    Status::Done => ACCENT,
-                    _ => RUNNING_TEXT,
-                };
-                (status::roll_up_label(r), color)
-            });
-            row(("rail-row", i).into())
-                .when(selected, |d| d.bg(rgba(FILL_3)))
-                .child(ui::repo_tile(&initials(&self.repo_name(&p)), 28., selected, roll.map(|(s, _)| state(s, 0, 0))))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(13.5))
-                        .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
-                        .child(self.repo_name(&p)),
-                )
-                .children(note.map(|(text, color)| div().flex_none().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(rgba(color)).child(text)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_project(p.clone(), cx)))
-        });
-        rail.pt(px(6.))
-            .px(px(10.))
-            .gap(px(2.))
-            .child(div().h(px(30.)).flex().flex_none().justify_end().child(toggle))
-            .child(rule.mt(px(10.)).mx(px(4.)).mb(px(8.)))
-            .child(div().pt(px(4.)).px(px(8.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgba(TEXT_3)).child("Projects"))
-            .children(rows)
-            .child(
-                row("rail-add".into())
-                    .text_color(rgba(TEXT_2))
-                    .child(ui::add_tile("rail-add-tile", 28.))
-                    .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Add project"))
-                    .on_click(add),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("rail-bell")
-                    .h(px(38.))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap(px(10.))
-                    .text_size(px(13.5))
-                    .font_weight(FontWeight::MEDIUM)
-                    .pl(px(12.))
-                    .pr(px(8.))
-                    .rounded(px(10.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgba(FILL_2)))
-                    .child(icon("bell", 17., TEXT))
-                    .child(div().flex_1().pl(px(3.)).child("Notifications"))
-                    .when(notes > 0, |d| d.child(ui::count_badge(notes).relative().top_0().right_0()))
-                    .on_click(inbox),
-            )
-            .child(div().h(px(44.)).pl(px(6.)).pr(px(8.)).flex().flex_none().items_center().gap(px(10.)).child(ui::avatar(&me, 32.)).child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child("Account")))
+        d.relative().child(handle).on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Column>, _, cx| {
+            if *e.drag(cx) == col {
+                this.drag_edge(col, f32::from(e.event.position.x - e.bounds.left()), cx);
+            }
+        }))
+    }
+
+    fn drag_edge(&mut self, col: Column, width: f32, cx: &mut Context<Self>) {
+        let (min, max) = match col {
+            Column::Projects => (200., 420.),
+            Column::Sessions => (280., 600.),
+        };
+        self.widths[col as usize] = Some(width.clamp(min, max));
+        cx.notify();
     }
 
     /// The expanded sidebar: repositories with their worktrees and each worktree's agents.
@@ -248,11 +181,7 @@ impl Desktop {
             .flex_none()
             .items_center()
             .justify_end()
-            .gap(px(2.))
-            .child(icon_button_sized("aside-bell", "bell", 28., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx))))
-            .child(icon_button_sized("aside-toggle", "sidebar", 28., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.toggle_sidebar(&crate::ToggleSidebar, window, cx)
-            })));
+            .child(icon_button_sized("aside-bell", "bell", 28., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx))));
         let search = ui::trigger_field("aside-search", "search", "Search", "⌘K")
             .mx(px(4.))
             .mb(px(6.))
@@ -309,8 +238,8 @@ impl Desktop {
                 ui::glass(icon_button_sized("aside-settings", "settings", 34., TEXT).rounded(px(17.)))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.project_settings(&crate::ProjectSettings, window, cx))),
             );
-        ui::side(div())
-            .w(px(272.))
+        let aside = ui::side(div())
+            .w(px(self.width(Column::Projects, 272.)))
             .flex_none()
             .h_full()
             .px(px(8.))
@@ -322,7 +251,8 @@ impl Desktop {
             .child(header)
             .child(body)
             .children(self.usage_card())
-            .child(foot)
+            .child(foot);
+        self.resizable(aside, Column::Projects, cx)
     }
 
     /// A worktree's sessions, the one needing you first.
@@ -556,144 +486,90 @@ impl Desktop {
 
     fn column_view(&mut self, cx: &mut Context<Self>) -> Div {
         let body = match (self.screen, self.side) {
-            (Screen::Inbox, _) => return self.inbox_list(cx),
+            (Screen::Inbox, _) => {
+                let list = self.inbox_list(cx).w(px(self.width(Column::Sessions, 348.)));
+                return self.resizable(list, Column::Sessions, cx);
+            }
             (_, Side::Sessions) => self.session_list(cx).into_any_element(),
             (_, Side::Explorer) => self.explorer(cx).into_any_element(),
             (_, Side::Changes) => self.changes_list(cx).into_any_element(),
         };
-        let changes = self.repo().map_or(0, |r| r.files.len());
-        let tabs = ui::segmented(
-            vec![
-                Segment { icon: None, value: Side::Sessions, label: "Sessions".into(), badge: None },
-                Segment { icon: None, value: Side::Explorer, label: "Explore".into(), badge: None },
-                Segment { icon: None, value: Side::Changes, label: "Changes".into(), badge: (changes > 0).then(|| changes.to_string()) },
-            ],
-            self.side,
-            false,
-            true,
-            |this, side, cx| {
-                this.side = side;
-                if side == Side::Changes {
-                    this.load_diff(cx);
-                }
-                cx.notify();
-            },
-            cx,
-        );
-        column().when(self.wide, |d| d.w(px(334.))).child(self.column_header(cx)).child(div().px(px(14.)).pb(px(10.)).child(tabs)).child(body)
+        let tabs = [(Side::Sessions, "Sessions"), (Side::Explorer, "Explorer"), (Side::Changes, "Changes")].into_iter().enumerate().map(|(i, (side, label))| {
+            let selected = self.side == side;
+            div()
+                .id(("column-tab", i))
+                .flex_1()
+                .h(px(30.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_size(px(13.))
+                .when(selected, |d| d.bg(rgba(FILL_4)).text_color(rgba(TEXT)).font_weight(FontWeight::SEMIBOLD))
+                .when(!selected, |d| d.text_color(rgba(TEXT_2)).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(rgba(FILL_2))))
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.side = side;
+                    if side == Side::Changes {
+                        this.load_diff(cx);
+                    }
+                    cx.notify();
+                }))
+        });
+        let tabs = div().p(px(8.)).flex().flex_none().gap(px(4.)).border_b(px(0.5)).border_color(rgba(SEPARATOR)).children(tabs);
+        let column = column()
+            .w(px(self.width(Column::Sessions, 334.)))
+            .child(drag_area(self.column_header(cx)).h(px(42.)).flex_none().border_b(px(0.5)).border_color(rgba(SEPARATOR)))
+            .child(tabs)
+            .child(body);
+        self.resizable(column, Column::Sessions, cx)
     }
 
     fn column_header(&self, cx: &mut Context<Self>) -> Div {
-        let project = self.project.clone().unwrap_or_default();
-        let name = if project.is_empty() { "No project".to_string() } else { self.repo_name(&project) };
-        let compose = icon_button_sized("column-compose", "compose", 30., TEXT_2)
+        let search = icon_button_sized("column-search", "search", 28., TEXT_2)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
+        let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx)));
-        let head = drag_area(div()).pt(px(16.)).pr(px(14.)).pb(px(10.)).pl(px(18.)).flex().flex_none().items_start().gap(px(8.));
-        if !self.wide {
-            let title = div()
-                .id("project-name")
-                .flex()
-                .min_w_0()
-                .items_center()
-                .gap(px(5.))
-                .cursor_pointer()
-                .child(div().truncate().text_size(px(17.)).line_height(px(20.)).font_weight(FontWeight::BOLD).child(name))
-                .child(icon("chevron-down", 12., TEXT_4))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::ProjectMenu, window, cx)));
-            let path = div().truncate().font_family(MONO).text_size(px(11.5)).line_height(px(15.)).text_color(rgba(TEXT_3)).child(tilde(&project));
-            let search = icon_button_sized("column-search", "search", 30., TEXT_2)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
-            return head
-                .items_center()
-                .gap(px(10.))
-                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(title).child(path))
-                .child(search)
-                .child(compose);
-        }
-        let tree = self.cwd().and_then(|t| self.worktrees.values().flatten().find(|w| w.path == t)).cloned();
-        let repo = tree.as_ref().and_then(|t| self.repos.get(&t.path)).or_else(|| self.repos.get(&project));
-        let title = match &tree {
-            Some(t) if t.main => "main".to_string(),
-            Some(t) => t.branch.clone(),
-            None => name.clone(),
-        };
-        let letter: String = initials(&name).chars().take(1).collect();
-        let crumb = div()
+        div()
+            .pl(px(18.))
+            .pr(px(12.))
             .flex()
             .items_center()
-            .gap(px(6.))
-            .text_size(px(12.))
-            .line_height(px(17.))
-            .text_color(rgba(TEXT_3))
-            .child(ui::repo_tile(&letter, 16., false, None))
-            .child(name)
-            .child(div().text_color(rgba(TEXT_6)).child("/"))
-            .child(if tree.as_ref().is_some_and(|t| !t.main) { "worktree" } else { "main" });
-        let branch = repo.map(|r| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .font_family(MONO)
-                .text_size(px(11.))
-                .line_height(px(14.))
-                .text_color(rgba(TEXT_3))
-                .child(icon("branch", 11., TEXT_3))
-                .child(r.branch.clone())
-                .child(div().text_color(rgba(TEXT_6)).child("·"))
-                .child(format!("↑{} ↓{}", r.ahead, r.behind))
-        });
-        let more = icon_button_sized("column-more", "more", 30., TEXT_2)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::ProjectMenu, window, cx)));
-        head.child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(3.))
-                .child(crumb)
-                .child(div().truncate().text_size(px(16.5)).line_height(px(19.)).font_weight(FontWeight::BOLD).child(title))
-                .children(branch),
-        )
-        .child(compose)
-        .child(more)
+            .gap(px(4.))
+            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).child("Workspace"))
+            .child(search)
+            .child(add)
     }
 
-    fn session_list(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let start = ui::trigger_field("start-session", "sparkle", "Start a new session…", "⌘N")
-            .mx(px(14.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx)));
-        let list = div().id("cards").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().when(!self.wide, |d| d.child(start));
+    fn session_list(&mut self, cx: &mut Context<Self>) -> Div {
+        let search = div()
+            .h(px(44.))
+            .flex_none()
+            .pl(px(18.))
+            .pr(px(14.))
+            .flex()
+            .items_center()
+            .gap(px(9.))
+            .border_b(px(0.5))
+            .border_color(rgba(SEPARATOR))
+            .child(icon("search", 14., TEXT_3))
+            .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.session_search).appearance(false).p_0().text_size(px(13.))));
+        let list = div().id("cards").flex_1().min_h_0().overflow_y_scroll();
+        let wrap = div().flex_1().min_h_0().flex().flex_col().child(search);
         let Some(project) = self.project.clone() else {
-            return list.child(empty("Add a project with + to start."));
+            return wrap.child(list.child(empty("Add a project with + to start.")));
         };
         let tree = self.cwd();
+        let query = self.session_search.read(cx).value().to_lowercase();
         let mut cards: Vec<Card> = self
             .cards(&project)
             .into_iter()
-            .filter(|c| self.tree_of(&c.cwd) == tree)
+            .filter(|c| self.tree_of(&c.cwd) == tree && c.title.to_lowercase().contains(&query))
             .collect();
-        cards.sort_by_key(|c| c.status);
-        let mut body = div().pt(px(2.)).px(px(8.)).pb(px(8.)).flex().flex_col().gap(px(2.));
-        let mut i = 0;
-        for (g, label) in SECTIONS.into_iter().enumerate() {
-            let mine: Vec<Card> = cards
-                .iter()
-                // The design's worktree view keeps finished sessions under one heading.
-                .filter(|c| section(c.status, !self.wide && today(c.at)) == g)
-                .cloned()
-                .collect();
-            if mine.is_empty() {
-                continue;
-            }
-            body = body.child(ui::section_header(label, Some(mine.len())));
-            for c in mine {
-                body = body.child(self.card(i, c, cx));
-                i += 1;
-            }
-        }
-        list.child(body)
+        cards.sort_by_key(|c| c.status != Status::NeedsYou);
+        let cards: Vec<_> = cards.into_iter().enumerate().map(|(i, c)| self.card(i, c, cx)).collect();
+        wrap.child(list.child(div().p(px(8.)).flex().flex_col().gap(px(2.)).children(cards)))
     }
 
     fn card(&self, i: usize, c: Card, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -705,7 +581,8 @@ impl Desktop {
             _ => state(c.status, added, removed),
         };
         let lead = ui::provider_label(&c.provider, c.kind == Kind::Ended);
-        ui::session_row(("card", i), selected, c.title, Some(pill), lead)
+        let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone());
+        ui::session_row(("card", i), selected, lead, ago(c.at, now_ms()), c.title, branch, Some(pill))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))
     }
 
@@ -762,8 +639,7 @@ impl Desktop {
             // Leaves room for the window's traffic lights once the sidebars are hidden.
             Layout::Focus => (82., Some(toggle("sidebar-expand", cx))),
             Layout::Compact => (14., None),
-            Layout::Sidebars if self.wide => (24., None),
-            Layout::Sidebars => (14., Some(toggle("sidebar-collapse", cx))),
+            Layout::Sidebars => (24., None),
         }
     }
 
@@ -1119,8 +995,7 @@ impl Render for Desktop {
         self.sync_code(window, cx);
         self.sync_view(window, cx);
         let lead = match self.layout {
-            Layout::Sidebars if self.wide => Some(self.aside(cx)),
-            Layout::Sidebars => Some(self.rail(cx)),
+            Layout::Sidebars => Some(self.aside(cx)),
             Layout::Compact => Some(self.nav(cx)),
             Layout::Focus => None,
         };
@@ -1156,7 +1031,6 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))
             .on_action(cx.listener(Self::next_waiting))
-            .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::toggle_rail))
             .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::new_tab))

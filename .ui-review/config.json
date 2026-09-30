@@ -14,11 +14,6 @@
       "open": ["launch the app", "click a session card in the left sessions list"],
       "capture": ["session"]
     },
-    "sessions-sidebar-expanded": {
-      "files": ["packages/desktop/crates/pocket/src/main.rs"],
-      "open": ["launch the app", "press Cmd+\\ to expand the rail to 240px"],
-      "capture": ["session", "rail"]
-    },
     "changes": {
       "files": ["packages/desktop/crates/pocket/src/diff.rs", "packages/desktop/crates/git/**"],
       "open": ["select a session", "click the Changes tab", "click a diff line to open the comment composer"],
@@ -30,7 +25,7 @@
     },
     "inbox": {
       "files": ["packages/desktop/crates/pocket/src/inbox.rs"],
-      "open": ["click Inbox in the left rail"],
+      "open": ["click the bell in the sidebar"],
       "capture": ["inbox"]
     },
     "explore": {
@@ -48,35 +43,30 @@
       "open": ["press Cmd+N", "type the task prompt"],
       "capture": ["session", "new-session", "prompt"]
     },
-    "project-menu-amp-worktrees": {
-      "files": ["packages/desktop/crates/pocket/src/overlay.rs"],
-      "open": ["click the project name dropdown in the sidebar header"],
-      "capture": ["project-menu"]
-    },
     "add-repository": {
       "files": ["packages/desktop/crates/pocket/src/forms.rs"],
-      "open": ["click the project name dropdown", "click 'Add repository to project…'"],
-      "capture": ["project-menu", "add-repo"]
+      "open": ["click Add project in the sidebar"],
+      "capture": ["add-repo"]
     },
     "repositories-worktrees": {
       "files": ["packages/desktop/crates/pocket/src/view.rs"],
-      "open": ["select a session", "click its worktree in the sidebar, then the session again", "press Cmd+B to expand the wide sidebar"],
-      "capture": ["session", "worktree", "sidebar"]
+      "open": ["select a session", "click its worktree in the sidebar, then the session again"],
+      "capture": ["session", "worktree"]
     },
     "compact": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/main.rs"],
-      "open": ["select a session", "press Cmd+B to expand the wide sidebar", "press Cmd+. to collapse to the compact rail"],
-      "capture": ["session", "sidebar", "focus"]
+      "open": ["select a session", "press Cmd+. to collapse to the compact rail"],
+      "capture": ["session", "focus"]
     },
     "compact-sidebar-open": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/main.rs"],
-      "open": ["select a session", "click its worktree in the sidebar, then the session again", "press Cmd+B", "press Cmd+. for the compact rail", "press Cmd+\\ to float the sidebars"],
-      "capture": ["session", "worktree", "sidebar", "focus", "rail"]
+      "open": ["select a session", "click its worktree in the sidebar, then the session again", "press Cmd+. for the compact rail", "press Cmd+\\ to float the sidebars"],
+      "capture": ["session", "worktree", "focus", "rail"]
     },
     "session-terminal-focus": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/main.rs"],
-      "open": ["select a session", "press Cmd+B to expand the wide sidebar", "press Cmd+. twice to hide all sidebars"],
-      "capture": ["session", "sidebar", "focus", "focus"]
+      "open": ["select a session", "press Cmd+. twice to hide all sidebars"],
+      "capture": ["session", "focus", "focus"]
     }
   }
 }
