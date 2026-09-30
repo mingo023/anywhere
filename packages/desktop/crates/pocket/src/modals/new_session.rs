@@ -68,6 +68,28 @@ impl Draft {
     fn auto_name(&self, prompt: &str) -> String {
         auto_name(prompt, self.seed, &self.taken)
     }
+
+    fn argv(&self, prompt: &str) -> Vec<String> {
+        let prompt = prompt.trim().to_string();
+        let mut args: Vec<String> = match (self.provider, self.perm) {
+            (_, Perm::Ask) => vec![],
+            ("claude", Perm::AutoEdit) => vec!["--permission-mode".into(), "acceptEdits".into()],
+            ("claude", Perm::Plan) => vec!["--permission-mode".into(), "plan".into()],
+            (_, Perm::AutoEdit) => vec!["--full-auto".into()],
+            (_, Perm::Plan) => vec!["-s".into(), "read-only".into()],
+        };
+        args.extend((!prompt.is_empty()).then_some(prompt));
+        std::iter::once(self.provider.to_string()).chain(args).collect()
+    }
+
+    /// `in_tree`: a worktree is open to start the session in.
+    fn ready(&self, name: &str, in_tree: bool) -> bool {
+        if self.worktree {
+            self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none()
+        } else {
+            in_tree
+        }
+    }
 }
 
 fn slug(prompt: &str) -> String {
@@ -115,6 +137,13 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
         Some("Use letters, digits, - _ or .")
     } else {
         None
+    }
+}
+
+fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, current: &str) {
+    let default = default_base(branches.iter().map(|(b, _)| b.as_str()), preferred, current);
+    if !branches.is_empty() {
+        branches[..=default].rotate_right(1);
     }
 }
 
@@ -211,10 +240,7 @@ impl Desktop {
                 if f.draft.repo.as_ref() != Some(&repo) {
                     return;
                 }
-                let default = default_base(branches.iter().map(|(b, _)| b.as_str()), &cfg.base, &current);
-                if !branches.is_empty() {
-                    branches[..=default].rotate_right(1);
-                }
+                default_first(&mut branches, &cfg.base, &current);
                 f.draft.base = 0;
                 f.draft.branches = branches;
                 f.draft.taken = taken;
@@ -233,29 +259,15 @@ impl Desktop {
     }
 
     fn session_ready(&self, cx: &App) -> bool {
-        let f = &self.new_form.draft;
-        if f.worktree {
-            f.repo.is_some() && !f.branches.is_empty() && name_problem(&self.new_name(cx), &f.taken).is_none()
-        } else {
-            self.cwd().is_some()
-        }
+        self.new_form.draft.ready(&self.new_name(cx), self.cwd().is_some())
     }
 
     fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.session_ready(cx) {
             return;
         }
-        let prompt = self.new_form.prompt.read(cx).value().trim().to_string();
         let f = &self.new_form.draft;
-        let mut args: Vec<String> = match (f.provider, f.perm) {
-            (_, Perm::Ask) => vec![],
-            ("claude", Perm::AutoEdit) => vec!["--permission-mode".into(), "acceptEdits".into()],
-            ("claude", Perm::Plan) => vec!["--permission-mode".into(), "plan".into()],
-            (_, Perm::AutoEdit) => vec!["--full-auto".into()],
-            (_, Perm::Plan) => vec!["-s".into(), "read-only".into()],
-        };
-        args.extend((!prompt.is_empty()).then_some(prompt));
-        let argv: Vec<String> = std::iter::once(f.provider.to_string()).chain(args).collect();
+        let argv = f.argv(&self.new_form.prompt.read(cx).value());
         let worktree = f.worktree;
         match self.cwd().filter(|_| !worktree) {
             Some(tree) => self.send_spawn(daemon::agent_op(&argv, &tree), Intent::Tab(tree), cx),
@@ -393,8 +405,52 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{auto_name, name_problem, slug};
+    use super::{Draft, Perm, auto_name, default_first, name_problem, slug};
     use std::collections::HashSet;
+
+    #[test]
+    fn a_session_in_the_open_tree_needs_only_an_open_tree() {
+        let draft = Draft::default();
+        assert_eq!((draft.ready("", true), draft.ready("fix", false)), (true, false));
+    }
+
+    #[test]
+    fn a_new_worktree_needs_a_repository_its_branches_and_a_usable_name() {
+        let taken: HashSet<String> = ["main".to_string()].into();
+        let draft = Draft { worktree: true, repo: Some("/src/app".into()), branches: vec![("main".into(), None)], taken, ..Draft::default() };
+        assert!(draft.ready("fix-ci", false));
+        assert!(!draft.ready("main", true));
+        assert!(!draft.ready("fix ci", true));
+        assert!(!Draft { repo: None, ..draft }.ready("fix-ci", true));
+        let draft = Draft { worktree: true, repo: Some("/src/app".into()), ..Draft::default() };
+        assert!(!draft.ready("fix-ci", true));
+    }
+
+    #[test]
+    fn the_agent_runs_with_its_permission_flags_then_the_prompt() {
+        let argv = |provider, perm| Draft { provider, perm, ..Draft::default() }.argv("  Fix CI  ").join(" ");
+        let got = [("claude", Perm::Ask), ("claude", Perm::AutoEdit), ("claude", Perm::Plan), ("codex", Perm::Ask), ("codex", Perm::AutoEdit), ("codex", Perm::Plan)].map(|(p, m)| argv(p, m));
+        let want = [
+            "claude Fix CI",
+            "claude --permission-mode acceptEdits Fix CI",
+            "claude --permission-mode plan Fix CI",
+            "codex Fix CI",
+            "codex --full-auto Fix CI",
+            "codex -s read-only Fix CI",
+        ];
+        assert_eq!(got, want.map(String::from));
+        assert_eq!(Draft::default().argv(" \n "), vec!["claude".to_string()]);
+    }
+
+    #[test]
+    fn the_default_base_leads_the_recent_branches() {
+        let mut branches: Vec<(String, Option<i64>)> = ["feat", "fix", "main", "old"].map(|b| (b.to_string(), None)).to_vec();
+        default_first(&mut branches, "", "fix");
+        assert_eq!(branches.iter().map(|(b, _)| b.as_str()).collect::<Vec<_>>(), ["main", "feat", "fix", "old"]);
+        let mut none: Vec<(String, Option<i64>)> = Vec::new();
+        default_first(&mut none, "main", "main");
+        assert_eq!(none, []);
+    }
 
     #[test]
     fn slug_names_a_worktree_after_the_prompt() {
