@@ -1,5 +1,6 @@
 pub(crate) mod column;
 pub(crate) mod rail;
+mod usage;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, Overlay, RowMenu, Screen, drag_area, id, state};
@@ -9,7 +10,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
-use ui::{self, dot, icon_button_sized};
+use ui::{self, icon_button_sized};
 
 fn row_mark(key: &str, setting_up: bool, cards: &[Card]) -> Option<AnyElement> {
     if setting_up {
@@ -18,6 +19,11 @@ fn row_mark(key: &str, setting_up: bool, cards: &[Card]) -> Option<AnyElement> {
         let rolled = status::roll_up(cards.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0));
         ui::indicator(id(format!("aside-spin:{key}")), rolled)
     }
+}
+
+/// The cards whose folder lies in `tree`, as `tree_of` places folders.
+pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>) -> Vec<Card> {
+    cards.into_iter().filter(|c| tree_of(&c.cwd).as_deref() == tree).collect()
 }
 
 #[derive(Clone)]
@@ -112,7 +118,7 @@ impl Desktop {
     }
 
     fn tree_cards(&self, project: &str, tree: &str) -> Vec<Card> {
-        self.cards(project).into_iter().filter(|c| self.tree_of(&c.cwd).as_deref() == Some(tree)).collect()
+        in_tree(self.cards(project), Some(tree), |cwd| self.tree_of(cwd))
     }
 
     fn setting_up(&self, tree: &str) -> bool {
@@ -273,35 +279,39 @@ impl Desktop {
             ],
         }
     }
+}
 
-    /// Context left in each provider's newest open session.
-    fn usage(&self) -> Vec<(&'static str, u64)> {
-        let latest = |p: &str| {
-            let a = self.agents.list.iter().filter(|a| a.provider == p && a.status != "closed").max_by_key(|a| a.updated_at)?;
-            self.agents.context_left(&a.id)
-        };
-        ["claude", "codex"].into_iter().filter_map(|p| latest(p).map(|left| (p, left))).collect()
+#[cfg(test)]
+mod tests {
+    use super::in_tree;
+    use crate::status::{self, Card};
+    use agents::Summary;
+
+    fn card(id: &str, cwd: &str) -> Card {
+        status::card(&Summary { id: id.into(), status: "idle".into(), attached: true, ..Default::default() }, cwd)
     }
 
-    fn usage_card(&self) -> Option<Div> {
-        let parts: Vec<Div> =
-            self.usage().into_iter().map(|(p, left)| div().flex().items_center().gap(px(6.)).child(dot(7., provider_color(p))).child(format!("{left}%"))).collect();
-        (!parts.is_empty()).then(|| {
-            div()
-                .mt(px(8.))
-                .mx(px(2.))
-                .py(px(8.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .rounded(px(12.))
-                .bg(rgba(0xffffff8c))
-                .shadow(vec![ui::ring(FILL_3, 0.5)])
-                .text_size(px(12.))
-                .text_color(rgba(TEXT_2))
-                .children(parts)
-                .child(div().ml_auto().text_color(rgba(TEXT_4)).child("context left"))
-        })
+    fn ids(cards: Vec<Card>) -> Vec<String> {
+        cards.into_iter().map(|c| c.id).collect()
+    }
+
+    fn tree_of(cwd: &str) -> Option<String> {
+        match cwd {
+            "/p" | "/p/src" => Some("/p".into()),
+            "/wt" => Some("/wt".into()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_trees_cards_are_those_whose_folder_it_holds() {
+        let cards = vec![card("a", "/p"), card("b", "/wt"), card("c", "/p/src"), card("d", "/lost")];
+        assert_eq!(ids(in_tree(cards, Some("/p"), tree_of)), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn no_tree_holds_the_cards_outside_every_tree() {
+        let cards = vec![card("a", "/p"), card("d", "/lost")];
+        assert_eq!(ids(in_tree(cards, None, tree_of)), vec!["d"]);
     }
 }
