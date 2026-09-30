@@ -79,6 +79,7 @@ pub const FILL_4: Token = Token::new(0x11111311, 0xebebeb1f);
 pub const HAIRLINE: Token = Token::new(0x11111312, 0xebebeb12);
 pub const SEPARATOR: Token = Token::new(0x11111317, 0xebebeb14);
 pub const SEPARATOR_STRONG: Token = Token::new(0x1111131f, 0xebebeb24);
+pub const SELECTION: Token = Token::new(0x11111324, 0xebebeb33);
 
 pub const ACCENT: Token = Token::fixed(0x5b5bd6ff);
 pub const ACCENT_BG: Token = Token::fixed(0x5b5bd61c);

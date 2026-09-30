@@ -1,3 +1,6 @@
+mod selection;
+
+pub use selection::{Pos, Selection};
 use std::ffi::c_void;
 
 #[repr(C)]
@@ -25,6 +28,12 @@ pub struct Frame {
     pub cursor_visible: u8,
     pub fg: [u8; 3],
     pub bg: [u8; 3],
+}
+
+impl Cell {
+    pub fn ch(&self) -> char {
+        char::from_u32(self.cp).filter(|_| self.cp != 0).unwrap_or(' ')
+    }
 }
 
 pub const WIDE_SPACER_TAIL: u8 = 2;

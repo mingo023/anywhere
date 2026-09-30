@@ -75,6 +75,7 @@ impl Desktop {
             .key_context(keys::CONTEXT)
             .track_focus(&self.terminal.focus)
             .on_key_down(cx.listener(Self::on_term_key))
+            .on_action(cx.listener(Self::copy_selection))
             .children(out)
     }
 
@@ -86,12 +87,13 @@ impl Desktop {
         let banner = self.summary(id).and_then(status::banner).map(|text| {
             div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
         });
-        let body = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
+        let shown = self.terminal.selection.as_ref().and_then(|d| d.shown(id));
+        let (body, grid) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
             Some(t) => {
                 let (f, cells) = t.frame();
-                surface::screen(&f, cells, m)
+                (surface::screen(&f, cells, m, shown), Some((f.cols, f.rows)))
             }
-            None => div().text_color(TEXT_3).child(if known { "Connecting…" } else { "This session is not running." }),
+            None => (div().text_color(TEXT_3).child(if known { "Connecting…" } else { "This session is not running." }), None),
         };
         let close_id = id.to_string();
         let header = n.map(|n| {
@@ -118,7 +120,7 @@ impl Desktop {
             .relative()
             .size_full()
             .overflow_hidden()
-            .child(surface::surface(cx.entity(), id.to_string(), m, focused.then(|| self.terminal.focus.clone())))
+            .child(surface::surface(cx.entity(), id.to_string(), m, grid, focused.then(|| self.terminal.focus.clone())))
             .child(body);
         div()
             .flex_1()

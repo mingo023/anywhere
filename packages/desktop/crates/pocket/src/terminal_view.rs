@@ -3,11 +3,12 @@ pub(crate) mod surface;
 pub(crate) mod tab_menu;
 pub(crate) mod tabs;
 
-use crate::actions::NewTab;
+use crate::actions::{CopySelection, NewTab};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, drag_area};
 use gpui_kit::*;
 use std::ops::Range;
+use term::{Pos, Selection};
 use theme::*;
 use workspace::{Doc, Tab};
 
@@ -19,11 +20,42 @@ pub struct TerminalViewState {
     /// The worktree and tab last scrolled into view, so a tab is revealed once when it becomes active rather than every frame.
     pub(crate) tab_revealed: Option<(String, usize)>,
     pub(crate) tab_menu: bool,
+    pub(crate) selection: Option<Drag>,
 }
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false, selection: None }
+    }
+}
+
+/// A mouse selection in one pane, `held` until the button that started it comes up.
+pub struct Drag {
+    pub pane: String,
+    selection: Selection,
+    held: bool,
+}
+
+impl Drag {
+    pub fn start(pane: &str, at: Pos) -> Self {
+        Self { pane: pane.to_string(), selection: Selection::at(at), held: true }
+    }
+
+    /// Moves the end being dragged, and says whether it moved.
+    pub fn extend(&mut self, pane: &str, at: Pos) -> bool {
+        let moved = self.held && self.pane == pane && self.selection.head != at;
+        if moved {
+            self.selection.head = at;
+        }
+        moved
+    }
+
+    pub fn release(&mut self) {
+        self.held = false;
+    }
+
+    pub fn shown(&self, pane: &str) -> Option<Selection> {
+        (self.pane == pane && !self.selection.is_empty()).then_some(self.selection)
     }
 }
 
@@ -32,6 +64,31 @@ impl Desktop {
         self.terminal.focused = Some(id);
         window.focus(&self.terminal.focus, cx);
         cx.notify();
+    }
+
+    pub(crate) fn select_start(&mut self, pane: &str, at: Pos, cx: &mut Context<Self>) {
+        self.terminal.selection = Some(Drag::start(pane, at));
+        cx.notify();
+    }
+
+    pub(crate) fn select_extend(&mut self, pane: &str, at: Pos, cx: &mut Context<Self>) {
+        if self.terminal.selection.as_mut().is_some_and(|d| d.extend(pane, at)) {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn select_release(&mut self) {
+        if let Some(d) = &mut self.terminal.selection {
+            d.release();
+        }
+    }
+
+    pub(crate) fn copy_selection(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = &self.terminal.selection else { return };
+        let Some(selection) = d.shown(&d.pane) else { return };
+        let Some(t) = self.terminals.sessions.get_mut(&d.pane).and_then(|s| s.term.as_mut()) else { return };
+        let (f, cells) = t.frame();
+        cx.write_to_clipboard(ClipboardItem::new_string(selection.text(cells, f.cols)));
     }
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
@@ -140,5 +197,29 @@ impl EntityInputHandler for Desktop {
 
     fn character_index_for_point(&mut self, _: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Drag;
+    use term::Pos;
+
+    fn at(row: u16, col: u16) -> Pos {
+        Pos { row, col }
+    }
+
+    #[test]
+    fn a_drag_selects_in_the_pane_it_started_in_until_released() {
+        let mut d = Drag::start("a", at(0, 1));
+        assert_eq!(d.shown("a"), None);
+        assert!(d.extend("a", at(0, 4)));
+        assert!(!d.extend("a", at(0, 4)));
+        assert!(!d.extend("b", at(1, 0)));
+        d.release();
+        assert!(!d.extend("a", at(2, 0)));
+        let s = d.shown("a").unwrap();
+        assert_eq!((s.anchor, s.head), (at(0, 1), at(0, 4)));
+        assert_eq!(d.shown("b"), None);
     }
 }
