@@ -62,6 +62,15 @@ pub fn load(path: &str, changed: bool) -> (String, Preview, Vec<Line>) {
     (path.to_string(), preview, diff)
 }
 
+/// Fresh listings for the folders still open, so a folder opened or closed while they were read keeps its new state.
+pub fn merge_tree(fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>, open: &HashMap<PathBuf, Vec<(bool, PathBuf)>>, root: Option<&Path>) -> HashMap<PathBuf, Vec<(bool, PathBuf)>> {
+    let mut tree: HashMap<_, _> = fresh.into_iter().filter(|(dir, _)| open.contains_key(dir) || root == Some(dir.as_path())).collect();
+    for (dir, listing) in open {
+        tree.entry(dir.clone()).or_insert_with(|| listing.clone());
+    }
+    tree
+}
+
 pub fn status_word(status: Option<char>) -> (u32, &'static str) {
     match status {
         Some('A') => (RUNNING, "Added"),
@@ -402,11 +411,24 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Preview, decode, decorations, gutter, heading_size, language, preview, size};
+    use super::{Preview, decode, decorations, gutter, heading_size, language, merge_tree, preview, size};
     use git::{Kind, Line};
     use gpui_kit::{px, rgba};
     use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
     use theme::{RUNNING_BG, WAITING_BG};
+
+    #[test]
+    fn a_folder_toggled_during_a_refresh_keeps_its_state() {
+        let listing = |names: &[&str]| names.iter().map(|n| (true, PathBuf::from(n))).collect::<Vec<_>>();
+        let fresh = HashMap::from([("/r".into(), listing(&["/r/a", "/r/b", "/r/c"])), ("/r/a".into(), listing(&["/r/a/new"]))]);
+        let open = HashMap::from([("/r".into(), listing(&["/r/a", "/r/b"])), ("/r/b".into(), listing(&["/r/b/x"]))]);
+        let tree = merge_tree(fresh, &open, Some(Path::new("/r")));
+        let mut dirs: Vec<&PathBuf> = tree.keys().collect();
+        dirs.sort();
+        assert_eq!(dirs, [Path::new("/r"), Path::new("/r/b")]);
+        assert_eq!(tree[Path::new("/r")], listing(&["/r/a", "/r/b", "/r/c"]));
+    }
 
     #[test]
     fn tints_changed_lines() {

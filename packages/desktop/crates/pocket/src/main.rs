@@ -783,7 +783,7 @@ impl Desktop {
             }).collect();
             let diff = diff.map(|(cwd, path)| diff::read_diff(&cwd, path, open, &shown));
             let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
-            let tree = dirs.into_iter().map(|d| {
+            let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
                 let listing = view::list_dir(&d);
                 (d, listing)
             }).collect();
@@ -802,6 +802,7 @@ impl Desktop {
                 }
                 d.git_done = run;
                 let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
+                let tree = explore::merge_tree(tree, &d.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.repos, d.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
                 if let Some((_, preview, lines)) = file.filter(|(p, _, _)| d.file.as_ref() == Some(p)) {
