@@ -6,6 +6,13 @@ use gpui_kit::*;
 use theme::*;
 use ui::{self, State};
 
+/// The rail's sessions: the busy ones and the selected one, most urgent first.
+fn live(cards: Vec<Card>, selected: Option<&str>) -> Vec<Card> {
+    let mut live: Vec<Card> = cards.into_iter().filter(|c| c.status != Status::Idle || selected == Some(c.id.as_str())).collect();
+    live.sort_by_key(|c| c.status);
+    live
+}
+
 impl Desktop {
     /// The compact layout's rail: the project's non-idle sessions and the selected one, other non-idle repositories, and new session.
     pub(crate) fn nav(&self, cx: &mut Context<Self>) -> Div {
@@ -29,9 +36,7 @@ impl Desktop {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_rail(&crate::actions::ToggleRail, window, cx)));
         let project = self.project.clone().unwrap_or_default();
         let badge = |d: Div, color: u32| d.absolute().right(px(3.)).size(px(8.)).rounded(px(4.)).bg(rgba(color)).shadow(vec![ui::ring(SURFACE_SUNKEN, 2.)]);
-        let mut live: Vec<Card> = self.cards(&project).into_iter().filter(|c| c.status != Status::Idle || self.session.as_ref() == Some(&c.id)).collect();
-        live.sort_by_key(|c| c.status);
-        let sessions = live.into_iter().enumerate().map(|(i, c)| {
+        let sessions = live(self.cards(&project), self.session.as_deref()).into_iter().enumerate().map(|(i, c)| {
             let selected = self.session.as_ref() == Some(&c.id);
             let id = c.id.clone();
             div()
@@ -111,22 +116,22 @@ impl Desktop {
                     .child(ui::avatar(&me, 30.).text_size(px(10.5))),
             )
     }
+}
 
-    /// The compact layout's sidebars, floated over a dimmed page.
-    pub(crate) fn panel_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let dim = div()
-            .id("panel-dim")
-            .absolute()
-            .inset_0()
-            .bg(rgba(0x1111131a))
-            .occlude()
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.panel = false;
-                cx.notify();
-            }));
-        let column = self.column_view(cx);
-        // GPUI has no backdrop blur, so the translucent sidebars sit on the dimmed window colour instead of over the page's text.
-        let sidebars = div().h_full().flex().bg(rgba(WINDOW)).shadow(vec![BoxShadow { offset: point(px(16.), px(0.)), ..ui::shadow(0x11111324, 0., 48.) }]).child(div().h_full().flex().bg(rgba(0x1111131a)).child(self.aside(cx)).child(column));
-        div().absolute().top_0().bottom_0().left(px(56.)).right_0().flex().child(dim).child(sidebars)
+#[cfg(test)]
+mod tests {
+    use super::live;
+    use crate::status::{self, Card};
+    use agents::Summary;
+
+    fn card(id: &str, status: &str) -> Card {
+        status::card(&Summary { id: id.into(), status: status.into(), attached: true, ..Default::default() }, "/p")
+    }
+
+    #[test]
+    fn the_rail_shows_busy_sessions_and_the_selected_one_most_urgent_first() {
+        let cards = vec![card("idle", "idle"), card("work", "working"), card("picked", "idle"), card("ask", "needsYou"), card("done", "done")];
+        let ids: Vec<String> = live(cards, Some("picked")).into_iter().map(|c| c.id).collect();
+        assert_eq!(ids, vec!["ask", "done", "work", "picked"]);
     }
 }

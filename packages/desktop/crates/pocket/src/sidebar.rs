@@ -1,5 +1,8 @@
 pub(crate) mod column;
+mod panel;
 pub(crate) mod rail;
+mod row_menu;
+mod sessions;
 mod usage;
 
 use crate::desktop::Desktop;
@@ -9,6 +12,7 @@ use crate::util::basename;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::HashMap;
 use theme::*;
 use ui::{self, icon_button_sized};
 
@@ -24,6 +28,34 @@ fn row_mark(key: &str, setting_up: bool, cards: &[Card]) -> Option<AnyElement> {
 /// The cards whose folder lies in `tree`, as `tree_of` places folders.
 pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>) -> Vec<Card> {
     cards.into_iter().filter(|c| tree_of(&c.cwd).as_deref() == tree).collect()
+}
+
+/// How a project's row folds its worktrees.
+struct ProjectRow {
+    git: bool,
+    branched: bool,
+    open: bool,
+    setting_up: bool,
+}
+
+impl ProjectRow {
+    fn new(worktrees: Option<&[git::Worktree]>, collapsed: bool, setups: &HashMap<String, String>) -> Self {
+        let git = worktrees.is_some_and(|w| !w.is_empty());
+        let branched = worktrees.is_some_and(|w| w.iter().any(|w| !w.main));
+        let open = branched && !collapsed;
+        let setting_up = !open && worktrees.into_iter().flatten().any(|w| setting_up(setups, &w.path));
+        Self { git, branched, open, setting_up }
+    }
+
+    /// Folded, the row stands for all its worktrees; open, for its main one.
+    fn selected(&self, current: Option<&str>, main: &str) -> bool {
+        current.is_some_and(|c| !self.open || c == main)
+    }
+}
+
+/// Whether a terminal is setting up `tree`; `setups` maps terminals to the worktree they set up.
+fn setting_up(setups: &HashMap<String, String>, tree: &str) -> bool {
+    setups.values().any(|t| t == tree)
 }
 
 #[derive(Clone)]
@@ -122,15 +154,7 @@ impl Desktop {
     }
 
     fn setting_up(&self, tree: &str) -> bool {
-        self.terminals.setups.values().any(|t| t == tree)
-    }
-
-    fn open_row_menu(menu: RowMenu, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
-        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-            this.close_menus();
-            this.row_menu = Some(menu.clone());
-            cx.notify();
-        })
+        setting_up(&self.terminals.setups, tree)
     }
 
     /// A project's row, then its worktrees' rows while it is open.
@@ -138,11 +162,10 @@ impl Desktop {
         let current = self.cwd().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let kept = self.store.projects.iter().any(|k| k == p);
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
-        let git = self.worktrees.get(p).is_some_and(|w| !w.is_empty());
-        let branched = self.worktrees.get(p).is_some_and(|w| w.iter().any(|w| !w.main));
-        let open = branched && !self.store.collapsed.contains(p);
+        let fold = ProjectRow::new(self.worktrees.get(p).map(Vec::as_slice), self.store.collapsed.contains(p), &self.terminals.setups);
+        let selected = fold.selected(current.as_deref(), &main);
+        let ProjectRow { git, branched, open, setting_up } = fold;
         let cards = if open { self.tree_cards(p, &main) } else { self.cards(p) };
-        let setting_up = !open && self.worktrees.get(p).into_iter().flatten().any(|w| self.setting_up(&w.path));
         let lead = if branched {
             let target = p.to_string();
             ui::chevron(("aside-chevron", i), open)
@@ -173,7 +196,6 @@ impl Desktop {
         buttons.push(self.row_menu_button(p, menu.clone(), cx));
         let trail = ui::row_trail(row_mark(p, setting_up, &cards), buttons, self.row_menu.as_ref() == Some(&menu));
         let target = p.to_string();
-        let selected = current.as_ref().is_some_and(|c| !open || *c == main);
         let row = ui::repo_row(("aside-repo", i), lead, &self.repo_name(p), selected, kept)
             .child(trail)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), None, cx)))
@@ -212,80 +234,14 @@ impl Desktop {
             })
             .into_any_element()
     }
-
-    fn row_menu_button(&self, key: &str, menu: RowMenu, cx: &mut Context<Self>) -> AnyElement {
-        let open = self.row_menu.as_ref() == Some(&menu);
-        let toggle = menu.clone();
-        let button = icon_button_sized(id(format!("aside-more:{key}")), "more", 22., TEXT_3).rounded(px(6.)).capture_any_mouse_down(cx.listener(
-            move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.row_menu = (this.row_menu.as_ref() != Some(&toggle)).then(|| toggle.clone());
-                this.terminal.tab_menu = false;
-                cx.notify();
-            },
-        ));
-        div()
-            .relative()
-            .child(button)
-            .when(open, |d| {
-                d.child(ui::dropdown(
-                    26.,
-                    ui::pop(div().id("aside-menu")).w(px(210.)).p(px(6.)).rounded(px(14.)).flex().flex_col()
-                        .occlude()
-                        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                            this.row_menu = None;
-                            cx.notify();
-                        }))
-                        .children(self.row_menu_items(&menu, cx)),
-                ))
-            })
-            .into_any_element()
-    }
-
-    fn row_menu_items(&self, menu: &RowMenu, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        match menu.clone() {
-            RowMenu::Project(p) => {
-                let kept = self.store.projects.contains(&p);
-                let target = p.clone();
-                let first = if kept {
-                    ui::menu_row("aside-menu-settings", "settings", "Settings…", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.select_project(target.clone(), cx);
-                        this.project_settings(&crate::actions::ProjectSettings, window, cx);
-                    }))
-                } else {
-                    ui::menu_row("aside-menu-keep", "check", "Keep in Pocket", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.row_menu = None;
-                        this.keep_project(&target, cx);
-                    }))
-                };
-                vec![
-                    first.into_any_element(),
-                    ui::menu_divider().into_any_element(),
-                    ui::danger_row("aside-menu-remove", "x", if kept { "Remove from Pocket" } else { "Remove" })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.row_menu = None;
-                            this.ask_remove_project(p.clone(), cx);
-                        }))
-                        .into_any_element(),
-                ]
-            }
-            RowMenu::Tree { project, tree } => vec![
-                ui::danger_row("aside-menu-delete", "trash", "Delete worktree…")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.row_menu = None;
-                        this.ask_delete_worktree(project.clone(), tree.clone(), cx);
-                    }))
-                    .into_any_element(),
-            ],
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::in_tree;
+    use super::{ProjectRow, in_tree, setting_up};
     use crate::status::{self, Card};
     use agents::Summary;
+    use std::collections::HashMap;
 
     fn card(id: &str, cwd: &str) -> Card {
         status::card(&Summary { id: id.into(), status: "idle".into(), attached: true, ..Default::default() }, cwd)
@@ -307,6 +263,38 @@ mod tests {
     fn a_trees_cards_are_those_whose_folder_it_holds() {
         let cards = vec![card("a", "/p"), card("b", "/wt"), card("c", "/p/src"), card("d", "/lost")];
         assert_eq!(ids(in_tree(cards, Some("/p"), tree_of)), vec!["a", "c"]);
+    }
+
+    fn tree(path: &str, main: bool) -> git::Worktree {
+        git::Worktree { path: path.into(), branch: String::new(), main }
+    }
+
+    #[test]
+    fn a_project_folds_only_when_it_has_worktrees_besides_its_main() {
+        let none = HashMap::new();
+        let fold = |trees: &[git::Worktree], collapsed| {
+            let r = ProjectRow::new(Some(trees), collapsed, &none);
+            (r.git, r.branched, r.open)
+        };
+        let got = [fold(&[], false), fold(&[tree("/p", true)], false), fold(&[tree("/p", true), tree("/wt", false)], false), fold(&[tree("/p", true), tree("/wt", false)], true)];
+        assert_eq!(got, [(false, false, false), (true, false, false), (true, true, true), (true, true, false)]);
+    }
+
+    #[test]
+    fn a_folded_project_shows_its_worktrees_setting_up_and_an_open_one_leaves_it_to_their_rows() {
+        let setups: HashMap<String, String> = [("term".to_string(), "/wt".to_string())].into();
+        let trees = [tree("/p", true), tree("/wt", false)];
+        let folded = ProjectRow::new(Some(&trees), true, &setups).setting_up;
+        let open = ProjectRow::new(Some(&trees), false, &setups).setting_up;
+        assert_eq!((folded, open, setting_up(&setups, "/wt"), setting_up(&setups, "/p")), (true, false, true, false));
+    }
+
+    #[test]
+    fn a_folded_row_is_selected_on_any_of_its_trees_and_an_open_one_on_its_main_only() {
+        let trees = [tree("/p", true), tree("/wt", false)];
+        let selected = |collapsed, current| ProjectRow::new(Some(&trees), collapsed, &HashMap::new()).selected(current, "/p");
+        let got = [selected(true, Some("/wt")), selected(false, Some("/wt")), selected(false, Some("/p")), selected(true, None)];
+        assert_eq!(got, [true, false, true, false]);
     }
 
     #[test]
