@@ -1,15 +1,28 @@
 use git::{self, Kind, Line};
 use theme::*;
 use ui::{self, Segment, Variant, checkbox, dot};
-use crate::explore::status_word;
+use crate::desktop::Desktop;
+use crate::desktop::chrome::{Overlay, Side, doc_bar, empty};
+use crate::explorer::status_word;
 use crate::syntax::{Spans, language_for, line_spans};
-use crate::view::{ago_long, doc_bar, empty, now_ms};
-use crate::{Comment, Desktop, Overlay};
+use crate::util::{ago_long, now_ms};
 use gpui_kit::component::input::{Escape, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use serde_json::json;
 use std::collections::HashSet;
 use std::ops::{Range, RangeInclusive};
+use workspace::Doc;
+
+/// A comment sent to an agent about lines of a file, kept so the diff can show it until resolved.
+pub struct Comment {
+    pub path: String,
+    pub lines: (usize, usize),
+    pub old_side: bool,
+    pub label: String,
+    pub text: String,
+    pub at: i64,
+}
 
 const NUM: f32 = 44.;
 const SIGN: f32 = 18.;
@@ -619,6 +632,111 @@ impl Desktop {
             .with_priority(1)
         });
         div().relative().child(pill.child(icon("chevron-down", 12., TEXT_3))).children(menu)
+    }
+
+    pub fn open_changes(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+        let path = path.or_else(|| self.diff_file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
+        self.side = Side::Changes;
+        match path {
+            Some(path) => self.open_doc(Doc::Diff(path), cx),
+            None => cx.notify(),
+        }
+    }
+
+    pub(crate) fn load_diff(&mut self, cx: &mut Context<Self>) {
+        let Some((cwd, path)) = self.cwd().zip(self.diff_file.clone()) else { return };
+        let (open, shown) = (self.diff_open.clone(), self.diff.clone());
+        let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, open, &shown) });
+        cx.spawn(async move |this, cx| {
+            let load = task.await;
+            this.update(cx, |d, cx| {
+                if d.apply_diff(load) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Starts a comment on line `i` of the diff, or with `extend` stretches the open one to it.
+    pub fn select_line(&mut self, i: usize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let kept = self.selection.map(|(a, _)| a).filter(|&a| extend && self.same_hunk(a, i));
+        if kept.is_none() {
+            self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.composing = false;
+        }
+        self.selection = Some((kept.unwrap_or(i), i));
+        self.dragging = true;
+        self.layout_diff(false);
+        cx.notify();
+    }
+
+    pub fn drag_to(&mut self, i: usize, pressed: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((anchor, end)) = self.selection.filter(|_| self.dragging) else { return };
+        if !pressed {
+            return self.end_drag(window, cx);
+        }
+        if end != i && self.same_hunk(anchor, i) {
+            self.selection = Some((anchor, i));
+            cx.notify();
+        }
+    }
+
+    pub fn end_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.dragging) {
+            return;
+        }
+        if self.selection.is_some_and(|(a, b)| a != b) {
+            self.composing = true;
+        }
+        self.layout_diff(false);
+        if self.composing {
+            self.comment_input.update(cx, |s, cx| s.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    pub fn open_comment(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.picked(i) {
+            self.selection = Some((i, i));
+            self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+        self.composing = true;
+        self.layout_diff(false);
+        self.comment_input.update(cx, |s, cx| s.focus(window, cx));
+        cx.notify();
+    }
+
+    pub fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.selection = None;
+        self.composing = false;
+        self.target_menu = false;
+        self.layout_diff(false);
+        self.comment_input.update(cx, |s, cx| s.set_value("", window, cx));
+        window.focus(&self.root, cx);
+        cx.notify();
+    }
+
+    pub fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.comment_input.read(cx).value().trim().to_string();
+        let (Some(target), Some(path), Some(lines)) = (self.comment_target(), self.diff_file.clone(), self.selection_label()) else { return };
+        if text.is_empty() {
+            return;
+        }
+        let Some(terminal) = self.agents.get(&target).map(|a| a.terminal_id.clone()) else { return };
+        self.daemon.send(json!({"op": "prompt", "id": terminal, "text": format!("{path} {}: {text}", lines.to_lowercase())}));
+        if let Some(comment) = self.new_comment(path, lines, text) {
+            self.comments.push(comment);
+        }
+        self.cancel_comment(window, cx);
+    }
+
+    /// The session a comment goes to: the one picked, else the open one, else the project's newest.
+    pub fn comment_target(&self) -> Option<String> {
+        let cards = self.cards(self.project.as_deref()?);
+        let live = |id: &String| cards.iter().any(|c| &c.id == id);
+        self.comment_target.clone().filter(live).or_else(|| self.session.clone().filter(live)).or_else(|| cards.first().map(|c| c.id.clone()))
     }
 }
 

@@ -1,4 +1,7 @@
-use crate::{Desktop, Layout, Overlay, Screen, Side, Status, ToggleFocus, ToggleRail};
+use crate::actions::{ToggleFocus, ToggleRail};
+use crate::desktop::Desktop;
+use crate::desktop::chrome::{Layout, Overlay, Screen, Side};
+use crate::status::Status;
 use git::Kind;
 use gpui_kit::component::Root;
 use gpui_kit::*;

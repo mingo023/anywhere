@@ -1,4 +1,4 @@
-use crate::Desktop;
+use crate::desktop::Desktop;
 use term::{Cell, Frame, WIDE_SPACER_TAIL};
 use theme::{MONO, TEXT, WHITE};
 use gpui_kit::*;

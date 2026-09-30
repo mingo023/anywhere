@@ -1,0 +1,146 @@
+pub(crate) mod sessions;
+
+use crate::desktop::Desktop;
+use daemon::Msg;
+use gpui_kit::*;
+use serde_json::json;
+
+pub(crate) enum Intent {
+    Tab(String),
+    Split(String, bool),
+    Setup(String),
+}
+
+impl Desktop {
+    pub(crate) fn on_msg(&mut self, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
+        match m.ev.as_str() {
+            "terminals" => {
+                let items = m.items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
+                for id in self.sessions.sync(items) {
+                    self.daemon.send(json!({"op": "attach", "id": id}));
+                }
+                let sessions = &self.sessions;
+                self.setups.retain(|id, _| sessions.get(id).is_some());
+                if self.project.is_none() {
+                    self.project = self.projects().into_iter().next();
+                }
+            }
+            "spawned" => {
+                self.error = None;
+                match self.intents.pop_front() {
+                    Some(Intent::Tab(tree)) => self.adopt(m.id.clone(), tree, None, window, cx),
+                    Some(Intent::Split(tree, down)) => self.adopt(m.id.clone(), tree, Some(down), window, cx),
+                    Some(Intent::Setup(tree)) => {
+                        self.setups.insert(m.id.clone(), tree.clone());
+                        self.adopt(m.id.clone(), tree, None, window, cx)
+                    }
+                    None => {}
+                }
+                self.daemon.send(json!({"op": "list"}));
+            }
+            "error" => {
+                if m.id.is_empty() {
+                    self.intents.pop_front();
+                }
+                self.error = Some(m.error);
+            }
+            "exit" => {
+                self.sessions.apply(&m);
+                self.setups.remove(&m.id);
+                self.close_clean_exits(&m.id, cx);
+            }
+            _ => self.sessions.apply(&m),
+        }
+        cx.notify();
+    }
+
+    /// Closes panes whose shell exited cleanly, as Terminal.app does; a failed one stays so its error can be read.
+    fn close_clean_exits(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.sessions.get(id).is_some_and(|s| s.exit == Some(0)) {
+            self.close_pane(id, cx);
+        }
+    }
+
+    fn adopt(&mut self, id: String, tree: String, split: Option<bool>, window: &mut Window, cx: &mut Context<Self>) {
+        let w = self.workspace(&tree);
+        match split {
+            Some(down) => w.split(id.clone(), down),
+            None => w.add_tab(id.clone()),
+        }
+        self.show_tree(&tree, &tree);
+        self.focus_pane(id, window, cx);
+    }
+
+    pub(crate) fn send_spawn(&mut self, op: serde_json::Value, intent: Intent, cx: &mut Context<Self>) {
+        self.daemon.send(op);
+        self.intents.push_back(intent);
+        self.error = None;
+        cx.notify();
+    }
+
+    /// Opens a login shell in the worktree's folder, as a new tab or a split of the active one.
+    pub fn new_shell(&mut self, split: Option<bool>, cx: &mut Context<Self>) {
+        self.run_in_tree(split, daemon::shell_op, cx);
+    }
+
+    pub fn new_agent_tab(&mut self, provider: &str, cx: &mut Context<Self>) {
+        self.tab_menu = false;
+        let argv = [provider.to_string()];
+        self.run_in_tree(None, |cwd| daemon::agent_op(&argv, cwd), cx);
+    }
+
+    fn run_in_tree(&mut self, split: Option<bool>, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
+        let Some(tree) = self.cwd() else { return };
+        let intent = match split {
+            Some(down) => Intent::Split(tree.clone(), down),
+            None => Intent::Tab(tree.clone()),
+        };
+        self.send_spawn(op(&tree), intent, cx);
+    }
+
+    pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
+            self.daemon.send(json!({"op": "close", "id": id}));
+        }
+        self.sessions.remove(id);
+        self.closed.insert(id.to_string());
+        self.sized.remove(id);
+        self.setups.remove(id);
+        for w in self.workspaces.values_mut() {
+            w.remove(id);
+        }
+        self.load_active(cx);
+        cx.notify();
+    }
+
+    /// Ends a session: a running agent goes with its terminal, an ended one only leaves the list.
+    pub fn close_session(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(a) = self.agents.get(id) else { return };
+        if a.status == "closed" {
+            self.outbox.close(id);
+        } else {
+            let term = a.terminal_id.clone();
+            self.close_pane(&term, cx);
+        }
+    }
+
+    pub fn close_tab(&mut self, i: usize, cx: &mut Context<Self>) {
+        let Some(tree) = self.cwd() else { return };
+        for id in self.workspace(&tree).close_tab(i) {
+            self.close_pane(&id, cx);
+        }
+        self.load_active(cx);
+        cx.notify();
+    }
+
+    pub fn fit(&mut self, id: &str, cols: u16, rows: u16) {
+        // Sessions are shared with the user's own window; a capture must not reflow them.
+        if self.capturing {
+            return;
+        }
+        if self.sized.get(id) != Some(&(cols, rows)) && self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
+            self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
+            self.sized.insert(id.to_string(), (cols, rows));
+        }
+    }
+}

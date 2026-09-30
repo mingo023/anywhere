@@ -1,6 +1,6 @@
-use crate::diff::{line_label, ordered, span};
-use crate::view::empty;
-use crate::{Confirm, Desktop, Overlay};
+use crate::desktop::Desktop;
+use crate::desktop::chrome::{Confirm, Overlay, empty};
+use crate::git_ui::diff::{line_label, ordered, span};
 use git::{FileStat, Repo};
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::scroll::ScrollableElement as _;

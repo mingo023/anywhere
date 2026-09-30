@@ -1,8 +1,11 @@
 use theme::*;
 use ui::{self, State, Variant, icon_button, kbd};
+use crate::actions::OpenSession;
+use crate::desktop::Desktop;
+use crate::desktop::chrome::{Screen, column, drag_area, empty};
 use crate::status::Status;
-use crate::view::{ago, basename, column, drag_area, empty, now_ms};
-use crate::{Desktop, Screen, termview};
+use crate::terminal_view::surface;
+use crate::util::{ago, basename, now_ms};
 use agents::{Agents, Summary};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -231,7 +234,7 @@ impl Desktop {
             .child(ui::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.focus_agent(&agent, window, cx)
             })));
-        let pane = self.pane(&n.terminal, None, &termview::MAIN, cx);
+        let pane = self.pane(&n.terminal, None, &surface::MAIN, cx);
         let hints = div()
             .h(px(36.))
             .flex_none()
@@ -255,6 +258,15 @@ impl Desktop {
             .child(header)
             .child(div().flex_1().min_h_0().px(px(10.)).pt(px(10.)).flex().track_focus(&self.term_focus).on_key_down(cx.listener(Self::on_term_key)).child(pane))
             .child(hints)
+    }
+
+    pub(crate) fn open_selected(&mut self, _: &OpenSession, window: &mut Window, cx: &mut Context<Self>) {
+        if self.screen != Screen::Inbox {
+            return;
+        }
+        if let Some(n) = notes(&self.agents).into_iter().nth(self.inbox) {
+            self.focus_agent(&n.agent, window, cx);
+        }
     }
 }
 
