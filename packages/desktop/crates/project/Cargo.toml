@@ -1,0 +1,11 @@
+[package]
+name = "project"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/project.rs"
+
+[dependencies]
+git.workspace = true

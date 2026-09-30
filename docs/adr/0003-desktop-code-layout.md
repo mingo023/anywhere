@@ -21,6 +21,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `agents` | the phone-socket client and the agent list |
 | `term` | the ghostty VT |
 | `store` | the saved projects |
+| `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `ui`, `theme` | widgets, colours, icons |
 
 | `pocket` module | Owns |

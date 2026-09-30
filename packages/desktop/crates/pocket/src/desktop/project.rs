@@ -13,37 +13,21 @@ use theme::*;
 use ui::State;
 use workspace::Workspace;
 
-fn under(cwd: &str, project: &str) -> bool {
-    cwd == project || cwd.strip_prefix(project).is_some_and(|rest| rest.starts_with('/'))
-}
-
 impl Desktop {
     pub fn projects(&self) -> Vec<String> {
-        let mut out = self.store.projects.clone();
-        for cwd in self.terminals.sessions.items.iter().map(|s| &s.info.cwd) {
-            if self.project_of(cwd, &out).is_none() {
-                out.push(cwd.clone());
-            }
-        }
-        out
+        project::projects(&self.store.projects, self.terminals.sessions.items.iter().map(|s| s.info.cwd.as_str()), &self.worktrees)
     }
 
-    /// The project owning `cwd`: the one whose folder or worktree holds it most closely.
     pub fn project_of<'a>(&self, cwd: &str, projects: &'a [String]) -> Option<&'a String> {
-        let reach = |p: &String| {
-            let trees = self.worktrees.get(p).into_iter().flatten().map(|w| w.path.as_str());
-            std::iter::once(p.as_str()).chain(trees).filter(|root| under(cwd, root)).map(str::len).max()
-        };
-        projects.iter().filter_map(|p| Some((reach(p)?, p))).max_by_key(|(n, _)| *n).map(|(_, p)| p)
+        project::project_of(cwd, projects, &self.worktrees)
     }
 
     pub fn worktree_of(&self, cwd: &str) -> Option<&git::Worktree> {
-        self.worktrees.values().flatten().filter(|w| under(cwd, &w.path)).max_by_key(|w| w.path.len())
+        project::worktree_of(cwd, &self.worktrees)
     }
 
-    /// The worktree a folder belongs to: the git worktree holding it, else the project it is in.
     pub fn tree_of(&self, cwd: &str) -> Option<String> {
-        self.worktree_of(cwd).map(|w| w.path.clone()).or_else(|| self.project_of(cwd, &self.projects()).cloned())
+        project::tree_of(cwd, &self.worktrees, || self.projects())
     }
 
     pub fn cards(&self, project: &str) -> Vec<Card> {
@@ -102,15 +86,8 @@ impl Desktop {
     }
 
     fn git_cwds(&self) -> Vec<String> {
-        let mut cwds: Vec<String> = self.project.iter().cloned().collect();
-        if let Some(p) = &self.project {
-            cwds.extend(self.cards(p).into_iter().map(|c| c.cwd));
-            cwds.extend(self.worktrees.get(p).into_iter().flatten().map(|w| w.path.clone()));
-        }
-        cwds.extend(self.cwd());
-        cwds.sort();
-        cwds.dedup();
-        cwds
+        let sessions = self.project.as_deref().map(|p| self.cards(p).into_iter().map(|c| c.cwd).collect()).unwrap_or_default();
+        project::git_cwds(self.project.as_deref(), sessions, &self.worktrees, self.cwd())
     }
 
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {

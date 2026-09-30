@@ -5318,6 +5318,7 @@ dependencies = [
  "keys",
  "merman",
  "objc2-app-kit 0.3.2",
+ "project",
  "resvg 0.46.0",
  "serde_json",
  "store",
@@ -5475,6 +5476,13 @@ checksum = "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb"
 dependencies = [
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "project"
+version = "0.0.0"
+dependencies = [
+ "git",
 ]
 
 [[package]]

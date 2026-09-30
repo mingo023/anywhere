@@ -12,6 +12,7 @@ agents = { path = "crates/agents" }
 daemon = { path = "crates/daemon" }
 git = { path = "crates/git" }
 keys = { path = "crates/keys" }
+project = { path = "crates/project" }
 store = { path = "crates/store" }
 term = { path = "crates/term" }
 theme = { path = "crates/theme" }
