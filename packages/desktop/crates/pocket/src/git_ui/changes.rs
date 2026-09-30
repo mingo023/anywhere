@@ -564,7 +564,7 @@ impl Desktop {
             .collect();
         let draft = self.diff.input.read(cx).value().trim().to_string();
         if let (true, false, Some(path), Some((lo, hi, _))) =
-            (self.diff.composing, draft.is_empty(), self.diff.file.clone(), self.diff.selection.and_then(|s| span(&self.diff.lines, ordered(s))))
+            (self.diff.pick.composing, draft.is_empty(), self.diff.file.clone(), self.diff.pick.range.and_then(|s| span(&self.diff.lines, ordered(s))))
         {
             notes.push(note("draft".into(), line_label((lo, hi)), ui::State::Draft, draft, path));
         }
