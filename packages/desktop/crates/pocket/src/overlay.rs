@@ -1,5 +1,5 @@
 use crate::view::{basename, tilde};
-use crate::{Card, Confirm, Desktop, Overlay, Screen, Side, Status};
+use crate::{Card, Confirm, Desktop, Overlay, Screen, Status};
 use gpui_kit::component::input::Input;
 use gpui_kit::*;
 use std::cmp::Reverse;
@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 use theme::*;
 use ui::{self, Variant, dot, menu_row};
+use workspace::Doc;
 
 #[derive(Clone)]
 pub enum Pick {
@@ -238,10 +239,10 @@ impl Desktop {
 
     fn more_menu(&mut self, cx: &mut Context<Self>) -> Div {
         let menu = ui::pop(div().absolute().right(px(22.)).top(px(58.)).w(px(230.)).p(px(6.)).rounded(px(16.)).flex().flex_col()).occlude();
-        let path = match self.side {
-            Side::Explorer => self.file.clone(),
-            Side::Changes => self.cwd().zip(self.diff_file.clone()).map(|(cwd, f)| format!("{cwd}/{f}")),
-            Side::Sessions => None,
+        let path = match self.active_doc() {
+            Some(Doc::File(p)) => Some(p),
+            Some(Doc::Diff(p)) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
+            None => None,
         };
         let Some(path) = path.filter(|_| self.screen == Screen::Sessions) else {
             return menu

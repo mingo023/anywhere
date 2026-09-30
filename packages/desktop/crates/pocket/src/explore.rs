@@ -1,5 +1,6 @@
-use crate::view::{ago_long, empty, id, list_dir, now_ms};
+use crate::view::{ago_long, doc_bar, empty, id, list_dir, now_ms};
 use crate::{Desktop, Overlay, Side};
+use workspace::Doc;
 use git::{Kind, Line};
 use crate::mermaid::Mermaid;
 use crate::syntax::language_for;
@@ -189,16 +190,36 @@ impl Desktop {
     }
 
     pub fn open_file(&mut self, path: String, cx: &mut Context<Self>) {
-        if self.file.as_ref() != Some(&path) {
-            self.file = Some(path);
-            self.file_preview = None;
-            self.file_diff.clear();
-            self.code_stale = true;
-            self.md_source = false;
-        }
         self.side = Side::Explorer;
-        self.refresh_git(cx);
-        cx.notify();
+        self.open_doc(Doc::File(path), cx);
+    }
+
+    pub fn load_file(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.file.clone() else { return };
+        let changed = self.file_status(&path).is_some();
+        let task = cx.background_executor().spawn(async move { load(&path, changed) });
+        cx.spawn(async move |this, cx| {
+            let file = task.await;
+            this.update(cx, |d, cx| {
+                if d.apply_file(file) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Shows `file` unless another file was opened while it loaded; returns whether anything changed.
+    pub fn apply_file(&mut self, (path, preview, lines): (String, Preview, Vec<Line>)) -> bool {
+        if self.file.as_ref() != Some(&path) {
+            return false;
+        }
+        let preview = Some(preview);
+        let fresh = preview != self.file_preview || lines != self.file_diff;
+        self.code_stale |= fresh;
+        (self.file_preview, self.file_diff) = (preview, lines);
+        fresh
     }
 
     pub fn go_to_file(&mut self, _: &crate::GoToFile, window: &mut Window, cx: &mut Context<Self>) {
@@ -331,7 +352,7 @@ impl Desktop {
             Some(_) if markdown && !self.md_source => pane()
                 .px(px(40.))
                 .py(px(32.))
-                .bg(rgba(SURFACE))
+                .bg(rgba(PAGE))
                 .child(
                     TextView::new(&self.md)
                         .plugin(Mermaid(self.diagrams.clone()))
@@ -366,7 +387,7 @@ impl Desktop {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(self.page_bar(crumbs, meta, right, cx))
+            .child(doc_bar(crumbs, meta, right))
             .child(code)
     }
 

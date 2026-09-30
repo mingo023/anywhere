@@ -18,6 +18,7 @@ pub const WHITE: u32 = 0xffffffff;
 pub const WINDOW: u32 = 0xf4f4f5ff;
 pub const SURFACE: u32 = 0xffffffff;
 pub const SURFACE_SUNKEN: u32 = 0xfafafaff;
+pub const PAGE: u32 = 0xf7f7f7ff;
 
 pub const FILL_1: u32 = 0x11111308;
 pub const FILL_2: u32 = 0x1111130b;

@@ -18,9 +18,9 @@ pub fn row_shadow() -> Vec<BoxShadow> {
     vec![shadow(0x1111130f, 1., 2.), ring(0x1111130f, 0.5)]
 }
 
-/// Flat white surface that holds content.
+/// Flat surface that holds content.
 pub fn page<E: Styled>(e: E) -> E {
-    e.bg(rgba(SURFACE))
+    e.bg(rgba(PAGE))
 }
 
 /// Translucent chrome for the rail and sidebar column, split from the next pane by a hairline.

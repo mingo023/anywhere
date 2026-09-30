@@ -2,7 +2,7 @@ use daemon::Info;
 use crate::termview::{self, Metrics};
 use ui::{self, State, dot, icon_button_sized};
 use theme::*;
-use workspace::Tab;
+use workspace::{Doc, Tab};
 use crate::status::{self, Kind};
 use crate::{Card, Column, Desktop, Layout, Overlay, RowMenu, Screen, Side, Status};
 use gpui_kit::component::input::Input;
@@ -110,6 +110,17 @@ struct DragProject {
 
 pub fn column() -> Div {
     ui::side(div().w(px(348.)).flex_none().h_full().flex().flex_col().overflow_hidden())
+}
+
+/// A doc tab's bar over its content: breadcrumb and meta on the left, `right` on the far side.
+pub fn doc_bar(crumbs: Vec<String>, meta: Vec<AnyElement>, right: impl IntoElement) -> Div {
+    ui::page_bar()
+        .border_t(px(0.5))
+        .border_color(rgba(SEPARATOR))
+        .bg(rgba(PAGE))
+        .child(ui::breadcrumb(crumbs))
+        .child(ui::meta_row(meta))
+        .child(div().ml_auto().flex().flex_none().items_center().gap(px(8.)).child(right))
 }
 
 pub fn empty(text: impl Into<SharedString>) -> Div {
@@ -609,9 +620,6 @@ impl Desktop {
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.side = side;
-                    if side == Side::Changes {
-                        this.load_diff(cx);
-                    }
                     cx.notify();
                 }))
         });
@@ -684,8 +692,6 @@ impl Desktop {
     fn main_view(&mut self, cx: &mut Context<Self>) -> Div {
         let body = match (self.screen, self.side) {
             (Screen::Inbox, _) => self.inbox_detail(cx),
-            (_, Side::Changes) if self.diff_file.is_some() => self.diff_view(cx),
-            (_, Side::Explorer) if self.file.is_some() => self.file_view(cx),
             _ => match self.cwd().filter(|t| !self.workspace(t).tabs.is_empty()) {
                 Some(tree) => self.session_page(&tree, cx),
                 None => self.blank_page(cx),
@@ -753,12 +759,14 @@ impl Desktop {
         let diff = (added + removed > 0).then(|| {
             div()
                 .id("bar-diff")
+                .flex_none()
+                .mr(px(4.))
                 .cursor_pointer()
                 .child(ui::meta_diff(added, removed, 12.))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx)))
         });
-        let error = self.error.clone().map(|e| div().min_w_0().truncate().text_size(px(12.5)).text_color(rgba(FAILED)).child(e));
-        let status = div().ml_auto().mr(px(4.)).pl(px(8.)).min_w_0().flex().items_center().gap(px(12.)).children(error).children(diff);
+        let error = self.error.clone().map(|e| div().min_w_0().truncate().mr(px(6.)).text_size(px(12.5)).text_color(rgba(FAILED)).child(e));
+        let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().children(error);
         let right = div()
             .flex()
             .flex_none()
@@ -783,23 +791,32 @@ impl Desktop {
             .children(toggle)
             .child(self.term_tabs(tree, cx))
             .child(status)
+            .children(diff)
             .child(right);
-        let body = match self.workspace(tree).active() {
-            Some(Tab::Term(rows)) => {
-                let rows = rows.clone();
-                self.panes(rows, cx)
-            }
-            Some(Tab::Changes) => self.diff_box(cx),
-            None => div().flex_1(),
+        let body = match self.workspace(tree).active().cloned() {
+            Some(Tab::Term(rows)) => self.panes(rows, cx),
+            Some(Tab::Doc(Doc::File(p))) if self.file.as_ref() == Some(&p) => self.file_view(cx),
+            Some(Tab::Doc(Doc::Diff(p))) if self.diff_file.as_ref() == Some(&p) => self.diff_view(cx),
+            Some(Tab::Doc(_)) | None => div().flex_1(),
         };
         div().flex_1().min_h_0().flex().flex_col().bg(rgba(SURFACE_SUNKEN)).child(bar).child(body)
     }
 
-    fn tab_lead(&self, panes: Option<Vec<String>>) -> Div {
+    fn tab_lead(&self, tab: &Tab) -> Div {
         let row = div().flex().items_center().gap(px(7.));
         let label = |text: String| div().max_w(px(150.)).truncate().child(text);
-        let Some(p) = panes else {
-            return row.child(icon("branch", 13., TEXT_3)).child("Changes");
+        let p = match tab {
+            Tab::Term(rows) => rows.concat(),
+            Tab::Doc(doc) => {
+                let path = match doc {
+                    Doc::File(p) | Doc::Diff(p) => p,
+                };
+                let totals = match doc {
+                    Doc::Diff(p) => self.repo().and_then(|r| r.files.iter().find(|f| f.path == *p)).map(|f| ui::meta_diff(f.added, f.removed, 11.)),
+                    Doc::File(_) => None,
+                };
+                return row.child(file_icon(path, false, false, 14.)).child(label(basename(path))).children(totals);
+            }
         };
         let count = |text: String| if p.len() > 1 { format!("{text} · {} panes", p.len()) } else { text };
         if let Some(a) = self.summary(&p[0]) {
@@ -826,12 +843,11 @@ impl Desktop {
     fn term_tabs(&mut self, tree: &str, cx: &mut Context<Self>) -> Div {
         let w = self.workspace(tree);
         let active = w.active;
-        let tabs: Vec<Option<Vec<String>>> =
-            w.tabs.iter().map(|t| if let Tab::Term(r) = t { Some(r.iter().flatten().cloned().collect()) } else { None }).collect();
+        let tabs = w.tabs.clone();
         let items: Vec<_> = tabs
-            .into_iter()
+            .iter()
             .enumerate()
-            .map(|(i, panes)| {
+            .map(|(i, tab)| {
                 let selected = i == active;
                 let close = div()
                     .id(("close-tab", i))
@@ -859,7 +875,7 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .cursor_pointer()
-                    .child(self.tab_lead(panes))
+                    .child(self.tab_lead(tab))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_tab(i, window, cx)));
                 div()
                     .group("term-tab")
@@ -910,6 +926,29 @@ impl Desktop {
                 cx.notify();
             }));
         let menu = self.tab_menu.then(|| ui::dropdown(29., self.tab_menu_view(cx)));
+        let shown = Some((tree.to_string(), active));
+        if self.tab_revealed != shown {
+            self.tab_scroll.scroll_to_item(active);
+            self.tab_revealed = shown;
+        }
+        let (offset, max) = (self.tab_scroll.offset().x, self.tab_scroll.max_offset().x);
+        let fade = |left: bool| {
+            let (solid, clear) = (rgba(SURFACE_SUNKEN), rgba(SURFACE_SUNKEN & 0xffffff00));
+            let (from, to) = if left { (solid, clear) } else { (clear, solid) };
+            div().absolute().top_0().bottom_0().w(px(24.)).when(left, |d| d.left_0()).when(!left, |d| d.right_0()).bg(linear_gradient(90., linear_color_stop(from, 0.), linear_color_stop(to, 1.)))
+        };
+        let strip = div()
+            .id("tab-strip")
+            .track_scroll(&self.tab_scroll)
+            .overflow_x_scroll()
+            .flex()
+            .min_w_0()
+            .items_center()
+            .gap(px(2.))
+            // The padding keeps the selected tab's shadow inside the clip, else only its corners show; the margin undoes the shift.
+            .p(px(3.))
+            .m(px(-3.))
+            .children(items);
         div()
             .flex()
             .flex_initial()
@@ -917,8 +956,7 @@ impl Desktop {
             .h(px(40.))
             .items_center()
             .gap(px(2.))
-            // The padding keeps the selected tab's shadow inside the clip, else only its corners show; the margin undoes the shift.
-            .child(div().flex().min_w_0().items_center().gap(px(2.)).p(px(3.)).m(px(-3.)).overflow_hidden().children(items))
+            .child(div().relative().flex().min_w_0().child(strip).when(offset < px(0.), |d| d.child(fade(true))).when(offset > -max, |d| d.child(fade(false))))
             .child(div().relative().flex().flex_none().items_center().gap(px(2.)).child(plus).child(chevron).children(menu))
     }
 

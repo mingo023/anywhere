@@ -3,7 +3,7 @@ use theme::*;
 use ui::{self, Segment, Variant, checkbox, dot};
 use crate::explore::status_word;
 use crate::syntax::{Spans, language_for, line_spans};
-use crate::view::{ago_long, empty, now_ms};
+use crate::view::{ago_long, doc_bar, empty, now_ms};
 use crate::{Comment, Desktop, Overlay};
 use gpui_kit::component::input::{Escape, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -302,7 +302,7 @@ impl Desktop {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(self.page_bar(crumbs, meta, right, cx))
+            .child(doc_bar(crumbs, meta, right))
             .child(self.diff_box(cx))
     }
 
@@ -311,7 +311,7 @@ impl Desktop {
         div()
             .flex_1()
             .min_h_0()
-            .bg(rgba(SURFACE))
+            .bg(rgba(PAGE))
             .border_t(px(0.5))
             .border_color(rgba(SEPARATOR))
             .overflow_hidden()

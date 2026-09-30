@@ -109,6 +109,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
     (d.layout, d.panel, d.tab_menu) = (Layout::Sidebars, false, false);
     (d.session, d.worktree, d.focused, d.diff_file, d.file) = (None, None, None, None, None);
+    d.workspaces.clear();
 }
 
 /// Waits for the latest git refresh to land, then lays out a frame: nothing else draws a hidden window.

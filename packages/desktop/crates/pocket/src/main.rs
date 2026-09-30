@@ -28,7 +28,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Duration;
 use store::Store;
-use workspace::{Tab, Workspace};
+use workspace::{Doc, Tab, Workspace};
 
 actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab]);
 
@@ -145,6 +145,9 @@ pub struct Desktop {
     changes_tree: bool,
     changes_folded: HashSet<String>,
     changes_scroll: UniformListScrollHandle,
+    tab_scroll: ScrollHandle,
+    /// The worktree and tab last scrolled into view, so a tab is revealed once when it becomes active rather than every frame.
+    tab_revealed: Option<(String, usize)>,
     initials: String,
     tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     git_run: u64,
@@ -274,6 +277,8 @@ impl Desktop {
             changes_tree: false,
             changes_folded: HashSet::new(),
             changes_scroll: UniformListScrollHandle::new(),
+            tab_scroll: ScrollHandle::new(),
+            tab_revealed: None,
             initials: String::new(),
             tree: HashMap::new(),
             git_run: 0,
@@ -376,10 +381,9 @@ impl Desktop {
         self.worktree = Some(tree.to_string());
     }
 
-    /// The terminals on screen: the worktree's active tab, unless a preview covers it.
+    /// The terminals on screen: the worktree's active tab's.
     fn visible_panes(&mut self) -> Vec<String> {
-        let preview = (self.side == Side::Changes && self.diff_file.is_some()) || (self.side == Side::Explorer && self.file.is_some());
-        let Some(tree) = self.cwd().filter(|_| self.screen == Screen::Sessions && !preview) else { return Vec::new() };
+        let Some(tree) = self.cwd().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
         match self.workspace(&tree).active() {
             Some(Tab::Term(rows)) => rows.concat(),
             _ => Vec::new(),
@@ -534,6 +538,7 @@ impl Desktop {
         if self.project.as_ref() != Some(&p) {
             self.set_project(Some(p));
             self.refresh_git(cx);
+            self.load_active(cx);
         }
         cx.notify();
     }
@@ -553,6 +558,7 @@ impl Desktop {
         if self.worktree != tree {
             self.worktree = tree;
             self.refresh_git(cx);
+            self.load_active(cx);
         }
         self.session = None;
         cx.notify();
@@ -562,15 +568,67 @@ impl Desktop {
         let Some(tree) = self.cwd() else { return };
         let w = self.workspace(&tree);
         w.active = i;
-        match w.active() {
-            Some(Tab::Term(rows)) => {
-                let pane = rows[0][0].clone();
-                self.focus_pane(pane, window, cx);
-            }
-            Some(Tab::Changes) => self.load_diff(cx),
+        match w.active().cloned() {
+            Some(Tab::Term(rows)) => self.focus_pane(rows[0][0].clone(), window, cx),
+            Some(Tab::Doc(doc)) => self.show_doc(doc, cx),
             None => {}
         }
         cx.notify();
+    }
+
+    /// The file or changes the worktree's active tab shows.
+    pub fn active_doc(&self) -> Option<Doc> {
+        match self.workspaces.get(&self.cwd()?)?.active()? {
+            Tab::Doc(doc) => Some(doc.clone()),
+            Tab::Term(_) => None,
+        }
+    }
+
+    /// Opens `doc` in its tab of the worktree on screen.
+    pub fn open_doc(&mut self, doc: Doc, cx: &mut Context<Self>) {
+        let Some(tree) = self.cwd() else { return };
+        self.screen = Screen::Sessions;
+        self.workspace(&tree).open_doc(doc.clone());
+        self.show_doc(doc, cx);
+    }
+
+    fn show_doc(&mut self, doc: Doc, cx: &mut Context<Self>) {
+        match doc {
+            Doc::File(path) => {
+                if self.file.as_ref() != Some(&path) {
+                    self.file = Some(path);
+                    self.file_preview = None;
+                    self.file_diff.clear();
+                    self.code_stale = true;
+                    self.md_source = false;
+                }
+                self.load_file(cx);
+            }
+            Doc::Diff(path) => {
+                if self.diff_file.as_ref() != Some(&path) {
+                    self.selection = None;
+                    self.diff_open.clear();
+                    self.set_diff(Vec::new(), true);
+                    self.diff_file = Some(path);
+                }
+                self.load_diff(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn loaded(&self, doc: &Doc) -> bool {
+        match doc {
+            Doc::File(p) => self.file.as_ref() == Some(p),
+            Doc::Diff(p) => self.diff_file.as_ref() == Some(p),
+        }
+    }
+
+    /// Loads the doc a tab revealed by closing or switching worktrees shows, unless it is loaded already.
+    fn load_active(&mut self, cx: &mut Context<Self>) {
+        if let Some(doc) = self.active_doc().filter(|d| !self.loaded(d)) {
+            self.show_doc(doc, cx);
+        }
     }
 
     pub fn focus_pane(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -618,6 +676,7 @@ impl Desktop {
         for w in self.workspaces.values_mut() {
             w.remove(id);
         }
+        self.load_active(cx);
         cx.notify();
     }
 
@@ -637,6 +696,7 @@ impl Desktop {
         for id in self.workspace(&tree).close_tab(i) {
             self.close_pane(&id, cx);
         }
+        self.load_active(cx);
         cx.notify();
     }
 
@@ -805,12 +865,8 @@ impl Desktop {
                 let tree = explore::merge_tree(tree, &d.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 let mut changed = repos != d.repos || tree != d.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.repos, d.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
-                if let Some((_, preview, lines)) = file.filter(|(p, _, _)| d.file.as_ref() == Some(p)) {
-                    let preview = Some(preview);
-                    let fresh = preview != d.file_preview || lines != d.file_diff;
-                    changed |= fresh;
-                    d.code_stale |= fresh;
-                    (d.file_preview, d.file_diff) = (preview, lines);
+                if let Some(file) = file {
+                    changed |= d.apply_file(file);
                 }
                 if let Some(load) = diff {
                     changed |= d.apply_diff(load);
@@ -826,22 +882,14 @@ impl Desktop {
 
     pub fn open_changes(&mut self, path: Option<String>, cx: &mut Context<Self>) {
         let path = path.or_else(|| self.diff_file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
-        if path != self.diff_file {
-            self.selection = None;
-            self.diff_open.clear();
-            self.set_diff(Vec::new(), true);
-        }
-        self.diff_file = path;
-        self.screen = Screen::Sessions;
         self.side = Side::Changes;
-        self.load_diff(cx);
-        cx.notify();
+        match path {
+            Some(path) => self.open_doc(Doc::Diff(path), cx),
+            None => cx.notify(),
+        }
     }
 
     fn load_diff(&mut self, cx: &mut Context<Self>) {
-        if self.diff_file.is_none() {
-            self.diff_file = self.repo().and_then(|r| r.files.first()).map(|f| f.path.clone());
-        }
         let Some((cwd, path)) = self.cwd().zip(self.diff_file.clone()) else { return };
         let (open, shown) = (self.diff_open.clone(), self.diff.clone());
         let task = cx.background_executor().spawn(async move { diff::read_diff(&cwd, path, open, &shown) });

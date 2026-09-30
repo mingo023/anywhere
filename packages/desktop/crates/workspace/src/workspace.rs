@@ -1,8 +1,15 @@
+/// What a doc tab shows: a file by its absolute path, or a file's changes by its path in the worktree.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Doc {
+    File(String),
+    Diff(String),
+}
+
 /// The tabs of one worktree: terminal tabs hold rows of panes, each a pocketd terminal id.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Tab {
     Term(Vec<Vec<String>>),
-    Changes,
+    Doc(Doc),
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -33,7 +40,7 @@ impl Workspace {
         self.active = self.tabs.len() - 1;
     }
 
-    /// Splits the active terminal tab; with the Changes tab active the pane opens as a new tab.
+    /// Splits the active terminal tab; with a doc tab active the pane opens as a new tab.
     pub fn split(&mut self, id: String, down: bool) {
         match self.tabs.get_mut(self.active) {
             Some(Tab::Term(rows)) if down => rows.push(vec![id]),
@@ -46,11 +53,12 @@ impl Workspace {
         self.tabs.iter().position(|t| matches!(t, Tab::Term(rows) if rows.iter().flatten().any(|p| p == id)))
     }
 
-    pub fn open_changes(&mut self) {
-        self.active = match self.tabs.iter().position(|t| *t == Tab::Changes) {
+    /// Shows `doc` in its tab, adding one if none shows it yet.
+    pub fn open_doc(&mut self, doc: Doc) {
+        self.active = match self.tabs.iter().position(|t| *t == Tab::Doc(doc.clone())) {
             Some(i) => i,
             None => {
-                self.tabs.push(Tab::Changes);
+                self.tabs.push(Tab::Doc(doc));
                 self.tabs.len() - 1
             }
         };
@@ -74,7 +82,7 @@ impl Workspace {
         }
         let ids = match self.tabs.remove(i) {
             Tab::Term(rows) => rows.into_iter().flatten().collect(),
-            Tab::Changes => Vec::new(),
+            Tab::Doc(_) => Vec::new(),
         };
         if self.active > i || self.active == self.tabs.len() {
             self.active = self.active.saturating_sub(1);
@@ -89,6 +97,10 @@ mod tests {
 
     fn term(rows: &[&[&str]]) -> Tab {
         Tab::Term(rows.iter().map(|r| r.iter().map(|s| s.to_string()).collect()).collect())
+    }
+
+    fn diff(path: &str) -> Doc {
+        Doc::Diff(path.into())
     }
 
     fn with(ids: &[&str]) -> Workspace {
@@ -122,7 +134,7 @@ mod tests {
         w.split("b".into(), true);
         w.split("c".into(), false);
         assert_eq!(w.tabs, vec![term(&[&["a"], &["b", "c"]])]);
-        w.open_changes();
+        w.open_doc(diff("x"));
         w.split("d".into(), false);
         assert_eq!(w.tabs.len(), 3);
         assert_eq!(w.active, 2);
@@ -141,7 +153,7 @@ mod tests {
     fn closing_a_tab_returns_its_sessions() {
         let mut w = with(&["a", "b"]);
         w.split("c".into(), true);
-        w.open_changes();
+        w.open_doc(diff("x"));
         assert_eq!(w.close_tab(1), vec!["b".to_string()]);
         assert_eq!(w.active, 1);
         assert_eq!(w.close_tab(1), Vec::<String>::new());
@@ -149,10 +161,19 @@ mod tests {
     }
 
     #[test]
+    fn each_doc_gets_one_tab() {
+        let mut w = with(&["a"]);
+        w.open_doc(Doc::File("/r/x".into()));
+        w.open_doc(diff("y"));
+        w.open_doc(Doc::File("/r/x".into()));
+        assert_eq!((&w.tabs[1..], w.active), (&[Tab::Doc(Doc::File("/r/x".into())), Tab::Doc(diff("y"))][..], 1));
+    }
+
+    #[test]
     fn finds_the_tab_holding_a_pane() {
         let mut w = with(&["a", "b"]);
         w.split("c".into(), true);
-        w.open_changes();
+        w.open_doc(diff("x"));
         assert_eq!((w.tab_of("c"), w.tab_of("b"), w.tab_of("x")), (Some(0), Some(1), None));
     }
 }
