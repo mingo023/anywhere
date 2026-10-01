@@ -85,9 +85,14 @@ fn main() {
                 .detach();
                 let handle = window.window_handle();
                 let this = cx.weak_entity();
-                cx.on_system_notification_response(move |r, cx| {
-                    cx.activate(true);
-                    let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
+                cx.on_system_notification_response(move |r, cx| match r.action_id {
+                    Some(action) => {
+                        let _ = this.update(cx, |d, cx| d.answer_banner(&r.tag, &action, cx));
+                    }
+                    None => {
+                        cx.activate(true);
+                        let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
+                    }
                 });
                 Desktop::new(daemon, outbox, store, window, cx)
             });

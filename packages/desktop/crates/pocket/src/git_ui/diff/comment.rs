@@ -15,7 +15,7 @@ impl Desktop {
             .child(div().font_family(MONO).font_weight(FontWeight::SEMIBOLD).text_color(WAITING_TEXT).child(c.label.clone()))
             .child(div().text_color(TEXT_4).child(format!("· {}", ago_long(c.at, now_ms()))))
             .child(div().flex_1())
-            .child(div().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(RUNNING_TEXT).child(icon("check", 12., RUNNING_TEXT)).child("Sent"));
+            .child(div().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(SUCCESS_TEXT).child(icon("check", 12., SUCCESS_TEXT)).child("Sent"));
         let resolve = div()
             .id(("resolve", i))
             .h(px(24.))

@@ -1,5 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, Overlay, Screen, Side, column, drag_area};
+use crate::util::basename;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -50,6 +51,7 @@ impl Desktop {
     }
 
     fn column_header(&self, cx: &mut Context<Self>) -> Div {
+        let title = self.cwd().map(|t| basename(&t)).or_else(|| self.project.as_deref().map(|p| self.repo_name(p))).unwrap_or_default();
         let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx)));
         div()
@@ -58,7 +60,7 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(4.))
-            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).child("Workspace"))
+            .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::BOLD).truncate().child(title))
             .child(add)
     }
 }

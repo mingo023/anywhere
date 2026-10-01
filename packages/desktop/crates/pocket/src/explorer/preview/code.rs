@@ -24,7 +24,7 @@ pub fn decorations(text: &str, marks: &HashMap<usize, bool>) -> Vec<TextDecorati
         .filter_map(|(i, line)| {
             let modified = *marks.get(&(i + 1))?;
             let start = line.as_ptr() as usize - text.as_ptr() as usize;
-            let bg = HighlightStyle { background_color: Some(if modified { WAITING_BG } else { RUNNING_BG }.into()), ..Default::default() };
+            let bg = HighlightStyle { background_color: Some(if modified { WAITING_BG } else { SUCCESS_BG }.into()), ..Default::default() };
             Some(TextDecoration::new(start..start + line.len(), bg))
         })
         .collect()
@@ -42,14 +42,14 @@ mod tests {
     use super::{decorations, gutter};
     use git::{Kind, Line};
     use std::collections::HashMap;
-    use theme::{RUNNING_BG, WAITING_BG};
+    use theme::{SUCCESS_BG, WAITING_BG};
 
     #[test]
     fn tints_changed_lines() {
         let d = decorations("a\nbb\nccc\n", &HashMap::from([(2, true), (3, false)]));
         assert_eq!(d.iter().map(|d| d.range.clone()).collect::<Vec<_>>(), vec![2..4, 5..8]);
         assert_eq!(d[0].style.background_color, Some(WAITING_BG.into()));
-        assert_eq!(d[1].style.background_color, Some(RUNNING_BG.into()));
+        assert_eq!(d[1].style.background_color, Some(SUCCESS_BG.into()));
     }
 
     #[test]

@@ -20,13 +20,13 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `daemon` | the pocketd socket client |
 | `agents` | the phone-socket client and the agent list |
 | `term` | the ghostty VT |
-| `store` | the saved projects |
+| `store` | the saved projects and sound toggles |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `ui`, `theme` | widgets, colours, icons |
 
 | `pocket` module | Owns |
 |---|---|
-| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/chrome` layout enums and shared bars |
+| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars |
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing |
 | `terminal_view` | the session page: tabs, panes, keyboard and IME input |
 | `sidebar` | projects aside, compact rail, sessions column |

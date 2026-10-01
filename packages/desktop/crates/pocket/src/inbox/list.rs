@@ -1,7 +1,6 @@
-use super::{Note, notes, readable, step};
+use super::{Note, heading, notes, readable, step};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{column, drag_area, empty};
-use crate::status::Status;
+use crate::desktop::chrome::{column, drag_area, empty, state};
 use crate::util::{ago, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -18,7 +17,7 @@ impl Desktop {
     pub fn inbox_list(&mut self, cx: &mut Context<Self>) -> Div {
         let notes = notes(&self.agents);
         let total = notes.len();
-        let asks = notes.iter().filter(|n| n.status == Status::NeedsYou).count();
+        let headings: Vec<_> = (0..total).map(|i| heading(&notes, i)).collect();
         let now = now_ms();
         let header = drag_area(div())
             .h(px(52.))
@@ -31,7 +30,7 @@ impl Desktop {
             .child(div().flex_1().text_size(px(17.)).font_weight(FontWeight::BOLD).child("Inbox"))
             .child(icon_button("inbox-filter", "filter"))
             .child(
-                ui::button("mark-read", Variant::Ghost, None, "Mark all read").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                ui::button("mark-seen", Variant::Ghost, None, "Mark all seen").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         let ids = readable(crate::inbox::notes(&this.agents));
                         if !ids.is_empty() {
                             this.outbox.seen(&ids);
@@ -61,12 +60,9 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(px(2.));
-        for (i, n) in notes.into_iter().enumerate() {
-            if i == 0 && asks > 0 {
-                list = list.child(section("NEEDS YOU", asks));
-            }
-            if i == asks {
-                list = list.child(section("DONE", total - asks));
+        for (i, (n, head)) in notes.into_iter().zip(headings).enumerate() {
+            if let Some((label, count)) = head {
+                list = list.child(section(&label, count));
             }
             list = list.child(self.note_row(i, n, now, cx));
         }
@@ -78,11 +74,7 @@ impl Desktop {
 
     fn note_row(&self, i: usize, n: Note, now: i64, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = i == self.inbox.selected;
-        let (glyph, color) = match n.status {
-            Status::NeedsYou => ("shield", WAITING_TEXT),
-            Status::Failed => ("x", FAILED),
-            _ => ("check", ACCENT),
-        };
+        let mark = ui::indicator(("note-mark", i), Some(state(n.status, 0, 0)));
         let project = self.project_name(&n.agent);
         let provider = self.agents.get(&n.agent).map(|a| provider_name(&a.provider)).unwrap_or("Shell");
         div()
@@ -106,7 +98,7 @@ impl Desktop {
                     .rounded(px(8.))
                     .bg(SURFACE)
                     .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
-                    .child(icon(glyph, 13., color)),
+                    .children(mark),
             )
             .child(
                 div()

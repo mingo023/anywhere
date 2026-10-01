@@ -14,6 +14,21 @@ pub struct RepoConfig {
     pub copy: Vec<String>,
 }
 
+/// Which status changes play a sound; a key missing from `desktop.json` reads as on.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+#[serde(default)]
+pub struct Sounds {
+    pub needs_you: bool,
+    pub done: bool,
+    pub failed: bool,
+}
+
+impl Default for Sounds {
+    fn default() -> Self {
+        Self { needs_you: true, done: true, failed: true }
+    }
+}
+
 /// What the desktop remembers across launches, in `desktop.json` next to pocketd's socket.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 #[serde(default)]
@@ -23,6 +38,7 @@ pub struct Store {
     pub repos: BTreeMap<String, RepoConfig>,
     /// Project paths whose worktrees are hidden on the sidebar.
     pub collapsed: BTreeSet<String>,
+    pub sounds: Sounds,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -110,5 +126,16 @@ mod tests {
         s.toggle("/w");
         s.toggle("/w");
         assert!(!s.collapsed.contains("/w"));
+    }
+
+    #[test]
+    fn sounds_default_on_when_desktop_json_predates_them() {
+        let dir = std::env::temp_dir().join(format!("pocket-sounds-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("desktop.json"), r#"{"projects":["/w"]}"#).unwrap();
+        assert_eq!(Store::load(&dir).sounds, Sounds { needs_you: true, done: true, failed: true });
+        std::fs::write(dir.join("desktop.json"), r#"{"sounds":{"done":false}}"#).unwrap();
+        assert_eq!(Store::load(&dir).sounds, Sounds { needs_you: true, done: false, failed: true });
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

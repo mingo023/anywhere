@@ -38,6 +38,18 @@ Point every other command at it with the prefix `env -u POCKETD_PTY POCKET_HOME=
 - Any other line prints `echo: <line>` and ends the turn, which gives a Done.
 - Stdin is read one line at a time: a line typed while a hook blocks waits for it.
 
+## Rebase onto main b9e9bee
+
+E16 PR1, E16 PR2 and E01 PR1 have not merged; main is 5 commits past 5091a01. Where this section and a task disagree, this section wins. Anchor by content; line numbers and test counts have drifted, so ignore both. The bar is: the three workspace commands pass with no clippy warning beyond HEAD's.
+
+- **Tokens (Task 1.1 adds them to `theme.rs`).** `SUCCESS = Token::new(0x2b9a66ff, 0x30a46cff)`, `SUCCESS_TEXT = Token::new(0x18794eff, 0x3dd68cff)`, `SUCCESS_BG = Token::fixed(0x30a46c21)`, `FAILED_TEXT = Token::new(0xcd2b31ff, 0xff9592ff)`. Leave `WAITING`, `FAILED` and every other value alone, and add no `ON_SOLID`. Task 1.2 deletes `RUNNING*` as written.
+- **No `theme::contrast`.** Drop `pill_glyphs_clear_3_to_1_on_their_own_fill` and its imports from Task 1.1. AA is E16's.
+- **Palette stays on its current API** (`hit(q, s)`, `session_entries(q: &str, Vec<(String, Card)>)`, `action_entries(q, project)`). Tasks 2.3, 3.3, 4.5 and every palette step in PR 1: keep the behaviour and test names, but write the code against this API, not v2's. Do not port v2.
+- **Already on main:** 719dd54 relabelled Working states "Working" in `ui.rs`. In Task 1.2 skip what is already done.
+- **`Event::Connected(Vec<String>)` is already in.** Write `Event::Connected(_)` wherever the plan matches the unit variant.
+- **No `scripts/check.sh` or `scripts/bundle-dev.sh`.** Banner actions and the bundled Dock badge can't be seen in a bundle here. Cover them with unit tests; check the badge from `cargo run`, and report whatever stays unseen.
+- **Fixture:** `.ui-review/fixture/capture.sh` exists; use it for before/after screens.
+
 **Read first:**
 - `CLAUDE.md`, "Desktop code layout" and "Desktop performance". Logic goes in pure functions, tests sit beside it, and render costs only what is visible.
 - `docs/adr/0003-desktop-code-layout.md`. It explains state structs per feature and a thin `impl Desktop`.

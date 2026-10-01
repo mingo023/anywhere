@@ -39,7 +39,7 @@ _Avoid_: session id, transcript
 ### Status
 
 **Status**:
-Where an agent stands, from the user's view. One of Needs you, Done, Working, Idle, in that order of urgency. A session shows its agent's status; terminals without an agent have none.
+Where an agent stands, from the user's view. One of Needs you, Failed, Done, Working, Idle, in that order of urgency. A session shows its agent's status; terminals without an agent have none.
 
 **Needs you**:
 The agent can't continue until the user answers something: a permission, a question, a dialog. Clears only when answered.
@@ -50,8 +50,11 @@ The agent is running a turn.
 _Avoid_: running, busy
 
 **Done**:
-A turn ended and nobody has seen it yet. Marked failed when the turn errored; a user interrupt is not a failure.
+A turn ended and nobody has seen it yet.
 _Avoid_: finished, unread
+
+**Failed**:
+A Done turn that errored. It asks for a look before plain Done. A user interrupt is not a failure; the agent goes Idle.
 
 **Idle**:
 At the prompt, with nothing unseen.
@@ -60,3 +63,7 @@ _Avoid_: waiting, ready
 **Seen**:
 An agent is seen while its pane is visible in a focused desktop window, or its timeline is open on the phone. One flag for all clients; a turn that ends while seen never becomes Done.
 _Avoid_: read, acknowledged
+
+**Up next**:
+The sessions that want a look, in the order to handle them: Needs you, then Failed, then Done, each oldest status change first. Seen sessions drop out because pocketd turns a seen Done into Idle.
+_Avoid_: next up, queue

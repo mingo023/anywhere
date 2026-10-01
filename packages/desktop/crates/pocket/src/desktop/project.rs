@@ -40,7 +40,7 @@ impl Desktop {
             .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
             .map(|(a, s)| status::card(a, &s.info.cwd))
             .collect();
-        out.sort_by_key(|c| std::cmp::Reverse(c.at));
+        out.sort_by_key(|c| std::cmp::Reverse(c.created));
         out
     }
 

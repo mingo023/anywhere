@@ -1,10 +1,12 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Overlay, Screen};
-use crate::status::{Card, Status};
+use crate::desktop::chrome::{Overlay, Screen, state};
+use crate::desktop::sounds::Cue;
+use crate::status::{self, Card, Status};
 use crate::util::basename;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 use std::cmp::Reverse;
+use store::Sounds;
 use theme::*;
 use ui::{self, dot};
 
@@ -15,12 +17,14 @@ pub enum Pick {
     New,
     Split,
     Next,
+    UpNext,
+    Sound(Cue),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum Lead {
     Waiting,
-    Running,
+    Status(Status),
     Provider(String),
     File,
     Icon(&'static str),
@@ -33,16 +37,6 @@ pub struct Entry {
     title: String,
     detail: String,
     keys: Option<&'static str>,
-}
-
-fn status_word(s: Status) -> &'static str {
-    match s {
-        Status::NeedsYou => "needs you",
-        Status::Failed => "failed",
-        Status::Done => "done",
-        Status::Working => "working",
-        Status::Idle => "idle",
-    }
 }
 
 fn hint(keys: &str, label: &str) -> Div {
@@ -78,24 +72,35 @@ fn hit(q: &str, s: &str) -> bool {
     q.is_empty() || s.to_lowercase().contains(q)
 }
 
-/// `cards` pairs each card with its project's name.
+fn session_entry(name: &str, c: Card) -> Entry {
+    Entry {
+        lead: match c.status {
+            Status::Idle => Lead::Provider(c.provider.clone()),
+            s => Lead::Status(s),
+        },
+        detail: format!("{name} · {} · {}", provider_name(&c.provider), c.status.label()),
+        title: c.title,
+        keys: None,
+        pick: Pick::Session(c.id),
+    }
+}
+
+/// `cards` pairs each card with its project's name; newest session first.
 fn session_entries(q: &str, cards: Vec<(String, Card)>) -> Vec<Entry> {
     let mut cards: Vec<(String, Card)> = cards.into_iter().filter(|(_, c)| hit(q, &c.title)).collect();
-    cards.sort_by_key(|(_, c)| (c.status, Reverse(c.at)));
-    cards
+    cards.sort_by_key(|(_, c)| Reverse(c.created));
+    cards.into_iter().take(5).map(|(name, c)| session_entry(&name, c)).collect()
+}
+
+/// The matching sessions in `status::up_next` order, at most five.
+fn up_next_entries(q: &str, cards: &[(String, Card)]) -> Vec<Entry> {
+    let matched: Vec<&(String, Card)> = cards.iter().filter(|(_, c)| hit(q, &c.title)).collect();
+    let plain: Vec<Card> = matched.iter().map(|(_, c)| c.clone()).collect();
+    status::up_next(&plain)
         .into_iter()
         .take(5)
-        .map(|(name, c)| Entry {
-            lead: match c.status {
-                Status::NeedsYou => Lead::Waiting,
-                Status::Working => Lead::Running,
-                _ => Lead::Provider(c.provider.clone()),
-            },
-            detail: format!("{name} · {} · {}", provider_name(&c.provider), status_word(c.status)),
-            title: c.title,
-            keys: None,
-            pick: Pick::Session(c.id),
-        })
+        .filter_map(|c| matched.iter().find(|(_, m)| m.id == c.id))
+        .map(|(name, c)| session_entry(name, c.clone()))
         .collect()
 }
 
@@ -118,13 +123,22 @@ fn file_entries(q: &str, root: &str, changed: &[String], files: &[String]) -> Ve
         .collect()
 }
 
-fn action_entries(q: &str, project: &str) -> Vec<Entry> {
+fn action_entries(q: &str, project: &str, sounds: Sounds) -> Vec<Entry> {
+    let sound = |cue: Cue| Entry {
+        pick: Pick::Sound(cue),
+        lead: Lead::Icon("bell"),
+        title: format!("{} sound: {}", cue.name(), if cue.on(sounds) { "On" } else { "Off" }),
+        detail: String::new(),
+        keys: None,
+    };
     [
         Entry { pick: Pick::New, lead: Lead::Icon("sparkle"), title: format!("New session in {project}"), detail: String::new(), keys: Some("⌘ N") },
         Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: None },
-        Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Jump to next waiting session".into(), detail: String::new(), keys: Some("⌘ J") },
+        Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Go to next Needs you".into(), detail: String::new(), keys: Some("⌘ J") },
+        Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
     ]
     .into_iter()
+    .chain(Cue::ALL.map(sound))
     .filter(|e| hit(q, &e.title))
     .collect()
 }
@@ -179,13 +193,14 @@ impl Desktop {
                 self.cards(p).into_iter().map(move |c| (name.clone(), c))
             })
             .collect();
+        let up_next = up_next_entries(&q, &cards);
         let sessions = session_entries(&q, cards);
         let root = self.explore_root().unwrap_or_default();
         let changed: Vec<String> = self.repos.get(&root).map(|r| r.files.iter().map(|f| f.path.clone()).collect()).unwrap_or_default();
         let files = file_entries(&q, &root, &changed, &self.palette.files);
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
-        let actions = action_entries(&q, &project);
-        [("Sessions", sessions), ("Files", files), ("Actions", actions)].into_iter().filter(|(_, e)| !e.is_empty()).collect()
+        let actions = action_entries(&q, &project, self.store.sounds);
+        [("Up next", up_next), ("Sessions", sessions), ("Files", files), ("Actions", actions)].into_iter().filter(|(_, e)| !e.is_empty()).collect()
     }
 
     fn activate(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
@@ -198,7 +213,12 @@ impl Desktop {
             }
             Pick::New => self.open(Overlay::NewSession, window, cx),
             Pick::Split => self.new_shell(Some(false), cx),
-            Pick::Next => self.next_waiting(&crate::actions::NextWaiting, window, cx),
+            Pick::Next => self.next_needs_you(&crate::actions::NextNeedsYou, window, cx),
+            Pick::UpNext => self.go_to_up_next(&crate::actions::GoToUpNext, window, cx),
+            Pick::Sound(cue) => {
+                cue.flip(&mut self.store.sounds);
+                self.store.save();
+            }
         }
         cx.notify();
     }
@@ -236,7 +256,7 @@ impl Desktop {
                 n += 1;
                 let lead = match &e.lead {
                     Lead::Waiting => dot(8., WAITING).into_any_element(),
-                    Lead::Running => spinner(("palette-spin", i), 12., RUNNING_TEXT).into_any_element(),
+                    Lead::Status(s) => ui::indicator(("palette-status", i), Some(state(*s, 0, 0))).unwrap_or_else(|| div().into_any_element()),
                     Lead::Provider(p) => dot(8., provider_color(p)).into_any_element(),
                     Lead::File => file_icon(&e.title, false, false, 16.).into_any_element(),
                     Lead::Icon(name) => icon(name, 13., TEXT_2).into_any_element(),
@@ -291,11 +311,13 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Lead, Nav, Pick, action_entries, file_entries, nav, session_entries};
+    use super::{Entry, Lead, Nav, Pick, action_entries, file_entries, nav, session_entries, up_next_entries};
+    use crate::desktop::sounds::Cue;
     use crate::status::{Card, Kind, Status};
+    use store::Sounds;
 
     fn card(id: &str, title: &str, status: Status, at: i64) -> (String, Card) {
-        let c = Card { id: id.into(), provider: "claude".into(), title: title.into(), cwd: String::new(), at, status, kind: Kind::Agent };
+        let c = Card { id: id.into(), provider: "claude".into(), title: title.into(), cwd: String::new(), at, created: at, status, kind: Kind::Agent };
         ("app".into(), c)
     }
 
@@ -304,30 +326,42 @@ mod tests {
     }
 
     #[test]
-    fn sessions_show_the_five_most_urgent_then_latest_matches() {
-        let cards = vec![
-            card("a", "Fix login", Status::Idle, 9),
-            card("b", "Fix CI", Status::NeedsYou, 1),
-            card("c", "Docs", Status::NeedsYou, 5),
-            card("d", "fix tests", Status::Working, 3),
-            card("e", "Fix lint", Status::NeedsYou, 4),
-            card("f", "Fix build", Status::Done, 2),
-            card("g", "Fix typo", Status::Working, 8),
+    fn a_status_change_keeps_the_session_order() {
+        let cards = |s: [Status; 3]| vec![card("a", "Fix CI", s[0], 1), card("b", "Fix login", s[1], 3), card("c", "Fix lint", s[2], 2)];
+        let before = session_entries("fix", cards([Status::Working, Status::Idle, Status::Working]));
+        let after = session_entries("fix", cards([Status::Done, Status::NeedsYou, Status::Failed]));
+        assert_eq!(titles(&before), vec!["Fix login", "Fix lint", "Fix CI"]);
+        assert_eq!(titles(&after), titles(&before));
+    }
+
+    #[test]
+    fn up_next_lists_five_matching_sessions_that_want_a_look() {
+        let cards = [
+            card("a", "Fix CI", Status::Done, 1),
+            card("b", "Fix login", Status::NeedsYou, 5),
+            card("c", "Fix docs", Status::Working, 2),
+            card("d", "Fix lint", Status::Failed, 4),
+            card("e", "Fix build", Status::NeedsYou, 6),
+            card("f", "Fix typo", Status::Done, 3),
+            card("g", "Fix tests", Status::Done, 7),
+            card("h", "Docs", Status::NeedsYou, 0),
         ];
-        let got = session_entries("fix", cards);
-        assert_eq!(titles(&got), vec!["Fix lint", "Fix CI", "Fix build", "Fix typo", "fix tests"]);
+        assert_eq!(titles(&up_next_entries("fix", &cards)), vec!["Fix login", "Fix build", "Fix lint", "Fix CI", "Fix typo"]);
+        assert_eq!(titles(&up_next_entries("", &cards)), vec!["Docs", "Fix login", "Fix build", "Fix lint", "Fix CI"]);
     }
 
     #[test]
     fn a_session_opens_its_agent_and_reads_its_project_provider_and_status() {
-        let got = session_entries("", vec![card("a1", "Fix CI", Status::NeedsYou, 1), card("a2", "Docs", Status::Working, 1), card("a3", "Lint", Status::Done, 1)]);
+        let got = session_entries("", vec![card("a1", "Fix CI", Status::NeedsYou, 3), card("a2", "Docs", Status::Working, 2), card("a3", "Lint", Status::Done, 1), card("a4", "Build", Status::Failed, 0), card("a5", "Docs2", Status::Idle, -1)]);
         let got: Vec<_> = got.into_iter().map(|e| (e.pick, e.lead, e.detail)).collect();
         assert_eq!(
             got,
             vec![
-                (Pick::Session("a1".into()), Lead::Waiting, "app · Claude Code · needs you".to_string()),
-                (Pick::Session("a3".into()), Lead::Provider("claude".into()), "app · Claude Code · done".to_string()),
-                (Pick::Session("a2".into()), Lead::Running, "app · Claude Code · working".to_string()),
+                (Pick::Session("a1".into()), Lead::Status(Status::NeedsYou), "app · Claude Code · Needs you".to_string()),
+                (Pick::Session("a2".into()), Lead::Status(Status::Working), "app · Claude Code · Working".to_string()),
+                (Pick::Session("a3".into()), Lead::Status(Status::Done), "app · Claude Code · Done".to_string()),
+                (Pick::Session("a4".into()), Lead::Status(Status::Failed), "app · Claude Code · Failed".to_string()),
+                (Pick::Session("a5".into()), Lead::Provider("claude".into()), "app · Claude Code · Idle".to_string()),
             ]
         );
     }
@@ -360,11 +394,27 @@ mod tests {
 
     #[test]
     fn actions_match_on_their_titles() {
-        let all: Vec<_> = action_entries("", "app").into_iter().map(|e| (e.pick, e.title)).collect();
-        let want = [(Pick::New, "New session in app"), (Pick::Split, "Open selected in a split"), (Pick::Next, "Jump to next waiting session")];
+        let all: Vec<_> = action_entries("", "app", Sounds::default()).into_iter().map(|e| (e.pick, e.title)).collect();
+        let want = [
+            (Pick::New, "New session in app"),
+            (Pick::Split, "Open selected in a split"),
+            (Pick::Next, "Go to next Needs you"),
+            (Pick::UpNext, "Go to Up next"),
+            (Pick::Sound(Cue::NeedsYou), "Needs you sound: On"),
+            (Pick::Sound(Cue::Done), "Done sound: On"),
+            (Pick::Sound(Cue::Failed), "Failed sound: On"),
+        ];
         assert_eq!(all, want.map(|(p, t)| (p, t.to_string())));
-        let session: Vec<_> = action_entries("session", "app").into_iter().map(|e| e.pick).collect();
-        assert_eq!(session, vec![Pick::New, Pick::Next]);
+        let session: Vec<_> = action_entries("session", "app", Sounds::default()).into_iter().map(|e| e.pick).collect();
+        assert_eq!(session, vec![Pick::New]);
+    }
+
+    #[test]
+    fn a_sound_toggle_shows_its_state_and_flips_it() {
+        let mut sounds = Sounds::default();
+        Cue::NeedsYou.flip(&mut sounds);
+        let got: Vec<_> = action_entries("sound", "app", sounds).into_iter().map(|e| e.title).collect();
+        assert_eq!(got, vec!["Needs you sound: Off", "Done sound: On", "Failed sound: On"]);
     }
 
     #[test]

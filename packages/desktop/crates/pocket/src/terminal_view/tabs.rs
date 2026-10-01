@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use crate::desktop::chrome::{id, state};
 use crate::status::Status;
 use crate::util::basename;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -30,20 +31,14 @@ impl Desktop {
         };
         let count = |text: String| tab_label(text, p.len());
         if let Some(a) = self.summary(&p[0]) {
-            let mark = match Status::of(a) {
-                Some(Status::NeedsYou) => Some(dot(6., WAITING).into_any_element()),
-                Some(Status::Failed) => Some(icon("x", 12., FAILED).into_any_element()),
-                Some(Status::Done) => Some(dot(6., ACCENT).into_any_element()),
-                Some(Status::Working) => Some(dot(6., RUNNING).into_any_element()),
-                _ => None,
-            };
+            let mark = ui::indicator(id(format!("tab-mark:{}", a.id)), Status::of(a).map(|s| state(s, 0, 0)));
             return row.child(dot(7., provider_color(&a.provider))).child(label(count(provider_name(&a.provider).into()))).children(mark);
         }
         let s = self.terminals.sessions.get(&p[0]);
         let busy = s.and_then(|s| s.busy());
         let mark = match s {
             Some(s) if s.failed() => icon("x", 12., FAILED).into_any_element(),
-            _ if busy.is_some() => dot(6., RUNNING).into_any_element(),
+            _ if busy.is_some() => dot(6., ACCENT).into_any_element(),
             _ => dot(6., TEXT_5).into_any_element(),
         };
         let text = busy.map_or_else(|| self.pane_label(&p[0]), str::to_string);

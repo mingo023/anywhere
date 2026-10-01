@@ -2,7 +2,7 @@ pub(crate) mod column;
 mod panel;
 pub(crate) mod rail;
 mod row_menu;
-mod sessions;
+pub(crate) mod sessions;
 mod usage;
 
 use crate::desktop::Desktop;

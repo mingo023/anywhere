@@ -33,7 +33,7 @@ pub fn touched(files: &[FileStat], root: &str, edited: impl Fn(&str) -> bool) ->
 
 pub fn status_word(status: Option<char>) -> (Token, &'static str) {
     match status {
-        Some('A') => (RUNNING, "Added"),
+        Some('A') => (SUCCESS, "Added"),
         Some('D') => (FAILED, "Deleted"),
         Some(_) => (WAITING, "Modified"),
         None => (TEXT_5, "Unchanged"),

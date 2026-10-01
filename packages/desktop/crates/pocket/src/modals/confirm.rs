@@ -26,7 +26,7 @@ struct ConfirmText {
 
 impl ConfirmText {
     fn remove_project(name: &str, terminals: usize) -> Self {
-        let facts = closes(terminals).into_iter().chain(["The repository stays on disk".to_string()]).collect();
+        let facts = closes(terminals).into_iter().chain(["Its files stay on disk".to_string()]).collect();
         Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, danger: true }
     }
 
@@ -48,7 +48,7 @@ impl ConfirmText {
     fn close_terminals(busy: &Busy, worktree: &str, n: usize) -> Self {
         let title = match busy {
             Busy::Agent { title } => format!("\"{title}\" is still working in {worktree}. Close this terminal anyway?"),
-            Busy::Shell { command } => format!("\"{command}\" is still running in {worktree}. Close this terminal anyway?"),
+            Busy::Shell { command } => format!("\"{command}\" is still working in {worktree}. Close this terminal anyway?"),
         };
         Self { title, action: "Close terminal", facts: closes(n).filter(|_| n > 1).into_iter().collect(), dirty: 0, danger: true }
     }
@@ -114,8 +114,8 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_project_counts_the_terminals_it_closes_and_keeps_the_repository() {
-        let keeps = "The repository stays on disk";
+    fn removing_a_project_keeps_its_files() {
+        let keeps = "Its files stay on disk";
         assert_eq!(ConfirmText::remove_project("app", 0), text("Remove app?", "Remove", &[keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", 1), text("Remove app?", "Remove", &["Closes 1 terminal", keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", 3), text("Remove app?", "Remove", &["Closes 3 terminals", keeps], 0));
@@ -159,6 +159,6 @@ mod tests {
         assert_eq!(got, text("\"Fix login\" is still working in feat-x. Close this terminal anyway?", "Close terminal", &[], 0));
         let shell = Busy::Shell { command: "npm test".into() };
         let got = ConfirmText::close_terminals(&shell, "app", 3);
-        assert_eq!(got, text("\"npm test\" is still running in app. Close this terminal anyway?", "Close terminal", &["Closes 3 terminals"], 0));
+        assert_eq!(got, text("\"npm test\" is still working in app. Close this terminal anyway?", "Close terminal", &["Closes 3 terminals"], 0));
     }
 }

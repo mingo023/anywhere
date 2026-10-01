@@ -270,7 +270,7 @@ impl Desktop {
                     1 => "1 remote".to_string(),
                     n => format!("{n} remotes"),
                 };
-                (Some("check"), format!("Git repository · {branch} · {state} · {remotes}"), RUNNING_TEXT)
+                (Some("check"), format!("Git repository · {branch} · {state} · {remotes}"), SUCCESS_TEXT)
             }
         };
         div()

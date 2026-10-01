@@ -1,10 +1,15 @@
 pub(crate) mod alerts;
 pub(crate) mod chrome;
+pub(crate) mod dock;
+pub(crate) mod jump;
 pub(crate) mod project;
+pub(crate) mod sounds;
 
-use crate::actions::NextWaiting;
 use crate::desktop::alerts::Alerts;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
+use crate::desktop::dock::Badge;
+use crate::desktop::jump::Chips;
+use crate::desktop::sounds::Chime;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::git_ui::changes::ChangesState;
@@ -13,7 +18,6 @@ use crate::inbox::InboxState;
 use crate::modals::{add_project, new_session};
 use crate::palette::PaletteState;
 use crate::sidebar::SidebarState;
-use crate::status::Status;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use agents::{Agents, Outbox};
@@ -31,6 +35,8 @@ pub struct Desktop {
     pub(crate) daemon: Daemon,
     pub(crate) outbox: Outbox,
     pub(crate) alerts: Alerts,
+    pub(crate) chime: Chime,
+    pub(crate) badge: Badge,
     pub(crate) terminals: Terminals,
     pub(crate) agents: Agents,
     pub(crate) store: Store,
@@ -56,6 +62,7 @@ pub struct Desktop {
     pub(crate) root: FocusHandle,
     pub(crate) palette: PaletteState,
     pub(crate) sidebar: SidebarState,
+    pub(crate) chips: Chips,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) worktrees: HashMap<String, Vec<git::Worktree>>,
     pub(crate) worktree: Option<String>,
@@ -72,6 +79,7 @@ impl Desktop {
     pub(crate) fn new(daemon: Daemon, outbox: Outbox, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(window, cx);
+        let (chips, chips_subs) = Chips::new(window, cx);
         let (diff, diff_subs) = DiffState::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
         let preview = PreviewState::new(window, cx);
@@ -84,6 +92,7 @@ impl Desktop {
         ];
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
+        _subs.extend(chips_subs);
         _subs.extend(diff_subs);
         _subs.extend(changes_subs);
         _subs.extend(new_subs);
@@ -92,6 +101,8 @@ impl Desktop {
             daemon,
             outbox,
             alerts: Alerts::new(),
+            chime: Chime::new(),
+            badge: Badge::default(),
             terminals: Terminals::new(),
             agents: Agents::default(),
             project: store.projects.first().cloned(),
@@ -116,6 +127,7 @@ impl Desktop {
             inbox: InboxState::new(cx),
             palette,
             sidebar,
+            chips,
             overlay: None,
             worktrees: HashMap::new(),
             worktree: None,
@@ -259,17 +271,6 @@ impl Desktop {
         open
     }
 
-    pub(crate) fn next_waiting(&mut self, _: &NextWaiting, window: &mut Window, cx: &mut Context<Self>) {
-        let projects = self.projects();
-        let waiting: Vec<String> = projects.iter().flat_map(|p| self.cards(p)).filter(|c| c.status == Status::NeedsYou).map(|c| c.id).collect();
-        let next = waiting.iter().position(|id| self.session.as_ref() == Some(id)).map_or(0, |i| (i + 1) % waiting.len().max(1));
-        if let Some(id) = waiting.get(next).cloned() {
-            self.overlay = None;
-            self.side = Side::Sessions;
-            self.focus_agent(&id, window, cx);
-        }
-    }
-
     fn main_view(&mut self, cx: &mut Context<Self>) -> Div {
         let body = match (self.screen, self.side) {
             _ if self.terminals.link.is_down() => self.link_page(cx),
@@ -295,7 +296,7 @@ impl Desktop {
                 .text_size(px(14.))
                 .text_color(TEXT_3)
                 .child("Starting Pocket's terminal service…")
-                .when(hint, |d| d.child("Not running? In Terminal:").child(div().font_family(MONO).child("pocketd daemon install"))),
+                .when(hint, |d| d.child("Not starting? In Terminal:").child(div().font_family(MONO).child("pocketd daemon install"))),
         )
     }
 
@@ -364,7 +365,12 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::go_to_file))
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))
-            .on_action(cx.listener(Self::next_waiting))
+            .on_action(cx.listener(Self::next_needs_you))
+            .on_action(cx.listener(Self::go_to_up_next))
+            .on_action(cx.listener(Self::jump_to))
+            .on_action(cx.listener(Self::next_session))
+            .on_action(cx.listener(Self::prev_session))
+            .on_modifiers_changed(cx.listener(Self::on_modifiers))
             .on_action(cx.listener(Self::toggle_rail))
             .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::new_tab))

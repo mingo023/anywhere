@@ -6,11 +6,9 @@ use gpui_kit::*;
 use theme::*;
 use ui::{self, State};
 
-/// The rail's sessions: the busy ones and the selected one, most urgent first.
-fn live(cards: Vec<Card>, selected: Option<&str>) -> Vec<Card> {
-    let mut live: Vec<Card> = cards.into_iter().filter(|c| c.status != Status::Idle || selected == Some(c.id.as_str())).collect();
-    live.sort_by_key(|c| c.status);
-    live
+/// The rail's sessions: the busy ones and the selected one, in the order given.
+pub(crate) fn live(cards: Vec<Card>, selected: Option<&str>) -> Vec<Card> {
+    cards.into_iter().filter(|c| c.status != Status::Idle || selected == Some(c.id.as_str())).collect()
 }
 
 impl Desktop {
@@ -53,7 +51,7 @@ impl Desktop {
                 .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
                 .child(icon("terminal", 17., provider_color(&c.provider)))
                 .children(ui::alert_color(state(c.status, 0, 0)).map(|color| badge(div().top(px(3.)), color)))
-                .when(c.status == Status::Working, |d| d.child(badge(div().bottom(px(3.)), RUNNING)))
+                .when(c.status == Status::Working, |d| d.child(badge(div().bottom(px(3.)), ACCENT)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))
         });
         let repos = self.projects().into_iter().filter(|p| *p != project).filter_map(|p| self.project_state(&p).map(|st| (p, st))).enumerate().map(|(i, (p, st))| {
@@ -129,9 +127,11 @@ mod tests {
     }
 
     #[test]
-    fn the_rail_shows_busy_sessions_and_the_selected_one_most_urgent_first() {
-        let cards = vec![card("idle", "idle"), card("work", "working"), card("picked", "idle"), card("ask", "needsYou"), card("done", "done")];
-        let ids: Vec<String> = live(cards, Some("picked")).into_iter().map(|c| c.id).collect();
-        assert_eq!(ids, vec!["ask", "done", "work", "picked"]);
+    fn a_status_change_keeps_the_session_order() {
+        let ids = |cards: Vec<Card>| live(cards, Some("b")).into_iter().map(|c| c.id).collect::<Vec<_>>();
+        let before = vec![card("a", "working"), card("b", "idle"), card("c", "working")];
+        let after = vec![card("a", "done"), card("b", "needsYou"), card("c", "done")];
+        assert_eq!(ids(before), vec!["a", "b", "c"]);
+        assert_eq!(ids(after), vec!["a", "b", "c"]);
     }
 }

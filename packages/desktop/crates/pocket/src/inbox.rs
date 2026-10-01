@@ -8,7 +8,6 @@ use crate::status::Status;
 use crate::util::basename;
 use agents::{Agents, Summary};
 use gpui_kit::*;
-use std::cmp::Reverse;
 
 pub struct Note {
     pub agent: String,
@@ -27,7 +26,7 @@ fn noted(a: &Summary) -> Option<Status> {
     Status::of(a).filter(Status::alerting)
 }
 
-/// Agents that need you, then the failed and done ones nobody has seen yet.
+/// Agents that need you, then the failed and done ones nobody has seen yet, each oldest transition first.
 pub fn notes(agents: &Agents) -> Vec<Note> {
     let mut out: Vec<Note> = agents
         .list
@@ -42,8 +41,17 @@ pub fn notes(agents: &Agents) -> Vec<Note> {
             Some(Note { agent: a.id.clone(), terminal: a.terminal_id.clone(), status, title, subtitle, at: a.updated_at })
         })
         .collect();
-    out.sort_by_key(|n| (n.status, Reverse(n.at)));
+    out.sort_by_key(|n| (n.status, n.at));
     out
+}
+
+/// The heading above note `i` when it opens its status's section: "NEEDS YOU", "FAILED" or "DONE", and the section's size.
+pub fn heading(notes: &[Note], i: usize) -> Option<(String, usize)> {
+    let status = notes.get(i)?.status;
+    if i > 0 && notes[i - 1].status == status {
+        return None;
+    }
+    Some((status.label().to_uppercase(), notes.iter().filter(|n| n.status == status).count()))
 }
 
 pub fn count(agents: &Agents) -> usize {
@@ -59,7 +67,7 @@ pub fn reselect(notes: &[Note], focused: Option<&str>, i: usize) -> (usize, Opti
     }
 }
 
-/// The agents "Mark all read" marks seen: asks stay until answered.
+/// The agents "Mark all seen" marks seen: asks stay until answered.
 fn readable(notes: Vec<Note>) -> Vec<String> {
     notes.into_iter().filter(|n| n.status != Status::NeedsYou).map(|n| n.agent).collect()
 }
@@ -120,7 +128,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Note, count, first_line, notes, readable, reselect, select, step};
+    use super::{Note, count, first_line, heading, notes, readable, reselect, select, step};
     use crate::status::Status;
     use agents::{Agents, Item, Permission, Summary};
 
@@ -159,11 +167,16 @@ mod tests {
     }
 
     #[test]
-    fn lists_the_newest_first_within_a_section() {
+    fn the_inbox_lists_needs_you_failed_done_oldest_first() {
         let mut agents = Agents::default();
-        agents.list = vec![agent("old", "done", 1), agent("ask", "needsYou", 2), agent("new", "done", 5), agent("ask2", "needsYou", 7)];
-        let got: Vec<String> = notes(&agents).into_iter().map(|n| n.agent).collect();
-        assert_eq!(got, vec!["ask2", "ask", "new", "old"]);
+        let failed = |id: &str, at| Summary { failed: true, ..agent(id, "done", at) };
+        agents.list = vec![agent("new", "done", 5), agent("ask2", "needsYou", 7), failed("fail", 9), agent("old", "done", 1), agent("ask", "needsYou", 2)];
+        let notes = notes(&agents);
+        let got: Vec<&str> = notes.iter().map(|n| n.agent.as_str()).collect();
+        assert_eq!(got, vec!["ask", "ask2", "fail", "old", "new"]);
+        let headings: Vec<_> = (0..notes.len()).map(|i| heading(&notes, i)).collect();
+        let want = [Some(("NEEDS YOU", 2)), None, Some(("FAILED", 1)), Some(("DONE", 2)), None];
+        assert_eq!(headings, want.map(|h| h.map(|(l, n)| (l.to_string(), n))));
     }
 
     #[test]
@@ -192,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_all_read_marks_every_agent_but_those_that_need_you() {
+    fn mark_all_seen_marks_every_agent_but_those_that_need_you() {
         let notes = vec![note("a", Status::NeedsYou), note("b", Status::Failed), note("c", Status::Done)];
         assert_eq!(readable(notes), vec!["B", "C"]);
     }

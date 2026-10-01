@@ -93,11 +93,12 @@ pub const ACCENT_GLOW: Token = Token::fixed(0x5b5bd666);
 pub const WAITING: Token = Token::fixed(0xffb224ff);
 pub const WAITING_TEXT: Token = Token::new(0xad5700ff, 0xffca16ff);
 pub const WAITING_BG: Token = Token::fixed(0xffb2242e);
-pub const RUNNING: Token = Token::fixed(0x30a46cff);
-pub const RUNNING_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff);
-pub const RUNNING_BG: Token = Token::fixed(0x30a46c21);
 pub const FAILED: Token = Token::fixed(0xe5484dff);
 pub const FAILED_BG: Token = Token::fixed(0xe5484d1c);
+pub const FAILED_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff);
+pub const SUCCESS: Token = Token::new(0x2b9a66ff, 0x30a46cff);
+pub const SUCCESS_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff);
+pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
 
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
 pub const AGENT_CODEX: Token = Token::fixed(0x0f9d8aff);

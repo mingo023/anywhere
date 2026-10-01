@@ -211,6 +211,13 @@ pub fn model_label(a: &Summary) -> String {
     if version.is_empty() { family } else { format!("{family} {}", version.join(".")) }
 }
 
+/// A reply to a permission ask. pocketd interrupts the turn on a deny.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Decision {
+    Allow,
+    Deny,
+}
+
 /// Client messages for pocketd. They wait in a queue while it is unreachable.
 #[derive(Clone)]
 pub struct Outbox(Sender<String>);
@@ -222,6 +229,14 @@ impl Outbox {
 
     pub fn seen(&self, ids: &[String]) {
         self.send(json!({"type": "agent.seen", "id": "seen", "agentIds": ids}));
+    }
+
+    pub fn resolve(&self, request_id: &str, decision: Decision) {
+        let decision = match decision {
+            Decision::Allow => "allow",
+            Decision::Deny => "deny",
+        };
+        self.send(json!({"type": "permission.resolve", "id": "resolve", "requestId": request_id, "decision": decision}));
     }
 
     fn send(&self, m: Value) {
@@ -416,5 +431,21 @@ mod tests {
         a.apply(Event::Connected(vec!["observe".into()]));
         assert!(a.observe_only());
         std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn resolve_sends_permission_resolve_with_the_decision() {
+        let (tx, rx) = channel();
+        let out = Outbox(tx);
+        out.resolve("q1", Decision::Allow);
+        out.resolve("q2", Decision::Deny);
+        let sent: Vec<Value> = rx.try_iter().map(|m| serde_json::from_str(&m).unwrap()).collect();
+        assert_eq!(
+            sent,
+            vec![
+                json!({"type": "permission.resolve", "id": "resolve", "requestId": "q1", "decision": "allow"}),
+                json!({"type": "permission.resolve", "id": "resolve", "requestId": "q2", "decision": "deny"}),
+            ]
+        );
     }
 }

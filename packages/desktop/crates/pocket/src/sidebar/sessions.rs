@@ -1,19 +1,16 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{empty, state};
-use crate::sidebar::in_tree;
-use crate::status::{Card, Kind, Status};
+use crate::status::{Card, Kind};
 use crate::util::{ago, now_ms};
 use gpui_kit::component::input::Input;
 use gpui_kit::*;
 use theme::*;
 use ui::{self, State};
 
-/// The sessions whose title holds `query`, those that need you first.
-fn matching(cards: Vec<Card>, query: &str) -> Vec<Card> {
+/// The sessions whose title holds `query`, in the order given.
+pub(crate) fn matching(cards: Vec<Card>, query: &str) -> Vec<Card> {
     let query = query.to_lowercase();
-    let mut cards: Vec<Card> = cards.into_iter().filter(|c| c.title.to_lowercase().contains(&query)).collect();
-    cards.sort_by_key(|c| c.status != Status::NeedsYou);
-    cards
+    cards.into_iter().filter(|c| c.title.to_lowercase().contains(&query)).collect()
 }
 
 impl Desktop {
@@ -32,17 +29,15 @@ impl Desktop {
             .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.search).appearance(false).p_0().text_size(px(13.))));
         let list = div().id("cards").flex_1().min_h_0().overflow_y_scroll();
         let wrap = div().flex_1().min_h_0().flex().flex_col().child(search);
-        let Some(project) = self.project.clone() else {
+        if self.project.is_none() {
             return wrap.child(list.child(empty("Add a project with + to start.")));
-        };
-        let tree = self.cwd();
-        let cards = in_tree(self.cards(&project), tree.as_deref(), |cwd| self.tree_of(cwd));
-        let cards = matching(cards, &self.sidebar.search.read(cx).value());
-        let cards: Vec<_> = cards.into_iter().enumerate().map(|(i, c)| self.card(i, c, cx)).collect();
+        }
+        let chips = self.chips.shown && self.overlay.is_none();
+        let cards: Vec<_> = self.visible_sessions(cx).into_iter().enumerate().map(|(i, c)| self.card(i, c, chips, cx)).collect();
         wrap.child(list.child(div().p(px(8.)).flex().flex_col().gap(px(2.)).children(cards)))
     }
 
-    fn card(&self, i: usize, c: Card, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn card(&self, i: usize, c: Card, chips: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = self.session.as_ref() == Some(&c.id);
         let (added, removed) = self.repos.get(&c.cwd).map(|r| r.totals()).unwrap_or_default();
         let id = c.id.clone();
@@ -52,7 +47,8 @@ impl Desktop {
         };
         let lead = ui::provider_label(&c.provider, false);
         let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone());
-        ui::session_row(("card", i), selected, lead, ago(c.at, now_ms()), c.title, branch, Some(pill))
+        let when = if chips && i < 9 { ui::jump_chip(i + 1).into_any_element() } else { ago(c.at, now_ms()).into_any_element() };
+        ui::session_row(("card", i), selected, lead, when, c.title, branch, Some(pill))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))
     }
 }
@@ -78,8 +74,10 @@ mod tests {
     }
 
     #[test]
-    fn search_lifts_sessions_that_need_you_and_keeps_the_rest_in_order() {
-        let cards = vec![card("a", "done"), card("b", "needsYou"), card("c", "working"), card("d", "needsYou"), card("e", "idle")];
-        assert_eq!(titles(matching(cards, "")), vec!["b", "d", "a", "c", "e"]);
+    fn a_status_change_keeps_the_session_order() {
+        let before = vec![card("a", "working"), card("b", "idle"), card("c", "working")];
+        let after = vec![card("a", "done"), card("b", "needsYou"), card("c", "idle")];
+        assert_eq!(titles(matching(before, "")), vec!["a", "b", "c"]);
+        assert_eq!(titles(matching(after, "")), vec!["a", "b", "c"]);
     }
 }

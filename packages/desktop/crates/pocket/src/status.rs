@@ -54,6 +54,7 @@ pub struct Card {
     pub title: String,
     pub cwd: String,
     pub at: i64,
+    pub created: i64,
     pub status: Status,
     pub kind: Kind,
 }
@@ -67,6 +68,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         title: if a.title.is_empty() { "New session".into() } else { a.title.clone() },
         cwd: cwd.to_string(),
         at: a.updated_at,
+        created: a.created_at,
         status: Status::of(a).unwrap_or(Status::Idle),
         kind,
     }
@@ -108,11 +110,55 @@ pub fn view_set(panes: &[String], agents: &[Summary]) -> Vec<String> {
     ids
 }
 
-/// The agents to notify about and those whose notification should go, once statuses went from `before` to `now`.
-pub fn alerts(before: &HashMap<String, Status>, now: &HashMap<String, Status>, shown: &HashSet<String>, viewing: &[String]) -> (Vec<String>, Vec<String>) {
-    let show = now.iter().filter(|(id, s)| s.alerting() && before.get(*id).is_some_and(|b| b != *s) && !viewing.contains(id)).map(|(id, _)| id.clone()).collect();
-    let dismiss = shown.iter().filter(|id| !now.get(*id).is_some_and(Status::alerting) || viewing.contains(id)).cloned().collect();
+/// An agent's status and the id of its oldest pending permission ask.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Alert {
+    pub status: Status,
+    pub ask: Option<String>,
+}
+
+impl Alert {
+    /// Whether going from `before` to this is news: a new status, or a new ask. An ask clearing is not.
+    fn news(&self, before: &Alert) -> bool {
+        self.status != before.status || self.ask.is_some() && self.ask != before.ask
+    }
+}
+
+/// The agents to notify about and those whose notification should go, once alerts went from `before` to `now`.
+pub fn alerts(before: &HashMap<String, Alert>, now: &HashMap<String, Alert>, shown: &HashSet<String>, viewing: &[String]) -> (Vec<String>, Vec<String>) {
+    let show = now.iter().filter(|(id, a)| a.status.alerting() && before.get(*id).is_some_and(|b| a.news(b)) && !viewing.contains(id)).map(|(id, _)| id.clone()).collect();
+    let dismiss = shown.iter().filter(|id| !now.get(*id).is_some_and(|a| a.status.alerting()) || viewing.contains(id)).cloned().collect();
     (show, dismiss)
+}
+
+/// The sessions that want a look: Needs you, then Failed, then Done, each oldest transition first.
+pub fn up_next(cards: &[Card]) -> Vec<&Card> {
+    let mut out: Vec<&Card> = cards.iter().filter(|c| c.status.alerting()).collect();
+    out.sort_by(|a, b| (a.status, a.at, &a.id).cmp(&(b.status, b.at, &b.id)));
+    out
+}
+
+/// The top of Up next other than `current`.
+pub fn next_up(cards: &[Card], current: Option<&str>) -> Option<String> {
+    up_next(cards).into_iter().find(|c| Some(c.id.as_str()) != current).map(|c| c.id.clone())
+}
+
+/// The Needs you session after `current`, oldest transition first, wrapping.
+pub fn next_needs_you(cards: &[Card], current: Option<&str>) -> Option<String> {
+    let ids: Vec<String> = up_next(cards).into_iter().filter(|c| c.status == Status::NeedsYou).map(|c| c.id.clone()).collect();
+    cycle(&ids, current, true)
+}
+
+/// The id after `current` in `ids`, or before it when `forward` is false, wrapping; with none selected, the first or the last.
+pub fn cycle(ids: &[String], current: Option<&str>, forward: bool) -> Option<String> {
+    let n = ids.len();
+    let i = match (ids.iter().position(|id| Some(id.as_str()) == current), forward) {
+        (Some(i), true) => (i + 1) % n,
+        (Some(i), false) => (i + n - 1) % n,
+        (None, true) => 0,
+        (None, false) => n.checked_sub(1)?,
+    };
+    ids.get(i).cloned()
 }
 
 #[cfg(test)]
@@ -144,9 +190,9 @@ mod tests {
 
     #[test]
     fn a_card_is_its_agent_in_its_terminals_folder() {
-        let a = Summary { title: "Fix".into(), cwd: "/elsewhere".into(), updated_at: 5, ..agent("t1", "working") };
+        let a = Summary { title: "Fix".into(), cwd: "/elsewhere".into(), created_at: 2, updated_at: 5, ..agent("t1", "working") };
         let c = card(&a, "/w");
-        assert_eq!((c.id.as_str(), c.title.as_str(), c.cwd.as_str(), c.at, c.status, c.kind), ("agent-t1", "Fix", "/w", 5, Status::Working, Kind::Agent));
+        assert_eq!((c.id.as_str(), c.title.as_str(), c.cwd.as_str(), c.created, c.at, c.status, c.kind), ("agent-t1", "Fix", "/w", 2, 5, Status::Working, Kind::Agent));
     }
 
     #[test]
@@ -189,8 +235,18 @@ mod tests {
         assert_eq!(view_set(&["t1".into(), "t2".into()], &agents), vec!["a", "b"]);
     }
 
-    fn statuses(list: &[(&str, Status)]) -> HashMap<String, Status> {
-        list.iter().map(|(id, s)| (id.to_string(), *s)).collect()
+    fn statuses(list: &[(&str, Status)]) -> HashMap<String, Alert> {
+        list.iter().map(|(id, s)| (id.to_string(), Alert { status: *s, ask: None })).collect()
+    }
+
+    #[test]
+    fn a_new_ask_re_alerts_and_a_cleared_one_does_not() {
+        let asking = |ask: Option<&str>| Alert { status: Status::NeedsYou, ask: ask.map(String::from) };
+        let before = HashMap::from([("a".to_string(), asking(Some("q1"))), ("b".to_string(), asking(Some("q1"))), ("c".to_string(), asking(None))]);
+        let now = HashMap::from([("a".to_string(), asking(Some("q2"))), ("b".to_string(), asking(None)), ("c".to_string(), asking(Some("q3")))]);
+        let (mut show, _) = alerts(&before, &now, &HashSet::new(), &[]);
+        show.sort();
+        assert_eq!(show, vec!["a", "c"]);
     }
 
     #[test]
@@ -209,5 +265,49 @@ mod tests {
         let (show, mut dismiss) = alerts(&now, &now, &shown, &["a".into()]);
         dismiss.sort();
         assert_eq!((show, dismiss), (vec![], vec!["a".to_string(), "b".into(), "gone".into()]));
+    }
+
+    fn at(id: &str, status: &str, at: i64) -> Card {
+        card(&Summary { id: id.into(), updated_at: at, ..agent(id, status) }, "/w")
+    }
+
+    #[test]
+    fn up_next_ranks_needs_you_then_failed_then_done_oldest_first() {
+        let failed = card(&Summary { id: "failed".into(), failed: true, updated_at: 9, ..agent("f", "done") }, "/w");
+        let cards = [at("done-new", "done", 8), at("ask-new", "needsYou", 7), failed, at("busy", "working", 1), at("done-old", "done", 2), at("ask-old", "needsYou", 3), at("idle", "idle", 0)];
+        let ids: Vec<&str> = up_next(&cards).into_iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["ask-old", "ask-new", "failed", "done-old", "done-new"]);
+    }
+
+    #[test]
+    fn go_to_up_next_visits_three_done_sessions_in_turn() {
+        let mut cards = vec![at("d1", "done", 1), at("d2", "done", 2), at("d3", "done", 3)];
+        let mut current = None;
+        let mut visited = Vec::new();
+        while let Some(id) = next_up(&cards, current.as_deref()) {
+            cards.iter_mut().filter(|c| c.id == id).for_each(|c| c.status = Status::Idle);
+            visited.push(id.clone());
+            current = Some(id);
+        }
+        assert_eq!(visited, vec!["d1", "d2", "d3"]);
+    }
+
+    #[test]
+    fn next_needs_you_wraps_oldest_first() {
+        let cards = [at("new", "needsYou", 9), at("done", "done", 1), at("old", "needsYou", 2)];
+        assert_eq!(next_needs_you(&cards, None).as_deref(), Some("old"));
+        assert_eq!(next_needs_you(&cards, Some("old")).as_deref(), Some("new"));
+        assert_eq!(next_needs_you(&cards, Some("new")).as_deref(), Some("old"));
+        assert_eq!(next_needs_you(&cards, Some("done")).as_deref(), Some("old"));
+    }
+
+    #[test]
+    fn cycle_starts_at_either_end_with_none_selected() {
+        let ids: Vec<String> = ["a", "b", "c"].map(String::from).to_vec();
+        assert_eq!(cycle(&ids, None, true).as_deref(), Some("a"));
+        assert_eq!(cycle(&ids, None, false).as_deref(), Some("c"));
+        assert_eq!(cycle(&ids, Some("c"), true).as_deref(), Some("a"));
+        assert_eq!(cycle(&ids, Some("a"), false).as_deref(), Some("c"));
+        assert_eq!(cycle(&[], None, true), None);
     }
 }

@@ -215,6 +215,57 @@ pub fn diffstat(added: usize, removed: usize) -> Div {
         .child(div().text_color(DIFF_DEL_TEXT).child(format!("−{removed}")))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Glyph {
+    Dot,
+    Spinner,
+    Check,
+    Cross,
+}
+
+/// How a status looks: its glyph, the glyph's colour, its label's colour and its fill.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tone {
+    pub glyph: Glyph,
+    pub mark: Token,
+    pub text: Token,
+    pub bg: Token,
+}
+
+/// The one map from a status to its look. States that are not an agent's status have none.
+pub fn tone(state: State) -> Option<Tone> {
+    let (glyph, mark, text, bg) = match state {
+        State::NeedsYou => (Glyph::Dot, WAITING, WAITING_TEXT, WAITING_BG),
+        State::Working => (Glyph::Spinner, ACCENT, ACCENT, ACCENT_TINT),
+        State::Done(..) => (Glyph::Check, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
+        State::Failed => (Glyph::Cross, FAILED, FAILED_TEXT, FAILED_BG),
+        _ => return None,
+    };
+    Some(Tone { glyph, mark, text, bg })
+}
+
+pub fn glyph(id: impl Into<ElementId>, t: Tone) -> AnyElement {
+    match t.glyph {
+        Glyph::Dot => dot(7., t.mark).into_any_element(),
+        Glyph::Spinner => spinner(id, 11., t.mark).into_any_element(),
+        Glyph::Check => icon("check", 11., t.mark).into_any_element(),
+        Glyph::Cross => icon("x-bold", 11., t.mark).into_any_element(),
+    }
+}
+
+fn word(state: State) -> &'static str {
+    match state {
+        State::NeedsYou => "Needs you",
+        State::Working => "Working",
+        State::Failed => "Failed",
+        State::Sent => "Sent",
+        State::Draft => "Draft",
+        State::Done(..) => "Done",
+        State::Idle(..) => "Idle",
+        State::NotAttached => "Not attached",
+    }
+}
+
 pub fn status(id: impl Into<ElementId>, state: State) -> Div {
     let pill = |bg: Token, fg: Token| {
         div()
@@ -231,15 +282,13 @@ pub fn status(id: impl Into<ElementId>, state: State) -> Div {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(fg)
     };
-    match state {
-        State::NeedsYou => pill(WAITING_BG, WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
-        State::Working => pill(RUNNING_BG, RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Working"),
-        State::Failed => pill(FAILED_BG, FAILED).child(icon("x-bold", 11., FAILED)).child("Failed"),
-        State::Sent => pill(FILL_3, TEXT_2).child(icon("check", 11., TEXT_2)).child("Sent"),
-        State::Draft => pill(ACCENT_BG, ACCENT).child(dot(6., ACCENT)).child("Draft"),
-        State::Done(added, removed) => div().flex().flex_none().items_center().gap(px(6.)).child(dot(6., ACCENT)).child(diffstat(added, removed)),
-        State::Idle(added, removed) => diffstat(added, removed),
-        State::NotAttached => pill(FILL_3, TEXT_3).child("Not attached"),
+    match (state, tone(state)) {
+        (State::Done(added, removed), Some(t)) => div().flex().flex_none().items_center().gap(px(6.)).child(glyph(id, t)).child(diffstat(added, removed)),
+        (_, Some(t)) => pill(t.bg, t.text).child(glyph(id, t)).child(word(state)),
+        (State::Sent, _) => pill(FILL_3, TEXT_2).child(icon("check", 11., TEXT_2)).child("Sent"),
+        (State::Draft, _) => pill(ACCENT_BG, ACCENT).child(dot(6., ACCENT)).child("Draft"),
+        (State::Idle(added, removed), _) => diffstat(added, removed),
+        _ => pill(FILL_3, TEXT_3).child("Not attached"),
     }
 }
 
@@ -278,12 +327,7 @@ pub fn repo_mark(name: &str, selected: bool, state: Option<State>) -> Div {
 
 /// The color that marks a state asking for a look: Needs you, Failed or Done.
 pub fn alert_color(state: State) -> Option<Token> {
-    match state {
-        State::NeedsYou => Some(WAITING),
-        State::Failed => Some(FAILED),
-        State::Done(..) => Some(ACCENT),
-        _ => None,
-    }
+    tone(state).filter(|t| t.glyph != Glyph::Spinner).map(|t| t.mark)
 }
 
 /// A repository's initials on a square tile, dotted top-right when it asks for a look and bottom-right while it works.
@@ -306,7 +350,7 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>)
         })
         .child(letters.to_string())
         .children(state.and_then(alert_color).map(|c| badge(div().top(px(-2.)), c)))
-        .when(state == Some(State::Working), |d| d.child(badge(div().bottom(px(-2.)), RUNNING)))
+        .when(state == Some(State::Working), |d| d.child(badge(div().bottom(px(-2.)), ACCENT)))
 }
 
 const ROW_GROUP: &str = "sidebar-row";
@@ -370,12 +414,9 @@ pub fn chevron(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
         .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
 }
 
-/// A row's status mark: a spinner while working, a dot when it asks for a look.
+/// A row's status mark: its status's glyph.
 pub fn indicator(id: impl Into<ElementId>, state: Option<State>) -> Option<AnyElement> {
-    match state? {
-        State::Working => Some(spinner(id, 11., RUNNING_TEXT).into_any_element()),
-        s => alert_color(s).map(|c| dot(7., c).into_any_element()),
-    }
+    tone(state?).map(|t| glyph(id, t))
 }
 
 pub fn setting_up(id: impl Into<ElementId>) -> Div {
@@ -426,11 +467,16 @@ pub fn provider_label(provider: &str, faded: bool) -> Div {
     div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(dot(6., provider_color(provider))).child(provider_name(provider))
 }
 
-pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: String, title: String, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
+const SESSION_GROUP: &str = "session-row";
+
+/// A session's card. Needs you fills the whole row; hover and selection tint over that fill.
+pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
     let id = id.into();
-    let line = || div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_3);
+    let line = || div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_2);
     div()
         .id(id.clone())
+        .group(SESSION_GROUP)
+        .relative()
         .px(px(10.))
         .py(px(10.))
         .flex()
@@ -439,33 +485,37 @@ pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
         .gap(px(4.))
         .rounded(px(8.))
         .cursor_pointer()
-        .when(selected, |d| d.bg(FILL_3))
-        .when(!selected, |d| d.hover(|s| s.bg(FILL_1)))
+        .when(state == Some(State::NeedsYou), |d| d.bg(WAITING_BG))
+        .child(div().absolute().inset_0().rounded(px(8.)).map(|d| if selected { d.bg(FILL_3) } else { d.group_hover(SESSION_GROUP, |s| s.bg(FILL_1)) }))
         .child(line().child(div().flex_1().min_w_0().flex().child(lead)).child(when))
         .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
         .child(
             line()
-                .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_3)).child(div().truncate().child(b))))
+                .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_2)).child(div().truncate().child(b))))
                 .children(state.map(|s| status_label(id, s))),
         )
 }
 
-/// A card's status as coloured text: the pill's mark and label without its background.
+/// The "⌘n" chip a session row shows in place of its age while ⌘ is held.
+pub fn jump_chip(n: usize) -> Div {
+    div().h(px(16.)).px(px(4.)).flex().items_center().rounded(px(4.)).bg(FILL_4).font_family(MONO).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(format!("⌘{n}"))
+}
+
+/// A card's status as coloured text: the pill's glyph and label without its background.
 pub fn status_label(id: impl Into<ElementId>, state: State) -> Div {
     let label = |color: Token| div().flex().flex_none().items_center().gap(px(5.)).font_weight(FontWeight::MEDIUM).text_color(color);
-    match state {
-        State::NeedsYou => label(WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
-        State::Working => label(RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Working"),
-        State::Failed => label(FAILED).child("Failed"),
-        State::NotAttached => label(TEXT_3).child("Not attached"),
-        s => status(id, s),
+    match (state, tone(state)) {
+        (State::Done(added, removed), Some(t)) => label(t.text).child(glyph(id, t)).child(word(state)).child(diffstat(added, removed)),
+        (_, Some(t)) => label(t.text).child(glyph(id, t)).child(word(state)),
+        (State::NotAttached, _) => label(TEXT_3).child(word(state)),
+        _ => status(id, state),
     }
 }
 
 /// Git's one-letter status for a file: M, A or D.
 pub fn git_color(letter: char) -> Token {
     match letter {
-        'A' => RUNNING_TEXT,
+        'A' => SUCCESS_TEXT,
         'D' => FAILED,
         _ => MODIFIED,
     }
@@ -654,7 +704,7 @@ pub fn meta_diff(added: usize, removed: usize, size: f32) -> Div {
         .gap(px(size * 0.6))
         .font_family(MONO)
         .text_size(px(size))
-        .child(div().text_color(RUNNING_TEXT).child(format!("+{added}")))
+        .child(div().text_color(SUCCESS_TEXT).child(format!("+{added}")))
         .child(div().text_color(FAILED).child(format!("−{removed}")))
 }
 
@@ -827,4 +877,31 @@ pub fn worktree_row(id: impl Into<ElementId>, name: String, selected: bool) -> S
         .text_color(if selected { TEXT } else { TEXT_BODY })
         .child(div().w(px(22.)).flex().flex_none().justify_center().child(icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 })))
         .child(div().flex_1().min_w_0().truncate().child(name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Glyph, State, Tone, tone, word};
+    use theme::{ACCENT, ACCENT_TINT};
+
+    const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];
+
+    #[test]
+    fn every_alerting_state_has_its_own_glyph_and_colour() {
+        let tones: Vec<Tone> = STATUSES.into_iter().filter_map(tone).collect();
+        assert_eq!(tones.len(), 4);
+        for (i, a) in tones.iter().enumerate() {
+            for b in &tones[i + 1..] {
+                assert_ne!(a.glyph, b.glyph);
+                assert_ne!(a.mark, b.mark);
+            }
+        }
+        assert!([State::Idle(0, 0), State::NotAttached, State::Sent, State::Draft].into_iter().all(|s| tone(s).is_none()));
+    }
+
+    #[test]
+    fn working_reads_working_in_accent() {
+        assert_eq!(tone(State::Working), Some(Tone { glyph: Glyph::Spinner, mark: ACCENT, text: ACCENT, bg: ACCENT_TINT }));
+        assert_eq!(word(State::Working), "Working");
+    }
 }
