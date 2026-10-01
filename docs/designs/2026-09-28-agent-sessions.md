@@ -67,7 +67,7 @@ Wire status: `closed` if removed, else `needsYou` / `working` by phase, else `do
 Ticket 02, 07.
 
 - pocketd writes a plugin at startup, `$POCKET_HOME/plugin/`:
-  - `.claude-plugin/plugin.json`: `{"name": "coding-pocket", "version": "1.0.0", "description": "..."}`.
+  - `.claude-plugin/plugin.json`: `{"name": "anywhere", "version": "1.0.0", "description": "..."}`.
   - `hooks/hooks.json`: every event below runs `"<pocketd exe>" hook`.
 - Every terminal's env (shell or agent, Pocket-spawned or not) gets:
   - `CLAUDE_CODE_PLUGIN_DIRS` = existing value + `:` + plugin dir (`:`-separated, Claude ≥ 2.1.280);

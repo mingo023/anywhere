@@ -64,7 +64,7 @@ var serverGolden = map[string]any{
 		h.Scopes = []string{"observe", "drive", "approve", "spawn", "owner"}
 		return h
 	}(),
-	"pair_offer":         NewPairOffer("b1", "codingpocket://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv", "abcdefghijklmnopqrstuv", 1790000000000),
+	"pair_offer":         NewPairOffer("b1", "anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv", "abcdefghijklmnopqrstuv", 1790000000000),
 	"pair_done":          NewPairDone("d1", "iPhone"),
 	"error_scope_denied": NewErrorCode("r1", CodeScopeDenied, "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)"),
 }

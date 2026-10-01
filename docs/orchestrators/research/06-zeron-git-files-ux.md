@@ -4,7 +4,7 @@ Date: 2026-09-30.
 
 Sources:
 - Zeron: zeronsh/comet@ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5 (MIT), cloned at `/Users/mingo/tmp/orchestrators/zeron`. https://github.com/zeronsh/comet
-- Pocket: coding-pocket `main`@b9d14a1. This research worktree is at 86deb13, which has no `changes.rs`, so every Pocket line number refers to `main`.
+- Pocket: anywhere `main`@b9d14a1. This research worktree is at 86deb13, which has no `changes.rs`, so every Pocket line number refers to `main`.
 
 Citation legend:
 - `Z path:L` is a file and line in the Zeron clone. `P path:L` is a file and line in Pocket `main`@b9d14a1.

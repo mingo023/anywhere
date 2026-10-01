@@ -6,7 +6,7 @@
 
 **Architecture:** pocketd keeps an exited agent listed as `closed` until its terminal closes, then forgets it and pushes a fresh `agent.list`; `agent.close` on a closed agent forgets it. The desktop builds one card per agent (placed by its terminal's folder) and keys workspaces by worktree path instead of by top-level terminal, so the store's parent/child terminal links go away. The phone filters closed agents out of lists, since it has no ended cards.
 
-**Toolset** (paths relative to the repo root `/Users/mingo/Developer/self/coding-pocket`):
+**Toolset** (paths relative to the repo root `/Users/mingo/Developer/self/anywhere`):
 - pocketd, one package: `cd packages/pocketd && go test ./internal/<pkg>/ -run <TestName>`
 - pocketd, full: `cd packages/pocketd && go vet ./... && go test ./...` (includes `e2e/`)
 - phone: `pnpm --filter @pocket/app typecheck && pnpm --filter @pocket/app test`

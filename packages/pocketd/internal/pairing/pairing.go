@@ -85,7 +85,7 @@ func (m *Manager) Begin(host, macName string) (Offer, <-chan Result, error) {
 	rand.Read(b)
 	code := base64.RawURLEncoding.EncodeToString(b)
 	m.open = &offer{hash: sha256.Sum256([]byte(code)), expires: now.Add(ttl), done: make(chan Result, 1)}
-	link := "codingpocket://pair?v=1&h=" + url.QueryEscape(host) + "&c=" + code + "&n=" + url.QueryEscape(macName)
+	link := "anywhere://pair?v=1&h=" + url.QueryEscape(host) + "&c=" + code + "&n=" + url.QueryEscape(macName)
 	return Offer{URL: link, Code: code, ExpiresAt: m.open.expires.UnixMilli()}, m.open.done, nil
 }
 

@@ -1,4 +1,4 @@
-# Coding Pocket
+# Anywhere
 
 Watch and drive coding agents running on a Mac, from the desktop app and the phone.
 

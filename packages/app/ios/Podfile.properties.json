@@ -2,7 +2,7 @@
   "expo.jsEngine": "hermes",
   "EX_DEV_CLIENT_NETWORK_INSPECTOR": "true",
   "expo.inlineModules.watchedDirectories": "[]",
-  "expo.inlineModules.xcodeProjectTargets": "{\"mainTarget\":\"CodingPocket\",\"targets\":[]}",
+  "expo.inlineModules.xcodeProjectTargets": "{\"mainTarget\":\"Anywhere\",\"targets\":[]}",
   "ios.forceStaticLinking": "[]",
   "apple.privacyManifestAggregationEnabled": "true",
   "EXPO_USE_PRECOMPILED_MODULES": "true"

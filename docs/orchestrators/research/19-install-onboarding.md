@@ -39,7 +39,7 @@ Citation legend:
   2. Keep `pocketd serve` open in a terminal.
   3. Re-sign the phone app away from the author's Team ID.
   4. Type the host and token by hand. A wrong token shows "Disconnected — retrying" forever.
-- **Ship one signed, notarized, stapled `Pocket.app`.** `Contents/MacOS/pocket` and `Contents/MacOS/pocketd` both link libghostty-vt as a static `.a` (P packages/desktop/crates/term/build.rs:2-14; P packages/pocketd/internal/vt/vt.go:4-5), so there is no dylib or framework to sign. Port Zeron's `package-macos.sh` and `release.yml` nearly line for line.
+- **Ship one signed, notarized, stapled `Anywhere.app`.** `Contents/MacOS/pocket` and `Contents/MacOS/pocketd` both link libghostty-vt as a static `.a` (P packages/desktop/crates/term/build.rs:2-14; P packages/pocketd/internal/vt/vt.go:4-5), so there is no dylib or framework to sign. Port Zeron's `package-macos.sh` and `release.yml` nearly line for line.
 - **The app registers pocketd as a LaunchAgent** through `SMAppService.agent(plistName:)` (macOS 13+). The plist ships in `Contents/Library/LaunchAgents`. It must never boot out a running pocketd, because that kills every Terminal. MonoCode gets this right (M host/service.ts:178,216-222); Zeron's `daemon install` boots out first (Z apps/zeron/src/daemon.rs:46).
 - **Updater: port Zeron's Rust `crates/update`.** Zeron's desktop is also GPUI. Keep its manifest + sha256, staged swap, relaunch-after-exit and install-on-quit. Add a codesign designated-requirement check, which Zeron lacks.
 - **pocketd restart policy:**
@@ -76,7 +76,7 @@ Citation legend:
 
 **M3. Terminal service (pocketd).**
 - Action:
-  1. Call `SMAppService.agent(plistName: "dev.mingo.pocket.pocketd.plist").register()`.
+  1. Call `SMAppService.agent(plistName: "dev.mingo.anywhere.pocketd.plist").register()`.
   2. Poll `~/.coding-pocket/pocketd.sock` 50×200 ms, as MonoCode does (M host/service.ts:262-265).
 - Apple: a registered LaunchAgent "is immediately bootstrapped and may begin running", and again at each login (`register()` doc). Status `requiresApproval` means the user must act in System Settings, including after revoking consent there.
 - States and copy:
@@ -134,7 +134,7 @@ Citation legend:
 - MonoCode plays a decorative 7000–7600 ms first-use welcome, skipped under reduced motion (M src/features/sessions/ui/AstraWelcome.tsx:4,32-37; M src/features/sessions/ui/OpusWelcome.tsx:12,117-122). Not worth copying.
 
 **M8. Pair your phone.** Shown after M7 and in Settings → Phone.
-- A QR code of `codingpocket://pair?host=<ip>:<port>&token=<token>` (r08:603-606), the host text, and "Copy token".
+- A QR code of `anywhere://pair?host=<ip>:<port>&token=<token>` (r08:603-606), the host text, and "Copy token".
 - Tailscale:
   - Today pocketd shells out to `tailscale ip -4` and falls back to `localhost` (P packages/pocketd/cmd/pocketd/serve.go:63-69). A phone can't use `localhost`.
   - Missing copy: "Install Tailscale on this Mac and your phone, signed in to the same account."
@@ -148,13 +148,13 @@ Citation legend:
 
 **P2. Pair.**
 - Today (P packages/app/src/screens/ConnectScreen.tsx:30-59):
-  - "Coding Pocket" heading, "Host" field (placeholder is the author's IP `100.77.122.82:4517`), "Token" field (placeholder "daemon token", secure entry), "Connect" button.
+  - "Anywhere" heading, "Host" field (placeholder is the author's IP `100.77.122.82:4517`), "Token" field (placeholder "daemon token", secure entry), "Connect" button.
   - Offline shows "Disconnected — retrying".
   - Nothing connects at launch. `Root` shows ConnectScreen whenever the state isn't `online` (P packages/app/src/App.tsx:22-26), and `session.tsx` has no mount effect.
   - A wrong token closes with 1008 after an `error` "Rejected" (P packages/pocketd/internal/wsserver/wsserver.go:121-126). The session stores the `error` "Rejected" (P packages/app/src/session.tsx:67-69) but ConnectScreen never renders it; `onclose` sets `offline` and retries with backoff 1 s→30 s (P packages/app/src/client.ts:7,44-55), so the user reads "Disconnected — retrying" forever.
 - Proposed flow:
   - Empty state: "Open Pocket on your Mac → Settings → Phone, then scan the code with the Camera app." Secondary: "Enter code manually".
-  - The iOS Camera opens `codingpocket://pair?…`. The scheme is already registered (P packages/app/app.json:7; P packages/app/ios/CodingPocket/Info.plist:25-34), so the app needs no camera permission.
+  - The iOS Camera opens `anywhere://pair?…`. The scheme is already registered (P packages/app/app.json:7; P packages/app/ios/Anywhere/Info.plist:25-34), so the app needs no camera permission.
   - Connecting: a spinner in the button (current behaviour).
   - Rejected: "Rejected — token or version mismatch" (r08:605).
   - Offline: "Can't reach {host}. Is your Mac awake and on Tailscale?"
@@ -171,19 +171,19 @@ Citation legend:
   - Body: "When a session finishes, needs you or fails" (Z apps/ios/Zeron/Shell/MoreViewController.swift:132).
   - Buttons: "Turn on" / "Not now".
 - "Turn on" calls `requestAuthorization([.alert,.sound,.badge])`, only while the status is `notDetermined` (Z apps/ios/Zeron/App/PushNotifications.swift:86-97).
-- Denied: alert "Notifications are off" / "Allow notifications for Coding Pocket in iOS Settings." with "Not Now" and "Open Settings" (Z apps/ios/Zeron/Shell/MoreViewController.swift:155-160).
+- Denied: alert "Notifications are off" / "Allow notifications for Anywhere in iOS Settings." with "Not Now" and "Open Settings" (Z apps/ios/Zeron/Shell/MoreViewController.swift:155-160).
 - Granted: send `push.register {token}` to pocketd.
-- Today there is no push code: no `expo-notifications` (P packages/app/package.json:14-31) and an empty entitlements dict (P packages/app/ios/CodingPocket/CodingPocket.entitlements:4).
+- Today there is no push code: no `expo-notifications` (P packages/app/package.json:14-31) and an empty entitlements dict (P packages/app/ios/Anywhere/Anywhere.entitlements:4).
 
 ### F3. Packaging: one signed, notarized .app
 
 - **Layout (proposed):**
   ```
-  Pocket.app/Contents/
-    Info.plist            dev.mingo.pocket · LSMinimumSystemVersion 13.0 · NS{Desktop,Documents,Downloads}FolderUsageDescription
+  Anywhere.app/Contents/
+    Info.plist            dev.mingo.anywhere · LSMinimumSystemVersion 13.0 · NS{Desktop,Documents,Downloads}FolderUsageDescription
     MacOS/pocket          GPUI desktop; libghostty-vt.a static
-    MacOS/pocketd         Go (cgo) daemon; libghostty-vt.a static; identifier dev.mingo.pocket.pocketd
-    Library/LaunchAgents/dev.mingo.pocket.pocketd.plist
+    MacOS/pocketd         Go (cgo) daemon; libghostty-vt.a static; identifier dev.mingo.anywhere.pocketd
+    Library/LaunchAgents/dev.mingo.anywhere.pocketd.plist
     Resources/AppIcon.icns · OFL.txt · THIRD_PARTY_NOTICES
   ```
   - Zeron's bundle is one exe with Info.plist `__VERSION__` substituted by sed (Z scripts/package-macos.sh:28-30).
@@ -216,7 +216,7 @@ Citation legend:
 
 - **Plist (proposed, shipped in the bundle):**
   ```xml
-  <key>Label</key><string>dev.mingo.pocket.pocketd</string>
+  <key>Label</key><string>dev.mingo.anywhere.pocketd</string>
   <key>BundleProgram</key><string>Contents/MacOS/pocketd</string>
   <key>ProgramArguments</key><array><string>pocketd</string><string>serve</string></array>
   <key>RunAtLoad</key><true/>
@@ -278,7 +278,7 @@ Citation legend:
 |---|---|---|---|---|---|
 | TestFlight external, public link | anyone with the link | yes | $99/yr + EAS (free: 15 iOS builds/mo; Starter $19/mo) | ≤10,000 testers; build lives 90 days; first build gets beta review | developer.apple.com/testflight; TestFlight overview; expo.dev/pricing |
 | TestFlight internal | ≤100 ASC users | yes | same | 90 days | TestFlight overview |
-| Personal signing, paid team | the builder | yes, with their own EAS project + APNs key | $99/yr | must change team + bundle id (P packages/app/ios/CodingPocket.xcodeproj/project.pbxproj:375,382-384) | Apple capabilities table |
+| Personal signing, paid team | the builder | yes, with their own EAS project + APNs key | $99/yr | must change team + bundle id (P packages/app/ios/Anywhere.xcodeproj/project.pbxproj:375,382-384) | Apple capabilities table |
 | Personal signing, free Apple account | the builder | **no**: Push notifications is ticked only for ADP/ADEP | 0 | profile lifetime not verified here | supported-capabilities-ios |
 | App Store | anyone | yes | $99/yr | App Review needs a way in without the reviewer's Mac. Zeron keeps a demo mode (`app?.isDemo`, Z apps/ios/Zeron/App/PushNotifications.swift:79) | — |
 
@@ -317,7 +317,7 @@ Citation legend:
 | 4 | Start `pocketd serve` by hand and keep that terminal open; closing it kills every Terminal | P packages/pocketd/cmd/pocketd/main.go:21-22; r14 |
 | 5 | Start pocketd before the desktop, or the desktop exits; a later pocketd death is never recovered | P packages/desktop/crates/pocket/src/main.rs:1050-1052; P packages/desktop/crates/daemon/src/daemon.rs:183 |
 | 6 | No `pair`, `status`, `--version` or service command | P packages/pocketd/cmd/pocketd/main.go:10 |
-| 7 | Phone: build with Xcode after replacing `DEVELOPMENT_TEAM = "KK9V7PRPF2"` and the bundle id `dev.mingo.codingpocket` | P packages/app/ios/CodingPocket.xcodeproj/project.pbxproj:375,382,410,416; P packages/app/app.json:12; P packages/app/package.json:8 (`expo run:ios`) |
+| 7 | Phone: build with Xcode after replacing `DEVELOPMENT_TEAM = "KK9V7PRPF2"` and the bundle id `dev.mingo.anywhere` | P packages/app/ios/Anywhere.xcodeproj/project.pbxproj:375,382,410,416; P packages/app/app.json:12; P packages/app/package.json:8 (`expo run:ios`) |
 | 8 | Install Tailscale on both devices; otherwise pocketd prints `ws://localhost:4517` | P packages/pocketd/cmd/pocketd/serve.go:58,63-69 |
 | 9 | Copy the token from pocketd's stdout and type `host:port` over the author's placeholder IP; tap Connect on every launch | P packages/pocketd/cmd/pocketd/serve.go:59; P packages/app/src/screens/ConnectScreen.tsx:36,52; P packages/app/src/App.tsx:26 |
 | 10 | A wrong token or protocol looks like "Disconnected — retrying" | P packages/app/src/client.ts:44-55; P packages/app/src/screens/ConnectScreen.tsx:59 |
@@ -357,7 +357,7 @@ Citation legend:
 
 | ID | Idea | User value | Evidence | Pocket mapping | Effort | Prerequisites |
 |---|---|---|---|---|---|---|
-| 19-1 | Signed, notarized, stapled `Pocket.app` embedding `pocket` and `pocketd`, with DMG + app.tar.gz + manifest.json; CI on tag | Download and run; no toolchains | Z scripts/package-macos.sh:18-129; Z .github/workflows/release.yml:16-199; M .github/workflows/release.yml:76-78,137 | **new** `scripts/package-macos.sh`, `.github/workflows/release.yml`, `packages/desktop/dist/macos/Info.plist` | L | Paid ADP; Developer ID cert; ASC API key; 19-16 |
+| 19-1 | Signed, notarized, stapled `Anywhere.app` embedding `pocket` and `pocketd`, with DMG + app.tar.gz + manifest.json; CI on tag | Download and run; no toolchains | Z scripts/package-macos.sh:18-129; Z .github/workflows/release.yml:16-199; M .github/workflows/release.yml:76-78,137 | **new** `scripts/package-macos.sh`, `.github/workflows/release.yml`, `packages/desktop/dist/macos/Info.plist` | L | Paid ADP; Developer ID cert; ASC API key; 19-16 |
 | 19-2 | pocketd LaunchAgent via SMAppService, plist in the bundle; states Starting / Needs approval / Failed | Terminals survive closing the window; the phone always reaches the Mac | Apple SMAppService docs; Z apps/zeron/src/daemon.rs:262-301; M host/service.ts:178,216-222,262-273 | **new** in `packages/desktop/crates/daemon` (objc2-service-management) + onboarding view in `crates/pocket` | M | 19-1 (bundle), 19-5 |
 | 19-3 | Desktop waits and reconnects instead of `exit(1)`: "Starting Pocket's terminal service…" | No crash on first launch or after a pocketd restart | P packages/desktop/crates/pocket/src/main.rs:1050-1052; P packages/desktop/crates/daemon/src/daemon.rs:172-185 | **adapt** `crates/daemon` (reconnect loop), `crates/pocket` (state) | M | — |
 | 19-4 | pocketd `--version`, `status`, `pair` (QR), single-instance flock, own rotating log | Diagnosable service; staged-version check for the updater | Z crates/engine/src/instance_lock.rs:1-120; Z apps/zeron/src/main.rs:458-613; Z crates/update/src/lib.rs:660-685; r08:603-606 | **adapt** `packages/pocketd/cmd/pocketd/main.go`, **new** `internal/lock`, `internal/logfile` | M | overlaps 02-7/02-8 |
@@ -367,11 +367,11 @@ Citation legend:
 | 19-8 | In-app updater ported from Zeron plus a codesign requirement check | Stay current without re-downloading | Z crates/update/src/lib.rs:53-80,594-952; Z crates/ui/src/app_update.rs:1-39,382-437 | **port** as new crate `packages/desktop/crates/update` | L | 19-1, 19-4 (`--version`) |
 | 19-9 | pocketd restart policy: auto only at 0 Terminals, once per version; otherwise "Restart closes N terminals" | Updates never silently kill running agents | Z crates/engine/src/lib.rs:817-824; Z crates/update/src/lib.rs:72,576-585,791-808,1360-1405 | **new** in `pocketd` (version watch + kickstart) and desktop chip | M | 19-2, 19-8, 19-10 |
 | 19-10 | Protocol range negotiation (`min`/`max` in hello; version on the ops socket) | Phone (TestFlight), desktop and pocketd can differ by one version | P packages/pocketd/internal/wsserver/wsserver.go:122; P packages/protocol/src/constants.ts:1; P packages/desktop/crates/agents/src/agents.rs:248 | **adapt** `packages/protocol`, `pocketd/internal/proto`, `wsserver`, `ops` | M | before the first TestFlight build |
-| 19-11 | QR pairing through the system Camera + `codingpocket://pair` deep link; auto-connect; distinct Rejected/offline copy | Pairing in seconds; no typing a 32-char token | r08:603-606; P packages/app/app.json:7; P packages/app/src/client.ts:44-55 | **adapt** `packages/app` (Linking handler, ConnectScreen, session), desktop Settings → Phone QR | M | 19-4 `pair` |
+| 19-11 | QR pairing through the system Camera + `anywhere://pair` deep link; auto-connect; distinct Rejected/offline copy | Pairing in seconds; no typing a 32-char token | r08:603-606; P packages/app/app.json:7; P packages/app/src/client.ts:44-55 | **adapt** `packages/app` (Linking handler, ConnectScreen, session), desktop Settings → Phone QR | M | 19-4 `pair` |
 | 19-12 | Expo Push from pocketd (settles 02-2 vs 08-1) | The phone buzzes on Needs you / Done / Failed | Expo send/FAQ/setup docs; r02:328; r08:472,610-613 | **new** `pocketd/internal/push`; `packages/app` expo-notifications + entitlement; `push.register` in protocol | M | Paid ADP; EAS project + publisher APNs key; 19-14 |
 | 19-13 | Notification pre-prompt card + denied alert | Asked at the right moment; recoverable when denied | Z apps/ios/Zeron/App/PushNotifications.swift:76-97; Z apps/ios/Zeron/Shell/MoreViewController.swift:132,155-160 | **new** in `packages/app/src/screens/AgentsScreen.tsx` | S | 19-12 |
 | 19-14 | TestFlight via EAS Build + Submit (fallback: Zeron's Actions workflow) | Phone install without Xcode | Z .github/workflows/testflight.yml:5-292; developer.apple.com/testflight; expo.dev/pricing | **new** `packages/app/eas.json`, workflow | M | Paid ADP; ASC app record |
-| 19-15 | Self-build: team and bundle id from env/app config, not the pbxproj; BUILD.md with prerequisites | Contributors can build without editing Xcode files | P packages/app/ios/CodingPocket.xcodeproj/project.pbxproj:375,382; P scripts/build-ghostty.sh | **adapt** `packages/app` config; **new** doc | S | 19-16 |
+| 19-15 | Self-build: team and bundle id from env/app config, not the pbxproj; BUILD.md with prerequisites | Contributors can build without editing Xcode files | P packages/app/ios/Anywhere.xcodeproj/project.pbxproj:375,382; P scripts/build-ghostty.sh | **adapt** `packages/app` config; **new** doc | S | 19-16 |
 | 19-16 | MIT LICENSE + THIRD_PARTY_NOTICES (Ghostty, Geist OFL, ported Zeron/MonoCode code) | Legal to use, fork and contribute | r15:326; Z LICENSE:1-3; M LICENSE:1-3; P packages/desktop/crates/theme/assets/fonts/OFL.txt | **new** repo-root files; copy into `Resources/` | S | author decision |
 | 19-17 | Pairing screen detects Tailscale and warns on LAN fallback | Users don't pair to `localhost` or leak the token on Wi-Fi | P packages/pocketd/cmd/pocketd/serve.go:46,63-69; r08 open q | **adapt** pocketd `pair` + desktop Settings → Phone | S | 19-11; pairs with 15-13 |
 | 19-18 | TCC purpose strings for Desktop/Documents/Downloads | Clear system prompts; fewer denials | M src-tauri/Info.plist:7-12 | **new** keys in the desktop Info.plist | S | 19-1 |
@@ -446,7 +446,7 @@ Citation legend:
 ## Open questions / risks
 
 - **Apple account and identity.**
-  - Whose paid ADP account publishes? The Team ID in the pbxproj is KK9V7PRPF2 (P packages/app/ios/CodingPocket.xcodeproj/project.pbxproj:382); Zeron's is 5XY3M483YQ (Z .github/workflows/testflight.yml:167-186).
+  - Whose paid ADP account publishes? The Team ID in the pbxproj is KK9V7PRPF2 (P packages/app/ios/Anywhere.xcodeproj/project.pbxproj:382); Zeron's is 5XY3M483YQ (Z .github/workflows/testflight.yml:167-186).
   - Should the Mac bundle id stay under `dev.mingo.*`?
 - **Unverified SMAppService details.**
   - The `BundleProgram` plist key and the `openSystemSettingsLoginItems()` call were not in the fetched Apple pages.
@@ -462,7 +462,7 @@ Citation legend:
   - Keep-awake while Working (15-7)?
 - **LAN security.**
   - Plain `ws://` with the token on every interface (P packages/pocketd/cmd/pocketd/serve.go:46).
-  - `NSLocalNetworkUsageDescription` is absent (P packages/app/ios/CodingPocket/Info.plist). The iOS local-network prompt behaviour for LAN pairing is untested.
+  - `NSLocalNetworkUsageDescription` is absent (P packages/app/ios/Anywhere/Info.plist). The iOS local-network prompt behaviour for LAN pairing is untested.
   - Tailscale-only plus loopback (15-13)?
 - **Expo dependency.**
   - The third party sees push metadata. Enhanced security can't be enabled.

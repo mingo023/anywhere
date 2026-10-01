@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Coding Pocket</string>
+	<string>Anywhere</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,8 +27,8 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>codingpocket</string>
-				<string>dev.mingo.codingpocket</string>
+				<string>anywhere</string>
+				<string>dev.mingo.anywhere</string>
 			</array>
 		</dict>
 	</array>

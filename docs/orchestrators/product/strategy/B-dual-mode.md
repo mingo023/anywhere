@@ -260,7 +260,7 @@
 - **Goal.** Codex chat parity with Claude chat. Chat agents survive pocketd restarts. One escape hatch to the TUI.
 - **Ideas**
   - 10-2: private `codex app-server` over stdio.
-    - `initialize {clientInfo:"coding-pocket", experimentalApi}`, then `thread/start|resume`.
+    - `initialize {clientInfo:"anywhere", experimentalApi}`, then `thread/start|resume`.
     - `turn/start` carries the [R17 F14] Codex headless access columns, model, effort and `collaborationMode` per turn, with no respawn.
     - Handle server requests: approvals (`accept|acceptForSession|decline`), `permissions/requestApproval`, `requestUserInput`, elicitation decline, `currentTime/read`. Everything else gets `-32601` [R10 §12].
   - 10-4: Codex column. Re-verify `untrusted` on app-server [R17 open questions].

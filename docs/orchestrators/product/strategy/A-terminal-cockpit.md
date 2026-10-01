@@ -149,7 +149,7 @@ This is Zeron's target minus the multi-machine part [R01 TL;DR], limited by D13.
   1. **18-1** Bind loopback plus the Tailscale IPs, re-checked every 30 s.
   2. **18-2** Handshake hardening: Host allowlist, 4 KiB pre-auth limit.
   3. **18-3** Per-device 32-byte tokens, stored as sha256 hashes.
-  4. **18-4 + 19-11** One-time QR code and the `codingpocket://pair` deep link.
+  4. **18-4 + 19-11** One-time QR code and the `anywhere://pair` deep link.
   5. **18-6** The desktop talks over the ops socket as owner, verified by peer check, and stops reading the token.
   6. **18-8** `LOCAL_PEERPID` ancestry: processes that descend from a Terminal get no `approve` scope.
   7. **18-7** Scopes enforced in dispatch: observe, drive, approve, spawn and files.
@@ -468,7 +468,7 @@ This is Zeron's target minus the multi-machine part [R01 TL;DR], limited by D13.
 - **Today:** 12 manual steps [R19 F7].
 - **Scope:**
   - **19-16** MIT licence and third-party notices (author decision).
-  - **19-1** A signed, notarized `Pocket.app` embedding `pocket` and `pocketd`. libghostty-vt is static [R19 TL;DR].
+  - **19-1** A signed, notarized `Anywhere.app` embedding `pocket` and `pocketd`. libghostty-vt is static [R19 TL;DR].
   - **19-2** An SMAppService LaunchAgent that never boots out a running pocketd.
   - **19-5** A gate for translocated and DMG locations.
   - **19-6** Agent check, with install in a visible Terminal.

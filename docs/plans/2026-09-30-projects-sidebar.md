@@ -6,7 +6,7 @@
 
 **Architecture:** The store gains project order, collapse state and remove/keep operations. `git` lists worktrees oldest first and can remove one. `ui` gets one shared sidebar row shape: a chevron, a mark, the name, then a trail. The trail shows a status mark that swaps for `+`/`⋯` buttons on hover. The pocket view builds rows per project; `⋯` menus and a Confirm sheet run the destructive actions. The new-worktree form checks the Name against branches and folders, and the setup runs in the new terminal before the agent via `daemon::setup_op`.
 
-**Toolset** (paths relative to the repo root `/Users/mingo/Developer/self/coding-pocket`):
+**Toolset** (paths relative to the repo root `/Users/mingo/Developer/self/anywhere`):
 - desktop, one crate: `cd packages/desktop && cargo test -p <crate> <test_name>` (crates: `pocket`, `store`, `git`, `daemon`, `ui`, `workspace`, `agents`)
 - desktop, build UI only: `cd packages/desktop && cargo build -p ui -p storybook`
 - desktop, full (every PR boundary): `cd packages/desktop && cargo test -p pocket -p workspace -p store -p agents -p ui -p daemon -p git && cargo build -p pocket -p storybook`. No new warnings allowed.

@@ -1,4 +1,4 @@
-# Orchestrator research: Zeron + MonoCode → Coding Pocket
+# Orchestrator research: Zeron + MonoCode → Anywhere
 
 Research, product decisions and implementable plans for bringing Zeron's and MonoCode's ideas and UI/UX into Pocket.
 

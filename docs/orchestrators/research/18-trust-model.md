@@ -257,7 +257,7 @@ Date: 2026-09-30.
   - TTL is 5 min and each code is single-use. Minting a new code voids the old one.
   - 5 failed redemptions void every code and lock pairing for 60 s.
   - Zeron's CLI code likewise "expires in a few minutes and only works on the device that started sign-in" (Z edge/src/auth-routes.ts:161-192).
-- **QR:** `codingpocket://pair?v=1&h=<host:port>&c=<code>&n=<mac name>`, plus `&fp=<base64url sha256(Mac static pubkey)>` only when relay or LAN TLS is enabled.
+- **QR:** `anywhere://pair?v=1&h=<host:port>&c=<code>&n=<mac name>`, plus `&fp=<base64url sha256(Mac static pubkey)>` only when relay or LAN TLS is enabled.
   - The scheme is already registered (P packages/app/app.json:7).
   - `h` is the MagicDNS name in Serve mode, else the Tailscale IPv4.
   - **The QR never carries the long-lived token.** r08-18 (r08:489) proposed `&token=` and is superseded here.
@@ -510,7 +510,7 @@ This is new. Cmd-, is already taken by Project settings (P packages/desktop/crat
   - Keep the existing styles: padding 24, heading 28/700, input padding 12, font 15, button paddingVertical 14 (P ConnectScreen.tsx).
   - Heading "Pair with your Mac". Body: "On your Mac, open Devices → Pair phone, then scan the code."
   - Primary action "Scan QR code". Secondary action "Enter code instead" shows host and code fields.
-  - The Camera app opening `codingpocket://pair?...` lands on the same confirm step.
+  - The Camera app opening `anywhere://pair?...` lands on the same confirm step.
 - **Confirm card:** "Pair with {n}?" and `{h}`, then "Pair" / "Cancel".
   - Name field prefilled with the device name: "Name on your Mac".
 - **Errors:**
@@ -545,7 +545,7 @@ This is new. Cmd-, is already taken by Project settings (P packages/desktop/crat
 
 Date: 2026-09-30. Claims checked: 40. Corrected: 11.
 
-Confirmed against source: pocketd `:4517` all-interface bind, 24-byte token, 0700/0600 config, `InsecureSkipVerify`, 1 MiB read limit, shared "Rejected", open-request replay on hello, no per-message authz, `perm-N` IDs, 10 min timeout, `setMode auto` option, ops socket 0600 with unrestricted spawn/input/screen/close, `POCKETD_SOCK`/`POCKETD_PTY` injection, desktop reading config.json and using only view/seen/close, `clientId "pocket-app"`, SecureStore default options, `.env*` copy list with `std::fs::copy`, `desktop.json` default perms, `cmd-,` = Project settings, scheme `codingpocket`; MonoCode tokens, hash store, 403/401 checks, revokeSelf, SSH options, askpass, endpoint rule, control-socket limits and env-only grants; Zeron Origin rejection, loopback IPC, TOFU room, `?token=`, `AbsoluteRead::Outside`, path grammar and caps, project-action import gating and 50-entry rule, 70 s online window, last-seen strings, widget metrics; RN Android default Origin; coder/websocket same-host Origin rule; `LOCAL_PEERPID`/`LOCAL_PEERTOKEN`; Claude `!` shell mode, Shift+Tab, read-only `cat`, curl/wget approval, trust verification; Expo SecureStore and NotificationAction options; Tailscale Serve certs and identity headers; default ACL wording.
+Confirmed against source: pocketd `:4517` all-interface bind, 24-byte token, 0700/0600 config, `InsecureSkipVerify`, 1 MiB read limit, shared "Rejected", open-request replay on hello, no per-message authz, `perm-N` IDs, 10 min timeout, `setMode auto` option, ops socket 0600 with unrestricted spawn/input/screen/close, `POCKETD_SOCK`/`POCKETD_PTY` injection, desktop reading config.json and using only view/seen/close, `clientId "pocket-app"`, SecureStore default options, `.env*` copy list with `std::fs::copy`, `desktop.json` default perms, `cmd-,` = Project settings, scheme `anywhere`; MonoCode tokens, hash store, 403/401 checks, revokeSelf, SSH options, askpass, endpoint rule, control-socket limits and env-only grants; Zeron Origin rejection, loopback IPC, TOFU room, `?token=`, `AbsoluteRead::Outside`, path grammar and caps, project-action import gating and 50-entry rule, 70 s online window, last-seen strings, widget metrics; RN Android default Origin; coder/websocket same-host Origin rule; `LOCAL_PEERPID`/`LOCAL_PEERTOKEN`; Claude `!` shell mode, Shift+Tab, read-only `cat`, curl/wget approval, trust verification; Expo SecureStore and NotificationAction options; Tailscale Serve certs and identity headers; default ACL wording.
 
 - F1 hooks: the hook caller supplies the Claude ancestor's pid, not "its own" pid.
 - F1 prompt path: Shift+Tab reaches `bypassPermissions`/`auto` only "when available".

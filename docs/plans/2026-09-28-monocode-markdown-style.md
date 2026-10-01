@@ -340,7 +340,7 @@ Expected: all pass. Clippy shows only the baseline warning.
 
 Run: `cargo run --release -p pocket`.
 
-Open the coding-pocket project, go to Explore, and open `docs/research-monocode-markdown-styles.md`.
+Open the anywhere project, go to Explore, and open `docs/research-monocode-markdown-styles.md`.
 
 **Step 2: Check each item** (all must hold):
 

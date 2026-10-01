@@ -13,7 +13,7 @@ import (
 	"pocketd/internal/atomicfile"
 )
 
-const Label = "dev.mingo.pocket.pocketd"
+const Label = "dev.mingo.anywhere.pocketd"
 
 type Spec struct{ Exe, LogPath string }
 

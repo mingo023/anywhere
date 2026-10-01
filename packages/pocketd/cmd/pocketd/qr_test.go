@@ -8,7 +8,7 @@ import (
 )
 
 func TestTheQRCodeHasAQuietZoneAndSquareModules(t *testing.T) {
-	art, err := qrText("codingpocket://pair?v=1&h=100.77.122.82%3A4517&c=q3xYq3xYq3xYq3xYq3xYq3&n=Mac")
+	art, err := qrText("anywhere://pair?v=1&h=100.77.122.82%3A4517&c=q3xYq3xYq3xYq3xYq3xYq3&n=Mac")
 	if err != nil {
 		t.Fatal(err)
 	}

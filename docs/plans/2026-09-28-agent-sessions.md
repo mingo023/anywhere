@@ -172,7 +172,7 @@ Every PR merges on its own with all suites green. PR 4 is split into 4a and 4b o
 **Depends on:** nothing
 **Done when:** `{"op":"list"}` answers `{"ev":"terminals",...}`, and an unknown id answers `"no such terminal"`. The desktop lists terminals again from that event. `git grep` finds no pocketd reference to the old package, type, field, event, or error text. These pass: `cd packages/pocketd && go build ./... && go vet ./... && go test ./...` and `cd packages/desktop && cargo test -p daemon && cargo build -p pocket`.
 
-All commands in this PR run from the repo root, `/Users/mingo/Developer/self/coding-pocket`. The `sed -i ''` form is macOS (BSD) sed.
+All commands in this PR run from the repo root, `/Users/mingo/Developer/self/anywhere`. The `sed -i ''` form is macOS (BSD) sed.
 
 ### Task 1.1: Ops socket sends `terminals` and "no such terminal"
 
@@ -1408,7 +1408,7 @@ Expected: PASS. `gofmt` prints nothing, and every package prints `ok`, including
 - `pnpm --filter @pocket/protocol test && pnpm --filter @pocket/app test && pnpm --filter @pocket/app typecheck`
 - `cd packages/desktop && cargo test -p agents && cargo build -p pocket`
 
-All commands run from the repo root, `/Users/mingo/Developer/self/coding-pocket`.
+All commands run from the repo root, `/Users/mingo/Developer/self/anywhere`.
 
 Run e2e tests with `-count=1`. `go test` caches e2e results, so a cached pass can hide a real failure.
 
@@ -2764,7 +2764,7 @@ Expected PASS: every Go package `ok`; protocol `ℹ pass 30`; app `ℹ pass 2` a
 
 **Done when:** `cd packages/desktop && cargo test -p agents -p pocket -p workspace` passes 7, 49 and 5 tests, and `cargo build -p pocket -p storybook` builds with no new warnings. By hand, with pocketd running and Pocket started from its app bundle (gpui posts no notification without a bundle id): an agent that finishes in a pane you aren't watching posts "Done". Opening that pane removes the notification. Clicking a notification opens the session and focuses the pane.
 
-Commands run from the repo root, `/Users/mingo/Developer/self/coding-pocket`. Code blocks are unified diffs against the repo root. Their line numbers are the tree after PR 3 plus the earlier tasks of this PR. The desktop files carry uncommitted user edits, and the diffs were written against them. `git apply` takes a block while its context still matches; otherwise make the same edit by hand. Build `storybook` too whenever `ui` changes, because it calls `ui`'s functions.
+Commands run from the repo root, `/Users/mingo/Developer/self/anywhere`. Code blocks are unified diffs against the repo root. Their line numbers are the tree after PR 3 plus the earlier tasks of this PR. The desktop files carry uncommitted user edits, and the diffs were written against them. `git apply` takes a block while its context still matches; otherwise make the same edit by hand. Build `storybook` too whenever `ui` changes, because it calls `ui`'s functions.
 
 Words used below. A *terminal* is one pocketd PTY: `daemon::Info` on the wire, `sessions::Session` in the desktop. A *session* is what one card shows: a top-level terminal plus the tabs and splits opened from it (`store.parent(id)` and `store.children_of(id)`, `crates/store/src/store.rs:44-50`). An *agent* is pocketd's `agents::Summary`; its `terminal_id` names the terminal it runs in.
 
@@ -6884,7 +6884,7 @@ func readJSON(t *testing.T, path string, v any) {
 
 func TestWritePluginHooksEveryStatusEvent(t *testing.T) {
 	d := newDaemon(t)
-	d.Exe = "/Applications/Pocket.app/pocketd"
+	d.Exe = "/Applications/Anywhere.app/pocketd"
 	if err := d.WritePlugin(); err != nil {
 		t.Fatal(err)
 	}
@@ -6893,7 +6893,7 @@ func TestWritePluginHooksEveryStatusEvent(t *testing.T) {
 	}
 	var manifest struct{ Name, Version string }
 	readJSON(t, filepath.Join(d.Plugin, ".claude-plugin", "plugin.json"), &manifest)
-	if manifest.Name != "coding-pocket" || manifest.Version != "1.0.0" {
+	if manifest.Name != "anywhere" || manifest.Version != "1.0.0" {
 		t.Fatalf("manifest = %+v", manifest)
 	}
 	type hook struct {
@@ -6918,7 +6918,7 @@ func TestWritePluginHooksEveryStatusEvent(t *testing.T) {
 		t.Fatalf("events = %v", file.Hooks)
 	}
 	for event, matcher := range want {
-		cmd := hook{"command", `"/Applications/Pocket.app/pocketd" hook`, 5}
+		cmd := hook{"command", `"/Applications/Anywhere.app/pocketd" hook`, 5}
 		if event == "PermissionRequest" {
 			cmd.Timeout = 610
 		}
@@ -7015,7 +7015,7 @@ func (d *Daemon) WritePlugin() error {
 		hooks[event] = []any{group}
 	}
 	files := map[string]any{
-		".claude-plugin/plugin.json": map[string]string{"name": "coding-pocket", "version": "1.0.0", "description": "Shows Claude sessions in Coding Pocket."},
+		".claude-plugin/plugin.json": map[string]string{"name": "anywhere", "version": "1.0.0", "description": "Shows Claude sessions in Anywhere."},
 		"hooks/hooks.json":           map[string]any{"hooks": hooks},
 	}
 	for name, v := range files {

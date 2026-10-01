@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "Coding Pocket",
-    "slug": "coding-pocket",
+    "name": "Anywhere",
+    "slug": "anywhere",
     "version": "0.0.0",
     "orientation": "portrait",
-    "scheme": "codingpocket",
+    "scheme": "anywhere",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.mingo.codingpocket"
+      "bundleIdentifier": "dev.mingo.anywhere"
     },
     "android": {
-      "package": "dev.mingo.codingpocket",
+      "package": "dev.mingo.anywhere",
       "edgeToEdgeEnabled": true
     },
     "plugins": [

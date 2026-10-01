@@ -407,7 +407,7 @@ All measurements are px.
 ### 3.1 Shell regions
 
 ```
-Sidebars (default). Window 1440×900, min 900×600, title "Coding Pocket", transparent titlebar.
+Sidebars (default). Window 1440×900, min 900×600, title "Anywhere", transparent titlebar.
 x=0          272          606                                                  1440
 ┌────────────┬────────────┬──────────────────────────────────────────────────────┐ y=0
 │ aside      │ column     │ page bar 42: tabs · status · context · actions       │

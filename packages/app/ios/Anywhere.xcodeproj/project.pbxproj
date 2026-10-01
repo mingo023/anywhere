@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0408261314AFE98D441F4927 /* libPods-CodingPocket.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 32E452EF04B7CDE48A164ADA /* libPods-CodingPocket.a */; };
+		0408261314AFE98D441F4927 /* libPods-Anywhere.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 32E452EF04B7CDE48A164ADA /* libPods-Anywhere.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		93EC86F30ACDC1A3363604A9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 33095A4F06F7F915559B3B29 /* PrivacyInfo.xcprivacy */; };
@@ -17,19 +17,19 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		13B07F961A680F5B00A75B9A /* CodingPocket.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodingPocket.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = CodingPocket/Images.xcassets; sourceTree = "<group>"; };
-		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = CodingPocket/Info.plist; sourceTree = "<group>"; };
-		32E452EF04B7CDE48A164ADA /* libPods-CodingPocket.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-CodingPocket.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		33095A4F06F7F915559B3B29 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = CodingPocket/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = CodingPocket/SplashScreen.storyboard; sourceTree = "<group>"; };
-		B23037603F8745F4BB0326DA /* Pods-CodingPocket.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-CodingPocket.debug.xcconfig"; path = "Target Support Files/Pods-CodingPocket/Pods-CodingPocket.debug.xcconfig"; sourceTree = "<group>"; };
-		B6678F58A4F59FDEBFCC1437 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-CodingPocket/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		13B07F961A680F5B00A75B9A /* Anywhere.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Anywhere.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Anywhere/Images.xcassets; sourceTree = "<group>"; };
+		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Anywhere/Info.plist; sourceTree = "<group>"; };
+		32E452EF04B7CDE48A164ADA /* libPods-Anywhere.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Anywhere.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		33095A4F06F7F915559B3B29 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Anywhere/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Anywhere/SplashScreen.storyboard; sourceTree = "<group>"; };
+		B23037603F8745F4BB0326DA /* Pods-Anywhere.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Anywhere.debug.xcconfig"; path = "Target Support Files/Pods-Anywhere/Pods-Anywhere.debug.xcconfig"; sourceTree = "<group>"; };
+		B6678F58A4F59FDEBFCC1437 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Anywhere/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		CE43103AE7B3D39B73EA4A87 /* Pods-CodingPocket.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-CodingPocket.release.xcconfig"; path = "Target Support Files/Pods-CodingPocket/Pods-CodingPocket.release.xcconfig"; sourceTree = "<group>"; };
+		CE43103AE7B3D39B73EA4A87 /* Pods-Anywhere.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Anywhere.release.xcconfig"; path = "Target Support Files/Pods-Anywhere/Pods-Anywhere.release.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = CodingPocket/AppDelegate.swift; sourceTree = "<group>"; };
-		F11748442D0722820044C1D9 /* CodingPocket-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "CodingPocket-Bridging-Header.h"; path = "CodingPocket/CodingPocket-Bridging-Header.h"; sourceTree = "<group>"; };
+		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Anywhere/AppDelegate.swift; sourceTree = "<group>"; };
+		F11748442D0722820044C1D9 /* Anywhere-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Anywhere-Bridging-Header.h"; path = "Anywhere/Anywhere-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -37,7 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0408261314AFE98D441F4927 /* libPods-CodingPocket.a in Frameworks */,
+				0408261314AFE98D441F4927 /* libPods-Anywhere.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -47,30 +47,30 @@
 		12B0F2024A5361C3445BFA8C /* ExpoModulesProviders */ = {
 			isa = PBXGroup;
 			children = (
-				E1ACEC3595087FE55F4C6BA7 /* CodingPocket */,
+				E1ACEC3595087FE55F4C6BA7 /* Anywhere */,
 			);
 			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
-		13B07FAE1A68108700A75B9A /* CodingPocket */ = {
+		13B07FAE1A68108700A75B9A /* Anywhere */ = {
 			isa = PBXGroup;
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
-				F11748442D0722820044C1D9 /* CodingPocket-Bridging-Header.h */,
+				F11748442D0722820044C1D9 /* Anywhere-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				33095A4F06F7F915559B3B29 /* PrivacyInfo.xcprivacy */,
 			);
-			name = CodingPocket;
+			name = Anywhere;
 			sourceTree = "<group>";
 		};
 		229C0D663E8F79AC423C4E91 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				B23037603F8745F4BB0326DA /* Pods-CodingPocket.debug.xcconfig */,
-				CE43103AE7B3D39B73EA4A87 /* Pods-CodingPocket.release.xcconfig */,
+				B23037603F8745F4BB0326DA /* Pods-Anywhere.debug.xcconfig */,
+				CE43103AE7B3D39B73EA4A87 /* Pods-Anywhere.release.xcconfig */,
 			);
 			name = Pods;
 			path = Pods;
@@ -80,7 +80,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				32E452EF04B7CDE48A164ADA /* libPods-CodingPocket.a */,
+				32E452EF04B7CDE48A164ADA /* libPods-Anywhere.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -95,7 +95,7 @@
 		83CBB9F61A601CBA00E9B192 = {
 			isa = PBXGroup;
 			children = (
-				13B07FAE1A68108700A75B9A /* CodingPocket */,
+				13B07FAE1A68108700A75B9A /* Anywhere */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
@@ -110,7 +110,7 @@
 		83CBBA001A601CBA00E9B192 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				13B07F961A680F5B00A75B9A /* CodingPocket.app */,
+				13B07F961A680F5B00A75B9A /* Anywhere.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -121,23 +121,23 @@
 				BB2F792C24A3F905000567C9 /* Expo.plist */,
 			);
 			name = Supporting;
-			path = CodingPocket/Supporting;
+			path = Anywhere/Supporting;
 			sourceTree = "<group>";
 		};
-		E1ACEC3595087FE55F4C6BA7 /* CodingPocket */ = {
+		E1ACEC3595087FE55F4C6BA7 /* Anywhere */ = {
 			isa = PBXGroup;
 			children = (
 				B6678F58A4F59FDEBFCC1437 /* ExpoModulesProvider.swift */,
 			);
-			name = CodingPocket;
+			name = Anywhere;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		13B07F861A680F5B00A75B9A /* CodingPocket */ = {
+		13B07F861A680F5B00A75B9A /* Anywhere */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "CodingPocket" */;
+			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Anywhere" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
 				FA30EB60A542B8D9D70AFB8D /* [Expo] Configure project */,
@@ -152,9 +152,9 @@
 			);
 			dependencies = (
 			);
-			name = CodingPocket;
-			productName = CodingPocket;
-			productReference = 13B07F961A680F5B00A75B9A /* CodingPocket.app */;
+			name = Anywhere;
+			productName = Anywhere;
+			productReference = 13B07F961A680F5B00A75B9A /* Anywhere.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -172,7 +172,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "CodingPocket" */;
+			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "Anywhere" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -185,7 +185,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				13B07F861A680F5B00A75B9A /* CodingPocket */,
+				13B07F861A680F5B00A75B9A /* Anywhere */,
 			);
 		};
 /* End PBXProject section */
@@ -237,7 +237,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-CodingPocket-checkManifestLockResult.txt",
+				"$(DERIVED_FILE_DIR)/Pods-Anywhere-checkManifestLockResult.txt",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -250,7 +250,7 @@
 			files = (
 			);
 			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-CodingPocket/Pods-CodingPocket-frameworks.sh",
+				"${PODS_ROOT}/Target Support Files/Pods-Anywhere/Pods-Anywhere-frameworks.sh",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem.framework/ExpoFileSystem",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoFont/ExpoFont.framework/ExpoFont",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoModulesCore/ExpoModulesCore.framework/ExpoModulesCore",
@@ -273,7 +273,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-CodingPocket/Pods-CodingPocket-frameworks.sh\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Anywhere/Pods-Anywhere-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
@@ -282,7 +282,7 @@
 			files = (
 			);
 			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-CodingPocket/Pods-CodingPocket-resources.sh",
+				"${PODS_ROOT}/Target Support Files/Pods-Anywhere/Pods-Anywhere-resources.sh",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
@@ -303,7 +303,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-CodingPocket/Pods-CodingPocket-resources.sh\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Anywhere/Pods-Anywhere-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		FA30EB60A542B8D9D70AFB8D /* [Expo] Configure project */ = {
@@ -317,18 +317,18 @@
 			inputPaths = (
 				"$(SRCROOT)/.xcode.env",
 				"$(SRCROOT)/.xcode.env.local",
-				"$(SRCROOT)/CodingPocket/CodingPocket.entitlements",
-				"$(SRCROOT)/Pods/Target Support Files/Pods-CodingPocket/expo-configure-project.sh",
+				"$(SRCROOT)/Anywhere/Anywhere.entitlements",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Anywhere/expo-configure-project.sh",
 			);
 			name = "[Expo] Configure project";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(SRCROOT)/Pods/Target Support Files/Pods-CodingPocket/ExpoModulesProvider.swift",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Anywhere/ExpoModulesProvider.swift",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-CodingPocket/expo-configure-project.sh\"\n";
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Anywhere/expo-configure-project.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -347,18 +347,18 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B23037603F8745F4BB0326DA /* Pods-CodingPocket.debug.xcconfig */;
+			baseConfigurationReference = B23037603F8745F4BB0326DA /* Pods-Anywhere.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = CodingPocket/CodingPocket.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Anywhere/Anywhere.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
 					"FB_SONARKIT_ENABLED=1",
 				);
-				INFOPLIST_FILE = CodingPocket/Info.plist;
+				INFOPLIST_FILE = Anywhere/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -372,9 +372,9 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.mingo.codingpocket;
-				PRODUCT_NAME = CodingPocket;
-				SWIFT_OBJC_BRIDGING_HEADER = "CodingPocket/CodingPocket-Bridging-Header.h";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.mingo.anywhere;
+				PRODUCT_NAME = Anywhere;
+				SWIFT_OBJC_BRIDGING_HEADER = "Anywhere/Anywhere-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -387,13 +387,13 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = CE43103AE7B3D39B73EA4A87 /* Pods-CodingPocket.release.xcconfig */;
+			baseConfigurationReference = CE43103AE7B3D39B73EA4A87 /* Pods-Anywhere.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = CodingPocket/CodingPocket.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Anywhere/Anywhere.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				INFOPLIST_FILE = CodingPocket/Info.plist;
+				INFOPLIST_FILE = Anywhere/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -407,9 +407,9 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.mingo.codingpocket;
-				PRODUCT_NAME = CodingPocket;
-				SWIFT_OBJC_BRIDGING_HEADER = "CodingPocket/CodingPocket-Bridging-Header.h";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.mingo.anywhere;
+				PRODUCT_NAME = Anywhere;
+				SWIFT_OBJC_BRIDGING_HEADER = "Anywhere/Anywhere-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -558,7 +558,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "CodingPocket" */ = {
+		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Anywhere" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				13B07F941A680F5B00A75B9A /* Debug */,
@@ -567,7 +567,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "CodingPocket" */ = {
+		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "Anywhere" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,

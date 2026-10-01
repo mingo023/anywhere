@@ -6,7 +6,7 @@ Sources:
 - https://zeron.sh.
 - https://zeron.sh/releases/latest.txt, which returns `0.2.99`.
 - `gh api repos/zeronsh/comet/releases --paginate` (162 releases).
-- Pocket worktree `/Users/mingo/.worktrees/coding-pocket/orchestrator-research`.
+- Pocket worktree `/Users/mingo/.worktrees/anywhere/orchestrator-research`.
 
 Citation legend:
 - `Z path:L` is a file and line in the Zeron clone, relative to its root.

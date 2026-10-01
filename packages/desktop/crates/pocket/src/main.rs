@@ -47,7 +47,7 @@ fn main() {
             display_id: displays.get(display).filter(|_| !capturing).map(|d| d.id()),
             window_min_size: Some(MIN_WINDOW),
             titlebar: Some(TitlebarOptions {
-                title: Some("Coding Pocket".into()),
+                title: Some("Anywhere".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(14.), px(14.))),
             }),

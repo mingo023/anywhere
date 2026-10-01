@@ -3,8 +3,8 @@
 Date: 2026-09-30.
 
 Sources:
-- Pocket worktree `/Users/mingo/.worktrees/coding-pocket/orchestrator-research` @ `86deb13` ("Desktop polish: top bar layout, motion, flat selection").
-- Pocket main checkout `/Users/mingo/Developer/self/coding-pocket` @ `b9d14a1` plus uncommitted work (F12).
+- Pocket worktree `/Users/mingo/.worktrees/anywhere/orchestrator-research` @ `86deb13` ("Desktop polish: top bar layout, motion, flat selection").
+- Pocket main checkout `/Users/mingo/Developer/self/anywhere` @ `b9d14a1` plus uncommitted work (F12).
 - Competitors, for context only: zeronsh/comet @ `ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5`, hardbeat920/monocode @ `cdc1441dc51e3709cd843e5c316608a123f323c6`. This report reads only Pocket code. It cites competitor facts through the earlier reports 04, 05 and 07.
 - In-repo docs: `CONTEXT.md`, `docs/adr/*`, `docs/designs/*`, `docs/plans/*`, `docs/wayfinder/*`, `docs/spike-*.md`, `docs/research-*.md`, `docs/orchestrators/research/0*.md`.
 
@@ -132,7 +132,7 @@ Citation legend:
 - Home is `$POCKET_HOME` or `~/.coding-pocket`.
 - `config.json {token, port}` is written 0600. The first run creates a 24-byte base64url token and port 4517 (P packages/pocketd/internal/config/config.go:52-61).
 - Pairing: the user types host and token into the phone (P packages/app/src/screens/ConnectScreen.tsx:36-46). No QR, no TLS, no relay.
-- iOS allows arbitrary loads for this (P packages/app/ios/CodingPocket/Info.plist:41-43).
+- iOS allows arbitrary loads for this (P packages/app/ios/Anywhere/Info.plist:41-43).
 
 **Ops socket** (JSON lines, the desktop and CLI):
 - `list`, `spawn`, `hook`, `attach` (snapshot, then events), `input`, `prompt`, `resize`, `screen`, `close` (P packages/pocketd/internal/ops/ops.go:117-163). Socket mode 0600 (P packages/pocketd/internal/ops/ops.go:76).
@@ -266,7 +266,7 @@ Citation legend:
 
 ### F7. Phone app (packages/app)
 
-- Stack: Expo 57, RN 0.86.3, React 19.2.3, Geist fonts, expo-glass-effect / expo-blur, expo-secure-store, react-native-svg (P packages/app/package.json:14-31). Style `dark`; bundle id `dev.mingo.codingpocket` (P packages/app/app.json).
+- Stack: Expo 57, RN 0.86.3, React 19.2.3, Geist fonts, expo-glass-effect / expo-blur, expo-secure-store, react-native-svg (P packages/app/package.json:14-31). Style `dark`; bundle id `dev.mingo.anywhere` (P packages/app/app.json).
 - Navigation: no library. `App.tsx` switches ChatScreen when an agent is open, else AgentsScreen when online, else ConnectScreen. PermissionSheet is global (P packages/app/src/App.tsx:15-32).
 - Client:
   - `ws://${host}`, clientId `pocket-app` (P packages/app/src/session.tsx:76).
@@ -413,7 +413,7 @@ Build and test commands:
 
 ### F12. In-flight work in the main checkout (collision map)
 
-`git -C /Users/mingo/Developer/self/coding-pocket` shows HEAD `b9d14a1`, one commit ahead of this worktree's `86deb13`.
+`git -C /Users/mingo/Developer/self/anywhere` shows HEAD `b9d14a1`, one commit ahead of this worktree's `86deb13`.
 
 **Committed in `b9d14a1`** ("Add commit message composition; discard unstaged changes"; 12 files, +838/−116):
 - New `P@main packages/desktop/crates/pocket/src/changes.rs` (664 lines). The Changes sidebar moves out of `diff.rs`:

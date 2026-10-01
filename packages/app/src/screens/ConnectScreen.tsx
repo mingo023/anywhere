@@ -27,7 +27,7 @@ export function ConnectScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <Text style={styles.heading}>Coding Pocket</Text>
+      <Text style={styles.heading}>Anywhere</Text>
       <Text style={styles.label}>Host</Text>
       <TextInput
         style={styles.input}

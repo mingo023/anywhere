@@ -391,7 +391,7 @@ Deduped across plans.
 1. E01 step 0 needs paid agent turns (claude 2.1.285, codex 0.159). E01 PR4 waits on it.
 2. PRD Q3: CI runner cost, repo visibility, licence.
 3. `rsc.io/qr` (BSD-3) for `pocketd pair`, or drop `qr.go`.
-4. Bundle namespace clash. E04 uses `dev.mingo.pocket.pocketd` and `dev.mingo.pocket.*`; E01 uses `dev.mingo.codingpocket.desktop`; the phone is `dev.mingo.codingpocket` (P packages/app/app.json:12). Pick one.
+4. Bundle namespace clash. E04 uses `dev.mingo.anywhere.pocketd` and `dev.mingo.anywhere.*`; E01 uses `dev.mingo.anywhere.desktop`; the phone is `dev.mingo.anywhere` (P packages/app/app.json:12). Pick one.
 5. E17: NetInfo needs a native rebuild in wk2. Do the rebuild, or ship AppState-only?
 6. E08: a pill label on its own tint is 4.18–4.46:1 in light, under 4.5 (desktop-attention.md:3248).
 7. E16 decision 2: light WAITING `ad5700`, FAILED `cd2b31` (see below).

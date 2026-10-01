@@ -57,7 +57,7 @@ Date: 2026-09-30. Inputs: research reports R01–R19 (`docs/orchestrators/resear
 | ⌘K palette: every-word fuzzy match, cap after filter, wrap, highlight, `>` commands, action registry | ✓ [R04 §F5] | ✓ [R12 §F10] | n/r | partial: substring match, 5 rows [P d/pocket/src/overlay.rs:95,114] | 04-4, 12-12, 14-12 | S–M | H |
 | Persist window geometry per display (min 900×600) and layout | ✓ [R04 idea 04-7] | n/r | n/r | – opens centred 1440×900 [P d/pocket/src/main.rs:1074] | 04-7, 14-15 | S | M |
 | Resize seams: 20 px hitbox, double-click reset | ✓ [R04 §F8] | ✓ sash dbl-click reset [R16 §F4] | n/r | partial: 5 px handle, no reset [R12 §F16] | 04-8 | S | L |
-| Titlebar names the selected session | ✓ [R04 idea 04-11] | n/r | n/r | – fixed "Coding Pocket" [P d/pocket/src/main.rs:1078] | 04-11 | S | L |
+| Titlebar names the selected session | ✓ [R04 idea 04-11] | n/r | n/r | – fixed "Anywhere" [P d/pocket/src/main.rs:1078] | 04-11 | S | L |
 | Tabs: two-line with agent status stack; width / FLIP motion | n/r | ✓ [R12 §F8] | n/r | partial: tabs + splits, 3 layouts [R14 §F11] | 12-4, 12-5 | S–M | M |
 | Splits with sizes: sash (min 160, max 55 %, dbl-click reset), edge-drop, ⌘⌥arrow focus | ✓ dock sizes [R16 idea 16-17] | ✓ split tree [R12 §F9] | n/r | partial: `Vec<Vec<String>>`, no sizes [P d/workspace/src/workspace.rs:4] | 12-6, 12-7, 12-8, 16-17 | S (rows) – L (tree) | M |
 | Compact rail push-drawer | n/r | ✓ [R12 §F6] | n/r | partial: ⌘\ toggles rail [P d/pocket/src/main.rs:1066] | 12-9 | M | L |
@@ -251,7 +251,7 @@ Enabler: 11-18 add CONTEXT terms ("chat agent", optional terminalId) before head
 | Bind loopback + Tailscale only; `--listen lan` needs TLS | n/r | ✓ [R18 idea 18-1] | VibeTunnel [R15 idea 15-13] | – all interfaces [P pd/cmd/pocketd/serve.go:46] | 18-1, 15-13 | S | H |
 | Handshake hardening: Host allowlist, Origin check, 4 KiB pre-auth, rate limit, split errors, random request IDs | n/r | ✓ 403/401 checks [R18 idea 18-2] | n/r | – `InsecureSkipVerify` [P pd/internal/wsserver/wsserver.go:53] | 18-2 | S | H |
 | Per-device hashed tokens, revoke, `pocketd devices` | – every device trusted [R18 §F4] | ✓ [R18 §F3] | n/r | – one shared token [R18 §F1] | 18-3, 14-8 | M | H |
-| QR pairing with a one-time code; `codingpocket://pair`; Tailscale detection, LAN warning | ✓ [R18 idea 18-4] | ✓ [R18 idea 18-4] | Happy, Claude, Codex, Nimbalyst [R15 §F16] | – host + token typed [R19 §F7] | 08-18, 14-8, 18-4, 19-11, 19-17 | M | H |
+| QR pairing with a one-time code; `anywhere://pair`; Tailscale detection, LAN warning | ✓ [R18 idea 18-4] | ✓ [R18 idea 18-4] | Happy, Claude, Codex, Nimbalyst [R15 §F16] | – host + token typed [R19 §F7] | 08-18, 14-8, 18-4, 19-11, 19-17 | M | H |
 | Prompt sanitation: strip C0/ESC/DEL, 64 KiB cap, agent-sourced `!`/`/` rejected | n/r | n/r | n/r | – raw write + `\r` [R18 §F1] | 18-9 | S | H |
 | Scope enforcement (observe/drive/approve/spawn/files); observe-only devices | – [R18 §F4] | ✓ [R18 §F3] | n/r | – nothing past hello [R18 §F1] | 18-7 | S | M |
 | Devices sheet: This Mac, Phones, Rename, Remove, Pair QR, legacy banner | ✓ [R18 §F4] | ✓ [R18 idea 18-5] | n/r | – | 18-5 | M | M |
@@ -267,7 +267,7 @@ Enabler: 11-18 add CONTEXT terms ("chat agent", optional terminalId) before head
 
 | Feature | Zeron | MonoCode | Best landscape example | Pocket today | Idea IDs | Effort | Value |
 |---|---|---|---|---|---|---|---|
-| Signed, notarized `Pocket.app` embedding pocket + pocketd; DMG; release CI | ✓ [R19 idea 19-1] | ✓ [R19 idea 19-1] | n/r | – no build, no CI [R19 §F7] | 19-1, 14-23 | L | H |
+| Signed, notarized `Anywhere.app` embedding pocket + pocketd; DMG; release CI | ✓ [R19 idea 19-1] | ✓ [R19 idea 19-1] | n/r | – no build, no CI [R19 §F7] | 19-1, 14-23 | L | H |
 | pocketd LaunchAgent via SMAppService; never boot out a running pocketd | partial: boots out first [R19 §TL;DR] | ✓ [R19 §F4] | n/r | – `pocketd serve` in a terminal [R19 §F7] | 01-10, 02-7, 14-23, 19-2 | M | H |
 | MIT LICENSE + third-party notices | ✓ [R19 §F8] | ✓ [R19 §F8] | Happy, Nimbalyst [R15 §F16] | – no LICENSE [R19 §F7] | 19-16 | S | H |
 | TestFlight via EAS Build + Submit | ✓ [R19 idea 19-14] | n/r | cmux iOS beta [R15 §F16] | – Xcode + author's Team ID [R19 §F7] | 19-14 | M | H |

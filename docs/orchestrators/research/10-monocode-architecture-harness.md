@@ -4,7 +4,7 @@ Date: 2026-09-30.
 
 Sources:
 - MonoCode: `hardbeat920/monocode@cdc1441dc51e3709cd843e5c316608a123f323c6` (2026-09-30, MIT), clone `/Users/mingo/tmp/orchestrators/monocode`.
-- Pocket: `coding-pocket@86deb13c` (worktree `orchestrator-research`).
+- Pocket: `anywhere@86deb13c` (worktree `orchestrator-research`).
 - Codex release notes: https://github.com/openai/codex/releases/tag/rust-v0.157.0 (via `gh api`).
 - Product-level MonoCode findings are in `09-monocode-product.md`. This report covers mechanism only.
 
@@ -383,7 +383,7 @@ Goal: pocketd owns a headless provider process, and the phone ChatScreen and a d
    - **Settings change:** `Close()`, then respawn with `--resume`.
 4. **Codex driver** (`M …/codex/codex.ts:517-724,1139-1336`, `M …/codexProtocol.ts:62-181`):
    - **Spawn:** `codex app-server`. Frames are one JSON object per line with `id`/`method`/`params`/`result` and no `"jsonrpc"`. Pocket's `frame` struct matches for reading, but its `Error` has only `message` and `Client.Reply` sends only `result` (`P pocketd/internal/codex/rpc.go:34-42,147-150`). Replying `-32601` needs an error `code` field and an error-reply method. Otherwise only the transport changes, from WebSocket over unix socket to stdio lines.
-   - **Handshake:** `initialize {clientInfo:{name:"coding-pocket",title:"Coding Pocket",version}, capabilities:{experimentalApi:true}}`, then notify `initialized`. Pocket currently sends `clientInfo.name:"codex_app_server_daemon"` and `capabilities:nil` (`P pocketd/internal/codex/rpc.go:59`).
+   - **Handshake:** `initialize {clientInfo:{name:"anywhere",title:"Anywhere",version}, capabilities:{experimentalApi:true}}`, then notify `initialized`. Pocket currently sends `clientInfo.name:"codex_app_server_daemon"` and `capabilities:nil` (`P pocketd/internal/codex/rpc.go:59`).
    - **Thread:** `thread/start {cwd, approvalPolicy, sandbox, sandboxPolicy:{type}, approvalsReviewer, model?}`, or `thread/resume {threadId, …same}` falling back to start. `SetConversation(thread.id)`.
    - **`Prompt`:** `turn/start {threadId, input:[{type:"text",text}], approvalPolicy, approvalsReviewer, sandboxPolicy, collaborationMode:{mode:"default",settings:{model,reasoning_effort,developer_instructions:null}}, model?, effort?}`.
      - `turn/started` → `Working()`. `turn/completed`/`turn/aborted` → `TurnEnded`.

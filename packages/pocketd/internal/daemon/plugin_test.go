@@ -36,7 +36,7 @@ func TestWritePluginHooksEveryStatusEvent(t *testing.T) {
 	}
 	var manifest struct{ Name, Version string }
 	readJSON(t, filepath.Join(d.Plugin, ".claude-plugin", "plugin.json"), &manifest)
-	if manifest.Name != "coding-pocket" || manifest.Version != "1.0.0" {
+	if manifest.Name != "anywhere" || manifest.Version != "1.0.0" {
 		t.Fatalf("manifest = %+v", manifest)
 	}
 	type hook struct {

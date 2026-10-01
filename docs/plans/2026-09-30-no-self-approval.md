@@ -2669,7 +2669,7 @@ The tests prove `pair.begin` decodes and `pair.offer`, `pair.done` and a `scope_
  		h.Scopes = []string{"observe", "drive", "approve", "spawn", "owner"}
  		return h
  	}(),
-+	"pair_offer":         NewPairOffer("b1", "codingpocket://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv", "abcdefghijklmnopqrstuv", 1790000000000),
++	"pair_offer":         NewPairOffer("b1", "anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv", "abcdefghijklmnopqrstuv", 1790000000000),
 +	"pair_done":          NewPairDone("d1", "iPhone"),
 +	"error_scope_denied": NewErrorCode("r1", CodeScopeDenied, "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)"),
  }
@@ -2750,7 +2750,7 @@ Create `packages/pocketd/internal/proto/testdata/golden/server/pair_offer.json` 
 {
   "type": "pair.offer",
   "id": "b1",
-  "url": "codingpocket://pair?v=1\u0026h=100.64.0.1:4517\u0026c=abcdefghijklmnopqrstuv",
+  "url": "anywhere://pair?v=1\u0026h=100.64.0.1:4517\u0026c=abcdefghijklmnopqrstuv",
   "code": "abcdefghijklmnopqrstuv",
   "expiresAt": 1790000000000
 }
@@ -4217,7 +4217,7 @@ mod tests {
     use super::{CLOSE_AFTER, PairPhone, PairText, Qr, Stage, countdown};
     use std::time::{Duration, Instant};
 
-    const URL: &str = "codingpocket://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv";
+    const URL: &str = "anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv";
 
     fn offered(left: Duration, now: Instant) -> PairPhone {
         let mut p = PairPhone::default();
@@ -4528,7 +4528,7 @@ mod tests {
     use super::{CLOSE_AFTER, PairPhone, PairText, Qr, Stage, countdown};
     use std::time::{Duration, Instant};
 
-    const URL: &str = "codingpocket://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv";
+    const URL: &str = "anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv";
 
     fn offered(left: Duration, now: Instant) -> PairPhone {
         let mut p = PairPhone::default();
@@ -4708,7 +4708,7 @@ mod tests {
        }
 +      if (f.type === "pair.begin") {
 +        const code = "abcdefghijklmnopqrstuv";
-+        ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `codingpocket://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));
++        ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));
 +      }
        if (f.type === "agent.timeline") {
          const a = scenario.agents.find((a) => a.id === f.agentId);

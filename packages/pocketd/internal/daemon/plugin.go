@@ -36,7 +36,7 @@ func (d *Daemon) WritePlugin() error {
 		hooks[event] = []any{group}
 	}
 	files := map[string]any{
-		".claude-plugin/plugin.json": map[string]string{"name": "coding-pocket", "version": "1.0.0", "description": "Shows Claude sessions in Coding Pocket."},
+		".claude-plugin/plugin.json": map[string]string{"name": "anywhere", "version": "1.0.0", "description": "Shows Claude sessions in Anywhere."},
 		"hooks/hooks.json":           map[string]any{"hooks": hooks},
 	}
 	for name, v := range files {

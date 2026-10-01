@@ -32,7 +32,7 @@ func TestAnOfferCarriesAOneTimeCodeInThePairLink(t *testing.T) {
 	}
 	u, err := url.Parse(o.URL)
 	q := u.Query()
-	if err != nil || u.Scheme != "codingpocket" || u.Host != "pair" || q.Get("v") != "1" || q.Get("h") != "100.77.122.82:4517" || q.Get("c") != o.Code || q.Get("n") != "Mac mini" {
+	if err != nil || u.Scheme != "anywhere" || u.Host != "pair" || q.Get("v") != "1" || q.Get("h") != "100.77.122.82:4517" || q.Get("c") != o.Code || q.Get("n") != "Mac mini" {
 		t.Fatalf("%s", o.URL)
 	}
 }

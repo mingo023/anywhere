@@ -1,7 +1,7 @@
 {
   "type": "pair.offer",
   "id": "b1",
-  "url": "codingpocket://pair?v=1\u0026h=100.64.0.1:4517\u0026c=abcdefghijklmnopqrstuv",
+  "url": "anywhere://pair?v=1\u0026h=100.64.0.1:4517\u0026c=abcdefghijklmnopqrstuv",
   "code": "abcdefghijklmnopqrstuv",
   "expiresAt": 1790000000000
 }

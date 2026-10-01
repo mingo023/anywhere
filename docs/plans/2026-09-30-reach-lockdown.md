@@ -85,7 +85,7 @@ flowchart LR
   classDef new fill:#e6f4ea,stroke:#1e8e3e
   classDef changed fill:#fff4e5,stroke:#e37400
   subgraph Phone["packages/app"]
-    LINK["App.tsx usePairLink<br/>codingpocket://pair?…"]:::changed
+    LINK["App.tsx usePairLink<br/>anywhere://pair?…"]:::changed
     PAIRTS["pairing.ts<br/>parsePairURL · wsURL · pair()"]:::new
     CONN["connection.ts<br/>outcome · serverTooOld"]:::new
     CRED["credentials.ts + keychain.ts<br/>SecureStore, clientId"]:::new
@@ -3535,7 +3535,7 @@ Expected: PASS (every package `ok`)
 - `Redeem(code, add)` calls `add` only for the open, unexpired code. A failed `add` still spends the code (`Result.Code` "pair_failed").
 - A code that expired or was used is remembered for 10 minutes, so the phone hears "expired" or "already used" rather than "doesn't match".
 - Five wrong codes against the open offer end it with `pair_locked` and refuse every code for a minute. Only a code sent while an offer is open counts, and `Begin` starts the count again, so old typos and stray `pair` messages can't add up to a lockout.
-- The link is `codingpocket://pair?v=1&h=<host>&c=<code>&n=<Mac name>`.
+- The link is `anywhere://pair?v=1&h=<host>&c=<code>&n=<Mac name>`.
 - The error texts are the phone's copy (design §5); `Code(err)` maps each one to its wire code.
 - `now` is injected, so the tests move a fake clock.
 
@@ -3580,7 +3580,7 @@ func TestAnOfferCarriesAOneTimeCodeInThePairLink(t *testing.T) {
 	}
 	u, err := url.Parse(o.URL)
 	q := u.Query()
-	if err != nil || u.Scheme != "codingpocket" || u.Host != "pair" || q.Get("v") != "1" || q.Get("h") != "100.77.122.82:4517" || q.Get("c") != o.Code || q.Get("n") != "Mac mini" {
+	if err != nil || u.Scheme != "anywhere" || u.Host != "pair" || q.Get("v") != "1" || q.Get("h") != "100.77.122.82:4517" || q.Get("c") != o.Code || q.Get("n") != "Mac mini" {
 		t.Fatalf("%s", o.URL)
 	}
 }
@@ -3825,7 +3825,7 @@ func (m *Manager) Begin(host, macName string) (Offer, <-chan Result, error) {
 	rand.Read(b)
 	code := base64.RawURLEncoding.EncodeToString(b)
 	m.open = &offer{hash: sha256.Sum256([]byte(code)), expires: now.Add(ttl), done: make(chan Result, 1)}
-	link := "codingpocket://pair?v=1&h=" + url.QueryEscape(host) + "&c=" + code + "&n=" + url.QueryEscape(macName)
+	link := "anywhere://pair?v=1&h=" + url.QueryEscape(host) + "&c=" + code + "&n=" + url.QueryEscape(macName)
 	return Offer{URL: link, Code: code, ExpiresAt: m.open.expires.UnixMilli()}, m.open.done, nil
 }
 
@@ -4618,7 +4618,7 @@ func TestPairNeedsATerminal(t *testing.T) {
 
 func TestTheOfferLineNamesHostCodeAndExpiry(t *testing.T) {
 	expires := time.Date(2026, 9, 30, 14, 5, 0, 0, time.Local)
-	got := offerLine(pairing.Offer{URL: "codingpocket://pair?v=1&h=100.77.122.82%3A4517&c=q3xY&n=Mac", Code: "q3xY", ExpiresAt: expires.UnixMilli()})
+	got := offerLine(pairing.Offer{URL: "anywhere://pair?v=1&h=100.77.122.82%3A4517&c=q3xY&n=Mac", Code: "q3xY", ExpiresAt: expires.UnixMilli()})
 	if want := "Scan with the iPhone Camera app, or enter  100.77.122.82:4517  q3xY  Expires at 14:05.\n"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -4655,7 +4655,7 @@ import (
 )
 
 func TestTheQRCodeHasAQuietZoneAndSquareModules(t *testing.T) {
-	art, err := qrText("codingpocket://pair?v=1&h=100.77.122.82%3A4517&c=q3xYq3xYq3xYq3xYq3xYq3&n=Mac")
+	art, err := qrText("anywhere://pair?v=1&h=100.77.122.82%3A4517&c=q3xYq3xYq3xYq3xYq3xYq3&n=Mac")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5035,7 +5035,7 @@ Expected: every pocketd package `ok`, then `ℹ pass 34`, `ℹ fail 0`.
 
 ## PR 5: phone pairing and Revoked / Update screens
 
-**Scope:** The phone pairs from a Camera scan of `codingpocket://pair?…` or a typed host and code, asks before pairing, and keeps its token, device id and Mac name in the Keychain. Its hello sends a range and `pair.v1`, with one clientId per install. A 4401 shows "This phone was removed." with "Pair again". A 4426, or a Mac below the phone's minimum, shows an update screen whose "Try again" makes one attempt. ConnectScreen (host + token) goes.
+**Scope:** The phone pairs from a Camera scan of `anywhere://pair?…` or a typed host and code, asks before pairing, and keeps its token, device id and Mac name in the Keychain. Its hello sends a range and `pair.v1`, with one clientId per install. A 4401 shows "This phone was removed." with "Pair again". A 4426, or a Mac below the phone's minimum, shows an update screen whose "Try again" makes one attempt. ConnectScreen (host + token) goes.
 **Depends on:** E02 PR1 (`PROTOCOL_MIN`/`MAX`, `caps`, `error.code` in `@pocket/protocol`), E02 PR4 (`pair` and `pair.ok`), E17 PR2.
 **Rebase on E17 PR2**, which lands first (roadmap §2 wk2) and rewrites `client.ts`, `session.tsx`, `App.tsx` and `ConnectScreen.tsx`. Task 5.4's anchors are at 5091a01; apply its intent there: E17's `link`/`restoring` replace `state` and the `creds === undefined` gate; `Screen` shows Agents while E17's `signedIn`, so a drop stays on Sessions; ReconnectScreen shows only when creds are saved and the link is `idle` (after Disconnect); E17's mount-effect `SecureStore` reads become `credentials.load`; E17's backoff and hello timeout stay in `client.ts`, beside `onEnd`/`lastErrorCode`; ConnectScreen goes with E17's Rejected copy, which RevokedScreen/UpdateScreen replace. E01 PR4 (wk1) lands first too and edits `session.tsx` (`Session`, the permissions map) and `App.tsx`; keep its changes.
 **Dead copy until E03 PR4:** the Pair screen names ⌘K → Pair phone, which E03 PR4 builds (roadmap wave 3, same as this PR). Roadmap §4 doesn't order the two, so this PR doesn't wait. If it merges first, the owner makes the code with `pocketd pair` until E03 PR4 lands.
@@ -5071,21 +5071,21 @@ import { isCode, isHost, pairErrorText, pairFailure, parsePairURL, wsURL } from 
 const code = "q3xYq3xYq3xYq3xYq3xY_-";
 
 test("a pair link gives the host, code and Mac name", () => {
-  const url = `codingpocket://pair?v=1&h=100.77.122.82%3A4517&c=${code}&n=Mingo%27s+MacBook+Pro`;
+  const url = `anywhere://pair?v=1&h=100.77.122.82%3A4517&c=${code}&n=Mingo%27s+MacBook+Pro`;
   assert.deepEqual(parsePairURL(url), { host: "100.77.122.82:4517", code, name: "Mingo's MacBook Pro" });
 });
 
 test("a pair link without a name is named after its host", () => {
-  assert.equal(parsePairURL(`codingpocket://pair?v=1&h=127.0.0.1:4517&c=${code}`)?.name, "127.0.0.1:4517");
+  assert.equal(parsePairURL(`anywhere://pair?v=1&h=127.0.0.1:4517&c=${code}`)?.name, "127.0.0.1:4517");
 });
 
 test("pair links from another version or with a bad code or host are refused", () => {
   for (const url of [
-    `codingpocket://pair?v=2&h=127.0.0.1:4517&c=${code}`,
-    `codingpocket://pair?v=1&h=127.0.0.1:4517&c=short`,
-    `codingpocket://pair?v=1&h=127.0.0.1&c=${code}`,
-    `codingpocket://pair?v=1&h=127.0.0.1:99999&c=${code}`,
-    `codingpocket://pair?v=1&h=%E0%A4%A&c=${code}`,
+    `anywhere://pair?v=2&h=127.0.0.1:4517&c=${code}`,
+    `anywhere://pair?v=1&h=127.0.0.1:4517&c=short`,
+    `anywhere://pair?v=1&h=127.0.0.1&c=${code}`,
+    `anywhere://pair?v=1&h=127.0.0.1:99999&c=${code}`,
+    `anywhere://pair?v=1&h=%E0%A4%A&c=${code}`,
     `https://example.com/pair?v=1&h=127.0.0.1:4517&c=${code}`,
   ]) {
     assert.equal(parsePairURL(url), null, url);
@@ -5152,7 +5152,7 @@ export type PairRequest = { code: string; name: string; platform: "ios" | "andro
 
 const CODE = /^[A-Za-z0-9_-]{22}$/;
 const HOST = /^(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]+):(\d{1,5})$/;
-const PREFIX = "codingpocket://pair?";
+const PREFIX = "anywhere://pair?";
 const PAIR_TIMEOUT = 10_000;
 
 export function isCode(code: string): boolean {
@@ -5564,7 +5564,7 @@ Expected: typecheck exits 0 with no errors, then PASS (`ℹ pass 24`, `ℹ fail 
 - On `revoked` the session wipes the Keychain and shows Revoked; "Pair again" goes back to Pair. Update's "Try again" makes one attempt and never loops (FR 02-7).
 - The client no longer sets "offline" when the user closed it. At 5091a01 `close()` set "idle", then the late `onclose` set "offline".
 - `start` closes the old client only after its `await`, right before it replaces `clientRef.current`. Two starts in one tick (a double tap on Connect or Try again, or the cold-start load racing `pairWith`) then leave one live client, not an orphan that keeps retrying.
-- `Linking.getInitialURL` catches a cold start from the Camera; the `url` event catches a warm one. `app.json` already declares the `codingpocket` scheme.
+- `Linking.getInitialURL` catches a cold start from the Camera; the `url` event catches a warm one. `app.json` already declares the `anywhere` scheme.
 
 **Step 1: Write the screens**
 

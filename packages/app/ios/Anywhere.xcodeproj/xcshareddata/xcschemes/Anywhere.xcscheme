@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "CodingPocket.app"
-               BlueprintName = "CodingPocket"
-               ReferencedContainer = "container:CodingPocket.xcodeproj">
+               BuildableName = "Anywhere.app"
+               BlueprintName = "Anywhere"
+               ReferencedContainer = "container:Anywhere.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "CodingPocketTests.xctest"
-               BlueprintName = "CodingPocketTests"
-               ReferencedContainer = "container:CodingPocket.xcodeproj">
+               BuildableName = "AnywhereTests.xctest"
+               BlueprintName = "AnywhereTests"
+               ReferencedContainer = "container:Anywhere.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "CodingPocket.app"
-            BlueprintName = "CodingPocket"
-            ReferencedContainer = "container:CodingPocket.xcodeproj">
+            BuildableName = "Anywhere.app"
+            BlueprintName = "Anywhere"
+            ReferencedContainer = "container:Anywhere.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "CodingPocket.app"
-            BlueprintName = "CodingPocket"
-            ReferencedContainer = "container:CodingPocket.xcodeproj">
+            BuildableName = "Anywhere.app"
+            BlueprintName = "Anywhere"
+            ReferencedContainer = "container:Anywhere.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

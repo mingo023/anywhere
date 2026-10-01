@@ -77,7 +77,7 @@ Because fills are ink-over-transparent, they stay correct over a translucent pan
   - Blur radius ("Blur costs more to composite the higher it goes.")
   - Main pane glass.
 
-## 5. Mapping to coding-pocket
+## 5. Mapping to anywhere
 
 - **Theme:** colours are light-only `const u32` (`P crates/theme/src/theme.rs:7-60`). Dark needs runtime values: the monocode model (bg, ink, ink-alpha fills) or a second constant set chosen at runtime.
 - **Window:**

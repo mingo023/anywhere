@@ -19,7 +19,7 @@ func TestPairNeedsATerminal(t *testing.T) {
 
 func TestTheOfferLineNamesHostCodeAndExpiry(t *testing.T) {
 	expires := time.Date(2026, 9, 30, 14, 5, 0, 0, time.Local)
-	got := offerLine(pairing.Offer{URL: "codingpocket://pair?v=1&h=100.77.122.82%3A4517&c=q3xY&n=Mac", Code: "q3xY", ExpiresAt: expires.UnixMilli()})
+	got := offerLine(pairing.Offer{URL: "anywhere://pair?v=1&h=100.77.122.82%3A4517&c=q3xY&n=Mac", Code: "q3xY", ExpiresAt: expires.UnixMilli()})
 	if want := "Scan with the iPhone Camera app, or enter  100.77.122.82:4517  q3xY  Expires at 14:05.\n"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

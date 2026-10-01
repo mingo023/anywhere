@@ -92,7 +92,7 @@ Each epic lists: goal · PRs (in scope) · out of scope · ideas · depends on (
        - `cargo build/clippy/test --workspace`. Clippy runs without `-D warnings`, because main has a baseline warning [R14 §F10]. No `cargo fmt` check.
      - `check.sh` builds libghostty once via `scripts/build-ghostty.sh`, cached in `third_party/ghostty/zig-out` and keyed on the pin. Both cargo and pocketd cgo link it.
      - `scripts/probe-cli.sh`, run by `check.sh`, checks for flag drift in `claude --permission-mode default`, `codex -s read-only -a on-request` and `codex -c model_reasoning_effort=…` [R17 §F14]. It prints CLI versions and skips missing CLIs.
-     - `scripts/bundle-dev.sh` builds `Pocket.app` with an `Info.plist` (`CFBundleIdentifier`), signs it ad hoc with `codesign -s -`, and launches it with `open`. Without a bundle id, gpui-pre-macos turns notifications off (gpui-pre-macos-0.3.6 system_notifications.rs:118-127).
+     - `scripts/bundle-dev.sh` builds `Anywhere.app` with an `Info.plist` (`CFBundleIdentifier`), signs it ad hoc with `codesign -s -`, and launches it with `open`. Without a bundle id, gpui-pre-macos turns notifications off (gpui-pre-macos-0.3.6 system_notifications.rs:118-127).
   2. Desktop argv on both axes per [R17 §F14] (P pk/modals/new_session.rs:72-79). FR 01-1. **D12.**
      - Codex Plan first is disabled, with a hint.
      - An argv test over provider × access replaces :432-438.

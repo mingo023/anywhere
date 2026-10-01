@@ -5,7 +5,7 @@ Sources:
 - `zeronsh/comet` (now `zeronsh/zeron`) @ `ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5` (v0.2.99, shallow), cloned at `/Users/mingo/tmp/orchestrators/zeron`. MIT.
 - https://zeron.sh.
 - Expo docs: https://docs.expo.dev/versions/latest/sdk/notifications/ and https://docs.expo.dev/versions/latest/sdk/application/.
-- Pocket worktree `/Users/mingo/.worktrees/coding-pocket/orchestrator-research` @ `86deb13`.
+- Pocket worktree `/Users/mingo/.worktrees/anywhere/orchestrator-research` @ `86deb13`.
 
 Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to its root. Unless stated otherwise, Swift paths are under `apps/ios/Zeron/`, so `Z Shell/MainTabController.swift:24` means `apps/ios/Zeron/Shell/MainTabController.swift`. `P path:L` is a file and line in the Pocket worktree, relative to its root. `M` (monocode) is not used here. A URL is a vendor doc. When code, docs and screenshots disagree, code wins; §F1 flags every disagreement. "Screenshot" means a PNG under `Z docs/screenshots/`, which I viewed.
 
@@ -469,7 +469,7 @@ Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to i
 
 | ID | Idea | User value | Evidence | Pocket mapping | Effort | Prerequisites |
 |---|---|---|---|---|---|---|
-| 08-1 | pocketd sends APNs on attention transitions: needsYou → input; done → done; done+failed → failed; first sight = baseline; closed/detached skipped | Leave the desk; the phone buzzes when an agent needs you or finishes | Z edge/src/push-notify.ts:37-99; Z edge/src/apns.ts:26-80; Z edge/src/registry-room.ts:503-555 | pocketd: **new** `internal/push` (port apns.ts: ES256 JWT cached 50 min, HTTP/2, same headers; port notificationFor over `AgentSummary` diffs from Hub); `config.Config` gains `apns{keyPath,keyId,teamId,topic}` | L | Paid Apple Developer account; Push capability on `dev.mingo.codingpocket`; dev-client build (not Expo Go); 08-2 |
+| 08-1 | pocketd sends APNs on attention transitions: needsYou → input; done → done; done+failed → failed; first sight = baseline; closed/detached skipped | Leave the desk; the phone buzzes when an agent needs you or finishes | Z edge/src/push-notify.ts:37-99; Z edge/src/apns.ts:26-80; Z edge/src/registry-room.ts:503-555 | pocketd: **new** `internal/push` (port apns.ts: ES256 JWT cached 50 min, HTTP/2, same headers; port notificationFor over `AgentSummary` diffs from Hub); `config.Config` gains `apns{keyPath,keyId,teamId,topic}` | L | Paid Apple Developer account; Push capability on `dev.mingo.anywhere`; dev-client build (not Expo Go); 08-2 |
 | 08-2 | Phone registers its token and prefs over the existing socket: `push.register {token, environment, prefs{done,input,failed}}` / `push.unregister`; re-send on every `hello.ok`; ask for permission after the first prompt sent from the phone | Opt-in at the moment it makes sense; per-kind control | Z App/PushNotifications.swift:33-153 | protocol: **new** messages, `PROTOCOL_VERSION` 3→4 (P packages/protocol/src/constants.ts:1); app: **new** `push.ts` using expo-notifications and expo-application; pocketd: `~/.coding-pocket/push.json` (0600) | M | 08-1 |
 | 08-3 | Tap opens that agent (held as pending until online); muted in foreground; collapse-id and thread-id = agentId | One tap from lock screen to the right chat; no double alerts | Z App/PushNotifications.swift:161-193; Z App/SceneDelegate.swift:19-23,69-73 | app: **port**; `setNotificationHandler` → no banner; `useLastNotificationResponse` → `setAgentId` in P packages/app/src/App.tsx:17 | S | 08-1, 08-2 |
 | 08-4 | Seen-aware rule: "done"/"failed" only if `unseenEnd`; "input" suppressed while any view shows the agent | No buzz for a run you just watched finish on the Mac (Zeron lacks this) | P packages/pocketd/internal/agent/agent.go:117-143,215-225; Zeron gap: Z edge/src/registry-room.ts:503-555 | pocketd: **new** (inside 08-1) | S | 08-1 |
@@ -486,7 +486,7 @@ Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to i
 | 08-15 | Send runway: after send, scroll the prompt to the top and reserve one viewport below; release on drag | The reply streams in where your eyes are | Z Transcript/TranscriptListView.swift:42-62; screenshot `send-runway.png` | app: **new** in TimelineView (FlatList footer spacer = viewport height) | M | 08-14 |
 | 08-16 | Working pill in the header: trailer glyph + "Percolating · 1m 4s" (flavour word every 7s, seeded per agent). Not what Zeron iOS ships: its pill supports a working state but the real source leaves working to the transcript tail; flavour words are Zeron desktop | Alive feeling; elapsed time without scrolling to the tail | Pill capability Z Session/SessionViewController.swift:600-637 (unused, Z Session/CoreSessionSource.swift:86); words Z crates/ui/src/transcript.rs:2186-2215 (desktop) | app: **adapt** the TimelineView Working row text (P packages/app/src/components/TimelineView.tsx:67-97) into a header pill | S | 08-6 (same pill) |
 | 08-17 | Context chip "NN% context" at ≥50%, warning at ≥85% | Know when to /compact from the phone | Z Session/CoreSessionSource.swift:51-73 | protocol: add context usage to `AgentSummary` (P packages/protocol/src/timeline.ts:83-99); pocketd drivers report it | M | Drivers expose token usage |
-| 08-18 | QR pairing: `pocketd pair` prints a terminal QR of `codingpocket://pair?host=<ts-ip>:4517&token=…`; the iOS Camera app opens it; ConnectScreen fills and saves | Zero typing; no mistyped tokens | Zeron has no pairing (account-based, Z Shell/SignInViewController.swift:91-117); Pocket scheme P packages/app/app.json:7 | pocketd: **new** subcommand; app: **new** `Linking` handler in ConnectScreen | S | none |
+| 08-18 | QR pairing: `pocketd pair` prints a terminal QR of `anywhere://pair?host=<ts-ip>:4517&token=…`; the iOS Camera app opens it; ConnectScreen fills and saves | Zero typing; no mistyped tokens | Zeron has no pairing (account-based, Z Shell/SignInViewController.swift:91-117); Pocket scheme P packages/app/app.json:7 | pocketd: **new** subcommand; app: **new** `Linking` handler in ConnectScreen | S | none |
 | 08-19 | Lock-screen actions on permission pushes: category `permission` with "Allow" / "Deny" (`isAuthenticationRequired`, Deny `isDestructive`); `aps.category` set | Approve from the lock screen | Zeron has none (category is top level, Z edge/src/push-notify.ts:91-99); Expo action options (URL) | app: **new** (background handler must reconnect and send `permission.resolve` within about 30s); pocketd: **new** payload with `requestId` | L | 08-1..08-3; background socket spike |
 | 08-20 | iPad split: 360pt (320–400) sidebar of agents + chat; ⌘B toggles the sidebar, ⇧⌘F search; unlock orientation on iPad | Real tablet use | Z Shell/SplitRootController.swift:36-59,146-174 | app: **new** layout on width ≥ 768; P packages/app/app.json:6 orientation | L | 08-10 |
 | 08-21 | New session from the phone (project, provider, worktree chips; "What are we building?") | Start work away from the Mac | Z Session/NewSessionViewController.swift:41-359; Z App/AppModel.swift:531-554 | protocol **new** `agent.spawn`; pocketd exposes Spawn over ws (today ops socket only, P packages/pocketd/cmd/pocketd/serve.go:60) | L | Security review of remote spawn |
@@ -583,14 +583,14 @@ Values are Zeron's code values. Map colours to Pocket's dark `design.ts` tokens:
   - failed "Run failed"
   - needsYou "Waiting on your input"
 - Payload: `{aps:{alert:{title,body}, sound:"default", "thread-id":agentId}, agentId, kind}`.
-- Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-expiration: now+86400`, `apns-collapse-id: agentId[:64]`, `apns-topic: dev.mingo.codingpocket`.
+- Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-expiration: now+86400`, `apns-collapse-id: agentId[:64]`, `apns-topic: dev.mingo.anywhere`.
 - Host: `api.sandbox.push.apple.com` for `development` tokens, `api.push.apple.com` for `production`.
 - Source: Z edge/src/push-notify.ts:58-99; Z edge/src/apns.ts:26-71.
 
 ### S8. Notification settings (sheet from the Agents overflow menu)
 - "Notifications" row (bell) with a toggle. Subtitle "When an agent finishes, needs you or fails", or "Turned off in iOS Settings" when denied.
 - When on: "Run finished" (`checkmark.circle`), "Waiting on your input" (`questionmark.bubble`), "Run failed" (`exclamationmark.triangle`), each with a toggle.
-- Denied alert: "Notifications are off" / "Allow notifications for Coding Pocket in iOS Settings." with an Open Settings button.
+- Denied alert: "Notifications are off" / "Allow notifications for Anywhere in iOS Settings." with an Open Settings button.
 - Source: Z Shell/MoreViewController.swift:132-161.
 
 ### S9. iPad
@@ -601,14 +601,14 @@ Values are Zeron's code values. Map colours to Pocket's dark `design.ts` tokens:
 - Source: Z Shell/SplitRootController.swift:36-59.
 
 ### S10. Pairing
-- `pocketd pair` prints a QR of `codingpocket://pair?host=<tailscale-ip>:<port>&token=<token>` plus the plain text.
+- `pocketd pair` prints a QR of `anywhere://pair?host=<tailscale-ip>:<port>&token=<token>` plus the plain text.
 - The app handles the link by pre-filling ConnectScreen, saving to SecureStore, then connecting.
 - On failure: "Rejected — token or version mismatch".
 
 ## Open questions / risks
 
 - **APNs credentials.**
-  - Push needs a paid Apple Developer account, the Push capability on `dev.mingo.codingpocket`, and a `.p8` key stored on the Mac running pocketd.
+  - Push needs a paid Apple Developer account, the Push capability on `dev.mingo.anywhere`, and a `.p8` key stored on the Mac running pocketd.
   - Whose key is it if Pocket is ever distributed? Each user self-signing means each user needs their own key.
   - The alternative is Expo's push service, which still needs the key uploaded to Expo and adds a third party.
 - **Mac asleep means no push.** pocketd runs on the Mac. Zeron has the same limit for host-side state, but its edge still pushes on registry diffs it receives (Z edge/src/registry-room.ts:503-555). Is "Mac awake" acceptable?

@@ -6,7 +6,7 @@ Sources:
 - hardbeat920/monocode@cdc1441dc51e3709cd843e5c316608a123f323c6
 - https://usemono.dev. It gives only the tagline "A GUI for your coding agents", a provider list and downloads, with no UX detail.
 - `M docs/screenshot.jpg` (v0.1.0). It is older than the code; see §F13.
-- Pocket: coding-pocket `main`@b9d14a1. This research worktree is at 86deb13, which has no `changes.rs`, so every Pocket line number refers to `main`.
+- Pocket: anywhere `main`@b9d14a1. This research worktree is at 86deb13, which has no `changes.rs`, so every Pocket line number refers to `main`.
 
 Citation legend:
 - `M path:L` is a line in the MonoCode clone at the SHA above. Shorthands:

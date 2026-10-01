@@ -15,7 +15,7 @@ The state structs `Chips`, `Chime` and `Badge` sit beside `Alerts` on `Desktop` 
 
 **Base:** main 5091a01. Paths: `d/` = `packages/desktop/crates/`, `pk/` = `packages/desktop/crates/pocket/src/`. Every line range below is at 5091a01, except `pk/palette.rs` from PR2 on: E16 PR2 rewrites it, so those tasks anchor by content. Design: `docs/designs/2026-09-30-desktop-attention.md`.
 
-**Toolset** (repo root `/Users/mingo/Developer/self/coding-pocket`; the shell is fish, so quote globs):
+**Toolset** (repo root `/Users/mingo/Developer/self/anywhere`; the shell is fish, so quote globs):
 - One crate: `cd packages/desktop && cargo test -p <crate> <filter>`. Crates: `ui`, `pocket`, `store`, `agents`. Filters are module paths or test names, e.g. `cargo test -p pocket status::`. Pass several filters after `--`: `cargo test -p pocket -- status:: palette::`.
 - The avoid-list test: `cargo test -p pocket --test avoid_list`.
 - Every PR boundary, from `packages/desktop`:

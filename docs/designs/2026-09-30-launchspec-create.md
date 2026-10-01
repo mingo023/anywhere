@@ -288,7 +288,7 @@ Removed: `Perm`, `Draft::argv`, the copy loop and `git::add_worktree` call in `s
 Verified by reading claude 2.1.285 (`~/.local/share/claude/versions/2.1.285`):
 - Trust is `projects[<path>].hasTrustDialogAccepted === true` in the global config (`~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`). If `CLAUDE_CODE_SANDBOXED` is set, everything is trusted.
 - Order of checks: first `projects[projectPathForConfig]`, which is the canonical git root, so a linked Worktree maps to its main checkout. Then a walk from cwd up to the git toplevel, or up to `/` outside git.
-- Local evidence: interactive `cli` sessions (2.1.284, 2.1.285) ran in `~/.worktrees/coding-pocket/*`, yet those paths have no `projects` entries. Only `~/Developer/self/coding-pocket` is trusted. So a new Worktree of a trusted Project is already trusted, with nothing written.
+- Local evidence: interactive `cli` sessions (2.1.284, 2.1.285) ran in `~/.worktrees/anywhere/*`, yet those paths have no `projects` entries. Only `~/Developer/self/anywhere` is trusted. So a new Worktree of a trusted Project is already trusted, with nothing written.
 - Writing is unsafe. Every running claude rewrites the whole file (lastSessionId, costs, and so on) without a lock that pocketd can take, so a read-modify-write races it and loses one side.
 
 Decision: pocketd never writes Claude's config. `launch.Trusted` mirrors the rule above, reading the file and resolving `git rev-parse --path-format=absolute --git-common-dir` and `--show-toplevel` in the cwd. The result:

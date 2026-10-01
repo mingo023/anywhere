@@ -6,7 +6,7 @@ Sources (everything checked live on 2026-09-30):
 - GitHub clones and API: herdrdev/herdr @ `331775c3` (v0.9.3, 2026-09-29); manaflow-ai/cmux @ `02dac3c1`; slopus/happy @ `4cf54d18`; superset-sh/superset @ `7886c5ad`; nimbalyst/nimbalyst @ `9979578c` (v0.79.0, 2026-09-29); smtg-ai/claude-squad @ `ce1ffb43` (v1.0.20, 2026-08-20).
 - Release and README checks with `gh api`: generalaction/emdash (v1.2.7, 2026-09-27), imbue-ai/sculptor (sculptor-v0.48.0, 2026-09-21), amantus-ai/vibetunnel (v1.0.0-beta.18, 2026-07-11), BloopAI/vibe-kanban (v0.1.44, 2026-04-24), stravu/crystal, coder/mux, omnara-ai/omnara, terragon-labs.
 - Official docs: herdr.dev/docs (`llms-full.txt`), docs.superset.sh, code.claude.com/docs, learn.chatgpt.com/docs (developers.openai.com redirects here with a 308), docs.conductor.build and conductor.build, cursor.com/docs, docs.warp.dev and warp.dev/pricing, cmux.com/docs.
-- Pocket worktree `/Users/mingo/.worktrees/coding-pocket/orchestrator-research` @ `86deb13`.
+- Pocket worktree `/Users/mingo/.worktrees/anywhere/orchestrator-research` @ `86deb13`.
 - Earlier reports 01-14 in this directory, used to avoid repeating ideas.
 
 Citation legend:

@@ -198,11 +198,11 @@ All additions are additive and gated by `hello.caps` (E4).
     - Revoke closes the device's sockets with 4401.
     - `pocketd devices list|rename|revoke` is owner-only.
     - The legacy `config.json` token becomes a "Legacy device" for 7 days with no spawn scope, then is refused (§10 decision).
-  - **`pocketd pair`** (owner-only) prints a terminal QR of `codingpocket://pair?host=<magicdns-or-ts-ip>:4517&code=<128-bit>` [R18 idea 18-4].
+  - **`pocketd pair`** (owner-only) prints a terminal QR of `anywhere://pair?host=<magicdns-or-ts-ip>:4517&code=<128-bit>` [R18 idea 18-4].
     - The code has a 5 min TTL, is single-use, and locks after 5 failures.
     - The pre-auth `pair` message returns the device token. The QR never carries a long-lived token.
   - **Phone:**
-    - system Camera deep link `codingpocket://pair` [R19 idea 19-11];
+    - system Camera deep link `anywhere://pair` [R19 idea 19-11];
     - SecureStore `WHEN_UNLOCKED_THIS_DEVICE_ONLY` [R18 idea 18-14];
     - a per-install clientId replacing the hardcoded `"pocket-app"` (P packages/app/src/session.tsx:76);
     - the copy "A paired phone can run commands on this Mac as you." [R18 idea 18-18].

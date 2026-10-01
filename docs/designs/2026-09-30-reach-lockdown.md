@@ -67,7 +67,7 @@ ConfirmPair                        Revoked                    Update
 └──────────────────────────┘
 ```
 
-- Camera scan opens `codingpocket://pair?...` (scheme at P packages/app/app.json:7) → ConfirmPair. EnterCode → Continue → ConfirmPair with the typed host.
+- Camera scan opens `anywhere://pair?...` (scheme at P packages/app/app.json:7) → ConfirmPair. EnterCode → Continue → ConfirmPair with the typed host.
 - Pair shows a spinner and sends `pair`. On `pair.ok`: success haptic → Sessions. On relaunch, auto-connect.
 - Errors on ConfirmPair (danger status line): `pair_expired` "Code expired. Make a new one on your Mac."; `pair_used` "This code was already used."; `pair_invalid` "This code doesn't match. Check it on your Mac."; `pair_locked` "Too many tries. Make a new code on your Mac in a minute."; unreachable "Can't reach {host}. Is Tailscale on?"; uncoded "Pairing failed. Make a new code on your Mac."
 - Revoked (4401 or `not_paired`): SecureStore credentials are already wiped. "Pair again" → Pair. No retry.
@@ -252,7 +252,7 @@ Closing the ops conn cancels its code. E03 PR1 re-exposes `pair.begin` on the ow
 - Usage (P pd/cmd/pocketd/main.go:10): `pocketd serve | run <cmd> [args...] | attach <id> | hook | pair [--host h:p] | devices [--json|rename <id> <name>|revoke <id>]`.
 - config.json key `listen`: `"auto"` (default) | `"loopback"`. Other values fail `config.Load` (P pd/internal/config/config.go:36-50). The e2e harness writes `"loopback"`.
 - Files created: `$POCKET_HOME/devices.json` (0600); `pd/cmd/pocketd/{pair,devices,qr}.go`; the packages in §4; `app/{pairing,connection,credentials}.ts`; `app/screens/{PairScreen,EnterCodeScreen,ConfirmPairScreen,RevokedScreen,UpdateScreen}.tsx` (ConnectScreen.tsx is removed); goldens listed in §8.
-- Pair URL: `codingpocket://pair?v=1&h=<tailnet IPv4:port>&c=<22-char code>&n=<ComputerName, url-encoded>`. It never carries a token.
+- Pair URL: `anywhere://pair?v=1&h=<tailnet IPv4:port>&c=<22-char code>&n=<ComputerName, url-encoded>`. It never carries a token.
 - New Go dependency: `rsc.io/qr v0.2.0` (BSD-3, pure Go, no go.mod deps).
 
 ### 5.6 Phone modules (lane C)

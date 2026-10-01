@@ -37,7 +37,7 @@ Today there are two sets: `d` (chat, composer, timeline) [P app/design.ts:1-26] 
 - `theme.ts` is deleted.
 - Light mode needs all of these:
   - `app.json` `"userInterfaceStyle": "automatic"` (today `"dark"`, [P packages/app/app.json:8]);
-  - the committed `ios/CodingPocket/Info.plist` `UIUserInterfaceStyle` set to `Automatic` (today `Dark`, [P packages/app/ios/CodingPocket/Info.plist:93-94]), because `ios/` is committed and nothing regenerates it;
+  - the committed `ios/Anywhere/Info.plist` `UIUserInterfaceStyle` set to `Automatic` (today `Dark`, [P packages/app/ios/Anywhere/Info.plist:93-94]), because `ios/` is committed and nothing regenerates it;
   - `StatusBar style="auto"` (today `"light"`, [P app/App.tsx:47]);
   - `Glass` takes the scheme instead of the hard-coded `colorScheme="dark"` / `tint="dark"` [P app/components/Glass.tsx:19,26].
 - There is no in-app appearance override; the app follows iOS (**new**; R07 proposes System/Light/Dark [R07 §UI spec "Appearance setting"]).
@@ -145,7 +145,7 @@ There is no navigation library today: `App.tsx` swaps screens on state [P app/Ap
 ```
 Launch ── SecureStore has credentials? ─ no ─▶ PairStack
    │                                          Pair ──▶ EnterCode ──▶ ConfirmPair
-   │                                                     ▲ codingpocket://pair?… (deep link)
+   │                                                     ▲ anywhere://pair?… (deep link)
    yes
    ▼
 MainStack (root: Sessions)
@@ -159,7 +159,7 @@ Any screen ── close 4401 / "Not paired" ──▶ Revoked (replaces root) �
 Notification tap ──▶ Session(agentId) (held until online) [R08 idea 08-3]
 ```
 
-- **Linking:** prefix `codingpocket://`; `pair` → ConfirmPair. The scheme is already registered [P packages/app/app.json:7; R19 §F2].
+- **Linking:** prefix `anywhere://`; `pair` → ConfirmPair. The scheme is already registered [P packages/app/app.json:7; R19 §F2].
 - **Seen:** Session, Changes and Terminal all keep `agent.view([agentId])` while the app is active. Sessions and Settings send `agent.view([])`. This extends today's Session-only rule [P app/screens/ChatScreen.tsx:101-105] (**new**; CONTEXT.md §Seen).
 - **Removed:** the global PermissionSheet modal [P app/App.tsx:29] gives way to the inline panel (§4.5).
 - **Back badge (new):** the Session back button shows the count of *other* Sessions that are Needs you, e.g. `‹ 2`, so a request elsewhere is visible without the global sheet (PRD FR 12-3, 17-3).
@@ -193,7 +193,7 @@ Layout: Zeron sign-in metrics [R19 §UI spec "Phone pair screen"].
 └──────────────────────────────────────────┘
 ```
 
-- **Scanning:** the system Camera opens `codingpocket://pair?v=1&h=<host:port>&c=<code>&n=<mac name>`, so the app needs no camera permission and no scanner [R19 §F2, idea 19-11; R18 §F6 R2]. An in-app scanner (expo-camera) is deferred (**new**; R18 offers either [R18 idea 18-4]).
+- **Scanning:** the system Camera opens `anywhere://pair?v=1&h=<host:port>&c=<code>&n=<mac name>`, so the app needs no camera permission and no scanner [R19 §F2, idea 19-11; R18 §F6 R2]. An in-app scanner (expo-camera) is deferred (**new**; R18 offers either [R18 idea 18-4]).
 - **Copy:** body text points at the desktop Pair phone dialog (PRD FR 03-7; the Devices sheet is S5), with R19's Camera wording [R18 §UI spec "Phone"; R19 §F2].
 - **The QR never carries a token.** It holds a 22-char one-time code: 5 min TTL, single use, lock for 60 s after 5 failures [R18 §F6 R2] (D10; supersedes [R08 idea 08-18]).
 
@@ -614,7 +614,7 @@ Layout: a modal, composer-first [R08 §F10; R17 §S1].
 │ SECURITY                                 │
 │ Require Face ID                   [off]  │ ← later (R13)
 │ Unpair this phone                        │ ← danger
-│ Coding Pocket 0.0.0 · protocol 3         │ ← 12 faint
+│ Anywhere 0.0.0 · protocol 3         │ ← 12 faint
 └──────────────────────────────────────────┘
 ```
 - Section and rows: [R18 §UI spec "Phone settings"; R08 §S8].
@@ -627,7 +627,7 @@ Layout: a modal, composer-first [R08 §F10; R17 §S1].
 **Pre-prompt card** (Sessions, §4.2)
 - Shown once, the first time the list has ≥ 1 session after pairing (the phone can't start sessions before Phase 4) [R19 §F2 P4, idea 19-13].
 - "Turn on" → `requestPermissionsAsync` only while `notDetermined`. Granted → `getExpoPushTokenAsync({projectId})` → `push.register` [R19 §F6].
-- Denied alert: "Notifications are off" / "Allow notifications for Coding Pocket in iOS Settings." with "Not Now" / "Open Settings" [R19 §F2 P4].
+- Denied alert: "Notifications are off" / "Allow notifications for Anywhere in iOS Settings." with "Not Now" / "Open Settings" [R19 §F2 P4].
 
 **Push behaviour** (D3, D11) [R18 §F6 R12; R08 §S7, idea 08-3]
 - pocketd sends through Expo Push on Seen-aware transitions only, with collapse id and thread id = agentId.
@@ -635,7 +635,7 @@ Layout: a modal, composer-first [R08 §F10; R17 §S1].
 - Payload: `{agentId, requestId, category}`.
 - **Foreground:** `setNotificationHandler` suppresses the banner when `agentId` is the open Session (Seen). It shows banner and sound otherwise (D11; narrows [R08 idea 08-3]'s blanket mute).
 - **Tap:** navigate to Session(agentId), held until online.
-- **Native setup** [R19 §F6]: needs `expo-notifications`, `aps-environment` in the committed entitlements (today an empty dict [P packages/app/ios/CodingPocket/CodingPocket.entitlements:4]) and `extra.eas.projectId`.
+- **Native setup** [R19 §F6]: needs `expo-notifications`, `aps-environment` in the committed entitlements (today an empty dict [P packages/app/ios/Anywhere/Anywhere.entitlements:4]) and `extra.eas.projectId`.
 - **Lock-screen Allow / Deny** (both `isAuthenticationRequired`, Deny `isDestructive`, no "Always allow" or auto mode) come later [R08 idea 08-19; R18 §F6 R12].
 
 ---
@@ -842,7 +842,7 @@ Tone: short, plain, sentence case, no exclamation marks. Say "Session" (CONTEXT.
 | Revoked | "This phone was removed." · "Pair again" | [R18 §UI spec "Phone"] |
 | Settings | "This Mac" · "via {host}" · "Paired {Mon D}" · "Notifications" · "When a session is done, needs you or fails" · "Turned off in iOS Settings" · "Needs you" · "Done" · "Failed" · "Show details on lock screen" · "Require Face ID" · "Unpair this phone" · "Unpair? You'll need your Mac to pair again." · "Disconnect" (pre-R18) | [R18 §UI spec "Phone"; R08 §S8]; cue names per CONTEXT.md |
 | Pre-prompt | "Get notified" · "When a session is done, needs you or fails" · "Turn on" · "Not now" | [R19 §F2 P4] |
-| Denied alert | "Notifications are off" · "Allow notifications for Coding Pocket in iOS Settings." · "Not Now" · "Open Settings" | [R19 §F2 P4] |
+| Denied alert | "Notifications are off" · "Allow notifications for Anywhere in iOS Settings." · "Not Now" · "Open Settings" | [R19 §F2 P4] |
 | Push | title = project name; body "Needs you" · "Done" · "Failed" | [R18 §F6 R12], wording per CONTEXT.md (§12) |
 
 ---
@@ -880,7 +880,7 @@ Order constraints:
 | `app/status.ts` | D1 tones | 1a |
 | `app/App.tsx` | native stack; auto-connect; `StatusBar auto`; drop global PermissionSheet | 1a, 1c |
 | `app/components/Glass.tsx` | scheme prop; Reduce Transparency fallback | 1a |
-| `app.json`, `ios/CodingPocket/Info.plist` | `automatic` interface style | 1a |
+| `app.json`, `ios/Anywhere/Info.plist` | `automatic` interface style | 1a |
 | `app/screens/AgentsScreen.tsx` → `SessionsScreen.tsx` | §4.2 | 1b |
 | `app/screens/ChatScreen.tsx` → `SessionScreen.tsx` | header, pill, panel / notice slot, Changes / Terminal navigation | 1b |
 | `app/components/PermissionSheet.tsx` → `ApprovalPanel.tsx` | §4.5 | 1b |
