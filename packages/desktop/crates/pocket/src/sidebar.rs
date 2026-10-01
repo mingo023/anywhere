@@ -79,13 +79,18 @@ impl SidebarState {
 impl Desktop {
     /// The expanded sidebar: projects with their worktrees.
     pub(crate) fn aside(&self, cx: &mut Context<Self>) -> Div {
+        let unseen = crate::inbox::count(&self.agents);
         let top = drag_area(div())
             .h(px(42.))
             .flex()
             .flex_none()
             .items_center()
             .justify_end()
-            .child(icon_button_sized("aside-bell", "bell", 28., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx))));
+            .child(
+                icon_button_sized("aside-bell", "bell", 28., TEXT_3)
+                    .when(unseen > 0, |d| d.child(ui::count_badge(unseen).top(px(-3.)).right(px(-3.))))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx))),
+            );
         let search = ui::trigger_field("aside-search", "search", "Search", "⌘K")
             .mx(px(4.))
             .mb(px(6.))

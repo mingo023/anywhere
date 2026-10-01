@@ -455,7 +455,7 @@ pub fn status_label(id: impl Into<ElementId>, state: State) -> Div {
     let label = |color: Token| div().flex().flex_none().items_center().gap(px(5.)).font_weight(FontWeight::MEDIUM).text_color(color);
     match state {
         State::NeedsYou => label(WAITING_TEXT).child(dot(6., WAITING)).child("Needs you"),
-        State::Working => label(RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Running"),
+        State::Working => label(RUNNING_TEXT).child(spinner(id, 11., RUNNING_TEXT)).child("Working"),
         State::Failed => label(FAILED).child("Failed"),
         State::NotAttached => label(TEXT_3).child("Not attached"),
         s => status(id, s),

@@ -46,6 +46,10 @@ pub fn notes(agents: &Agents) -> Vec<Note> {
     out
 }
 
+pub fn count(agents: &Agents) -> usize {
+    agents.list.iter().filter(|a| noted(a).is_some()).count()
+}
+
 /// Keeps the selection on the focused note as the list changes. If that note left, drops focus
 /// so keystrokes never reach a terminal the user didn't pick.
 pub fn reselect(notes: &[Note], focused: Option<&str>, i: usize) -> (usize, Option<String>) {
@@ -116,7 +120,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Note, first_line, notes, readable, reselect, select, step};
+    use super::{Note, count, first_line, notes, readable, reselect, select, step};
     use crate::status::Status;
     use agents::{Agents, Item, Permission, Summary};
 
@@ -142,6 +146,16 @@ mod tests {
         let got: Vec<(String, Status, String, String)> = notes(&agents).into_iter().map(|n| (n.terminal, n.status, n.title, n.subtitle)).collect();
         let want = [("t-ask", Status::NeedsYou, "Wants to use Bash", "ASK"), ("t-fail", Status::Failed, "FAIL failed", "exit 1"), ("t-done", Status::Done, "DONE", "Tagged v2")];
         assert_eq!(got, want.map(|(t, s, a, b)| (t.to_string(), s, a.to_string(), b.to_string())));
+    }
+
+    #[test]
+    fn the_bell_counts_the_agents_that_need_you_and_the_unseen_failed_and_done() {
+        let agents = Agents {
+            list: vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), agent("idle", "idle", 9), Summary { attached: false, ..agent("blind", "done", 9) }],
+            ..Default::default()
+        };
+        assert_eq!(count(&agents), 3);
+        assert_eq!(count(&agents), notes(&agents).len());
     }
 
     #[test]
