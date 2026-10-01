@@ -30,6 +30,18 @@
       "sourceType": "github",
       "skillPath": "skills/improve-animations/SKILL.md",
       "computedHash": "524ea241e41d58bbdd8e288700fe24f5725e2a2f3ae7186ad7cebf9055058356"
+    },
+    "redesign-screen": {
+      "source": "mobbin/skills",
+      "sourceType": "github",
+      "skillPath": "skills/redesign-screen/SKILL.md",
+      "computedHash": "a4dc09d1f4e107b3985d56888951e120bd6d4c390615eed92f3eaf259b116bf9"
+    },
+    "search": {
+      "source": "mobbin/skills",
+      "sourceType": "github",
+      "skillPath": "skills/search/SKILL.md",
+      "computedHash": "37dbaded1068df925baa2553644f6655a6023b3b07650f4084da6d9a5ec8e047"
     }
   }
 }
