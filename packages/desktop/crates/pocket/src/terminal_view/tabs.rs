@@ -45,6 +45,31 @@ impl Desktop {
         row.child(icon("prompt", 13., TEXT_3)).child(label(count(text))).child(mark)
     }
 
+    pub(crate) fn new_tab_controls(&self, cx: &mut Context<Self>) -> Div {
+        let plus = div()
+            .id("new-tab")
+            .size(px(28.))
+            .ml(px(2.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(7.))
+            .cursor_pointer()
+            .when(self.terminal.tab_menu, |d| d.bg(FILL_3))
+            .hover(|s| s.bg(FILL_3))
+            .child(icon("plus", 15., TEXT_2))
+            // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.terminal.tab_menu = !this.terminal.tab_menu;
+                this.row_menu = None;
+                cx.notify();
+            }));
+        let menu = self.terminal.tab_menu.then(|| ui::dropdown(29., ui::menu_in("tab-menu-in", self.tab_menu_view(cx))));
+        div().relative().flex().flex_none().items_center().child(plus).children(menu)
+    }
+
     pub(crate) fn term_tabs(&mut self, tree: &str, cx: &mut Context<Self>) -> Div {
         let w = self.workspace(tree);
         let active = w.active;
@@ -102,40 +127,6 @@ impl Desktop {
                     .when(closable, |d| d.child(close))
             })
             .collect();
-        let plus = div()
-            .id("new-tab")
-            .size(px(28.))
-            .ml(px(2.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(7.))
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_3))
-            .child(icon("plus", 15., TEXT_2))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(None, cx)));
-        let chevron = div()
-            .id("tab-menu-toggle")
-            .w(px(20.))
-            .h(px(28.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(6.))
-            .cursor_pointer()
-            .when(self.terminal.tab_menu, |d| d.bg(FILL_3))
-            .hover(|s| s.bg(FILL_3))
-            .child(icon("chevron-down", 12., TEXT_3))
-            // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.terminal.tab_menu = !this.terminal.tab_menu;
-                this.row_menu = None;
-                cx.notify();
-            }));
-        let menu = self.terminal.tab_menu.then(|| ui::dropdown(29., ui::menu_in("tab-menu-in", self.tab_menu_view(cx))));
         let shown = Some((tree.to_string(), active));
         if self.terminal.tab_revealed != shown {
             self.terminal.tab_scroll.scroll_to_item(active);
@@ -168,7 +159,7 @@ impl Desktop {
             .items_center()
             .gap(px(2.))
             .child(div().relative().flex().min_w_0().child(strip).when(offset < px(0.), |d| d.child(fade(true))).when(offset > -max, |d| d.child(fade(false))))
-            .child(div().relative().flex().flex_none().items_center().gap(px(2.)).child(plus).child(chevron).children(menu))
+            .child(self.new_tab_controls(cx))
     }
 }
 

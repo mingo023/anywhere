@@ -282,14 +282,20 @@ impl Desktop {
         open
     }
 
+    /// The worktree whose tabs the main view shows, if it shows any.
+    pub(crate) fn session_tree(&mut self) -> Option<String> {
+        if self.terminals.link.is_down() || matches!(self.screen, Screen::Inbox) {
+            return None;
+        }
+        self.cwd().filter(|t| !self.workspace(t).tabs.is_empty())
+    }
+
     fn main_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let body = match (self.screen, self.side) {
-            _ if self.terminals.link.is_down() => self.link_page(cx),
-            (Screen::Inbox, _) => self.inbox_detail(cx),
-            _ => match self.cwd().filter(|t| !self.workspace(t).tabs.is_empty()) {
-                Some(tree) => self.session_page(&tree, cx),
-                None => self.blank_page(cx),
-            },
+        let body = match self.session_tree() {
+            Some(tree) => self.session_page(&tree, cx),
+            None if self.terminals.link.is_down() => self.link_page(cx),
+            None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
+            None => self.blank_page(cx),
         };
         ui::page(div()).flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body)
     }
@@ -314,7 +320,13 @@ impl Desktop {
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {
         let text = if self.project.is_none() { "Add a project to begin." } else { "Pick a session, or start a new one." };
         let observe = self.agents.observe_only();
-        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).when(observe, |d| d.child(chrome::observe_banner())).child(
+        let (pad, toggle) = self.bar_start(cx);
+        let bar = chrome::drag_area(ui::page_bar())
+            .pl(px(pad))
+            .children(toggle)
+            .child(ui::breadcrumb(vec!["Sessions".into()]))
+            .when(self.cwd().is_some() && !observe, |d| d.child(self.new_tab_controls(cx)));
+        div().flex_1().flex().flex_col().child(bar).when(observe, |d| d.child(chrome::observe_banner())).child(
             div()
                 .flex_1()
                 .flex()
@@ -386,6 +398,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::toggle_rail))
             .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::new_tab))
+            .on_action(cx.listener(Self::close_active_tab))
             .on_action(cx.listener(Self::open_selected))
             .children(lead)
             .children(column)

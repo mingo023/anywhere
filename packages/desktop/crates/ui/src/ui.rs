@@ -30,7 +30,7 @@ pub fn side<E: Styled>(e: E) -> E {
 
 /// Floating menus and sheets.
 pub fn pop<E: Styled>(e: E) -> E {
-    e.bg(POPOVER).rounded(px(R_POPOVER)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(rgba(0x00000024), 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
+    e.bg(POPOVER).rounded(px(R_POPOVER)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(SHADOW, 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
 }
 
 pub fn menu_in<E: Styled + IntoElement + 'static>(id: impl Into<ElementId>, menu: E) -> AnimationElement<E> {
@@ -781,6 +781,19 @@ pub fn modal(title: &str, width: f32, top: f32, close: Stateful<Div>, body: impl
                     .child(close),
             )
             .children(body),
+    )
+}
+
+/// A centered alert: title, body, then full-width buttons with the action above Cancel.
+pub fn alert(title: &str, body: impl IntoIterator<Item = AnyElement>, action: Stateful<Div>, cancel: Stateful<Div>) -> Div {
+    let buttons = div().w_full().pt(px(8.)).flex().flex_col().gap(px(6.)).child(action.w_full().justify_center()).child(cancel.w_full().justify_center());
+    div().absolute().inset_0().flex().items_center().justify_center().child(
+        pop(div().w(px(300.)).pt(px(22.)).px(px(18.)).pb(px(16.)).flex().flex_col().items_center().gap(px(8.)).text_center())
+            .rounded(px(R_DIALOG))
+            .occlude()
+            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title.to_string()))
+            .children(body)
+            .child(buttons),
     )
 }
 

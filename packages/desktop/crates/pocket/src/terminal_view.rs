@@ -6,7 +6,7 @@ pub(crate) mod surface;
 pub(crate) mod tab_menu;
 pub(crate) mod tabs;
 
-use crate::actions::{CopySelection, NewTab, Paste, SelectAll};
+use crate::actions::{CloseTab, CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, drag_area, observe_banner};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -236,6 +236,15 @@ impl Desktop {
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
         self.terminal.tab_menu = false;
         self.new_shell(None, cx);
+    }
+
+    pub fn close_active_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
+        if self.overlay.is_some() {
+            return;
+        }
+        let Some(tree) = self.session_tree() else { return };
+        let active = self.workspace(&tree).active;
+        self.close_tab(active, cx);
     }
 
     pub(crate) fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {

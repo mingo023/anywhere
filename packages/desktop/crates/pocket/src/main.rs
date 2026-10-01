@@ -36,6 +36,7 @@ fn main() {
         follow_reduce_motion(cx);
         cx.bind_keys(actions::bindings());
         cx.bind_keys(keys::bindings());
+        cx.on_action(|_: &actions::Quit, cx| cx.quit());
         let primary = cx.primary_display().map(|d| d.id());
         let mut displays = cx.displays();
         displays.sort_by_key(|d| Some(d.id()) != primary);

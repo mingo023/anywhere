@@ -67,6 +67,8 @@ pub const WINDOW: Token = Token::new(0xf4f4f5ff, 0x171717d9);
 pub const WINDOW_SOLID: Token = Token::new(0xf4f4f5ff, 0x171717ff);
 pub const SURFACE: Token = Token::new(0xffffffff, 0xebebeb1a);
 pub const SURFACE_SUNKEN: Token = Token::new(0xfafafaff, 0x00000000);
+/// Opaque because the editor's gutter must cover text scrolled under it and still match the code beside it.
+pub const EDITOR: Token = Token::new(0xfafafaff, 0x171717ff);
 pub const PAGE: Token = Token::new(0xf7f7f7ff, 0x00000000);
 /// A recessed block inside a page: tables, code blocks.
 pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
@@ -75,6 +77,8 @@ pub const SIDE: Token = Token::new(0xfafafbb3, 0x00000000);
 pub const POPOVER: Token = Token::new(0xffffffff, 0x232323ff);
 pub const GLASS: Token = Token::new(0xffffff9e, 0x2a2a2acc);
 pub const HIGHLIGHT: Token = Token::new(0xfffffff2, 0xffffff0f);
+/// Near-clear in dark: a wide black blur on a dark window reads as a smudge, so the ring alone lifts the surface.
+pub const SHADOW: Token = Token::new(0x00000024, 0x0000000a);
 /// The ring that cuts a badge out of whatever it overlaps.
 pub const CUTOUT: Token = Token::new(0xffffffff, 0x171717ff);
 
@@ -145,7 +149,8 @@ pub fn highlight_theme(dark: bool) -> Arc<HighlightTheme> {
         }
     }
     for (key, c) in [
-        ("editor.background", SURFACE_SUNKEN),
+        ("editor.background", EDITOR),
+        ("editor.gutter.background", EDITOR),
         ("editor.foreground", TEXT_BODY),
         ("editor.line_number", TEXT_5),
         ("editor.active_line_number", TEXT_2),

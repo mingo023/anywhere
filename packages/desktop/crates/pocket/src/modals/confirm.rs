@@ -47,11 +47,12 @@ impl ConfirmText {
     }
 
     fn close_terminals(busy: &Busy, worktree: &str, n: usize) -> Self {
-        let title = match busy {
-            Busy::Agent { title } => format!("\"{title}\" is still working in {worktree}. Close this terminal anyway?"),
-            Busy::Shell { command } => format!("\"{command}\" is still working in {worktree}. Close this terminal anyway?"),
+        let fact = match busy {
+            Busy::Agent { title } => format!("\"{title}\" is still working in {worktree}"),
+            Busy::Shell { command } => format!("\"{command}\" is still working in {worktree}"),
         };
-        Self { title, action: "Close terminal", facts: closes(n).filter(|_| n > 1).into_iter().collect(), dirty: 0, danger: true }
+        let (title, action) = if n == 1 { ("Close terminal?".to_string(), "Close terminal") } else { (format!("Close {n} terminals?"), "Close terminals") };
+        Self { title, action, facts: vec![fact], dirty: 0, danger: true }
     }
 
     fn paste(text: &str, title: &str) -> Self {
@@ -65,6 +66,10 @@ impl ConfirmText {
     fn close_session(title: &str, working: bool) -> Self {
         let facts = std::iter::once("Closes its terminal".to_string()).chain(working.then(|| "Stops its current turn".to_string())).collect();
         Self { title: format!("Close {title}?"), action: "Close", facts, dirty: 0, danger: true }
+    }
+
+    fn detail(&self) -> Option<String> {
+        (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
 
     fn warning(&self) -> Option<String> {
@@ -88,19 +93,17 @@ impl Desktop {
             Some(Confirm::CloseTerminals { ids, busy, worktree }) => ConfirmText::close_terminals(busy, worktree, ids.len()),
             None => return div(),
         };
-        let warning = text.warning();
-        let bullet = |text: String| div().flex().gap(px(8.)).text_size(px(13.5)).text_color(TEXT_2).child("•").child(text);
-        let mut body = vec![div().flex().flex_col().gap(px(6.)).children(text.facts.into_iter().map(bullet)).into_any_element()];
-        if let Some(warning) = warning {
-            body.push(div().px(px(12.)).py(px(10.)).rounded(px(10.)).bg(FAILED_BG).text_size(px(13.)).text_color(FAILED).child(warning).into_any_element());
+        let mut body = Vec::new();
+        if let Some(detail) = text.detail() {
+            body.push(div().text_size(px(13.)).text_color(TEXT_2).child(detail).into_any_element());
         }
-        let cancel = ui::large(ui::button("confirm-cancel", Variant::Ghost, None, "Cancel").text_color(TEXT))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        if let Some(warning) = text.warning() {
+            body.push(div().w_full().mt(px(4.)).px(px(12.)).py(px(8.)).rounded(px(8.)).bg(FAILED_BG).text_size(px(12.5)).text_color(FAILED).child(warning).into_any_element());
+        }
         let variant = if text.danger { Variant::Danger } else { Variant::Primary };
-        let submit = ui::large(ui::button("confirm-go", variant, None, text.action)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
-        body.push(crate::modals::form::footer("", cancel, submit).into_any_element());
-        let close = ui::icon_button("confirm-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        ui::modal(&text.title, 440., 160., close, body)
+        let action = ui::button("confirm-go", variant, None, text.action).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
+        let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        ui::alert(&text.title, body, action, cancel)
     }
 
     fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -133,6 +136,12 @@ mod tests {
     fn close_confirm_mentions_the_turn_only_while_working() {
         assert_eq!(ConfirmText::close_session("Fix login", false), text("Close Fix login?", "Close", &["Closes its terminal"], 0));
         assert_eq!(ConfirmText::close_session("Fix login", true), text("Close Fix login?", "Close", &["Closes its terminal", "Stops its current turn"], 0));
+    }
+
+    #[test]
+    fn facts_read_as_one_sentence_each() {
+        assert_eq!(ConfirmText::remove_project("app", 1).detail(), Some("Closes 1 terminal. Its files stay on disk.".into()));
+        assert_eq!(ConfirmText::paste("ls", "zsh").detail(), None);
     }
 
     #[test]
@@ -178,9 +187,9 @@ mod tests {
     fn close_confirm_names_the_worktree() {
         let agent = Busy::Agent { title: "Fix login".into() };
         let got = ConfirmText::close_terminals(&agent, "feat-x", 1);
-        assert_eq!(got, text("\"Fix login\" is still working in feat-x. Close this terminal anyway?", "Close terminal", &[], 0));
+        assert_eq!(got, text("Close terminal?", "Close terminal", &["\"Fix login\" is still working in feat-x"], 0));
         let shell = Busy::Shell { command: "npm test".into() };
         let got = ConfirmText::close_terminals(&shell, "app", 3);
-        assert_eq!(got, text("\"npm test\" is still working in app. Close this terminal anyway?", "Close terminal", &["Closes 3 terminals"], 0));
+        assert_eq!(got, text("Close 3 terminals?", "Close terminals", &["\"npm test\" is still working in app"], 0));
     }
 }
