@@ -2,12 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { d, font } from "../design";
-import type { TimelineItem } from "@pocket/protocol";
-import { useSession } from "../session";
-import { ChevronLeft, GitBranch, Terminal } from "../icons";
+import { useBanner, useSession } from "../session";
+import { ChevronLeft, GitBranch } from "../icons";
+import { changedFiles, totals } from "../changes";
+import { backLabel, needsYouElsewhere } from "../order";
+import { ConnectionPill } from "../components/ConnectionPill";
 import { Glass } from "../components/Glass";
 import { TimelineView, type Pending } from "../components/TimelineView";
 import { Composer } from "../components/Composer";
+import { ChangesScreen } from "./ChangesScreen";
+import { restoreNotice } from "../status";
+import { contextChip } from "../context";
 import { pending as openFor } from "../permissions";
 
 /** The composer floats over the list, so it has to ride the keyboard itself instead of relying on padding. */
@@ -59,33 +64,33 @@ function basename(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-/** Latest edit per file, so re-touching one file does not count its lines twice. */
-function diffTotals(items: readonly TimelineItem[]): { added: number; removed: number } {
-  const byPath = new Map<string, { added: number; removed: number }>();
-  for (const item of items) {
-    if (item.kind !== "tool") continue;
-    const detail = item.call.detail;
-    if ((detail.kind !== "edit" && detail.kind !== "write") || !detail.diff) continue;
-    byPath.set(detail.path, { added: detail.diff.additions, removed: detail.diff.deletions });
-  }
-  let added = 0;
-  let removed = 0;
-  for (const entry of byPath.values()) {
-    added += entry.added;
-    removed += entry.removed;
-  }
-  return { added, removed };
-}
-
 export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () => void }) {
-  const { agents, timelines, permissions, error, clearError, loadTimeline, view, prompt, compact, interrupt } =
-    useSession();
+  const {
+    link,
+    agents,
+    timelines,
+    permissions,
+    error,
+    clearError,
+    loadTimeline,
+    view,
+    prompt,
+    compact,
+    interrupt,
+    redial,
+    drafts,
+  } = useSession();
+  const banner = useBanner();
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.id === agentId);
+  const elsewhere = useMemo(() => needsYouElsewhere(agents, agentId), [agents, agentId]);
   const provider = providerLabel[agent?.provider ?? ""] ?? "Agent";
   const meta = [agent ? basename(agent.cwd) : null, agent?.model].filter(Boolean).join(" · ");
   const items = timelines[agentId] ?? [];
-  const diff = useMemo(() => diffTotals(items), [items]);
+  const notice = agent && restoreNotice(agent);
+  const files = useMemo(() => changedFiles(items), [items]);
+  const sum = useMemo(() => totals(files), [files]);
+  const [showChanges, setShowChanges] = useState(false);
 
   const compacting = agent?.compacting === true;
   const busy = agent?.status === "working";
@@ -119,6 +124,7 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
       <TimelineView
         items={items}
         pending={pending}
+        notice={notice}
         insetTop={headerHeight}
         insetBottom={dockHeight + keyboard.height}
       />
@@ -129,9 +135,10 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
         onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
       >
         <View style={styles.headerRow} pointerEvents="box-none">
-          <Pressable accessibilityLabel="Back to agents" onPress={onBack}>
-            <Glass style={styles.circle} interactive>
+          <Pressable accessibilityLabel={backLabel(elsewhere)} onPress={onBack}>
+            <Glass style={[styles.circle, elsewhere > 0 && styles.badged]} interactive>
               <ChevronLeft size={24} color={d.text} />
+              {elsewhere > 0 ? <Text style={styles.badge}>{elsewhere}</Text> : null}
             </Glass>
           </Pressable>
 
@@ -145,20 +152,24 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
             </Text>
           </Glass>
 
-          <Pressable accessibilityLabel="Review changes">
-            <Glass style={styles.diff} interactive>
-              <GitBranch size={15} color={d.text} />
-              <Text style={styles.added}>+{diff.added}</Text>
-              <Text style={styles.removed}>−{diff.removed}</Text>
-            </Glass>
-          </Pressable>
-
-          <Pressable accessibilityLabel="Open raw terminal">
-            <Glass style={styles.circle} interactive>
-              <Terminal size={20} color={d.text} />
-            </Glass>
-          </Pressable>
+          {files.length ? (
+            <Pressable
+              accessibilityLabel="Review changes"
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowChanges(true);
+              }}
+            >
+              <Glass style={styles.diff} interactive>
+                <GitBranch size={15} color={d.text} />
+                <Text style={styles.added}>+{sum.added}</Text>
+                <Text style={styles.removed}>−{sum.removed}</Text>
+              </Glass>
+            </Pressable>
+          ) : null}
         </View>
+
+        <ConnectionPill banner={banner} onPress={redial} />
 
         {error ? (
           <Pressable style={styles.banner} accessibilityLabel="Dismiss error" onPress={clearError}>
@@ -172,15 +183,26 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
         onLayout={(event) => setDockHeight(event.nativeEvent.layout.height)}
       >
         <Composer
+          key={agentId}
           placeholder={`Message ${provider}…`}
           working={busy}
+          offline={link.state !== "online"}
+          initialText={drafts.get(agentId)}
+          onChangeText={(text) => drafts.set(agentId, text)}
           provider={agent?.provider ?? ""}
           providerName={provider}
           paddingBottom={keyboard.height ? 12 : Math.max(insets.bottom, 30)}
-          onSend={(text) => (isCompact(text) ? compact(agentId) : prompt(agentId, text))}
+          onSend={(text) => {
+            drafts.clear(agentId);
+            if (isCompact(text)) compact(agentId);
+            else prompt(agentId, text);
+          }}
           onInterrupt={() => interrupt(agentId)}
+          context={agent && contextChip(agent)}
         />
       </Animated.View>
+
+      {showChanges ? <ChangesScreen agentId={agentId} onBack={() => setShowChanges(false)} /> : null}
     </View>
   );
 }
@@ -198,6 +220,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  badged: { width: undefined, minWidth: 44, flexDirection: "row", paddingLeft: 6, paddingRight: 14 },
+  badge: { color: d.text, fontSize: 15, fontFamily: font.semibold },
   titlePill: {
     flex: 1,
     height: 44,

@@ -67,9 +67,9 @@ fn main() {
                     }
                 })
                 .detach();
-                cx.spawn(async move |this, cx| {
+                cx.spawn_in(window, async move |this, cx| {
                     while let Some(ev) = agent_rx.next().await {
-                        if this.update(cx, |d: &mut Desktop, cx| d.on_agents(ev, cx)).is_err() {
+                        if this.update_in(cx, |d: &mut Desktop, window, cx| d.on_agents(ev, window, cx)).is_err() {
                             break;
                         }
                     }

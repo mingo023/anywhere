@@ -1,0 +1,407 @@
+{
+  "activePermissionProfile": {
+    "extends": null,
+    "id": ":read-only"
+  },
+  "approvalPolicy": "x",
+  "approvalsReviewer": "x",
+  "collaborationMode": {
+    "mode": "x",
+    "settings": {
+      "developer_instructions": null,
+      "model": "x",
+      "reasoning_effort": "x"
+    }
+  },
+  "cwd": "x",
+  "disabledPluginIds": [],
+  "initialTurnsPage": null,
+  "instructionSources": [],
+  "itemsBackwardsCursor": null,
+  "model": "x",
+  "modelProvider": "x",
+  "multiAgentMode": "x",
+  "reasoningEffort": "x",
+  "runtimeWorkspaceRoots": [
+    "x",
+    "x",
+    "x"
+  ],
+  "sandbox": {
+    "networkAccess": false,
+    "type": "readOnly"
+  },
+  "serviceTier": null,
+  "thread": {
+    "agentNickname": null,
+    "agentRole": null,
+    "canAcceptDirectInput": true,
+    "cliVersion": "x",
+    "createdAt": 1790737927,
+    "cwd": "x",
+    "daybreakEnabled": null,
+    "environments": [
+      {
+        "cwd": "x",
+        "environmentId": "x",
+        "runtimeWorkspaceRoots": [
+          "x",
+          "x",
+          "x"
+        ]
+      }
+    ],
+    "ephemeral": false,
+    "extra": null,
+    "forkedFromId": null,
+    "gitInfo": null,
+    "historyMode": "x",
+    "id": "01a0f04c-4e3b-78e2-8647-71b1c365f4cc",
+    "model": "x",
+    "modelProvider": "x",
+    "name": "x",
+    "originator": "x",
+    "parentThreadId": "x",
+    "path": "x",
+    "preview": "x",
+    "projectId": null,
+    "reasoningEffort": "x",
+    "recencyAt": 1790851393,
+    "section": null,
+    "sectionEnteredAt": null,
+    "sessionId": "x",
+    "source": {
+      "subAgent": {
+        "other": "x"
+      }
+    },
+    "status": {
+      "type": "idle"
+    },
+    "threadSource": "x",
+    "turns": [
+      {
+        "completedAt": 1790737936,
+        "durationMs": 8261,
+        "error": null,
+        "id": "01a0f04c-4e6b-7680-afed-0352697426d2",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-1",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-2",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790737927,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790737951,
+        "durationMs": 5212,
+        "error": null,
+        "id": "01a0f04c-9862-7d11-b1b7-924efabbc64f",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-3",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-4",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790737946,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790737975,
+        "durationMs": 4109,
+        "error": null,
+        "id": "01a0f04c-fa8e-7d10-9638-999eaedd6f88",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-5",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-6",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790737971,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790737989,
+        "durationMs": 3990,
+        "error": null,
+        "id": "01a0f04d-30dc-7c93-9ad2-e54f421343d3",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-7",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-8",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790737985,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790738005,
+        "durationMs": 3371,
+        "error": null,
+        "id": "01a0f04d-719a-7ee3-aea7-6adc7eb23630",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-9",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-10",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790738002,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790738020,
+        "durationMs": 5298,
+        "error": null,
+        "id": "01a0f04d-a2c5-7fb2-b32d-4a5eb79b9416",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-11",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-12",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790738014,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790738051,
+        "durationMs": 3659,
+        "error": null,
+        "id": "01a0f04e-24fe-7a62-a666-10e6d6a649bc",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-13",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-14",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790738048,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790738073,
+        "durationMs": 4680,
+        "error": null,
+        "id": "01a0f04e-772a-72a1-a7e7-51be397a5c90",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-15",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-16",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790738069,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790738141,
+        "durationMs": 4610,
+        "error": null,
+        "id": "01a0f04f-7fae-7ba1-94c1-06bf34e62440",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-17",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-18",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790738137,
+        "status": "completed"
+      },
+      {
+        "completedAt": 1790738150,
+        "durationMs": 3606,
+        "error": null,
+        "id": "01a0f04f-a515-7100-a607-63d776bd5a67",
+        "items": [
+          {
+            "clientId": null,
+            "content": [
+              {
+                "text": "x",
+                "text_elements": [],
+                "type": "text"
+              }
+            ],
+            "id": "item-19",
+            "type": "userMessage"
+          },
+          {
+            "delivery": null,
+            "id": "item-20",
+            "memoryCitation": null,
+            "phase": "x",
+            "questions": null,
+            "text": "x",
+            "type": "agentMessage"
+          }
+        ],
+        "itemsView": "x",
+        "startedAt": 1790738146,
+        "status": "completed"
+      }
+    ],
+    "updatedAt": 1790737927
+  },
+  "turnsBackwardsCursor": null
+}

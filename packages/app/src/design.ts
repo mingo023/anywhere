@@ -12,6 +12,7 @@ export const d = {
   green: "#5BE38A",
   greenChip: "#14261B",
   red: "#F07167",
+  warning: "#FACC15",
   teal: "#5CC8BE",
   bubble: "#1C3326",
   bubbleText: "#BFF5D2",

@@ -1,0 +1,26 @@
+{
+  "type": "agent.providers",
+  "id": "p1",
+  "providers": [
+    {
+      "id": "claude",
+      "available": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "plan": true
+    },
+    {
+      "id": "codex",
+      "available": false,
+      "efforts": [],
+      "plan": false
+    }
+  ],
+  "maxAccess": "full",
+  "phoneMaxAccess": "ask"
+}

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -37,6 +38,8 @@ type Spec struct {
 	Env  []string
 	Cols int
 	Rows int
+	// Origin is who asked for the Terminal; its first agent takes it.
+	Origin string
 }
 
 type Event struct {
@@ -64,6 +67,7 @@ type Terminal struct {
 	code   int
 	closed bool
 	input  func(id string, b []byte)
+	origin string
 }
 
 type Manager struct {
@@ -131,12 +135,13 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		return nil, err
 	}
 	s := &Terminal{
-		info:  Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows},
-		pty:   f,
-		cmd:   cmd,
-		subs:  map[*subscriber]bool{},
-		done:  make(chan struct{}),
-		input: m.OnInput,
+		info:   Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows},
+		pty:    f,
+		cmd:    cmd,
+		subs:   map[*subscriber]bool{},
+		done:   make(chan struct{}),
+		input:  m.OnInput,
+		origin: spec.Origin,
 	}
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
 	if err != nil {
@@ -237,6 +242,16 @@ func (s *Terminal) Info() Info {
 	return s.info
 }
 
+// TakeOrigin is Spec.Origin once, then "": a later agent in the same Terminal
+// was started by whoever typed it.
+func (s *Terminal) TakeOrigin() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o := s.origin
+	s.origin = ""
+	return o
+}
+
 func (s *Terminal) Pid() int { return s.cmd.Process.Pid }
 
 func (s *Terminal) Pgrp() (int, error) {
@@ -321,8 +336,55 @@ func (s *Terminal) Screen() string {
 	return s.vt.Plain()
 }
 
-func (s *Terminal) Close() {
-	s.cmd.Process.Kill()
+// CloseGrace is how long Close waits after SIGTERM before SIGKILL.
+var CloseGrace = 2 * time.Second
+
+// Close ends the Terminal's whole session in the background; Done reports the end.
+func (s *Terminal) Close() { go s.stop(CloseGrace) }
+
+// stop signals every process group in the shell's session: job-control jobs
+// get their own groups, and nohup'd children ignore the pty's SIGHUP.
+// SIGHUP goes with SIGTERM because an interactive shell ignores SIGTERM.
+func (s *Terminal) stop(grace time.Duration) {
+	sid := s.Pid()
+	signal := func(sigs ...syscall.Signal) {
+		pgids, err := proc.Session(sid)
+		if err != nil {
+			pgids = []int{sid}
+		}
+		for _, pg := range pgids {
+			for _, sig := range sigs {
+				syscall.Kill(-pg, sig)
+			}
+		}
+	}
+	signal(syscall.SIGHUP, syscall.SIGTERM)
+	for deadline := time.Now().Add(grace); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if pgids, err := proc.Session(sid); err == nil && len(pgids) == 0 {
+			return
+		}
+	}
+	signal(syscall.SIGKILL)
+}
+
+// CloseAll stops every Terminal at once. It returns when all have ended or grace+500ms has passed.
+func (m *Manager) CloseAll(grace time.Duration) {
+	var wg sync.WaitGroup
+	for _, s := range m.All() {
+		wg.Go(func() {
+			s.stop(grace)
+			<-s.done
+		})
+	}
+	ended := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+	case <-time.After(grace + 500*time.Millisecond):
+	}
 }
 
 func (s *Terminal) Done() <-chan struct{} { return s.done }

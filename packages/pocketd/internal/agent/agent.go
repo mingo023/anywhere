@@ -2,6 +2,8 @@
 package agent
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -22,16 +24,17 @@ type Driver interface {
 
 type Agent struct {
 	id, provider string
-	driver       Driver
 	hub          *hub.Hub
 	reg          *Registry
 	Timeline     *timeline.Timeline
 
 	mu              sync.Mutex
+	driver          Driver
 	cwd             string
 	terminal        string
 	conversation    string
 	title           string
+	fallback        string
 	model           string
 	phase           string // idle, working or needsYou
 	unseenEnd       bool
@@ -39,10 +42,18 @@ type Agent struct {
 	compacting      bool
 	compactFromIdle bool
 	attached        bool
+	restore         string
 	seen            bool
 	closed          bool
 	createdAt       int64
 	updatedAt       int64
+	project         string
+	worktree        string
+	branch          string
+	mainWorktree    bool
+	tokensUsed      int64
+	contextWindow   int64
+	origin          string
 }
 
 type Registry struct {
@@ -69,7 +80,7 @@ func (r *Registry) Add(id, cwd, provider string, d Driver) *Agent {
 // AddFunc is Add for a driver that needs its agent before any phone can reach it.
 func (r *Registry) AddFunc(id, cwd, provider string, newDriver func(*Agent) Driver) *Agent {
 	t := now()
-	a := &Agent{id: id, cwd: cwd, provider: provider, hub: r.hub, reg: r, Timeline: timeline.New(), phase: "idle", attached: true, createdAt: t, updatedAt: t}
+	a := &Agent{id: id, cwd: cwd, provider: provider, hub: r.hub, reg: r, Timeline: timeline.New(), phase: "idle", attached: true, origin: "desktop", createdAt: t, updatedAt: t}
 	a.driver = newDriver(a)
 	r.mu.Lock()
 	r.agents[id] = a
@@ -85,6 +96,30 @@ func (r *Registry) Get(id string) (*Agent, error) {
 		return a, nil
 	}
 	return nil, fmt.Errorf("Unknown agent: %s", id)
+}
+
+// ErrResuming refuses a prompt, interrupt or compact while a restored Agent's
+// provider is still coming back.
+var ErrResuming = errors.New("This session is still resuming")
+
+// Restored is an Agent a pocketd restart brings back under its old id.
+type Restored struct {
+	ID, Cwd, Provider, Terminal, Conversation string
+	Origin                                    string
+	Fallback                                  string // title until the provider names the Conversation
+	CreatedAt                                 int64
+	Done, Failed                              bool
+}
+
+func (r *Registry) Restore(x Restored, d Driver) *Agent {
+	a := &Agent{id: x.ID, cwd: x.Cwd, provider: x.Provider, hub: r.hub, reg: r, Timeline: timeline.New(), driver: d, terminal: x.Terminal,
+		conversation: x.Conversation, fallback: x.Fallback, phase: "idle", unseenEnd: x.Done, failed: x.Failed, attached: true,
+		origin: cmp.Or(x.Origin, "desktop"), createdAt: x.CreatedAt, updatedAt: now()}
+	r.mu.Lock()
+	r.agents[x.ID] = a
+	r.mu.Unlock()
+	r.hub.Publish(proto.NewAgentUpdate(a.Summary()))
+	return a
 }
 
 // Remove marks the agent closed for every phone, then forgets it.
@@ -152,7 +187,18 @@ func (r *Registry) MarkSeen(ids []string) {
 
 func (a *Agent) ID() string       { return a.id }
 func (a *Agent) Provider() string { return a.provider }
-func (a *Agent) Driver() Driver   { return a.driver }
+
+func (a *Agent) Driver() Driver {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.driver
+}
+
+func (a *Agent) SetDriver(d Driver) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.driver = d
+}
 
 func (a *Agent) Summary() proto.AgentSummary {
 	a.mu.Lock()
@@ -164,9 +210,11 @@ func (a *Agent) summary() proto.AgentSummary {
 	epoch, maxSeq := a.Timeline.State()
 	status := a.status()
 	return proto.AgentSummary{
-		ID: a.id, TerminalID: a.terminal, Title: a.title, Cwd: a.cwd, Provider: a.provider, Model: a.model,
-		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Compacting: a.compacting,
+		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model,
+		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting,
 		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
+		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
+		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin,
 	}
 }
 
@@ -217,7 +265,7 @@ func Busy(agents []proto.AgentSummary) bool {
 }
 
 func (a *Agent) Working() {
-	a.update(true, func() { a.phase, a.unseenEnd, a.failed = "working", false, false })
+	a.update(true, func() { a.phase, a.unseenEnd, a.failed, a.restore = "working", false, false, "" })
 }
 
 func (a *Agent) NeedsYou() {
@@ -289,6 +337,11 @@ func (a *Agent) SetAttached(attached bool) {
 	a.update(false, func() { a.attached = attached })
 }
 
+// SetRestore shows how the Agent came back from a restart, until its next turn.
+func (a *Agent) SetRestore(outcome string) {
+	a.update(false, func() { a.restore = outcome })
+}
+
 func (a *Agent) SetCwd(cwd string) {
 	a.update(false, func() { a.cwd = cwd })
 }
@@ -300,6 +353,7 @@ func (a *Agent) SetConversation(id string) {
 		if a.conversation != "" && a.conversation != id {
 			a.Timeline.Clear()
 			a.title = ""
+			a.tokensUsed = 0
 		}
 		a.conversation = id
 	})
@@ -312,6 +366,25 @@ func (a *Agent) SetTitle(title string) {
 
 func (a *Agent) SetModel(model string) {
 	a.update(false, func() { a.model = model })
+}
+
+// SetLocation places the agent in a registered Project; all "" when it is in none.
+func (a *Agent) SetLocation(project, worktree, branch string, main bool) {
+	a.update(false, func() { a.project, a.worktree, a.branch, a.mainWorktree = project, worktree, branch, main })
+}
+
+// SetTokens takes the context in use; a window of 0 keeps the one already known.
+func (a *Agent) SetTokens(used, window int64) {
+	a.update(false, func() {
+		a.tokensUsed = used
+		if window > 0 {
+			a.contextWindow = window
+		}
+	})
+}
+
+func (a *Agent) SetOrigin(origin string) {
+	a.update(false, func() { a.origin = origin })
 }
 
 func firstLine(text string) string {

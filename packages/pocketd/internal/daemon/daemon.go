@@ -16,7 +16,9 @@ import (
 	"pocketd/internal/ops"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
+	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
@@ -29,6 +31,12 @@ type Daemon struct {
 	Exe       string // absolute path of this binary, for the hook command
 	Sock      string
 	Plugin    string
+	// Resume gives the command that resumes saved's Agent in its Terminal, or
+	// the reason it can't. Nil means restore.resumeAgents is off.
+	Resume func(saved state.Terminal) (cmd string, args []string, reason string)
+	// OnRestore hears how each saved Agent came back.
+	OnRestore func(agentID string, ok bool, ms int64, outcome, reason string)
+	Registry  *registry.Registry // the Projects an agent is placed in
 	// Capture reads the user's login-shell environment. Nil keeps pocketd's own.
 	Capture func() shellenv.Result
 
@@ -37,22 +45,24 @@ type Daemon struct {
 	present  map[string]*presence          // by terminal id
 	watchers map[string]context.CancelFunc // by app-server socket
 	watch    sync.Mutex                    // one observe at a time: the poller and hooks both run it
+
+	restoring map[string]*hint // by terminal id; under mu
 }
 
 // Spawn starts m in a terminal. Without m.Env it gets the login-shell
 // environment, read again once if the command isn't on its PATH, so a tool
 // installed after pocketd started is found.
 func (d *Daemon) Spawn(m ops.Msg) (*terminal.Terminal, error) {
-	t, err := d.spawn(m)
+	spec := terminal.Spec{ID: terminal.NewID(), Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows}
+	t, err := d.spawn(spec)
 	if errors.Is(err, exec.ErrNotFound) && m.Env == nil && d.Capture != nil {
 		d.Recapture()
-		t, err = d.spawn(m)
+		t, err = d.spawn(spec)
 	}
 	return t, err
 }
 
-func (d *Daemon) spawn(m ops.Msg) (*terminal.Terminal, error) {
-	spec := terminal.Spec{ID: terminal.NewID(), Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows}
+func (d *Daemon) spawn(spec terminal.Spec) (*terminal.Terminal, error) {
 	if spec.Env == nil {
 		spec.Env = d.LoginEnv()
 	}
@@ -161,9 +171,13 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 	if pr == nil {
 		return nil, errHookForged
 	}
+	if in.PermissionMode != "" {
+		pr.setMode(in.PermissionMode)
+	}
 	switch in.Event {
 	case "SessionStart":
 		d.sessionStart(pr, in)
+		d.resumed(pr, in.SessionID)
 	case "UserPromptSubmit":
 		pr.working("")
 	case "PostToolUse", "PostToolUseFailure", "PermissionDenied":
@@ -173,9 +187,9 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 	case "PermissionRequest":
 		return d.permission(ctx, pr, in), nil
 	case "Stop":
-		pr.a.TurnEnded(false)
+		d.turnEnded(pr, false)
 	case "StopFailure":
-		pr.a.TurnEnded(true)
+		d.turnEnded(pr, true)
 	case "PreCompact":
 		pr.a.SetCompacting()
 	}

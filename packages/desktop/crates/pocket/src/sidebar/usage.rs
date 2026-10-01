@@ -1,26 +1,27 @@
 use crate::desktop::Desktop;
-use agents::Agents;
+use crate::terminal_view::context;
+use agents::{Agents, Level, level, percent};
 use gpui_kit::*;
 use theme::*;
 use ui::{self, dot};
 
-/// Context left in each provider's newest session.
-fn usage(agents: &Agents) -> Vec<(&'static str, u64)> {
-    let latest = |p: &str| {
-        let a = agents.list.iter().filter(|a| a.provider == p).max_by_key(|a| a.updated_at)?;
-        agents.context_left(&a.id)
-    };
-    ["claude", "codex"].into_iter().filter_map(|p| latest(p).map(|left| (p, left))).collect()
+/// Context left in each provider's newest session, and how full it is.
+fn usage(agents: &Agents) -> Vec<(&'static str, u64, Level)> {
+    let latest = |p: &str| agents.list.iter().filter(|a| a.provider == p).max_by_key(|a| a.updated_at)?.context();
+    ["claude", "codex"].into_iter().filter_map(|p| latest(p).map(|(used, window)| (p, 100 - percent(used, window), level(used, window)))).collect()
 }
 
 impl Desktop {
-    pub(super) fn usage(&self) -> Vec<(&'static str, u64)> {
+    pub(super) fn usage(&self) -> Vec<(&'static str, u64, Level)> {
         usage(&self.agents)
     }
 
     pub(super) fn usage_card(&self) -> Option<Div> {
-        let parts: Vec<Div> =
-            self.usage().into_iter().map(|(p, left)| div().flex().items_center().gap(px(6.)).child(dot(7., provider_color(p))).child(format!("{left}%"))).collect();
+        let parts: Vec<Div> = self
+            .usage()
+            .into_iter()
+            .map(|(p, left, level)| div().flex().items_center().gap(px(6.)).child(dot(7., provider_color(p))).child(div().text_color(context::text(level)).child(format!("{left}%"))))
+            .collect();
         (!parts.is_empty()).then(|| {
             div()
                 .mt(px(8.))
@@ -36,7 +37,7 @@ impl Desktop {
                 .text_size(px(12.))
                 .text_color(TEXT_2)
                 .children(parts)
-                .child(div().ml_auto().text_color(TEXT_4).child("context left"))
+                .child(div().ml_auto().text_color(TEXT_2).child("context left"))
         })
     }
 }
@@ -44,27 +45,26 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::usage;
-    use agents::{Agents, Item, Summary, Usage};
+    use agents::{Agents, Level, Summary};
 
-    fn session(agents: &mut Agents, id: &str, provider: &str, status: &str, at: i64, used: u64) {
-        agents.list.push(Summary { id: id.into(), provider: provider.into(), status: status.into(), updated_at: at, ..Default::default() });
-        agents.timelines.insert(id.into(), vec![Item { usage: Some(Usage { input_tokens: used, cache_read_tokens: 0 }), ..Default::default() }]);
+    fn session(agents: &mut Agents, id: &str, provider: &str, at: i64, used: u64) {
+        agents.list.push(Summary { id: id.into(), provider: provider.into(), updated_at: at, tokens_used: used, context_window: Some(200_000), ..Default::default() });
     }
 
     #[test]
     fn usage_reads_the_context_left_in_each_providers_newest_session() {
         let mut agents = Agents::default();
-        session(&mut agents, "codex", "codex", "idle", 1, 100_000);
-        session(&mut agents, "old", "claude", "working", 1, 20_000);
-        session(&mut agents, "new", "claude", "idle", 2, 40_000);
-        assert_eq!(usage(&agents), vec![("claude", 80), ("codex", 50)]);
+        session(&mut agents, "codex", "codex", 1, 184_000);
+        session(&mut agents, "old", "claude", 1, 20_000);
+        session(&mut agents, "new", "claude", 2, 150_000);
+        assert_eq!(usage(&agents), vec![("claude", 25, Level::Warn), ("codex", 8, Level::Danger)]);
     }
 
     #[test]
-    fn usage_skips_a_provider_whose_newest_session_reported_none() {
+    fn usage_card_hides_without_a_window() {
         let mut agents = Agents::default();
-        session(&mut agents, "old", "claude", "idle", 1, 20_000);
-        agents.list.push(Summary { id: "new".into(), provider: "claude".into(), status: "working".into(), updated_at: 2, ..Default::default() });
+        session(&mut agents, "old", "claude", 1, 20_000);
+        agents.list.push(Summary { id: "new".into(), provider: "claude".into(), updated_at: 2, tokens_used: 20_000, ..Default::default() });
         assert_eq!(usage(&agents), vec![]);
     }
 }

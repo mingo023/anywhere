@@ -85,6 +85,7 @@ func (d *Daemon) sessionStart(pr *presence, in hookInput) {
 	}
 	pr.a.SetConversation(in.SessionID)
 	pr.a.SetAttached(true)
+	pr.hooked = true
 	if in.Model != "" {
 		pr.a.SetModel(in.Model)
 	}
@@ -95,13 +96,13 @@ func (d *Daemon) sessionStart(pr *presence, in hookInput) {
 		pr.a.Compacted()
 	}
 	if moved {
-		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath)
+		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model)
 	}
 }
 
 // tail feeds pr's timeline from a transcript; hooks set the status. stop
 // returns once the lines written so far are in.
-func (d *Daemon) tail(pr *presence, path string) (stop func()) {
+func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})
 	var replay int64
@@ -112,6 +113,7 @@ func (d *Daemon) tail(pr *presence, path string) (stop func()) {
 		defer close(done)
 		keys := map[string]string{}
 		var read int64
+		used, window := int64(-1), int64(0)
 		claude.Tail(ctx, path, func(line []byte) {
 			read += int64(len(line)) + 1
 			events, title := claude.Map(line)
@@ -120,6 +122,14 @@ func (d *Daemon) tail(pr *presence, path string) (stop func()) {
 			}
 			if model := claude.Model(line); model != "" {
 				pr.a.SetModel(model)
+				if u, ok := claude.Tokens(line); ok {
+					used, window = u, claude.ContextWindow(model, hookModel, u)
+				}
+			}
+			// A resumed transcript replays every old answer; only the last is the context now.
+			if used >= 0 && read >= replay {
+				pr.a.SetTokens(used, window)
+				used = -1
 			}
 			for _, e := range events {
 				d.dismissAnswered(pr.a.ID(), keys, e)

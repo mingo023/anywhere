@@ -165,11 +165,6 @@ pub fn ls_files(cwd: &str) -> Vec<String> {
     lines(git(cwd, &["ls-files", "--cached", "--others", "--exclude-standard"]))
 }
 
-pub fn add_worktree(repo: &str, path: &str, branch: &str, base: &str) -> Result<(), String> {
-    let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "add", "-b", branch, path, base]).output().map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
-}
-
 /// Deletes the worktree's folder, uncommitted changes included; its branch stays.
 pub fn remove_worktree(repo: &str, path: &str) -> Result<(), String> {
     let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "remove", "--force", path]).output().map_err(|e| e.to_string())?;
@@ -446,6 +441,11 @@ mod tests {
         assert_eq!((w[0].path.as_str(), w[0].branch.as_str(), w[0].main), ("/r", "main", true));
         assert_eq!((w[1].branch.as_str(), w[1].main), ("fix/a", false));
         assert_eq!(w[2].branch, "detached");
+    }
+
+    fn add_worktree(repo: &str, path: &str, branch: &str, base: &str) -> Result<(), String> {
+        let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "add", "-b", branch, path, base]).output().map_err(|e| e.to_string())?;
+        if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
     }
 
     fn scratch_repo(tag: &str) -> std::path::PathBuf {

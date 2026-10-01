@@ -1,5 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Confirm;
+use crate::status::{self, Status};
 use crate::terminals::close::Busy;
 use crate::util::{basename, tilde};
 use git::FileStat;
@@ -61,6 +62,11 @@ impl ConfirmText {
         Self { title: format!("Paste {lines} into {title}?"), action: "Paste", facts: Vec::new(), dirty: 0, danger: false }
     }
 
+    fn close_session(title: &str, working: bool) -> Self {
+        let facts = std::iter::once("Closes its terminal".to_string()).chain(working.then(|| "Stops its current turn".to_string())).collect();
+        Self { title: format!("Close {title}?"), action: "Close", facts, dirty: 0, danger: true }
+    }
+
     fn warning(&self) -> Option<String> {
         let files = if self.dirty == 1 { "file" } else { "files" };
         (self.dirty > 0).then(|| format!("{} uncommitted {files} will be lost.", self.dirty))
@@ -73,6 +79,11 @@ impl Desktop {
             Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), self.project_terminals(p).len()),
             Some(Confirm::DeleteWorktree { tree, branch, dirty, .. }) => ConfirmText::delete_worktree(tree, branch, *dirty, self.tree_terminals(tree).len()),
             Some(Confirm::Discard(paths)) => ConfirmText::discard(paths, self.repo().map_or(&[], |r| r.files.as_slice())),
+            Some(Confirm::CloseSession(id)) => {
+                let Some(a) = self.agents.get(id) else { return div() };
+                let card = status::card(a, &a.cwd);
+                ConfirmText::close_session(&card.title, card.status == Status::Working)
+            }
             Some(Confirm::Paste { pane, text }) => ConfirmText::paste(text, &self.pane_label(pane)),
             Some(Confirm::CloseTerminals { ids, busy, worktree }) => ConfirmText::close_terminals(busy, worktree, ids.len()),
             None => return div(),
@@ -97,6 +108,11 @@ impl Desktop {
             Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
             Some(Confirm::DeleteWorktree { project, tree, .. }) => self.delete_worktree(project, tree, cx),
             Some(Confirm::Discard(paths)) => self.discard(paths, cx),
+            Some(Confirm::CloseSession(id)) => {
+                if let Some(term) = self.agents.get(&id).map(|a| a.terminal_id.clone()) {
+                    self.close_pane(&term, cx);
+                }
+            }
             Some(Confirm::Paste { pane, text }) => self.paste_into(&pane, &text, cx),
             Some(Confirm::CloseTerminals { ids, .. }) => ids.iter().for_each(|id| self.close_pane(id, cx)),
             None => {}
@@ -111,6 +127,12 @@ mod tests {
 
     fn text(title: &str, action: &'static str, facts: &[&str], dirty: usize) -> ConfirmText {
         ConfirmText { title: title.into(), action, facts: facts.iter().map(|f| f.to_string()).collect(), dirty, danger: true }
+    }
+
+    #[test]
+    fn close_confirm_mentions_the_turn_only_while_working() {
+        assert_eq!(ConfirmText::close_session("Fix login", false), text("Close Fix login?", "Close", &["Closes its terminal"], 0));
+        assert_eq!(ConfirmText::close_session("Fix login", true), text("Close Fix login?", "Close", &["Closes its terminal", "Stops its current turn"], 0));
     }
 
     #[test]

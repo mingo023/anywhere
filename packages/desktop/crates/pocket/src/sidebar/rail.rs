@@ -1,6 +1,8 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, drag_area, state};
 use crate::status::{Card, Status};
+use crate::terminal_view::context;
+use agents::Level;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -82,8 +84,9 @@ impl Desktop {
             .cursor_pointer()
             .child(icon("compose", 17., ON_TEXT))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx)));
-        let bars = self.usage().into_iter().map(|(p, left)| {
-            div().w(px(24.)).h(px(3.)).flex().rounded(px(2.)).bg(SEPARATOR_STRONG).child(div().w(relative(left as f32 / 100.)).rounded(px(2.)).bg(provider_color(p)))
+        let bars = self.usage().into_iter().map(|(p, left, level)| {
+            let fill = if level == Level::Low { provider_color(p) } else { context::glyph(level) };
+            div().w(px(24.)).h(px(3.)).flex().rounded(px(2.)).bg(SEPARATOR_STRONG).child(div().w(relative(left as f32 / 100.)).rounded(px(2.)).bg(fill))
         });
         let me = if self.initials.is_empty() { "ME".to_string() } else { self.initials.clone() };
         drag_area(ui::side(div()))

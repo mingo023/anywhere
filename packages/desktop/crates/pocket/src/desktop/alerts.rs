@@ -108,9 +108,23 @@ impl Notice {
 }
 
 impl Desktop {
-    pub(crate) fn on_agents(&mut self, ev: Event, cx: &mut Context<Self>) {
-        let connected = matches!(ev, Event::Connected(_));
-        if let (Event::Connected(_), Some(ids)) = (&ev, &self.alerts.viewing) {
+    pub(crate) fn on_agents(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
+        if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
+            return self.on_pair(ev, cx);
+        }
+        if let Event::Creating { .. } | Event::CreateFailed { .. } = ev {
+            return self.on_launch(ev, window, cx);
+        }
+        if let Event::ConfigFailed(message) = ev {
+            self.error = Some(message);
+            return cx.notify();
+        }
+        let connected = matches!(ev, Event::Connected { .. });
+        if connected {
+            self.pair.lost();
+            self.outbox.providers();
+        }
+        if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
         }
         if let Event::Agents(list) = &ev {

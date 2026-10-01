@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,8 @@ var update = flag.Bool("update", false, "rewrite testdata/golden")
 func ptr[T any](v T) *T { return &v }
 
 func summary() AgentSummary {
-	return AgentSummary{ID: "a1", TerminalID: "t1", Title: "fix tests", Cwd: "/w", Provider: "claude", Status: "idle", Attached: true, Epoch: 1, MaxSeq: 3, ProviderSessionID: "s1", CreatedAt: 1, UpdatedAt: 2}
+	return AgentSummary{ID: "a1", TerminalID: "t1", Title: "fix tests", Cwd: "/w", Provider: "claude", Status: "idle", Attached: true, Epoch: 1, MaxSeq: 3, ProviderSessionID: "s1", CreatedAt: 1, UpdatedAt: 2,
+		Project: "pocket", Worktree: "pocket", MainWorktree: true, Branch: "main", TokensUsed: 48000, ContextWindow: 1000000, Origin: "desktop"}
 }
 
 func with(f func(*AgentSummary)) AgentSummary {
@@ -32,7 +34,15 @@ var serverGolden = map[string]any{
 	"agent_update_compacting": NewAgentUpdate(with(func(s *AgentSummary) {
 		s.Status, s.Compacting, s.Attached, s.ProviderSessionID = "working", true, false, ""
 	})),
-	"stream_user": NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "hi"}),
+	"agent_update_restore_cleared": NewAgentUpdate(with(func(s *AgentSummary) { s.Status = "working" })),
+	"agent_list_restored": NewAgentList("l1", []AgentSummary{
+		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
+		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),
+		with(func(s *AgentSummary) { s.ID, s.Restore = "a3", RestoreAccessLowered }),
+		with(func(s *AgentSummary) { s.ID, s.Restore, s.Attached = "a4", RestoreFailed, false }),
+	}),
+	"error_agent_resuming": NewErrorCode("p1", CodeAgentResuming, "This session is still resuming"),
+	"stream_user":          NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "hi"}),
 	"stream_tool_running": NewAgentStream("a1", 1, Item{ID: "i2", Seq: 2, Ts: 11, Kind: "tool", Call: &ToolCall{
 		ToolUseID: "t1", Name: "Bash", Status: "running", Detail: ToolDetail{Kind: "shell", Command: "ls"},
 	}}),
@@ -55,10 +65,17 @@ var serverGolden = map[string]any{
 	"permission_resolved": NewPermissionResolved("r1", "allow"),
 	"ack":                 NewAck("p1"),
 	"error":               NewError("p1", "Unknown agent: zz"),
-	"hello_ok_host":       helloOKHost(),
-	"host_changed":        NewHostChanged(HostState{Tailnet: true, KeepingAwake: true}),
-	"error_coded":         NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
-	"pair_ok":             NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
+	"agent_creating":      NewAgentCreating("c1", "r1", "t1", "/w/fix", true),
+	"agent_created":       NewAgentCreated("c1", "r1", "a1", "t1"),
+	"agent_providers": NewAgentProviders("p1", []ProviderInfo{
+		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true},
+		{ID: "codex", Available: false, Efforts: []string{}, Plan: false},
+	}, "full", "ask"),
+	"error_detail":  NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
+	"hello_ok_host": helloOKHost(),
+	"host_changed":  NewHostChanged(HostState{Tailnet: true, KeepingAwake: true}),
+	"error_coded":   NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
+	"pair_ok":       NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
 	"hello_ok_scopes": func() HelloOK {
 		h := NewHelloOK("h1", "mac", 3, []string{"pair.v1", "scopes.v1"})
 		h.Scopes = []string{"observe", "drive", "approve", "spawn", "owner"}
@@ -67,6 +84,10 @@ var serverGolden = map[string]any{
 	"pair_offer":         NewPairOffer("b1", "anywhere://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv", "abcdefghijklmnopqrstuv", 1790000000000),
 	"pair_done":          NewPairDone("d1", "iPhone"),
 	"error_scope_denied": NewErrorCode("r1", CodeScopeDenied, "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)"),
+	"project_list": NewProjectList("p1", []Project{{Path: "/Users/me/dev/pocket", Name: "pocket", Worktrees: []Worktree{
+		{Name: "pocket", Path: "/Users/me/dev/pocket", Branch: "main", IsMain: true},
+		{Name: "calm-otter", Path: "/Users/me/.worktrees/pocket/calm-otter", Branch: ""},
+	}}}),
 }
 
 func helloOKHost() HelloOK {
@@ -140,6 +161,20 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"pair","id":"1","name":"iPhone","platform":"ios"}`,
 		`{"type":"pair","id":"1","code":"c","name":"iPhone","platform":"windows"}`,
 		`{"type":"pair","id":"1","code":"c","platform":"ios"}`,
+		`{"type":"project.list"}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","new":{"name":"n"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,"argv":["sh"]}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask"}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"gemini","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,"prompt":"` + strings.Repeat("x", MaxPrompt+1) + `"}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,"ACCESS":"full"}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"Worktree":"/w"},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","Base":"main"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","new":null},"provider":"claude","access":"ask","plan":false,"model":null}}`,
+		`{"type":"config.set","id":"1","key":"phone.maxAccess","value":"full"}`,
+		`{"type":"config.set","id":"1","key":"theme","value":"ask"}`,
 		`null`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
@@ -156,6 +191,7 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"agent.timeline","id":"1","agentId":"a","sinceSeq":1.5,"limit":2.5}`,
 		`{"type":"hello","id":"1","token":"","clientId":"","protocolVersion":2.0}`,
 		`{"type":"agent.view","id":"1","agentIds":[]}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"full","plan":true,"prompt":"` + strings.Repeat("x", MaxPrompt) + `"}}`,
 		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"caps":[],"protocol":{"min":3,"max":3.0}}`,
 		`{"type":"pair","id":"1","code":"c","name":"","platform":"android"}`,
 		`{"type":"hello","id":"1","clientId":"desktop","protocolVersion":3}`,

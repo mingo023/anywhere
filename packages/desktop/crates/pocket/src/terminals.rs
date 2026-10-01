@@ -15,7 +15,6 @@ use workspace::Tab;
 pub(crate) enum Intent {
     Tab(String),
     Split(String, bool),
-    Setup(String),
 }
 
 /// What a pane's measured size asks of pocketd.
@@ -36,6 +35,10 @@ pub struct Terminals {
     settle: Option<Task<()>>,
     /// Terminal → worktree while the terminal runs the worktree's setup before its agent.
     pub(crate) setups: HashMap<String, String>,
+    /// Terminals pocketd made for this window's creates, with their worktree, until pocketd lists them.
+    pub(crate) created: HashMap<String, String>,
+    /// The creates whose Terminal was taken in, so pocketd's replay of one after a reconnect adds nothing.
+    requests: HashSet<String>,
     /// Terminals whose screen was dropped on reconnect and must be attached again once pocketd lists them.
     reattach: HashSet<String>,
     pub(crate) link: Link,
@@ -43,7 +46,7 @@ pub struct Terminals {
 
 impl Terminals {
     pub fn new() -> Self {
-        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), reattach: HashSet::new(), link: Link::default() }
+        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default() }
     }
 
     /// The listed terminals closed here that still run, because their close never reached pocketd.
@@ -56,7 +59,8 @@ impl Terminals {
         let items = items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
         let mut attach = self.sessions.sync(items);
         let sessions = &self.sessions;
-        self.setups.retain(|id, _| sessions.get(id).is_some());
+        let created = &self.created;
+        self.setups.retain(|id, _| sessions.get(id).is_some() || created.contains_key(id));
         attach.extend(std::mem::take(&mut self.reattach).into_iter().filter(|id| sessions.get(id).is_some()));
         attach
     }
@@ -84,15 +88,28 @@ impl Terminals {
     }
 
     /// Matches a spawned terminal to the oldest pending intent; returns the worktree to adopt it in and the split direction, if any.
-    pub(crate) fn spawned(&mut self, id: &str) -> Option<(String, Option<bool>)> {
+    pub(crate) fn spawned(&mut self) -> Option<(String, Option<bool>)> {
         match self.intents.pop_front()? {
             Intent::Tab(tree) => Some((tree, None)),
             Intent::Split(tree, down) => Some((tree, Some(down))),
-            Intent::Setup(tree) => {
-                self.setups.insert(id.to_string(), tree.clone());
-                Some((tree, None))
-            }
         }
+    }
+
+    pub(crate) fn created(&mut self, request: &str, id: String, tree: String, setup: bool) {
+        if !self.requests.insert(request.to_string()) {
+            return;
+        }
+        if setup {
+            self.setups.insert(id.clone(), tree.clone());
+        }
+        self.created.insert(id, tree);
+    }
+
+    /// Created terminals pocketd now lists, each with its worktree, once.
+    pub(crate) fn arrived(&mut self) -> Vec<(String, String)> {
+        let sessions = &self.sessions;
+        let listed: Vec<String> = self.created.keys().filter(|id| sessions.get(id).is_some()).cloned().collect();
+        listed.into_iter().filter_map(|id| self.created.remove_entry(&id)).collect()
     }
 
     /// Records an exit and returns whether its pane should close: a clean exit closes, as Terminal.app does; a failed one stays so its error can be read.
@@ -110,7 +127,13 @@ impl Terminals {
         self.sized.remove(id);
         self.pending.remove(id);
         self.setups.remove(id);
+        self.created.remove(id);
         running
+    }
+
+    /// An observer can't end a running terminal; pocketd would refuse while the pane vanished here.
+    pub(crate) fn may_close(&self, id: &str, observe: bool) -> bool {
+        !observe || !self.sessions.get(id).is_some_and(|s| s.exit.is_none())
     }
 
     /// Records a pane's size and returns whether pocketd must resize its running terminal to it.
@@ -159,13 +182,16 @@ impl Desktop {
                 for id in self.terminals.listed(m.items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
+                for (id, tree) in self.terminals.arrived() {
+                    self.adopt(id, tree, None, window, cx);
+                }
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
                 }
             }
             "spawned" => {
                 self.error = None;
-                if let Some((tree, split)) = self.terminals.spawned(&m.id) {
+                if let Some((tree, split)) = self.terminals.spawned() {
                     self.adopt(m.id, tree, split, window, cx);
                 }
                 self.daemon.send(json!({"op": "list"}));
@@ -208,6 +234,9 @@ impl Desktop {
     }
 
     pub(crate) fn send_spawn(&mut self, op: serde_json::Value, intent: Intent, cx: &mut Context<Self>) {
+        if self.agents.observe_only() {
+            return;
+        }
         let sent = self.daemon.send(op);
         self.terminals.spawn_sent(sent, intent);
         self.error = None;
@@ -235,6 +264,9 @@ impl Desktop {
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.terminals.may_close(id, self.agents.observe_only()) {
+            return;
+        }
         if self.terminals.close(id) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
@@ -247,6 +279,9 @@ impl Desktop {
 
     /// Ends a session with its terminal.
     pub fn close_session(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.agents.observe_only() {
+            return;
+        }
         let Some(a) = self.agents.get(id) else { return };
         let term = a.terminal_id.clone();
         if !self.ask_close(vec![term.clone()], cx) {
@@ -260,7 +295,8 @@ impl Desktop {
             Some(Tab::Term(rows)) => rows.concat(),
             _ => Vec::new(),
         };
-        if self.ask_close(ids, cx) {
+        let observe = self.agents.observe_only();
+        if !ids.iter().all(|id| self.terminals.may_close(id, observe)) || self.ask_close(ids, cx) {
             return;
         }
         for id in self.workspace(&tree).close_tab(i) {
@@ -317,7 +353,7 @@ mod tests {
     fn spawned_terminals_open_as_the_tab_asked_for() {
         let mut t = Terminals::new();
         t.intents.push_back(Intent::Tab("/w".into()));
-        assert_eq!(t.spawned("a"), Some(("/w".to_string(), None)));
+        assert_eq!(t.spawned(), Some(("/w".to_string(), None)));
     }
 
     #[test]
@@ -325,22 +361,14 @@ mod tests {
         let mut t = Terminals::new();
         t.intents.push_back(Intent::Split("/w".into(), true));
         t.intents.push_back(Intent::Split("/v".into(), false));
-        assert_eq!(t.spawned("a"), Some(("/w".to_string(), Some(true))));
-        assert_eq!(t.spawned("b"), Some(("/v".to_string(), Some(false))));
-    }
-
-    #[test]
-    fn a_spawned_setup_opens_as_a_tab_and_marks_its_worktree_as_setting_up() {
-        let mut t = Terminals::new();
-        t.intents.push_back(Intent::Setup("/w".into()));
-        assert_eq!(t.spawned("a"), Some(("/w".to_string(), None)));
-        assert_eq!(t.setups, HashMap::from([("a".to_string(), "/w".to_string())]));
+        assert_eq!(t.spawned(), Some(("/w".to_string(), Some(true))));
+        assert_eq!(t.spawned(), Some(("/v".to_string(), Some(false))));
     }
 
     #[test]
     fn a_terminal_spawned_with_nothing_pending_is_left_alone() {
         let mut t = Terminals::new();
-        assert_eq!(t.spawned("a"), None);
+        assert_eq!(t.spawned(), None);
         assert!(t.setups.is_empty());
     }
 
@@ -351,7 +379,7 @@ mod tests {
         t.intents.push_back(Intent::Tab("/v".into()));
         t.errored("a");
         t.errored("");
-        assert_eq!(t.spawned("b"), Some(("/v".to_string(), None)));
+        assert_eq!(t.spawned(), Some(("/v".to_string(), None)));
     }
 
     #[test]
@@ -365,11 +393,10 @@ mod tests {
     #[test]
     fn a_setup_ends_when_its_terminal_leaves_the_list() {
         let mut t = Terminals::new();
-        t.intents.push_back(Intent::Setup("/w".into()));
-        t.intents.push_back(Intent::Setup("/v".into()));
-        t.spawned("a");
-        t.spawned("b");
+        t.created("r1", "a".into(), "/w".into(), true);
+        t.created("r2", "b".into(), "/v".into(), true);
         t.listed(vec![info("a"), info("b")]);
+        t.arrived();
         t.listed(vec![info("b")]);
         assert_eq!(t.setups, HashMap::from([("b".to_string(), "/v".to_string())]));
     }
@@ -394,8 +421,7 @@ mod tests {
     #[test]
     fn a_setup_ends_when_its_terminal_exits() {
         let mut t = Terminals::new();
-        t.intents.push_back(Intent::Setup("/w".into()));
-        t.spawned("a");
+        t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         t.exited(&exit("a", 1));
         assert!(t.setups.is_empty());
@@ -412,8 +438,7 @@ mod tests {
     #[test]
     fn a_closed_terminal_leaves_the_window_with_its_setup() {
         let mut t = Terminals::new();
-        t.intents.push_back(Intent::Setup("/w".into()));
-        t.spawned("a");
+        t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         t.close("a");
         assert_eq!(t.listed(vec![info("a")]), Vec::<String>::new());
@@ -495,7 +520,7 @@ mod tests {
         let mut t = Terminals::new();
         t.intents.push_back(Intent::Tab("/w".into()));
         t.disconnected(std::time::Instant::now());
-        assert_eq!(t.spawned("a"), None);
+        assert_eq!(t.spawned(), None);
     }
 
     #[test]
@@ -504,7 +529,7 @@ mod tests {
         t.disconnected(std::time::Instant::now());
         t.spawn_sent(true, Intent::Tab("/w".into()));
         t.reconnected();
-        assert_eq!(t.spawned("a"), Some(("/w".to_string(), None)));
+        assert_eq!(t.spawned(), Some(("/w".to_string(), None)));
     }
 
     #[test]
@@ -520,6 +545,38 @@ mod tests {
         let mut t = Terminals::new();
         t.spawn_sent(false, Intent::Tab("/w".into()));
         t.spawn_sent(true, Intent::Tab("/v".into()));
-        assert_eq!(t.spawned("a"), Some(("/v".to_string(), None)));
+        assert_eq!(t.spawned(), Some(("/v".to_string(), None)));
+    }
+
+    #[test]
+    fn a_creating_reply_adopts_its_terminal_and_marks_setup() {
+        let mut t = Terminals::new();
+        t.created("r1", "a".into(), "/w/fix".into(), true);
+        t.created("r2", "b".into(), "/w/v".into(), false);
+        t.listed(vec![info("x")]);
+        assert!(t.arrived().is_empty());
+        assert_eq!(t.setups, HashMap::from([("a".to_string(), "/w/fix".to_string())]));
+        t.listed(vec![info("x"), info("a")]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), "/w/fix".to_string())]);
+        assert!(t.arrived().is_empty());
+    }
+
+    #[test]
+    fn a_replayed_creating_adopts_its_terminal_once() {
+        let mut t = Terminals::new();
+        t.created("r1", "a".into(), "/w".into(), true);
+        t.listed(vec![info("a")]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), "/w".to_string())]);
+        t.created("r1", "a".into(), "/w".into(), true);
+        t.listed(vec![info("a")]);
+        assert!(t.arrived().is_empty());
+    }
+
+    #[test]
+    fn an_observer_can_drop_an_exited_terminal_but_not_end_a_running_one() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a"), info("b")]);
+        t.exited(&exit("b", 1));
+        assert_eq!((t.may_close("a", true), t.may_close("b", true), t.may_close("a", false)), (false, true, true));
     }
 }

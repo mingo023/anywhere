@@ -22,6 +22,7 @@ import (
 	"pocketd/internal/events"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
+	"pocketd/internal/launch"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -53,6 +54,7 @@ type Server struct {
 	Agents   *agent.Registry
 	Broker   *broker.Broker
 	Hub      *hub.Hub
+	Projects func() []proto.Project
 	Monitor  *host.Monitor
 	Events   *events.Log
 	// HelloTimeout closes connections still unauthenticated after it; zero means defaultHelloTimeout.
@@ -62,6 +64,7 @@ type Server struct {
 	MacName string
 	// AskOpen reports whether the agent in a Terminal waits on the user.
 	AskOpen func(terminalID string) bool
+	Launch  *launch.Launcher
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -86,6 +89,7 @@ type conn struct {
 	offer    *openOffer
 	stop     func()
 	stopHost func()
+	caps     []string
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +186,7 @@ func (c *conn) handle(raw []byte) {
 	}
 	if m.Type == "hello" {
 		version, caps, code := proto.Negotiate(m.Versions(), m.Caps, proto.ServerCaps)
+		c.caps = caps
 		if code != "" {
 			c.tooOld(m.ID, code)
 			return
@@ -266,6 +271,9 @@ func (c *conn) withHost(reply *proto.HelloOK) <-chan []byte {
 }
 
 func errorReply(id string, err error) proto.Error {
+	if errors.Is(err, agent.ErrResuming) {
+		return proto.NewErrorCode(id, proto.CodeAgentResuming, err.Error())
+	}
 	if code := peer.CodeOf(err); code != "" {
 		return proto.NewErrorCode(id, code, err.Error())
 	}
@@ -382,6 +390,9 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.list":
 		c.send(proto.NewAgentList(m.ID, c.s.Agents.List()))
 		return nil
+	case "project.list":
+		c.send(proto.NewProjectList(m.ID, c.s.Projects()))
+		return nil
 	case "agent.view":
 		c.emitSeen(m.AgentIDs)
 		c.s.Agents.SetView(c.key, m.AgentIDs)
@@ -391,6 +402,15 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		c.emitSeen(m.AgentIDs)
 		c.s.Agents.MarkSeen(m.AgentIDs)
 		c.send(proto.NewAck(m.ID))
+		return nil
+	case "agent.create":
+		c.create(m)
+		return nil
+	case "agent.providers":
+		c.providers(m)
+		return nil
+	case "config.set":
+		c.configSet(m)
 		return nil
 	}
 	a, err := c.s.Agents.Get(m.AgentID)

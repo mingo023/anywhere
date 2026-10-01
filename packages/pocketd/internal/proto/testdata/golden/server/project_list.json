@@ -1,0 +1,24 @@
+{
+  "type": "project.list",
+  "id": "p1",
+  "projects": [
+    {
+      "path": "/Users/me/dev/pocket",
+      "name": "pocket",
+      "worktrees": [
+        {
+          "name": "pocket",
+          "path": "/Users/me/dev/pocket",
+          "branch": "main",
+          "isMain": true
+        },
+        {
+          "name": "calm-otter",
+          "path": "/Users/me/.worktrees/pocket/calm-otter",
+          "branch": "",
+          "isMain": false
+        }
+      ]
+    }
+  ]
+}

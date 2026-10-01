@@ -39,3 +39,19 @@ func TestLastSeenReadsAsAnAge(t *testing.T) {
 		}
 	}
 }
+
+func TestTheLegacyRowShowsWhenItsGraceEnds(t *testing.T) {
+	end := time.Date(2026, 10, 8, 12, 0, 0, 0, time.Local).UnixMilli()
+	for _, c := range []struct {
+		d    devices.Device
+		want string
+	}{
+		{devices.Device{ID: devices.LegacyID, Legacy: true, GraceEndsAt: end}, " · grace ends 2026-10-08"},
+		{devices.Device{ID: devices.LegacyID, Legacy: true}, ""},
+		{devices.Device{ID: "d1", GraceEndsAt: end}, ""},
+	} {
+		if got := graceNote(c.d); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.d, got, c.want)
+		}
+	}
+}

@@ -97,19 +97,6 @@ export const Cross = (p: IconProps) => (
   </Icon>
 );
 
-export const Plus = (p: IconProps) => (
-  <Icon {...p}>
-    <Path d="M12 5v14M5 12h14" />
-  </Icon>
-);
-
-export const Mic = (p: IconProps) => (
-  <Icon {...p}>
-    <Rect x="9" y="3" width="6" height="12" rx="3" />
-    <Path d="M5 11a7 7 0 0014 0M12 18v3" />
-  </Icon>
-);
-
 export const ArrowUp = (p: IconProps) => (
   <Icon {...p} strokeWidth={2.4}>
     <Path d="M12 19V5M5 12l7-7 7 7" />

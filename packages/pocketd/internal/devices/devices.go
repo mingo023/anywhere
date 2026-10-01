@@ -48,23 +48,26 @@ type Device struct {
 	Scopes    []Scope `json:"scopes"`
 	TokenHash string  `json:"tokenHash,omitempty"`
 	// Times are ms since the epoch.
-	CreatedAt  int64  `json:"createdAt"`
-	LastSeenAt int64  `json:"lastSeenAt"`
-	LastAddr   string `json:"lastAddr"`
-	Legacy     bool   `json:"legacy,omitempty"`
+	CreatedAt   int64  `json:"createdAt"`
+	LastSeenAt  int64  `json:"lastSeenAt"`
+	LastAddr    string `json:"lastAddr"`
+	Legacy      bool   `json:"legacy,omitempty"`
+	GraceEndsAt int64  `json:"graceEndsAt,omitempty"`
 }
 
 type file struct {
-	Version int      `json:"version"`
-	Devices []Device `json:"devices"`
+	Version    int      `json:"version"`
+	Devices    []Device `json:"devices"`
+	GraceEnded bool     `json:"graceEnded,omitempty"`
 }
 
 type Store struct {
 	path string
 
-	mu      sync.Mutex
-	devices []Device
-	savedAt map[string]time.Time
+	mu         sync.Mutex
+	devices    []Device
+	graceEnded bool
+	savedAt    map[string]time.Time
 }
 
 // Open reads path, or starts empty if it doesn't exist. A non-empty
@@ -85,7 +88,7 @@ func Open(path, legacyToken string) (*Store, error) {
 	if f.Version != 1 {
 		return nil, fmt.Errorf("unknown version %d", f.Version)
 	}
-	s.devices = f.Devices
+	s.devices, s.graceEnded = f.Devices, f.GraceEnded
 	return s, s.EnsureLegacy(legacyToken)
 }
 
@@ -144,7 +147,7 @@ func (s *Store) Lookup(token string) (Device, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, d := range s.devices {
-		if d.TokenHash == sum {
+		if d.TokenHash == sum && !d.graceOver(time.Now()) {
 			return d.public(), true
 		}
 	}
@@ -253,6 +256,6 @@ func (s *Store) find(id string) (int, error) {
 }
 
 func (s *Store) save() error {
-	raw, _ := json.MarshalIndent(file{1, s.devices}, "", "  ")
+	raw, _ := json.MarshalIndent(file{1, s.devices, s.graceEnded}, "", "  ")
 	return atomicfile.Write(s.path, append(raw, '\n'), 0o600)
 }

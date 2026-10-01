@@ -98,25 +98,18 @@ pub fn shell_op(cwd: &str) -> Value {
 
 /// Runs an agent inside the login shell, which takes over once the agent exits, so the user lands at their prompt.
 pub fn agent_op(argv: &[String], cwd: &str) -> Value {
-    spawn_op(login_shell(), agent_args(login_shell(), "", argv), cwd)
-}
-
-/// Runs `setup` in the terminal first, where the user can watch it; the agent starts only if it succeeds.
-pub fn setup_op(setup: &str, argv: &[String], cwd: &str) -> Value {
-    spawn_op(login_shell(), agent_args(login_shell(), setup, argv), cwd)
+    spawn_op(login_shell(), agent_args(login_shell(), argv), cwd)
 }
 
 /// The agent's argv goes to the shell as arguments rather than inside the script, so no shell's quoting rules can garble a prompt.
-fn agent_args(shell: &str, setup: &str, argv: &[String]) -> Vec<String> {
-    // On its own lines, so a `#` comment or trailing separator in the setup can't swallow the rest.
-    let first = |open: &str, close: &str| if setup.is_empty() { String::new() } else { format!("{open}\n{setup}\n{close} || exit\n") };
+fn agent_args(shell: &str, argv: &[String]) -> Vec<String> {
     let back = format!("exec '{shell}' -l");
     let mut args = vec!["-l".to_string(), "-c".to_string()];
     if Path::new(shell).file_name().is_some_and(|n| n == "fish") {
-        args.push(format!("{}$argv; {back}", first("begin", "end")));
+        args.push(format!("$argv; {back}"));
     } else {
         // `sh -c` binds the first argument after the script to $0.
-        args.extend([format!("{}\"$@\"; {back}", first("{", "}")), shell.to_string()]);
+        args.extend([format!("\"$@\"; {back}"), shell.to_string()]);
     }
     args.extend(argv.iter().cloned());
     args
@@ -278,15 +271,15 @@ mod tests {
     #[test]
     fn agents_hand_their_argv_to_the_shell_untouched() {
         let argv: Vec<String> = ["claude", "it's a \\ \"prompt\"\n"].map(String::from).to_vec();
-        assert_eq!(agent_args("/opt/homebrew/bin/fish", "", &argv), ["-l", "-c", "$argv; exec '/opt/homebrew/bin/fish' -l", "claude", "it's a \\ \"prompt\"\n"]);
-        assert_eq!(agent_args("/bin/zsh", "", &argv), ["-l", "-c", "\"$@\"; exec '/bin/zsh' -l", "/bin/zsh", "claude", "it's a \\ \"prompt\"\n"]);
+        assert_eq!(agent_args("/opt/homebrew/bin/fish", &argv), ["-l", "-c", "$argv; exec '/opt/homebrew/bin/fish' -l", "claude", "it's a \\ \"prompt\"\n"]);
+        assert_eq!(agent_args("/bin/zsh", &argv), ["-l", "-c", "\"$@\"; exec '/bin/zsh' -l", "/bin/zsh", "claude", "it's a \\ \"prompt\"\n"]);
     }
 
     #[test]
     fn agents_come_back_to_the_prompt_in_real_shells() {
         for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
             let argv = ["printf", "[%s]", "it's a \\ \"prompt\""].map(String::from);
-            let mut args = agent_args(shell, "", &argv);
+            let mut args = agent_args(shell, &argv);
             args[2] = args[2].replace("exec", "echo");
             let home = std::env::temp_dir().join("pocket-desktop-no-home");
             let out = std::process::Command::new(shell).args(&args).env_clear().env("HOME", &home).env("PATH", "/usr/bin:/bin").output().unwrap();
@@ -302,26 +295,6 @@ mod tests {
             let ok = run_in(shell, env.clone(), &["sh", "-c", "cat; printf '[%s]' \"$1\"", "sh", "it's \"x\""], "/", "in\n");
             assert_eq!(ok, Ok("in\n[it's \"x\"]".to_string()), "{shell}");
             assert_eq!(run_in(shell, env, &["sh", "-c", "echo out; echo oops >&2; exit 3"], "/", ""), Err("oops".to_string()), "{shell}");
-        }
-    }
-
-    #[test]
-    fn setup_runs_first_and_a_failed_one_stops_the_agent() {
-        for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
-            let argv = ["printf", "[%s]", "agent"].map(String::from);
-            let run = |setup: &str| {
-                let mut args = agent_args(shell, setup, &argv);
-                args[2] = args[2].replace("exec", "echo");
-                let home = std::env::temp_dir().join("pocket-desktop-no-home");
-                std::process::Command::new(shell).args(&args).env_clear().env("HOME", &home).env("PATH", "/usr/bin:/bin").output().unwrap()
-            };
-            for setup in ["printf ready", "printf ready # note", "printf ready;", "printf ready\n"] {
-                let ok = run(setup);
-                assert_eq!(String::from_utf8_lossy(&ok.stdout), format!("ready[agent]{shell} -l\n"), "{shell}: {setup:?}");
-            }
-            let failed = run("sh -c 'exit 7'");
-            assert_eq!(failed.status.code(), Some(7), "{shell}");
-            assert_eq!(String::from_utf8_lossy(&failed.stdout), "", "{shell}");
         }
     }
 

@@ -15,6 +15,7 @@ import (
 	"pocketd/internal/devices"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
+	"pocketd/internal/proto"
 	"pocketd/internal/terminal"
 )
 
@@ -34,6 +35,7 @@ type Msg struct {
 	Code  int             `json:"code,omitempty"`
 	Items []terminal.Info `json:"items,omitempty"`
 	Error string          `json:"error,omitempty"`
+	Key   string          `json:"key,omitempty"`
 	// ErrorCode is for callers that act on an error; Code is an exit code.
 	ErrorCode string           `json:"errorCode,omitempty"`
 	Devices   []devices.Device `json:"devices,omitempty"`
@@ -104,6 +106,9 @@ type Server struct {
 	// AskOpen reports whether the agent in a Terminal waits on the user.
 	AskOpen func(terminalID string) bool
 	Status  func() Status
+	// LaunchExit gets `pocketd hook exit` from a create's wrapper.
+	LaunchExit func(terminalID, phase string, status int)
+	ConfigSet  func(key, value string) error
 }
 
 func (s *Server) asking(id string) string {
@@ -219,6 +224,27 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				}
 				c.Send(Msg{Ev: "hook", Data: data})
 			}()
+			continue
+		case "launch-exit":
+			if who.Terminal != m.ID {
+				c.Send(refused(m.ID, &peer.Refusal{Code: proto.CodeNotOwnTerminal, Message: "launch exits are accepted only from the Terminal itself"}))
+				continue
+			}
+			if s.LaunchExit != nil {
+				s.LaunchExit(m.ID, m.Text, m.Code)
+			}
+			c.Send(Msg{Ev: "ok"})
+			continue
+		case "config-set":
+			if s.ConfigSet == nil {
+				c.Send(Msg{Ev: "error", Error: "config unsupported"})
+				continue
+			}
+			if err := s.ConfigSet(m.Key, m.Text); err != nil {
+				c.Send(Msg{Ev: "error", Error: err.Error()})
+				continue
+			}
+			c.Send(Msg{Ev: "ok"})
 			continue
 		case "devices", "devices.rename", "devices.revoke":
 			c.Send(s.deviceOp(m))

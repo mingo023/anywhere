@@ -1,0 +1,8 @@
+{
+  "type": "agent.creating",
+  "id": "c1",
+  "requestId": "r1",
+  "terminalId": "t1",
+  "cwd": "/w/fix",
+  "setup": true
+}

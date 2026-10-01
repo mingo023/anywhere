@@ -12,6 +12,7 @@ import (
 
 type Proc struct {
 	Pid  int
+	Sid  int // set by Orphans only
 	Argv []string
 	Env  []string
 }

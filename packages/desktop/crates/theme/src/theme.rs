@@ -6,6 +6,11 @@ use std::sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}};
 pub const SANS: &str = ".SystemUIFont";
 pub const MONO: &str = "Geist Mono";
 pub const SYMBOLS: &str = "GeistMono Nerd Font Mono";
+pub const R_POPOVER: f32 = 12.;
+pub const R_DIALOG: f32 = 16.;
+pub const MENU_IN: std::time::Duration = std::time::Duration::from_millis(150);
+
+pub mod contrast;
 
 static DARK: AtomicBool = AtomicBool::new(false);
 
@@ -90,10 +95,10 @@ pub const ACCENT_RING: Token = Token::fixed(0x5b5bd633);
 pub const ACCENT_TINT: Token = Token::fixed(0x5b5bd612);
 pub const ACCENT_GLOW: Token = Token::fixed(0x5b5bd666);
 
-pub const WAITING: Token = Token::fixed(0xffb224ff);
+pub const WAITING: Token = Token::new(0xad5700ff, 0xffb224ff);
 pub const WAITING_TEXT: Token = Token::new(0xad5700ff, 0xffca16ff);
 pub const WAITING_BG: Token = Token::fixed(0xffb2242e);
-pub const FAILED: Token = Token::fixed(0xe5484dff);
+pub const FAILED: Token = Token::new(0xcd2b31ff, 0xe5484dff);
 pub const FAILED_BG: Token = Token::fixed(0xe5484d1c);
 pub const FAILED_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff);
 pub const SUCCESS: Token = Token::new(0x2b9a66ff, 0x30a46cff);
@@ -283,9 +288,81 @@ pub fn window_background() -> WindowBackgroundAppearance {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, SEPARATOR, SEPARATOR_STRONG, SURFACE, SYN_COMMENT, SYN_FN, SYN_KEYWORD, SYN_STRING, Token, WINDOW, WINDOW_SOLID, highlight_theme, material, material_icon};
+    use super::contrast::{over, ratio};
+    use super::{
+        ACCENT, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
+        SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, highlight_theme, material, material_icon,
+    };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, rgba};
+
+    const TEXT_ROLES: [(&str, Token); 10] = [
+        ("TEXT", TEXT),
+        ("TEXT_BODY", TEXT_BODY),
+        ("TEXT_2", TEXT_2),
+        ("WAITING_TEXT", WAITING_TEXT),
+        ("SUCCESS_TEXT", SUCCESS_TEXT),
+        ("FAILED_TEXT", FAILED_TEXT),
+        ("ACCENT", ACCENT),
+        ("DIFF_ADD_TEXT", DIFF_ADD_TEXT),
+        ("DIFF_DEL_TEXT", DIFF_DEL_TEXT),
+        ("MODIFIED", MODIFIED),
+    ];
+    const GLYPHS: [(&str, Token); 5] = [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("TEXT_3", TEXT_3)];
+    const FILLS: [(&str, Token); 3] = [("ACCENT", ACCENT), ("FAILED", FAILED), ("WAITING", WAITING)];
+    /// ACCENT and WHITE are one value in both schemes (the owner's dark-theme plan), so these dark pairs stay below AA.
+    const DARK_EXEMPT: [&str; 10] = [
+        "text ACCENT on WINDOW",
+        "text ACCENT on SURFACE",
+        "text ACCENT on SURFACE_SUNKEN",
+        "text ACCENT on PAGE",
+        "text ACCENT on POPOVER",
+        "text ACCENT on SIDE",
+        "glyph ACCENT on SURFACE",
+        "glyph ACCENT on POPOVER",
+        "WHITE on FAILED",
+        "WHITE on WAITING",
+    ];
+
+    fn surfaces(dark: bool) -> [(&'static str, u32); 6] {
+        let window = WINDOW_SOLID.pick(dark);
+        let on_window = |t: Token| over(t.pick(dark), window);
+        [("WINDOW", window), ("SURFACE", on_window(SURFACE)), ("SURFACE_SUNKEN", on_window(SURFACE_SUNKEN)), ("PAGE", on_window(PAGE)), ("POPOVER", on_window(POPOVER)), ("SIDE", on_window(SIDE))]
+    }
+
+    fn below(dark: bool, roles: &[(&str, Token)], min: f32) -> Vec<String> {
+        surfaces(dark).into_iter().flat_map(|(bg_name, bg)| roles.iter().filter(move |(_, t)| ratio(t.pick(dark), bg) < min).map(move |(name, _)| format!("{name} on {bg_name}"))).collect()
+    }
+
+    fn white_below(dark: bool) -> Vec<String> {
+        FILLS.iter().filter(|(_, fill)| ratio(WHITE.pick(dark), fill.pick(dark)) < 4.5).map(|(name, _)| format!("WHITE on {name}")).collect()
+    }
+
+    #[test]
+    fn light_text_roles_clear_4_5_on_every_surface() {
+        assert_eq!(below(false, &TEXT_ROLES, 4.5), Vec::<String>::new());
+    }
+
+    #[test]
+    fn light_status_glyphs_clear_3() {
+        assert_eq!(below(false, &GLYPHS, 3.), Vec::<String>::new());
+    }
+
+    #[test]
+    fn white_labels_clear_4_5_on_accent_failed_and_waiting_fills() {
+        assert_eq!(white_below(false), Vec::<String>::new());
+    }
+
+    #[test]
+    fn dark_pairs_clear_aa_except_the_listed_exemptions() {
+        let text = below(true, &TEXT_ROLES, 4.5).into_iter().map(|s| format!("text {s}"));
+        let glyphs = below(true, &GLYPHS, 3.).into_iter().map(|s| format!("glyph {s}"));
+        let mut failing: Vec<String> = text.chain(glyphs).chain(white_below(true)).collect();
+        failing.sort();
+        let mut exempt = DARK_EXEMPT.map(String::from).to_vec();
+        exempt.sort();
+        assert_eq!(failing, exempt);
+    }
 
     #[test]
     fn matches_material_icons_like_vscode() {

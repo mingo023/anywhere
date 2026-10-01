@@ -49,11 +49,16 @@ impl Desktop {
         let w = self.workspace(tree);
         let active = w.active;
         let tabs = w.tabs.clone();
+        let observe = self.agents.observe_only();
         let items: Vec<_> = tabs
             .iter()
             .enumerate()
             .map(|(i, tab)| {
                 let selected = i == active;
+                let closable = match tab {
+                    Tab::Term(rows) => rows.iter().flatten().all(|id| self.terminals.may_close(id, observe)),
+                    Tab::Doc(_) => true,
+                };
                 let close = div()
                     .id(("close-tab", i))
                     .size(px(20.))
@@ -94,7 +99,7 @@ impl Desktop {
                     .when(selected, |d| d.bg(SURFACE).shadow(ui::row_shadow()).font_weight(FontWeight::SEMIBOLD).text_color(TEXT))
                     .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(TEXT_2).hover(|s| s.bg(FILL_2)))
                     .child(tab)
-                    .child(close)
+                    .when(closable, |d| d.child(close))
             })
             .collect();
         let plus = div()
@@ -130,7 +135,7 @@ impl Desktop {
                 this.row_menu = None;
                 cx.notify();
             }));
-        let menu = self.terminal.tab_menu.then(|| ui::dropdown(29., self.tab_menu_view(cx)));
+        let menu = self.terminal.tab_menu.then(|| ui::dropdown(29., ui::menu_in("tab-menu-in", self.tab_menu_view(cx))));
         let shown = Some((tree.to_string(), active));
         if self.terminal.tab_revealed != shown {
             self.terminal.tab_scroll.scroll_to_item(active);

@@ -1,23 +1,60 @@
-mod picker;
+pub(crate) mod picker;
 
+use agents::Event;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{default_base, home, typed_or};
-use crate::terminals::Intent;
 use crate::util::tilde;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use picker::Picker;
+use serde_json::{Value, json};
+use store::LaunchPick;
 use std::collections::HashSet;
-use std::path::Path;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Perm {
+pub enum Access {
     Ask,
-    AutoEdit,
-    Plan,
+    Edits,
+    Auto,
+    Full,
+}
+
+impl Access {
+    pub const ALL: [Access; 4] = [Access::Ask, Access::Edits, Access::Auto, Access::Full];
+
+    pub fn wire(self) -> &'static str {
+        match self {
+            Access::Ask => "ask",
+            Access::Edits => "edits",
+            Access::Auto => "auto",
+            Access::Full => "full",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Access::Ask => "Ask",
+            Access::Edits => "Auto-accept edits",
+            Access::Auto => "Auto",
+            Access::Full => "Full access",
+        }
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Access::Ask => "Ask before commands and file changes.",
+            Access::Edits => "Auto-approve edits, ask before other actions.",
+            Access::Auto => "A reviewer model approves or denies actions.",
+            Access::Full => "Run commands and edits without prompts.",
+        }
+    }
+
+    fn from_wire(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.wire() == s)
+    }
 }
 
 pub struct NewForm {
@@ -38,7 +75,12 @@ struct Draft {
     copy_env: bool,
     run_setup: bool,
     provider: &'static str,
-    perm: Perm,
+    model: String,
+    effort: String,
+    access: Access,
+    plan: bool,
+    pending: Option<String>,
+    error: Option<(String, String)>,
     picker: Option<Picker>,
 }
 
@@ -54,7 +96,12 @@ impl Default for Draft {
             copy_env: false,
             run_setup: false,
             provider: "claude",
-            perm: Perm::Ask,
+            model: String::new(),
+            effort: String::new(),
+            access: Access::Ask,
+            plan: false,
+            pending: None,
+            error: None,
             picker: None,
         }
     }
@@ -69,12 +116,6 @@ impl Draft {
         auto_name(prompt, self.seed, &self.taken)
     }
 
-    fn argv(&self, prompt: &str) -> Vec<String> {
-        let access = access_args(self.provider, self.perm).unwrap_or_default();
-        let prompt = prompt.trim();
-        std::iter::once(self.provider).chain(access.iter().copied()).chain((!prompt.is_empty()).then_some(prompt)).map(String::from).collect()
-    }
-
     /// `in_tree`: a worktree is open to start the session in.
     fn ready(&self, name: &str, in_tree: bool) -> bool {
         let place = if self.worktree {
@@ -82,31 +123,70 @@ impl Draft {
         } else {
             in_tree
         };
-        place && access_args(self.provider, self.perm).is_some()
+        place && self.pending.is_none()
     }
 
+    /// A model or effort remembered for one agent means nothing to another.
     fn pick_provider(&mut self, provider: &'static str) {
-        (self.provider, self.picker) = (provider, None);
-        if access_args(provider, self.perm).is_none() {
-            self.perm = Perm::Ask;
+        if provider != self.provider {
+            (self.model, self.effort) = (String::new(), String::new());
         }
+        (self.provider, self.picker) = (provider, None);
+        self.plan &= plans_first(provider);
     }
-}
 
-/// `None`: the provider can't start with this access in a terminal session.
-fn access_args(provider: &str, perm: Perm) -> Option<&'static [&'static str]> {
-    match (provider, perm) {
-        ("claude", Perm::Ask) => Some(&["--permission-mode", "default"]),
-        ("claude", Perm::AutoEdit) => Some(&["--permission-mode", "acceptEdits"]),
-        ("claude", Perm::Plan) => Some(&["--permission-mode", "plan"]),
-        ("codex", Perm::Ask) => Some(&["-s", "read-only", "-a", "on-request"]),
-        ("codex", Perm::AutoEdit) => Some(&["-s", "workspace-write", "-a", "on-request"]),
-        _ => None,
+    fn spec(&self, project: &str, tree: &str, name: &str, prompt: &str) -> Value {
+        let checkout = if self.worktree {
+            json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}})
+        } else {
+            json!({"worktree": tree})
+        };
+        let plan = self.plan && plans_first(self.provider);
+        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": self.access.wire(), "plan": plan});
+        for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
+            if !value.is_empty() {
+                spec[key] = value.as_str().into();
+            }
+        }
+        let prompt = prompt.trim();
+        if !prompt.is_empty() {
+            spec["prompt"] = prompt.into();
+        }
+        spec
+    }
+
+    /// What to remember for the Project. Full access keeps the last pick, so it is chosen afresh each time.
+    fn pick(&self, last: &LaunchPick) -> LaunchPick {
+        let access = if self.access == Access::Full { last.access.clone() } else { self.access.wire().to_string() };
+        LaunchPick { provider: self.provider.to_string(), model: self.model.clone(), effort: self.effort.clone(), access }
+    }
+
+    fn open(&mut self, last: &LaunchPick) {
+        self.provider = if last.provider == "codex" { "codex" } else { "claude" };
+        (self.model, self.effort) = (last.model.clone(), last.effort.clone());
+        self.access = Access::from_wire(&last.access).filter(|a| *a != Access::Full).unwrap_or(Access::Ask);
+        (self.plan, self.pending, self.error) = (false, None, None);
+    }
+
+    fn answer(&mut self, request: &str, error: Option<(String, String)>) -> bool {
+        if self.pending.as_deref() != Some(request) {
+            return false;
+        }
+        (self.pending, self.error) = (None, error);
+        true
+    }
+
+    /// Reopening the sheet clears its error row, so a failure that arrives while it is closed goes to the page error line.
+    fn failed(&mut self, request: &str, message: String, detail: String, open: bool) -> Option<String> {
+        if open && self.answer(request, Some((message.clone(), detail))) {
+            return None;
+        }
+        Some(message)
     }
 }
 
 fn plans_first(provider: &str) -> bool {
-    access_args(provider, Perm::Plan).is_some()
+    provider == "claude"
 }
 
 fn slug(prompt: &str) -> String {
@@ -193,17 +273,8 @@ impl Desktop {
         custom.unwrap_or_else(|| format!("{}/.worktrees/{}", home(), self.repo_name(repo)))
     }
 
-    /// Files copied into a new worktree: the repository's list, else its root `.env*` files.
-    fn copy_list(&self, repo: &str) -> Vec<String> {
-        let listed = self.store.repos.get(repo).map(|r| r.copy.clone()).unwrap_or_default();
-        if !listed.is_empty() {
-            return listed;
-        }
-        let entries = std::fs::read_dir(repo).into_iter().flatten().flatten();
-        entries.filter_map(|e| e.file_name().into_string().ok()).filter(|n| n.starts_with(".env")).collect()
-    }
-
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let last = self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default();
         let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
         f.draft.seed = crate::util::now_ms() as usize;
@@ -218,7 +289,7 @@ impl Desktop {
             s.set_placeholder(placeholder, window, cx);
         });
         f.draft.worktree = worktree;
-        f.draft.perm = Perm::Ask;
+        f.draft.open(&last);
         f.draft.picker = None;
         match self.project.clone() {
             Some(repo) => self.pick_repo(repo, window, cx),
@@ -279,58 +350,60 @@ impl Desktop {
         self.new_form.draft.ready(&self.new_name(cx), self.cwd().is_some())
     }
 
-    fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn start_session(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if !self.session_ready(cx) {
             return;
         }
+        let name = self.new_name(cx);
+        let prompt = self.new_form.prompt.read(cx).value().to_string();
+        let tree = self.cwd().unwrap_or_default();
         let f = &self.new_form.draft;
-        let argv = f.argv(&self.new_form.prompt.read(cx).value());
-        let worktree = f.worktree;
-        match self.cwd().filter(|_| !worktree) {
-            Some(tree) => self.send_spawn(daemon::agent_op(&argv, &tree), Intent::Tab(tree), cx),
-            None => {
-                let f = &self.new_form.draft;
-                let Some(repo) = f.repo.clone() else { return };
-                let name = self.new_name(cx);
-                let path = format!("{}/{name}", self.worktrees_dir(&repo));
-                let base = f.base_branch();
-                let copy = if f.copy_env { self.copy_list(&repo) } else { Vec::new() };
-                let setup = self.store.repos.get(&repo).map(|r| r.setup.clone()).filter(|_| f.run_setup).unwrap_or_default();
-                let project = repo.clone();
-                let task = cx.background_executor().spawn(async move {
-                    git::add_worktree(&repo, &path, &name, &base)?;
-                    for rel in copy {
-                        let to = Path::new(&path).join(&rel);
-                        if let Some(dir) = to.parent() {
-                            std::fs::create_dir_all(dir).ok();
-                        }
-                        std::fs::copy(Path::new(&repo).join(&rel), to).ok();
+        let Some(project) = f.repo.clone() else { return };
+        let spec = f.spec(&project, &tree, &name, &prompt);
+        let launch = &mut self.store.repos.entry(project).or_default().launch;
+        *launch = f.pick(launch);
+        self.store.save();
+        let request = self.outbox.create(spec);
+        (self.new_form.draft.pending, self.new_form.draft.error) = (Some(request), None);
+        cx.notify();
+    }
+
+    /// pocketd's replies to a create. The Terminal opens once pocketd lists it (`Terminals::arrived`).
+    pub(crate) fn on_launch(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            Event::Creating { request, terminal, cwd, setup } => {
+                self.terminals.created(&request, terminal, cwd, setup);
+                self.daemon.send(json!({"op": "list"}));
+                let f = &mut self.new_form.draft;
+                let new_tree = f.worktree.then(|| f.repo.clone()).flatten();
+                if !f.answer(&request, None) {
+                    return cx.notify();
+                }
+                if self.overlay == Some(Overlay::NewSession) {
+                    self.close_overlay(window, cx);
+                }
+                if let Some(p) = new_tree {
+                    if self.store.collapsed.remove(&p) {
+                        self.store.save();
                     }
-                    Ok::<_, String>(path)
-                });
-                cx.spawn(async move |this, cx| {
-                    let res = task.await;
-                    this.update(cx, |d, cx| {
-                        if res.is_ok() && d.store.collapsed.remove(&project) {
-                            d.store.save();
-                        }
-                        match res {
-                            Ok(path) if setup.is_empty() => d.send_spawn(daemon::agent_op(&argv, &path), Intent::Tab(path), cx),
-                            Ok(path) => d.send_spawn(daemon::setup_op(&setup, &argv, &path), Intent::Setup(path), cx),
-                            Err(e) => d.error = Some(e),
-                        }
-                        d.refresh_git(cx);
-                        cx.notify();
-                    })
-                    .ok();
-                })
-                .detach();
+                    self.refresh_git(cx);
+                }
             }
+            Event::CreateFailed { request, message, detail, .. } => {
+                let open = self.overlay == Some(Overlay::NewSession);
+                if let Some(message) = self.new_form.draft.failed(&request, message, detail, open) {
+                    self.error = Some(message);
+                }
+            }
+            _ => {}
         }
-        self.close_overlay(window, cx);
+        cx.notify();
     }
 
     pub fn new_worktree(&mut self, _: &crate::actions::NewWorktree, window: &mut Window, cx: &mut Context<Self>) {
+        if self.agents.observe_only() {
+            return;
+        }
         self.close_menus();
         self.overlay = Some(Overlay::NewSession);
         self.reset_new_form(None, true, window, cx);
@@ -357,6 +430,7 @@ impl Desktop {
             .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let agent = self.agent_select(cx);
+        let access = self.access_select(cx);
         let branch = f.worktree.then(|| self.branch_select(cx));
         let ready = self.session_ready(cx);
         let send = ui::primary(div().id("form-start").ml_auto().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
@@ -388,9 +462,24 @@ impl Desktop {
                     .pb(px(10.))
                     .text_size(px(13.))
                     .child(agent)
+                    .child(access)
                     .children(branch)
                     .child(send),
             );
+        let error = f.error.clone().map(|(message, detail)| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .px(px(12.))
+                .py(px(10.))
+                .rounded(px(10.))
+                .bg(FAILED_BG)
+                .text_size(px(13.))
+                .text_color(FAILED_TEXT)
+                .child(message)
+                .when(!detail.is_empty(), |d| d.child(div().font_family(MONO).text_size(px(12.)).text_color(TEXT_2).child(detail)))
+        });
         let mono = |s: String| div().font_family(MONO).text_color(TEXT_2).child(s);
         let summary: Vec<AnyElement> = if f.worktree {
             vec![
@@ -415,14 +504,16 @@ impl Desktop {
             .child(div().ml_auto().text_color(TEXT_4).child("⌘↵ to start · esc to cancel"));
         div().absolute().top(px(110.)).left_0().right_0().flex().justify_center().child(
             // The design's 0.5px border renders 1px wide and insets the sheet's content.
-            ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).occlude().child(header).children(name_field).child(composer).child(footer),
+            ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).rounded(px(R_DIALOG)).occlude().child(header).children(name_field).child(composer).children(error).child(footer),
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Perm, access_args, auto_name, default_first, name_problem, plans_first, slug};
+    use super::{Access, Draft, auto_name, default_first, name_problem, slug};
+    use serde_json::json;
+    use store::LaunchPick;
     use std::collections::HashSet;
 
     #[test]
@@ -441,48 +532,6 @@ mod tests {
         assert!(!Draft { repo: None, ..draft }.ready("fix-ci", true));
         let draft = Draft { worktree: true, repo: Some("/src/app".into()), ..Draft::default() };
         assert!(!draft.ready("fix-ci", true));
-    }
-
-    #[test]
-    fn every_provider_and_access_spawns_with_both_axes() {
-        let argv = |provider, perm| Draft { provider, perm, ..Draft::default() }.argv("  Fix CI  ").join(" ");
-        let got = [("claude", Perm::Ask), ("claude", Perm::AutoEdit), ("claude", Perm::Plan), ("codex", Perm::Ask), ("codex", Perm::AutoEdit)].map(|(p, m)| argv(p, m));
-        let want = [
-            "claude --permission-mode default Fix CI",
-            "claude --permission-mode acceptEdits Fix CI",
-            "claude --permission-mode plan Fix CI",
-            "codex -s read-only -a on-request Fix CI",
-            "codex -s workspace-write -a on-request Fix CI",
-        ];
-        assert_eq!(got, want.map(String::from));
-        assert_eq!(Draft::default().argv(" \n "), ["claude", "--permission-mode", "default"].map(String::from));
-    }
-
-    #[test]
-    fn codex_cannot_plan_first_in_a_terminal_session() {
-        assert_eq!((plans_first("claude"), plans_first("codex")), (true, false));
-        assert!(access_args("codex", Perm::Plan).is_none());
-        assert!(!Draft { provider: "codex", perm: Perm::Plan, ..Draft::default() }.ready("", true));
-    }
-
-    #[test]
-    fn picking_codex_drops_plan_first() {
-        let mut draft = Draft { perm: Perm::Plan, ..Draft::default() };
-        draft.pick_provider("codex");
-        assert_eq!((draft.provider, draft.perm), ("codex", Perm::Ask));
-        let mut draft = Draft { perm: Perm::AutoEdit, ..Draft::default() };
-        draft.pick_provider("codex");
-        assert_eq!(draft.perm, Perm::AutoEdit);
-    }
-
-    #[test]
-    fn no_spawn_ever_passes_full_auto() {
-        for provider in ["claude", "codex"] {
-            for perm in [Perm::Ask, Perm::AutoEdit, Perm::Plan] {
-                let argv = Draft { provider, perm, ..Draft::default() }.argv("go");
-                assert!(!argv.iter().any(|a| a == "--full-auto"), "{provider} {perm:?}");
-            }
-        }
     }
 
     #[test]
@@ -524,5 +573,76 @@ mod tests {
         for bad in ["", "fix login", "fix/login", "-x", ".x", "x.", "a..b", "x.lock", "tên", "HEAD"] {
             assert_eq!(name_problem(bad, &taken), Some("Use letters, digits, - _ or ."), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_spec_carries_access_and_plan_not_argv() {
+        let draft = Draft { access: Access::Edits, plan: true, ..Draft::default() };
+        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "edits", "plan": true, "prompt": "Fix CI"});
+        assert_eq!(draft.spec("/p", "/p/w", "", "  Fix CI  "), want);
+        let new = Draft { worktree: true, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
+        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "ask", "plan": false});
+        assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
+    }
+
+    #[test]
+    fn full_access_is_never_remembered() {
+        let last = LaunchPick { provider: "claude".into(), access: "edits".into(), ..LaunchPick::default() };
+        assert_eq!(Draft { access: Access::Full, ..Draft::default() }.pick(&last), last);
+        let mut draft = Draft::default();
+        draft.open(&LaunchPick { provider: "claude".into(), access: "full".into(), ..LaunchPick::default() });
+        assert_eq!(draft.access, Access::Ask);
+    }
+
+    #[test]
+    fn picks_are_remembered_per_project() {
+        let draft = Draft { provider: "codex", model: "gpt-5".into(), effort: "high".into(), access: Access::Auto, ..Draft::default() };
+        let pick = draft.pick(&LaunchPick::default());
+        assert_eq!(pick, LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: "high".into(), access: "auto".into() });
+        let mut next = Draft { plan: true, ..Draft::default() };
+        next.open(&pick);
+        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access, next.plan), ("codex", "gpt-5", "high", Access::Auto, false));
+        next.open(&LaunchPick::default());
+        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access), ("claude", "", "", Access::Ask));
+    }
+
+    #[test]
+    fn a_remembered_model_and_effort_start_the_session_until_the_agent_changes() {
+        let mut draft = Draft { model: "opus".into(), effort: "high".into(), ..Draft::default() };
+        let spec = draft.spec("/p", "/p", "", "");
+        assert_eq!((&spec["model"], &spec["effort"]), (&json!("opus"), &json!("high")));
+        draft.pick_provider("claude");
+        assert_eq!(draft.spec("/p", "/p", "", "")["model"], "opus");
+        draft.pick_provider("codex");
+        let spec = draft.spec("/p", "/p", "", "");
+        assert_eq!((spec.get("model"), spec.get("effort")), (None, None));
+    }
+
+    #[test]
+    fn codex_cannot_plan_first() {
+        let mut draft = Draft { plan: true, ..Draft::default() };
+        draft.pick_provider("codex");
+        assert_eq!((draft.provider, draft.plan), ("codex", false));
+        let forced = Draft { provider: "codex", plan: true, ..Draft::default() };
+        assert_eq!(forced.spec("/p", "/p", "", "")["plan"], false);
+    }
+
+    #[test]
+    fn a_create_error_keeps_the_draft() {
+        let mut draft = Draft { access: Access::Auto, pending: Some("r1".into()), ..Draft::default() };
+        assert!(!draft.ready("", true));
+        assert!(!draft.answer("r0", None));
+        assert!(draft.answer("r1", Some(("Setup exited 1".into(), "npm ERR!".into()))));
+        assert_eq!((draft.access, draft.pending.as_deref(), draft.ready("", true)), (Access::Auto, None, true));
+        assert_eq!(draft.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
+    }
+
+    #[test]
+    fn a_create_error_after_the_sheet_closed_goes_to_the_page() {
+        let mut draft = Draft { pending: Some("r1".into()), ..Draft::default() };
+        assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), false), Some("Setup exited 1".to_string()));
+        assert_eq!(draft.error, None);
+        assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), true), None);
+        assert_eq!(draft.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
     }
 }

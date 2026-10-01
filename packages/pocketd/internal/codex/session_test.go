@@ -51,6 +51,12 @@ func (s *sink) SetTitle(title string) {
 	s.title = title
 }
 
+func (s *sink) SetTokens(used, window int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, fmt.Sprintf("tokens:%d:%d", used, window))
+}
+
 func (s *sink) wait(t *testing.T, want ...string) {
 	t.Helper()
 	for range 200 {
@@ -238,4 +244,85 @@ func TestFileApprovalBeforeReplayShowsDiff(t *testing.T) {
 	if open.Detail.Path != "/w/c.go" || open.Detail.Diff == nil {
 		t.Fatalf("%+v", open)
 	}
+}
+
+func userTurn(id string) string {
+	return `{"id":"` + id + `","status":"completed","items":[{"type":"userMessage","id":"u` + id + `","content":[{"type":"text","text":"` + id + `"}]}]}`
+}
+
+func TestAPaginatedThreadHydratesFromTurnsList(t *testing.T) {
+	var mu sync.Mutex
+	var asked []string
+	_, _, snk, _ := open(t, func(method string, params json.RawMessage) (any, string) {
+		switch method {
+		case "thread/resume":
+			return json.RawMessage(`{"thread":{"turns":[` + userTurn("t3") + `]},"turnsBackwardsCursor":"k3"}`), ""
+		case "thread/turns/list":
+			mu.Lock()
+			asked = append(asked, string(params))
+			mu.Unlock()
+			if strings.Contains(string(params), `"k3"`) {
+				return json.RawMessage(`{"data":[` + userTurn("t3") + `,` + userTurn("t2") + `],"nextCursor":"k1"}`), ""
+			}
+			return json.RawMessage(`{"data":[` + userTurn("t1") + `],"nextCursor":null}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	snk.wait(t, "user:t1", "result:true:0:", "user:t2", "result:true:0:", "user:t3", "result:true:0:")
+	want := `{"cursor":"k3","itemsView":"full","sortDirection":"desc","threadId":"th1"}`
+	if len(asked) != 2 || asked[0] != want {
+		t.Fatalf("turns/list params = %q", asked)
+	}
+}
+
+func TestHydrationStopsAtMaxTurnPages(t *testing.T) {
+	old := MaxTurnPages
+	MaxTurnPages = 2
+	t.Cleanup(func() { MaxTurnPages = old })
+	pages := 0
+	_, _, snk, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		switch method {
+		case "thread/resume":
+			return json.RawMessage(`{"thread":{"turns":[]},"turnsBackwardsCursor":"k"}`), ""
+		case "thread/turns/list":
+			pages++
+			return json.RawMessage(`{"data":[` + userTurn(fmt.Sprint("p", pages)) + `],"nextCursor":"k"}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	snk.wait(t, "user:p2", "result:true:0:", "user:p1", "result:true:0:")
+}
+
+func TestResumeReplayEqualsTheLiveTimeline(t *testing.T) {
+	const (
+		user  = `{"type":"userMessage","id":"u1","content":[{"type":"text","text":"run ls"}]}`
+		cmd   = `{"type":"commandExecution","id":"c1","command":"ls","status":"completed","exitCode":0,"aggregatedOutput":"a.go\n"}`
+		reply = `{"type":"agentMessage","id":"a1","text":"done"}`
+		done  = `{"id":"t1","status":"completed","durationMs":5,"items":[` + user + `,` + cmd + `,` + reply + `]}`
+	)
+	srv, _, live, _ := open(t, emptyThread)
+	srv.Push("turn/started", nil, `{"threadId":"th1","turn":{"id":"t1","items":[],"status":"inProgress"}}`)
+	for _, it := range []string{user, cmd, reply} {
+		srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+it+`}`)
+		srv.Push("item/completed", nil, `{"threadId":"th1","turnId":"t1","item":`+it+`}`)
+	}
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":`+done+`}`)
+	want := []string{"user:run ls", "tool_start:shell:shell:ls", "tool_end:c1:true:a.go\n", "assistant_text:done", "result:true:5:"}
+	live.wait(t, want...)
+
+	_, _, replayed, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(`{"thread":{"turns":[` + done + `]}}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	replayed.wait(t, want...)
+}
+
+func TestTokenUsageReportsTheLastTurnAndTheWindow(t *testing.T) {
+	srv, _, snk, _ := open(t, emptyThread)
+	usage := `{"threadId":"th1","turnId":"t2","tokenUsage":{"total":{"totalTokens":9000,"inputTokens":8000,"cachedInputTokens":0,"cacheWriteInputTokens":0,"outputTokens":1000,"reasoningOutputTokens":0},"last":{"totalTokens":%d,"inputTokens":0,"cachedInputTokens":0,"cacheWriteInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0},"modelContextWindow":%s}}`
+	srv.Push("thread/tokenUsage/updated", nil, fmt.Sprintf(usage, 1200, "258400"))
+	srv.Push("thread/tokenUsage/updated", nil, fmt.Sprintf(usage, 1500, "null"))
+	snk.wait(t, "tokens:1200:258400", "tokens:1500:0")
 }

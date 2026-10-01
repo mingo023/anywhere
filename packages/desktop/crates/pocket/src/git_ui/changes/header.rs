@@ -44,7 +44,7 @@ impl Desktop {
                     .child(div().truncate().font_family(MONO).text_size(px(12.)).child(repo.branch.clone())),
             )
             .child(view)
-            .child(div().relative().child(more).when(open, |d| d.child(ui::dropdown(30., self.changes_menu_view(repo, cx)))))
+            .child(div().relative().child(more).when(open, |d| d.child(ui::dropdown(30., ui::menu_in("changes-menu-in", self.changes_menu_view(repo, cx))))))
     }
 
     fn changes_menu_view(&self, repo: &Repo, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -54,7 +54,6 @@ impl Desktop {
         ui::pop(div().id("changes-menu"))
             .w(px(220.))
             .p(px(6.))
-            .rounded(px(14.))
             .flex()
             .flex_col()
             .occlude()

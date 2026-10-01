@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -147,13 +148,21 @@ func runTool(s *session, id, command string, desktop bool) {
 }
 
 func main() {
+	if i := slices.Index(os.Args, "--model"); i > 0 && i+1 < len(os.Args) && os.Args[i+1] == "bogus" {
+		fmt.Println("fake claude: unknown model bogus")
+		os.Exit(1)
+	}
 	s := start()
 	s.hook("SessionStart", map[string]any{"source": "startup", "model": "fake-model"})()
 	fmt.Println("fake claude ready")
 
 	sc := bufio.NewScanner(os.Stdin)
-	for n := 1; sc.Scan(); n++ {
+	first := prompt()
+	for n := 1; first != "" || sc.Scan(); n++ {
 		line := strings.TrimSpace(sc.Text())
+		if first != "" {
+			line, first = first, ""
+		}
 		if line == "" {
 			continue
 		}
@@ -172,4 +181,12 @@ func main() {
 		s.write(map[string]any{"type": "system", "subtype": "turn_duration", "durationMs": 5, "messageCount": 2})
 		s.hook("Stop", nil)()
 	}
+}
+
+// prompt is the argument after --, as pocketd passes a Session's first prompt.
+func prompt() string {
+	if i := slices.Index(os.Args, "--"); i > 0 && i+1 < len(os.Args) {
+		return os.Args[i+1]
+	}
+	return ""
 }

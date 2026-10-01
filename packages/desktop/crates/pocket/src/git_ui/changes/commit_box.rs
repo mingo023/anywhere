@@ -75,7 +75,6 @@ impl Desktop {
         let menu = ui::pop(div().id("commit-menu"))
             .w(px(220.))
             .p(px(6.))
-            .rounded(px(14.))
             .flex()
             .flex_col()
             .occlude()
@@ -91,7 +90,7 @@ impl Desktop {
             .text_color(ON_TEXT)
             .child(commit)
             .child(chevron)
-            .when(menu_open, |d| d.child(ui::dropdown(34., menu)));
+            .when(menu_open, |d| d.child(ui::dropdown(34., ui::menu_in("commit-menu-in", menu))));
         let error = self.changes.error.clone().map(|e| {
             div()
                 .id("commit-error")

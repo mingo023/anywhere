@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "p1",
+  "message": "This session is still resuming",
+  "code": "agent_resuming"
+}

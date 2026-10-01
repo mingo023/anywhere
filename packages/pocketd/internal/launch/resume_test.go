@@ -1,0 +1,101 @@
+package launch
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"pocketd/internal/state"
+)
+
+func saved(provider string, l state.Launch) state.Terminal {
+	return state.Terminal{Provider: provider, ConversationID: "c-1", Launch: &l}
+}
+
+func TestResumeBringsBackTheSavedAccessPlanModelAndEffort(t *testing.T) {
+	for _, c := range []struct {
+		t    state.Terminal
+		want string
+	}{
+		{saved("claude", state.Launch{Access: "ask"}), "claude --resume c-1 --permission-mode default"},
+		{saved("claude", state.Launch{Access: "edits"}), "claude --resume c-1 --permission-mode acceptEdits"},
+		{saved("claude", state.Launch{Access: "auto"}), "claude --resume c-1 --permission-mode auto"},
+		{saved("claude", state.Launch{Access: "edits", Plan: true, Model: "opus", Effort: "high"}), "claude --resume c-1 --permission-mode plan --model opus --effort high"},
+		{saved("codex", state.Launch{Access: "ask"}), "codex resume c-1 -s read-only -a on-request"},
+		{saved("codex", state.Launch{Access: "edits", Model: "gpt-5.5", Effort: "high"}), "codex resume c-1 -s workspace-write -a on-request -m gpt-5.5"},
+		{saved("codex", state.Launch{Access: "auto"}), "codex resume c-1 --approve-for-me"},
+		{state.Terminal{Provider: "claude", ConversationID: "c-1"}, "claude --resume c-1 --permission-mode default"},
+	} {
+		argv, f := Resume(c.t)
+		if f != nil || strings.Join(argv, " ") != c.want {
+			t.Errorf("Resume(%+v) = %q, %v; want %q", c.t, argv, f, c.want)
+		}
+	}
+}
+
+func TestFullResumesAsAsk(t *testing.T) {
+	for provider, want := range map[string]string{"claude": "default", "codex": "read-only"} {
+		argv, _ := Resume(saved(provider, state.Launch{Access: "full"}))
+		if !slices.Contains(argv, want) || slices.Contains(argv, "--dangerously-skip-permissions") || slices.Contains(argv, "danger-full-access") {
+			t.Errorf("%s full resumes as %q", provider, argv)
+		}
+	}
+}
+
+func TestCodexResumeNeverCarriesConfigFlags(t *testing.T) {
+	argv, _ := Resume(saved("codex", state.Launch{Access: "edits", Model: "m", Effort: "high"}))
+	if slices.Contains(argv, "-c") || slices.Contains(argv, "--config") {
+		t.Fatalf("argv = %q", argv)
+	}
+}
+
+func TestResumeRejectsHerdrBreaches(t *testing.T) {
+	bad := []state.Terminal{
+		{Provider: "claude", ConversationID: "c'1"},
+		{Provider: "claude", ConversationID: ""},
+		{Provider: "claude", ConversationID: strings.Repeat("a", 129)},
+		{Provider: "gemini", ConversationID: "c-1"},
+		saved("claude", state.Launch{Access: "ask", Model: "opus\n"}),
+		saved("claude", state.Launch{Access: "ask", Model: "o'pus"}),
+		saved("claude", state.Launch{Access: "ask", Model: strings.Repeat("m", 9000)}),
+	}
+	for _, s := range bad {
+		if _, f := Resume(s); f == nil || f.Code != "invalid_resume_argv" {
+			t.Errorf("Resume(%q) = %v", s.ConversationID, f)
+		}
+	}
+	for _, argv := range [][]string{nil, {"/bin/claude"}, slices.Repeat([]string{"x"}, 65)} {
+		if f := ValidResume(argv); f == nil || f.Code != "invalid_resume_argv" {
+			t.Errorf("ValidResume(%d args) = %v", len(argv), f)
+		}
+	}
+}
+
+func TestParseReadsBackTheResumeArgv(t *testing.T) {
+	for _, l := range []state.Launch{{Access: "ask"}, {Access: "edits", Model: "opus", Effort: "high"}, {Access: "auto"}, {Access: "ask", Plan: true}} {
+		argv, _ := Resume(saved("claude", l))
+		if got := state.Parse("claude", argv); got != l {
+			t.Errorf("claude %+v reads back as %+v", l, got)
+		}
+	}
+	for _, l := range []state.Launch{{Access: "ask"}, {Access: "edits", Model: "gpt-5.5"}, {Access: "auto"}} {
+		argv, _ := Resume(saved("codex", l))
+		if got := state.Parse("codex", argv); got != l {
+			t.Errorf("codex %+v reads back as %+v", l, got)
+		}
+	}
+}
+
+func TestAMissingBinaryIsNotAccepted(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), "/bin/zsh", "/pd", []string{"PATH=" + dir}); reason != "resume_not_accepted" {
+		t.Fatalf("reason = %q", reason)
+	}
+	os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), "/bin/zsh", "/pd", []string{"PATH=" + dir})
+	if reason != "" || cmd != "/bin/zsh" || !slices.Contains(args, "--resume") {
+		t.Fatalf("resumeCmd = %q %q %q", cmd, args, reason)
+	}
+}

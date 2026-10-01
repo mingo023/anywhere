@@ -13,8 +13,12 @@ const CapScopes = "scopes.v1"
 // CapHost gates hello.ok.host and host.changed.
 const CapHost = "host.v1"
 
+const CapRegistry = "registry.v1"
+
+const CapSummaryV2 = "summary.v2"
+
 // ServerCaps are the optional features this pocketd speaks, named <area>.v<n>.
-var ServerCaps = []string{"pair.v1", CapScopes, CapHost}
+var ServerCaps = []string{"pair.v1", CapScopes, CapHost, CapRegistry, CapSummaryV2, CapLaunch, CapRestore}
 
 // Versions is the client's protocol range; a hello without one speaks only protocolVersion.
 func (m ClientMessage) Versions() Range {

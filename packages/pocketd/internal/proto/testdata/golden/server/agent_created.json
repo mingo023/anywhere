@@ -1,0 +1,7 @@
+{
+  "type": "agent.created",
+  "id": "c1",
+  "requestId": "r1",
+  "agentId": "a1",
+  "terminalId": "t1"
+}

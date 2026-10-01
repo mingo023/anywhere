@@ -11,6 +11,7 @@ mkdir -p "$out"
 for spec in "$@"; do
   case ${spec%%=*} in
     compact-sidebar-open|repositories-worktrees) scenario=worktrees ;;
+    restore-*) scenario=restored ;;
     *) scenario=sessions ;;
   esac
   fx=$(mktemp -d)

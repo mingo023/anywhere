@@ -22,6 +22,9 @@ type ClientMessage struct {
 	Option          string
 	Message         string
 	AgentIDs        []string
+	Spec            *LaunchSpec
+	Key             string
+	Value           string
 	Caps            []string
 	Protocol        *Range
 	Code            string
@@ -89,7 +92,7 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "pair":
 		ok = get("code", &m.Code) && get("name", &m.Name) && get("platform", &m.Platform) &&
 			(m.Platform == "ios" || m.Platform == "android") && optionalRange("protocol", &m.Protocol)
-	case m.Type == "agent.list", m.Type == "pair.begin":
+	case m.Type == "agent.list", m.Type == "pair.begin", m.Type == "project.list", m.Type == "agent.providers":
 	case m.Type == "agent.prompt":
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
 	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close":
@@ -102,6 +105,10 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "permission.resolve":
 		ok = get("requestId", &m.RequestID) && get("decision", &m.Decision) && (m.Decision == "allow" || m.Decision == "deny") &&
 			optionalString("option", &m.Option) && optionalString("message", &m.Message)
+	case m.Type == "agent.create":
+		ok = get("requestId", &m.RequestID) && m.RequestID != "" && len(m.RequestID) <= 64 && decodeSpec(fields["spec"], &m.Spec)
+	case m.Type == "config.set":
+		ok = get("key", &m.Key) && m.Key == "phone.maxAccess" && get("value", &m.Value) && slices.Contains(PhoneAccesses, m.Value)
 	default:
 		ok = false
 	}
@@ -174,6 +181,32 @@ func NewAgentList(id string, agents []AgentSummary) AgentList {
 	return AgentList{"agent.list", id, agents}
 }
 
+type Worktree struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+	IsMain bool   `json:"isMain"`
+}
+
+type Project struct {
+	Path      string     `json:"path"`
+	Name      string     `json:"name"`
+	Worktrees []Worktree `json:"worktrees"`
+}
+
+type ProjectList struct {
+	Type     string    `json:"type"`
+	ID       string    `json:"id,omitempty"`
+	Projects []Project `json:"projects"`
+}
+
+func NewProjectList(id string, projects []Project) ProjectList {
+	if projects == nil {
+		projects = []Project{}
+	}
+	return ProjectList{"project.list", id, projects}
+}
+
 type AgentUpdate struct {
 	Type  string       `json:"type"`
 	Agent AgentSummary `json:"agent"`
@@ -240,12 +273,19 @@ type Error struct {
 	ID      string `json:"id,omitempty"`
 	Message string `json:"message"`
 	Code    string `json:"code,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
-func NewError(id, message string) Error { return Error{"error", id, message, ""} }
+func NewError(id, message string) Error { return Error{Type: "error", ID: id, Message: message} }
 
 // NewErrorCode is an error the client acts on by code, not by message.
-func NewErrorCode(id, code, message string) Error { return Error{"error", id, message, code} }
+func NewErrorCode(id, code, message string) Error {
+	return Error{Type: "error", ID: id, Message: message, Code: code}
+}
+
+func NewCodedError(id, code, message, detail string) Error {
+	return Error{Type: "error", ID: id, Message: message, Code: code, Detail: detail}
+}
 
 type HostState struct {
 	Tailnet      bool `json:"tailnet"`

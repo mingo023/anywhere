@@ -6,10 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"pocketd/internal/ops"
+	"pocketd/internal/proc"
 )
 
 func readJSON(t *testing.T, path string, v any) {
@@ -79,11 +81,25 @@ func TestWritePluginHooksEveryStatusEvent(t *testing.T) {
 func TestEnvLoadsThePluginAndNamesTheTerminal(t *testing.T) {
 	d := &Daemon{Plugin: "/h/plugin", Sock: "/h/pocketd.sock"}
 	got := d.Env([]string{"PATH=/bin", "CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "POCKETD_PTY=outer", "POCKETD_SOCK=/old", "CLAUDE_CODE_PLUGIN_DIRS=/mine:/h/plugin"}, "t1")
-	if want := []string{"PATH=/bin", "CLAUDE_CODE_PLUGIN_DIRS=/mine:/h/plugin", "POCKETD_SOCK=/h/pocketd.sock", "POCKETD_PTY=t1"}; !slices.Equal(got, want) {
+	parent := proc.Marker + "=" + strconv.Itoa(os.Getpid())
+	if want := []string{"PATH=/bin", "CLAUDE_CODE_PLUGIN_DIRS=/mine:/h/plugin", "POCKETD_SOCK=/h/pocketd.sock", "POCKETD_PTY=t1", parent}; !slices.Equal(got, want) {
 		t.Errorf("env = %q", got)
 	}
-	if got, want := d.Env(nil, "t2"), []string{"CLAUDE_CODE_PLUGIN_DIRS=/h/plugin", "POCKETD_SOCK=/h/pocketd.sock", "POCKETD_PTY=t2"}; !slices.Equal(got, want) {
+	if got, want := d.Env(nil, "t2"), []string{"CLAUDE_CODE_PLUGIN_DIRS=/h/plugin", "POCKETD_SOCK=/h/pocketd.sock", "POCKETD_PTY=t2", parent}; !slices.Equal(got, want) {
 		t.Errorf("empty env = %q", got)
+	}
+}
+
+func TestTerminalEnvCarriesOnePocketdParent(t *testing.T) {
+	d := &Daemon{Plugin: "/h/plugin", Sock: "/h/pocketd.sock"}
+	var got []string
+	for _, kv := range d.Env([]string{"PATH=/bin", proc.Marker + "=1"}, "t1") {
+		if strings.HasPrefix(kv, proc.Marker+"=") {
+			got = append(got, kv)
+		}
+	}
+	if want := []string{proc.Marker + "=" + strconv.Itoa(os.Getpid())}; !slices.Equal(got, want) {
+		t.Fatalf("markers = %q, want %q", got, want)
 	}
 }
 

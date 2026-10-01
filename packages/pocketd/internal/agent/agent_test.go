@@ -327,3 +327,95 @@ func TestBusyCountsWorkingAndNeedsYou(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAgentStartsFromTheDesktopInNoProject(t *testing.T) {
+	s := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{}).Summary()
+	if s.Origin != "desktop" || s.Project != "" || s.Worktree != "" || s.Branch != "" || s.MainWorktree || s.TokensUsed != 0 || s.ContextWindow != 0 {
+		t.Fatalf("%+v", s)
+	}
+}
+
+func TestLocationTokensAndOriginShowInTheSummary(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetLocation("Pocket", "calm-otter", "calm-otter", false)
+	a.SetTokens(1200, 200_000)
+	a.SetTokens(1500, 0)
+	a.SetOrigin("phone")
+	s := a.Summary()
+	if s.Project != "Pocket" || s.Worktree != "calm-otter" || s.Branch != "calm-otter" || s.MainWorktree ||
+		s.TokensUsed != 1500 || s.ContextWindow != 200_000 || s.Origin != "phone" {
+		t.Fatalf("%+v", s)
+	}
+}
+
+func TestAConversationSwitchEmptiesTheContext(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetConversation("c1")
+	a.SetTokens(1500, 200_000)
+	a.SetConversation("c1")
+	if s := a.Summary(); s.TokensUsed != 1500 {
+		t.Fatalf("same conversation: %+v", s)
+	}
+	a.SetConversation("c2")
+	if s := a.Summary(); s.TokensUsed != 0 || s.ContextWindow != 200_000 {
+		t.Fatalf("after switch: %+v", s)
+	}
+}
+
+func restored(r *Registry, x Restored) *Agent {
+	return r.Restore(x, fakeDriver{})
+}
+
+func TestARestoredAgentKeepsItsIDAndCreatedAt(t *testing.T) {
+	r := NewRegistry(hub.New())
+	a := restored(r, Restored{ID: "a1", Cwd: "/w", Provider: "claude", Terminal: "t1", Conversation: "s1", CreatedAt: 7})
+	s := a.Summary()
+	if s.ID != "a1" || s.CreatedAt != 7 || s.TerminalID != "t1" || s.ProviderSessionID != "s1" || !s.Attached || s.Status != "idle" {
+		t.Fatalf("summary = %+v", s)
+	}
+	if got, _ := r.Get("a1"); got != a {
+		t.Fatal("the registry doesn't list it")
+	}
+}
+
+func TestWorkingClearsTheRestoreOutcome(t *testing.T) {
+	a := restored(NewRegistry(hub.New()), Restored{ID: "a1"})
+	a.SetRestore(proto.RestoreInterrupted)
+	if got := a.Summary().Restore; got != proto.RestoreInterrupted {
+		t.Fatalf("restore = %q", got)
+	}
+	a.TurnEnded(false)
+	a.NeedsYou()
+	if got := a.Summary().Restore; got != proto.RestoreInterrupted {
+		t.Fatalf("NeedsYou cleared it: %q", got)
+	}
+	a.Working()
+	if got := a.Summary().Restore; got != "" {
+		t.Fatalf("restore after Working = %q", got)
+	}
+}
+
+func TestTheFallbackTitleYieldsToAProviderTitle(t *testing.T) {
+	a := restored(NewRegistry(hub.New()), Restored{ID: "a1", Fallback: "pocket"})
+	if got := a.Summary().Title; got != "pocket" {
+		t.Fatalf("title = %q", got)
+	}
+	a.Record(timeline.Event{Kind: "user", Text: "fix the tests"})
+	if got := a.Summary().Title; got != "fix the tests" {
+		t.Fatalf("title after a prompt = %q", got)
+	}
+	a.SetTitle("Fix tests")
+	if got := a.Summary().Title; got != "Fix tests" {
+		t.Fatalf("title after the provider's = %q", got)
+	}
+}
+
+func TestDoneSurvivesRestore(t *testing.T) {
+	r := NewRegistry(hub.New())
+	if s := restored(r, Restored{ID: "a1", Done: true, Failed: true}).Summary(); s.Status != "done" || !s.Failed {
+		t.Fatalf("summary = %+v", s)
+	}
+	if s := restored(r, Restored{ID: "a2"}).Summary(); s.Status != "idle" || s.Failed {
+		t.Fatalf("summary = %+v", s)
+	}
+}

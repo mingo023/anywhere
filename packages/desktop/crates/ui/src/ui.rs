@@ -30,7 +30,11 @@ pub fn side<E: Styled>(e: E) -> E {
 
 /// Floating menus and sheets.
 pub fn pop<E: Styled>(e: E) -> E {
-    e.bg(POPOVER).rounded(px(26.)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(rgba(0x00000024), 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
+    e.bg(POPOVER).rounded(px(R_POPOVER)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(rgba(0x00000024), 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
+}
+
+pub fn menu_in<E: Styled + IntoElement + 'static>(id: impl Into<ElementId>, menu: E) -> AnimationElement<E> {
+    menu.with_animation(id, Animation::new(MENU_IN).with_easing(ease_out_quint()), |e, t| e.opacity(t).mt(px(-4. * (1. - t))))
 }
 
 /// A menu dropped `top` px below its `relative` parent, painted above later siblings and kept inside the window.
@@ -288,7 +292,7 @@ pub fn status(id: impl Into<ElementId>, state: State) -> Div {
         (State::Sent, _) => pill(FILL_3, TEXT_2).child(icon("check", 11., TEXT_2)).child("Sent"),
         (State::Draft, _) => pill(ACCENT_BG, ACCENT).child(dot(6., ACCENT)).child("Draft"),
         (State::Idle(added, removed), _) => diffstat(added, removed),
-        _ => pill(FILL_3, TEXT_3).child("Not attached"),
+        _ => pill(FILL_3, TEXT_2).child("Not attached"),
     }
 }
 
@@ -467,15 +471,17 @@ pub fn provider_label(provider: &str, faded: bool) -> Div {
     div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(dot(6., provider_color(provider))).child(provider_name(provider))
 }
 
-const SESSION_GROUP: &str = "session-row";
+/// The group of a session row; its time hides while the row is hovered, making room for a caller's hover controls.
+pub const SESSION_ROW: &str = "session-row";
 
 /// A session's card. Needs you fills the whole row; hover and selection tint over that fill.
-pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
+#[allow(clippy::too_many_arguments)]
+pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
     let id = id.into();
     let line = || div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_2);
     div()
         .id(id.clone())
-        .group(SESSION_GROUP)
+        .group(SESSION_ROW)
         .relative()
         .px(px(10.))
         .py(px(10.))
@@ -486,9 +492,10 @@ pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
         .rounded(px(8.))
         .cursor_pointer()
         .when(state == Some(State::NeedsYou), |d| d.bg(WAITING_BG))
-        .child(div().absolute().inset_0().rounded(px(8.)).map(|d| if selected { d.bg(FILL_3) } else { d.group_hover(SESSION_GROUP, |s| s.bg(FILL_1)) }))
-        .child(line().child(div().flex_1().min_w_0().flex().child(lead)).child(when))
+        .child(div().absolute().inset_0().rounded(px(8.)).map(|d| if selected { d.bg(FILL_3) } else { d.group_hover(SESSION_ROW, |s| s.bg(FILL_1)) }))
+        .child(line().child(div().flex_1().min_w_0().flex().child(lead)).child(div().group_hover(SESSION_ROW, |s| s.invisible()).child(when)))
         .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
+        .children(notice.map(|n| div().truncate().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_2).child(n)))
         .child(
             line()
                 .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_2)).child(div().truncate().child(b))))
@@ -507,7 +514,7 @@ pub fn status_label(id: impl Into<ElementId>, state: State) -> Div {
     match (state, tone(state)) {
         (State::Done(added, removed), Some(t)) => label(t.text).child(glyph(id, t)).child(word(state)).child(diffstat(added, removed)),
         (_, Some(t)) => label(t.text).child(glyph(id, t)).child(word(state)),
-        (State::NotAttached, _) => label(TEXT_3).child(word(state)),
+        (State::NotAttached, _) => label(TEXT_2).child(word(state)),
         _ => status(id, state),
     }
 }
@@ -730,7 +737,7 @@ pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> D
         .text_size(px(12.))
         .line_height(px(15.))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(TEXT_3)
+        .text_color(TEXT_2)
         .child(label.into())
         .children(count.map(|n| div().font_weight(FontWeight::MEDIUM).child(n.to_string())))
 }
@@ -740,7 +747,7 @@ pub fn swatch(color: u32, size: f32, radius: f32) -> Div {
 }
 
 pub fn field_label(label: impl Into<SharedString>) -> Div {
-    div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.into())
+    div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(label.into())
 }
 
 pub fn field_box() -> Div {
@@ -764,6 +771,7 @@ pub fn backdrop(id: impl Into<ElementId>, alpha: u8) -> Stateful<Div> {
 pub fn modal(title: &str, width: f32, top: f32, close: Stateful<Div>, body: impl IntoIterator<Item = AnyElement>) -> Div {
     div().absolute().top(px(top)).left_0().right_0().flex().justify_center().child(
         pop(div().w(px(width)).pt(px(22.)).px(px(24.)).pb(px(20.)).flex().flex_col().gap(px(16.)))
+            .rounded(px(R_DIALOG))
             .occlude()
             .child(
                 div()
@@ -776,7 +784,7 @@ pub fn modal(title: &str, width: f32, top: f32, close: Stateful<Div>, body: impl
     )
 }
 
-pub fn palette_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, title: String, detail: String, keys: Option<&str>) -> Stateful<Div> {
+pub fn palette_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, title: impl IntoElement, detail: impl IntoElement, keys: Option<&str>) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(40.))
@@ -789,10 +797,9 @@ pub fn palette_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
         .cursor_pointer()
         .text_size(px(14.))
         .when(selected, |d| d.bg(ACCENT_BG))
-        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
         .child(div().size(px(24.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_3).child(lead))
         .child(div().flex_none().max_w(px(320.)).truncate().font_weight(FontWeight::MEDIUM).child(title))
-        .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(TEXT_4).child(detail))
+        .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(TEXT_2).child(detail))
         .children(keys.map(kbd))
 }
 
@@ -862,10 +869,10 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .shadow(vec![ring(HAIRLINE, 0.5)])
         .cursor_pointer()
         .text_size(px(13.5))
-        .text_color(TEXT_3)
+        .text_color(TEXT_2)
         .child(icon(icon_name, 15., TEXT_3))
         .child(div().flex_1().child(label.to_string()))
-        .child(div().text_size(px(11.5)).text_color(TEXT_4).child(keys.to_string()))
+        .child(div().text_size(px(11.5)).text_color(TEXT_2).child(keys.to_string()))
 }
 
 /// Indented past the project row's chevron (4 + 14 + gap 7) so its glyph sits under the project's mark and its name under the project's.

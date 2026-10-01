@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 type Agent = {
   id: string; title: string; provider: "claude" | "codex"; repo: string; branch?: string;
   status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string;
-  diff?: [string, number, number][]; children?: string[][]; term?: string;
+  diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string;
 };
 type Scenario = { repos: string[]; merged?: string[]; agents: Agent[] };
 
@@ -47,6 +47,9 @@ const SCENARIOS: Record<string, Scenario> = {
     ],
   },
 };
+
+const RESTORED: Record<string, string> = { fix: "resumed", crash: "interrupted", haptics: "access_lowered", rn: "failed" };
+SCENARIOS.restored = { ...SCENARIOS.sessions, agents: SCENARIOS.sessions.agents.map((a) => ({ ...a, restore: RESTORED[a.id] })) };
 
 const [name, arg] = process.argv.slice(2);
 const scenario = SCENARIOS[name];
@@ -98,11 +101,12 @@ for (const [key, agents] of trees) {
 const now = Date.now();
 const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.repo));
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
-const summaries = scenario.agents.map((a) => ({
-  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, status: status(a),
-  createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
-}));
 const left = { claude: 62, codex: 41 };
+const summaries = scenario.agents.map((a) => ({
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, status: status(a), restore: a.restore,
+  createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
+  tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000,
+}));
 const timeline = (a: Agent) => [{
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
@@ -114,7 +118,7 @@ const sessions = [
   ...children.map((c) => ({ id: c.id, cmd: c.argv[0], args: c.argv.slice(1), cwd: c.cwd })),
 ];
 
-const SCOPES = ["observe", "drive", "approve", "spawn", "owner"];
+const SCOPES = process.env.FIXTURE_OBSERVE ? ["observe"] : ["observe", "drive", "approve", "spawn", "owner"];
 const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: scenario.repos.map(repoPath), children: children.map((c) => [c.id, c.parent]), repos: {} }));
@@ -182,11 +186,15 @@ Bun.serve({
     message(ws, raw) {
       const f = JSON.parse(raw.toString());
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }
+      }
+      if (f.type === "pair.begin") {
+        const code = "abcdefghijklmnopqrstuv";
+        ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));
       }
       if (f.type === "agent.timeline") {
         const a = scenario.agents.find((a) => a.id === f.agentId);

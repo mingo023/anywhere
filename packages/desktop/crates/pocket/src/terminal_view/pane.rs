@@ -109,6 +109,7 @@ impl Desktop {
             cursor::overlay(focused.then(|| cx.entity()), at, rows, c, preedit, m)
         });
         let close_id = id.to_string();
+        let closable = self.terminals.may_close(id, self.agents.observe_only());
         let header = n.map(|n| {
             div()
                 .h(px(30.))
@@ -123,12 +124,14 @@ impl Desktop {
                 .font_family(MONO)
                 .text_size(px(11.5))
                 .child(div().flex_1().truncate().child(format!("{n} · {title}")))
-                .child(icon_button_sized(self::id(format!("close-{close_id}")), "x", 22., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    if !this.ask_close(vec![close_id.clone()], cx) {
-                        this.close_pane(&close_id, cx);
-                    }
-                })))
+                .when(closable, |d| {
+                    d.child(icon_button_sized(self::id(format!("close-{close_id}")), "x", 22., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        if !this.ask_close(vec![close_id.clone()], cx) {
+                            this.close_pane(&close_id, cx);
+                        }
+                    })))
+                })
         });
         let focus_id = id.to_string();
         let screen = div()

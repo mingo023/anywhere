@@ -130,15 +130,19 @@ Principals and their scopes:
 
 | Surface | Verb | Needs | pty(T) |
 |---|---|---|---|
-| ws | `agent.list`, `agent.timeline`, `agent.view`, `agent.seen` | observe | allowed |
+| ws | `agent.list`, `agent.timeline`, `agent.view`, `agent.seen`, `project.list`, `agent.providers` | observe | allowed |
 | ws | `agent.prompt`, `agent.interrupt`, `agent.compact`, `agent.close` | drive | `ask_open` if the target's T has an open ask, else `scope_denied` |
 | ws | `permission.resolve` | approve | `scope_denied` |
-| ws | `pair.begin`, E02 devices verbs | owner | `scope_denied` |
+| ws | `agent.create` | spawn; a device also needs the `launch.v1` cap (`access_not_allowed`) | `scope_denied` |
+| ws | `pair.begin`, `config.set`, E02 devices verbs | owner | `scope_denied` |
 | ops | `list`, `status` (E04) | observe | allowed |
 | ops | `hook` | own Terminal | `not_own_terminal` / `hook_forged` |
+| ops | `launch-exit` | observe + own Terminal | `not_own_terminal` for another T |
 | ops | `spawn` | spawn + owner | `scope_denied` |
+| ops | `config-set` | owner | `scope_denied` |
 | ops | `attach`, `screen`, `resize`, `close` | owner | `scope_denied` (never read other Terminals, R18 R9) |
 | ops | `input`, `prompt` | owner | `ask_open` if T has an open ask, else `scope_denied` |
+| cli | `pocketd worktree list`, `create`, `remove` | none: no socket verb; runs as the invoking user | n/a |
 | any | unknown verb | refused | `scope_denied` (fail closed; new verbs add a `Needs` row) |
 
 ### Error codes (extend E02 PR1's coded `error`; the message names the fix)

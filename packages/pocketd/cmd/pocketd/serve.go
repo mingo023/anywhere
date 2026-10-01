@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -23,15 +24,20 @@ import (
 	"pocketd/internal/events"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
+	"pocketd/internal/launch"
 	"pocketd/internal/launchagent"
 	"pocketd/internal/lock"
 	"pocketd/internal/logfile"
 	"pocketd/internal/ops"
 	"pocketd/internal/pairing"
+	"pocketd/internal/proc"
 	"pocketd/internal/proto"
 	"pocketd/internal/reach"
+	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
+	"pocketd/internal/state"
 	"pocketd/internal/terminal"
+	"pocketd/internal/worktree"
 	"pocketd/internal/wsserver"
 )
 
@@ -52,6 +58,7 @@ func serve(sock string) error {
 	started := time.Now()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+	reap()
 
 	evs, err := events.Open(home)
 	if err != nil {
@@ -80,6 +87,7 @@ func serve(sock string) error {
 	if err != nil {
 		return err
 	}
+	reg := registry.New(registry.Path())
 	h := hub.New()
 	d := &daemon.Daemon{
 		Terminals: terminal.NewManager(),
@@ -88,6 +96,7 @@ func serve(sock string) error {
 		Home:      config.Home(),
 		Exe:       exe,
 		Sock:      sock,
+		Registry:  reg,
 	}
 	d.Capture = func() shellenv.Result {
 		shell := shellenv.LoginShell()
@@ -120,14 +129,31 @@ func serve(sock string) error {
 		}
 		return "", false
 	}
-	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen}
+	settings := config.NewSettings(home)
+	l := launch.New(d, reg, settings, evs)
+	if settings.ResumeAgents() {
+		d.Resume = l.ResumeCmd
+	}
+	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
+		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
+	}
+	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l}
+	if err := endGrace(devs, ws.CloseDevice); err != nil {
+		return err
+	}
+	statePath := state.Path(d.Home)
+	saved, err := state.Load(statePath)
+	if err != nil {
+		log.Print(err)
+	}
+	d.Restore(saved, cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
+	go d.Watch(context.Background())
 	phones, err := reach.Listen(cfg.Port, cfg.Listen, ws)
 	if err != nil {
 		return err
 	}
 	live.Store(phones)
 	go watchTailnet(ctx, phones, mon)
-	go d.Watch(context.Background())
 
 	ln, err := ops.Listen(sock)
 	if err != nil {
@@ -138,6 +164,8 @@ func serve(sock string) error {
 		<-ctx.Done()
 		ln.Close()
 	}()
+	writer := state.NewWriter(statePath, d.Snapshot)
+	go writer.Run(ctx)
 	fmt.Println("pocketd listening on", sock)
 	for _, a := range phones.Addrs() {
 		if !a.Addr().IsLoopback() {
@@ -166,12 +194,29 @@ func serve(sock string) error {
 		Devices: devs, Kick: ws.CloseDevice,
 		Pairing: pairs, Host: pairHost, MacName: ws.MacName,
 		WS: ws, AskOpen: d.AskOpen,
-		Status: status,
+		Status:     status,
+		LaunchExit: l.Exited,
+		ConfigSet:  configSetter(l, settings),
 	}).Serve(ln)
 	if ctx.Err() != nil {
+		writer.Freeze()
+		d.Terminals.CloseAll(terminal.CloseGrace)
 		return nil
 	}
 	return err
+}
+
+// reap ends what a crashed pocketd left running (proc.Reap has the rule).
+func reap() {
+	ps, err := proc.Orphans(os.Getuid())
+	if err != nil {
+		log.Printf("reap: %v", err)
+		return
+	}
+	if pids := proc.Reap(os.Getpid(), proc.Alive, ps); len(pids) > 0 {
+		log.Printf("reap: ending %d processes of a dead pocketd", len(pids))
+		go proc.Kill(pids, terminal.CloseGrace)
+	}
 }
 
 func watchTailnet(ctx context.Context, ln *reach.Listener, mon *host.Monitor) {
@@ -205,6 +250,37 @@ func addrs(list []netip.AddrPort) []string {
 		out = append(out, a.String())
 	}
 	return out
+}
+
+// endGrace starts the legacy device's grace and, once it is over, forgets the
+// device and closes its sockets. It reads the wall clock each minute because
+// timers stall while the Mac sleeps.
+func endGrace(store *devices.Store, closeDevice func(id, reason string)) error {
+	end, err := store.StartGrace(time.Now())
+	if err != nil || end.IsZero() {
+		return err
+	}
+	over := func() bool {
+		ended, err := store.EndGrace(time.Now())
+		if err != nil {
+			log.Printf("devices: forgetting the legacy device: %v", err)
+		}
+		if ended {
+			closeDevice(devices.LegacyID, "revoked")
+		}
+		return ended
+	}
+	if over() {
+		return nil
+	}
+	go func() {
+		for range time.Tick(time.Minute) {
+			if over() {
+				return
+			}
+		}
+	}()
+	return nil
 }
 
 // computerName is the name the Mac shows in Finder and AirDrop, which the

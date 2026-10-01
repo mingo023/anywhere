@@ -1,8 +1,9 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{empty, state};
+use crate::desktop::chrome::{RowMenu, empty, state};
 use crate::status::{Card, Kind};
 use crate::util::{ago, now_ms};
 use gpui_kit::component::input::Input;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 use ui::{self, State};
@@ -47,8 +48,25 @@ impl Desktop {
         };
         let lead = ui::provider_label(&c.provider, false);
         let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone());
-        let when = if chips && i < 9 { ui::jump_chip(i + 1).into_any_element() } else { ago(c.at, now_ms()).into_any_element() };
-        ui::session_row(("card", i), selected, lead, when, c.title, branch, Some(pill))
+        let menu = RowMenu::Session(c.id.clone());
+        let open = self.row_menu.as_ref() == Some(&menu);
+        let when = if open {
+            String::new().into_any_element()
+        } else if chips && i < 9 {
+            ui::jump_chip(i + 1).into_any_element()
+        } else {
+            ago(c.at, now_ms()).into_any_element()
+        };
+        let more = div()
+            .absolute()
+            .top(px(7.))
+            .right(px(6.))
+            .when(!open, |d| d.invisible().group_hover(ui::SESSION_ROW, |s| s.visible()))
+            .child(self.row_menu_button(&c.id, menu.clone(), cx));
+        ui::session_row(("card", i), selected, lead, when, c.title, c.notice, branch, Some(pill))
+            .relative()
+            .child(more)
+            .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))
     }
 }

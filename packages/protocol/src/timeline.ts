@@ -90,14 +90,24 @@ export const AgentSummary = Schema.Struct({
   status: AgentStatus,
   failed: Schema.optional(Schema.Boolean),
   attached: Schema.Boolean,
+  restore: Schema.optional(Schema.String),
   compacting: Schema.optional(Schema.Boolean),
   epoch: Schema.Number,
   maxSeq: Schema.Number,
   providerSessionId: Schema.optional(Schema.String),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
+  project: Schema.optional(Schema.String),
+  worktree: Schema.optional(Schema.String),
+  mainWorktree: Schema.optional(Schema.Boolean),
+  branch: Schema.optional(Schema.String),
+  tokensUsed: Schema.optional(Schema.Number),
+  contextWindow: Schema.optional(Schema.Number),
+  origin: Schema.optional(Schema.String),
 });
 export type AgentSummary = typeof AgentSummary.Type;
+export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;
+export type RestoreOutcome = (typeof RESTORE)[number];
 
 export const PermissionOption = Schema.Struct({ id: Schema.String, label: Schema.String });
 export type PermissionOption = typeof PermissionOption.Type;

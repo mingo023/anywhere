@@ -18,7 +18,7 @@ const Layout = "2006-01-02T15:04:05.000Z07:00"
 // Event is one line. Kinds and their fields: start{version,pid,service},
 // stop{reason}, tick, status{agent,provider,from,to}, seen{agent,principal},
 // answer{agent,principal,decision}, prompt{agent,provider,origin,ack},
-// create{origin,provider,ok,code}, restore{agent,ok,ms},
+// create{origin,provider,ok,code}, restore{agent,ok,ms,outcome,reason},
 // push{agent,alert,acted}, refusal{surface,code}.
 type Event struct {
 	TS        string `json:"ts"`
@@ -38,6 +38,7 @@ type Event struct {
 	OK        *bool  `json:"ok,omitempty"`
 	Code      string `json:"code,omitempty"`
 	MS        int64  `json:"ms,omitempty"`
+	Outcome   string `json:"outcome,omitempty"`
 	Alert     string `json:"alert,omitempty"`
 	Acted     *bool  `json:"acted,omitempty"`
 	Surface   string `json:"surface,omitempty"`

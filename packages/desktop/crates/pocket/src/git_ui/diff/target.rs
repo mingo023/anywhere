@@ -71,16 +71,19 @@ impl Desktop {
             });
             deferred(
                 anchored().anchor(Anchor::BottomLeft).offset(point(px(0.), px(-6.))).snap_to_window_with_margin(px(8.)).child(
-                    ui::pop(div().id("target-menu"))
-                        .w(px(360.))
-                        .p(px(6.))
-                        .flex()
-                        .flex_col()
-                        .children(items)
-                        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                            this.diff.target_menu = false;
-                            cx.notify();
-                        })),
+                    ui::menu_in(
+                        "target-menu-in",
+                        ui::pop(div().id("target-menu"))
+                            .w(px(360.))
+                            .p(px(6.))
+                            .flex()
+                            .flex_col()
+                            .children(items)
+                            .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                this.diff.target_menu = false;
+                                cx.notify();
+                            })),
+                    ),
                 ),
             )
             .with_priority(1)

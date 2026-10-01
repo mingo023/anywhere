@@ -10,7 +10,7 @@ use std::time::Duration;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 13] = [
+const STEPS: [(&str, Step); 15] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -34,6 +34,8 @@ const STEPS: [(&str, Step); 13] = [
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
+    ("phone-access", |d, window, cx| d.open(Overlay::PhoneAccess, window, cx)),
+    ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
 ];
 

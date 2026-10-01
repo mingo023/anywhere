@@ -23,6 +23,7 @@ image.workspace = true
 keys.workspace = true
 merman.workspace = true
 project.workspace = true
+qrcode.workspace = true
 resvg.workspace = true
 serde_json.workspace = true
 store.workspace = true

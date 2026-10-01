@@ -15,6 +15,16 @@ const (
 	DiffLineChars    = 160
 )
 
+// AgentSummary.Restore says how an Agent came back after a pocketd restart.
+const (
+	RestoreResumed       = "resumed"
+	RestoreInterrupted   = "interrupted"
+	RestoreAccessLowered = "access_lowered"
+	RestoreFailed        = "failed"
+	CapRestore           = "restore.v1"
+	CodeAgentResuming    = "agent_resuming"
+)
+
 type DiffLine struct {
 	Number int    `json:"number,omitempty"`
 	Kind   string `json:"kind"`
@@ -176,12 +186,20 @@ type AgentSummary struct {
 	Status            string `json:"status"`
 	Failed            bool   `json:"failed,omitempty"`
 	Attached          bool   `json:"attached"`
+	Restore           string `json:"restore,omitempty"`
 	Compacting        bool   `json:"compacting,omitempty"`
 	Epoch             int64  `json:"epoch"`
 	MaxSeq            int64  `json:"maxSeq"`
 	ProviderSessionID string `json:"providerSessionId,omitempty"`
 	CreatedAt         int64  `json:"createdAt"`
 	UpdatedAt         int64  `json:"updatedAt"`
+	Project           string `json:"project,omitempty"`
+	Worktree          string `json:"worktree,omitempty"`
+	MainWorktree      bool   `json:"mainWorktree,omitempty"`
+	Branch            string `json:"branch,omitempty"`
+	TokensUsed        int64  `json:"tokensUsed,omitempty"`
+	ContextWindow     int64  `json:"contextWindow,omitempty"`
+	Origin            string `json:"origin"`
 }
 
 type PermissionRequest struct {

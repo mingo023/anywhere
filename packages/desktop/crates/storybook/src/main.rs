@@ -144,10 +144,10 @@ impl Render for Storybook {
                 "Session row",
                 "Sessions tab of the column",
                 list()
-                    .child(ui::session_row("s1", true, ui::provider_label("codex", false), "2m", "Fix stale terminal reveal".into(), Some("fix/restore-handoff".into()), Some(State::NeedsYou)))
-                    .child(ui::session_row("s2", false, ui::provider_label("claude", false), "now", "Split restore hook into two files".into(), Some("refactor/restore-hook".into()), Some(State::Working)))
-                    .child(ui::session_row("s3", false, ui::provider_label("codex", false), "3h", "Upgrade to RN 0.81".into(), Some("chore/rn-081".into()), Some(State::Failed)))
-                    .child(ui::session_row("s4", false, ui::provider_label("codex", true), "6m", "Migrate legacy hooks".into(), Some("chore/migrate-hooks".into()), Some(State::Idle(28, 11)))),
+                    .child(ui::session_row("s1", true, ui::provider_label("codex", false), "2m", "Fix stale terminal reveal".into(), None, Some("fix/restore-handoff".into()), Some(State::NeedsYou)))
+                    .child(ui::session_row("s2", false, ui::provider_label("claude", false), "now", "Split restore hook into two files".into(), None, Some("refactor/restore-hook".into()), Some(State::Working)))
+                    .child(ui::session_row("s3", false, ui::provider_label("codex", false), "3h", "Upgrade to RN 0.81".into(), None, Some("chore/rn-081".into()), Some(State::Failed)))
+                    .child(ui::session_row("s4", false, ui::provider_label("codex", true), "6m", "Migrate legacy hooks".into(), None, Some("chore/migrate-hooks".into()), Some(State::Idle(28, 11)))),
             ))
             .child(story(
                 "File rows",
@@ -195,8 +195,8 @@ impl Render for Storybook {
                 "Command palette rows and popover menu rows",
                 list()
                     .child(ui::trigger_field("trigger", "search", "Search sessions, files and actions…", "⌘K"))
-                    .child(ui::palette_row("p1", true, ui::dot(7., WAITING), "Fix stale terminal reveal".into(), "app-android · Codex · waiting".into(), None))
-                    .child(ui::palette_row("p2", false, icon("sparkle", 13., TEXT_2), "New session in app-android".into(), String::new(), Some("⌘ N")))
+                    .child(ui::palette_row("p1", true, ui::dot(7., WAITING), "Fix stale terminal reveal", "app-android · Codex · waiting", None))
+                    .child(ui::palette_row("p2", false, icon("sparkle", 13., TEXT_2), "New session in app-android", "", Some("⌘ N")))
                     .child(ui::menu_row("m1", "worktree", "New worktree…", Some("⌘ ⇧ N")))
                     .child(ui::menu_row("m2", "settings", "Project settings", Some("⌘ ,")))
                     .child(ui::menu_divider())

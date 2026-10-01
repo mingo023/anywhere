@@ -41,7 +41,6 @@ impl Desktop {
         ui::pop(div().id("tab-menu"))
             .w(px(264.))
             .p(px(6.))
-            .rounded(px(10.))
             .flex()
             .flex_col()
             .gap(px(1.))

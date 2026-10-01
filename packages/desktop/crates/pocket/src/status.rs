@@ -57,6 +57,7 @@ pub struct Card {
     pub created: i64,
     pub status: Status,
     pub kind: Kind,
+    pub notice: Option<&'static str>,
 }
 
 /// An agent's card, placed by the folder its terminal started in.
@@ -71,6 +72,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         created: a.created_at,
         status: Status::of(a).unwrap_or(Status::Idle),
         kind,
+        notice: notice(a),
     }
 }
 
@@ -91,16 +93,29 @@ pub fn roll_up(statuses: impl IntoIterator<Item = Status>) -> Option<(Status, us
     Some((top, all.iter().filter(|s| section(**s, true) == section(top, true)).count()))
 }
 
-/// Why Pocket can't see the status of a live agent that is not attached.
-pub fn banner(a: &Summary) -> Option<&'static str> {
-    if a.attached {
-        return None;
+/// How a pocketd restart brought the agent back, until its next turn.
+pub fn notice(a: &Summary) -> Option<&'static str> {
+    match a.restore.as_str() {
+        "resumed" => Some("Resumed"),
+        "interrupted" => Some("Interrupted by restart"),
+        "access_lowered" => Some("Full access resumed as Ask"),
+        "failed" => Some("Couldn't resume"),
+        _ => None,
     }
-    match a.provider.as_str() {
+}
+
+/// A failed restore, else why Pocket can't see the status of a live agent that is not attached, else the restore notice.
+pub fn banner(a: &Summary) -> Option<&'static str> {
+    if a.restore == "failed" {
+        return notice(a);
+    }
+    let hint = match a.provider.as_str() {
+        _ if a.attached => None,
         "claude" => Some("Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."),
         "codex" => Some("This codex runs without the app-server, so Pocket can't see its status."),
         _ => None,
-    }
+    };
+    hint.or_else(|| notice(a))
 }
 
 /// The agents in `panes`, sorted so an unchanged view compares equal.
@@ -227,6 +242,41 @@ mod tests {
         assert_eq!(banner(&blind("claude", "idle")), Some("Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."));
         assert_eq!(banner(&blind("codex", "working")), Some("This codex runs without the app-server, so Pocket can't see its status."));
         assert_eq!(banner(&Summary { provider: "claude".into(), ..agent("t", "idle") }), None);
+    }
+
+    fn restored(outcome: &str) -> Summary {
+        Summary { provider: "claude".into(), restore: outcome.into(), ..agent("t", "idle") }
+    }
+
+    #[test]
+    fn each_restore_outcome_has_its_notice() {
+        let got: Vec<_> = ["resumed", "interrupted", "access_lowered", "failed"].iter().map(|o| notice(&restored(o))).collect();
+        assert_eq!(got, vec![Some("Resumed"), Some("Interrupted by restart"), Some("Full access resumed as Ask"), Some("Couldn't resume")]);
+    }
+
+    #[test]
+    fn an_unknown_outcome_shows_nothing() {
+        assert_eq!(notice(&restored("")), None);
+        assert_eq!(notice(&restored("rewound")), None);
+        assert_eq!(banner(&restored("rewound")), None);
+    }
+
+    #[test]
+    fn a_failed_restore_banner_beats_the_trust_hint() {
+        assert_eq!(banner(&Summary { attached: false, ..restored("failed") }), Some("Couldn't resume"));
+    }
+
+    #[test]
+    fn an_untrusted_resumed_claude_still_shows_the_trust_hint() {
+        let hint = Some("Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status.");
+        assert_eq!(banner(&Summary { attached: false, ..restored("resumed") }), hint);
+        assert_eq!(banner(&restored("resumed")), Some("Resumed"));
+    }
+
+    #[test]
+    fn a_card_carries_the_notice() {
+        assert_eq!(card(&restored("interrupted"), "/p").notice, Some("Interrupted by restart"));
+        assert_eq!(card(&agent("t", "idle"), "/p").notice, None);
     }
 
     #[test]

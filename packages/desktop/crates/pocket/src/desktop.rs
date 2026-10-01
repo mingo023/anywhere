@@ -17,6 +17,7 @@ use crate::explorer::preview::PreviewState;
 use crate::git_ui::changes::ChangesState;
 use crate::git_ui::diff::DiffState;
 use crate::inbox::InboxState;
+use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, new_session};
 use crate::palette::PaletteState;
 use crate::sidebar::SidebarState;
@@ -73,6 +74,7 @@ pub struct Desktop {
     pub(crate) preview: PreviewState,
     pub(crate) new_form: new_session::NewForm,
     pub(crate) repo_form: add_project::RepoForm,
+    pub(crate) pair: PairPhone,
     pub(crate) capturing: bool,
     pub(crate) geometry: Geometry,
     pub(crate) _subs: Vec<Subscription>,
@@ -142,6 +144,7 @@ impl Desktop {
             preview,
             new_form,
             repo_form,
+            pair: PairPhone::default(),
             capturing: false,
             geometry,
             _subs,
@@ -275,6 +278,7 @@ impl Desktop {
     pub(crate) fn close_menus(&mut self) -> bool {
         let open = self.terminal.tab_menu || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu;
         (self.terminal.tab_menu, self.row_menu, self.changes.commit_menu, self.changes.menu) = (false, None, false, false);
+        self.sidebar.menu_at = None;
         open
     }
 
@@ -309,7 +313,8 @@ impl Desktop {
 
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {
         let text = if self.project.is_none() { "Add a project to begin." } else { "Pick a session, or start a new one." };
-        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(
+        let observe = self.agents.observe_only();
+        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).when(observe, |d| d.child(chrome::observe_banner())).child(
             div()
                 .flex_1()
                 .flex()
@@ -320,7 +325,7 @@ impl Desktop {
                 .text_size(px(14.))
                 .text_color(TEXT_3)
                 .child(text)
-                .when(self.project.is_some(), |d| {
+                .when(self.project.is_some() && !observe, |d| {
                     d.child(
                         ui::button("blank-new", ui::Variant::Primary, Some("sparkle"), "New session")
                             .child(ui::button_kbd("⌘N"))

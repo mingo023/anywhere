@@ -64,9 +64,16 @@ func printDevices(w io.Writer, list []devices.Device, now time.Time) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tNAME\tPLATFORM\tLAST SEEN")
 	for _, d := range list {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.ID[:min(8, len(d.ID))], d.Name, cmp.Or(d.Platform, "-"), ago(d.LastSeenAt, now))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.ID[:min(8, len(d.ID))], d.Name, cmp.Or(d.Platform, "-"), ago(d.LastSeenAt, now)+graceNote(d))
 	}
 	tw.Flush()
+}
+
+func graceNote(d devices.Device) string {
+	if !d.Legacy || d.GraceEndsAt == 0 {
+		return ""
+	}
+	return " · grace ends " + time.UnixMilli(d.GraceEndsAt).Format(time.DateOnly)
 }
 
 func ago(ms int64, now time.Time) string {

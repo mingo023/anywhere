@@ -12,6 +12,13 @@
     "maxSeq": 3,
     "providerSessionId": "s1",
     "createdAt": 1,
-    "updatedAt": 2
+    "updatedAt": 2,
+    "project": "pocket",
+    "worktree": "pocket",
+    "mainWorktree": true,
+    "branch": "main",
+    "tokensUsed": 48000,
+    "contextWindow": 1000000,
+    "origin": "desktop"
   }
 }

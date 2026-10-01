@@ -548,6 +548,9 @@ impl Desktop {
     }
 
     pub fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.agents.observe_only() {
+            return;
+        }
         let text = self.diff.input.read(cx).value().trim().to_string();
         let (Some(target), Some(path), Some(lines)) = (self.comment_target(), self.diff.file.clone(), self.diff.pick.label(&self.diff.lines)) else { return };
         if text.is_empty() {

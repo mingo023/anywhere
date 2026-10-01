@@ -1,4 +1,5 @@
 pub(crate) mod column;
+mod host;
 mod panel;
 pub(crate) mod rail;
 mod row_menu;
@@ -66,13 +67,15 @@ struct DragProject {
 
 pub struct SidebarState {
     pub(crate) search: Entity<InputState>,
+    /// Where a right-click opened the row menu; `None` drops it under its `···` button.
+    pub(crate) menu_at: Option<Point<Pixels>>,
 }
 
 impl SidebarState {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
-        (Self { search }, subs)
+        (Self { search, menu_at: None }, subs)
     }
 }
 
@@ -150,6 +153,7 @@ impl Desktop {
             .child(header)
             .child(body)
             .children(self.usage_card())
+            .children(self.host_lines(cx))
             .child(foot);
         self.resizable(aside, Column::Projects, cx)
     }

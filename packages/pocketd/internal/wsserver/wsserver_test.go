@@ -296,6 +296,21 @@ func TestPromptAcksAndReachesDriver(t *testing.T) {
 	}
 }
 
+type resumingDriver struct{ fakeDriver }
+
+func (*resumingDriver) Prompt(string) error { return agent.ErrResuming }
+
+func TestAPromptToAResumingAgentSaysAgentResuming(t *testing.T) {
+	reg, _, p := setup(t)
+	p.hello()
+	a, _ := reg.Get("a1")
+	a.SetDriver(&resumingDriver{})
+	p.send(`{"type":"agent.prompt","id":"p","agentId":"a1","text":"hi"}`)
+	if m := p.recv(); m["type"] != "error" || m["code"] != proto.CodeAgentResuming || m["message"] != "This session is still resuming" || m["id"] != "p" {
+		t.Fatalf("%v", m)
+	}
+}
+
 func TestStreamsAndPagesTimeline(t *testing.T) {
 	reg, _, p := setup(t)
 	p.hello()
@@ -707,5 +722,26 @@ func TestSeenAndAnswerAreRecorded(t *testing.T) {
 	}
 	if want := []string{"seen a1 device ", "answer a1 device allow"}; !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("%q", kinds)
+	}
+}
+
+func TestProjectListAnswersWithTheRegistry(t *testing.T) {
+	projects := []proto.Project{{Path: "/w", Name: "w", Worktrees: []proto.Worktree{{Name: "w", Path: "/w", Branch: "main", IsMain: true}}}}
+	_, _, p := setup(t, func(s *Server) { s.Projects = func() []proto.Project { return projects } })
+	p.hello()
+	p.send(`{"type":"project.list","id":"p"}`)
+	m := p.recv()
+	got, _ := json.Marshal(m["projects"])
+	if m["type"] != "project.list" || m["id"] != "p" || string(got) != `[{"name":"w","path":"/w","worktrees":[{"branch":"main","isMain":true,"name":"w","path":"/w"}]}]` {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestAnEmptyRegistryListsNoProjects(t *testing.T) {
+	_, _, p := setup(t, func(s *Server) { s.Projects = func() []proto.Project { return nil } })
+	p.hello()
+	p.send(`{"type":"project.list","id":"p"}`)
+	if m := p.recv(); m["type"] != "project.list" || m["projects"] == nil || len(m["projects"].([]any)) != 0 {
+		t.Fatalf("%v", m)
 	}
 }

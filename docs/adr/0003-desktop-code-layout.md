@@ -33,4 +33,4 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `git_ui` | `changes` panel and commit, `diff` view and comments |
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview |
 | `inbox`, `palette` | their screens |
-| `modals` | overlays: new session, add project, confirm, more |
+| `modals` | overlays: new session, add project, confirm, more, pair phone |

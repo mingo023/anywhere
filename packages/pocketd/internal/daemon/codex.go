@@ -94,10 +94,11 @@ func (w *codexSock) ThreadStatus(id, typ string, flags []string) {
 	case typ == "active":
 		pr.a.Working()
 	case typ == "idle":
-		pr.a.TurnEnded(false)
+		w.d.turnEnded(pr, false)
 	case typ == "systemError":
-		pr.a.TurnEnded(true)
+		w.d.turnEnded(pr, true)
 	}
+	w.d.resumed(pr, id)
 }
 
 func (w *codexSock) ThreadClosed(id string) {

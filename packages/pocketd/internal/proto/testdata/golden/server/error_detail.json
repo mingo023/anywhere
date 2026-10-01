@@ -1,0 +1,7 @@
+{
+  "type": "error",
+  "id": "create-r1",
+  "message": "Setup exited 1",
+  "code": "spawn_failed",
+  "detail": "npm ERR! missing script: setup"
+}

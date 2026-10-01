@@ -48,7 +48,8 @@ func TestEventSchemaMatchesGolden(t *testing.T) {
 		{Kind: "answer", Agent: "a1", Principal: "device", Decision: "allow"},
 		{Kind: "prompt", Agent: "a1", Provider: "codex", Origin: "phone", Ack: "ok"},
 		{Kind: "create", Origin: "desktop", Provider: "claude", OK: no(), Code: "spawn_failed"},
-		{Kind: "restore", Agent: "a1", OK: yes(), MS: 1200},
+		{Kind: "restore", Agent: "a1", OK: yes(), MS: 1200, Outcome: "interrupted"},
+		{Kind: "restore", Agent: "a2", OK: no(), MS: 30000, Outcome: "failed", Reason: "resume_timeout"},
 		{Kind: "push", Agent: "a1", Alert: "needsYou", Acted: yes()},
 		{Kind: "refusal", Surface: "ops", Code: "scope_denied"},
 	} {

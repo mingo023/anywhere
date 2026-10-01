@@ -3,8 +3,10 @@ package terminal
 import (
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -160,5 +162,105 @@ func TestRootsMapEachTerminalPidToItsID(t *testing.T) {
 	s := spawn(t, m, "sleep 5")
 	if got := m.Roots(); len(got) != 1 || got[s.Pid()] != s.Info().ID {
 		t.Fatalf("roots = %v", got)
+	}
+}
+
+func TestTheOriginIsTakenOnce(t *testing.T) {
+	s, err := NewManager().Spawn(Spec{Cmd: "sleep", Args: []string{"5"}, Origin: "phone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	if first, second := s.TakeOrigin(), s.TakeOrigin(); first != "phone" || second != "" {
+		t.Fatalf("took %q then %q", first, second)
+	}
+}
+
+func pidIn(t *testing.T, path string) int {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		b, _ := os.ReadFile(path)
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+			return pid
+		}
+	}
+	t.Fatalf("no pid in %s", path)
+	return 0
+}
+
+func waitGone(t *testing.T, pid int) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if syscall.Kill(pid, 0) != nil {
+			return
+		}
+	}
+	t.Fatalf("pid %d still alive", pid)
+}
+
+func TestCloseKillsAChildOfAChild(t *testing.T) {
+	f := t.TempDir() + "/pid"
+	s := spawn(t, NewManager(), `nohup sh -c 'sleep 30 & echo $! > `+f+`; wait' >/dev/null 2>&1 & wait`)
+	pid := pidIn(t, f)
+	s.Close()
+	waitGone(t, pid)
+}
+
+func TestCloseKillsABackgroundJob(t *testing.T) {
+	f := t.TempDir() + "/pid"
+	s := spawn(t, NewManager(), `set -m; sleep 30 & echo $! > `+f+`; wait`)
+	pid := pidIn(t, f)
+	if pgid, _ := syscall.Getpgid(pid); pgid == s.Pid() {
+		t.Fatal("the job shares the shell's group; the test needs its own")
+	}
+	s.Close()
+	waitGone(t, pid)
+}
+
+func TestCloseEscalatesToSigkillAfterGrace(t *testing.T) {
+	old := CloseGrace
+	CloseGrace = 300 * time.Millisecond
+	t.Cleanup(func() { CloseGrace = old })
+	s := spawn(t, NewManager(), `trap '' TERM HUP; echo ready; while :; do sleep 1; done`)
+	waitScreen(t, s, "ready")
+	s.Close()
+	select {
+	case <-s.Done():
+		t.Fatal("ended before the grace ran out")
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case <-s.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("still running after the grace")
+	}
+}
+
+func TestCloseAllWaitsInParallel(t *testing.T) {
+	m := NewManager()
+	for range 3 {
+		s := spawn(t, m, `trap '' TERM HUP; echo ready; while :; do sleep 1; done`)
+		waitScreen(t, s, "ready")
+	}
+	start := time.Now()
+	m.CloseAll(300 * time.Millisecond)
+	if took := time.Since(start); took < 300*time.Millisecond || took > 900*time.Millisecond {
+		t.Fatalf("CloseAll took %v, want one grace, not three", took)
+	}
+	if len(m.List()) != 0 {
+		t.Fatalf("still listed: %v", m.List())
+	}
+}
+
+func TestSpawnKeepsTheGivenID(t *testing.T) {
+	m := NewManager()
+	s, err := m.Spawn(Spec{ID: "t-1", Cmd: "sh", Args: []string{"-c", "sleep 5"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	if s.Info().ID != "t-1" || m.Get("t-1") != s {
+		t.Fatalf("id = %q", s.Info().ID)
 	}
 }

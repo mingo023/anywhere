@@ -12,6 +12,17 @@ pub struct RepoConfig {
     pub worktrees: String,
     pub setup: String,
     pub copy: Vec<String>,
+    pub launch: LaunchPick,
+}
+
+/// The agent and access a Project's next session starts with. Full access is never stored.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
+#[serde(default)]
+pub struct LaunchPick {
+    pub provider: String,
+    pub model: String,
+    pub effort: String,
+    pub access: String,
 }
 
 /// Which status changes play a sound; a key missing from `desktop.json` reads as on.
@@ -117,8 +128,21 @@ impl Store {
     }
 }
 
+/// Replaces `path` in one rename, owner-only, so pocketd never reads half a file.
 pub fn write(path: &Path, raw: &[u8]) {
-    let _ = std::fs::write(path, raw);
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _held = WRITING.lock();
+    let _ = write_private(path, raw);
+}
+
+fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let tmp = path.with_extension("json.tmp");
+    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    f.write_all(raw)?;
+    std::fs::rename(&tmp, path)
 }
 
 #[cfg(test)]
@@ -132,7 +156,8 @@ mod tests {
         let mut s = Store::load(&dir);
         s.projects.push("/w".into());
         s.collapsed.insert("/w".into());
-        s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], ..Default::default() });
+        let launch = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: "edits".into() };
+        s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], launch, ..Default::default() });
         s.window = Some(WindowGeometry { display: Some("D1".into()), x: 40., y: 60., width: 1200., height: 800. });
         s.layout = Layout::Compact;
         s.widths = ColumnWidths { projects: Some(260.), sessions: None };
@@ -188,5 +213,54 @@ mod tests {
         std::fs::write(dir.join("desktop.json"), r#"{"sounds":{"done":false}}"#).unwrap();
         assert_eq!(Store::load(&dir).sounds, Sounds { needs_you: true, done: false, failed: true });
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn save_writes_desktop_json_owner_only_and_leaves_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("pocket-store-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = Store::load(&dir);
+        s.projects.push("/w".into());
+        s.save();
+        assert_eq!(mode(&dir.join("desktop.json")), 0o600);
+        assert!(!dir.join("desktop.json.tmp").exists());
+        assert_eq!(Store::load(&dir).projects, ["/w"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_makes_a_shared_desktop_json_and_a_stale_temp_file_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("pocket-store-shared-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["desktop.json", "desktop.json.tmp"] {
+            std::fs::write(dir.join(name), "{}").unwrap();
+            std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        Store::load(&dir).save();
+        assert_eq!(mode(&dir.join("desktop.json")), 0o600);
+        assert!(!dir.join("desktop.json.tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_old_desktop_json_loads_with_empty_launch_picks() {
+        let old: Store = serde_json::from_str(r#"{"projects":["/w"],"repos":{"/w":{"name":"w","color":0,"base":"main","worktrees":"","setup":"make","copy":[".env"]}}}"#).unwrap();
+        assert_eq!(old.repos["/w"].launch, LaunchPick::default());
+        let picked = RepoConfig { launch: LaunchPick { provider: "codex".into(), access: "auto".into(), ..Default::default() }, ..Default::default() };
+        assert!(serde_json::to_string(&picked).unwrap().contains(r#""launch":{"provider":"codex","model":"","effort":"","access":"auto"}"#));
+    }
+
+    #[test]
+    fn a_launch_pick_saved_before_model_and_effort_loads_with_them_empty() {
+        let old: RepoConfig = serde_json::from_str(r#"{"launch":{"provider":"codex","access":"auto"}}"#).unwrap();
+        assert_eq!(old.launch, LaunchPick { provider: "codex".into(), model: String::new(), effort: String::new(), access: "auto".into() });
     }
 }

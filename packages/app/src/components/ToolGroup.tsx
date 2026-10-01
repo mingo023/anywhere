@@ -14,6 +14,7 @@ import {
   Target,
   Terminal,
 } from "../icons";
+import { groupOpen, toolSummary } from "../tools";
 import { DiffStat, DiffView } from "./DiffView";
 
 type Glyph = (props: IconProps) => React.JSX.Element;
@@ -72,15 +73,14 @@ function Row({ call }: { call: ToolCall }) {
   );
 }
 
-export function ToolGroup({ calls }: { calls: readonly ToolCall[] }) {
-  const [open, setOpen] = useState(true);
-  const total = calls.reduce((sum, call) => sum + (call.durationMs ?? 0), 0);
-  const label = `${calls.length} action${calls.length === 1 ? "" : "s"}${total ? ` · ${Math.round(total / 1000)}s` : ""}`;
+export function ToolGroup({ calls, live }: { calls: readonly ToolCall[]; live: boolean }) {
+  const [override, setOverride] = useState<boolean>();
+  const open = groupOpen(calls, live, override);
 
   return (
     <View style={styles.card}>
-      <Pressable style={styles.header} onPress={() => setOpen((v) => !v)}>
-        <Text style={styles.headerText}>{label}</Text>
+      <Pressable style={styles.header} onPress={() => setOverride(!open)}>
+        <Text style={styles.headerText}>{toolSummary(calls)}</Text>
         {open ? <ChevronDown size={16} color={d.muted} /> : <ChevronRight size={16} color={d.muted} />}
       </Pressable>
       {open ? calls.map((call) => <Row key={call.toolUseId} call={call} />) : null}

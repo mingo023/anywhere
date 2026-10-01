@@ -21,6 +21,8 @@ pub enum Side {
 
 pub use store::Layout;
 
+const SEAM: f32 = 20.;
+
 /// A sidebar column whose right edge the user drags.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Column {
@@ -35,6 +37,8 @@ pub enum Overlay {
     AddRepo,
     More,
     Confirm,
+    PairPhone,
+    PhoneAccess,
 }
 
 #[derive(Clone)]
@@ -42,6 +46,7 @@ pub enum Confirm {
     RemoveProject(String),
     DeleteWorktree { project: String, tree: String, branch: String, dirty: usize },
     Discard(Vec<String>),
+    CloseSession(String),
     CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },
     Paste { pane: String, text: String },
 }
@@ -51,6 +56,7 @@ pub enum Confirm {
 pub enum RowMenu {
     Project(String),
     Tree { project: String, tree: String },
+    Session(String),
 }
 
 pub fn id(s: String) -> ElementId {
@@ -90,8 +96,21 @@ pub fn doc_bar(crumbs: Vec<String>, meta: Vec<AnyElement>, right: impl IntoEleme
         .child(div().ml_auto().flex().flex_none().items_center().gap(px(8.)).child(right))
 }
 
+pub fn observe_banner() -> Div {
+    div()
+        .h(px(28.))
+        .px(px(24.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .text_size(px(12.5))
+        .text_color(WAITING_TEXT)
+        .bg(WAITING_BG)
+        .child("Observe only — pocketd is managed elsewhere")
+}
+
 pub fn empty(text: impl Into<SharedString>) -> Div {
-    div().p(px(16.)).text_size(px(13.5)).text_color(TEXT_3).child(text.into())
+    div().p(px(16.)).text_size(px(13.5)).text_color(TEXT_2).child(text.into())
 }
 
 impl Desktop {
@@ -121,23 +140,39 @@ impl Desktop {
         self.widths[col as usize].unwrap_or(fallback)
     }
 
-    /// Lets the user drag `d`'s right edge to resize `col`.
+    /// Lets the user drag `d`'s right edge to resize `col`, or double-click it to reset.
     pub fn resizable(&self, d: Div, col: Column, cx: &mut Context<Self>) -> Div {
+        // The deferred handle paints above overlays, so it would steal their clicks.
+        if self.overlay.is_some() {
+            return d;
+        }
+        let line = div().absolute().top_0().bottom_0().left(px(SEAM / 2.)).w(px(1.)).group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
         // Occludes so the press starts a resize, not the drag area's window move.
         let handle = div()
             .id(("resize-column", col as usize))
+            .group("seam")
             .absolute()
             .top_0()
             .bottom_0()
-            .right_0()
-            .w(px(5.))
+            .right(px(-SEAM / 2.))
+            .w(px(SEAM))
             .occlude()
             .cursor_col_resize()
+            .child(line)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                    if e.click_count == 2 {
+                        this.reset_width(col, cx);
+                    }
+                }),
+            )
             .on_drag(col, |_, _, _, cx| {
                 cx.stop_propagation();
                 cx.new(|_| EmptyView)
             });
-        d.relative().child(handle).on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Column>, _, cx| {
+        // Deferred so the handle straddles the edge: `column()` clips its children.
+        d.relative().child(deferred(handle)).on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Column>, _, cx| {
             if *e.drag(cx) == col {
                 this.drag_edge(col, f32::from(e.event.position.x - e.bounds.left()), cx);
             }
@@ -150,6 +185,12 @@ impl Desktop {
             Column::Sessions => (280., 600.),
         };
         self.widths[col as usize] = Some(width.clamp(min, max));
+        self.save_soon(cx);
+        cx.notify();
+    }
+
+    fn reset_width(&mut self, col: Column, cx: &mut Context<Self>) {
+        self.widths[col as usize] = None;
         self.save_soon(cx);
         cx.notify();
     }

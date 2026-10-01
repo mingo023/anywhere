@@ -16,6 +16,7 @@ import (
 	"pocketd/internal/broker"
 	"pocketd/internal/hub"
 	"pocketd/internal/ops"
+	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
@@ -23,7 +24,8 @@ import (
 
 func newDaemon(t *testing.T) *Daemon {
 	h := hub.New()
-	d := &Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(h), Broker: broker.New(h), Home: t.TempDir(), Exe: "/bin/true"}
+	d := &Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(h), Broker: broker.New(h), Home: t.TempDir(), Exe: "/bin/true",
+		Registry: registry.New(filepath.Join(t.TempDir(), "desktop.json"))}
 	d.Terminals.OnInput = d.Input
 	return d
 }

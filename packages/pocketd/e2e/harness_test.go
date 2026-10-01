@@ -2,17 +2,25 @@ package e2e
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"pocketd/internal/ops"
+	"pocketd/internal/registry"
 )
 
 var binDir string
@@ -22,7 +30,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	for _, b := range [][2]string{{"pocketd", "../cmd/pocketd"}, {"fake/claude", "./fakeclaude"}, {"fake/codex", "./fakecodex"}} {
+	for _, b := range [][2]string{{"pocketd", "../cmd/pocketd"}, {"fake/claude", "./fakeclaude"}, {"fake/codex", "./fakecodex"}, {"redteam", "./redteam"}} {
 		out, err := exec.Command("go", "build", "-o", filepath.Join(dir, b[0]), b[1]).CombinedOutput()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build %s: %v\n%s", b[1], err, out)
@@ -43,7 +51,10 @@ type Harness struct {
 	Port      int
 	Token     string
 	Env       []string
+	Repo      string
 	log       *bytes.Buffer
+	cmd       *exec.Cmd
+	exited    chan struct{}
 }
 
 func freePort(t *testing.T) int {
@@ -57,7 +68,7 @@ func freePort(t *testing.T) int {
 
 // Start runs `pocketd serve` against a throwaway POCKET_HOME, with the fake
 // claude first on PATH.
-func Start(t *testing.T) *Harness {
+func Start(t *testing.T, opts ...func(*Harness)) *Harness {
 	t.Helper()
 	// Unix socket paths are capped at 104 bytes on macOS; t.TempDir() is too long.
 	home, err := os.MkdirTemp("/tmp", "pk")
@@ -78,21 +89,40 @@ func Start(t *testing.T) *Harness {
 		"POCKETD_SOCK="+h.Sock,
 		"CLAUDE_CONFIG_DIR="+h.ClaudeDir,
 		"PATH="+filepath.Join(binDir, "fake")+":"+os.Getenv("PATH"),
+		"POCKETD_RESTORE_SHELL=/bin/sh",
 	)
-	// Another process can take the free port before pocketd listens on it.
+	for _, opt := range opts {
+		opt(h)
+	}
+	h.up()
+	return h
+}
+
+// up starts pocketd, again if another process takes the free port before pocketd listens on it.
+func (h *Harness) up() {
+	h.t.Helper()
 	for try := 1; !h.serve(); try++ {
 		if try == 5 || !strings.Contains(h.log.String(), "address already in use") {
-			t.Fatal("pocketd exited")
+			h.t.Fatal("pocketd exited")
 		}
 	}
-	return h
+}
+
+// Restart stops pocketd with SIGTERM and starts it again on the same home.
+func (h *Harness) Restart() {
+	h.t.Helper()
+	if code := h.Stop(syscall.SIGTERM); code != 0 {
+		h.t.Fatalf("pocketd exited %d", code)
+	}
+	h.up()
 }
 
 // serve starts pocketd on a free port and reports whether it came up.
 func (h *Harness) serve() bool {
 	log := &bytes.Buffer{}
 	h.Port, h.log = freePort(h.t), log
-	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback"}`, h.Token, h.Port)
+	// resumeAgents is off: a resumed agent would run from the login shell's PATH, where the real claude is.
+	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback","restore":{"resumeAgents":false}}`, h.Token, h.Port)
 	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
 		h.t.Fatal(err)
 	}
@@ -107,6 +137,7 @@ func (h *Harness) serve() bool {
 		cmd.Wait()
 		close(exited)
 	}()
+	h.cmd, h.exited = cmd, exited
 	h.t.Cleanup(func() {
 		cmd.Process.Kill()
 		<-exited
@@ -132,6 +163,18 @@ func (h *Harness) serve() bool {
 	default:
 		return true
 	}
+}
+
+// Stop sends sig to pocketd and returns its exit code.
+func (h *Harness) Stop(sig os.Signal) int {
+	h.t.Helper()
+	h.cmd.Process.Signal(sig)
+	select {
+	case <-h.exited:
+	case <-time.After(10 * time.Second):
+		h.t.Fatal("pocketd did not exit")
+	}
+	return h.cmd.ProcessState.ExitCode()
 }
 
 // pocketd runs the CLI with env and returns its combined output and exit code.
@@ -227,4 +270,73 @@ func (h *Harness) WaitScreen(id, want string) {
 	h.eventually(fmt.Sprintf("screen to show %q", want), func() bool {
 		return strings.Contains(h.Screen(id), want)
 	})
+}
+
+// launchReady gives pocketd's login shell the fake agents and a Project that
+// Claude trusts, with setup as its Repo's setup. It drops
+// CLAUDE_CODE_SANDBOXED, which a test run inside Claude Code inherits and
+// which makes every folder trusted.
+func launchReady(setup string) func(*Harness) {
+	return func(h *Harness) {
+		h.Env = slices.DeleteFunc(h.Env, func(kv string) bool { return strings.HasPrefix(kv, "CLAUDE_CODE_SANDBOXED=") })
+		fake := filepath.Join(binDir, "fake")
+		sh := fmt.Sprintf("export PATH='%s':$PATH\nexport CLAUDE_CONFIG_DIR='%s'\n", fake, h.ClaudeDir)
+		fish := fmt.Sprintf("set -gx PATH '%s' $PATH\nset -gx CLAUDE_CONFIG_DIR '%s'\n", fake, h.ClaudeDir)
+		os.MkdirAll(filepath.Join(h.Home, ".config", "fish"), 0o755)
+		for name, body := range map[string]string{".zshenv": sh, ".bash_profile": sh, ".profile": sh, ".config/fish/config.fish": fish} {
+			if err := os.WriteFile(filepath.Join(h.Home, name), []byte(body), 0o644); err != nil {
+				h.t.Fatal(err)
+			}
+		}
+		repo := filepath.Join(h.Home, "repo")
+		os.MkdirAll(repo, 0o755)
+		repo, _ = filepath.EvalSymlinks(repo)
+		for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "-q", "--allow-empty", "-m", "init"}} {
+			cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=e2e", "-c", "user.email=e2e@x", "-c", "commit.gpgsign=false"}, args...)...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				h.t.Fatalf("git %v: %s", args, out)
+			}
+		}
+		h.Repo = repo
+		reg, _ := json.Marshal(registry.File{Projects: []string{repo}, Repos: map[string]registry.Repo{repo: {Worktrees: filepath.Join(h.Home, "wt"), Setup: setup}}})
+		os.WriteFile(filepath.Join(h.Home, "desktop.json"), reg, 0o600)
+		os.MkdirAll(h.ClaudeDir, 0o755)
+		os.WriteFile(filepath.Join(h.ClaudeDir, ".claude.json"), []byte(`{"projects":{"`+repo+`":{"hasTrustDialogAccepted":true}}}`), 0o600)
+	}
+}
+
+// Owner opens the desktop's channel: the unix socket, no token (E03).
+func (h *Harness) Owner() *Phone {
+	h.t.Helper()
+	unix := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", h.Sock)
+	}}}
+	ws, _, err := websocket.Dial(context.Background(), "ws://localhost/", &websocket.DialOptions{HTTPClient: unix})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.t.Cleanup(func() { ws.CloseNow() })
+	p := &Phone{t: h.t, ws: ws}
+	p.Send(map[string]any{"type": "hello", "id": "h", "clientId": "e2e-desktop", "protocolVersion": 3})
+	p.WaitFor("hello.ok", func(m Message) bool { return m.Type == "hello.ok" })
+	return p
+}
+
+// Paired pairs a new phone (E02) and says hello with caps. No caps is sent
+// as [], since E02's hello refuses a null list.
+func (h *Harness) Paired(caps ...string) *Phone {
+	h.t.Helper()
+	if caps == nil {
+		caps = []string{}
+	}
+	owner := h.Ops()
+	owner.Send(ops.Msg{Op: "pair.begin", Text: fmt.Sprintf("127.0.0.1:%d", h.Port)})
+	begin, _ := owner.Recv()
+	p := h.Dial()
+	p.Send(map[string]any{"type": "pair", "id": "p", "code": begin.Pair.Code, "name": "iPhone", "platform": "ios", "protocol": map[string]any{"min": 3, "max": 3}})
+	paired := p.WaitFor("pair.ok", func(m Message) bool { return m.Type == "pair.ok" })
+	p = h.Dial()
+	p.Send(map[string]any{"type": "hello", "id": "h", "token": paired.Token, "clientId": "e2e", "protocolVersion": 3, "caps": caps})
+	p.WaitFor("hello.ok", func(m Message) bool { return m.Type == "hello.ok" })
+	return p
 }

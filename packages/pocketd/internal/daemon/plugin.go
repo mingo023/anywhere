@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"pocketd/internal/proc"
 )
 
 var hookEvents = map[string]string{
@@ -73,10 +76,11 @@ func (d *Daemon) Env(env []string, terminalID string) []string {
 					plugins = append(plugins, dir)
 				}
 			}
-		case "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "POCKETD_SOCK", "POCKETD_PTY":
+		case "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "POCKETD_SOCK", "POCKETD_PTY", proc.Marker:
 		default:
 			out = append(out, kv)
 		}
 	}
-	return append(out, "CLAUDE_CODE_PLUGIN_DIRS="+strings.Join(append(plugins, d.Plugin), ":"), "POCKETD_SOCK="+d.Sock, "POCKETD_PTY="+terminalID)
+	return append(out, "CLAUDE_CODE_PLUGIN_DIRS="+strings.Join(append(plugins, d.Plugin), ":"), "POCKETD_SOCK="+d.Sock, "POCKETD_PTY="+terminalID,
+		proc.Marker+"="+strconv.Itoa(os.Getpid()))
 }

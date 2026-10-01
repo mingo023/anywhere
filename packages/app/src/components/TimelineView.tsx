@@ -80,7 +80,7 @@ function Working({ startedAt, model, waiting, compacting }: Pending) {
   }, [pulse]);
 
   const label = waiting
-    ? "Waiting for approval"
+    ? "Needs you"
     : compacting
       ? `Compacting context ${elapsed(ms)}`
       : [`Working ${elapsed(ms)}`, model?.replace(/^claude-/, "")].filter(Boolean).join(" · ");
@@ -138,14 +138,18 @@ function Result({ item }: { item: Extract<TimelineItem, { kind: "result" }> }) {
   );
 }
 
-function Compacted({ trigger }: Extract<TimelineItem, { kind: "compact" }>) {
+function Divider({ text }: { text: string }) {
   return (
     <View style={styles.compactRow}>
       <View style={styles.rule} />
-      <Text style={styles.compactText}>{trigger === "auto" ? "Auto-compacted" : "Context compacted"}</Text>
+      <Text style={styles.compactText}>{text}</Text>
       <View style={styles.rule} />
     </View>
   );
+}
+
+function Compacted({ trigger }: Extract<TimelineItem, { kind: "compact" }>) {
+  return <Divider text={trigger === "auto" ? "Auto-compacted" : "Context compacted"} />;
 }
 
 function Item({ item }: { item: Item }) {
@@ -176,11 +180,12 @@ const BOTTOM_SLACK = 32;
 type Props = {
   items: readonly TimelineItem[];
   pending?: Pending;
+  notice?: string;
   insetTop: number;
   insetBottom: number;
 };
 
-export function TimelineView({ items, pending, insetTop, insetBottom }: Props) {
+export function TimelineView({ items, pending, notice, insetTop, insetBottom }: Props) {
   const rows = useMemo(() => toRows(items), [items]);
   const list = useRef<FlatList<Row>>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -212,9 +217,15 @@ export function TimelineView({ items, pending, insetTop, insetBottom }: Props) {
         ref={list}
         data={rows}
         keyExtractor={(row) => row.key}
-        renderItem={({ item }) => (item.kind === "group" ? <ToolGroup calls={item.calls} /> : <Item item={item.item} />)}
+        renderItem={({ item, index }) =>
+          item.kind === "group" ? (
+            <ToolGroup calls={item.calls} live={!!pending && index === rows.length - 1} />
+          ) : (
+            <Item item={item.item} />
+          )
+        }
         contentContainerStyle={[styles.content, { paddingTop: insetTop + 18, paddingBottom: insetBottom + 10 }]}
-        ListFooterComponent={pending ? <Working {...pending} /> : null}
+        ListFooterComponent={pending ? <Working {...pending} /> : notice ? <Divider text={notice} /> : null}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"

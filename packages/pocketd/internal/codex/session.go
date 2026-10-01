@@ -3,6 +3,8 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,7 @@ import (
 type Sink interface {
 	Apply(timeline.Event)
 	SetTitle(string)
+	SetTokens(used, window int64)
 }
 
 // Session follows one thread: it maps app-server items to timeline events
@@ -67,6 +70,18 @@ type turn struct {
 
 var ResumeRetry = 500 * time.Millisecond
 
+// MaxTurnPages caps how many turns/list pages a resume reads before it
+// replays what it has.
+var MaxTurnPages = 50
+
+type resumed struct {
+	Thread struct {
+		Name  *string `json:"name"`
+		Turns []turn  `json:"turns"`
+	} `json:"thread"`
+	TurnsBackwardsCursor *string `json:"turnsBackwardsCursor"`
+}
+
 // Open subscribes to a thread and replays its history. Resume fails until the
 // thread has its first turn, so it retries until ctx ends.
 func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker) (*Session, error) {
@@ -82,7 +97,10 @@ func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *bro
 	for {
 		res, err := c.Call(ctx, "thread/resume", map[string]any{"threadId": threadID})
 		if err == nil {
-			s.replay(res)
+			var r resumed
+			json.Unmarshal(res, &r)
+			s.hydrate(ctx, threadID, &r)
+			s.replay(r)
 			return s, nil
 		}
 		select {
@@ -94,14 +112,37 @@ func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *bro
 	}
 }
 
-func (s *Session) replay(res json.RawMessage) {
-	var r struct {
-		Thread struct {
-			Name  *string `json:"name"`
-			Turns []turn  `json:"turns"`
-		} `json:"thread"`
+// hydrate puts the turns a paginated resume left out before r's own, oldest
+// first. A page includes the turn its cursor names; r's copy of it wins.
+func (s *Session) hydrate(ctx context.Context, threadID string, r *resumed) {
+	cursor := r.TurnsBackwardsCursor
+	var older []turn
+	for page := 0; cursor != nil; page++ {
+		if page == MaxTurnPages {
+			log.Printf("codex %s: history stops after %d pages", threadID, page)
+			break
+		}
+		res, err := s.c.Call(ctx, "thread/turns/list", map[string]any{"threadId": threadID, "cursor": *cursor, "sortDirection": "desc", "itemsView": "full"})
+		if err != nil {
+			log.Printf("codex %s: turns/list: %v", threadID, err)
+			break
+		}
+		var p struct {
+			Data       []turn  `json:"data"`
+			NextCursor *string `json:"nextCursor"`
+		}
+		json.Unmarshal(res, &p)
+		older = append(older, p.Data...)
+		cursor = p.NextCursor
 	}
-	json.Unmarshal(res, &r)
+	slices.Reverse(older)
+	for _, t := range r.Thread.Turns {
+		older = slices.DeleteFunc(older, func(o turn) bool { return o.ID == t.ID })
+	}
+	r.Thread.Turns = append(older, r.Thread.Turns...)
+}
+
+func (s *Session) replay(r resumed) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if r.Thread.Name != nil {
@@ -144,6 +185,12 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 		Delta      string          `json:"delta"`
 		ThreadName *string         `json:"threadName"`
 		RequestID  json.RawMessage `json:"requestId"`
+		TokenUsage struct {
+			Last struct {
+				TotalTokens int64 `json:"totalTokens"`
+			} `json:"last"`
+			ModelContextWindow int64 `json:"modelContextWindow"`
+		} `json:"tokenUsage"`
 	}
 	if json.Unmarshal(params, &p) != nil {
 		return
@@ -163,6 +210,8 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 			if p.ThreadName != nil {
 				s.sink.SetTitle(*p.ThreadName)
 			}
+		case "thread/tokenUsage/updated":
+			s.sink.SetTokens(p.TokenUsage.Last.TotalTokens, p.TokenUsage.ModelContextWindow)
 		case "serverRequest/resolved":
 			s.broker.Dismiss(s.key(p.RequestID), "allow")
 		}

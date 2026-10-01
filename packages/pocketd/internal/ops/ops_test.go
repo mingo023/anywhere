@@ -141,6 +141,10 @@ func TestErrorReplies(t *testing.T) {
 	if m := recv(t, c, "error"); m.Error != "hooks unsupported" {
 		t.Fatalf("hook: %q", m.Error)
 	}
+	c.Send(Msg{Op: "config-set", Key: "phone.maxAccess", Text: "auto"})
+	if m := recv(t, c, "error"); m.Error != "config unsupported" {
+		t.Fatalf("config-set: %q", m.Error)
+	}
 	c.Send(Msg{Op: "spawn", Cmd: "nope"})
 	if m := recv(t, c, "error"); m.Error != "no such command" {
 		t.Fatalf("spawn: %q", m.Error)

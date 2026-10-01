@@ -214,6 +214,7 @@ impl Desktop {
             worktrees: f.draft.worktrees.clone(),
             setup: f.setup.read(cx).value().trim().to_string(),
             copy: f.draft.copy.clone(),
+            launch: self.store.repos.get(&path).map(|r| r.launch.clone()).unwrap_or_default(),
         };
         if f.draft.source == Source::Local {
             return self.add_repo(path, cfg, window, cx);

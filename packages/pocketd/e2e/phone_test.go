@@ -50,11 +50,18 @@ type Message struct {
 			Command string `json:"command"`
 		} `json:"detail"`
 	} `json:"request"`
-	RequestID string `json:"requestId"`
-	Decision  string `json:"decision"`
-	DeviceID  string `json:"deviceId"`
-	Token     string `json:"token"`
-	Raw       string `json:"-"`
+	RequestID      string `json:"requestId"`
+	Decision       string `json:"decision"`
+	TerminalID     string `json:"terminalId"`
+	Cwd            string `json:"cwd"`
+	Setup          bool   `json:"setup"`
+	Code           string `json:"code"`
+	Detail         string `json:"detail"`
+	MaxAccess      string `json:"maxAccess"`
+	PhoneMaxAccess string `json:"phoneMaxAccess"`
+	DeviceID       string `json:"deviceId"`
+	Token          string `json:"token"`
+	Raw            string `json:"-"`
 }
 
 func (h *Harness) Phone() *Phone {

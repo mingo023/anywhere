@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"c2","requestId":"r2","spec":{"project":"/Users/me/pocket","checkout":{"new":{"name":"calm-otter","base":"main","copy":true,"setup":false}},"provider":"codex","access":"ask","plan":false}}

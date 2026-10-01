@@ -1,3 +1,4 @@
+pub(crate) mod context;
 pub(crate) mod cursor;
 pub(crate) mod pane;
 pub(crate) mod scroll;
@@ -7,7 +8,8 @@ pub(crate) mod tabs;
 
 use crate::actions::{CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, drag_area};
+use crate::desktop::chrome::{Confirm, Overlay, drag_area, observe_banner};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use scroll::{Wheel, WheelRows};
 use std::ops::Range;
@@ -219,6 +221,9 @@ impl Desktop {
 
     /// The one way input reaches a pane, so the view always returns to the prompt.
     pub(crate) fn send_input(&mut self, pane: &str, bytes: &[u8], cx: &mut Context<Self>) {
+        if self.agents.observe_only() {
+            return;
+        }
         self.terminal.blink_on = true;
         self.terminal.blink = None;
         if let Some(t) = self.terminals.sessions.term(pane) {
@@ -254,17 +259,21 @@ impl Desktop {
                 .child(ui::meta_diff(added, removed, 12.))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx)))
         });
-        let error = self.error.clone().map(|e| div().min_w_0().truncate().mr(px(6.)).text_size(px(12.5)).text_color(FAILED).child(e));
-        let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().children(error);
+        let error = self.error.clone().map(|e| div().min_w_0().truncate().mr(px(6.)).text_size(px(12.5)).text_color(FAILED_TEXT).child(e));
+        let ring = self.terminal.focused.as_deref().and_then(|t| self.summary(t)).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window));
+        let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().children(error).children(ring);
+        let observe = self.agents.observe_only();
         let right = div()
             .flex()
             .flex_none()
             .items_center()
             .gap(px(8.))
-            .child(ui::icon_group([
-                ui::group_button("split-right", "split-right").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))),
-                ui::group_button("split-down", "split-down").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))),
-            ]))
+            .when(!observe, |d| {
+                d.child(ui::icon_group([
+                    ui::group_button("split-right", "split-right").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))),
+                    ui::group_button("split-down", "split-down").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))),
+                ]))
+            })
             .child(ui::icon_group([
                 ui::group_button("session-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
             ]));
@@ -288,7 +297,7 @@ impl Desktop {
             Some(Tab::Doc(Doc::Diff(p))) if self.diff.file.as_ref() == Some(&p) => self.diff_view(cx),
             Some(Tab::Doc(_)) | None => div().flex_1(),
         };
-        div().flex_1().min_h_0().flex().flex_col().bg(SURFACE_SUNKEN).child(bar).child(body)
+        div().flex_1().min_h_0().flex().flex_col().bg(SURFACE_SUNKEN).child(bar).when(observe, |d| d.child(observe_banner())).child(body)
     }
 }
 

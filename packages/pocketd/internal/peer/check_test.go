@@ -20,10 +20,14 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 	pty := Principal{Kind: PTY, Pid: 2, Terminal: "t1", Scopes: PTYScopes}
 	for verb, want := range map[string][4]string{
 		"ws:agent.list":         {"", "", "", ""},
+		"ws:project.list":       {"", "", "", ""},
 		"ws:agent.prompt":       {"", "", "", "scope_denied"},
 		"ws:agent.close":        {"", "", "", "scope_denied"},
 		"ws:permission.resolve": {"", "", "", "scope_denied"},
 		"ws:pair.begin":         {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:agent.create":       {"", "", "scope_denied", "scope_denied"},
+		"ws:agent.providers":    {"", "", "", ""},
+		"ws:config.set":         {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:list":              {"", "", "", ""},
 		"ops:status":            {"", "", "", ""},
 		"ops:hook":              {"", "", "", ""},
@@ -32,6 +36,8 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ops:screen":            {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:input":             {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:pair.begin":        {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ops:launch-exit":       {"", "", "", ""},
+		"ops:config-set":        {"", "scope_denied", "scope_denied", "scope_denied"},
 	} {
 		for i, p := range []Principal{owner, phone, legacy, pty} {
 			if got := code(p.Check(verb, "", "")); got != want[i] {
