@@ -111,7 +111,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_comment(window, cx);
     d.close_overlay(window, cx);
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
-    (d.layout, d.panel, d.terminal.tab_menu) = (Layout::Sidebars, false, false);
+    (d.layout, d.widths, d.panel, d.terminal.tab_menu) = (Layout::Sidebars, [None; 2], false, false);
     (d.session, d.worktree, d.terminal.focused, d.diff.file, d.preview.file) = (None, None, None, None, None);
     d.workspaces.clear();
     d.set_appearance(WindowAppearance::Light, window, cx);

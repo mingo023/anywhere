@@ -19,12 +19,7 @@ pub enum Side {
     Changes,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Layout {
-    Sidebars,
-    Compact,
-    Focus,
-}
+pub use store::Layout;
 
 /// A sidebar column whose right edge the user drags.
 #[derive(Clone, Copy, PartialEq)]
@@ -117,6 +112,7 @@ impl Desktop {
                 Layout::Focus => Layout::Sidebars,
             };
         }
+        self.save_soon(cx);
         cx.notify();
     }
 
@@ -154,6 +150,7 @@ impl Desktop {
             Column::Sessions => (280., 600.),
         };
         self.widths[col as usize] = Some(width.clamp(min, max));
+        self.save_soon(cx);
         cx.notify();
     }
 

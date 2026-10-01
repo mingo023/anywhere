@@ -1,5 +1,6 @@
 pub(crate) mod alerts;
 pub(crate) mod chrome;
+pub(crate) mod geometry;
 pub(crate) mod dock;
 pub(crate) mod jump;
 pub(crate) mod project;
@@ -8,6 +9,7 @@ pub(crate) mod sounds;
 use crate::desktop::alerts::Alerts;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::desktop::dock::Badge;
+use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
 use crate::desktop::sounds::Chime;
 use crate::explorer::ExplorerState;
@@ -72,6 +74,7 @@ pub struct Desktop {
     pub(crate) new_form: new_session::NewForm,
     pub(crate) repo_form: add_project::RepoForm,
     pub(crate) capturing: bool,
+    pub(crate) geometry: Geometry,
     pub(crate) _subs: Vec<Subscription>,
 }
 
@@ -85,6 +88,7 @@ impl Desktop {
         let preview = PreviewState::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
+        let (geometry, geometry_subs) = Geometry::new(window, cx);
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
             cx.observe_window_activation(window, |_, _, cx| follow_reduce_motion(cx)),
@@ -97,6 +101,8 @@ impl Desktop {
         _subs.extend(changes_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
+        _subs.extend(geometry_subs);
+        let (layout, widths) = (store.layout, [store.widths.projects, store.widths.sessions]);
         Self {
             daemon,
             outbox,
@@ -109,8 +115,8 @@ impl Desktop {
             store,
             screen: Screen::Sessions,
             side: Side::Sessions,
-            layout: Layout::Sidebars,
-            widths: [None; 2],
+            layout,
+            widths,
             panel: false,
             session: None,
             workspaces: HashMap::new(),
@@ -137,6 +143,7 @@ impl Desktop {
             new_form,
             repo_form,
             capturing: false,
+            geometry,
             _subs,
         }
     }

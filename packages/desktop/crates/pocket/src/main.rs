@@ -13,6 +13,7 @@ mod terminal_view;
 mod terminals;
 mod util;
 
+use crate::desktop::geometry::{self, MIN_WINDOW};
 use crate::desktop::{Desktop, follow_reduce_motion};
 use daemon::Daemon;
 use futures::StreamExt;
@@ -35,9 +36,16 @@ fn main() {
         follow_reduce_motion(cx);
         cx.bind_keys(actions::bindings());
         cx.bind_keys(keys::bindings());
-        let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+        let primary = cx.primary_display().map(|d| d.id());
+        let mut displays = cx.displays();
+        displays.sort_by_key(|d| Some(d.id()) != primary);
+        let rects: Vec<_> = displays.iter().map(|d| (d.uuid().ok().map(|u| u.to_string()), d.bounds())).collect();
+        let capturing = capture.is_some();
+        let (display, bounds) = if capturing { geometry::restore(None, &[]) } else { geometry::restore(store.window.as_ref(), &rects) };
         let mut opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            display_id: displays.get(display).filter(|_| !capturing).map(|d| d.id()),
+            window_min_size: Some(MIN_WINDOW),
             titlebar: Some(TitlebarOptions {
                 title: Some("Coding Pocket".into()),
                 appears_transparent: true,

@@ -29,6 +29,32 @@ impl Default for Sounds {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Layout {
+    #[default]
+    Sidebars,
+    Compact,
+    Focus,
+}
+
+/// The window's last windowed rect; `x`/`y` are relative to the origin of the display `display` names.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct WindowGeometry {
+    pub display: Option<String>,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Dragged sidebar widths; `None` keeps the design's width.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+pub struct ColumnWidths {
+    pub projects: Option<f32>,
+    pub sessions: Option<f32>,
+}
+
 /// What the desktop remembers across launches, in `desktop.json` next to pocketd's socket.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 #[serde(default)]
@@ -38,6 +64,9 @@ pub struct Store {
     pub repos: BTreeMap<String, RepoConfig>,
     /// Project paths whose worktrees are hidden on the sidebar.
     pub collapsed: BTreeSet<String>,
+    pub window: Option<WindowGeometry>,
+    pub layout: Layout,
+    pub widths: ColumnWidths,
     pub sounds: Sounds,
     #[serde(skip)]
     path: PathBuf,
@@ -52,9 +81,14 @@ impl Store {
     }
 
     pub fn save(&self) {
-        if let Ok(raw) = serde_json::to_vec_pretty(self) {
-            let _ = std::fs::write(&self.path, raw);
+        if let Some((path, raw)) = self.encode() {
+            write(&path, &raw);
         }
+    }
+
+    /// The file and bytes `save` would write, for writing off the UI thread.
+    pub fn encode(&self) -> Option<(PathBuf, Vec<u8>)> {
+        serde_json::to_vec_pretty(self).ok().map(|raw| (self.path.clone(), raw))
     }
 
     pub fn add(&mut self, path: &str) {
@@ -83,6 +117,10 @@ impl Store {
     }
 }
 
+pub fn write(path: &Path, raw: &[u8]) {
+    let _ = std::fs::write(path, raw);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,9 +133,22 @@ mod tests {
         s.projects.push("/w".into());
         s.collapsed.insert("/w".into());
         s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], ..Default::default() });
+        s.window = Some(WindowGeometry { display: Some("D1".into()), x: 40., y: 60., width: 1200., height: 800. });
+        s.layout = Layout::Compact;
+        s.widths = ColumnWidths { projects: Some(260.), sessions: None };
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_old_desktop_json_loads_with_default_geometry() {
+        let dir = std::env::temp_dir().join(format!("pocket-store-old-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("desktop.json"), r#"{"projects":["/w"]}"#).unwrap();
+        let s = Store::load(&dir);
+        assert_eq!((s.projects.len(), &s.window, s.layout, s.widths), (1, &None, Layout::Sidebars, ColumnWidths::default()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
