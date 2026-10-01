@@ -11,9 +11,10 @@ import { ConnectScreen } from "./screens/ConnectScreen";
 import { AgentsScreen } from "./screens/AgentsScreen";
 import { ChatScreen } from "./screens/ChatScreen";
 import { PermissionSheet } from "./components/PermissionSheet";
+import { header, pending } from "./permissions";
 
 function Root() {
-  const { state, agents, permission, resolvePermission } = useSession();
+  const { state, agents, permissions, resolvePermission } = useSession();
   const [agentId, setAgentId] = useState<string>();
   const open = agents.some((a) => a.id === agentId) ? agentId : undefined;
 
@@ -26,7 +27,7 @@ function Root() {
           {state === "online" ? <AgentsScreen onOpen={setAgentId} /> : <ConnectScreen />}
         </SafeAreaView>
       )}
-      <PermissionSheet request={permission} onResolve={resolvePermission} />
+      <PermissionSheet request={pending(permissions)[0]} header={header(permissions)} onResolve={resolvePermission} />
     </>
   );
 }

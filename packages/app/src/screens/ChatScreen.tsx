@@ -8,6 +8,7 @@ import { ChevronLeft, GitBranch, Terminal } from "../icons";
 import { Glass } from "../components/Glass";
 import { TimelineView, type Pending } from "../components/TimelineView";
 import { Composer } from "../components/Composer";
+import { pending as openFor } from "../permissions";
 
 /** The composer floats over the list, so it has to ride the keyboard itself instead of relying on padding. */
 function useKeyboard() {
@@ -77,7 +78,7 @@ function diffTotals(items: readonly TimelineItem[]): { added: number; removed: n
 }
 
 export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () => void }) {
-  const { agents, timelines, permission, error, clearError, loadTimeline, view, prompt, compact, interrupt } =
+  const { agents, timelines, permissions, error, clearError, loadTimeline, view, prompt, compact, interrupt } =
     useSession();
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.id === agentId);
@@ -111,7 +112,7 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
   const pending: Pending | undefined =
     startedAt === null
       ? undefined
-      : { startedAt, model: agent?.model, waiting: permission?.agentId === agentId, compacting };
+      : { startedAt, model: agent?.model, waiting: openFor(permissions, agentId).length > 0, compacting };
 
   return (
     <View style={styles.root}>
@@ -172,7 +173,9 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
       >
         <Composer
           placeholder={`Message ${provider}…`}
-          busy={busy}
+          working={busy}
+          provider={agent?.provider ?? ""}
+          providerName={provider}
           paddingBottom={keyboard.height ? 12 : Math.max(insets.bottom, 30)}
           onSend={(text) => (isCompact(text) ? compact(agentId) : prompt(agentId, text))}
           onInterrupt={() => interrupt(agentId)}

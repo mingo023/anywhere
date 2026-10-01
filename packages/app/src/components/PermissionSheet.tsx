@@ -6,6 +6,8 @@ import { theme } from "../theme";
 
 type Props = {
   request?: PermissionRequest;
+  /** "Bash · 1 of 2"; the tool name when unset. */
+  header?: string;
   onResolve: (requestId: string, decision: "allow" | "deny", answer?: PermissionAnswer) => void;
 };
 
@@ -37,7 +39,7 @@ function choices(request: PermissionRequest): Choice[] {
   ];
 }
 
-export function PermissionSheet({ request, onResolve }: Props) {
+export function PermissionSheet({ request, header, onResolve }: Props) {
   const [feedback, setFeedback] = useState("");
   useEffect(() => setFeedback(""), [request?.requestId]);
 
@@ -51,7 +53,7 @@ export function PermissionSheet({ request, onResolve }: Props) {
       <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
         {request && (
           <View style={styles.sheet}>
-            <Text style={styles.title}>{request.toolName}</Text>
+            <Text style={styles.title}>{header ?? request.toolName}</Text>
             <View style={styles.detailBox}>
               <Text style={styles.detail}>{describe(request)}</Text>
               {request.detail.kind === "shell" && !!request.detail.description && (

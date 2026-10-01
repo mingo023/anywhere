@@ -3,17 +3,24 @@ import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { d, font } from "../design";
 import { ArrowUp, Mic, Plus, Stop } from "../icons";
 import { Glass } from "./Glass";
+import { composerAction, composerLabel, sendDisabled } from "../composer";
 
 type Props = {
   placeholder: string;
-  busy: boolean;
+  working: boolean;
+  /** Provider id, which picks the Queue label. */
+  provider: string;
+  providerName: string;
   paddingBottom: number;
   onSend: (text: string) => void;
   onInterrupt: () => void;
 };
 
-export function Composer({ placeholder, busy, paddingBottom, onSend, onInterrupt }: Props) {
+export function Composer({ placeholder, working, provider, providerName, paddingBottom, onSend, onInterrupt }: Props) {
   const [text, setText] = useState("");
+  const action = composerAction(working, text);
+  const label = composerLabel(action, provider);
+  const disabled = sendDisabled(working, text);
 
   const submit = () => {
     const trimmed = text.trim();
@@ -47,11 +54,14 @@ export function Composer({ placeholder, busy, paddingBottom, onSend, onInterrupt
         </Glass>
 
         <Pressable
-          style={styles.send}
-          accessibilityLabel={busy ? "Stop" : "Send"}
-          onPress={busy ? onInterrupt : submit}
+          style={[styles.send, disabled && styles.disabled]}
+          disabled={disabled}
+          accessibilityLabel={label}
+          accessibilityHint={label === "Queue" ? `Sends while ${providerName} works` : undefined}
+          accessibilityState={{ disabled }}
+          onPress={action === "stop" ? onInterrupt : submit}
         >
-          {busy ? <Stop size={20} color={d.bg} /> : <ArrowUp size={20} color={d.bg} />}
+          {action === "stop" ? <Stop size={20} color={d.bg} /> : <ArrowUp size={20} color={d.bg} />}
         </Pressable>
       </View>
     </View>
@@ -89,4 +99,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  disabled: { opacity: 0.4 },
 });

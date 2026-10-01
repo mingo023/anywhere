@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { AgentSummary, PermissionRequest, ServerMessage, TimelineItem } from "@pocket/protocol";
+import type { AgentSummary, ServerMessage, TimelineItem } from "@pocket/protocol";
 import { PocketClient, type ConnectionState } from "./client";
 import { applyAgentUpdate } from "./agents";
+import { STALE, acked, add, empty, failed, resolved, sent, type Permissions } from "./permissions";
 
 type Timelines = Record<string, readonly TimelineItem[]>;
 
@@ -21,7 +22,7 @@ type Session = {
   state: ConnectionState;
   agents: readonly AgentSummary[];
   timelines: Timelines;
-  permission?: PermissionRequest;
+  permissions: Permissions;
   error?: string;
   connect: (host: string, token: string) => void;
   disconnect: () => void;
@@ -40,12 +41,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<ConnectionState>("idle");
   const [agents, setAgents] = useState<readonly AgentSummary[]>([]);
   const [timelines, setTimelines] = useState<Timelines>({});
-  const [permission, setPermission] = useState<PermissionRequest>();
+  const [permissions, setPermissions] = useState<Permissions>(empty);
   const [error, setError] = useState<string>();
   const clientRef = useRef<PocketClient>(null);
 
   const onMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
+      case "hello.ok":
+        setPermissions(empty);
+        break;
       case "agent.list":
         setAgents(msg.agents);
         break;
@@ -59,14 +63,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setTimelines((prev) => ({ ...prev, [msg.agentId]: msg.items }));
         break;
       case "permission.request":
-        setPermission(msg.request);
+        setPermissions((p) => add(p, msg.request));
         break;
       case "permission.resolved":
-        setPermission((prev) => (prev?.requestId === msg.requestId ? undefined : prev));
+        setPermissions((p) => resolved(p, msg.requestId));
         break;
-      case "error":
-        setError(msg.message);
+      case "ack":
+        setPermissions((p) => acked(p, msg.id));
         break;
+      case "error": {
+        const { id, message } = msg;
+        if (id !== undefined) setPermissions((p) => failed(p, id, message));
+        if (message !== STALE) setError(message);
+        break;
+      }
     }
   }, []);
 
@@ -95,7 +105,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       state,
       agents,
       timelines,
-      permission,
+      permissions,
       error,
       connect,
       disconnect: () => {
@@ -103,6 +113,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         clientRef.current = null;
         setAgents([]);
         setTimelines({});
+        setPermissions(empty);
         setError(undefined);
       },
       prompt: (agentId, text) => {
@@ -114,12 +125,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       loadTimeline,
       view,
       resolvePermission: (requestId, decision, answer) => {
-        setPermission(undefined);
-        clientRef.current?.send({ type: "permission.resolve", requestId, decision, ...answer });
+        const msgId = clientRef.current?.send({ type: "permission.resolve", requestId, decision, ...answer });
+        if (msgId !== undefined) setPermissions((p) => sent(p, msgId, requestId));
       },
       clearError: () => setError(undefined),
     }),
-    [state, agents, timelines, permission, error, connect, loadTimeline, view],
+    [state, agents, timelines, permissions, error, connect, loadTimeline, view],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
