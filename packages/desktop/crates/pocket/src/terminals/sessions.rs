@@ -65,6 +65,10 @@ impl Sessions {
         self.items.iter_mut().find(|s| s.info.id == id)
     }
 
+    pub fn term(&mut self, id: &str) -> Option<&mut Term> {
+        self.get_mut(id).and_then(|s| s.term.as_mut())
+    }
+
     pub fn remove(&mut self, id: &str) {
         self.items.retain(|s| s.info.id != id);
     }

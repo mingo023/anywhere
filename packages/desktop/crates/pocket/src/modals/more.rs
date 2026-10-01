@@ -20,10 +20,10 @@ impl Desktop {
                     this.close_overlay(window, cx);
                 })))
                 .child(menu_row("more-close", "x", "Close session", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.close_overlay(window, cx);
                     if let Some(id) = this.session.take() {
                         this.close_session(&id, cx);
                     }
-                    this.close_overlay(window, cx);
                 })));
         };
         let reveal = path.clone();

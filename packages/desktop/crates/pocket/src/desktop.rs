@@ -308,6 +308,7 @@ impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_code(window, cx);
         self.sync_view(window, cx);
+        self.sync_cursor(window, cx);
         let lead = match self.layout {
             Layout::Sidebars => Some(self.aside(cx)),
             Layout::Compact => Some(self.nav(cx)),

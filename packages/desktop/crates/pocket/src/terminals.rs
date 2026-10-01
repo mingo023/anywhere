@@ -1,3 +1,4 @@
+pub(crate) mod close;
 pub(crate) mod sessions;
 
 use crate::desktop::Desktop;
@@ -6,6 +7,8 @@ use daemon::{Info, Msg};
 use gpui_kit::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::Duration;
+use workspace::Tab;
 
 pub(crate) enum Intent {
     Tab(String),
@@ -13,18 +16,29 @@ pub(crate) enum Intent {
     Setup(String),
 }
 
+/// What a pane's measured size asks of pocketd.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Fit {
+    Now,
+    /// The pane is being resized; send the size once it settles.
+    Later,
+    Same,
+}
+
 pub struct Terminals {
     pub(crate) sessions: Sessions,
     pub(crate) intents: VecDeque<Intent>,
     pub(crate) closed: HashSet<String>,
     pub(crate) sized: HashMap<String, (u16, u16)>,
+    pending: HashMap<String, (u16, u16)>,
+    settle: Option<Task<()>>,
     /// Terminal → worktree while the terminal runs the worktree's setup before its agent.
     pub(crate) setups: HashMap<String, String>,
 }
 
 impl Terminals {
     pub fn new() -> Self {
-        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), setups: HashMap::new() }
+        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new() }
     }
 
     /// Adopts pocketd's terminal list, minus the ones closed here; returns the ids that still need an attach.
@@ -61,6 +75,7 @@ impl Terminals {
         self.sessions.remove(id);
         self.closed.insert(id.to_string());
         self.sized.remove(id);
+        self.pending.remove(id);
         self.setups.remove(id);
         running
     }
@@ -72,6 +87,25 @@ impl Terminals {
         }
         self.sized.insert(id.to_string(), (cols, rows));
         true
+    }
+
+    /// A pane's first size goes out at once so it starts at the right width; later ones wait, so a window drag reflows the program once.
+    pub(crate) fn fit(&mut self, id: &str, cols: u16, rows: u16) -> Fit {
+        let size = (cols, rows);
+        if self.pending.get(id).or(self.sized.get(id)) == Some(&size) {
+            return Fit::Same;
+        }
+        if !self.sized.contains_key(id) {
+            return if self.resize(id, cols, rows) { Fit::Now } else { Fit::Same };
+        }
+        self.pending.insert(id.to_string(), size);
+        Fit::Later
+    }
+
+    /// Takes the sizes that settled and returns the ones pocketd must apply.
+    pub(crate) fn settled(&mut self) -> Vec<(String, u16, u16)> {
+        let pending = std::mem::take(&mut self.pending);
+        pending.into_iter().filter(|(id, (cols, rows))| self.resize(id, *cols, *rows)).map(|(id, (cols, rows))| (id, cols, rows)).collect()
     }
 
     /// An error without a terminal id is pocketd refusing the oldest spawn.
@@ -166,11 +200,20 @@ impl Desktop {
     pub fn close_session(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(a) = self.agents.get(id) else { return };
         let term = a.terminal_id.clone();
-        self.close_pane(&term, cx);
+        if !self.ask_close(vec![term.clone()], cx) {
+            self.close_pane(&term, cx);
+        }
     }
 
     pub fn close_tab(&mut self, i: usize, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
+        let ids = match self.workspace(&tree).tabs.get(i) {
+            Some(Tab::Term(rows)) => rows.concat(),
+            _ => Vec::new(),
+        };
+        if self.ask_close(ids, cx) {
+            return;
+        }
         for id in self.workspace(&tree).close_tab(i) {
             self.close_pane(&id, cx);
         }
@@ -178,20 +221,32 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn fit(&mut self, id: &str, cols: u16, rows: u16) {
+    pub fn fit(&mut self, id: &str, cols: u16, rows: u16, cx: &mut Context<Self>) {
         // Sessions are shared with the user's own window; a capture must not reflow them.
         if self.capturing {
             return;
         }
-        if self.terminals.resize(id, cols, rows) {
-            self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
+        match self.terminals.fit(id, cols, rows) {
+            Fit::Now => self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows})),
+            Fit::Later => {
+                self.terminals.settle = Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(Duration::from_millis(80)).await;
+                    this.update(cx, |d, _| {
+                        for (id, cols, rows) in d.terminals.settled() {
+                            d.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
+                        }
+                    })
+                    .ok();
+                }));
+            }
+            Fit::Same => {}
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Intent, Terminals};
+    use super::{Fit, Intent, Terminals};
     use daemon::{Info, Msg};
     use std::collections::HashMap;
 
@@ -324,5 +379,36 @@ mod tests {
         t.listed(vec![info("a")]);
         t.exited(&exit("a", 1));
         assert_eq!((t.resize("a", 80, 24), t.resize("x", 80, 24)), (false, false));
+    }
+
+    #[test]
+    fn a_first_size_goes_at_once_and_later_ones_wait_to_settle() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a")]);
+        assert_eq!(t.fit("a", 80, 24), Fit::Now);
+        assert_eq!(t.fit("a", 80, 24), Fit::Same);
+        assert_eq!((t.fit("a", 90, 24), t.fit("a", 100, 24), t.fit("a", 100, 24)), (Fit::Later, Fit::Later, Fit::Same));
+        assert_eq!(t.settled(), vec![("a".to_string(), 100, 24)]);
+        assert_eq!(t.settled(), vec![]);
+    }
+
+    #[test]
+    fn a_resize_that_returns_to_the_sent_size_sends_nothing() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a")]);
+        t.fit("a", 80, 24);
+        t.fit("a", 90, 24);
+        assert_eq!(t.fit("a", 80, 24), Fit::Later);
+        assert_eq!(t.settled(), vec![]);
+    }
+
+    #[test]
+    fn a_closed_terminal_drops_its_pending_size() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a")]);
+        t.fit("a", 80, 24);
+        t.fit("a", 90, 24);
+        t.close("a");
+        assert_eq!(t.settled(), vec![]);
     }
 }

@@ -1,6 +1,7 @@
 use crate::actions::{ToggleFocus, ToggleRail};
 use crate::desktop::Desktop;
 use crate::status::Status;
+use crate::terminals::close::Busy;
 use gpui_kit::*;
 use theme::*;
 use ui::{self, State, icon_button_sized};
@@ -46,6 +47,8 @@ pub enum Confirm {
     RemoveProject(String),
     DeleteWorktree { project: String, tree: String, branch: String, dirty: usize },
     Discard(Vec<String>),
+    CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },
+    Paste { pane: String, text: String },
 }
 
 /// The sidebar row whose `⋯` menu is open.

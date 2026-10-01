@@ -1,15 +1,33 @@
 use crate::desktop::Desktop;
-use term::{Cell, Frame, Pos, Selection, WIDE_SPACER_TAIL};
-use theme::{MONO, ON_TEXT, SELECTION, TEXT};
+use term::{Cell, Frame, Pointer, WIDE_SPACER_TAIL};
+use theme::{MONO, ON_TEXT, SELECTION, SYMBOLS, TEXT};
 use gpui_kit::*;
+use std::sync::Arc;
 
 pub struct Metrics {
     pub size: f32,
     pub line: f32,
 }
 
-pub const MAIN: Metrics = Metrics { size: 13., line: 22. };
-pub const SMALL: Metrics = Metrics { size: 12., line: 19. };
+pub const MAIN: Metrics = Metrics { size: 13., line: 17. };
+pub const SMALL: Metrics = Metrics { size: 12., line: 15. };
+
+/// Geist Mono with ligatures off: a merged `--` would collapse two cells into one.
+pub(crate) fn term_font() -> Font {
+    let off = ["liga", "calt", "dlig"].map(|tag| (tag.to_string(), 0)).to_vec();
+    Font { features: FontFeatures(Arc::new(off)), ..font(MONO) }
+}
+
+/// The advance of one terminal cell at `size`.
+pub fn cell_width(window: &Window, size: f32) -> Option<f32> {
+    let ts = window.text_system();
+    Some(f32::from(ts.advance(ts.resolve_font(&term_font()), px(size), 'm').ok()?.width))
+}
+
+/// Where the grid's first row sits: whatever `bounds` has left under a whole row is split above and below it.
+pub fn grid_top(bounds: Bounds<Pixels>, rows: u16, line: f32) -> Pixels {
+    bounds.origin.y + (bounds.size.height - px(rows as f32 * line)) / 2.
+}
 
 /// Sizes the pane's session to its bounds, selects its text with the mouse over the `grid` on screen,
 /// and, for the focused pane, takes the IME input.
@@ -20,11 +38,10 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
     canvas(
         move |bounds, window, cx| {
             let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-            let ts = window.text_system();
-            let cell = f32::from(ts.advance(ts.resolve_font(&font(MONO)), px(size), 'm').ok()?.width);
+            let cell = cell_width(window, size)?;
             let cols = (f32::from(bounds.size.width) / cell).max(1.) as u16;
             let rows = (f32::from(bounds.size.height) / line).max(1.) as u16;
-            fit_view.update(cx, |d, _| d.fit(&id, cols, rows));
+            fit_view.update(cx, |d, cx| d.fit(&id, cols, rows, cx));
             Some((hitbox, cell))
         },
         move |bounds, prepaint, window, cx| {
@@ -33,12 +50,14 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
             }
             let (Some((hitbox, cell)), Some((cols, rows))) = (prepaint, grid) else { return };
             window.set_cursor_style(CursorStyle::IBeam, &hitbox);
-            let at = move |p: Point<Pixels>| grid_point(f32::from(p.x - bounds.origin.x), f32::from(bounds.bottom() - p.y), cell, line, cols, rows);
-            let (down, moved, up) = (view.clone(), view.clone(), view);
-            let (down_pane, moved_pane) = (pane.clone(), pane);
+            let top = grid_top(bounds, rows, line);
+            let at = move |p: Point<Pixels>| Pointer::at(f32::from(p.x - bounds.origin.x), f32::from(p.y - top), cell, line, cols, rows);
+            let (down, moved, up, wheel) = (view.clone(), view.clone(), view.clone(), view);
+            let (down_pane, moved_pane, wheel_pane) = (pane.clone(), pane.clone(), pane);
+            let wheel_hitbox = hitbox.clone();
             window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && e.button == MouseButton::Left && hitbox.is_hovered(window) {
-                    down.update(cx, |d, cx| d.select_start(&down_pane, at(e.position), cx));
+                    down.update(cx, |d, cx| d.select_start(&down_pane, at(e.position), e.click_count, e.modifiers.shift, line, cx));
                 }
             });
             window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
@@ -51,17 +70,20 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                     up.update(cx, |d, _| d.select_release());
                 }
             });
+            window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble && wheel_hitbox.is_hovered(window) {
+                    wheel.update(cx, |d, cx| d.wheel(&wheel_pane, e, line, cx));
+                }
+            });
         },
     )
     .absolute()
     .size_full()
 }
 
-/// The cell boundary nearest a point `x` from the left and `from_bottom` up, on a grid drawn bottom-aligned.
-fn grid_point(x: f32, from_bottom: f32, cell: f32, line: f32, cols: u16, rows: u16) -> Pos {
-    let col = (x / cell).round().clamp(0., cols as f32) as u16;
-    let up = (from_bottom / line).floor().max(0.) as u16;
-    Pos { row: rows.saturating_sub(1).saturating_sub(up), col }
+/// Nerd Font icons, as shell prompts draw them, sit in the Private Use Areas that Geist Mono leaves empty.
+fn is_icon(ch: char) -> bool {
+    matches!(ch, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{FFFFD}')
 }
 
 fn color([r, g, b]: [u8; 3]) -> Hsla {
@@ -69,28 +91,29 @@ fn color([r, g, b]: [u8; 3]) -> Hsla {
 }
 
 /// Paints with the card's ink and paper where the program leaves colors at their defaults.
-pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics, selection: Option<Selection>) -> Div {
+pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
     let ink: Hsla = TEXT.into();
     let paper: Hsla = ON_TEXT.into();
+    let base = term_font();
     let mut rows = Vec::new();
-    for (y, row) in cells.chunks(f.cols.max(1) as usize).enumerate() {
+    for row in cells.chunks(f.cols.max(1) as usize) {
         let mut text = String::new();
         let mut runs: Vec<TextRun> = Vec::new();
-        for (x, c) in row.iter().enumerate() {
+        for c in row {
             if c.wide == WIDE_SPACER_TAIL {
                 continue;
             }
             let mut fg = if c.has_fg == 1 { color(c.fg) } else { ink };
             let mut bg = (c.has_bg == 1).then(|| color(c.bg));
-            if c.inverse == 1 || (f.cursor_visible == 1 && x == f.cursor_x as usize && y == f.cursor_y as usize) {
+            if c.inverse == 1 {
                 (fg, bg) = (bg.unwrap_or(paper), Some(fg));
             }
-            if selection.is_some_and(|s| s.contains(x as u16, y as u16)) {
+            if c.selected == 1 {
                 bg = Some(SELECTION.into());
             }
             let ch = c.ch();
             text.push(ch);
-            let mut fnt = font(MONO);
+            let mut fnt = if is_icon(ch) { font(SYMBOLS) } else { base.clone() };
             if c.bold == 1 {
                 fnt.weight = FontWeight::SEMIBOLD;
             }
@@ -119,24 +142,32 @@ pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics, selection: Option<Selectio
         }
         rows.push(div().h(px(m.line)).flex_none().whitespace_nowrap().child(StyledText::new(text).with_runs(runs)));
     }
-    div().size_full().flex().flex_col().justify_end().children(rows)
+    div().size_full().flex().flex_col().justify_center().children(rows)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::grid_point;
-    use term::Pos;
+    use super::{grid_top, is_icon, term_font};
+    use gpui_kit::{Bounds, point, px, size};
 
     #[test]
-    fn a_point_takes_the_nearest_boundary_on_the_row_it_is_in_counting_up_from_the_bottom() {
-        assert_eq!(grid_point(0.4 * 8., 1., 8., 20., 10, 5), Pos { row: 4, col: 0 });
-        assert_eq!(grid_point(0.6 * 8., 1., 8., 20., 10, 5), Pos { row: 4, col: 1 });
-        assert_eq!(grid_point(3. * 8., 20. * 2.5, 8., 20., 10, 5), Pos { row: 2, col: 3 });
+    fn leftover_height_is_split_above_and_below_the_grid() {
+        let bounds = Bounds::new(point(px(0.), px(100.)), size(px(80.), px(110.)));
+        assert_eq!(grid_top(bounds, 6, 17.), px(104.));
     }
 
     #[test]
-    fn a_point_off_the_grid_keeps_to_its_edge() {
-        assert_eq!(grid_point(-5., -3., 8., 20., 10, 5), Pos { row: 4, col: 0 });
-        assert_eq!(grid_point(500., 500., 8., 20., 10, 5), Pos { row: 0, col: 10 });
+    fn nerd_font_icons_are_told_apart_from_text() {
+        assert!(is_icon('\u{E0A0}') && is_icon('\u{F0001}'));
+        assert!(!is_icon('a') && !is_icon('世') && !is_icon('→'));
+    }
+
+    #[test]
+    fn terminal_font_turns_off_every_ligature_feature() {
+        let font = term_font();
+        let features = font.features.tag_value_list();
+        for tag in ["liga", "calt", "dlig"] {
+            assert!(features.contains(&(tag.to_string(), 0)), "{tag}");
+        }
     }
 }

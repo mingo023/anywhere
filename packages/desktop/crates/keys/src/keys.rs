@@ -11,6 +11,12 @@ pub fn key_bytes(k: &Keystroke, app_cursor: bool) -> Option<Vec<u8>> {
     let m = &k.modifiers;
     let cursor = |c: &str| format!("\x1b{}{c}", if app_cursor { 'O' } else { '[' });
     let seq = match k.key.as_str() {
+        "left" if m.alt => return Some(b"\x1bb".to_vec()),
+        "right" if m.alt => return Some(b"\x1bf".to_vec()),
+        "left" if m.platform => return Some(vec![0x01]),
+        "right" if m.platform => return Some(vec![0x05]),
+        "backspace" if m.platform => return Some(vec![0x15]),
+        _ if m.platform => return None,
         "enter" => "\r".into(),
         "backspace" => "\x7f".into(),
         "escape" => "\x1b".into(),
@@ -112,6 +118,30 @@ mod tests {
         assert_eq!(key_bytes(&k, false), None);
         assert_eq!(bytes("cmd-c"), None);
         assert_eq!(bytes("shift"), None);
+    }
+
+    #[test]
+    fn option_arrows_move_by_word() {
+        assert_eq!(bytes("alt-left"), Some(b"\x1bb".to_vec()));
+        assert_eq!(bytes("alt-right"), Some(b"\x1bf".to_vec()));
+    }
+
+    #[test]
+    fn command_arrows_go_to_line_start_and_end() {
+        assert_eq!(bytes("cmd-left"), Some(vec![0x01]));
+        assert_eq!(bytes("cmd-right"), Some(vec![0x05]));
+    }
+
+    #[test]
+    fn command_backspace_kills_the_line() {
+        assert_eq!(bytes("cmd-backspace"), Some(vec![0x15]));
+    }
+
+    #[test]
+    fn command_keys_never_reach_the_pty() {
+        for key in ["cmd-v", "cmd-a", "cmd-k", "cmd-up", "cmd-enter", "cmd-shift-t"] {
+            assert_eq!(bytes(key), None, "{key}");
+        }
     }
 
     actions!(test, [CycleFocus]);

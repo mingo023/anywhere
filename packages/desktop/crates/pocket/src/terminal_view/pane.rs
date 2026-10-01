@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::status;
+use crate::terminal_view::{cursor, scroll};
 use crate::terminal_view::surface::{self, Metrics};
 use crate::terminals::sessions::Session;
 use crate::util::basename;
@@ -76,6 +77,8 @@ impl Desktop {
             .track_focus(&self.terminal.focus)
             .on_key_down(cx.listener(Self::on_term_key))
             .on_action(cx.listener(Self::copy_selection))
+            .on_action(cx.listener(Self::select_all))
+            .on_action(cx.listener(Self::paste))
             .children(out)
     }
 
@@ -87,14 +90,24 @@ impl Desktop {
         let banner = self.summary(id).and_then(status::banner).map(|text| {
             div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
         });
-        let shown = self.terminal.selection.as_ref().and_then(|d| d.shown(id));
-        let (body, grid) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
+        let typing = focused && self.terminal.keyboard;
+        let blink_on = self.terminal.blink_on;
+        let (body, grid, scrolled, caret) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
             Some(t) => {
                 let (f, cells) = t.frame();
-                (surface::screen(&f, cells, m, shown), Some((f.cols, f.rows)))
+                if typing {
+                    self.terminal.cursor_blinks = f.cursor_visible == 1 && f.cursor_blink == 1;
+                }
+                let c = cursor::cursor(&f, typing, blink_on);
+                let caret = (focused || c.is_some()).then_some(((f.cursor_x, f.cursor_y), f.rows, c));
+                (surface::screen(&f, cells, m), Some((f.cols, f.rows)), f.at_bottom == 0, caret)
             }
-            None => (div().text_color(TEXT_3).child(if known { "Connecting…" } else { "This session is not running." }), None),
+            None => (div().text_color(TEXT_3).child(if known { "Connecting…" } else { "This session is not running." }), None, false, None),
         };
+        let caret = caret.map(|(at, rows, c)| {
+            let preedit = self.terminal.marked.clone().filter(|_| typing);
+            cursor::overlay(focused.then(|| cx.entity()), at, rows, c, preedit, m)
+        });
         let close_id = id.to_string();
         let header = n.map(|n| {
             div()
@@ -112,7 +125,9 @@ impl Desktop {
                 .child(div().flex_1().truncate().child(format!("{n} · {title}")))
                 .child(icon_button_sized(self::id(format!("close-{close_id}")), "x", 22., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
-                    this.close_pane(&close_id, cx);
+                    if !this.ask_close(vec![close_id.clone()], cx) {
+                        this.close_pane(&close_id, cx);
+                    }
                 })))
         });
         let focus_id = id.to_string();
@@ -121,7 +136,9 @@ impl Desktop {
             .size_full()
             .overflow_hidden()
             .child(surface::surface(cx.entity(), id.to_string(), m, grid, focused.then(|| self.terminal.focus.clone())))
-            .child(body);
+            .child(body)
+            .children(caret)
+            .children(scrolled.then(|| scroll::jump_pill(id, cx)));
         div()
             .flex_1()
             .min_w_0()
@@ -138,9 +155,8 @@ impl Desktop {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .pt(px(10.))
-                    .px(px(20.))
-                    .pb(px(14.))
+                    .py(px(2.))
+                    .px(px(4.))
                     .font_family(MONO)
                     .text_size(px(m.size))
                     .line_height(px(m.line))

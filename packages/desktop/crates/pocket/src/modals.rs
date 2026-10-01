@@ -24,7 +24,9 @@ impl Desktop {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = None;
-        window.focus(&self.root, cx);
+        if !self.terminal.focus.is_focused(window) {
+            window.focus(&self.root, cx);
+        }
         cx.notify();
     }
 

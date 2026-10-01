@@ -1,6 +1,6 @@
 use gpui_kit::*;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextWaiting, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste]);
 
 pub fn bindings() -> Vec<KeyBinding> {
     vec![
@@ -15,5 +15,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-,", ProjectSettings, None),
         KeyBinding::new("cmd-enter", OpenSession, None),
         KeyBinding::new("cmd-c", CopySelection, Some(keys::CONTEXT)),
+        KeyBinding::new("cmd-a", SelectAll, Some(keys::CONTEXT)),
+        KeyBinding::new("cmd-v", Paste, Some(keys::CONTEXT)),
     ]
 }

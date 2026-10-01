@@ -1,62 +1,73 @@
+pub(crate) mod cursor;
 pub(crate) mod pane;
+pub(crate) mod scroll;
 pub(crate) mod surface;
 pub(crate) mod tab_menu;
 pub(crate) mod tabs;
 
-use crate::actions::{CopySelection, NewTab};
+use crate::actions::{CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Overlay, drag_area};
+use crate::desktop::chrome::{Confirm, Overlay, drag_area};
 use gpui_kit::*;
+use scroll::{Wheel, WheelRows};
 use std::ops::Range;
-use term::{Pos, Selection};
+use std::time::Duration;
+use term::{Autoscroll, Pointer, Scroll};
 use theme::*;
 use workspace::{Doc, Tab};
 
 pub struct TerminalViewState {
     pub(crate) focus: FocusHandle,
     pub(crate) focused: Option<String>,
-    pub(crate) marked: Option<usize>,
+    /// The IME's uncommitted text, drawn at the cursor until it commits.
+    pub(crate) marked: Option<String>,
     pub(crate) tab_scroll: ScrollHandle,
     /// The worktree and tab last scrolled into view, so a tab is revealed once when it becomes active rather than every frame.
     pub(crate) tab_revealed: Option<(String, usize)>,
     pub(crate) tab_menu: bool,
     pub(crate) selection: Option<Drag>,
+    pub(crate) wheel: WheelRows,
+    pub(crate) autoscroll: Option<Task<()>>,
+    blink: Option<Task<()>>,
+    pub(crate) blink_on: bool,
+    /// Typing reaches the terminal: it holds keyboard focus and no overlay is open.
+    pub(crate) keyboard: bool,
+    /// Set by the focused pane as it draws, so the next frame knows whether its cursor should blink.
+    pub(crate) cursor_blinks: bool,
+    /// The focused pane's cursor cell on screen, where the IME puts its candidate window.
+    pub(crate) caret: Option<Bounds<Pixels>>,
 }
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false, selection: None }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false, selection: None, wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
     }
 }
 
-/// A mouse selection in one pane, `held` until the button that started it comes up.
+/// A mouse selection in one pane while its button is down; the selection itself lives in the pane's `Term`.
 pub struct Drag {
     pub pane: String,
-    selection: Selection,
-    held: bool,
+    at: Pointer,
+    line: f32,
+    /// Shift-clicked onto an existing selection, so moves drag its far end.
+    extend: bool,
 }
 
 impl Drag {
-    pub fn start(pane: &str, at: Pos) -> Self {
-        Self { pane: pane.to_string(), selection: Selection::at(at), held: true }
-    }
-
-    /// Moves the end being dragged, and says whether it moved.
-    pub fn extend(&mut self, pane: &str, at: Pos) -> bool {
-        let moved = self.held && self.pane == pane && self.selection.head != at;
+    /// Records where the mouse went, and says whether it moved the drag begun in `pane`.
+    pub fn follow(&mut self, pane: &str, at: Pointer) -> bool {
+        let moved = self.pane == pane && self.at != at;
         if moved {
-            self.selection.head = at;
+            self.at = at;
         }
         moved
     }
+}
 
-    pub fn release(&mut self) {
-        self.held = false;
-    }
-
-    pub fn shown(&self, pane: &str) -> Option<Selection> {
-        (self.pane == pane && !self.selection.is_empty()).then_some(self.selection)
-    }
+/// Rows per autoscroll tick: one, two or three as the mouse gets further past the edge.
+pub fn tick_rows(at: &Pointer, line: f32) -> usize {
+    let past = if at.y < 0. { -at.y } else { at.y - at.height as f64 };
+    (past / line as f64).ceil().clamp(1., 3.) as usize
 }
 
 impl Desktop {
@@ -66,29 +77,155 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn select_start(&mut self, pane: &str, at: Pos, cx: &mut Context<Self>) {
-        self.terminal.selection = Some(Drag::start(pane, at));
+    pub(crate) fn select_start(&mut self, pane: &str, at: Pointer, clicks: usize, shift: bool, line: f32, cx: &mut Context<Self>) {
+        let Some(t) = self.terminals.sessions.term(pane) else { return };
+        let extend = shift && t.extend(at);
+        if !extend {
+            t.press(at, clicks);
+        }
+        self.terminal.selection = Some(Drag { pane: pane.to_string(), at, line, extend });
         cx.notify();
     }
 
-    pub(crate) fn select_extend(&mut self, pane: &str, at: Pos, cx: &mut Context<Self>) {
-        if self.terminal.selection.as_mut().is_some_and(|d| d.extend(pane, at)) {
-            cx.notify();
+    pub(crate) fn select_extend(&mut self, pane: &str, at: Pointer, cx: &mut Context<Self>) {
+        let Some(d) = self.terminal.selection.as_mut() else { return };
+        if !d.follow(pane, at) {
+            return;
         }
+        let extend = d.extend;
+        let Some(t) = self.terminals.sessions.term(pane) else { return };
+        let edge = if extend {
+            t.extend(at);
+            Autoscroll::None
+        } else {
+            t.drag(at)
+        };
+        if edge != Autoscroll::None && self.terminal.autoscroll.is_none() {
+            self.terminal.autoscroll = Some(cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(24)).await;
+                    if !this.update(cx, |d, cx| d.autoscroll_tick(cx)).unwrap_or(false) {
+                        break;
+                    }
+                }
+            }));
+        }
+        cx.notify();
+    }
+
+    /// Moves one tick toward the edge the drag is held past; false once the drag is back inside the grid or over.
+    fn autoscroll_tick(&mut self, cx: &mut Context<Self>) -> bool {
+        let going = match &self.terminal.selection {
+            Some(d) => {
+                let (at, n) = (d.at, tick_rows(&d.at, d.line));
+                self.terminals.sessions.term(&d.pane).is_some_and(|t| (0..n).all(|_| t.autoscroll(at) != Autoscroll::None))
+            }
+            None => false,
+        };
+        if !going {
+            self.terminal.autoscroll = None;
+        }
+        cx.notify();
+        going
     }
 
     pub(crate) fn select_release(&mut self) {
-        if let Some(d) = &mut self.terminal.selection {
-            d.release();
+        self.terminal.autoscroll = None;
+        if let Some(d) = self.terminal.selection.take()
+            && let Some(t) = self.terminals.sessions.term(&d.pane)
+        {
+            t.release();
         }
     }
 
     pub(crate) fn copy_selection(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = &self.terminal.selection else { return };
-        let Some(selection) = d.shown(&d.pane) else { return };
-        let Some(t) = self.terminals.sessions.get_mut(&d.pane).and_then(|s| s.term.as_mut()) else { return };
-        let (f, cells) = t.frame();
-        cx.write_to_clipboard(ClipboardItem::new_string(selection.text(cells, f.cols)));
+        let Some(id) = &self.terminal.focused else { return };
+        let Some(text) = self.terminals.sessions.get(id).and_then(|s| s.term.as_ref()).and_then(|t| t.selection_text()) else { return };
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+    }
+
+    pub(crate) fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.terminal.focused.clone() else { return };
+        if let Some(t) = self.terminals.sessions.term(&id) {
+            t.select_all();
+            cx.notify();
+        }
+    }
+
+    /// Pastes at once when the pane brackets pastes or the text can't run anything; otherwise asks first.
+    pub(crate) fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(pane) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) else { return };
+        let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()).filter(|t| !t.is_empty()) else { return };
+        let Some(t) = self.terminals.sessions.term(&pane) else { return };
+        if t.mode(2004) || term::paste_is_safe(&text) {
+            self.paste_into(&pane, &text, cx);
+        } else {
+            self.confirm = Some(Confirm::Paste { pane, text });
+            self.overlay = Some(Overlay::Confirm);
+            cx.notify();
+        }
+    }
+
+    /// Re-reads bracketed mode, since the program may have changed it while the confirm was open.
+    pub(crate) fn paste_into(&mut self, pane: &str, text: &str, cx: &mut Context<Self>) {
+        let Some(bracketed) = self.terminals.sessions.term(pane).map(|t| t.mode(2004)) else { return };
+        self.send_input(pane, &term::paste_bytes(text, bracketed), cx);
+    }
+
+    pub(crate) fn wheel(&mut self, pane: &str, e: &ScrollWheelEvent, line: f32, cx: &mut Context<Self>) {
+        let rows = self.terminal.wheel.rows(pane, e.delta, e.touch_phase, line);
+        let Some(t) = self.terminals.sessions.term(pane).filter(|_| rows != 0) else { return };
+        match scroll::route(rows, e.modifiers.shift, t.alt_screen(), t.mode(1007)) {
+            Wheel::Viewport(d) => t.scroll(Scroll::Delta(d)),
+            Wheel::Arrows { up, n } => {
+                let bytes = scroll::arrows(up, n, t.app_cursor());
+                self.send_input(pane, &bytes, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn scroll_to_bottom(&mut self, pane: &str, cx: &mut Context<Self>) {
+        if let Some(t) = self.terminals.sessions.term(pane) {
+            t.scroll(Scroll::Bottom);
+            cx.notify();
+        }
+    }
+
+    /// Notes whether typing reaches the terminal, and keeps one blink timer running while the focused pane's cursor should blink.
+    pub(crate) fn sync_cursor(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.terminal.keyboard = self.terminal.focus.is_focused(window) && self.overlay.is_none();
+        let frame_blink = std::mem::take(&mut self.terminal.cursor_blinks) && self.terminal.keyboard;
+        let on = cursor::blinks(frame_blink, cx.reduce_motion(), window.is_window_active());
+        if on == self.terminal.blink.is_some() {
+            return;
+        }
+        self.terminal.blink_on = true;
+        self.terminal.blink = on.then(|| {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(530)).await;
+                    let toggled = this.update(cx, |d, cx| {
+                        d.terminal.blink_on = !d.terminal.blink_on;
+                        cx.notify();
+                    });
+                    if toggled.is_err() {
+                        break;
+                    }
+                }
+            })
+        });
+    }
+
+    /// The one way input reaches a pane, so the view always returns to the prompt.
+    pub(crate) fn send_input(&mut self, pane: &str, bytes: &[u8], cx: &mut Context<Self>) {
+        self.terminal.blink_on = true;
+        self.terminal.blink = None;
+        if let Some(t) = self.terminals.sessions.term(pane) {
+            t.select_none();
+        }
+        self.scroll_to_bottom(pane, cx);
+        self.daemon.input(pane, bytes);
     }
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
@@ -97,11 +234,11 @@ impl Desktop {
     }
 
     pub(crate) fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(id) = self.terminal.focused.clone() else { return };
+        let Some(id) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) else { return };
         let Some(s) = self.terminals.sessions.get(&id) else { return };
         let app_cursor = s.term.as_ref().is_some_and(|t| t.app_cursor());
         if let Some(bytes) = keys::key_bytes(&ev.keystroke, app_cursor) {
-            self.daemon.input(&id, &bytes);
+            self.send_input(&id, &bytes, cx);
             cx.stop_propagation();
         }
     }
@@ -166,17 +303,17 @@ impl EntityInputHandler for Desktop {
     }
 
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.terminal.marked.map(|len| 0..len)
+        self.terminal.marked.as_ref().map(|text| 0..text.encode_utf16().count())
     }
 
     fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
         self.terminal.marked = None;
     }
 
-    fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, _: &mut Context<Self>) {
+    fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
         self.terminal.marked = None;
-        if let Some(id) = &self.terminal.focused {
-            self.daemon.input(id, text.as_bytes());
+        if let Some(id) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) {
+            self.send_input(&id, text.as_bytes(), cx);
         }
     }
 
@@ -186,13 +323,14 @@ impl EntityInputHandler for Desktop {
         text: &str,
         _: Option<Range<usize>>,
         _: &mut Window,
-        _: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
-        self.terminal.marked = (!text.is_empty()).then(|| text.encode_utf16().count());
+        self.terminal.marked = (!text.is_empty() && self.overlay.is_none()).then(|| text.to_string());
+        cx.notify();
     }
 
     fn bounds_for_range(&mut self, _: Range<usize>, _: Bounds<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<Bounds<Pixels>> {
-        None
+        self.terminal.caret
     }
 
     fn character_index_for_point(&mut self, _: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
@@ -202,24 +340,26 @@ impl EntityInputHandler for Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::Drag;
-    use term::Pos;
+    use super::{Drag, tick_rows};
+    use term::Pointer;
 
-    fn at(row: u16, col: u16) -> Pos {
-        Pos { row, col }
+    fn at(row: u16, col: u16) -> Pointer {
+        Pointer::at(col as f32 * 8., row as f32 * 20. + 1., 8., 20., 10, 5)
     }
 
     #[test]
-    fn a_drag_selects_in_the_pane_it_started_in_until_released() {
-        let mut d = Drag::start("a", at(0, 1));
-        assert_eq!(d.shown("a"), None);
-        assert!(d.extend("a", at(0, 4)));
-        assert!(!d.extend("a", at(0, 4)));
-        assert!(!d.extend("b", at(1, 0)));
-        d.release();
-        assert!(!d.extend("a", at(2, 0)));
-        let s = d.shown("a").unwrap();
-        assert_eq!((s.anchor, s.head), (at(0, 1), at(0, 4)));
-        assert_eq!(d.shown("b"), None);
+    fn a_drag_follows_only_the_pane_it_started_in() {
+        let mut d = Drag { pane: "a".into(), at: at(0, 1), line: 20., extend: false };
+        assert!(d.follow("a", at(0, 4)));
+        assert!(!d.follow("a", at(0, 4)));
+        assert!(!d.follow("b", at(1, 0)));
+        assert_eq!(d.at, at(0, 4));
+    }
+
+    #[test]
+    fn autoscroll_speeds_up_with_distance_past_the_edge() {
+        let past = |y: f64| tick_rows(&Pointer { y, ..at(0, 0) }, 20.);
+        assert_eq!((past(0.5), past(-15.), past(-35.), past(-500.)), (1, 1, 2, 3));
+        assert_eq!((past(100. + 10.), past(100. + 45.)), (1, 3));
     }
 }

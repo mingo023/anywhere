@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock, atomic::{AtomicBool, Ordering}};
 
 pub const SANS: &str = ".SystemUIFont";
 pub const MONO: &str = "Geist Mono";
+pub const SYMBOLS: &str = "GeistMono Nerd Font Mono";
 
 static DARK: AtomicBool = AtomicBool::new(false);
 
@@ -80,6 +81,8 @@ pub const HAIRLINE: Token = Token::new(0x11111312, 0xebebeb12);
 pub const SEPARATOR: Token = Token::new(0x11111317, 0xebebeb14);
 pub const SEPARATOR_STRONG: Token = Token::new(0x1111131f, 0xebebeb24);
 pub const SELECTION: Token = Token::new(0x11111324, 0xebebeb33);
+/// Translucent so the character under a block cursor stays readable.
+pub const TERM_CURSOR: Token = Token::new(0x3030358c, 0xebebeb66);
 
 pub const ACCENT: Token = Token::fixed(0x5b5bd6ff);
 pub const ACCENT_BG: Token = Token::fixed(0x5b5bd61c);
@@ -199,7 +202,7 @@ pub fn spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) -> i
     })
 }
 
-pub const FONTS: [&[u8]; 8] = [
+pub const FONTS: [&[u8]; 9] = [
     include_bytes!("../assets/fonts/Geist-Regular.ttf"),
     include_bytes!("../assets/fonts/Geist-Medium.ttf"),
     include_bytes!("../assets/fonts/Geist-SemiBold.ttf"),
@@ -208,6 +211,7 @@ pub const FONTS: [&[u8]; 8] = [
     include_bytes!("../assets/fonts/GeistMono-Medium.ttf"),
     include_bytes!("../assets/fonts/GeistMono-SemiBold.ttf"),
     include_bytes!("../assets/fonts/GeistMono-Bold.ttf"),
+    include_bytes!("../assets/fonts/GeistMonoNerdFontMono-Regular.otf"),
 ];
 
 pub struct Assets;
