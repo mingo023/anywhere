@@ -1,6 +1,7 @@
 // Recreates a design scenario for `pocket-desktop --capture`: git repos under <dir>/home, and a fake
 // pocketd (unix socket + phone websocket) under <dir>/pocket. Usage: bun fixture.ts <scenario> <dir>
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 
 type Agent = {
@@ -113,6 +114,7 @@ const sessions = [
   ...children.map((c) => ({ id: c.id, cmd: c.argv[0], args: c.argv.slice(1), cwd: c.cwd })),
 ];
 
+const SCOPES = ["observe", "drive", "approve", "spawn", "owner"];
 const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: scenario.repos.map(repoPath), children: children.map((c) => [c.id, c.parent]), repos: {} }));
@@ -148,30 +150,30 @@ const screen = (id: string) => {
   return `${ESC}?25l` + [...Array(ROWS - body.length).fill(""), ...body].join("\r\n");
 };
 
-type Conn = { buf: string; out: string };
-const flush = (sock: { data: Conn; write(s: string): number }) => {
-  sock.data.out = sock.data.out.slice(sock.write(sock.data.out));
+const ops = (c: Socket, first: Buffer) => {
+  let buf = "";
+  const read = (raw: Buffer) => {
+    const lines = (buf + raw.toString()).split("\n");
+    buf = lines.pop()!;
+    for (const line of lines.filter(Boolean)) {
+      const op = JSON.parse(line);
+      const reply = (msg: object) => c.write(JSON.stringify(msg) + "\n");
+      if (op.op === "list") reply({ ev: "terminals", items: sessions });
+      if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
+    }
+  };
+  read(first);
+  c.on("data", read);
 };
-Bun.listen<Conn>({
-  unix: join(pocket, "pocketd.sock"),
-  socket: {
-    open(sock) {
-      sock.data = { buf: "", out: "" };
-    },
-    drain: flush,
-    data(sock, raw) {
-      const lines = (sock.data.buf + raw.toString()).split("\n");
-      sock.data.buf = lines.pop()!;
-      for (const line of lines.filter(Boolean)) {
-        const op = JSON.parse(line);
-        const reply = (msg: object) => (sock.data.out += JSON.stringify(msg) + "\n");
-        if (op.op === "list") reply({ ev: "terminals", items: sessions });
-        if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
-      }
-      flush(sock);
-    },
-  },
-});
+// pocketd serves the desktop's websocket and line JSON on one socket, told apart by the first byte.
+createServer((c) =>
+  c.once("data", (first: Buffer) => {
+    if (first[0] !== 0x47) return ops(c, first);
+    const ws = createConnection(port, "127.0.0.1");
+    ws.write(first);
+    c.pipe(ws).pipe(c);
+  }),
+).listen(join(pocket, "pocketd.sock"));
 
 Bun.serve({
   port,
@@ -180,6 +182,7 @@ Bun.serve({
     message(ws, raw) {
       const f = JSON.parse(raw.toString());
       if (f.type === "hello") {
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));

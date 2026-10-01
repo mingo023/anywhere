@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"pocketd/internal/claude"
+	"pocketd/internal/proc"
 )
 
 // claudeAt is the claude agent that pid is in terminal id, or nil for any
@@ -21,6 +22,30 @@ func (d *Daemon) claudeAt(id string, pid int) *presence {
 		return nil
 	}
 	return pr
+}
+
+// NearestClaude is the claude whose hook this is. A claude -p run by
+// Claude's Bash tool is nearer than the claude that ran it.
+func NearestClaude(chain []proc.Proc) int {
+	for _, p := range chain {
+		if Provider(p.Argv) == "claude" {
+			return p.Pid
+		}
+	}
+	return 0
+}
+
+// AskOpen reports whether the agent in terminal id waits on the user: a
+// permission hook is open, or it shows Needs you.
+func (d *Daemon) AskOpen(id string) bool {
+	pr := d.presentIn(id)
+	if pr == nil {
+		return false
+	}
+	pr.mu.Lock()
+	asking := len(pr.asks) > 0
+	pr.mu.Unlock()
+	return asking || pr.a.Summary().Status == "needsYou"
 }
 
 // Input clears a claude turn the user stops with Esc or Ctrl+C, as Claude

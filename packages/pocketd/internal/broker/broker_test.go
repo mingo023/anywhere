@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,15 +113,30 @@ func TestDenyAllForClosedAgent(t *testing.T) {
 	<-other
 }
 
+// newest returns the request in open that isn't in seen, and records it.
+func newest(t *testing.T, open []proto.PermissionRequest, seen map[string]bool) string {
+	t.Helper()
+	for _, r := range open {
+		if !seen[r.RequestID] {
+			seen[r.RequestID] = true
+			return r.RequestID
+		}
+	}
+	t.Fatal("no new request")
+	return ""
+}
+
 func TestOpenInCreationOrder(t *testing.T) {
 	b := New(hub.New())
 	var answers []<-chan string
+	var ids []string
+	seen := map[string]bool{}
 	for n := range 20 {
 		answers = append(answers, ask(b, context.Background(), "a1", strconv.Itoa(n)))
-		waitOpen(t, b, n+1)
+		ids = append(ids, newest(t, waitOpen(t, b, n+1), seen))
 	}
 	for n, req := range b.Open() {
-		if req.RequestID != "perm-"+strconv.Itoa(n+1) {
+		if req.RequestID != ids[n] {
 			t.Fatalf("%d: %s", n, req.RequestID)
 		}
 	}
@@ -130,17 +146,35 @@ func TestOpenInCreationOrder(t *testing.T) {
 	}
 }
 
+func TestRequestIDsCantBeGuessed(t *testing.T) {
+	b := New(hub.New())
+	first, second := ask(b, context.Background(), "a1", "k"), ask(b, context.Background(), "a1", "k")
+	open := waitOpen(t, b, 2)
+	for _, r := range open {
+		if len(r.RequestID) != 32 || strings.Trim(r.RequestID, "0123456789abcdef") != "" {
+			t.Fatalf("%q", r.RequestID)
+		}
+	}
+	if open[0].RequestID == open[1].RequestID {
+		t.Fatal("repeated id")
+	}
+	b.DenyAll("a1")
+	<-first
+	<-second
+}
+
 func TestDismissTakesOldestOfIdenticalRequests(t *testing.T) {
 	b := New(hub.New())
+	seen := map[string]bool{}
 	first := ask(b, context.Background(), "a1", "k")
-	waitOpen(t, b, 1)
+	newest(t, waitOpen(t, b, 1), seen)
 	second := ask(b, context.Background(), "a1", "k")
-	waitOpen(t, b, 2)
+	secondID := newest(t, waitOpen(t, b, 2), seen)
 	b.Dismiss("k", "allow")
 	if d := <-first; d != "" {
 		t.Fatalf("got %q", d)
 	}
-	if open := waitOpen(t, b, 1); open[0].RequestID != "perm-2" {
+	if open := waitOpen(t, b, 1); open[0].RequestID != secondID {
 		t.Fatal(open[0].RequestID)
 	}
 	b.DenyAll("a1")

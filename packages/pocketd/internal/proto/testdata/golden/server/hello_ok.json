@@ -3,5 +3,12 @@
   "id": "h1",
   "serverId": "mac",
   "hostname": "mac",
-  "protocolVersion": 3
+  "protocolVersion": 3,
+  "caps": [
+    "pair.v1"
+  ],
+  "protocol": {
+    "min": 3,
+    "max": 3
+  }
 }

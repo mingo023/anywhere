@@ -22,6 +22,7 @@ use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::time::Instant;
 use store::Store;
 use theme::*;
 use workspace::{Doc, Tab, Workspace};
@@ -271,6 +272,7 @@ impl Desktop {
 
     fn main_view(&mut self, cx: &mut Context<Self>) -> Div {
         let body = match (self.screen, self.side) {
+            _ if self.terminals.link.is_down() => self.link_page(cx),
             (Screen::Inbox, _) => self.inbox_detail(cx),
             _ => match self.cwd().filter(|t| !self.workspace(t).tabs.is_empty()) {
                 Some(tree) => self.session_page(&tree, cx),
@@ -278,6 +280,23 @@ impl Desktop {
             },
         };
         ui::page(div()).flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body)
+    }
+
+    fn link_page(&self, cx: &mut Context<Self>) -> Div {
+        let hint = self.terminals.link.hint(Instant::now());
+        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(6.))
+                .text_size(px(14.))
+                .text_color(TEXT_3)
+                .child("Starting Pocket's terminal service…")
+                .when(hint, |d| d.child("Not running? In Terminal:").child(div().font_family(MONO).child("pocketd daemon install"))),
+        )
     }
 
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {

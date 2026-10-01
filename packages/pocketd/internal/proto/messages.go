@@ -3,6 +3,7 @@ package proto
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"slices"
 )
 
@@ -21,6 +22,11 @@ type ClientMessage struct {
 	Option          string
 	Message         string
 	AgentIDs        []string
+	Caps            []string
+	Protocol        *Range
+	Code            string
+	Name            string
+	Platform        string
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -59,12 +65,31 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		}
 		return true
 	}
+	optionalList := func(key string, dst *[]string) bool {
+		_, has := fields[key]
+		return !has || stringList(key, dst)
+	}
+	optionalRange := func(key string, dst **Range) bool {
+		if _, has := fields[key]; !has {
+			return true
+		}
+		var r struct{ Min, Max *float64 }
+		if !get(key, &r) || r.Min == nil || r.Max == nil || *r.Min != math.Trunc(*r.Min) || *r.Max != math.Trunc(*r.Max) {
+			return false
+		}
+		*dst = &Range{int(*r.Min), int(*r.Max)}
+		return true
+	}
 	ok := get("type", &m.Type) && get("id", &m.ID)
 	switch {
 	case !ok:
 	case m.Type == "hello":
-		ok = get("token", &m.Token) && get("clientId", &m.ClientID) && get("protocolVersion", &m.ProtocolVersion)
-	case m.Type == "agent.list":
+		ok = optionalString("token", &m.Token) && get("clientId", &m.ClientID) && get("protocolVersion", &m.ProtocolVersion) &&
+			optionalList("caps", &m.Caps) && optionalRange("protocol", &m.Protocol)
+	case m.Type == "pair":
+		ok = get("code", &m.Code) && get("name", &m.Name) && get("platform", &m.Platform) &&
+			(m.Platform == "ios" || m.Platform == "android") && optionalRange("protocol", &m.Protocol)
+	case m.Type == "agent.list", m.Type == "pair.begin":
 	case m.Type == "agent.prompt":
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
 	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close":
@@ -87,16 +112,54 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 }
 
 type HelloOK struct {
-	Type            string `json:"type"`
-	ID              string `json:"id"`
-	ServerID        string `json:"serverId"`
-	Hostname        string `json:"hostname"`
-	ProtocolVersion int    `json:"protocolVersion"`
+	Type            string     `json:"type"`
+	ID              string     `json:"id"`
+	ServerID        string     `json:"serverId"`
+	Hostname        string     `json:"hostname"`
+	ProtocolVersion int        `json:"protocolVersion"`
+	Caps            []string   `json:"caps"`
+	Protocol        Range      `json:"protocol"`
+	Scopes          []string   `json:"scopes,omitempty"`
+	Host            *HostState `json:"host,omitempty"`
 }
 
-func NewHelloOK(id, hostname string) HelloOK {
-	return HelloOK{"hello.ok", id, hostname, hostname, Version}
+// NewHelloOK answers with the negotiated version and caps (see Negotiate) and this server's range.
+func NewHelloOK(id, hostname string, version int, caps []string) HelloOK {
+	return HelloOK{"hello.ok", id, hostname, hostname, version, caps, Range{MinVersion, MaxVersion}, nil, nil}
 }
+
+type PairOK struct {
+	Type     string `json:"type"`
+	ID       string `json:"id"`
+	DeviceID string `json:"deviceId"`
+	Token    string `json:"token"`
+}
+
+func NewPairOK(id, deviceID, token string) PairOK {
+	return PairOK{"pair.ok", id, deviceID, token}
+}
+
+// PairOffer answers the owner's pair.begin with the code a phone redeems.
+type PairOffer struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	URL       string `json:"url"`
+	Code      string `json:"code"`
+	ExpiresAt int64  `json:"expiresAt"`
+}
+
+func NewPairOffer(id, url, code string, expiresAt int64) PairOffer {
+	return PairOffer{"pair.offer", id, url, code, expiresAt}
+}
+
+// PairDone tells the conn that began pairing which phone redeemed its code.
+type PairDone struct {
+	Type     string `json:"type"`
+	DeviceID string `json:"deviceId"`
+	Name     string `json:"name"`
+}
+
+func NewPairDone(deviceID, name string) PairDone { return PairDone{"pair.done", deviceID, name} }
 
 type AgentList struct {
 	Type   string         `json:"type"`
@@ -176,6 +239,22 @@ type Error struct {
 	Type    string `json:"type"`
 	ID      string `json:"id,omitempty"`
 	Message string `json:"message"`
+	Code    string `json:"code,omitempty"`
 }
 
-func NewError(id, message string) Error { return Error{"error", id, message} }
+func NewError(id, message string) Error { return Error{"error", id, message, ""} }
+
+// NewErrorCode is an error the client acts on by code, not by message.
+func NewErrorCode(id, code, message string) Error { return Error{"error", id, message, code} }
+
+type HostState struct {
+	Tailnet      bool `json:"tailnet"`
+	KeepingAwake bool `json:"keepingAwake"`
+}
+
+type HostChanged struct {
+	Type string    `json:"type"`
+	Host HostState `json:"host"`
+}
+
+func NewHostChanged(h HostState) HostChanged { return HostChanged{"host.changed", h} }

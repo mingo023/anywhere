@@ -52,10 +52,21 @@ type Message struct {
 	} `json:"request"`
 	RequestID string `json:"requestId"`
 	Decision  string `json:"decision"`
+	DeviceID  string `json:"deviceId"`
+	Token     string `json:"token"`
 	Raw       string `json:"-"`
 }
 
 func (h *Harness) Phone() *Phone {
+	h.t.Helper()
+	p := h.Dial()
+	p.Send(map[string]any{"type": "hello", "id": "hello", "token": h.Token, "clientId": "e2e", "protocolVersion": 3})
+	p.WaitFor("hello.ok", func(m Message) bool { return m.Type == "hello.ok" })
+	return p
+}
+
+// Dial opens a phone socket that hasn't said hello.
+func (h *Harness) Dial() *Phone {
 	h.t.Helper()
 	var ws *websocket.Conn
 	h.eventually("phone port", func() bool {
@@ -64,10 +75,7 @@ func (h *Harness) Phone() *Phone {
 		return err == nil
 	})
 	h.t.Cleanup(func() { ws.CloseNow() })
-	p := &Phone{t: h.t, ws: ws}
-	p.Send(map[string]any{"type": "hello", "id": "hello", "token": h.Token, "clientId": "e2e", "protocolVersion": 3})
-	p.WaitFor("hello.ok", func(m Message) bool { return m.Type == "hello.ok" })
-	return p
+	return &Phone{t: h.t, ws: ws}
 }
 
 func (p *Phone) Send(msg map[string]any) {

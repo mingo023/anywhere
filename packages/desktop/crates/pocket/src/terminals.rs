@@ -1,13 +1,15 @@
 pub(crate) mod close;
+pub(crate) mod link;
 pub(crate) mod sessions;
 
 use crate::desktop::Desktop;
+use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
 use daemon::{Info, Msg};
 use gpui_kit::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use workspace::Tab;
 
 pub(crate) enum Intent {
@@ -34,20 +36,41 @@ pub struct Terminals {
     settle: Option<Task<()>>,
     /// Terminal → worktree while the terminal runs the worktree's setup before its agent.
     pub(crate) setups: HashMap<String, String>,
+    /// Terminals whose screen was dropped on reconnect and must be attached again once pocketd lists them.
+    reattach: HashSet<String>,
+    pub(crate) link: Link,
 }
 
 impl Terminals {
     pub fn new() -> Self {
-        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new() }
+        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), reattach: HashSet::new(), link: Link::default() }
     }
 
     /// Adopts pocketd's terminal list, minus the ones closed here; returns the ids that still need an attach.
     pub(crate) fn listed(&mut self, items: Vec<Info>) -> Vec<String> {
         let items = items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
-        let attach = self.sessions.sync(items);
+        let mut attach = self.sessions.sync(items);
         let sessions = &self.sessions;
         self.setups.retain(|id, _| sessions.get(id).is_some());
+        attach.extend(std::mem::take(&mut self.reattach).into_iter().filter(|id| sessions.get(id).is_some()));
         attach
+    }
+
+    /// pocketd answered again: its terminals may have changed, so forget the screens and the spawns it never answered.
+    pub(crate) fn reconnected(&mut self) {
+        self.link.up();
+        self.intents.clear();
+        for s in self.sessions.items.iter_mut().filter(|s| s.exit.is_none()) {
+            s.term = None;
+            self.reattach.insert(s.info.id.clone());
+        }
+    }
+
+    /// Remembers a spawn only if it reached pocketd, which is the only way it gets answered.
+    pub(crate) fn spawn_sent(&mut self, sent: bool, intent: Intent) {
+        if sent {
+            self.intents.push_back(intent);
+        }
     }
 
     /// Matches a spawned terminal to the oldest pending intent; returns the worktree to adopt it in and the split direction, if any.
@@ -143,6 +166,19 @@ impl Desktop {
                     self.close_pane(&m.id, cx);
                 }
             }
+            "up" => {
+                self.terminals.reconnected();
+                self.terminal.selection = None;
+                self.daemon.send(json!({"op": "list"}));
+            }
+            "down" => {
+                self.terminals.link.down(Instant::now());
+                cx.spawn(async |this, cx| {
+                    cx.background_executor().timer(link::HINT_AFTER).await;
+                    this.update(cx, |_, cx| cx.notify())
+                })
+                .detach();
+            }
             _ => self.terminals.sessions.apply(&m),
         }
         cx.notify();
@@ -159,8 +195,8 @@ impl Desktop {
     }
 
     pub(crate) fn send_spawn(&mut self, op: serde_json::Value, intent: Intent, cx: &mut Context<Self>) {
-        self.daemon.send(op);
-        self.terminals.intents.push_back(intent);
+        let sent = self.daemon.send(op);
+        self.terminals.spawn_sent(sent, intent);
         self.error = None;
         cx.notify();
     }
@@ -227,7 +263,9 @@ impl Desktop {
             return;
         }
         match self.terminals.fit(id, cols, rows) {
-            Fit::Now => self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows})),
+            Fit::Now => {
+                self.daemon.send(json!({"op": "resize", "id": id, "cols": cols, "rows": rows}));
+            }
             Fit::Later => {
                 self.terminals.settle = Some(cx.spawn(async move |this, cx| {
                     cx.background_executor().timer(Duration::from_millis(80)).await;
@@ -256,6 +294,10 @@ mod tests {
 
     fn exit(id: &str, code: i32) -> Msg {
         Msg { ev: "exit".into(), id: id.into(), code, ..Default::default() }
+    }
+
+    fn snapshot(id: &str) -> Msg {
+        Msg { ev: "snapshot".into(), id: id.into(), cols: 80, rows: 24, ..Default::default() }
     }
 
     #[test]
@@ -410,5 +452,44 @@ mod tests {
         t.fit("a", 90, 24);
         t.close("a");
         assert_eq!(t.settled(), vec![]);
+    }
+
+    #[test]
+    fn reconnected_reattaches_every_listed_terminal() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a"), info("b"), info("c")]);
+        t.sessions.apply(&snapshot("a"));
+        t.exited(&exit("c", 1));
+        t.reconnected();
+        assert!(t.sessions.get("a").is_some_and(|s| s.term.is_none()));
+        let mut attach = t.listed(vec![info("a"), info("b")]);
+        attach.sort();
+        assert_eq!(attach, vec!["a", "b"]);
+        assert_eq!(t.listed(vec![info("a"), info("b")]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_terminal_missing_after_reconnect_is_not_running() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a"), info("b")]);
+        t.reconnected();
+        assert_eq!(t.listed(vec![info("b")]), vec!["b"]);
+        assert!(t.sessions.get("a").is_none());
+    }
+
+    #[test]
+    fn reconnected_drops_spawns_the_lost_connection_never_answered() {
+        let mut t = Terminals::new();
+        t.intents.push_back(Intent::Tab("/w".into()));
+        t.reconnected();
+        assert_eq!(t.spawned("a"), None);
+    }
+
+    #[test]
+    fn failed_spawn_send_records_no_intent() {
+        let mut t = Terminals::new();
+        t.spawn_sent(false, Intent::Tab("/w".into()));
+        t.spawn_sent(true, Intent::Tab("/v".into()));
+        assert_eq!(t.spawned("a"), Some(("/v".to_string(), None)));
     }
 }

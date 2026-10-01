@@ -24,6 +24,7 @@ type Agent struct {
 	id, provider string
 	driver       Driver
 	hub          *hub.Hub
+	reg          *Registry
 	Timeline     *timeline.Timeline
 
 	mu              sync.Mutex
@@ -49,6 +50,10 @@ type Registry struct {
 	agents map[string]*Agent
 	views  map[string][]string
 	hub    *hub.Hub
+
+	// OnStatus runs under the agent's lock on each status change, so it must
+	// stay short and not call back into the registry. Set it before adding agents.
+	OnStatus func(id, provider, from, to string)
 }
 
 func NewRegistry(h *hub.Hub) *Registry {
@@ -64,7 +69,7 @@ func (r *Registry) Add(id, cwd, provider string, d Driver) *Agent {
 // AddFunc is Add for a driver that needs its agent before any phone can reach it.
 func (r *Registry) AddFunc(id, cwd, provider string, newDriver func(*Agent) Driver) *Agent {
 	t := now()
-	a := &Agent{id: id, cwd: cwd, provider: provider, hub: r.hub, Timeline: timeline.New(), phase: "idle", attached: true, createdAt: t, updatedAt: t}
+	a := &Agent{id: id, cwd: cwd, provider: provider, hub: r.hub, reg: r, Timeline: timeline.New(), phase: "idle", attached: true, createdAt: t, updatedAt: t}
 	a.driver = newDriver(a)
 	r.mu.Lock()
 	r.agents[id] = a
@@ -196,6 +201,19 @@ func (a *Agent) update(touch bool, f func()) {
 		after.UpdatedAt = a.updatedAt
 	}
 	a.hub.Publish(proto.NewAgentUpdate(after))
+	if after.Status != before.Status && a.reg.OnStatus != nil {
+		a.reg.OnStatus(a.id, a.provider, before.Status, after.Status)
+	}
+}
+
+// Busy is whether any agent is working or waiting on the user.
+func Busy(agents []proto.AgentSummary) bool {
+	for _, a := range agents {
+		if a.Status == "working" || a.Status == "needsYou" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) Working() {

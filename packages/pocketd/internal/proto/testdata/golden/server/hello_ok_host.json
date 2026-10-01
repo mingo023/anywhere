@@ -1,0 +1,18 @@
+{
+  "type": "hello.ok",
+  "id": "h1",
+  "serverId": "mac",
+  "hostname": "mac",
+  "protocolVersion": 3,
+  "caps": [
+    "host.v1"
+  ],
+  "protocol": {
+    "min": 3,
+    "max": 3
+  },
+  "host": {
+    "tailnet": true,
+    "keepingAwake": false
+  }
+}

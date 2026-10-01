@@ -154,3 +154,11 @@ func TestPgrpIsTheChildUntilExit(t *testing.T) {
 		t.Fatalf("All after exit = %v", all)
 	}
 }
+
+func TestRootsMapEachTerminalPidToItsID(t *testing.T) {
+	m := NewManager()
+	s := spawn(t, m, "sleep 5")
+	if got := m.Roots(); len(got) != 1 || got[s.Pid()] != s.Info().ID {
+		t.Fatalf("roots = %v", got)
+	}
+}

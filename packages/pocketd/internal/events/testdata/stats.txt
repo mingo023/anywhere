@@ -1,0 +1,11 @@
+since 2026-09-30T00:00:00.000Z: 26 events, 1 unreadable lines skipped
+Needs you → answer    device p50 12s, p90 12s (n 1)
+Needs you → answer    other p50 1m0s, p90 1m0s (n 1)
+Done → Seen           p50 3m0s, p90 3m0s (n 1)
+Restore ≤ 30 s        1 of 2 restored (50%)
+Create failures       1 of 2: desktop spawn_failed 1
+Ack errors            codex 50.0 per 100 prompts (1 of 2)
+Push precision        1 of 2 acted on (50%)
+Refusals              ops scope_denied 1
+Timeline use          n/a
+Unreachable           15.8 min while an agent was working

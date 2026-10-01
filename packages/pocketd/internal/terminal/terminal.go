@@ -177,6 +177,17 @@ func (m *Manager) All() []*Terminal {
 	return slices.Collect(maps.Values(m.terminals))
 }
 
+// Roots maps each live Terminal's root pid to its ID.
+func (m *Manager) Roots() map[int]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	roots := make(map[int]string, len(m.terminals))
+	for id, s := range m.terminals {
+		roots[s.Pid()] = id
+	}
+	return roots
+}
+
 // replyToQuery runs under s.mu (inside vt.Write). A real terminal attached
 // through `pocketd run` answers queries itself; answering twice corrupts input.
 func (s *Terminal) replyToQuery(b []byte) {
@@ -276,6 +287,10 @@ func (s *Terminal) Write(b []byte) error {
 // Prompt types text, then Enter. TUIs treat a fast "text\r" burst as a paste
 // and keep the newline, so Enter goes out after a pause.
 func (s *Terminal) Prompt(text string) error {
+	text, err := Sanitize(text)
+	if err != nil {
+		return err
+	}
 	if err := s.Write([]byte(text)); err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -165,33 +166,59 @@ fn spawn_op(cmd: &str, args: Vec<String>, cwd: &str) -> Value {
 
 #[derive(Clone)]
 pub struct Daemon {
-    writer: Arc<Mutex<UnixStream>>,
+    writer: Arc<Mutex<Option<UnixStream>>>,
 }
 
 impl Daemon {
-    pub fn connect(path: &Path) -> std::io::Result<(Self, UnboundedReceiver<Msg>)> {
-        let stream = UnixStream::connect(path)?;
-        let reader = BufReader::new(stream.try_clone()?);
+    /// Connects in the background and keeps reconnecting, reporting each change as a `Msg` with `ev` "up" or "down".
+    pub fn spawn(path: &Path) -> (Self, UnboundedReceiver<Msg>) {
+        let path = path.to_path_buf();
+        let writer = Arc::new(Mutex::new(None));
         let (tx, rx) = unbounded();
+        let shared = writer.clone();
         std::thread::spawn(move || {
-            for line in reader.lines().map_while(Result::ok) {
-                let Ok(msg) = serde_json::from_str::<Msg>(&line) else { continue };
-                if tx.unbounded_send(msg).is_err() {
+            let link = |ev: &str| tx.unbounded_send(Msg { ev: ev.into(), ..Default::default() }).is_ok();
+            let mut wait = Duration::from_millis(200);
+            let mut down = false;
+            loop {
+                if let Ok((reader, stream)) = UnixStream::connect(&path).and_then(|s| Ok((BufReader::new(s.try_clone()?), s))) {
+                    *shared.lock().unwrap() = Some(stream);
+                    down = false;
+                    if !link("up") {
+                        return;
+                    }
+                    wait = Duration::from_millis(200);
+                    for line in reader.lines().map_while(Result::ok) {
+                        let Ok(msg) = serde_json::from_str::<Msg>(&line) else { continue };
+                        if tx.unbounded_send(msg).is_err() {
+                            return;
+                        }
+                    }
+                    *shared.lock().unwrap() = None;
+                }
+                if !down {
+                    if !link("down") {
+                        return;
+                    }
+                    down = true;
+                }
+                if tx.is_closed() {
                     return;
                 }
+                std::thread::sleep(wait);
+                wait = (wait * 2).min(Duration::from_secs(2));
             }
-            let _ = tx.unbounded_send(Msg { ev: "error".into(), error: "pocketd disconnected".into(), ..Default::default() });
         });
-        Ok((Self { writer: Arc::new(Mutex::new(stream)) }, rx))
+        (Self { writer }, rx)
     }
 
-    pub fn send(&self, msg: Value) {
-        let mut w = self.writer.lock().unwrap();
-        let _ = writeln!(w, "{msg}");
+    /// Whether the message reached pocketd's socket; false while it is down.
+    pub fn send(&self, msg: Value) -> bool {
+        self.writer.lock().unwrap().as_mut().is_some_and(|w| writeln!(w, "{msg}").is_ok())
     }
 
-    pub fn input(&self, id: &str, bytes: &[u8]) {
-        self.send(json!({"op": "input", "id": id, "data": STANDARD.encode(bytes)}));
+    pub fn input(&self, id: &str, bytes: &[u8]) -> bool {
+        self.send(json!({"op": "input", "id": id, "data": STANDARD.encode(bytes)}))
     }
 }
 
@@ -315,17 +342,26 @@ mod tests {
         assert_eq!((get("PATH"), get("LANG")), (Some("/usr/bin:/bin:/usr/sbin:/sbin"), Some("en_US.UTF-8")));
     }
 
+    fn sock(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pocket-desktop-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("d.sock")
+    }
+
+    fn next(rx: &mut UnboundedReceiver<Msg>) -> String {
+        block_on(rx.next()).unwrap().ev
+    }
+
     #[test]
     fn talks_json_lines_over_the_socket() {
-        let dir = std::env::temp_dir().join(format!("pocket-desktop-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("d.sock");
-        let _ = std::fs::remove_file(&path);
+        let path = sock("talk");
         let ln = UnixListener::bind(&path).unwrap();
-        let (d, mut rx) = Daemon::connect(&path).unwrap();
+        let (d, mut rx) = Daemon::spawn(&path);
+        assert_eq!(next(&mut rx), "up");
         let (peer, _) = ln.accept().unwrap();
 
-        d.input("s1", b"x");
+        assert!(d.input("s1", b"x"));
         let mut line = String::new();
         BufReader::new(peer.try_clone().unwrap()).read_line(&mut line).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&line).unwrap(), json!({"op": "input", "id": "s1", "data": "eA=="}));
@@ -333,10 +369,33 @@ mod tests {
         writeln!(&peer, r#"{{"ev":"spawned","id":"s2"}}"#).unwrap();
         let m = block_on(rx.next()).unwrap();
         assert_eq!((m.ev.as_str(), m.id.as_str()), ("spawned", "s2"));
+    }
 
-        drop(peer);
-        let m = block_on(rx.next()).unwrap();
-        assert_eq!((m.ev.as_str(), m.error.as_str()), ("error", "pocketd disconnected"));
-        std::fs::remove_dir_all(&dir).unwrap();
+    #[test]
+    fn spawn_reports_down_then_up_when_the_socket_appears() {
+        let path = sock("appear");
+        let (_d, mut rx) = Daemon::spawn(&path);
+        assert_eq!(next(&mut rx), "down");
+        let _ln = UnixListener::bind(&path).unwrap();
+        assert_eq!(next(&mut rx), "up");
+    }
+
+    #[test]
+    fn spawn_reports_down_when_the_server_closes() {
+        let path = sock("close");
+        let ln = UnixListener::bind(&path).unwrap();
+        let (_d, mut rx) = Daemon::spawn(&path);
+        assert_eq!(next(&mut rx), "up");
+        drop(ln.accept().unwrap());
+        assert_eq!(next(&mut rx), "down");
+    }
+
+    #[test]
+    fn send_returns_false_while_down() {
+        let path = sock("down");
+        let (d, mut rx) = Daemon::spawn(&path);
+        assert_eq!(next(&mut rx), "down");
+        assert!(!d.send(json!({"op": "list"})));
+        assert!(!d.input("s1", b"x"));
     }
 }

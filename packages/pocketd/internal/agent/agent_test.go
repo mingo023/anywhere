@@ -287,3 +287,43 @@ func TestMarkSeenClearsDoneOnce(t *testing.T) {
 		t.Fatalf("mark seen lasted: %s", got)
 	}
 }
+
+func TestOnStatusFiresOnEveryStatusChange(t *testing.T) {
+	reg := NewRegistry(hub.New())
+	var got []string
+	reg.OnStatus = func(id, provider, from, to string) { got = append(got, id+" "+provider+" "+from+">"+to) }
+	a := reg.Add("a1", "/w", "claude", fakeDriver{})
+	a.Working()
+	a.SetTitle("x")
+	a.NeedsYou()
+	a.Working()
+	a.TurnEnded(false)
+	reg.Remove("a1")
+	want := []string{"a1 claude idle>working", "a1 claude working>needsYou", "a1 claude needsYou>working", "a1 claude working>done", "a1 claude done>closed"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestBusyCountsWorkingAndNeedsYou(t *testing.T) {
+	with := func(statuses ...string) []proto.AgentSummary {
+		var out []proto.AgentSummary
+		for _, s := range statuses {
+			out = append(out, proto.AgentSummary{Status: s})
+		}
+		return out
+	}
+	for _, c := range []struct {
+		agents []proto.AgentSummary
+		busy   bool
+	}{
+		{nil, false},
+		{with("idle", "done", "closed"), false},
+		{with("idle", "working"), true},
+		{with("needsYou"), true},
+	} {
+		if Busy(c.agents) != c.busy {
+			t.Errorf("%v: want %v", c.agents, c.busy)
+		}
+	}
+}

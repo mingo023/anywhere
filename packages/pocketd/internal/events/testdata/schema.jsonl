@@ -1,0 +1,11 @@
+{"ts":"2026-09-30T10:00:00.000Z","kind":"start","version":"5091a01c0ffe","pid":42,"service":true}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"stop","reason":"signal"}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"tick"}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"status","agent":"a1","provider":"claude","from":"working","to":"needsYou"}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"seen","agent":"a1","principal":"device"}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"answer","agent":"a1","principal":"device","decision":"allow"}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"prompt","agent":"a1","provider":"codex","origin":"phone","ack":"ok"}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"create","provider":"claude","origin":"desktop","ok":false,"code":"spawn_failed"}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"restore","agent":"a1","ok":true,"ms":1200}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"push","agent":"a1","alert":"needsYou","acted":true}
+{"ts":"2026-09-30T10:00:00.000Z","kind":"refusal","code":"scope_denied","surface":"ops"}

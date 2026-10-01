@@ -3,7 +3,11 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +15,8 @@ import (
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
 	"pocketd/internal/hub"
+	"pocketd/internal/ops"
+	"pocketd/internal/shellenv"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
@@ -145,4 +151,51 @@ type promptRecorder struct {
 func (p *promptRecorder) Prompt(text string) error {
 	p.prompts <- text
 	return nil
+}
+
+func TestSpawnWithoutEnvUsesTheLoginEnv(t *testing.T) {
+	d := newDaemon(t)
+	d.Capture = func() shellenv.Result {
+		return shellenv.Result{Env: []string{"PATH=/usr/bin:/bin", "POCKET_LOGIN=yes"}, Mode: "interactive"}
+	}
+	d.Recapture()
+	term, err := d.Spawn(ops.Msg{Cmd: "sh", Args: []string{"-c", "echo login=$POCKET_LOGIN.; sleep 30"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	eventually(t, "login env in the terminal", func() bool { return strings.Contains(term.Screen(), "login=yes.") })
+	if d.ShellEnv() != "interactive 0s" {
+		t.Fatalf("status %q", d.ShellEnv())
+	}
+}
+
+func TestSpawnRecapturesOnceWhenTheCommandIsMissing(t *testing.T) {
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "newtool"), []byte("#!/bin/sh\nsleep 30\n"), 0o755)
+	d := newDaemon(t)
+	captures := 0
+	d.Capture = func() shellenv.Result {
+		captures++
+		path := "PATH=/usr/bin:/bin"
+		if captures > 1 {
+			path += ":" + bin
+		}
+		return shellenv.Result{Env: []string{path}, Mode: "interactive"}
+	}
+	d.Recapture()
+	term, err := d.Spawn(ops.Msg{Cmd: "newtool"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	if captures != 2 {
+		t.Fatalf("captures %d, want 2: installed after the first capture", captures)
+	}
+	if _, err := d.Spawn(ops.Msg{Cmd: "nosuchtool"}); !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("err %v", err)
+	}
+	if captures != 3 {
+		t.Fatalf("captures %d, want 3: one retry per missing command", captures)
+	}
 }

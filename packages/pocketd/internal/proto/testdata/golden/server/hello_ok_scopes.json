@@ -1,0 +1,22 @@
+{
+  "type": "hello.ok",
+  "id": "h1",
+  "serverId": "mac",
+  "hostname": "mac",
+  "protocolVersion": 3,
+  "caps": [
+    "pair.v1",
+    "scopes.v1"
+  ],
+  "protocol": {
+    "min": 3,
+    "max": 3
+  },
+  "scopes": [
+    "observe",
+    "drive",
+    "approve",
+    "spawn",
+    "owner"
+  ]
+}

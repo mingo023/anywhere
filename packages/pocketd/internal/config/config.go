@@ -1,14 +1,15 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/base64"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"pocketd/internal/atomicfile"
 )
 
 func Home() string {
@@ -27,13 +28,15 @@ func Sock() string {
 }
 
 type Config struct {
-	Token string `json:"token"`
-	Port  int    `json:"port"`
+	Port int `json:"port"`
+	// Listen is "auto" (loopback and the tailnet) or "loopback".
+	Listen string `json:"listen,omitempty"`
 }
 
-// Load reads config.json, creating it with a fresh token on first run. Fields
-// left by the TypeScript daemon (profiles) are ignored.
-func Load() (Config, error) {
+// Load reads config.json, creating it on first run. A token left there by an
+// older pocketd goes to adopt, then leaves the file. Fields left by the
+// TypeScript daemon (profiles) are kept but ignored.
+func Load(adopt func(token string) error) (Config, error) {
 	path := filepath.Join(Home(), "config.json")
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -43,19 +46,32 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	var c Config
-	if err := json.Unmarshal(raw, &c); err != nil || c.Token == "" || c.Port == 0 {
-		return Config{}, fmt.Errorf("invalid config %s: need token and port", path)
+	if err := json.Unmarshal(raw, &c); err != nil || c.Port == 0 {
+		return Config{}, fmt.Errorf("invalid config %s: need port", path)
 	}
-	return c, nil
+	c.Listen = cmp.Or(c.Listen, "auto")
+	if c.Listen != "auto" && c.Listen != "loopback" {
+		return Config{}, fmt.Errorf("invalid config %s: listen must be auto or loopback", path)
+	}
+	var fields map[string]json.RawMessage
+	json.Unmarshal(raw, &fields)
+	var token string
+	if json.Unmarshal(fields["token"], &token) != nil || token == "" {
+		return c, nil
+	}
+	if err := adopt(token); err != nil {
+		return Config{}, err
+	}
+	delete(fields, "token")
+	out, _ := json.MarshalIndent(fields, "", "  ")
+	return c, atomicfile.Write(path, append(out, '\n'), 0o600)
 }
 
 func create(path string) (Config, error) {
-	b := make([]byte, 24)
-	rand.Read(b)
-	c := Config{Token: base64.RawURLEncoding.EncodeToString(b), Port: 4517}
+	c := Config{Port: 4517, Listen: "auto"}
 	raw, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Config{}, err
 	}
-	return c, os.WriteFile(path, append(raw, '\n'), 0o600)
+	return c, atomicfile.Write(path, append(raw, '\n'), 0o600)
 }

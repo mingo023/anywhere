@@ -4,14 +4,19 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log"
 	"os"
+	"os/exec"
 	"sync"
 	"time"
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
 	"pocketd/internal/ops"
+	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/shellenv"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
@@ -24,20 +29,65 @@ type Daemon struct {
 	Exe       string // absolute path of this binary, for the hook command
 	Sock      string
 	Plugin    string
+	// Capture reads the user's login-shell environment. Nil keeps pocketd's own.
+	Capture func() shellenv.Result
 
 	mu       sync.Mutex
+	env      *shellenv.Result
 	present  map[string]*presence          // by terminal id
 	watchers map[string]context.CancelFunc // by app-server socket
 	watch    sync.Mutex                    // one observe at a time: the poller and hooks both run it
 }
 
+// Spawn starts m in a terminal. Without m.Env it gets the login-shell
+// environment, read again once if the command isn't on its PATH, so a tool
+// installed after pocketd started is found.
 func (d *Daemon) Spawn(m ops.Msg) (*terminal.Terminal, error) {
+	t, err := d.spawn(m)
+	if errors.Is(err, exec.ErrNotFound) && m.Env == nil && d.Capture != nil {
+		d.Recapture()
+		t, err = d.spawn(m)
+	}
+	return t, err
+}
+
+func (d *Daemon) spawn(m ops.Msg) (*terminal.Terminal, error) {
 	spec := terminal.Spec{ID: terminal.NewID(), Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows}
 	if spec.Env == nil {
-		spec.Env = os.Environ()
+		spec.Env = d.LoginEnv()
 	}
 	spec.Env = d.Env(spec.Env, spec.ID)
 	return d.Terminals.Spawn(spec)
+}
+
+func (d *Daemon) Recapture() {
+	r := d.Capture()
+	if r.Err != "" {
+		log.Printf("login shell env: %s", r)
+	}
+	d.mu.Lock()
+	d.env = &r
+	d.mu.Unlock()
+}
+
+// LoginEnv is pocketd's own environment until the first capture lands.
+func (d *Daemon) LoginEnv() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.env == nil {
+		return os.Environ()
+	}
+	return d.env.Env
+}
+
+// ShellEnv describes the last capture for pocketd status.
+func (d *Daemon) ShellEnv() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.env == nil {
+		return "pending"
+	}
+	return d.env.String()
 }
 
 // dismissAnswered closes the phone's card when a tool it is asking about
@@ -87,16 +137,29 @@ type hookDecision struct {
 	Interrupt          bool              `json:"interrupt,omitempty"`
 }
 
-// Hook takes one hook call from the claude that m.Pid is in terminal m.ID.
-// Only a PermissionRequest gets a reply; nil lets Claude go on as if there were no hook.
-func (d *Daemon) Hook(ctx context.Context, m ops.Msg) []byte {
+var (
+	errHookForged     = &peer.Refusal{Code: proto.CodeHookForged, Message: "hook sender is not a claude in this Terminal"}
+	errNotOwnTerminal = &peer.Refusal{Code: proto.CodeNotOwnTerminal, Message: "hooks are accepted only for the caller's own Terminal"}
+)
+
+// Hook takes one hook call for terminal m.ID from p, which must be a PTY peer
+// of that terminal whose nearest claude is the agent there. Only a
+// PermissionRequest gets a reply; nil lets Claude go on as if there were no hook.
+func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte, error) {
+	if p.Kind != peer.PTY {
+		return nil, errHookForged
+	}
+	if p.Terminal != m.ID {
+		return nil, errNotOwnTerminal
+	}
 	var in hookInput
 	if json.Unmarshal(m.Data, &in) != nil {
-		return nil
+		return nil, nil
 	}
-	pr := d.claudeAt(m.ID, m.Pid)
+	chain, _ := peer.Ancestors(p.Pid)
+	pr := d.claudeAt(m.ID, NearestClaude(chain))
 	if pr == nil {
-		return nil
+		return nil, errHookForged
 	}
 	switch in.Event {
 	case "SessionStart":
@@ -108,7 +171,7 @@ func (d *Daemon) Hook(ctx context.Context, m ops.Msg) []byte {
 	case "PreToolUse", "Notification":
 		pr.a.NeedsYou()
 	case "PermissionRequest":
-		return d.permission(ctx, pr, in)
+		return d.permission(ctx, pr, in), nil
 	case "Stop":
 		pr.a.TurnEnded(false)
 	case "StopFailure":
@@ -116,7 +179,7 @@ func (d *Daemon) Hook(ctx context.Context, m ops.Msg) []byte {
 	case "PreCompact":
 		pr.a.SetCompacting()
 	}
-	return nil
+	return nil, nil
 }
 
 // permission asks the phone until pr ends; nil lets Claude's dialog decide.

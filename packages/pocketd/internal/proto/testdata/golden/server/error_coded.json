@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "h1",
+  "message": "Update Pocket on this phone",
+  "code": "client_too_old"
+}

@@ -25,12 +25,9 @@ use store::Store;
 fn main() {
     let capture = capture::Capture::from_args();
     let path = daemon::sock_path();
-    let (daemon, mut rx) = Daemon::connect(&path).unwrap_or_else(|e| {
-        eprintln!("pocket-desktop: cannot reach pocketd at {}: {e}", path.display());
-        std::process::exit(1)
-    });
+    let (daemon, mut rx) = Daemon::spawn(&path);
     let home = path.parent().unwrap_or(&path).to_path_buf();
-    let (outbox, mut agent_rx) = agents::connect(&home);
+    let (outbox, mut agent_rx) = agents::connect(&path);
     let store = Store::load(&home);
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);

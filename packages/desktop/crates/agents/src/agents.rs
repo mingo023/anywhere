@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::net::TcpStream;
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
@@ -101,6 +101,7 @@ struct Frame {
     items: Vec<Item>,
     request: Option<Permission>,
     request_id: String,
+    scopes: Vec<String>,
 }
 
 pub enum Event {
@@ -109,7 +110,8 @@ pub enum Event {
     Items(String, Vec<Item>),
     Asked(Permission),
     Resolved(String),
-    Connected,
+    /// hello.ok arrived; carries the scopes pocketd granted this conn.
+    Connected(Vec<String>),
 }
 
 #[derive(Default)]
@@ -117,6 +119,7 @@ pub struct Agents {
     pub list: Vec<Summary>,
     pub timelines: HashMap<String, Vec<Item>>,
     pub pending: Vec<Permission>,
+    pub scopes: Vec<String>,
 }
 
 impl Agents {
@@ -148,8 +151,21 @@ impl Agents {
                 }
             }
             Event::Resolved(id) => self.pending.retain(|p| p.request_id != id),
-            Event::Connected => self.pending.clear(),
+            Event::Connected(scopes) => {
+                self.pending.clear();
+                self.scopes = scopes;
+            }
         }
+    }
+
+    pub fn owner(&self) -> bool {
+        self.scopes.iter().any(|s| s == "owner")
+    }
+
+    /// Scopes arrived and exclude owner. Before hello.ok, or from a pocketd
+    /// that predates scopes, nothing is known, so nothing is disabled.
+    pub fn observe_only(&self) -> bool {
+        !self.scopes.is_empty() && !self.owner()
     }
 
     pub fn last_result(&self, id: &str) -> Option<&Item> {
@@ -195,12 +211,6 @@ pub fn model_label(a: &Summary) -> String {
     if version.is_empty() { family } else { format!("{family} {}", version.join(".")) }
 }
 
-fn token(home: &Path) -> Option<(String, u16)> {
-    let raw = std::fs::read(home.join("config.json")).ok()?;
-    let v: Value = serde_json::from_slice(&raw).ok()?;
-    Some((v["token"].as_str()?.to_string(), v["port"].as_u64()? as u16))
-}
-
 /// Client messages for pocketd. They wait in a queue while it is unreachable.
 #[derive(Clone)]
 pub struct Outbox(Sender<String>);
@@ -219,14 +229,15 @@ impl Outbox {
     }
 }
 
-/// Follows pocketd's phone protocol on localhost: the agent list and every agent's timeline.
-pub fn connect(home: &Path) -> (Outbox, UnboundedReceiver<Event>) {
+/// Follows pocketd's phone protocol over its unix socket, where pocketd tells
+/// the owner from a process inside a Terminal: the agent list and every agent's timeline.
+pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
     let (tx, rx) = unbounded();
     let (out, queue) = channel();
-    let home = home.to_path_buf();
+    let sock = sock.to_path_buf();
     std::thread::spawn(move || {
         loop {
-            let _ = run(&home, &tx, &queue);
+            let _ = run(&sock, &tx, &queue);
             if tx.is_closed() {
                 return;
             }
@@ -236,15 +247,13 @@ pub fn connect(home: &Path) -> (Outbox, UnboundedReceiver<Event>) {
     (Outbox(out), rx)
 }
 
-fn run(home: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<String>) -> Option<()> {
-    let (tok, port) = token(home)?;
-    let stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
-    let (mut ws, _) = tungstenite::client(format!("ws://127.0.0.1:{port}"), stream).ok()?;
+fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<String>) -> Option<()> {
+    let stream = UnixStream::connect(sock).ok()?;
+    let (mut ws, _) = tungstenite::client("ws://localhost/", stream).ok()?;
     // Reads time out so the loop gets to send the queue even while pocketd is quiet.
     ws.get_ref().set_read_timeout(Some(Duration::from_millis(100))).ok()?;
-    let hello = json!({"type": "hello", "id": "h", "token": tok, "clientId": "desktop", "protocolVersion": 3});
+    let hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1"]});
     ws.send(Message::text(hello.to_string())).ok()?;
-    tx.unbounded_send(Event::Connected).ok()?;
     let mut known: Vec<String> = Vec::new();
     loop {
         for m in queue.try_iter() {
@@ -259,6 +268,7 @@ fn run(home: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<String>) -> Op
         let Ok(f) = serde_json::from_str::<Frame>(&raw) else { continue };
         let mut fresh: Vec<String> = Vec::new();
         let ev = match f.kind.as_str() {
+            "hello.ok" => Event::Connected(f.scopes),
             "agent.list" => {
                 fresh.extend(f.agents.iter().map(|a| a.id.clone()));
                 Event::Agents(f.agents)
@@ -292,7 +302,8 @@ fn run(home: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<String>) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
+    use std::os::unix::net::UnixListener;
+    use std::path::PathBuf;
 
     fn summary(provider: &str, model: Option<&str>) -> Summary {
         Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() }
@@ -338,7 +349,7 @@ mod tests {
         a.apply(Event::Resolved("r1".into()));
         assert!(a.pending.is_empty());
         a.apply(Event::Asked(Permission { request_id: "r2".into(), ..Default::default() }));
-        a.apply(Event::Connected);
+        a.apply(Event::Connected(vec![]));
         assert!(a.pending.is_empty());
     }
 
@@ -358,23 +369,52 @@ mod tests {
         assert_eq!((a.terminal_id.as_str(), a.status.as_str(), a.failed, a.attached, a.compacting), ("t1", "done", true, true, false));
     }
 
-    #[test]
-    fn sends_queued_messages_while_pocketd_is_quiet() {
-        let server = TcpListener::bind("127.0.0.1:0").unwrap();
-        let home = std::env::temp_dir().join(format!("pocket-agents-{}", std::process::id()));
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(home.join("config.json"), json!({"token": "t", "port": server.local_addr().unwrap().port()}).to_string()).unwrap();
-        let (out, _events) = connect(&home);
+    type Ws = tungstenite::WebSocket<UnixStream>;
+
+    fn pocketd(name: &str) -> (UnixListener, PathBuf) {
+        let sock = PathBuf::from("/tmp").join(format!("pa-{name}-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&sock);
+        (UnixListener::bind(&sock).unwrap(), sock)
+    }
+
+    fn accept(server: &UnixListener) -> Ws {
         let (peer, _) = server.accept().unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let mut ws = tungstenite::accept(peer).unwrap();
-        let read = |ws: &mut tungstenite::WebSocket<TcpStream>| serde_json::from_str::<Value>(ws.read().unwrap().to_text().unwrap()).unwrap();
+        tungstenite::accept(peer).unwrap()
+    }
 
-        assert_eq!(read(&mut ws)["type"], "hello");
+    fn read(ws: &mut Ws) -> Value {
+        serde_json::from_str(ws.read().unwrap().to_text().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn sends_queued_messages_while_pocketd_is_quiet() {
+        let (server, sock) = pocketd("queue");
+        let (out, _events) = connect(&sock);
+        let mut ws = accept(&server);
+
+        assert_eq!(read(&mut ws), json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1"]}));
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
         out.seen(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.seen", "id": "seen", "agentIds": ["a1"]}));
-        std::fs::remove_dir_all(&home).unwrap();
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn connected_carries_the_scopes_from_hello_ok() {
+        let (server, sock) = pocketd("scopes");
+        let (_out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        let ok = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/hello_ok_scopes.json");
+        ws.send(Message::text(ok)).unwrap();
+
+        let mut a = Agents::default();
+        a.apply(futures::executor::block_on(futures::StreamExt::into_future(events)).0.unwrap());
+        assert!(a.owner() && !a.observe_only());
+        a.apply(Event::Connected(vec!["observe".into()]));
+        assert!(a.observe_only());
+        std::fs::remove_file(&sock).unwrap();
     }
 }

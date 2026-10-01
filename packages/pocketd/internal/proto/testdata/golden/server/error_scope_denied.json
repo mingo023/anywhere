@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "r1",
+  "message": "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)",
+  "code": "scope_denied"
+}

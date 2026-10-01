@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"pocketd/internal/peer"
 	"pocketd/internal/terminal"
 )
 
@@ -102,26 +103,26 @@ func TestUnknownTerminalIsAnError(t *testing.T) {
 
 func TestHookBlocksUntilAnswered(t *testing.T) {
 	answer := make(chan []byte)
-	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(_ context.Context, m Msg) []byte {
-		return fmt.Appendf(<-answer, "%s/%d/%s", m.ID, m.Pid, m.Data)
+	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(_ context.Context, who peer.Principal, m Msg) ([]byte, error) {
+		return fmt.Appendf(<-answer, "%s/%d/%s", m.ID, who.Pid, m.Data), nil
 	}})
-	c.Send(Msg{Op: "hook", ID: "t1", Pid: 42, Data: []byte("x")})
+	c.Send(Msg{Op: "hook", ID: "t1", Data: []byte("x")})
 	c.Send(Msg{Op: "list"})
 	if m, _ := c.Recv(); m.Ev != "terminals" {
 		t.Fatalf("hook answered before its decision: %+v", m)
 	}
 	answer <- []byte("seen:")
-	if m := recv(t, c, "hook"); string(m.Data) != "seen:t1/42/x" {
+	if m := recv(t, c, "hook"); string(m.Data) != fmt.Sprintf("seen:t1/%d/x", os.Getpid()) {
 		t.Fatalf("data = %q", m.Data)
 	}
 }
 
 func TestHookIsCancelledWhenTheCallerLeaves(t *testing.T) {
 	cancelled := make(chan struct{})
-	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(ctx context.Context, _ Msg) []byte {
+	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(ctx context.Context, _ peer.Principal, _ Msg) ([]byte, error) {
 		<-ctx.Done()
 		close(cancelled)
-		return nil
+		return nil, nil
 	}})
 	c.Send(Msg{Op: "hook"})
 	c.Close()
@@ -151,7 +152,7 @@ func TestUnknownOpIsAnError(t *testing.T) {
 	c.Send(Msg{Op: "spawn", Cmd: "sleep", Args: []string{"5"}})
 	id := recv(t, c, "spawned").ID
 	c.Send(Msg{Op: "bogus", ID: id})
-	if m := recv(t, c, "error"); m.Error != "unknown op bogus" || m.ID != id {
+	if m := recv(t, c, "error"); m.ErrorCode != "scope_denied" || m.Error != "bogus is not a known verb" || m.ID != id {
 		t.Fatalf("%+v", m)
 	}
 }
@@ -189,5 +190,54 @@ func TestAttachStreamsForeground(t *testing.T) {
 	terms.Get(id).SetForeground("npm run dev")
 	if m := recv(t, c, "foreground"); m.ID != id || m.Text != "npm run dev" {
 		t.Fatalf("%+v", m)
+	}
+}
+
+func TestAPromptOver64KiBIsRefusedWithItsCode(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager()})
+	c.Send(Msg{Op: "spawn", Cmd: "sleep", Args: []string{"5"}})
+	id := recv(t, c, "spawned").ID
+	c.Send(Msg{Op: "prompt", ID: id, Text: strings.Repeat("a", terminal.MaxPrompt+1)})
+	if m := recv(t, c, "error"); m.ErrorCode != "prompt_too_large" || m.ID != id {
+		t.Fatalf("%+v", m)
+	}
+}
+
+func TestARefusedHookRepliesWithItsCode(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(context.Context, peer.Principal, Msg) ([]byte, error) {
+		return nil, &peer.Refusal{Code: "hook_forged", Message: "forged"}
+	}})
+	c.Send(Msg{Op: "hook", ID: "t1"})
+	if m := recv(t, c, "error"); m.ErrorCode != "hook_forged" || m.ID != "t1" {
+		t.Fatalf("%+v", m)
+	}
+}
+
+func TestStatusAnswersWithWhatTheServerReports(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager(), Status: func() Status { return Status{PID: 42, Terminals: 2} }})
+	c.Send(Msg{Op: "status"})
+	if st := recv(t, c, "status").Status; st == nil || st.PID != 42 || st.Terminals != 2 {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestStatusTextNamesEveryField(t *testing.T) {
+	st := Status{PID: 42, Version: "abc123", Home: "/h", Sock: "/h/pocketd.sock", Log: "/h/logs/pocketd.log", Uptime: 3725,
+		Listen: []string{"100.64.1.2:7331"}, Terminals: 3, Agents: map[string]int{"working": 1, "idle": 2},
+		KeepingAwake: true, ShellEnv: "interactive 490ms", Service: "loaded"}
+	want := `pocketd abc123, pid 42, up 1h2m5s
+home       /h
+socket     /h/pocketd.sock
+log        /h/logs/pocketd.log
+listening  100.64.1.2:7331
+service    loaded
+terminals  3
+agents     2 idle, 1 working
+awake      yes
+tailnet    no
+shell env  interactive 490ms
+`
+	if got := st.Text(); got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 }

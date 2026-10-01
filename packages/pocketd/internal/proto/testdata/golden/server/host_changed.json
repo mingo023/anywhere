@@ -1,0 +1,7 @@
+{
+  "type": "host.changed",
+  "host": {
+    "tailnet": true,
+    "keepingAwake": true
+  }
+}

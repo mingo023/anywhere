@@ -3,7 +3,11 @@ package wsserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,8 +17,14 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
+	"pocketd/internal/devices"
+	"pocketd/internal/events"
+	"pocketd/internal/host"
 	"pocketd/internal/hub"
+	"pocketd/internal/pairing"
+	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
 
@@ -26,8 +36,9 @@ func (d *fakeDriver) Compact() error           { return nil }
 func (d *fakeDriver) Close()                   {}
 
 type phone struct {
-	t  *testing.T
-	ws *websocket.Conn
+	t   *testing.T
+	ws  *websocket.Conn
+	url string
 }
 
 func setup(t *testing.T, opts ...func(*Server)) (*agent.Registry, *fakeDriver, *phone) {
@@ -35,20 +46,51 @@ func setup(t *testing.T, opts ...func(*Server)) (*agent.Registry, *fakeDriver, *
 	reg := agent.NewRegistry(h)
 	d := &fakeDriver{}
 	reg.Add("a1", "/w", "claude", d)
-	s := &Server{Token: "tok", Hostname: "mac", Agents: reg, Broker: broker.New(h), Hub: h}
+	devs, err := devices.Open(filepath.Join(t.TempDir(), "devices.json"), "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Devices: devs, Pairing: pairing.New(time.Now), Hostname: "mac", Agents: reg, Broker: broker.New(h), Hub: h}
 	for _, opt := range opts {
 		opt(s)
 	}
 	srv := httptest.NewServer(s)
 	t.Cleanup(srv.Close)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(cancel)
-	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	p := &phone{t: t, url: "ws" + strings.TrimPrefix(srv.URL, "http")}
+	ws, _, err := p.dial(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ws.CloseNow() })
-	return reg, d, &phone{t, ws}
+	p.ws = ws
+	return reg, d, p
+}
+
+// dial opens another socket to the same server.
+func (p *phone) dial(opts *websocket.DialOptions) (*websocket.Conn, *http.Response, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ws, resp, err := websocket.Dial(ctx, p.url, opts)
+	if err == nil {
+		p.t.Cleanup(func() { ws.CloseNow() })
+	}
+	return ws, resp, err
+}
+
+// local opens a socket the way ops hands one over: its context names who.
+func local(t *testing.T, who peer.Principal, opts ...func(*Server)) (*agent.Registry, *fakeDriver, *phone) {
+	var s *Server
+	reg, d, _ := setup(t, append(opts, func(srv *Server) { s = srv })...)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.ServeHTTP(w, r.WithContext(peer.With(r.Context(), who)))
+	}))
+	t.Cleanup(srv.Close)
+	p := &phone{t: t, url: "ws" + strings.TrimPrefix(srv.URL, "http")}
+	ws, _, err := p.dial(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ws = ws
+	return reg, d, p
 }
 
 func (p *phone) send(raw string) {
@@ -88,19 +130,100 @@ func (p *phone) closed() bool {
 	return err != nil && ctx.Err() == nil
 }
 
-func TestRejectsWrongTokenAndVersion(t *testing.T) {
-	for _, hello := range []string{
-		`{"type":"hello","id":"h","token":"nope","clientId":"c","protocolVersion":3}`,
-		`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":2}`,
+func (p *phone) closedWith() websocket.CloseError {
+	p.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		_, _, err := p.ws.Read(ctx)
+		var ce websocket.CloseError
+		if errors.As(err, &ce) {
+			return ce
+		}
+		if err != nil {
+			p.t.Fatalf("closed without a close frame: %v", err)
+		}
+	}
+}
+
+func TestAnUnknownTokenIsNotPaired(t *testing.T) {
+	_, _, p := setup(t)
+	p.send(`{"type":"hello","id":"h","token":"nope","clientId":"c","protocolVersion":3}`)
+	if m := p.recv(); m["type"] != "error" || m["code"] != "not_paired" || m["message"] != "Not paired" {
+		t.Fatalf("%v", m)
+	}
+	if ce := p.closedWith(); ce.Code != 4401 || ce.Reason != "not_paired" {
+		t.Fatalf("%v", ce)
+	}
+}
+
+func TestAPairedPhoneGetsInUntilRevoked(t *testing.T) {
+	var s *Server
+	_, _, p := setup(t, func(srv *Server) { s = srv })
+	d, token, _ := s.Devices.Add("iPhone", "ios", devices.PhoneScopes)
+	p.send(`{"type":"hello","id":"h","token":"` + token + `","clientId":"c","protocolVersion":3}`)
+	if m := p.recv(); m["type"] != "hello.ok" {
+		t.Fatalf("%v", m)
+	}
+	if got := s.Devices.List()[1]; got.LastAddr != "127.0.0.1" || got.LastSeenAt == 0 {
+		t.Fatalf("%+v", got)
+	}
+	s.Devices.Revoke(d.ID)
+	s.CloseDevice(d.ID, "revoked")
+	if ce := p.closedWith(); ce.Code != 4401 || ce.Reason != "revoked" {
+		t.Fatalf("%v", ce)
+	}
+	ws, _, err := p.dial(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ws = ws
+	p.send(`{"type":"hello","id":"h","token":"` + token + `","clientId":"c","protocolVersion":3}`)
+	if m := p.recv(); m["code"] != "not_paired" {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestASecondHelloCantSwitchDevices(t *testing.T) {
+	var s *Server
+	_, _, p := setup(t, func(srv *Server) { s = srv })
+	p.hello()
+	_, token, _ := s.Devices.Add("iPhone", "ios", devices.PhoneScopes)
+	p.send(`{"type":"hello","id":"h","token":"` + token + `","clientId":"c","protocolVersion":3}`)
+	if m := p.recv(); m["code"] != "not_paired" {
+		t.Fatalf("%v", m)
+	}
+	if ce := p.closedWith(); ce.Code != 4401 || ce.Reason != "not_paired" {
+		t.Fatalf("%v", ce)
+	}
+	if got := s.Devices.List()[1]; got.LastSeenAt != 0 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestAVersionMismatchNamesTheOlderSide(t *testing.T) {
+	for _, c := range []struct{ hello, code, message string }{
+		{`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":2}`, "client_too_old", "Update Pocket on this phone"},
+		{`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":4,"protocol":{"min":4,"max":5}}`, "server_too_old", "Update Pocket on your Mac"},
 	} {
 		_, _, p := setup(t)
-		p.send(hello)
-		if m := p.recv(); m["type"] != "error" || m["message"] != "Rejected" {
+		p.send(c.hello)
+		if m := p.recv(); m["type"] != "error" || m["code"] != c.code || m["message"] != c.message || m["id"] != "h" {
 			t.Fatalf("%v", m)
 		}
-		if !p.closed() {
-			t.Fatal("rejected connection left open")
+		if ce := p.closedWith(); ce.Code != 4426 || ce.Reason != c.code {
+			t.Fatalf("%v", ce)
 		}
+	}
+}
+
+func TestTheDesktopsHelloStillGetsIn(t *testing.T) {
+	_, _, p := setup(t)
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"desktop","protocolVersion":3}`)
+	m := p.recv()
+	if m["type"] != "hello.ok" || m["protocolVersion"] != 3.0 || !reflect.DeepEqual(m["caps"], []any{}) ||
+		!reflect.DeepEqual(m["protocol"], map[string]any{"min": 3.0, "max": 3.0}) {
+		t.Fatalf("%v", m)
 	}
 }
 
@@ -139,7 +262,7 @@ func TestHelloResendsOpenPermissionRequests(t *testing.T) {
 	}
 	p.hello()
 	m := p.recv()
-	if req, _ := m["request"].(map[string]any); m["type"] != "permission.request" || req["requestId"] != "perm-1" {
+	if req, _ := m["request"].(map[string]any); m["type"] != "permission.request" || req["requestId"] != b.Open()[0].RequestID {
 		t.Fatalf("%v", m)
 	}
 }
@@ -314,5 +437,275 @@ func TestAPhoneAnsweringPingsKeepsItsView(t *testing.T) {
 	a.TurnEnded(false)
 	if s := a.Summary().Status; s != "idle" {
 		t.Fatalf("answering phone lost its view: %s", s)
+	}
+}
+
+func TestOnlyPagesFromTheSameHostMayConnect(t *testing.T) {
+	_, _, p := setup(t)
+	host := strings.TrimPrefix(p.url, "ws://")
+	if _, resp, err := p.dial(&websocket.DialOptions{HTTPHeader: http.Header{"Origin": {"https://evil.example"}}}); err == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign origin: %v", err)
+	}
+	if _, _, err := p.dial(&websocket.DialOptions{HTTPHeader: http.Header{"Origin": {"http://" + host}}}); err != nil {
+		t.Fatalf("same-host origin: %v", err)
+	}
+}
+
+func TestABigFrameBeforeHelloClosesTheSocket(t *testing.T) {
+	_, _, p := setup(t)
+	p.send(`{"type":"hello","id":"` + strings.Repeat("x", 5000) + `"}`)
+	if ce := p.closedWith(); ce.Code != websocket.StatusMessageTooBig {
+		t.Fatalf("%v", ce)
+	}
+	_, _, p = setup(t)
+	p.hello()
+	p.send(`{"type":"agent.prompt","id":"p","agentId":"a1","text":"` + strings.Repeat("x", 5000) + `"}`)
+	if m := p.recv(); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestSixteenSocketsMayWaitForHello(t *testing.T) {
+	_, _, p := setup(t)
+	for range 15 {
+		if _, _, err := p.dial(nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, resp, err := p.dial(nil); err == nil || resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("17th socket: %v", err)
+	}
+	p.hello()
+	if _, _, err := p.dial(nil); err != nil {
+		t.Fatalf("a hello frees a slot: %v", err)
+	}
+}
+
+func TestThreeWrongTokensLockTheAddressOut(t *testing.T) {
+	_, _, p := setup(t)
+	for n := range 3 {
+		p.send(`{"type":"hello","id":"h","token":"nope","clientId":"c","protocolVersion":3}`)
+		m := p.recv()
+		ce := p.closedWith()
+		if n < 2 && (m["code"] != "not_paired" || ce.Code != 4401) {
+			t.Fatalf("%d: %v %v", n, m, ce)
+		}
+		if n == 2 && (m["code"] != "rate_limited" || m["message"] != "Too many attempts" || ce.Code != websocket.StatusPolicyViolation || ce.Reason != "rate_limited") {
+			t.Fatalf("%d: %v %v", n, m, ce)
+		}
+		if n < 2 {
+			ws, _, err := p.dial(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.ws = ws
+		}
+	}
+	if _, resp, err := p.dial(nil); err == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("4th attempt: %v", err)
+	}
+}
+
+func TestHelloOverTheSocketNeedsNoToken(t *testing.T) {
+	_, _, p := local(t, peer.OwnerOf(1))
+	p.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1"]}`)
+	m := p.recv()
+	if want := []any{"observe", "drive", "approve", "spawn", "owner"}; m["type"] != "hello.ok" || !reflect.DeepEqual(m["scopes"], want) {
+		t.Fatalf("%v", m)
+	}
+	if m := p.recv(); m["type"] != "agent.list" {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestHelloOverTcpWithoutATokenIsNotPaired(t *testing.T) {
+	_, _, p := setup(t)
+	p.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1"]}`)
+	if m := p.recv(); m["code"] != "not_paired" {
+		t.Fatalf("%v", m)
+	}
+	if ce := p.closedWith(); ce.Code != 4401 {
+		t.Fatalf("%v", ce)
+	}
+}
+
+func TestScopesAreSentOnlyUnderTheirCap(t *testing.T) {
+	_, _, p := setup(t)
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3}`)
+	if m := p.recv(); m["type"] != "hello.ok" || m["scopes"] != nil {
+		t.Fatalf("%v", m)
+	}
+	p.recv()
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3,"caps":["scopes.v1"]}`)
+	if m := p.recv(); !reflect.DeepEqual(m["scopes"], []any{"observe", "drive", "approve"}) {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestBadPairCodesFromAPtyPeerDontLockTheOwnerOut(t *testing.T) {
+	var s *Server
+	setup(t, func(srv *Server) { s = srv })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		who := peer.Principal{Kind: peer.PTY, Terminal: "t1", Scopes: peer.PTYScopes}
+		if r.URL.Path == "/owner" {
+			who = peer.OwnerOf(1)
+		}
+		s.ServeHTTP(w, r.WithContext(peer.With(r.Context(), who)))
+	}))
+	t.Cleanup(srv.Close)
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	pty := &phone{t: t, url: url}
+	ws, _, err := pty.dial(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pty.ws = ws
+	for range 3 {
+		pty.send(pairMsg("wrong"))
+		if m := pty.recv(); m["code"] != "pair_invalid" {
+			t.Fatalf("%v", m)
+		}
+	}
+	owner := &phone{t: t, url: url + "/owner"}
+	if owner.ws, _, err = owner.dial(nil); err != nil {
+		t.Fatalf("owner locked out: %v", err)
+	}
+	owner.send(`{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["scopes.v1"]}`)
+	if m := owner.recv(); m["type"] != "hello.ok" || !reflect.DeepEqual(m["scopes"], []any{"observe", "drive", "approve", "spawn", "owner"}) {
+		t.Fatalf("%v", m)
+	}
+}
+
+func helloAs(p *phone) {
+	p.send(`{"type":"hello","id":"h","clientId":"c","protocolVersion":3}`)
+	p.recv()
+	p.recv()
+}
+
+func TestResolveWithoutApproveIsRefused(t *testing.T) {
+	_, _, p := local(t, peer.Principal{Kind: peer.Device, Scopes: []peer.Scope{peer.Observe, peer.Drive}})
+	helloAs(p)
+	p.send(`{"type":"permission.resolve","id":"r","requestId":"x","decision":"allow"}`)
+	if m := p.recv(); m["type"] != "error" || m["code"] != "scope_denied" ||
+		m["message"] != "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)" {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestAPtyPeerCanReadAgentsButNotDriveThem(t *testing.T) {
+	_, d, p := local(t, peer.Principal{Kind: peer.PTY, Terminal: "t1", Scopes: peer.PTYScopes})
+	helloAs(p)
+	p.send(`{"type":"agent.list","id":"l"}`)
+	if m := p.recv(); m["type"] != "agent.list" {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"agent.prompt","id":"p","agentId":"a1","text":"1"}`)
+	if m := p.recv(); m["code"] != "scope_denied" {
+		t.Fatalf("%v", m)
+	}
+	if len(d.prompts) != 0 {
+		t.Fatalf("typed %v", d.prompts)
+	}
+}
+
+func TestAPtyPeerPromptingAnAgentWithAnOpenAskIsToldSo(t *testing.T) {
+	asked := make(chan string, 1)
+	reg, d, p := local(t, peer.Principal{Kind: peer.PTY, Terminal: "t2", Scopes: peer.PTYScopes}, func(s *Server) {
+		s.AskOpen = func(id string) bool { asked <- id; return true }
+	})
+	a, _ := reg.Get("a1")
+	a.SetTerminal("t1")
+	helloAs(p)
+	p.send(`{"type":"agent.prompt","id":"p","agentId":"a1","text":"1"}`)
+	if m := p.recv(); m["code"] != "ask_open" || m["message"] != "Terminal t1 is waiting on an ask; answer it from the desktop or phone" {
+		t.Fatalf("%v", m)
+	}
+	if id := <-asked; id != "t1" || len(d.prompts) != 0 {
+		t.Fatalf("typed %v, asked %q", d.prompts, id)
+	}
+}
+
+func TestAnOversizedPromptIsRefusedWithItsCode(t *testing.T) {
+	if e := errorReply("p", terminal.ErrPromptTooLarge); e.Code != "prompt_too_large" || e.ID != "p" {
+		t.Fatalf("%+v", e)
+	}
+	if e := errorReply("p", errors.New("Unknown agent: zz")); e.Code != "" {
+		t.Fatalf("%+v", e)
+	}
+}
+
+const helloWithHost = `{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3,"caps":["host.v1"]}`
+
+func TestHelloOkCarriesHostOnlyWithTheCap(t *testing.T) {
+	mon := host.NewMonitor()
+	mon.Set(func(h *proto.HostState) { h.Tailnet = true })
+	withMonitor := func(s *Server) { s.Monitor = mon }
+
+	_, _, p := setup(t, withMonitor)
+	p.send(helloWithHost)
+	m := p.recv()
+	if !reflect.DeepEqual(m["host"], map[string]any{"tailnet": true, "keepingAwake": false}) || !reflect.DeepEqual(m["caps"], []any{"host.v1"}) {
+		t.Fatalf("%v", m)
+	}
+
+	_, _, p = setup(t, withMonitor)
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3}`)
+	if m := p.recv(); m["type"] != "hello.ok" || m["host"] != nil {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestHostChangedReachesOnlyCapClients(t *testing.T) {
+	mon := host.NewMonitor()
+	withMonitor := func(s *Server) { s.Monitor = mon }
+	_, _, capable := setup(t, withMonitor)
+	capable.send(helloWithHost)
+	capable.recv()
+	capable.recv()
+	_, _, old := setup(t, withMonitor)
+	old.hello()
+
+	mon.Set(func(h *proto.HostState) { h.KeepingAwake = true })
+	if m := capable.recv(); m["type"] != "host.changed" || !reflect.DeepEqual(m["host"], map[string]any{"tailnet": false, "keepingAwake": true}) {
+		t.Fatalf("%v", m)
+	}
+	old.send(`{"type":"agent.list","id":"l"}`)
+	if m := old.recv(); m["type"] != "agent.list" {
+		t.Fatalf("old client got %v", m)
+	}
+}
+
+func TestSeenAndAnswerAreRecorded(t *testing.T) {
+	home := t.TempDir()
+	log, err := events.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b *broker.Broker
+	reg, _, p := setup(t, func(s *Server) { s.Events, b = log, s.Broker })
+	p.hello()
+	a, _ := reg.Get("a1")
+	a.Working()
+	a.TurnEnded(false)
+	p.send(`{"type":"agent.seen","id":"s","agentIds":["a1"]}`)
+	p.send(`{"type":"agent.seen","id":"s2","agentIds":["a1"]}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go b.Ask(ctx, proto.PermissionRequest{AgentID: "a1", ToolName: "Bash", Detail: proto.ToolDetail{Kind: "shell", Command: "ls"}}, "k")
+	for len(b.Open()) == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	p.send(`{"type":"permission.resolve","id":"r","requestId":"` + b.Open()[0].RequestID + `","decision":"allow"}`)
+	for m := p.recv(); m["id"] != "r"; m = p.recv() {
+	}
+	raw, _ := os.ReadFile(filepath.Join(home, "events.jsonl"))
+	var kinds []string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var e events.Event
+		json.Unmarshal([]byte(line), &e)
+		kinds = append(kinds, e.Kind+" "+e.Agent+" "+e.Principal+" "+e.Decision)
+	}
+	if want := []string{"seen a1 device ", "answer a1 device allow"}; !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("%q", kinds)
 	}
 }

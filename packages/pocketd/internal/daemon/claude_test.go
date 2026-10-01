@@ -2,14 +2,19 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"pocketd/internal/broker"
 	"pocketd/internal/ops"
+	"pocketd/internal/peer"
+	"pocketd/internal/proc"
 	"pocketd/internal/proto"
 	"pocketd/internal/terminal"
 )
@@ -29,7 +34,9 @@ func claudeIn(t *testing.T, d *Daemon) (*terminal.Terminal, *presence) {
 }
 
 func hookFrom(d *Daemon, pr *presence, payload string) []byte {
-	return d.Hook(context.Background(), ops.Msg{ID: pr.t.Info().ID, Pid: pr.pid, Data: []byte(payload)})
+	id := pr.t.Info().ID
+	out, _ := d.Hook(context.Background(), peer.Principal{Kind: peer.PTY, Pid: pr.pid, Terminal: id}, ops.Msg{ID: id, Data: []byte(payload)})
+	return out
 }
 
 func userLine(prompt string) string {
@@ -62,7 +69,8 @@ func TestSessionStartBindsTheClaudeThatSentIt(t *testing.T) {
 	eventually(t, "claude", func() bool { return agentPid(term) != 0 })
 	pid := agentPid(term)
 	hook := func(pid int, payload string) {
-		d.Hook(context.Background(), ops.Msg{ID: term.Info().ID, Pid: pid, Data: []byte(payload)})
+		id := term.Info().ID
+		d.Hook(context.Background(), peer.Principal{Kind: peer.PTY, Pid: pid, Terminal: id}, ops.Msg{ID: id, Data: []byte(payload)})
 	}
 	hook(pid, sessionStart("s1", transcript(t, "fix the login bug")))
 	a, ok := agentIn(d, term)
@@ -236,5 +244,76 @@ func TestAClaudeWithoutASessionStartIsNotAttached(t *testing.T) {
 	hookFrom(d, silent, sessionStart("s2", transcript(t, "trusted")))
 	if !silent.a.Summary().Attached {
 		t.Fatalf("a late SessionStart left %+v", silent.a.Summary())
+	}
+}
+
+func TestAnAskIsOpenWhileAPermissionHookWaits(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	id := term.Info().ID
+	if d.AskOpen(id) {
+		t.Fatal("idle agent has an open ask")
+	}
+	go hookFrom(d, pr, `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}`)
+	eventually(t, "open ask", func() bool { return d.AskOpen(id) && len(d.Broker.Open()) == 1 })
+	d.Broker.Resolve(d.Broker.Open()[0].RequestID, broker.Answer{Decision: "allow"})
+	eventually(t, "ask closed", func() bool { return !d.AskOpen(id) })
+}
+
+func TestNearestClaudeOwnsTheHook(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		chain []proc.Proc
+		want  int
+	}{
+		{"claude's shell", []proc.Proc{{Pid: 30, Argv: []string{"sh", "-c", "pocketd hook"}}, {Pid: 20, Argv: []string{"claude"}}, {Pid: 10, Argv: []string{"-zsh"}}}, 20},
+		{"nested claude -p", []proc.Proc{{Pid: 50, Argv: []string{"claude", "-p", "hi"}}, {Pid: 40, Argv: []string{"bash"}}, {Pid: 20, Argv: []string{"claude"}}}, 50},
+		{"claude mcp is not claude", []proc.Proc{{Pid: 60, Argv: []string{"claude", "mcp", "serve"}}, {Pid: 20, Argv: []string{"/Users/me/.local/bin/claude"}}}, 20},
+		{"no claude", []proc.Proc{{Pid: 10, Argv: []string{"-zsh"}}}, 0},
+	} {
+		if got := NearestClaude(c.chain); got != c.want {
+			t.Errorf("%s: pid %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func hookCode(t *testing.T, d *Daemon, p peer.Principal, id string) string {
+	t.Helper()
+	_, err := d.Hook(context.Background(), p, ops.Msg{ID: id, Data: []byte(`{"hook_event_name":"PreToolUse"}`)})
+	r, ok := errors.AsType[*peer.Refusal](err)
+	if !ok {
+		t.Fatalf("hook accepted: %v", err)
+	}
+	return r.Code
+}
+
+func TestAHookFromAnotherTerminalIsRefusedAsNotOwnTerminal(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	p := peer.Principal{Kind: peer.PTY, Pid: pr.pid, Terminal: "elsewhere", Scopes: peer.PTYScopes}
+	if code := hookCode(t, d, p, term.Info().ID); code != "not_own_terminal" {
+		t.Fatalf("code %q", code)
+	}
+}
+
+func TestAHookWhoseNearestClaudeIsNotInThatTerminalIsRefusedAsHookForged(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	other := exec.Command(fakeAgent(t, "claude"))
+	if err := other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Process.Kill(); other.Wait() })
+	id := term.Info().ID
+	for name, p := range map[string]peer.Principal{
+		"a claude outside the terminal": {Kind: peer.PTY, Pid: other.Process.Pid, Terminal: id},
+		"the owner":                     peer.OwnerOf(pr.pid),
+	} {
+		if code := hookCode(t, d, p, id); code != "hook_forged" {
+			t.Errorf("%s: code %q", name, code)
+		}
+	}
+	if s := pr.a.Summary().Status; s == "needsYou" {
+		t.Fatal("a refused hook changed the agent")
 	}
 }

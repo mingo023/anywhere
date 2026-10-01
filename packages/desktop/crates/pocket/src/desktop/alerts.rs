@@ -61,7 +61,7 @@ pub struct Notice {
 
 impl Desktop {
     pub(crate) fn on_agents(&mut self, ev: Event, cx: &mut Context<Self>) {
-        if let (Event::Connected, Some(ids)) = (&ev, &self.alerts.viewing) {
+        if let (Event::Connected(_), Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
         }
         if let Event::Agents(list) = &ev {

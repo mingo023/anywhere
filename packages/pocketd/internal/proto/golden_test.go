@@ -24,7 +24,7 @@ func with(f func(*AgentSummary)) AgentSummary {
 }
 
 var serverGolden = map[string]any{
-	"hello_ok":            NewHelloOK("h1", "mac"),
+	"hello_ok":            NewHelloOK("h1", "mac", 3, []string{"pair.v1"}),
 	"agent_list":          NewAgentList("l1", []AgentSummary{summary()}),
 	"agent_list_push":     NewAgentList("", nil),
 	"agent_update":        NewAgentUpdate(summary()),
@@ -55,6 +55,24 @@ var serverGolden = map[string]any{
 	"permission_resolved": NewPermissionResolved("r1", "allow"),
 	"ack":                 NewAck("p1"),
 	"error":               NewError("p1", "Unknown agent: zz"),
+	"hello_ok_host":       helloOKHost(),
+	"host_changed":        NewHostChanged(HostState{Tailnet: true, KeepingAwake: true}),
+	"error_coded":         NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
+	"pair_ok":             NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
+	"hello_ok_scopes": func() HelloOK {
+		h := NewHelloOK("h1", "mac", 3, []string{"pair.v1", "scopes.v1"})
+		h.Scopes = []string{"observe", "drive", "approve", "spawn", "owner"}
+		return h
+	}(),
+	"pair_offer":         NewPairOffer("b1", "codingpocket://pair?v=1&h=100.64.0.1:4517&c=abcdefghijklmnopqrstuv", "abcdefghijklmnopqrstuv", 1790000000000),
+	"pair_done":          NewPairDone("d1", "iPhone"),
+	"error_scope_denied": NewErrorCode("r1", CodeScopeDenied, "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)"),
+}
+
+func helloOKHost() HelloOK {
+	ok := NewHelloOK("h1", "mac", 3, []string{CapHost})
+	ok.Host = &HostState{Tailnet: true}
+	return ok
 }
 
 // TestServerGolden pins the exact JSON the phone decodes.
@@ -114,6 +132,14 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.seen","id":"1","agentIds":"a1"}`,
 		`{"type":"agent.seen","id":"1","agentIds":[1]}`,
 		`{"type":"agent.seen","id":"1","agentIds":["a1",null]}`,
+		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"caps":"pair.v1"}`,
+		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"caps":[1]}`,
+		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"protocol":{"min":3}}`,
+		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"protocol":{"min":3,"max":3.5}}`,
+		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"protocol":null}`,
+		`{"type":"pair","id":"1","name":"iPhone","platform":"ios"}`,
+		`{"type":"pair","id":"1","code":"c","name":"iPhone","platform":"windows"}`,
+		`{"type":"pair","id":"1","code":"c","platform":"ios"}`,
 		`null`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
@@ -130,6 +156,9 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"agent.timeline","id":"1","agentId":"a","sinceSeq":1.5,"limit":2.5}`,
 		`{"type":"hello","id":"1","token":"","clientId":"","protocolVersion":2.0}`,
 		`{"type":"agent.view","id":"1","agentIds":[]}`,
+		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"caps":[],"protocol":{"min":3,"max":3.0}}`,
+		`{"type":"pair","id":"1","code":"c","name":"","platform":"android"}`,
+		`{"type":"hello","id":"1","clientId":"desktop","protocolVersion":3}`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != nil {
 			t.Errorf("%s: %v", raw, err)

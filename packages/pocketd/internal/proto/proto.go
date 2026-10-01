@@ -9,6 +9,8 @@ import (
 
 const (
 	Version          = 3
+	MinVersion       = 3
+	MaxVersion       = 3
 	ToolOutputLimit  = 64 * 1024
 	DiffPreviewLines = 24
 	DiffLineChars    = 160

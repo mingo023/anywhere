@@ -3,9 +3,10 @@ package broker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"maps"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -35,6 +36,13 @@ type Broker struct {
 	open map[string]*pending
 }
 
+// newRequestID is random so a phone can't answer a request it was never shown.
+func newRequestID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func New(h *hub.Hub) *Broker { return &Broker{hub: h, open: map[string]*pending{}} }
 
 // Ask shows req on every phone and returns its answer, whose Decision is
@@ -44,7 +52,7 @@ func New(h *hub.Hub) *Broker { return &Broker{hub: h, open: map[string]*pending{
 func (b *Broker) Ask(ctx context.Context, req proto.PermissionRequest, key string) Answer {
 	b.mu.Lock()
 	b.seq++
-	req.RequestID = "perm-" + strconv.Itoa(b.seq)
+	req.RequestID = newRequestID()
 	p := &pending{seq: b.seq, req: req, key: key, answer: make(chan Answer, 1)}
 	b.open[p.req.RequestID] = p
 	// Publishing under the lock keeps a phone from seeing or resolving the

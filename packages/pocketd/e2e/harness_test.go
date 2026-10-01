@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -72,6 +73,7 @@ func Start(t *testing.T) *Harness {
 		Token:     "test-token",
 	}
 	h.Env = append(os.Environ(),
+		"HOME="+home,
 		"POCKET_HOME="+home,
 		"POCKETD_SOCK="+h.Sock,
 		"CLAUDE_CONFIG_DIR="+h.ClaudeDir,
@@ -90,7 +92,7 @@ func Start(t *testing.T) *Harness {
 func (h *Harness) serve() bool {
 	log := &bytes.Buffer{}
 	h.Port, h.log = freePort(h.t), log
-	config := fmt.Sprintf(`{"token":%q,"port":%d}`, h.Token, h.Port)
+	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback"}`, h.Token, h.Port)
 	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
 		h.t.Fatal(err)
 	}
@@ -130,6 +132,23 @@ func (h *Harness) serve() bool {
 	default:
 		return true
 	}
+}
+
+// pocketd runs the CLI with env and returns its combined output and exit code.
+func pocketd(t *testing.T, env []string, args ...string) (string, int) {
+	t.Helper()
+	cmd := exec.Command(filepath.Join(binDir, "pocketd"), args...)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if exit := (*exec.ExitError)(nil); err != nil && !errors.As(err, &exit) {
+		t.Fatal(err)
+	}
+	return string(out), cmd.ProcessState.ExitCode()
+}
+
+func (h *Harness) Pocketd(args ...string) (string, int) {
+	h.t.Helper()
+	return pocketd(h.t, h.Env, args...)
 }
 
 func (h *Harness) eventually(what string, ok func() bool) {
