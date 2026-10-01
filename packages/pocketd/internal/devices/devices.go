@@ -100,7 +100,6 @@ func hash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// CleanName drops control characters and surrounding space and keeps at most 64 characters.
 func CleanName(name string) string {
 	name = strings.TrimSpace(strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

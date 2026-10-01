@@ -59,7 +59,6 @@ func Plist(s Spec) []byte {
 	return fmt.Appendf(nil, plist, Label, escape(s.Exe), escape(s.LogPath))
 }
 
-// Path is where the plist lives for the user whose home directory is home.
 func Path(home string) string {
 	return filepath.Join(home, "Library", "LaunchAgents", Label+".plist")
 }
@@ -108,7 +107,6 @@ func Install(s Spec, path string, uid int) (loaded bool, err error) {
 	return false, nil
 }
 
-// Uninstall stops the service and removes its plist.
 func Uninstall(path string, uid int) error {
 	loaded, err := Loaded(uid)
 	if err != nil {

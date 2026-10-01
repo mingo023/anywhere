@@ -133,3 +133,16 @@ func TestStatsWithNoEventsShowsDashes(t *testing.T) {
 		}
 	}
 }
+
+func TestANewTurnAfterDoneIsNotASighting(t *testing.T) {
+	lines := []string{
+		`{"ts":"2026-09-30T10:00:00.000Z","kind":"status","agent":"a1","from":"working","to":"done"}`,
+		`{"ts":"2026-09-30T10:00:30.000Z","kind":"status","agent":"a1","from":"done","to":"working"}`,
+		`{"ts":"2026-09-30T10:05:00.000Z","kind":"status","agent":"a1","from":"working","to":"done"}`,
+		`{"ts":"2026-09-30T10:05:10.000Z","kind":"status","agent":"a1","from":"done","to":"idle"}`,
+	}
+	got := Stats(strings.NewReader(strings.Join(lines, "\n")), time.Time{}).Seen
+	if got.N != 1 || got.P50 != 10_000 {
+		t.Fatalf("%+v, want one sighting of 10s", got)
+	}
+}

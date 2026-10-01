@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -112,12 +113,19 @@ func serve(sock string) error {
 	d.Terminals.OnInput = d.Input
 	hostname, _ := os.Hostname()
 	pairs := pairing.New(time.Now)
-	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen}
+	var live atomic.Pointer[reach.Listener]
+	pairHost := func() (string, bool) {
+		if l := live.Load(); l != nil {
+			return l.PairHost()
+		}
+		return "", false
+	}
+	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen}
 	phones, err := reach.Listen(cfg.Port, cfg.Listen, ws)
 	if err != nil {
 		return err
 	}
-	ws.Host, ws.MacName = phones.PairHost, computerName(hostname)
+	live.Store(phones)
 	go watchTailnet(ctx, phones, mon)
 	go d.Watch(context.Background())
 
@@ -156,7 +164,7 @@ func serve(sock string) error {
 	err = (&ops.Server{
 		Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook,
 		Devices: devs, Kick: ws.CloseDevice,
-		Pairing: pairs, Host: phones.PairHost, MacName: ws.MacName,
+		Pairing: pairs, Host: pairHost, MacName: ws.MacName,
 		WS: ws, AskOpen: d.AskOpen,
 		Status: status,
 	}).Serve(ln)

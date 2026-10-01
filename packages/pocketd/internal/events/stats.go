@@ -87,7 +87,9 @@ func Stats(r io.Reader, since time.Time) Report {
 				delete(needs, e.Agent)
 			}
 			if t0, ok := done[e.Agent]; ok && e.From == "done" {
-				seen = append(seen, ts.Sub(t0))
+				if e.To == "idle" {
+					seen = append(seen, ts.Sub(t0))
+				}
 				delete(done, e.Agent)
 			}
 			switch e.To {

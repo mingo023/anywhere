@@ -87,7 +87,6 @@ func (m *Manager) Begin(host, macName string) (Offer, <-chan Result, error) {
 	return Offer{URL: link, Code: code, ExpiresAt: m.open.expires.UnixMilli()}, m.open.done, nil
 }
 
-// Cancel voids code and reports whether it was still open.
 func (m *Manager) Cancel(code string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -99,7 +98,6 @@ func (m *Manager) Cancel(code string) bool {
 	return true
 }
 
-// Redeem trades the open code for a new device made by add.
 func (m *Manager) Redeem(code string, add func() (devices.Device, string, error)) (devices.Device, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -141,7 +139,6 @@ func (m *Manager) Redeem(code string, add func() (devices.Device, string, error)
 	return devices.Device{}, "", ErrLocked
 }
 
-// end closes the open offer, if any: later tries with its code get err.
 func (m *Manager) end(err error, r Result, now time.Time) {
 	if m.open == nil {
 		return

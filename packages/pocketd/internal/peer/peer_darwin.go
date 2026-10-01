@@ -6,7 +6,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// PID is the process id of the peer that connected c.
 func PID(c *net.UnixConn) (int, error) {
 	raw, err := c.SyscallConn()
 	if err != nil {

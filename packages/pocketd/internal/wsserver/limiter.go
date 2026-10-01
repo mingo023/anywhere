@@ -12,7 +12,6 @@ const (
 	failureWindow = time.Minute
 )
 
-// limiter counts failed auth attempts per address in fixed one-minute windows.
 type limiter struct {
 	mu    sync.Mutex
 	fails map[netip.Addr]window

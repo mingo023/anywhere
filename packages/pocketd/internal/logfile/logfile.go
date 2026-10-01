@@ -49,7 +49,6 @@ func (l *File) Write(p []byte) (int, error) {
 }
 
 func (l *File) rotate() error {
-	l.f.Close()
 	for n := l.keep; n > 1; n-- {
 		os.Rename(fmt.Sprintf("%s.%d", l.path, n-1), fmt.Sprintf("%s.%d", l.path, n))
 	}
@@ -58,6 +57,7 @@ func (l *File) rotate() error {
 	if err != nil {
 		return err
 	}
+	l.f.Close()
 	l.f, l.size = f, 0
 	return nil
 }

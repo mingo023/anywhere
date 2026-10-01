@@ -177,7 +177,6 @@ func (m *Manager) All() []*Terminal {
 	return slices.Collect(maps.Values(m.terminals))
 }
 
-// Roots maps each live Terminal's root pid to its ID.
 func (m *Manager) Roots() map[int]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

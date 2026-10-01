@@ -48,7 +48,6 @@ type Log struct {
 	once sync.Once
 }
 
-// Open appends to home/events.jsonl, keeping two rotated files of 10 MiB.
 func Open(home string) (*Log, error) {
 	f, err := logfile.Open(filepath.Join(home, "events.jsonl"), 10<<20, 2)
 	if err != nil {
