@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::modals::new_session::Perm;
+use crate::modals::new_session::{Perm, plans_first};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -29,6 +29,18 @@ fn chip(id: &'static str, open: bool) -> Stateful<Div> {
 
 fn pick_head(label: &str) -> Div {
     div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string())
+}
+
+fn pick_note(label: &str, hint: &str) -> Div {
+    div()
+        .px(px(8.))
+        .py(px(8.))
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .text_color(TEXT_4)
+        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(label.to_string()))
+        .child(div().text_size(px(11.5)).child(hint.to_string()))
 }
 
 fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElement>, label: Div, meta: Option<String>) -> Stateful<Div> {
@@ -87,7 +99,7 @@ impl Desktop {
             rows.push(
                 pick_row(provider, f.provider == provider, Some(ui::dot(7., provider_color(provider))), div().child(model), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.new_form.draft.provider, this.new_form.draft.picker) = (provider, None);
+                        this.new_form.draft.pick_provider(provider);
                         cx.notify();
                     }))
                     .into_any_element(),
@@ -95,6 +107,10 @@ impl Desktop {
         }
         rows.push(pick_head("Permissions").into_any_element());
         for (perm, label) in [(Perm::Ask, "Ask"), (Perm::AutoEdit, "Auto-edit"), (Perm::Plan, "Plan only")] {
+            if perm == Perm::Plan && !plans_first(f.provider) {
+                rows.push(pick_note(label, &format!("{} can't plan first in a terminal session", provider_name(f.provider))).into_any_element());
+                continue;
+            }
             rows.push(
                 pick_row(label, f.perm == perm, None::<Div>, div().child(label), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

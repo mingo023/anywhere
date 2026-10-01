@@ -70,26 +70,43 @@ impl Draft {
     }
 
     fn argv(&self, prompt: &str) -> Vec<String> {
-        let prompt = prompt.trim().to_string();
-        let mut args: Vec<String> = match (self.provider, self.perm) {
-            (_, Perm::Ask) => vec![],
-            ("claude", Perm::AutoEdit) => vec!["--permission-mode".into(), "acceptEdits".into()],
-            ("claude", Perm::Plan) => vec!["--permission-mode".into(), "plan".into()],
-            (_, Perm::AutoEdit) => vec!["--full-auto".into()],
-            (_, Perm::Plan) => vec!["-s".into(), "read-only".into()],
-        };
-        args.extend((!prompt.is_empty()).then_some(prompt));
-        std::iter::once(self.provider.to_string()).chain(args).collect()
+        let access = access_args(self.provider, self.perm).unwrap_or_default();
+        let prompt = prompt.trim();
+        std::iter::once(self.provider).chain(access.iter().copied()).chain((!prompt.is_empty()).then_some(prompt)).map(String::from).collect()
     }
 
     /// `in_tree`: a worktree is open to start the session in.
     fn ready(&self, name: &str, in_tree: bool) -> bool {
-        if self.worktree {
+        let place = if self.worktree {
             self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none()
         } else {
             in_tree
+        };
+        place && access_args(self.provider, self.perm).is_some()
+    }
+
+    fn pick_provider(&mut self, provider: &'static str) {
+        (self.provider, self.picker) = (provider, None);
+        if access_args(provider, self.perm).is_none() {
+            self.perm = Perm::Ask;
         }
     }
+}
+
+/// `None`: the provider can't start with this access in a terminal session.
+fn access_args(provider: &str, perm: Perm) -> Option<&'static [&'static str]> {
+    match (provider, perm) {
+        ("claude", Perm::Ask) => Some(&["--permission-mode", "default"]),
+        ("claude", Perm::AutoEdit) => Some(&["--permission-mode", "acceptEdits"]),
+        ("claude", Perm::Plan) => Some(&["--permission-mode", "plan"]),
+        ("codex", Perm::Ask) => Some(&["-s", "read-only", "-a", "on-request"]),
+        ("codex", Perm::AutoEdit) => Some(&["-s", "workspace-write", "-a", "on-request"]),
+        _ => None,
+    }
+}
+
+fn plans_first(provider: &str) -> bool {
+    access_args(provider, Perm::Plan).is_some()
 }
 
 fn slug(prompt: &str) -> String {
@@ -405,7 +422,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Perm, auto_name, default_first, name_problem, slug};
+    use super::{Draft, Perm, access_args, auto_name, default_first, name_problem, plans_first, slug};
     use std::collections::HashSet;
 
     #[test]
@@ -427,19 +444,45 @@ mod tests {
     }
 
     #[test]
-    fn the_agent_runs_with_its_permission_flags_then_the_prompt() {
+    fn every_provider_and_access_spawns_with_both_axes() {
         let argv = |provider, perm| Draft { provider, perm, ..Draft::default() }.argv("  Fix CI  ").join(" ");
-        let got = [("claude", Perm::Ask), ("claude", Perm::AutoEdit), ("claude", Perm::Plan), ("codex", Perm::Ask), ("codex", Perm::AutoEdit), ("codex", Perm::Plan)].map(|(p, m)| argv(p, m));
+        let got = [("claude", Perm::Ask), ("claude", Perm::AutoEdit), ("claude", Perm::Plan), ("codex", Perm::Ask), ("codex", Perm::AutoEdit)].map(|(p, m)| argv(p, m));
         let want = [
-            "claude Fix CI",
+            "claude --permission-mode default Fix CI",
             "claude --permission-mode acceptEdits Fix CI",
             "claude --permission-mode plan Fix CI",
-            "codex Fix CI",
-            "codex --full-auto Fix CI",
-            "codex -s read-only Fix CI",
+            "codex -s read-only -a on-request Fix CI",
+            "codex -s workspace-write -a on-request Fix CI",
         ];
         assert_eq!(got, want.map(String::from));
-        assert_eq!(Draft::default().argv(" \n "), vec!["claude".to_string()]);
+        assert_eq!(Draft::default().argv(" \n "), ["claude", "--permission-mode", "default"].map(String::from));
+    }
+
+    #[test]
+    fn codex_cannot_plan_first_in_a_terminal_session() {
+        assert_eq!((plans_first("claude"), plans_first("codex")), (true, false));
+        assert!(access_args("codex", Perm::Plan).is_none());
+        assert!(!Draft { provider: "codex", perm: Perm::Plan, ..Draft::default() }.ready("", true));
+    }
+
+    #[test]
+    fn picking_codex_drops_plan_first() {
+        let mut draft = Draft { perm: Perm::Plan, ..Draft::default() };
+        draft.pick_provider("codex");
+        assert_eq!((draft.provider, draft.perm), ("codex", Perm::Ask));
+        let mut draft = Draft { perm: Perm::AutoEdit, ..Draft::default() };
+        draft.pick_provider("codex");
+        assert_eq!(draft.perm, Perm::AutoEdit);
+    }
+
+    #[test]
+    fn no_spawn_ever_passes_full_auto() {
+        for provider in ["claude", "codex"] {
+            for perm in [Perm::Ask, Perm::AutoEdit, Perm::Plan] {
+                let argv = Draft { provider, perm, ..Draft::default() }.argv("go");
+                assert!(!argv.iter().any(|a| a == "--full-auto"), "{provider} {perm:?}");
+            }
+        }
     }
 
     #[test]
