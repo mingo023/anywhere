@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -16,7 +15,6 @@ import (
 	"pocketd/internal/devices"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
-	"pocketd/internal/proto"
 	"pocketd/internal/terminal"
 )
 
@@ -159,14 +157,7 @@ func (s *Server) principal(c net.Conn) peer.Principal {
 }
 
 func refused(id string, err error) Msg {
-	m := Msg{Ev: "error", ID: id, Error: err.Error()}
-	if r, ok := errors.AsType[*peer.Refusal](err); ok {
-		m.ErrorCode = r.Code
-	}
-	if errors.Is(err, terminal.ErrPromptTooLarge) {
-		m.ErrorCode = proto.CodePromptTooLarge
-	}
-	return m
+	return Msg{Ev: "error", ID: id, Error: err.Error(), ErrorCode: peer.CodeOf(err)}
 }
 
 func (s *Server) spawn(m Msg) (*terminal.Terminal, error) {

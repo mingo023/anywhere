@@ -2,9 +2,9 @@ package ops
 
 import (
 	"context"
-	"time"
 
 	"pocketd/internal/pairing"
+	"pocketd/internal/proto"
 )
 
 // pairBegin opens a code for this connection. It reports pair.ok or
@@ -15,7 +15,7 @@ func (s *Server) pairBegin(ctx context.Context, c *Conn, m Msg) {
 		host, ok = s.Host()
 	}
 	if !ok {
-		c.Send(Msg{Ev: "error", Error: "Tailscale isn't running. Phones can't reach this Mac.", ErrorCode: "tailnet_off"})
+		c.Send(Msg{Ev: "error", Error: "Tailscale isn't running. Phones can't reach this Mac.", ErrorCode: proto.CodeTailnetOff})
 		return
 	}
 	offer, done, err := s.Pairing.Begin(host, s.MacName)
@@ -24,22 +24,7 @@ func (s *Server) pairBegin(ctx context.Context, c *Conn, m Msg) {
 		return
 	}
 	c.Send(Msg{Ev: "pair.begin", Pair: &offer})
-	go func() {
-		expiry := time.NewTimer(time.Until(time.UnixMilli(offer.ExpiresAt)))
-		defer expiry.Stop()
-		select {
-		case r := <-done:
-			c.Send(pairResult(r))
-		case <-expiry.C:
-			if s.Pairing.Cancel(offer.Code) {
-				c.Send(Msg{Ev: "pair.expired", ErrorCode: "pair_expired"})
-			} else {
-				c.Send(pairResult(<-done))
-			}
-		case <-ctx.Done():
-			s.Pairing.Cancel(offer.Code)
-		}
-	}()
+	go s.Pairing.Watch(ctx, offer, done, func(r pairing.Result) { c.Send(pairResult(r)) })
 }
 
 func pairResult(r pairing.Result) Msg {

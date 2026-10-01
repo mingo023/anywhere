@@ -2,6 +2,7 @@
 package pairing
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"pocketd/internal/devices"
+	"pocketd/internal/proto"
 )
 
 const (
@@ -27,7 +29,7 @@ var (
 	ErrLocked  = errors.New("Too many tries. Make a new code on your Mac in a minute.")
 )
 
-var codes = map[error]string{ErrExpired: "pair_expired", ErrUsed: "pair_used", ErrInvalid: "pair_invalid", ErrLocked: "pair_locked"}
+var codes = map[error]string{ErrExpired: proto.CodePairExpired, ErrUsed: proto.CodePairUsed, ErrInvalid: proto.CodePairInvalid, ErrLocked: proto.CodePairLocked}
 
 // Code is the wire code for a pairing error, or "" for any other error.
 func Code(err error) string { return codes[err] }
@@ -77,7 +79,7 @@ func (m *Manager) Begin(host, macName string) (Offer, <-chan Result, error) {
 	if now.Before(m.lockedUntil) {
 		return Offer{}, nil, ErrLocked
 	}
-	m.end(ErrExpired, Result{Code: "pair_expired"}, now)
+	m.end(ErrExpired, Result{Code: proto.CodePairExpired}, now)
 	m.fails = 0
 	b := make([]byte, 16)
 	rand.Read(b)
@@ -85,6 +87,26 @@ func (m *Manager) Begin(host, macName string) (Offer, <-chan Result, error) {
 	m.open = &offer{hash: sha256.Sum256([]byte(code)), expires: now.Add(ttl), done: make(chan Result, 1)}
 	link := "codingpocket://pair?v=1&h=" + url.QueryEscape(host) + "&c=" + code + "&n=" + url.QueryEscape(macName)
 	return Offer{URL: link, Code: code, ExpiresAt: m.open.expires.UnixMilli()}, m.open.done, nil
+}
+
+// Watch hands deliver how offer ends: the result from done, or an expired one
+// once its time runs out with the code still open. A cancelled ctx voids the
+// code and delivers nothing.
+func (m *Manager) Watch(ctx context.Context, offer Offer, done <-chan Result, deliver func(Result)) {
+	expiry := time.NewTimer(time.Until(time.UnixMilli(offer.ExpiresAt)))
+	defer expiry.Stop()
+	select {
+	case r := <-done:
+		deliver(r)
+	case <-expiry.C:
+		if m.Cancel(offer.Code) {
+			deliver(Result{Code: proto.CodePairExpired})
+		} else {
+			deliver(<-done)
+		}
+	case <-ctx.Done():
+		m.Cancel(offer.Code)
+	}
 }
 
 func (m *Manager) Cancel(code string) bool {
@@ -113,12 +135,12 @@ func (m *Manager) Redeem(code string, add func() (devices.Device, string, error)
 	h := sha256.Sum256([]byte(code))
 	if m.open != nil && m.open.hash == h {
 		if now.After(m.open.expires) {
-			m.end(ErrExpired, Result{Code: "pair_expired"}, now)
+			m.end(ErrExpired, Result{Code: proto.CodePairExpired}, now)
 			return devices.Device{}, "", ErrExpired
 		}
 		d, token, err := add()
 		if err != nil {
-			m.end(ErrUsed, Result{Code: "pair_failed"}, now)
+			m.end(ErrUsed, Result{Code: proto.CodePairFailed}, now)
 			return devices.Device{}, "", err
 		}
 		m.end(ErrUsed, Result{DeviceID: d.ID, Name: d.Name}, now)
@@ -135,7 +157,7 @@ func (m *Manager) Redeem(code string, add func() (devices.Device, string, error)
 	}
 	m.fails = 0
 	m.lockedUntil = now.Add(lockFor)
-	m.end(ErrExpired, Result{Code: "pair_locked"}, now)
+	m.end(ErrExpired, Result{Code: proto.CodePairLocked}, now)
 	return devices.Device{}, "", ErrLocked
 }
 

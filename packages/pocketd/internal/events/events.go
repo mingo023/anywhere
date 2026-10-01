@@ -70,4 +70,9 @@ func (l *Log) Emit(e Event) {
 	}
 }
 
-func (l *Log) Close() error { return l.f.Close() }
+func (l *Log) Close() error {
+	if l == nil {
+		return nil
+	}
+	return l.f.Close()
+}

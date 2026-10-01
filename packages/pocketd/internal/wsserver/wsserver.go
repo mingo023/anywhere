@@ -25,7 +25,6 @@ import (
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
-	"pocketd/internal/terminal"
 )
 
 const (
@@ -43,8 +42,8 @@ const (
 )
 
 var updateCopy = map[string]string{
-	"client_too_old": "Update Pocket on this phone",
-	"server_too_old": "Update Pocket on your Mac",
+	proto.CodeClientTooOld: "Update Pocket on this phone",
+	proto.CodeServerTooOld: "Update Pocket on your Mac",
 }
 
 type Server struct {
@@ -191,11 +190,11 @@ func (c *conn) handle(raw []byte) {
 		if !local {
 			d, ok := c.s.Devices.Lookup(m.Token)
 			if !ok {
-				c.reject(proto.NewErrorCode(m.ID, "not_paired", "Not paired"), statusUnpaired, "not_paired")
+				c.reject(proto.NewErrorCode(m.ID, proto.CodeNotPaired, "Not paired"), statusUnpaired, proto.CodeNotPaired)
 				return
 			}
 			if c.authed && d.ID != c.device {
-				c.reject(proto.NewErrorCode(m.ID, "not_paired", "Not paired"), statusUnpaired, "not_paired")
+				c.reject(proto.NewErrorCode(m.ID, proto.CodeNotPaired, "Not paired"), statusUnpaired, proto.CodeNotPaired)
 				return
 			}
 			if !c.authed {
@@ -267,11 +266,8 @@ func (c *conn) withHost(reply *proto.HelloOK) <-chan []byte {
 }
 
 func errorReply(id string, err error) proto.Error {
-	if r, ok := errors.AsType[*peer.Refusal](err); ok {
-		return proto.NewErrorCode(id, r.Code, r.Message)
-	}
-	if errors.Is(err, terminal.ErrPromptTooLarge) {
-		return proto.NewErrorCode(id, proto.CodePromptTooLarge, err.Error())
+	if code := peer.CodeOf(err); code != "" {
+		return proto.NewErrorCode(id, code, err.Error())
 	}
 	return proto.NewError(id, err.Error())
 }
@@ -311,7 +307,7 @@ func (s *Server) CloseDevice(id, reason string) {
 // rate_limited instead and locks the address out.
 func (c *conn) reject(msg proto.Error, status websocket.StatusCode, reason string) {
 	if _, local := peer.From(c.ctx); !local && c.s.failures.fail(c.ip, time.Now()) {
-		msg, status, reason = proto.NewErrorCode(msg.ID, "rate_limited", "Too many attempts"), websocket.StatusPolicyViolation, "rate_limited"
+		msg, status, reason = proto.NewErrorCode(msg.ID, proto.CodeRateLimited, "Too many attempts"), websocket.StatusPolicyViolation, proto.CodeRateLimited
 	}
 	c.send(msg)
 	if status != 0 {

@@ -29,9 +29,9 @@ func (m ClientMessage) Versions() Range {
 func Negotiate(client Range, clientCaps, serverCaps []string) (version int, caps []string, code string) {
 	switch {
 	case client.Max < MinVersion:
-		return 0, nil, "client_too_old"
+		return 0, nil, CodeClientTooOld
 	case client.Min > MaxVersion:
-		return 0, nil, "server_too_old"
+		return 0, nil, CodeServerTooOld
 	}
 	caps = []string{}
 	for _, c := range clientCaps {

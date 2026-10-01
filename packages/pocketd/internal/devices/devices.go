@@ -130,8 +130,13 @@ func (s *Store) Add(name, platform string, scopes []Scope) (Device, string, erro
 		s.devices = s.devices[:len(s.devices)-1]
 		return Device{}, "", err
 	}
+	return d.public(), token, nil
+}
+
+// public is d without the hash of its token.
+func (d Device) public() Device {
 	d.TokenHash = ""
-	return d, token, nil
+	return d
 }
 
 func (s *Store) Lookup(token string) (Device, bool) {
@@ -140,8 +145,7 @@ func (s *Store) Lookup(token string) (Device, bool) {
 	defer s.mu.Unlock()
 	for _, d := range s.devices {
 		if d.TokenHash == sum {
-			d.TokenHash = ""
-			return d, true
+			return d.public(), true
 		}
 	}
 	return Device{}, false
@@ -178,8 +182,7 @@ func (s *Store) List() []Device {
 	defer s.mu.Unlock()
 	out := []Device{}
 	for _, d := range s.devices {
-		d.TokenHash = ""
-		out = append(out, d)
+		out = append(out, d.public())
 	}
 	return out
 }
@@ -219,9 +222,7 @@ func (s *Store) Rename(id, name string) (Device, error) {
 		s.devices[n].Name = old
 		return Device{}, err
 	}
-	d := s.devices[n]
-	d.TokenHash = ""
-	return d, nil
+	return s.devices[n].public(), nil
 }
 
 // Revoke unpairs a device. Its live sockets stay open until the caller closes them.
@@ -238,9 +239,7 @@ func (s *Store) Revoke(id string) (Device, error) {
 		s.devices = before
 		return Device{}, err
 	}
-	d := before[n]
-	d.TokenHash = ""
-	return d, nil
+	return before[n].public(), nil
 }
 
 func (s *Store) find(id string) (int, error) {

@@ -2,7 +2,6 @@ package wsserver
 
 import (
 	"context"
-	"time"
 
 	"github.com/coder/websocket"
 
@@ -13,9 +12,9 @@ import (
 )
 
 var pairEnded = map[string]string{
-	"pair_expired": "Code expired.",
-	"pair_locked":  "Too many wrong codes. Try again in a minute.",
-	"pair_failed":  "Pairing failed.",
+	proto.CodePairExpired: "Code expired.",
+	proto.CodePairLocked:  "Too many wrong codes. Try again in a minute.",
+	proto.CodePairFailed:  "Pairing failed.",
 }
 
 // pair trades a one-time code for a device token, then closes: the phone
@@ -66,7 +65,7 @@ func (c *conn) pairBegin(id string) error {
 		host, ok = c.s.Host()
 	}
 	if !ok {
-		return &peer.Refusal{Code: "tailnet_off", Message: "Tailscale isn't running. Phones can't reach this Mac."}
+		return &peer.Refusal{Code: proto.CodeTailnetOff, Message: "Tailscale isn't running. Phones can't reach this Mac."}
 	}
 	offer, done, err := c.s.Pairing.Begin(host, c.s.MacName)
 	if err != nil {
@@ -77,20 +76,7 @@ func (c *conn) pairBegin(id string) error {
 	c.send(proto.NewPairOffer(id, offer.URL, offer.Code, offer.ExpiresAt))
 	go func(gone chan struct{}) {
 		defer close(gone)
-		expiry := time.NewTimer(time.Until(time.UnixMilli(offer.ExpiresAt)))
-		defer expiry.Stop()
-		select {
-		case r := <-done:
-			c.pairResult(id, r)
-		case <-expiry.C:
-			if c.s.Pairing.Cancel(offer.Code) {
-				c.pairResult(id, pairing.Result{Code: "pair_expired"})
-			} else {
-				c.pairResult(id, <-done)
-			}
-		case <-ctx.Done():
-			c.s.Pairing.Cancel(offer.Code)
-		}
+		c.s.Pairing.Watch(ctx, offer, done, func(r pairing.Result) { c.pairResult(id, r) })
 	}(c.offer.gone)
 	return nil
 }

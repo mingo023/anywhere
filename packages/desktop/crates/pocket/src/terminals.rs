@@ -46,6 +46,11 @@ impl Terminals {
         Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), reattach: HashSet::new(), link: Link::default() }
     }
 
+    /// The listed terminals closed here that still run, because their close never reached pocketd.
+    pub(crate) fn unclosed(&self, items: &[Info]) -> Vec<String> {
+        items.iter().filter(|i| self.closed.contains(&i.id)).map(|i| i.id.clone()).collect()
+    }
+
     /// Adopts pocketd's terminal list, minus the ones closed here; returns the ids that still need an attach.
     pub(crate) fn listed(&mut self, items: Vec<Info>) -> Vec<String> {
         let items = items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
@@ -56,10 +61,15 @@ impl Terminals {
         attach
     }
 
-    /// pocketd answered again: its terminals may have changed, so forget the screens and the spawns it never answered.
+    /// pocketd went away: the spawns it never answered will never be.
+    pub(crate) fn disconnected(&mut self, now: Instant) {
+        self.link.down(now);
+        self.intents.clear();
+    }
+
+    /// pocketd answered again: its terminals may have changed, so forget the screens.
     pub(crate) fn reconnected(&mut self) {
         self.link.up();
-        self.intents.clear();
         for s in self.sessions.items.iter_mut().filter(|s| s.exit.is_none()) {
             s.term = None;
             self.reattach.insert(s.info.id.clone());
@@ -143,6 +153,9 @@ impl Desktop {
     pub(crate) fn on_msg(&mut self, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match m.ev.as_str() {
             "terminals" => {
+                for id in self.terminals.unclosed(&m.items) {
+                    self.daemon.send(json!({"op": "close", "id": id}));
+                }
                 for id in self.terminals.listed(m.items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
@@ -172,7 +185,7 @@ impl Desktop {
                 self.daemon.send(json!({"op": "list"}));
             }
             "down" => {
-                self.terminals.link.down(Instant::now());
+                self.terminals.disconnected(Instant::now());
                 cx.spawn(async |this, cx| {
                     cx.background_executor().timer(link::HINT_AFTER).await;
                     this.update(cx, |_, cx| cx.notify())
@@ -478,11 +491,28 @@ mod tests {
     }
 
     #[test]
-    fn reconnected_drops_spawns_the_lost_connection_never_answered() {
+    fn losing_pocketd_drops_spawns_it_never_answered() {
         let mut t = Terminals::new();
         t.intents.push_back(Intent::Tab("/w".into()));
-        t.reconnected();
+        t.disconnected(std::time::Instant::now());
         assert_eq!(t.spawned("a"), None);
+    }
+
+    #[test]
+    fn a_spawn_sent_just_before_up_is_still_adopted() {
+        let mut t = Terminals::new();
+        t.disconnected(std::time::Instant::now());
+        t.spawn_sent(true, Intent::Tab("/w".into()));
+        t.reconnected();
+        assert_eq!(t.spawned("a"), Some(("/w".to_string(), None)));
+    }
+
+    #[test]
+    fn a_close_that_never_arrived_is_sent_again_when_pocketd_lists_the_terminal() {
+        let mut t = Terminals::new();
+        t.listed(vec![info("a"), info("b")]);
+        t.close("a");
+        assert_eq!(t.unclosed(&[info("a"), info("b")]), vec!["a"]);
     }
 
     #[test]

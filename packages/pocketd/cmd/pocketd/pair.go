@@ -9,6 +9,7 @@ import (
 
 	"pocketd/internal/ops"
 	"pocketd/internal/pairing"
+	"pocketd/internal/proto"
 )
 
 // pairCmd shows a pairing code and waits for a phone to use it. tty is
@@ -67,9 +68,9 @@ func pairEnd(m ops.Msg) (string, int) {
 	switch {
 	case m.Ev == "pair.ok":
 		return "Paired " + m.Text + ".", 0
-	case m.ErrorCode == "pair_locked":
+	case m.ErrorCode == proto.CodePairLocked:
 		return "Too many wrong codes. Run pocketd pair again in a minute.", 1
-	case m.ErrorCode == "pair_failed":
+	case m.ErrorCode == proto.CodePairFailed:
 		return "Pairing failed. Run pocketd pair again.", 1
 	}
 	return "Code expired. Run pocketd pair again.", 1

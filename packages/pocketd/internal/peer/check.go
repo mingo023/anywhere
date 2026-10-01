@@ -1,10 +1,12 @@
 package peer
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/terminal"
 )
 
 // Needs is the allowlist of verbs, keyed "surface:verb". A verb missing here
@@ -43,6 +45,17 @@ var guarded = map[string]bool{
 }
 
 type Refusal struct{ Code, Message string }
+
+// CodeOf is the wire error code for err, or "" when it has none.
+func CodeOf(err error) string {
+	if r, ok := errors.AsType[*Refusal](err); ok {
+		return r.Code
+	}
+	if errors.Is(err, terminal.ErrPromptTooLarge) {
+		return proto.CodePromptTooLarge
+	}
+	return ""
+}
 
 func (r *Refusal) Error() string { return r.Message }
 

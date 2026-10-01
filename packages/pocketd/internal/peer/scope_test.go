@@ -20,7 +20,7 @@ func TestAPrincipalRidesTheContext(t *testing.T) {
 
 func TestAPairedPhoneHasItsDeviceScopes(t *testing.T) {
 	p := FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes})
-	if p.Kind != Device || p.Device != "d1" || p.Has(Own) || !slices.Equal(p.Names(), []string{"observe", "drive", "approve", "spawn"}) {
+	if p.Kind != Device || p.Has(Own) || !slices.Equal(p.Names(), []string{"observe", "drive", "approve", "spawn"}) {
 		t.Fatalf("%+v", p)
 	}
 }

@@ -9,6 +9,13 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
+)
+
+/** Holder briefly takes a shared lock to probe, which a concurrent Acquire would read as a running pocketd; retrying outlasts the probe. */
+const (
+	probeRetries = 5
+	probeWait    = 20 * time.Millisecond
 )
 
 type Lock struct{ f *os.File }
@@ -33,19 +40,27 @@ func Acquire(home string) (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	var lockErr error
+	for try := 0; try < probeRetries; try++ {
+		if lockErr = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); lockErr == nil || !errors.Is(lockErr, syscall.EWOULDBLOCK) {
+			break
+		}
+		time.Sleep(probeWait)
+	}
+	if lockErr != nil {
 		f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
+		if errors.Is(lockErr, syscall.EWOULDBLOCK) {
 			pid, _ := Holder(home)
 			return nil, ErrRunning{PID: pid, Home: home}
 		}
-		return nil, err
+		return nil, lockErr
 	}
-	if err := f.Truncate(0); err != nil {
+	pid := []byte(strconv.Itoa(os.Getpid()) + "\n")
+	if _, err := f.WriteAt(pid, 0); err != nil {
 		f.Close()
 		return nil, err
 	}
-	if _, err := f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0); err != nil {
+	if err := f.Truncate(int64(len(pid))); err != nil {
 		f.Close()
 		return nil, err
 	}

@@ -106,7 +106,8 @@ func uninstall(force bool) (int, error) {
 		return 1, err
 	}
 	home := filepath.Join(user, ".coding-pocket")
-	if loaded, _ := launchagent.Loaded(os.Getuid()); loaded && !force {
+	loaded, _ := launchagent.Loaded(os.Getuid())
+	if loaded && !force {
 		if n := terminals(filepath.Join(home, "pocketd.sock")); n > 0 {
 			fmt.Fprintf(os.Stderr, "%d Terminals are running and will close. Run again with --force.\n", n)
 			return 1, nil
@@ -115,7 +116,11 @@ func uninstall(force bool) (int, error) {
 	if err := launchagent.Uninstall(launchagent.Path(user), os.Getuid()); err != nil {
 		return 1, err
 	}
-	fmt.Println("The host is stopped and will not start automatically.")
+	if loaded {
+		fmt.Println("The service is stopped and will not start automatically.")
+	} else {
+		fmt.Println("The service is removed. A pocketd you started yourself keeps running.")
+	}
 	fmt.Printf("Sessions, logs and device credentials are kept in %s. Delete that directory only if you want to erase them.\n", home)
 	return 0, nil
 }

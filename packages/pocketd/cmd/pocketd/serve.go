@@ -55,7 +55,7 @@ func serve(sock string) error {
 
 	evs, err := events.Open(home)
 	if err != nil {
-		return err
+		log.Printf("events: %v; serving without them", err)
 	}
 	defer evs.Close()
 	launchd := os.Getenv("XPC_SERVICE_NAME") == launchagent.Label

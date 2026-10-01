@@ -39,14 +39,13 @@ type Principal struct {
 	Kind     Kind
 	Pid      int
 	Terminal string
-	Device   string
 	Scopes   []Scope
 }
 
 func OwnerOf(pid int) Principal { return Principal{Kind: Owner, Pid: pid, Scopes: OwnerScopes} }
 
 func FromDevice(d devices.Device) Principal {
-	return Principal{Kind: Device, Device: d.ID, Scopes: d.Scopes}
+	return Principal{Kind: Device, Scopes: d.Scopes}
 }
 
 func (p Principal) Has(s Scope) bool { return p.Kind != None && slices.Contains(p.Scopes, s) }
