@@ -2,6 +2,8 @@
 
 Date: 2026-09-28. Charted in `docs/wayfinder/agent-sessions/map.md`; each decision's detail lives in its ticket there. Vocabulary is in `CONTEXT.md` (Terminal, Session, Agent, Attached, Conversation, Status, Needs you, Working, Done, Idle, Seen).
 
+> **Status: implemented** in `9980d81`, amended by `b15b94e` (no last-agent fields) and `8a10124` (an agent that exits drops its session). Verified 2026-10-01 against a real `claude` through pocketd and the phone protocol; `codex` was not run live. The review note below still stands.
+
 > **Review needed.** Tickets 01–07 were decided with the user. Tickets 08, 09 and every line marked **(agent-decided)** below were decided by the agent alone, on the user's delegation, while the user was away. Review them before implementing.
 
 ## Goal
@@ -147,7 +149,7 @@ Client messages `agent.view` and `agent.seen`, both `{type, id, agentIds: string
 
 **Ops socket:**
 - pocketd's `session` package becomes `terminal` (`Terminal`, `Manager`), and the `sessions` event becomes `terminals`. Mechanical, first PR.
-- `Info` gains `foreground`, `lastProvider`, `lastTitle` (the last agent in that terminal, kept after it exits).
+- `Info` gains `foreground`.
 - The attach stream gains `{ev: "foreground", id, text}`.
 - The `hook` op gains `id` (terminal) and `pid` (nearest claude ancestor).
 - The 1 s `list` poll stays.
@@ -158,7 +160,7 @@ Ticket 09 (agent-decided). Summary; the ticket has the full list.
 
 - Labels follow the glossary. `ui::State`: `Waiting` → `NeedsYou`, `Running` → `Working`, today's `Done(a, r)` → `Idle(a, r)`, new `Done(a, r)` (accent dot + diffstat). Failed stays red ✕.
 - Desktop `Status`: `NeedsYou, Failed, Done, Working, Idle`, in urgency order. Card sections: Needs you, Done (failed first), Working, Earlier today, Earlier.
-- A session card is one agent (ADR 0002): its title ("New session" until it has one), a status pill and a provider dot. No branch, tab chips or time. An exited agent's card stays until its terminal closes or the user closes it. Agentless terminals have no card; they are tabs of their worktree.
+- A session card is one agent (ADR 0002): its title ("New session" until it has one), a status pill and a provider dot. No branch, tab chips or time. An exited agent's card goes with it. Agentless terminals have no card; they are tabs of their worktree.
 - Worktree rows and the column title show the branch ("main" for the main worktree), never a session title.
 - Rail and worktree rows roll up Needs you, then Done, then Working; agentless and not-attached terminals never roll up; Merged wins.
 - Not attached: a muted "Not attached" chip, and a one-line pane banner: claude "Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."; codex "This codex runs without the app-server, so Pocket can't see its status."
@@ -173,7 +175,7 @@ Ticket 09 (agent-decided). Summary; the ticket has the full list.
 3. Protocol v3: status machine, seen, `agent.view`/`agent.seen`, TS protocol, golden files; desktop and phone bumped to v3 with a minimal status mapping.
 4. Desktop: statuses, surfaces, inbox, notifications, `agent.view`, activity, not attached.
 5. Phone: list, not attached, `agent.view`.
-6. Presence: a claude or codex in any terminal becomes an agent (not attached until PR 7/8); `lastProvider`/`lastTitle`.
+6. Presence: a claude or codex in any terminal becomes an agent (not attached until PR 7/8).
 7. Claude hooks: plugin, env, hook op, binding, status, Esc clear, not-attached timer; Pocket-spawned claude goes plain.
 8. Codex: non-originating name, watcher, Enter mapping, status; Pocket-spawned codex goes plain.
 

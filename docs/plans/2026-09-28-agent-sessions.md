@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use /implement to execute this plan task-by-task.
 
+> **Status: implemented** in `9980d81`, amended by `b15b94e` and `8a10124`; verified 2026-10-01 (see the design). Tasks touching `lastProvider`/`lastTitle` were superseded by `b15b94e`.
+
 > **Review needed.** Parts of the design were decided by the agent alone while the user was away: tickets 08 and 09, and every line marked **(agent-decided)** in the design doc. Review those before running this plan.
 
 **Goal:** When the user types `claude` or `codex` in a Pocket terminal, an agent shows up in the session list by itself, with a status of Needs you, Done (maybe failed), Working or Idle, on desktop and phone.
