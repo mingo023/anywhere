@@ -280,8 +280,8 @@ impl Desktop {
 
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self) -> bool {
-        let open = self.terminal.tab_menu || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu;
-        (self.terminal.tab_menu, self.row_menu, self.changes.commit_menu, self.changes.menu) = (false, None, false, false);
+        let open = self.terminal.tab_menu || self.terminal.tab_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu;
+        (self.terminal.tab_menu, self.terminal.tab_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (false, None, None, false, false);
         self.sidebar.menu_at = None;
         open
     }
@@ -294,9 +294,9 @@ impl Desktop {
         self.cwd().filter(|t| !self.workspace(t).tabs.is_empty())
     }
 
-    fn main_view(&mut self, cx: &mut Context<Self>) -> Div {
+    fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
-            Some(tree) => self.session_page(&tree, cx),
+            Some(tree) => self.session_page(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
             None => self.blank_page(cx),
@@ -364,7 +364,7 @@ impl Render for Desktop {
         };
         let column = (self.layout == Layout::Sidebars).then(|| self.column_view(cx));
         let panel = (self.layout == Layout::Compact && self.panel).then(|| self.panel_view(cx));
-        let page = self.main_view(cx);
+        let page = self.main_view(window, cx);
         let overlay = self.overlay_view(window, cx);
         div()
             .relative()

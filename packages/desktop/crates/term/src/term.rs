@@ -1,7 +1,7 @@
 mod paste;
 mod selection;
 
-pub use paste::{paste_bytes, paste_is_safe};
+pub use paste::{dropped_paths, paste_bytes, paste_is_safe};
 pub use selection::{Autoscroll, Pointer};
 use std::ffi::c_void;
 

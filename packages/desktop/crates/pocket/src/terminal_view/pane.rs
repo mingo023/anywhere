@@ -141,6 +141,7 @@ impl Desktop {
                 })
         });
         let focus_id = id.to_string();
+        let drop_id = id.to_string();
         let screen = div()
             .relative()
             .size_full()
@@ -159,6 +160,8 @@ impl Desktop {
             .when(focused && n.is_some(), |d| d.shadow(vec![BoxShadow { inset: true, ..ui::ring(SEPARATOR_STRONG, 0.5) }]))
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
+            .drag_over::<ExternalPaths>(|s, _, _, _| s.shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT, 1.5) }]))
+            .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| this.drop_paths(drop_id.clone(), paths, window, cx)))
             .children(header)
             .children(banner)
             .child(

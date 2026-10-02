@@ -58,6 +58,7 @@ impl Desktop {
                 this.row_menu = (this.row_menu.as_ref() != Some(&toggle)).then(|| toggle.clone());
                 this.sidebar.menu_at = None;
                 this.terminal.tab_menu = false;
+                this.terminal.tab_actions = None;
                 cx.notify();
             },
         ));

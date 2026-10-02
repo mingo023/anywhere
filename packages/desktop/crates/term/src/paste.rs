@@ -1,4 +1,5 @@
 use std::ffi::c_char;
+use std::path::PathBuf;
 
 unsafe extern "C" {
     fn ghostty_paste_is_safe(data: *const c_char, len: usize) -> bool;
@@ -22,9 +23,34 @@ pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
     out
 }
 
+/// What dropping `paths` on a terminal types: each path shell-escaped, and each followed by a space.
+pub fn dropped_paths(paths: &[PathBuf]) -> String {
+    let mut out = String::new();
+    for path in paths {
+        for ch in path.to_string_lossy().chars() {
+            if " \t\\()[]{}<>\"'`!#$&;|*?~^".contains(ch) {
+                out.push('\\');
+            }
+            out.push(ch);
+        }
+        out.push(' ');
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dropped_paths_are_spaced_and_end_in_a_space() {
+        assert_eq!(dropped_paths(&["/r/a.rs".into(), "/r/b.rs".into()]), "/r/a.rs /r/b.rs ");
+    }
+
+    #[test]
+    fn dropped_paths_escape_what_the_shell_would_read() {
+        assert_eq!(dropped_paths(&["/My Files/it's (1)&$x^.png".into()]), r"/My\ Files/it\'s\ \(1\)\&\$x\^.png ");
+    }
 
     #[test]
     fn bracketed_paste_is_wrapped() {

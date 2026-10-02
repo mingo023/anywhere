@@ -63,9 +63,23 @@ pub fn id(s: String) -> ElementId {
     ElementId::Name(s.into())
 }
 
+/// Armed by a press on a drag area. The window moves on the first mouse move, not the press, as a move takes the mouse up and the click with it.
+struct WindowMove(bool);
+
+impl Global for WindowMove {}
+
 pub fn drag_area(d: Div) -> Div {
-    d.on_mouse_down(MouseButton::Left, |ev, window, _| {
-        if ev.click_count == 1 {
+    let disarm = |_: &MouseUpEvent, _: &mut Window, cx: &mut App| cx.set_global(WindowMove(false));
+    d.on_mouse_down(MouseButton::Left, |ev, window, cx| match ev.click_count {
+        1 => cx.set_global(WindowMove(true)),
+        2 => window.titlebar_double_click(),
+        _ => {}
+    })
+    .on_mouse_up(MouseButton::Left, disarm)
+    .on_mouse_up_out(MouseButton::Left, disarm)
+    .on_mouse_move(|_, window, cx| {
+        if cx.try_global::<WindowMove>().is_some_and(|m| m.0) {
+            cx.set_global(WindowMove(false));
             window.start_window_move();
         }
     })

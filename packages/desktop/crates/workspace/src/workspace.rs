@@ -76,6 +76,21 @@ impl Workspace {
         self.active = self.active.saturating_sub(before).min(self.tabs.len().saturating_sub(1));
     }
 
+    /// Moves tab `from` into `to`'s place, keeping the shown tab shown.
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        if from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.active = match self.active {
+            a if a == from => to,
+            a if from < a && a <= to => a - 1,
+            a if to <= a && a < from => a + 1,
+            a => a,
+        };
+    }
+
     pub fn close_tab(&mut self, i: usize) -> Vec<String> {
         if i >= self.tabs.len() {
             return Vec::new();
@@ -158,6 +173,34 @@ mod tests {
         assert_eq!(w.active, 1);
         assert_eq!(w.close_tab(1), Vec::<String>::new());
         assert_eq!(w.active, 0);
+    }
+
+    #[test]
+    fn a_moved_tab_takes_the_place_it_was_dropped_on() {
+        let mut w = with(&["a", "b", "c"]);
+        w.move_tab(0, 2);
+        assert_eq!(w.tabs, vec![term(&[&["b"]]), term(&[&["c"]]), term(&[&["a"]])]);
+        w.move_tab(2, 0);
+        assert_eq!(w.tabs, vec![term(&[&["a"]]), term(&[&["b"]]), term(&[&["c"]])]);
+    }
+
+    #[test]
+    fn moving_tabs_keeps_the_shown_tab_shown() {
+        for (active, from, to) in [(0, 0, 2), (1, 0, 2), (1, 2, 0), (2, 0, 1), (0, 1, 2)] {
+            let mut w = with(&["a", "b", "c"]);
+            w.active = active;
+            let shown = w.active().cloned();
+            w.move_tab(from, to);
+            assert_eq!(w.active().cloned(), shown, "showing {active}, moving {from} to {to}");
+        }
+    }
+
+    #[test]
+    fn a_move_out_of_range_does_nothing() {
+        let mut w = with(&["a", "b"]);
+        w.move_tab(0, 5);
+        w.move_tab(5, 0);
+        assert_eq!(w.tabs, vec![term(&[&["a"]]), term(&[&["b"]])]);
     }
 
     #[test]

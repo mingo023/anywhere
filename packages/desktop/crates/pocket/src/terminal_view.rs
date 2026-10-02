@@ -3,6 +3,7 @@ pub(crate) mod cursor;
 pub(crate) mod pane;
 pub(crate) mod scroll;
 pub(crate) mod surface;
+pub(crate) mod tab_actions;
 pub(crate) mod tab_menu;
 pub(crate) mod tabs;
 
@@ -27,6 +28,9 @@ pub struct TerminalViewState {
     /// The worktree and tab last scrolled into view, so a tab is revealed once when it becomes active rather than every frame.
     pub(crate) tab_revealed: Option<(String, usize)>,
     pub(crate) tab_menu: bool,
+    /// The tab whose right-click menu is open, and where the click was.
+    pub(crate) tab_actions: Option<(Tab, Point<Pixels>)>,
+    pub(crate) tab_drag: Option<tabs::TabDrag>,
     pub(crate) selection: Option<Drag>,
     pub(crate) wheel: WheelRows,
     pub(crate) autoscroll: Option<Task<()>>,
@@ -42,7 +46,7 @@ pub struct TerminalViewState {
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false, selection: None, wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false, tab_actions: None, tab_drag: None, selection: None, wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
     }
 }
 
@@ -154,10 +158,22 @@ impl Desktop {
         }
     }
 
-    /// Pastes at once when the pane brackets pastes or the text can't run anything; otherwise asks first.
     pub(crate) fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(pane) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) else { return };
         let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()).filter(|t| !t.is_empty()) else { return };
+        self.offer_paste(pane, text, cx);
+    }
+
+    pub(crate) fn drop_paths(&mut self, pane: String, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        if self.overlay.is_some() {
+            return;
+        }
+        self.focus_pane(pane.clone(), window, cx);
+        self.offer_paste(pane, term::dropped_paths(paths.paths()), cx);
+    }
+
+    /// Pastes at once when the pane brackets pastes or the text can't run anything; otherwise asks first.
+    fn offer_paste(&mut self, pane: String, text: String, cx: &mut Context<Self>) {
         let Some(t) = self.terminals.sessions.term(&pane) else { return };
         if t.mode(2004) || term::paste_is_safe(&text) {
             self.paste_into(&pane, &text, cx);
@@ -257,7 +273,7 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn session_page(&mut self, tree: &str, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn session_page(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let (added, removed) = self.repo().map(|r| r.totals()).unwrap_or_default();
         let diff = (added + removed > 0).then(|| {
             div()
@@ -296,7 +312,7 @@ impl Desktop {
             .pl(px(pad))
             .pr(px(10.))
             .children(toggle)
-            .child(self.term_tabs(tree, cx))
+            .child(self.term_tabs(tree, window, cx))
             .child(status)
             .children(diff)
             .child(right);
