@@ -190,14 +190,20 @@ impl Desktop {
         self.send_input(pane, &term::paste_bytes(text, bracketed), cx);
     }
 
-    pub(crate) fn wheel(&mut self, pane: &str, e: &ScrollWheelEvent, line: f32, cx: &mut Context<Self>) {
+    pub(crate) fn wheel(&mut self, pane: &str, e: &ScrollWheelEvent, at: Pointer, line: f32, cx: &mut Context<Self>) {
         let rows = self.terminal.wheel.rows(pane, e.delta, e.touch_phase, line);
         let Some(t) = self.terminals.sessions.term(pane).filter(|_| rows != 0) else { return };
-        match scroll::route(rows, e.modifiers.shift, t.alt_screen(), t.mode(1007)) {
+        match scroll::route(rows, e.modifiers.shift, t.mouse_tracking(), t.alt_screen(), t.mode(1007)) {
             Wheel::Viewport(d) => t.scroll(Scroll::Delta(d)),
             Wheel::Arrows { up, n } => {
                 let bytes = scroll::arrows(up, n, t.app_cursor());
                 self.send_input(pane, &bytes, cx);
+            }
+            Wheel::Report { up, n } => {
+                let bytes = t.wheel_report(at, up, e.modifiers.control, e.modifiers.alt).repeat(n);
+                if !bytes.is_empty() {
+                    self.send_input(pane, &bytes, cx);
+                }
             }
         }
         cx.notify();

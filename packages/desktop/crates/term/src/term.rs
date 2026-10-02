@@ -1,3 +1,4 @@
+mod mouse;
 mod paste;
 mod selection;
 

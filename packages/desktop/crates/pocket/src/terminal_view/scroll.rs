@@ -32,11 +32,16 @@ impl WheelRows {
 pub enum Wheel {
     Viewport(isize),
     Arrows { up: bool, n: usize },
+    Report { up: bool, n: usize },
 }
 
-/// Full-screen apps that ask for it (mode 1007) get the wheel as arrow keys; Shift always scrolls the history.
-pub fn route(rows: isize, shift: bool, alt_screen: bool, alt_scroll: bool) -> Wheel {
-    if alt_screen && alt_scroll && !shift {
+/// Apps tracking the mouse get the wheel as mouse events, other full-screen apps that ask for it (mode 1007) as arrow keys; Shift always scrolls the history.
+pub fn route(rows: isize, shift: bool, mouse: bool, alt_screen: bool, alt_scroll: bool) -> Wheel {
+    if shift {
+        Wheel::Viewport(-rows)
+    } else if mouse {
+        Wheel::Report { up: rows > 0, n: rows.unsigned_abs() }
+    } else if alt_screen && alt_scroll {
         Wheel::Arrows { up: rows > 0, n: rows.unsigned_abs() }
     } else {
         Wheel::Viewport(-rows)
@@ -87,16 +92,22 @@ mod tests {
 
     #[test]
     fn shift_always_scrolls_the_viewport() {
-        assert_eq!(route(3, true, true, true), Wheel::Viewport(-3));
-        assert_eq!(route(-2, false, false, true), Wheel::Viewport(2));
+        assert_eq!(route(3, true, true, true, true), Wheel::Viewport(-3));
+        assert_eq!(route(-2, false, false, false, true), Wheel::Viewport(2));
     }
 
     #[test]
     fn alt_screen_with_alternate_scroll_sends_arrows() {
-        assert_eq!(route(3, false, true, true), Wheel::Arrows { up: true, n: 3 });
-        assert_eq!(route(-1, false, true, true), Wheel::Arrows { up: false, n: 1 });
-        assert_eq!(route(2, false, true, false), Wheel::Viewport(-2));
+        assert_eq!(route(3, false, false, true, true), Wheel::Arrows { up: true, n: 3 });
+        assert_eq!(route(-1, false, false, true, true), Wheel::Arrows { up: false, n: 1 });
+        assert_eq!(route(2, false, false, true, false), Wheel::Viewport(-2));
         assert_eq!(arrows(true, 2, false), b"\x1b[A\x1b[A");
         assert_eq!(arrows(false, 1, true), b"\x1bOB");
+    }
+
+    #[test]
+    fn apps_tracking_the_mouse_get_wheel_events_rather_than_arrows() {
+        assert_eq!(route(3, false, true, true, true), Wheel::Report { up: true, n: 3 });
+        assert_eq!(route(-2, false, true, false, false), Wheel::Report { up: false, n: 2 });
     }
 }

@@ -72,7 +72,7 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
             });
             window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && wheel_hitbox.is_hovered(window) {
-                    wheel.update(cx, |d, cx| d.wheel(&wheel_pane, e, line, cx));
+                    wheel.update(cx, |d, cx| d.wheel(&wheel_pane, e, at(e.position), line, cx));
                 }
             });
         },
