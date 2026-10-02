@@ -91,10 +91,14 @@ impl Desktop {
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
+        let root = cx.focus_handle();
+        window.focus(&root, cx);
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
             cx.observe_window_activation(window, |_, _, cx| follow_reduce_motion(cx)),
             cx.observe_window_appearance(window, |this, window, cx| this.set_appearance(window.appearance(), window, cx)),
+            // Unfocused, GPUI dispatches keys from the window's root node, above this view's action handlers.
+            cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
         ];
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
@@ -130,7 +134,7 @@ impl Desktop {
             git_run: 0,
             git_done: 0,
             error: None,
-            root: cx.focus_handle(),
+            root,
             terminal: TerminalViewState::new(cx),
             inbox: InboxState::new(cx),
             palette,
