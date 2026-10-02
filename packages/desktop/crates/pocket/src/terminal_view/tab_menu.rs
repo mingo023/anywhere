@@ -2,7 +2,6 @@ use crate::desktop::Desktop;
 use agents::Summary;
 use gpui_kit::*;
 use theme::*;
-use ui::{self, dot};
 
 /// The last model seen for `provider`, as a short label.
 pub fn model_hint(list: &[Summary], provider: &str) -> Option<String> {
@@ -35,7 +34,7 @@ impl Desktop {
                 .children(keys.map(|k| div().text_size(px(11.5)).text_color(TEXT_4).child(k.to_string())))
         };
         let agent = |id: &'static str, provider: &'static str, cx: &mut Context<Self>| {
-            item(id, dot(8., provider_color(provider)).into_any_element(), provider_name(provider).into(), self.model_hint(provider), None)
+            item(id, provider_icon(provider, 14., TEXT).into_any_element(), provider_name(provider).into(), self.model_hint(provider), None)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_agent_tab(provider, cx)))
         };
         ui::pop(div().id("tab-menu"))

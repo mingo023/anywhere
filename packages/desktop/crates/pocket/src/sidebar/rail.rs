@@ -51,7 +51,7 @@ impl Desktop {
                 .cursor_pointer()
                 .when(selected, |d| d.bg(SURFACE).shadow(ui::row_shadow()))
                 .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
-                .child(icon("terminal", 17., provider_color(&c.provider)))
+                .child(provider_icon(&c.provider, 17., TEXT_2))
                 .children(ui::alert_color(state(c.status, 0, 0)).map(|color| badge(div().top(px(3.)), color)))
                 .when(c.status == Status::Working, |d| d.child(badge(div().bottom(px(3.)), ACCENT)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))

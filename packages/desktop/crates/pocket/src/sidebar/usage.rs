@@ -3,7 +3,6 @@ use crate::terminal_view::context;
 use agents::{Agents, Level, level, percent};
 use gpui_kit::*;
 use theme::*;
-use ui::{self, dot};
 
 /// Context left in each provider's newest session, and how full it is.
 fn usage(agents: &Agents) -> Vec<(&'static str, u64, Level)> {
@@ -20,7 +19,7 @@ impl Desktop {
         let parts: Vec<Div> = self
             .usage()
             .into_iter()
-            .map(|(p, left, level)| div().flex().items_center().gap(px(6.)).child(dot(7., provider_color(p))).child(div().text_color(context::text(level)).child(format!("{left}%"))))
+            .map(|(p, left, level)| div().flex().items_center().gap(px(6.)).child(provider_icon(p, 12., TEXT_2)).child(div().text_color(context::text(level)).child(format!("{left}%"))))
             .collect();
         (!parts.is_empty()).then(|| {
             div()

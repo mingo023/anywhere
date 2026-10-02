@@ -116,7 +116,7 @@ impl TabDrag {
 }
 
 impl Desktop {
-    fn tab_lead(&self, tab: &Tab, preview: bool) -> Div {
+    fn tab_lead(&self, tab: &Tab, preview: bool, ink: Token) -> Div {
         let row = div().flex().items_center().gap(px(7.));
         let label = |text: String| div().max_w(px(150.)).truncate().child(text);
         let p = match tab {
@@ -136,7 +136,7 @@ impl Desktop {
         let count = |text: String| tab_label(text, p.len());
         if let Some(a) = self.summary(&p[0]) {
             let mark = ui::indicator(id(format!("tab-mark:{}", a.id)), Status::of(a).map(|s| state(s, 0, 0)));
-            return row.child(dot(7., provider_color(&a.provider))).child(label(count(provider_name(&a.provider).into()))).children(mark);
+            return row.child(provider_icon(&a.provider, 13., ink)).child(label(count(provider_name(&a.provider).into()))).children(mark);
         }
         let s = self.terminals.sessions.get(&p[0]);
         let busy = s.and_then(|s| s.busy());
@@ -249,7 +249,7 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .cursor_pointer()
-                    .child(self.tab_lead(tab, doc.is_some() && doc == preview))
+                    .child(self.tab_lead(tab, doc.is_some() && doc == preview, if selected { TEXT } else { TEXT_2 }))
                     .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                         this.select_tab(i, window, cx);
                         if ev.click_count() > 1

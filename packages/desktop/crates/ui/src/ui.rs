@@ -468,7 +468,7 @@ pub fn drop_line(below: bool) -> Vec<BoxShadow> {
 }
 
 pub fn provider_label(provider: &str, faded: bool) -> Div {
-    div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(dot(6., provider_color(provider))).child(provider_name(provider))
+    div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(provider_icon(provider, 12., TEXT_2)).child(provider_name(provider))
 }
 
 /// The group of a session row; its time hides while the row is hovered, making room for a caller's hover controls.

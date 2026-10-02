@@ -401,7 +401,7 @@ impl Desktop {
                 let lead = match &e.lead {
                     Lead::Waiting => dot(8., WAITING).into_any_element(),
                     Lead::Status(s) => ui::indicator(("palette-status", i), Some(state(*s, 0, 0))).unwrap_or_else(|| div().into_any_element()),
-                    Lead::Provider(p) => dot(8., provider_color(p)).into_any_element(),
+                    Lead::Provider(p) => provider_icon(p, 13., TEXT_2).into_any_element(),
                     Lead::File => file_icon(&e.title, false, false, 16.).into_any_element(),
                     Lead::Icon(name) => icon(name, 13., TEXT_2).into_any_element(),
                 };

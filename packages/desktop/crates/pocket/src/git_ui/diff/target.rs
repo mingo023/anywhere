@@ -2,14 +2,13 @@ use crate::desktop::Desktop;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
-use ui::dot;
 
 impl Desktop {
-    fn session_chip(&self, id: &str) -> (Token, String, String) {
+    fn session_chip(&self, id: &str) -> (Svg, String, String) {
         let a = self.agents.get(id);
         let provider = a.map(|a| a.provider.clone()).unwrap_or_default();
         let branch = a.and_then(|a| self.terminals.sessions.get(&a.terminal_id)).and_then(|s| self.repos.get(&s.info.cwd)).map(|r| r.branch.clone()).unwrap_or_default();
-        (provider_color(&provider), provider, branch)
+        (provider_icon(&provider, 13., TEXT), provider, branch)
     }
 
     pub(super) fn target_picker(&self, target: Option<String>, cx: &mut Context<Self>) -> Div {
@@ -32,8 +31,8 @@ impl Desktop {
             }));
         let pill = match &target {
             Some(id) => {
-                let (color, name, branch) = self.session_chip(id);
-                pill.child(dot(7., color))
+                let (mark, name, branch) = self.session_chip(id);
+                pill.child(mark)
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
                     .when(!branch.is_empty(), |d| {
                         d.child(div().text_color(TEXT_6).child("·")).child(div().font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(branch))
@@ -44,7 +43,7 @@ impl Desktop {
         let menu = self.diff.target_menu.then(|| {
             let cards = self.project.as_deref().map(|p| self.cards(p)).unwrap_or_default();
             let items = cards.into_iter().enumerate().map(|(i, c)| {
-                let (color, name, branch) = self.session_chip(&c.id);
+                let (mark, name, branch) = self.session_chip(&c.id);
                 let picked = target.as_ref() == Some(&c.id);
                 let id = c.id.clone();
                 div()
@@ -58,7 +57,7 @@ impl Desktop {
                     .cursor_pointer()
                     .hover(|s| s.bg(FILL_3))
                     .text_size(px(13.))
-                    .child(dot(7., color))
+                    .child(mark)
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
                     .child(div().flex_1().min_w_0().truncate().text_color(TEXT_2).child(c.title))
                     .child(div().font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(branch))

@@ -127,7 +127,7 @@ impl Desktop {
             let model = self.model_hint(provider).unwrap_or_else(|| "Default model".into());
             rows.push(pick_head(provider_name(provider)).into_any_element());
             rows.push(
-                pick_row(provider, f.provider == provider, Some(ui::dot(7., provider_color(provider))), div().child(model), None)
+                pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(model), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.new_form.draft.pick_provider(provider);
                         cx.notify();
@@ -193,7 +193,7 @@ impl Desktop {
         let f = &self.new_form.draft;
         let model = self.model_hint(f.provider).unwrap_or_else(|| "Default model".into());
         let agent = chip("form-agent", f.picker == Some(Picker::Agent))
-            .child(ui::dot(7., provider_color(f.provider)))
+            .child(provider_icon(f.provider, 13., TEXT))
             .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(f.provider)))
             .child(div().text_color(TEXT_3).child(model))
             .child(icon("chevron-down", 12., TEXT_4))

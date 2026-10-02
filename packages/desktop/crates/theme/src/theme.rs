@@ -172,6 +172,15 @@ pub fn provider_color(provider: &str) -> Token {
     }
 }
 
+/// Claude's spark in its orange; OpenAI's knot, or a terminal for anything else, in `ink`.
+pub fn provider_icon(provider: &str, size: f32, ink: impl Into<Hsla>) -> Svg {
+    match provider {
+        "claude" => icon("claude", size, AGENT_CLAUDE),
+        "codex" => icon("openai", size, ink),
+        _ => icon("terminal", size, ink),
+    }
+}
+
 pub fn provider_name(provider: &str) -> &'static str {
     match provider {
         "codex" => "Codex",
@@ -234,8 +243,8 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "clock", "comment", "compose", "copy",
-    "discard", "external", "file", "filter", "folder", "forward", "inbox", "list-flat", "list-tree", "mic", "minus", "more", "plus", "prompt", "search", "send", "settings", "shield",
+    "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "comment", "compose", "copy",
+    "discard", "external", "file", "filter", "folder", "forward", "inbox", "list-flat", "list-tree", "mic", "minus", "more", "openai", "plus", "prompt", "search", "send", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "trash", "unfold", "worktree", "x", "x-bold",
 );
 

@@ -424,7 +424,7 @@ impl Desktop {
         let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
         if let Some((a, ts)) = self.agents.last_edit(&abs) {
             let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
-            meta.push(ui::meta_item().child(dot(7., provider_color(&a.provider))).child("by").child(ui::meta_value(by)).into_any_element());
+            meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
         }
         let (dir, name) = path.rsplit_once('/').map_or((None, path.clone()), |(d, n)| (Some(d.to_string()), n.to_string()));
         let crumbs = std::iter::once("Changes".to_string()).chain(dir).chain([name]).collect();
