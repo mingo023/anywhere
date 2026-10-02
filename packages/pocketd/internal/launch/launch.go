@@ -76,10 +76,11 @@ func New(d *daemon.Daemon, reg *registry.Registry, set *config.Settings, ev *eve
 	return &Launcher{d: d, reg: reg, set: set, ev: ev, receipts: newReceipts(time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
 }
 
-// Create runs one agent.create. creating is called once the Terminal exists,
-// before setup runs. A retry of the same request joins the first and gets its
-// replies.
-func (l *Launcher) Create(w Who, requestID string, s proto.LaunchSpec, creating func(Creating)) Result {
+// Create runs one agent.create. progress is called as each step starts, and
+// again with a note on how a step went. creating is called once the Terminal
+// exists, before setup runs. A retry of the same request joins the first and
+// gets its replies, but not its progress.
+func (l *Launcher) Create(w Who, requestID string, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
 	x, fresh := l.receipts.take(w.Key+"\x00"+requestID, s)
 	if x == nil {
 		return Result{Err: fail("duplicate", "This request was already sent with a different spec")}
@@ -92,7 +93,7 @@ func (l *Launcher) Create(w Who, requestID string, s proto.LaunchSpec, creating 
 		}
 		return r
 	}
-	r := l.create(w, s, func(c Creating) {
+	r := l.create(w, s, progress, func(c Creating) {
 		l.receipts.creating(x, c)
 		creating(c)
 	})
@@ -108,7 +109,8 @@ func (l *Launcher) Create(w Who, requestID string, s proto.LaunchSpec, creating 
 	return r
 }
 
-func (l *Launcher) create(w Who, s proto.LaunchSpec, creating func(Creating)) Result {
+func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
+	progress(proto.StepPrepare, "")
 	if fl := Check(w, s, l.set.PhoneMaxAccess()); fl != nil {
 		return Result{Err: fl}
 	}
@@ -130,12 +132,12 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, creating func(Creating)) Re
 		return Result{Err: fl}
 	}
 	argv[0] = exe
-	cwd, setup, fl := l.checkout(w, f, s, env)
+	cwd, setup, fl := l.checkout(w, f, s, env, progress)
 	if fl != nil {
 		return Result{Err: fl}
 	}
 	id := terminal.NewID()
-	exits := make(chan exit, 1)
+	exits := make(chan exit, 2)
 	l.mu.Lock()
 	l.pending[id] = exits
 	l.mu.Unlock()
@@ -152,18 +154,23 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, creating func(Creating)) Re
 	if !w.Owner {
 		origin = "phone"
 	}
+	if setup != "" {
+		progress(proto.StepSetup, "")
+	} else {
+		progress(proto.StepAgent, "")
+	}
 	t, err := l.d.Terminals.Spawn(terminal.Spec{ID: id, Cmd: shell, Args: Wrap(shell, l.d.Exe, setup, argv), Cwd: cwd,
 		Env: l.d.Env(env, id), Cols: 100, Rows: 30, Origin: origin})
 	if err != nil {
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
 	}
 	creating(Creating{Terminal: id, Cwd: cwd, Setup: setup != ""})
-	return l.wait(t, id, exits)
+	return l.wait(t, id, exits, progress)
 }
 
 // checkout is the Session's folder and the setup to run there. A new
 // Worktree copies and runs setup unless the owner turned them off.
-func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []string) (string, string, *Failure) {
+func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []string, progress func(step, note string)) (string, string, *Failure) {
 	if s.Checkout.Worktree != "" {
 		trees, err := worktree.List(s.Project)
 		if err != nil {
@@ -174,17 +181,27 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 		}
 		return s.Checkout.Worktree, "", trust(w, s, s.Checkout.Worktree, env)
 	}
+	progress(proto.StepVerify, "")
 	if fl := trust(w, s, s.Project, env); fl != nil {
 		return "", "", fl
 	}
 	n := s.Checkout.New
-	create := worktree.Add
-	if on(n.Copy) {
-		create = worktree.Create
-	}
-	c, err := create(f, s.Project, n.Name, n.Base)
+	plan, err := worktree.Prepare(f, s.Project, n.Name, n.Base)
 	if err != nil {
 		return "", "", gitFailure(err)
+	}
+	progress(proto.StepFetch, "")
+	if note := plan.Fetch(env); note != "" {
+		progress(proto.StepFetch, note)
+	}
+	progress(proto.StepWorktree, "")
+	c, err := plan.Add()
+	if err != nil {
+		return "", "", gitFailure(err)
+	}
+	if on(n.Copy) {
+		progress(proto.StepCopy, "")
+		worktree.CopyInto(f, s.Project, c.Path)
 	}
 	setup := ""
 	if on(n.Setup) {
@@ -211,23 +228,32 @@ func gitFailure(err error) *Failure {
 	return &Failure{Code: "spawn_failed", Message: "git couldn't make the worktree", Detail: Tail(err.Error())}
 }
 
-func (l *Launcher) wait(t *terminal.Terminal, id string, exits chan exit) Result {
+func (l *Launcher) wait(t *terminal.Terminal, id string, exits chan exit, progress func(step, note string)) Result {
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
 	deadline := time.After(createWait)
 	var present time.Time
+	settle := func(e exit) (Result, bool) {
+		if e.phase == "setup" && e.status == 0 {
+			progress(proto.StepAgent, "")
+			return Result{}, false
+		}
+		return exited(id, e), true
+	}
 	for {
 		select {
 		case e := <-exits:
-			return exited(id, e)
+			if r, done := settle(e); done {
+				return r
+			}
 		case <-deadline:
 			msg := fmt.Sprintf("The session didn't start in %v", createWait)
 			return Result{TerminalID: id, Err: &Failure{Code: "spawn_failed", Message: msg, Detail: Tail(t.Screen())}}
 		case <-t.Done():
-			select {
-			case e := <-exits:
-				return exited(id, e)
-			default:
+			for len(exits) > 0 {
+				if r, done := settle(<-exits); done {
+					return r
+				}
 			}
 			msg := fmt.Sprintf("terminal exited %d", t.ExitCode())
 			return Result{TerminalID: id, Err: &Failure{Code: "spawn_failed", Message: msg, Detail: msg}}
@@ -264,8 +290,8 @@ func (l *Launcher) agentIn(terminalID string) (proto.AgentSummary, bool) {
 }
 
 // Exited records a wrapper's `pocketd hook exit`. It reads the screen now,
-// while the Terminal still shows the failure. Exits of finished creates are
-// ignored.
+// while the Terminal still shows the failure. Setup exiting 0 means the agent
+// is starting. Exits of finished creates are ignored.
 func (l *Launcher) Exited(terminalID, phase string, status int) {
 	if phase == "agent" {
 		l.d.RestoreExited(terminalID)

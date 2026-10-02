@@ -50,6 +50,32 @@ func NewAgentCreating(id, requestID, terminalID, cwd string, setup bool) AgentCr
 	return AgentCreating{"agent.creating", id, requestID, terminalID, cwd, setup}
 }
 
+// A create's steps, in the order they run. A step is sent as it starts; copy
+// and setup are sent only when they run.
+const (
+	StepPrepare  = "prepare"
+	StepVerify   = "verify"
+	StepFetch    = "fetch"
+	StepWorktree = "worktree"
+	StepCopy     = "copy"
+	StepSetup    = "setup"
+	StepAgent    = "agent"
+)
+
+// AgentProgress is the step a create is on. A step sent again carries a note
+// about how it went.
+type AgentProgress struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	RequestID string `json:"requestId"`
+	Step      string `json:"step"`
+	Note      string `json:"note,omitempty"`
+}
+
+func NewAgentProgress(id, requestID, step, note string) AgentProgress {
+	return AgentProgress{"agent.progress", id, requestID, step, note}
+}
+
 type AgentCreated struct {
 	Type       string `json:"type"`
 	ID         string `json:"id"`

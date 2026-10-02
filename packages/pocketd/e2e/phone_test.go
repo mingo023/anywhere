@@ -22,6 +22,7 @@ type Message struct {
 	ID      string `json:"id"`
 	Message string `json:"message"`
 	AgentID string `json:"agentId"`
+	Step    string `json:"step"`
 	Agent   struct {
 		ID                string `json:"id"`
 		TerminalID        string `json:"terminalId"`

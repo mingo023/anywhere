@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,8 @@ func launcher(t *testing.T, projects string) *Launcher {
 	os.WriteFile(path, []byte(`{"projects":`+projects+`,"repos":{}}`), 0o600)
 	return New(&daemon.Daemon{}, registry.New(path), config.NewSettings(home), nil)
 }
+
+func quiet(step, note string) {}
 
 func onPath(t *testing.T, names ...string) {
 	dir := t.TempDir()
@@ -54,7 +57,7 @@ func TestThePhoneIsHeldToItsCeiling(t *testing.T) {
 	l := launcher(t, `["`+project+`"]`)
 	s := spec("claude", "auto", false)
 	s.Project = project
-	r := l.Create(Who{Key: "device:d1"}, "r1", s, func(Creating) { t.Fatal("creating") })
+	r := l.Create(Who{Key: "device:d1"}, "r1", s, quiet, func(Creating) { t.Fatal("creating") })
 	if r.Err == nil || r.Err.Code != "access_not_allowed" || r.Err.Message != "On your Mac: ⌘K → Phone access level" {
 		t.Fatalf("got %+v", r.Err)
 	}
@@ -66,15 +69,15 @@ func TestCreateRefusesAnUnknownProjectOrAMissingProvider(t *testing.T) {
 	l := launcher(t, `["`+project+`"]`)
 	owner := Who{Owner: true, Key: "owner"}
 	s := spec("claude", "ask", false)
-	if r := l.Create(owner, "r1", s, nil); r.Err == nil || r.Err.Code != "unknown_project" {
+	if r := l.Create(owner, "r1", s, quiet, nil); r.Err == nil || r.Err.Code != "unknown_project" {
 		t.Fatalf("got %+v", r.Err)
 	}
 	s.Project = project
-	if r := l.Create(owner, "r2", s, nil); r.Err == nil || r.Err.Code != "provider_unavailable" {
+	if r := l.Create(owner, "r2", s, quiet, nil); r.Err == nil || r.Err.Code != "provider_unavailable" {
 		t.Fatalf("got %+v", r.Err)
 	}
 	s.Provider = "codex"
-	if r := l.Create(owner, "r2", s, nil); r.Err == nil || r.Err.Code != "duplicate" {
+	if r := l.Create(owner, "r2", s, quiet, nil); r.Err == nil || r.Err.Code != "duplicate" {
 		t.Fatalf("got %+v", r.Err)
 	}
 }
@@ -89,12 +92,12 @@ func TestAnUntrustedClaudeFolderIsRefusedForThePhone(t *testing.T) {
 	l := launcher(t, `["`+project+`"]`)
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout.Worktree = project, project
-	r := l.Create(Who{Key: "device:d1"}, "r1", s, func(Creating) { t.Fatal("creating") })
+	r := l.Create(Who{Key: "device:d1"}, "r1", s, quiet, func(Creating) { t.Fatal("creating") })
 	if r.Err == nil || r.Err.Code != "folder_not_trusted" || r.Err.Message != "Trust this folder in Claude on your Mac first" {
 		t.Fatalf("got %+v", r.Err)
 	}
 	s.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: "calm-otter"}}
-	if r := l.Create(Who{Key: "device:d1"}, "r2", s, nil); r.Err == nil || r.Err.Code != "folder_not_trusted" {
+	if r := l.Create(Who{Key: "device:d1"}, "r2", s, quiet, nil); r.Err == nil || r.Err.Code != "folder_not_trusted" {
 		t.Fatalf("got %+v", r.Err)
 	}
 	if out, _ := exec.Command("git", "-C", project, "worktree", "list", "--porcelain").Output(); strings.Count(string(out), "worktree ") != 1 {
@@ -137,7 +140,7 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout.Worktree = project, project
 	results := make(chan Result, 1)
-	go func() { results <- l.Create(owner, "r1", s, func(Creating) {}) }()
+	go func() { results <- l.Create(owner, "r1", s, quiet, func(Creating) {}) }()
 	var r Result
 	select {
 	case r = <-results:
@@ -150,7 +153,56 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 	if r.Err == nil || r.Err.Code != "spawn_failed" {
 		t.Fatalf("got %+v", r)
 	}
-	if again := l.Create(owner, "r1", s, func(Creating) {}); again.Err == nil || again.Err.Code != "spawn_failed" {
+	if again := l.Create(owner, "r1", s, quiet, func(Creating) {}); again.Err == nil || again.Err.Code != "spawn_failed" {
 		t.Fatalf("retry got %+v", again)
+	}
+}
+
+func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
+	onPath(t, "claude")
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	project := filepath.Join(root, "repo")
+	os.Mkdir(project, 0o755)
+	git(t, project, "init", "-q", "-b", "main")
+	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
+	path := filepath.Join(root, "desktop.json")
+	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"worktrees":"`+filepath.Join(root, "wt")+`","setup":"`+setup+`"}}}`), 0o600)
+	l := New(&daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}, registry.New(path), config.NewSettings(root), nil)
+	s := spec("claude", "ask", false)
+	s.Project, s.Checkout = project, proto.Checkout{New: &proto.NewWorktree{Name: "calm-otter"}}
+	return l, s
+}
+
+func TestANewWorktreeReportsEachStepAsItStarts(t *testing.T) {
+	defer func(w time.Duration) { createWait = w }(createWait)
+	createWait = 500 * time.Millisecond
+	t.Setenv("SHELL", "/bin/sh")
+	l, s := newWorktree(t, "true")
+	var steps []string
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(step, note string) {
+		steps = append(steps, strings.TrimSpace(step+" "+note))
+	}, func(c Creating) { go l.Exited(c.Terminal, "setup", 0) })
+	if term := l.d.Terminals.Get(r.TerminalID); term != nil {
+		t.Cleanup(term.Close)
+	}
+	want := []string{"prepare", "verify", "fetch", "fetch No remote, using local main", "worktree", "copy", "setup", "agent"}
+	if !slices.Equal(steps, want) {
+		t.Fatalf("steps %q, want %q", steps, want)
+	}
+	if r.Err == nil || r.Err.Code != "spawn_failed" || r.Err.Message != "The session didn't start in 500ms" {
+		t.Fatalf("a passing setup ended the create: %+v", r.Err)
+	}
+}
+
+func TestATerminalThatCantStartFailsTheStepAfterTheWorktree(t *testing.T) {
+	t.Setenv("SHELL", "/no/such/shell")
+	l, s := newWorktree(t, "")
+	var steps []string
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(step, note string) { steps = append(steps, step) }, func(Creating) {})
+	if r.Err == nil || r.Err.Message != "Couldn't start a terminal" {
+		t.Fatalf("got %+v", r.Err)
+	}
+	if last := steps[len(steps)-1]; last != proto.StepAgent {
+		t.Fatalf("steps %q", steps)
 	}
 }

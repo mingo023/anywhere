@@ -50,8 +50,26 @@ func TestAFailedSetupStopsBeforeTheAgent(t *testing.T) {
 	}
 }
 
-func TestAPassingSetupRunsTheAgent(t *testing.T) {
-	if got := runWrapped(t, "/bin/sh", "true", []string{"/bin/sh", "-c", "exit 0"}); got != "hook exit agent 0\n" {
-		t.Fatalf("got %q", got)
+func TestASetupThatCallsExitIsReportedAsSetup(t *testing.T) {
+	shells := []string{"/bin/sh"}
+	if fish, err := exec.LookPath("fish"); err == nil {
+		shells = append(shells, fish)
+	}
+	for _, shell := range shells {
+		if got := runWrapped(t, shell, "exit 4", []string{"/bin/sh", "-c", "exit 3"}); got != "hook exit setup 4\n" {
+			t.Errorf("%s: got %q", shell, got)
+		}
+	}
+}
+
+func TestAPassingSetupIsReportedThenRunsTheAgent(t *testing.T) {
+	shells := []string{"/bin/sh"}
+	if fish, err := exec.LookPath("fish"); err == nil {
+		shells = append(shells, fish)
+	}
+	for _, shell := range shells {
+		if got := runWrapped(t, shell, "true", []string{"/bin/sh", "-c", "exit 0"}); got != "hook exit setup 0\nhook exit agent 0\n" {
+			t.Errorf("%s: got %q", shell, got)
+		}
 	}
 }

@@ -119,6 +119,13 @@ export const ServerMessage = Schema.Union(
     setup: Schema.Boolean,
   }),
   Schema.Struct({
+    type: Schema.Literal("agent.progress"),
+    id: Schema.String,
+    requestId: Schema.String,
+    step: Schema.String,
+    note: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
     type: Schema.Literal("agent.created"),
     id: Schema.String,
     requestId: Schema.String,

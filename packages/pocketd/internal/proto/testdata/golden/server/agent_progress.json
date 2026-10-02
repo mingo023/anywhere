@@ -1,0 +1,7 @@
+{
+  "type": "agent.progress",
+  "id": "c1",
+  "requestId": "r1",
+  "step": "fetch",
+  "note": "Couldn't fetch, using local main"
+}

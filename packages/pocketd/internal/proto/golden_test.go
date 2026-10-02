@@ -67,6 +67,7 @@ var serverGolden = map[string]any{
 	"error":               NewError("p1", "Unknown agent: zz"),
 	"agent_creating":      NewAgentCreating("c1", "r1", "t1", "/w/fix", true),
 	"agent_created":       NewAgentCreated("c1", "r1", "a1", "t1"),
+	"agent_progress":      NewAgentProgress("c1", "r1", StepFetch, "Couldn't fetch, using local main"),
 	"agent_providers": NewAgentProviders("p1", []ProviderInfo{
 		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true},
 		{ID: "codex", Available: false, Efforts: []string{}, Plan: false},

@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -76,7 +77,8 @@ func TestCreateBranchesFromTheRepoBaseIntoItsWorktreesFolder(t *testing.T) {
 	git(t, p, "switch", "-q", "-c", "dev")
 	git(t, p, "commit", "-q", "--allow-empty", "-m", "dev")
 	git(t, p, "switch", "-q", "main")
-	wt := filepath.Join(t.TempDir(), "wt")
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	wt := filepath.Join(root, "wt")
 	c, err := Create(registered(p, registry.Repo{Base: "dev", Worktrees: wt}), p, "fix-login", "")
 	if err != nil || c.Path != filepath.Join(wt, "fix-login") || c.Branch != "fix-login" || c.Base != "dev" {
 		t.Fatalf("%+v, %v", c, err)
@@ -87,11 +89,25 @@ func TestCreateBranchesFromTheRepoBaseIntoItsWorktreesFolder(t *testing.T) {
 }
 
 func TestCreateTakesAnExplicitBaseAndDefaultsUnderHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", home)
 	p := repo(t)
 	c, err := Create(registered(p, registry.Repo{}), p, "calm-otter", "main")
 	if want := filepath.Join(os.Getenv("HOME"), ".worktrees", "pocket", "calm-otter"); err != nil || c.Path != want || c.Base != "main" {
 		t.Fatalf("%+v, %v", c, err)
+	}
+}
+
+func TestAWorktreesFolderBehindASymlinkGivesThePathListReports(t *testing.T) {
+	p := repo(t)
+	link := filepath.Join(t.TempDir(), "wt")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Create(registered(p, registry.Repo{Worktrees: link}), p, "calm-otter", "")
+	ws, _ := List(p)
+	if err != nil || len(ws) != 2 || c.Path != ws[1].Path {
+		t.Fatalf("created %q, listed %+v, %v", c.Path, ws, err)
 	}
 }
 
@@ -166,5 +182,117 @@ func TestABaseThatLooksLikeAFlagIsNotAnOption(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(wt, "calm-otter")); !os.IsNotExist(err) {
 		t.Fatalf("worktree made: %v", err)
+	}
+}
+
+// pushed is a repo whose main is on a bare origin; advance makes a commit on
+// origin's main that the repo hasn't fetched.
+func pushed(t *testing.T) (p string, advance func() string) {
+	p = repo(t)
+	origin := filepath.Join(filepath.Dir(p), "origin.git")
+	git(t, p, "clone", "-q", "--bare", p, origin)
+	git(t, p, "remote", "add", "origin", origin)
+	git(t, p, "fetch", "-q", "origin")
+	return p, func() string {
+		c := git(t, origin, "commit-tree", "-p", "main", "-m", "remote", git(t, origin, "rev-parse", "main^{tree}"))
+		git(t, origin, "update-ref", "refs/heads/main", c)
+		return c
+	}
+}
+
+func planned(t *testing.T, p string) Plan {
+	t.Helper()
+	plan, err := Prepare(registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")}), p, "calm-otter", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func startsAt(t *testing.T, plan Plan) string {
+	t.Helper()
+	c, err := plan.Add()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if up := exec.Command("git", "-C", c.Path, "rev-parse", "@{upstream}").Run(); up == nil {
+		t.Fatal("the new branch tracks a remote")
+	}
+	return git(t, c.Path, "rev-parse", "HEAD")
+}
+
+func TestANewWorktreeStartsFromOriginWhenOriginIsAhead(t *testing.T) {
+	p, advance := pushed(t)
+	remote := advance()
+	plan := planned(t, p)
+	if note := plan.Fetch(os.Environ()); note != "" {
+		t.Fatal(note)
+	}
+	if head := startsAt(t, plan); head != remote {
+		t.Fatalf("HEAD %s, origin %s", head, remote)
+	}
+	if local := git(t, p, "rev-parse", "main"); local == remote {
+		t.Fatal("local main moved")
+	}
+}
+
+func TestANewWorktreeKeepsLocalCommitsOriginLacks(t *testing.T) {
+	p, _ := pushed(t)
+	git(t, p, "commit", "-q", "--allow-empty", "-m", "unpushed")
+	plan := planned(t, p)
+	if note := plan.Fetch(os.Environ()); note != "" {
+		t.Fatal(note)
+	}
+	if head, local := startsAt(t, plan), git(t, p, "rev-parse", "main"); head != local {
+		t.Fatalf("HEAD %s, main %s", head, local)
+	}
+}
+
+func TestADivergedBaseStartsFromLocalWithANote(t *testing.T) {
+	p, advance := pushed(t)
+	advance()
+	git(t, p, "commit", "-q", "--allow-empty", "-m", "unpushed")
+	plan := planned(t, p)
+	if note := plan.Fetch(os.Environ()); note != "main has diverged from origin, using local main" {
+		t.Fatal(note)
+	}
+	if head, local := startsAt(t, plan), git(t, p, "rev-parse", "main"); head != local {
+		t.Fatalf("HEAD %s, main %s", head, local)
+	}
+}
+
+func TestFetchFallsBackToLocalWithANoteWhenOriginCantHelp(t *testing.T) {
+	alone := repo(t)
+	unreachable, _ := pushed(t)
+	git(t, unreachable, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	unpublished, _ := pushed(t)
+	git(t, unpublished, "update-ref", "-d", "refs/remotes/origin/main")
+	for p, want := range map[string]string{
+		alone:       "No remote, using local main",
+		unreachable: "Couldn't fetch, using local main",
+		unpublished: "No origin/main, using local main",
+	} {
+		plan := planned(t, p)
+		if note := plan.Fetch(os.Environ()); note != want {
+			t.Errorf("%q, want %q", note, want)
+		}
+		if head, local := startsAt(t, plan), git(t, p, "rev-parse", "main"); head != local {
+			t.Errorf("HEAD %s, main %s", head, local)
+		}
+	}
+}
+
+func TestFetchLeavesABaseThatIsNotALocalBranchAlone(t *testing.T) {
+	p, advance := pushed(t)
+	advance()
+	plan, err := Prepare(registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")}), p, "calm-otter", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note := plan.Fetch(os.Environ()); note != "" {
+		t.Fatal(note)
+	}
+	if head, at := startsAt(t, plan), git(t, p, "rev-parse", "HEAD"); head != at {
+		t.Fatalf("HEAD %s, repo at %s", head, at)
 	}
 }

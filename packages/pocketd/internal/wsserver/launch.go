@@ -29,7 +29,9 @@ func (c *conn) create(m proto.ClientMessage) {
 		return
 	}
 	go func() {
-		r := c.s.Launch.Create(w, m.RequestID, *m.Spec, func(cr launch.Creating) {
+		r := c.s.Launch.Create(w, m.RequestID, *m.Spec, func(step, note string) {
+			c.send(proto.NewAgentProgress(m.ID, m.RequestID, step, note))
+		}, func(cr launch.Creating) {
 			c.send(proto.NewAgentCreating(m.ID, m.RequestID, cr.Terminal, cr.Cwd, cr.Setup))
 		})
 		if r.Err != nil {

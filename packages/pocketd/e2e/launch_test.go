@@ -39,6 +39,7 @@ func TestAnOwnerCreateInANewWorktreeRunsSetupThenTheAgent(t *testing.T) {
 	if c.Type != "agent.creating" || !c.Setup || !strings.HasSuffix(c.Cwd, "/wt/calm-otter") {
 		t.Fatalf("got %s", c.Raw)
 	}
+	o.WaitFor("the agent step", func(m Message) bool { return m.Type == "agent.progress" && m.Step == "agent" })
 	done := reply(o, "agent.created", "error")
 	if done.Type != "agent.created" || done.TerminalID != c.TerminalID || done.AgentID == "" {
 		t.Fatalf("got %s", done.Raw)
