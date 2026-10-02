@@ -132,7 +132,8 @@ impl Desktop {
             self.terminal.tab_scroll.scroll_to_item(active);
             self.terminal.tab_revealed = shown;
         }
-        let (offset, max) = (self.terminal.tab_scroll.offset().x, self.terminal.tab_scroll.max_offset().x);
+        // As f32: Pixels orders -0 below 0, so a strip that can't scroll would show its right fade.
+        let (offset, max) = (f32::from(self.terminal.tab_scroll.offset().x), f32::from(self.terminal.tab_scroll.max_offset().x));
         let fade = |left: bool| {
             let solid: Hsla = SURFACE_SUNKEN.into();
             let (solid, clear) = (solid, solid.opacity(0.));
@@ -158,7 +159,7 @@ impl Desktop {
             .h(px(40.))
             .items_center()
             .gap(px(2.))
-            .child(div().relative().flex().min_w_0().child(strip).when(offset < px(0.), |d| d.child(fade(true))).when(offset > -max, |d| d.child(fade(false))))
+            .child(div().relative().flex().min_w_0().child(strip).when(offset < 0., |d| d.child(fade(true))).when(offset > -max, |d| d.child(fade(false))))
             .child(self.new_tab_controls(cx))
     }
 }
