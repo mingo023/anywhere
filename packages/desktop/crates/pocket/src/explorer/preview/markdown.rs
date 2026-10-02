@@ -44,14 +44,16 @@ fn code_actions(block: &CodeBlock) -> Div {
 impl Desktop {
     /// A markdown file rendered, with its mermaid fences drawn as diagrams.
     pub(super) fn markdown_pane(&self, cx: &App) -> Div {
-        pane().px(px(40.)).py(px(32.)).bg(PAGE).child(
+        // Side padding sits on the TextView so its scrollbar reaches the edge; vertical padding there would skew the scrollbar's thumb.
+        pane().py(px(32.)).bg(PAGE).child(
             TextView::new(&self.preview.views.md)
                 .plugin(Mermaid(self.preview.views.diagrams.clone()))
                 .code_block_actions(|block, _, _| code_actions(block))
                 .selectable(true)
                 .scrollable(true)
                 .style(markdown_style(cx.theme().highlight_theme.clone()))
-                .size_full(),
+                .size_full()
+                .px(px(40.)),
         )
     }
 }
