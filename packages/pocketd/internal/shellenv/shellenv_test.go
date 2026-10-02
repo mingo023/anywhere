@@ -104,8 +104,11 @@ func TestCaptureGivesUpAfterTheLimit(t *testing.T) {
 	need(t, "/bin/zsh")
 	dir := home(t, map[string]string{".zprofile": "sleep 10\n"})
 	r := capture(dir, "/bin/zsh", time.Second)
-	if r.Mode != "inherited" || r.Err != "interactive: timeout; login: timeout" || r.Took > 4*time.Second {
+	if r.Mode != "base" || r.Err != "interactive: timeout; login: timeout" || r.Took > 4*time.Second {
 		t.Fatalf("%s took %s", r, r.Took)
+	}
+	if get(r.Env, "TERM") != "xterm-256color" || get(r.Env, "HOME") != dir {
+		t.Fatal("a failed capture leaves Terminals pocketd's own environment, not a new terminal's")
 	}
 }
 

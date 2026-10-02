@@ -16,7 +16,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -25,7 +24,7 @@ import (
 
 type Result struct {
 	Env  []string
-	Mode string // "interactive", "login" or "inherited"
+	Mode string // "interactive", "login" or "base"
 	Took time.Duration
 	Err  string
 }
@@ -76,7 +75,7 @@ func Base(environ []string, shell string) []string {
 }
 
 // Capture runs the login shell interactively (so zsh reads .zshrc), then as a
-// plain login shell, each within limit. If both fail it keeps os.Environ().
+// plain login shell, each within limit. If both fail it keeps env.
 func Capture(ctx context.Context, shell string, env []string, limit time.Duration) Result {
 	start := time.Now()
 	var errs []string
@@ -90,7 +89,7 @@ func Capture(ctx context.Context, shell string, env []string, limit time.Duratio
 		}
 		errs = append(errs, m.mode+": "+err.Error())
 	}
-	return Result{Env: os.Environ(), Mode: "inherited", Took: time.Since(start), Err: strings.Join(errs, "; ")}
+	return Result{Env: env, Mode: "base", Took: time.Since(start), Err: strings.Join(errs, "; ")}
 }
 
 // env -0 refuses to run a command, so it runs on its own between the markers.

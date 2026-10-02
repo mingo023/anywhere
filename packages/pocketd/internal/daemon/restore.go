@@ -86,8 +86,13 @@ func (d *Daemon) Snapshot() state.File {
 // their old ids, in their launch dirs. A Terminal that held an Agent runs its
 // resume argv and keeps the Agent's id; any other is a login shell. It runs
 // before the poller and ops Serve start, so the poller finds every hint and
-// the first list holds them all.
+// the first list holds them all. It reads the login shell's environment first,
+// so no Terminal gets pocketd's own: under launchd, that has no TERM, and a
+// PATH without the agents.
 func (d *Daemon) Restore(f state.File, shell string) {
+	if d.Capture != nil {
+		d.Recapture()
+	}
 	for _, e := range f.Terminals {
 		t, reason := d.reopen(e, shell)
 		switch {

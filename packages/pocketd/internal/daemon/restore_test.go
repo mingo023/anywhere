@@ -15,6 +15,7 @@ import (
 	"pocketd/internal/agent"
 	"pocketd/internal/codex/codextest"
 	"pocketd/internal/proto"
+	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 )
@@ -40,6 +41,34 @@ func TestRestoreRecreatesTerminalsWithTheirIDs(t *testing.T) {
 	want := []state.Terminal{{TerminalID: "t-1", LaunchDir: dir, Cols: 90, Rows: 20}}
 	if got := d.Snapshot().Terminals; !slices.Equal(got, want) {
 		t.Fatalf("Snapshot = %+v", got)
+	}
+}
+
+func TestRestoreResumesInTheLoginShellsEnvironment(t *testing.T) {
+	d := newDaemon(t)
+	d.Capture = func() shellenv.Result {
+		return shellenv.Result{Env: []string{"PATH=/usr/bin:/bin", "POCKET_LOGIN=yes"}, Mode: "interactive"}
+	}
+	var env []string
+	d.Resume = func(state.Terminal) (string, []string, string) {
+		env = d.LoginEnv()
+		return "", nil, "resume_not_accepted"
+	}
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	t.Cleanup(d.Terminals.Get("t-1").Close)
+	if !slices.Contains(env, "POCKET_LOGIN=yes") {
+		t.Fatal("resume looked up its command in pocketd's own environment")
+	}
+}
+
+func TestATerminalOpenedAfterRestoringNothingGetsTheLoginShellsEnvironment(t *testing.T) {
+	d := newDaemon(t)
+	d.Capture = func() shellenv.Result {
+		return shellenv.Result{Env: []string{"PATH=/usr/bin:/bin", "POCKET_LOGIN=yes"}, Mode: "interactive"}
+	}
+	d.Restore(state.File{}, "/bin/sh")
+	if !slices.Contains(d.LoginEnv(), "POCKET_LOGIN=yes") {
+		t.Fatal("a Terminal opened now gets pocketd's own environment")
 	}
 }
 

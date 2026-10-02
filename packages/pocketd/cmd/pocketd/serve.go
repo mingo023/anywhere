@@ -102,7 +102,6 @@ func serve(sock string) error {
 		shell := shellenv.LoginShell()
 		return shellenv.Capture(ctx, shell, shellenv.Base(os.Environ(), shell), 5*time.Second)
 	}
-	go d.Recapture()
 	mon := host.NewMonitor()
 	kick := make(chan struct{}, 1)
 	d.Agents.OnStatus = func(id, provider, from, to string) {
