@@ -784,9 +784,9 @@ pub fn modal(title: &str, width: f32, top: f32, close: Stateful<Div>, body: impl
     )
 }
 
-/// A centered alert: title, body, then full-width buttons with the action above Cancel.
-pub fn alert(title: &str, body: impl IntoIterator<Item = AnyElement>, action: Stateful<Div>, cancel: Stateful<Div>) -> Div {
-    let buttons = div().w_full().pt(px(8.)).flex().flex_col().gap(px(6.)).child(action.w_full().justify_center()).child(cancel.w_full().justify_center());
+/// A centered alert: title, body, then full-width buttons stacked in order, the action first and Cancel last.
+pub fn alert(title: &str, body: impl IntoIterator<Item = AnyElement>, buttons: impl IntoIterator<Item = Stateful<Div>>) -> Div {
+    let buttons = div().w_full().pt(px(8.)).flex().flex_col().gap(px(6.)).children(buttons.into_iter().map(|b| b.w_full().justify_center()));
     div().absolute().inset_0().flex().items_center().justify_center().child(
         pop(div().w(px(300.)).pt(px(22.)).px(px(18.)).pb(px(16.)).flex().flex_col().items_center().gap(px(8.)).text_center())
             .rounded(px(R_DIALOG))

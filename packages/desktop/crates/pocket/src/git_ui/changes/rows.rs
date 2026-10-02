@@ -194,6 +194,6 @@ impl Desktop {
                     .text_color(ui::git_color(f.status))
                     .child(f.status.to_string()),
             )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(open.clone()), cx)))
+            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_changes(Some(open.clone()), ev.click_count() > 1, cx)))
     }
 }

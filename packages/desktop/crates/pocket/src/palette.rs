@@ -338,7 +338,7 @@ impl Desktop {
             Pick::Session(id) => self.focus_agent(&id, window, cx),
             Pick::File(path) => {
                 self.screen = Screen::Sessions;
-                self.open_file(path, cx);
+                self.open_file(path, true, cx);
             }
             Pick::New => self.open(Overlay::NewSession, window, cx),
             Pick::Split => self.new_shell(Some(false), cx),

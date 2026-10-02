@@ -30,11 +30,11 @@ pub fn decorations(text: &str, marks: &HashMap<usize, bool>) -> Vec<TextDecorati
         .collect()
 }
 
-/// The read-only editor a text file shows in.
+/// The editor a text file shows and is edited in.
 pub fn code_pane(code: &Entity<EditorState>) -> Div {
     pane()
         .bg(SURFACE_SUNKEN)
-        .child(Editor::new(code).readonly(true).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))
+        .child(Editor::new(code).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))
 }
 
 #[cfg(test)]

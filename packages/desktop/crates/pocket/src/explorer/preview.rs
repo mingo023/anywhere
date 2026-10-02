@@ -3,16 +3,19 @@ mod header;
 mod markdown;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::empty;
+use crate::desktop::chrome::{Confirm, Overlay, empty};
 use crate::explorer::mermaid::Diagrams;
 use crate::syntax::language_for;
+use crate::util::basename;
 use code::{code_pane, decorations, gutter};
 use git::Line;
-use gpui_kit::component::input::{EditorState, TextDecoration, TextDecorationCollection};
+use gpui_kit::component::input::{EditorState, InputEvent, TextDecoration, TextDecorationCollection};
 use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use theme::*;
+use workspace::Doc;
 
 const MAX_BYTES: u64 = 512 * 1024;
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
@@ -131,16 +134,24 @@ pub struct PreviewState<V = Views> {
     pub(crate) md_source: bool,
     /// The copied path and the timer that turns its check back; a new copy replaces, and so cancels, the old one.
     pub(crate) path_copied: Option<(String, Task<()>)>,
+    /// Unsaved text by file path. Every file tab shares the one editor, so edits live here, not in it.
+    pub(crate) drafts: HashMap<String, SharedString>,
     pub(crate) views: V,
 }
 
 impl PreviewState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
         let marks = code.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
         let md = cx.new(|cx| TextViewState::markdown("", cx));
         let diagrams = cx.new(|_| Diagrams::new(&md));
-        Self::with(Views { code, marks, md, diagrams })
+        let subs = vec![cx.subscribe(&code, |this, code, ev: &InputEvent, cx| {
+            if let InputEvent::Change = ev {
+                let text = code.read(cx).value();
+                this.edited(text, cx);
+            }
+        })];
+        (Self::with(Views { code, marks, md, diagrams }), subs)
     }
 }
 
@@ -155,6 +166,7 @@ impl<V> PreviewState<V> {
             code_text: SharedString::default(),
             md_source: false,
             path_copied: None,
+            drafts: HashMap::new(),
             views,
         }
     }
@@ -198,6 +210,7 @@ impl<V> PreviewState<V> {
         match &self.preview {
             Some(Preview::Text(_)) if self.markdown() && !self.md_source => Body::Markdown,
             Some(Preview::Text(_)) => Body::Code,
+            _ if self.file.as_deref().is_some_and(|f| self.dirty(f)) => Body::Code,
             Some(Preview::Image) => Body::Image,
             Some(Preview::Binary(n)) => Body::Note(format!("Binary file · {}", size(*n as usize))),
             Some(Preview::TooLarge(n)) => Body::Note(format!("Too large to preview · {}", size(*n as usize))),
@@ -211,7 +224,8 @@ impl<V> PreviewState<V> {
         if !std::mem::take(&mut self.stale) {
             return None;
         }
-        let text = self.text().map(|t| SharedString::from(t.to_string())).unwrap_or_default();
+        let draft = self.file.as_ref().and_then(|f| self.drafts.get(f)).cloned();
+        let text = draft.unwrap_or_else(|| self.text().map(|t| SharedString::from(t.to_string())).unwrap_or_default());
         let same = self.code_file == self.file;
         let reload = !same || text != self.code_text;
         let language = language_for(self.file.as_deref().unwrap_or_default());
@@ -220,9 +234,99 @@ impl<V> PreviewState<V> {
         self.code_text = text.clone();
         Some(CodeSync { text, language, same, reload, marks })
     }
+
+    /// Keeps the editor's text as the draft of the file it holds, dropping the draft once the text matches the file on disk. Returns the file when that flipped whether it's dirty.
+    pub fn edit(&mut self, text: SharedString) -> Option<String> {
+        let file = self.code_file.clone()?;
+        let clean = self.file == self.code_file && self.text() == Some(text.as_ref());
+        let was_dirty = if clean { self.drafts.remove(&file).is_some() } else { self.drafts.insert(file.clone(), text.clone()).is_some() };
+        self.code_text = text;
+        (was_dirty == clean).then_some(file)
+    }
+
+    pub fn dirty(&self, path: &str) -> bool {
+        self.drafts.contains_key(path)
+    }
+
+    /// Takes `text` as what `path` now holds on disk; its draft goes unless edited since.
+    pub fn saved(&mut self, path: &str, text: &SharedString) {
+        if self.drafts.get(path) == Some(text) {
+            self.drafts.remove(path);
+        }
+        if self.file.as_deref() == Some(path) {
+            self.preview = Some(Preview::Text(text.to_string()));
+        }
+    }
+
+    /// Drops `path`'s draft, so the editor shows the file on disk again.
+    pub fn discard(&mut self, path: &str) {
+        self.drafts.remove(path);
+        self.stale = true;
+    }
 }
 
 impl Desktop {
+    fn edited(&mut self, text: SharedString, cx: &mut Context<Self>) {
+        if let Some(file) = self.preview.edit(text) {
+            self.pin_doc(&Doc::File(file));
+            cx.notify();
+        }
+    }
+
+    pub fn save(&mut self, _: &crate::actions::Save, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(Doc::File(path)) = self.active_doc() else { return };
+        self.pin_doc(&Doc::File(path.clone()));
+        self.save_file(path, false, cx);
+        cx.notify();
+    }
+
+    /// Writes `path`'s draft off the UI thread, then closes its tab if `close`. A failed write keeps both.
+    pub(crate) fn save_file(&mut self, path: String, close: bool, cx: &mut Context<Self>) {
+        let Some(text) = self.preview.drafts.get(&path).cloned() else {
+            if close {
+                self.close_doc(&Doc::File(path), cx);
+            }
+            return;
+        };
+        let (dest, bytes) = (path.clone(), text.clone());
+        let task = cx.background_executor().spawn(async move { std::fs::write(dest, bytes.as_bytes()) });
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            this.update(cx, |d, cx| {
+                match res {
+                    Ok(()) => {
+                        d.preview.saved(&path, &text);
+                        if close {
+                            d.close_doc(&Doc::File(path), cx);
+                        }
+                        d.refresh_git(cx);
+                    }
+                    Err(e) => d.error = Some(format!("Couldn't save {}: {e}", basename(&path))),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn quit(&mut self, _: &crate::actions::Quit, _: &mut Window, cx: &mut Context<Self>) {
+        if self.may_quit(cx) {
+            cx.quit();
+        }
+    }
+
+    /// Whether no file has unsaved edits; else asks whether to quit without them.
+    pub(crate) fn may_quit(&mut self, cx: &mut Context<Self>) -> bool {
+        let unsaved = self.preview.drafts.len();
+        if unsaved > 0 {
+            self.confirm = Some(Confirm::Quit(unsaved));
+            self.overlay = Some(Overlay::Confirm);
+            cx.notify();
+        }
+        unsaved == 0
+    }
+
     pub fn load_file(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self.preview.file.clone() else { return };
         let changed = self.file_status(&path).is_some();
@@ -423,5 +527,70 @@ mod tests {
         state.apply(("/r/a.rs".into(), text("a\nc\n"), added));
         let sync = state.take_sync().unwrap();
         assert_eq!((sync.text.as_ref(), sync.same, sync.reload), ("a\nc\n", true, true));
+    }
+
+    fn shown(path: &str, disk: &str) -> PreviewState<()> {
+        let mut state = opened(path);
+        state.apply((path.into(), text(disk), Vec::new()));
+        state.take_sync();
+        state
+    }
+
+    #[test]
+    fn an_edit_turns_the_file_dirty_once_and_undoing_it_turns_it_clean() {
+        let mut state = shown("/r/a.rs", "a\n");
+        assert_eq!(state.edit("ab\n".into()), Some("/r/a.rs".into()));
+        assert_eq!(state.edit("abc\n".into()), None);
+        assert!(state.dirty("/r/a.rs"));
+        assert_eq!(state.edit("a\n".into()), Some("/r/a.rs".into()));
+        assert!(!state.dirty("/r/a.rs"));
+    }
+
+    #[test]
+    fn unsaved_edits_outlive_refreshes_and_switching_files() {
+        let mut state = shown("/r/a.rs", "a\n");
+        state.edit("ab\n".into());
+        state.apply(("/r/a.rs".into(), text("changed on disk\n"), Vec::new()));
+        let sync = state.take_sync().unwrap();
+        assert_eq!((sync.text.as_ref(), sync.reload), ("ab\n", false));
+        state.open("/r/b.rs".into());
+        state.apply(("/r/b.rs".into(), text("b\n"), Vec::new()));
+        assert_eq!(state.take_sync().unwrap().text.as_ref(), "b\n");
+        state.open("/r/a.rs".into());
+        let sync = state.take_sync().unwrap();
+        assert_eq!((sync.text.as_ref(), sync.reload), ("ab\n", true));
+        assert!(state.dirty("/r/a.rs") && !state.dirty("/r/b.rs"));
+    }
+
+    #[test]
+    fn an_unsaved_edit_stays_shown_when_its_file_turns_unreadable() {
+        let mut state = shown("/r/a.rs", "a\n");
+        state.edit("ab\n".into());
+        state.apply(("/r/a.rs".into(), Preview::Unreadable, Vec::new()));
+        assert_eq!(state.body(), Body::Code);
+        assert_eq!(state.take_sync().unwrap().text.as_ref(), "ab\n");
+    }
+
+    #[test]
+    fn a_save_cleans_the_file_unless_it_was_edited_while_writing() {
+        let mut state = shown("/r/a.rs", "a\n");
+        state.edit("ab\n".into());
+        state.saved("/r/a.rs", &"ab\n".into());
+        assert!(!state.dirty("/r/a.rs"));
+        state.edit("abc\n".into());
+        state.edit("abcd\n".into());
+        state.saved("/r/a.rs", &"abc\n".into());
+        assert!(state.dirty("/r/a.rs"));
+        assert_eq!(state.edit("abc\n".into()), Some("/r/a.rs".into()));
+    }
+
+    #[test]
+    fn discarding_shows_the_file_on_disk_again() {
+        let mut state = shown("/r/a.rs", "a\n");
+        state.edit("ab\n".into());
+        state.discard("/r/a.rs");
+        let sync = state.take_sync().unwrap();
+        assert_eq!((sync.text.as_ref(), sync.reload), ("a\n", true));
+        assert!(!state.dirty("/r/a.rs"));
     }
 }

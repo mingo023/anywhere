@@ -23,7 +23,7 @@ const STEPS: [(&str, Step); 15] = [
         d.side = Side::Explorer;
         d.refresh_git(cx);
     }),
-    ("changes", |d, _, cx| d.open_changes(None, cx)),
+    ("changes", |d, _, cx| d.open_changes(None, false, cx)),
     ("comment", |d, window, cx| {
         if let Some(i) = d.diff.lines.iter().position(|l| l.kind == Kind::Add) {
             d.open_comment(i, window, cx);

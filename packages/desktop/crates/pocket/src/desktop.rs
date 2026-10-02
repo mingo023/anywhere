@@ -87,12 +87,14 @@ impl Desktop {
         let (chips, chips_subs) = Chips::new(window, cx);
         let (diff, diff_subs) = DiffState::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
-        let preview = PreviewState::new(window, cx);
+        let (preview, preview_subs) = PreviewState::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let root = cx.focus_handle();
         window.focus(&root, cx);
+        let this = cx.weak_entity();
+        window.on_window_should_close(cx, move |_, cx| this.update(cx, |d, cx| d.may_quit(cx)).unwrap_or(true));
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
             cx.observe_window_activation(window, |_, _, cx| follow_reduce_motion(cx)),
@@ -105,6 +107,7 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(diff_subs);
         _subs.extend(changes_subs);
+        _subs.extend(preview_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
         _subs.extend(geometry_subs);
@@ -237,12 +240,24 @@ impl Desktop {
         }
     }
 
-    /// Opens `doc` in its tab of the worktree on screen.
-    pub fn open_doc(&mut self, doc: Doc, cx: &mut Context<Self>) {
+    /// Opens `doc` in its tab of the worktree on screen; unless `pin`, in the preview tab the next open takes over.
+    pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
         self.screen = Screen::Sessions;
-        self.workspace(&tree).open_doc(doc.clone());
+        self.workspace(&tree).open_doc(doc.clone(), pin);
         self.show_doc(doc, cx);
+    }
+
+    pub(crate) fn pin_doc(&mut self, doc: &Doc) {
+        if let Some(tree) = self.cwd() {
+            self.workspace(&tree).pin(doc);
+        }
+    }
+
+    pub(crate) fn close_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
+        if let Some(i) = self.cwd().and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
+            self.close_tab(i, cx);
+        }
     }
 
     fn show_doc(&mut self, doc: Doc, cx: &mut Context<Self>) {
@@ -403,6 +418,8 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::close_active_tab))
+            .on_action(cx.listener(Self::save))
+            .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::open_selected))
             .children(lead)
             .children(column)

@@ -16,6 +16,8 @@ pub enum Tab {
 pub struct Workspace {
     pub tabs: Vec<Tab>,
     pub active: usize,
+    /// The doc whose tab the next unpinned open takes over.
+    pub preview: Option<Doc>,
 }
 
 impl Workspace {
@@ -53,15 +55,37 @@ impl Workspace {
         self.tabs.iter().position(|t| matches!(t, Tab::Term(rows) if rows.iter().flatten().any(|p| p == id)))
     }
 
-    /// Shows `doc` in its tab, adding one if none shows it yet.
-    pub fn open_doc(&mut self, doc: Doc) {
-        self.active = match self.tabs.iter().position(|t| *t == Tab::Doc(doc.clone())) {
-            Some(i) => i,
-            None => {
-                self.tabs.push(Tab::Doc(doc));
+    /// Shows `doc` in its tab. A doc not shown yet takes over the preview tab unless `pin`, else gets a new tab.
+    pub fn open_doc(&mut self, doc: Doc, pin: bool) {
+        let shown = self.doc_tab(&doc);
+        let preview = self.preview.as_ref().and_then(|p| self.doc_tab(p));
+        self.active = match (shown, preview) {
+            (Some(i), _) => i,
+            (None, Some(i)) if !pin => {
+                self.tabs[i] = Tab::Doc(doc.clone());
+                i
+            }
+            (None, _) => {
+                self.tabs.push(Tab::Doc(doc.clone()));
                 self.tabs.len() - 1
             }
         };
+        if pin {
+            self.pin(&doc);
+        } else if shown.is_none() {
+            self.preview = Some(doc);
+        }
+    }
+
+    /// Keeps `doc`'s tab from being taken over by the next preview.
+    pub fn pin(&mut self, doc: &Doc) {
+        if self.preview.as_ref() == Some(doc) {
+            self.preview = None;
+        }
+    }
+
+    pub fn doc_tab(&self, doc: &Doc) -> Option<usize> {
+        self.tabs.iter().position(|t| matches!(t, Tab::Doc(d) if d == doc))
     }
 
     pub fn remove(&mut self, id: &str) {
@@ -97,7 +121,10 @@ impl Workspace {
         }
         let ids = match self.tabs.remove(i) {
             Tab::Term(rows) => rows.into_iter().flatten().collect(),
-            Tab::Doc(_) => Vec::new(),
+            Tab::Doc(doc) => {
+                self.pin(&doc);
+                Vec::new()
+            }
         };
         if self.active > i || self.active == self.tabs.len() {
             self.active = self.active.saturating_sub(1);
@@ -116,6 +143,10 @@ mod tests {
 
     fn diff(path: &str) -> Doc {
         Doc::Diff(path.into())
+    }
+
+    fn file(path: &str) -> Doc {
+        Doc::File(path.into())
     }
 
     fn with(ids: &[&str]) -> Workspace {
@@ -149,7 +180,7 @@ mod tests {
         w.split("b".into(), true);
         w.split("c".into(), false);
         assert_eq!(w.tabs, vec![term(&[&["a"], &["b", "c"]])]);
-        w.open_doc(diff("x"));
+        w.open_doc(diff("x"), true);
         w.split("d".into(), false);
         assert_eq!(w.tabs.len(), 3);
         assert_eq!(w.active, 2);
@@ -168,7 +199,7 @@ mod tests {
     fn closing_a_tab_returns_its_sessions() {
         let mut w = with(&["a", "b"]);
         w.split("c".into(), true);
-        w.open_doc(diff("x"));
+        w.open_doc(diff("x"), true);
         assert_eq!(w.close_tab(1), vec!["b".to_string()]);
         assert_eq!(w.active, 1);
         assert_eq!(w.close_tab(1), Vec::<String>::new());
@@ -206,17 +237,63 @@ mod tests {
     #[test]
     fn each_doc_gets_one_tab() {
         let mut w = with(&["a"]);
-        w.open_doc(Doc::File("/r/x".into()));
-        w.open_doc(diff("y"));
-        w.open_doc(Doc::File("/r/x".into()));
+        w.open_doc(Doc::File("/r/x".into()), true);
+        w.open_doc(diff("y"), true);
+        w.open_doc(Doc::File("/r/x".into()), true);
         assert_eq!((&w.tabs[1..], w.active), (&[Tab::Doc(Doc::File("/r/x".into())), Tab::Doc(diff("y"))][..], 1));
+    }
+
+    #[test]
+    fn an_unpinned_open_takes_over_the_preview_tab_whether_file_or_diff() {
+        let mut w = with(&["a"]);
+        w.open_doc(file("x"), false);
+        w.open_doc(diff("y"), false);
+        assert_eq!((&w.tabs[1..], w.active), (&[Tab::Doc(diff("y"))][..], 1));
+        assert_eq!(w.preview, Some(diff("y")));
+    }
+
+    #[test]
+    fn a_pinned_tab_stays_when_the_next_preview_opens() {
+        let mut w = with(&["a"]);
+        w.open_doc(file("x"), false);
+        w.pin(&file("x"));
+        w.open_doc(diff("y"), false);
+        assert_eq!(&w.tabs[1..], &[Tab::Doc(file("x")), Tab::Doc(diff("y"))][..]);
+    }
+
+    #[test]
+    fn a_pinned_open_leaves_the_preview_tab_alone() {
+        let mut w = with(&["a"]);
+        w.open_doc(file("x"), false);
+        w.open_doc(file("y"), true);
+        assert_eq!((&w.tabs[1..], w.active), (&[Tab::Doc(file("x")), Tab::Doc(file("y"))][..], 2));
+        assert_eq!(w.preview, Some(file("x")));
+        w.open_doc(file("x"), true);
+        assert_eq!((w.active, w.preview.clone()), (1, None));
+    }
+
+    #[test]
+    fn reopening_a_shown_doc_shows_its_tab_without_pinning_or_replacing() {
+        let mut w = with(&["a"]);
+        w.open_doc(file("x"), true);
+        w.open_doc(diff("y"), false);
+        w.open_doc(file("x"), false);
+        assert_eq!((w.tabs.len(), w.active, w.preview.clone()), (3, 1, Some(diff("y"))));
+    }
+
+    #[test]
+    fn closing_the_preview_tab_leaves_no_preview() {
+        let mut w = with(&["a"]);
+        w.open_doc(file("x"), false);
+        w.close_tab(1);
+        assert_eq!(w.preview, None);
     }
 
     #[test]
     fn finds_the_tab_holding_a_pane() {
         let mut w = with(&["a", "b"]);
         w.split("c".into(), true);
-        w.open_doc(diff("x"));
+        w.open_doc(diff("x"), true);
         assert_eq!((w.tab_of("c"), w.tab_of("b"), w.tab_of("x")), (Some(0), Some(1), None));
     }
 }

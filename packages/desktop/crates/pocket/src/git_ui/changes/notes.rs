@@ -26,7 +26,7 @@ impl Desktop {
                         .child(ui::status(id, state)),
                 )
                 .child(div().truncate().text_size(px(13.5)).text_color(TEXT_BODY).child(text))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes(Some(path.clone()), cx)))
+                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_changes(Some(path.clone()), ev.click_count() > 1, cx)))
         };
         let mut notes: Vec<Stateful<Div>> = self
             .diff

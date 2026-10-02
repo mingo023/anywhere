@@ -1,6 +1,6 @@
 use gpui_kit::*;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Quit]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -20,6 +20,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-.", ToggleFocus, None),
         KeyBinding::new("cmd-t", NewTab, None),
         KeyBinding::new("cmd-w", CloseTab, None),
+        KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-shift-n", NewWorktree, None),
         KeyBinding::new("cmd-,", ProjectSettings, None),

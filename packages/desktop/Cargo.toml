@@ -51,6 +51,7 @@ qrcode = { version = "0.14", default-features = false }
 resvg = "0.46"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tree-sitter-javascript = "0.23.1"
 tungstenite = "0.26"
 
 [profile.dev.package."*"]

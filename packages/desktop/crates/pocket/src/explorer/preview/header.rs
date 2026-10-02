@@ -52,6 +52,8 @@ impl Desktop {
                     false,
                     |this, v, cx| {
                         this.preview.md_source = v;
+                        let text = this.preview.code_text.clone();
+                        this.preview.views.md.update(cx, |md, cx| md.set_text(&text, cx));
                         cx.notify();
                     },
                     cx,
@@ -84,7 +86,7 @@ impl Desktop {
             Some((a, ts)) => status
                 .cursor_pointer()
                 .child(format!("by {} · {}", provider_name(&a.provider), ago_long(ts, now_ms())))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, false, cx)))
                 .into_any_element(),
             None => status.into_any_element(),
         });

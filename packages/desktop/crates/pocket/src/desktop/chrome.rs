@@ -49,6 +49,8 @@ pub enum Confirm {
     CloseSession(String),
     CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },
     Paste { pane: String, text: String },
+    CloseFile(String),
+    Quit(usize),
 }
 
 /// The sidebar row whose `⋯` menu is open.

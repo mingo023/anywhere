@@ -33,6 +33,7 @@ fn main() {
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
         theme::init(cx);
+        syntax::init();
         follow_reduce_motion(cx);
         cx.bind_keys(actions::bindings());
         cx.bind_keys(keys::bindings());

@@ -7,6 +7,7 @@ use git::FileStat;
 use gpui_kit::*;
 use theme::*;
 use ui::{self, Variant};
+use workspace::Doc;
 
 fn closes(n: usize) -> Option<String> {
     match n {
@@ -68,6 +69,15 @@ impl ConfirmText {
         Self { title: format!("Close {title}?"), action: "Close", facts, dirty: 0, danger: true }
     }
 
+    fn close_file(path: &str) -> Self {
+        Self { title: format!("Save changes to {}?", basename(path)), action: "Save", facts: vec!["Your edits are lost if you don't save them".into()], dirty: 0, danger: false }
+    }
+
+    fn quit(unsaved: usize) -> Self {
+        let files = if unsaved == 1 { "1 file has".to_string() } else { format!("{unsaved} files have") };
+        Self { title: "Quit without saving?".into(), action: "Quit", facts: vec![format!("{files} unsaved edits")], dirty: 0, danger: true }
+    }
+
     fn detail(&self) -> Option<String> {
         (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
@@ -91,6 +101,8 @@ impl Desktop {
             }
             Some(Confirm::Paste { pane, text }) => ConfirmText::paste(text, &self.pane_label(pane)),
             Some(Confirm::CloseTerminals { ids, busy, worktree }) => ConfirmText::close_terminals(busy, worktree, ids.len()),
+            Some(Confirm::CloseFile(path)) => ConfirmText::close_file(path),
+            Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -102,8 +114,18 @@ impl Desktop {
         }
         let variant = if text.danger { Variant::Danger } else { Variant::Primary };
         let action = ui::button("confirm-go", variant, None, text.action).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
+        let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_)))
+            .then(|| ui::button("confirm-dont-save", Variant::Secondary, None, "Don't save").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_unsaved(window, cx))));
         let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        ui::alert(&text.title, body, action, cancel)
+        ui::alert(&text.title, body, std::iter::once(action).chain(dont_save).chain([cancel]))
+    }
+
+    fn close_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(Confirm::CloseFile(path)) = self.confirm.take() {
+            self.preview.discard(&path);
+            self.close_doc(&Doc::File(path), cx);
+        }
+        self.close_overlay(window, cx);
     }
 
     fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -118,6 +140,8 @@ impl Desktop {
             }
             Some(Confirm::Paste { pane, text }) => self.paste_into(&pane, &text, cx),
             Some(Confirm::CloseTerminals { ids, .. }) => ids.iter().for_each(|id| self.close_pane(id, cx)),
+            Some(Confirm::CloseFile(path)) => self.save_file(path, true, cx),
+            Some(Confirm::Quit(_)) => cx.quit(),
             None => {}
         }
         self.close_overlay(window, cx);
@@ -181,6 +205,18 @@ mod tests {
         assert_eq!(paste("ls\nrm -rf ~\n").title, "Paste 2 lines into zsh?");
         assert_eq!(paste("a\x1b[201~b").title, "Paste 1 line into zsh?");
         assert_eq!(paste("ls\n"), ConfirmText { title: "Paste 1 line into zsh?".into(), action: "Paste", facts: vec![], dirty: 0, danger: false });
+    }
+
+    #[test]
+    fn closing_an_edited_file_offers_to_save_it() {
+        let got = ConfirmText::close_file("/r/src/app.tsx");
+        assert_eq!((got.title.as_str(), got.action, got.danger), ("Save changes to app.tsx?", "Save", false));
+    }
+
+    #[test]
+    fn quitting_with_unsaved_edits_counts_the_files() {
+        assert_eq!(ConfirmText::quit(1).detail(), Some("1 file has unsaved edits.".into()));
+        assert_eq!(ConfirmText::quit(3).detail(), Some("3 files have unsaved edits.".into()));
     }
 
     #[test]

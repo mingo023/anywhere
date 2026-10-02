@@ -116,7 +116,7 @@ impl TabDrag {
 }
 
 impl Desktop {
-    fn tab_lead(&self, tab: &Tab) -> Div {
+    fn tab_lead(&self, tab: &Tab, preview: bool) -> Div {
         let row = div().flex().items_center().gap(px(7.));
         let label = |text: String| div().max_w(px(150.)).truncate().child(text);
         let p = match tab {
@@ -129,7 +129,8 @@ impl Desktop {
                     Doc::Diff(p) => self.repo().and_then(|r| r.files.iter().find(|f| f.path == *p)).map(|f| ui::meta_diff(f.added, f.removed, 11.)),
                     Doc::File(_) => None,
                 };
-                return row.child(file_icon(path, false, false, 14.)).child(label(basename(path))).children(totals);
+                let unsaved = matches!(doc, Doc::File(p) if self.preview.dirty(p)).then(|| dot(6., TEXT_2));
+                return row.child(file_icon(path, false, false, 14.)).child(label(basename(path)).when(preview, |d| d.italic())).children(totals).children(unsaved);
             }
         };
         let count = |text: String| tab_label(text, p.len());
@@ -190,6 +191,7 @@ impl Desktop {
         let w = self.workspace(tree);
         let active = w.active;
         let tabs = w.tabs.clone();
+        let preview = w.preview.clone();
         let observe = self.agents.observe_only();
         let reduce_motion = cx.reduce_motion();
         if let Some(d) = self.terminal.tab_drag.as_mut() {
@@ -235,6 +237,10 @@ impl Desktop {
                         cx.stop_propagation();
                         this.close_tab(i, cx);
                     }));
+                let doc = match tab {
+                    Tab::Doc(d) => Some(d.clone()),
+                    Tab::Term(_) => None,
+                };
                 let tab = div()
                     .id(("tab", i))
                     .h(px(28.))
@@ -243,8 +249,15 @@ impl Desktop {
                     .flex()
                     .items_center()
                     .cursor_pointer()
-                    .child(self.tab_lead(tab))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.select_tab(i, window, cx)))
+                    .child(self.tab_lead(tab, doc.is_some() && doc == preview))
+                    .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                        this.select_tab(i, window, cx);
+                        if ev.click_count() > 1
+                            && let Some(doc) = &doc
+                        {
+                            this.pin_doc(doc);
+                        }
+                    }))
                     .on_drag(DragTab, {
                         let this = cx.weak_entity();
                         move |_, grab, window, cx| {

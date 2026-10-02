@@ -282,7 +282,7 @@ impl Desktop {
                 .mr(px(4.))
                 .cursor_pointer()
                 .child(ui::meta_diff(added, removed, 12.))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, cx)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, false, cx)))
         });
         let error = self.error.clone().map(|e| div().min_w_0().truncate().mr(px(6.)).text_size(px(12.5)).text_color(FAILED_TEXT).child(e));
         let ring = self.terminal.focused.as_deref().and_then(|t| self.summary(t)).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window));

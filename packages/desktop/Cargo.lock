@@ -5327,6 +5327,7 @@ dependencies = [
  "store",
  "term",
  "theme",
+ "tree-sitter-javascript",
  "ui",
  "workspace",
 ]

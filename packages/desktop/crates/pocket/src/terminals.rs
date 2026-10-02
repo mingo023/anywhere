@@ -3,6 +3,7 @@ pub(crate) mod link;
 pub(crate) mod sessions;
 
 use crate::desktop::Desktop;
+use crate::desktop::chrome::{Confirm, Overlay};
 use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
 use daemon::{Info, Msg};
@@ -10,7 +11,7 @@ use gpui_kit::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
-use workspace::Tab;
+use workspace::{Doc, Tab};
 
 pub(crate) enum Intent {
     Tab(String),
@@ -291,8 +292,14 @@ impl Desktop {
 
     pub fn close_tab(&mut self, i: usize, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
-        let ids = match self.workspace(&tree).tabs.get(i) {
+        let ids = match self.workspace(&tree).tabs.get(i).cloned() {
             Some(Tab::Term(rows)) => rows.concat(),
+            Some(Tab::Doc(Doc::File(path))) if self.preview.dirty(&path) => {
+                self.confirm = Some(Confirm::CloseFile(path));
+                self.overlay = Some(Overlay::Confirm);
+                cx.notify();
+                return;
+            }
             _ => Vec::new(),
         };
         let observe = self.agents.observe_only();

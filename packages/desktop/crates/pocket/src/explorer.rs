@@ -101,9 +101,9 @@ impl Desktop {
         touched(files, &root, |p| self.agents.last_edit(p).is_some())
     }
 
-    pub fn open_file(&mut self, path: String, cx: &mut Context<Self>) {
+    pub fn open_file(&mut self, path: String, pin: bool, cx: &mut Context<Self>) {
         self.side = Side::Explorer;
-        self.open_doc(Doc::File(path), cx);
+        self.open_doc(Doc::File(path), pin, cx);
     }
 
     pub fn go_to_file(&mut self, _: &crate::actions::GoToFile, window: &mut Window, cx: &mut Context<Self>) {
@@ -131,7 +131,7 @@ impl Desktop {
             let git = self.file_status(&key);
             let touched = touched.contains(&key);
             return ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_file(key.clone(), cx)));
+                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)));
         }
         ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.explorer.toggle(&path);

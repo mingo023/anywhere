@@ -465,11 +465,11 @@ impl Desktop {
         }
     }
 
-    pub fn open_changes(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+    pub fn open_changes(&mut self, path: Option<String>, pin: bool, cx: &mut Context<Self>) {
         let path = path.or_else(|| self.diff.file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
         self.side = Side::Changes;
         match path {
-            Some(path) => self.open_doc(Doc::Diff(path), cx),
+            Some(path) => self.open_doc(Doc::Diff(path), pin, cx),
             None => cx.notify(),
         }
     }
