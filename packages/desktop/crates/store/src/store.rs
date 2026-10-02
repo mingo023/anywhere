@@ -15,14 +15,13 @@ pub struct RepoConfig {
     pub launch: LaunchPick,
 }
 
-/// The agent and access a Project's next session starts with. Full access is never stored.
+/// The agent a Project's next session starts with.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
 #[serde(default)]
 pub struct LaunchPick {
     pub provider: String,
     pub model: String,
     pub effort: String,
-    pub access: String,
 }
 
 /// Which status changes play a sound; a key missing from `desktop.json` reads as on.
@@ -156,7 +155,7 @@ mod tests {
         let mut s = Store::load(&dir);
         s.projects.push("/w".into());
         s.collapsed.insert("/w".into());
-        let launch = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: "edits".into() };
+        let launch = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into() };
         s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], launch, ..Default::default() });
         s.window = Some(WindowGeometry { display: Some("D1".into()), x: 40., y: 60., width: 1200., height: 800. });
         s.layout = Layout::Compact;
@@ -254,13 +253,13 @@ mod tests {
     fn an_old_desktop_json_loads_with_empty_launch_picks() {
         let old: Store = serde_json::from_str(r#"{"projects":["/w"],"repos":{"/w":{"name":"w","color":0,"base":"main","worktrees":"","setup":"make","copy":[".env"]}}}"#).unwrap();
         assert_eq!(old.repos["/w"].launch, LaunchPick::default());
-        let picked = RepoConfig { launch: LaunchPick { provider: "codex".into(), access: "auto".into(), ..Default::default() }, ..Default::default() };
-        assert!(serde_json::to_string(&picked).unwrap().contains(r#""launch":{"provider":"codex","model":"","effort":"","access":"auto"}"#));
+        let picked = RepoConfig { launch: LaunchPick { provider: "codex".into(), ..Default::default() }, ..Default::default() };
+        assert!(serde_json::to_string(&picked).unwrap().contains(r#""launch":{"provider":"codex","model":"","effort":""}"#));
     }
 
     #[test]
     fn a_launch_pick_saved_before_model_and_effort_loads_with_them_empty() {
         let old: RepoConfig = serde_json::from_str(r#"{"launch":{"provider":"codex","access":"auto"}}"#).unwrap();
-        assert_eq!(old.launch, LaunchPick { provider: "codex".into(), model: String::new(), effort: String::new(), access: "auto".into() });
+        assert_eq!(old.launch, LaunchPick { provider: "codex".into(), model: String::new(), effort: String::new() });
     }
 }

@@ -1,5 +1,4 @@
 use crate::desktop::Desktop;
-use crate::modals::new_session::{Access, plans_first};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -8,7 +7,6 @@ use theme::*;
 pub enum Picker {
     Agent,
     Branch,
-    Access,
 }
 
 fn chip(id: &'static str, open: bool) -> Stateful<Div> {
@@ -30,18 +28,6 @@ fn chip(id: &'static str, open: bool) -> Stateful<Div> {
 
 fn pick_head(label: &str) -> Div {
     div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string())
-}
-
-fn pick_note(label: &str, hint: &str) -> Div {
-    div()
-        .px(px(8.))
-        .py(px(8.))
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .text_color(TEXT_4)
-        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(label.to_string()))
-        .child(div().text_size(px(11.5)).child(hint.to_string()))
 }
 
 fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElement>, label: Div, meta: Option<String>) -> Stateful<Div> {
@@ -105,10 +91,6 @@ pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, label: &str, 
         .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
 }
 
-fn access_color(access: Access) -> Token {
-    if access == Access::Full { WAITING_TEXT } else { TEXT }
-}
-
 impl Desktop {
     pub fn close_picker(&mut self) -> bool {
         self.new_form.draft.picker.take().is_some()
@@ -124,10 +106,8 @@ impl Desktop {
         let f = &self.new_form.draft;
         let mut rows = Vec::new();
         for provider in ["claude", "codex"] {
-            let model = self.model_hint(provider).unwrap_or_else(|| "Default model".into());
-            rows.push(pick_head(provider_name(provider)).into_any_element());
             rows.push(
-                pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(model), None)
+                pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(provider_name(provider)), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.new_form.draft.pick_provider(provider);
                         cx.notify();
@@ -162,40 +142,11 @@ impl Desktop {
         picker_menu("branch-menu", 300., rows, cx)
     }
 
-    fn access_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let f = &self.new_form.draft;
-        let mut rows = Vec::new();
-        for access in Access::ALL {
-            rows.push(
-                access_row(access.wire(), f.access == access, access.label(), access.hint(), access_color(access))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.new_form.draft.access, this.new_form.draft.picker) = (access, None);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        rows.push(if plans_first(f.provider) {
-            access_row("plan", f.plan, "Plan first", "Review a plan before building.", TEXT)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    let f = &mut this.new_form.draft;
-                    (f.plan, f.picker) = (!f.plan, None);
-                    cx.notify();
-                }))
-                .into_any_element()
-        } else {
-            pick_note("Plan first", &format!("{} can't plan first in a terminal session", provider_name(f.provider))).into_any_element()
-        });
-        picker_menu("access-menu", 288., rows, cx)
-    }
-
     pub(super) fn agent_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let model = self.model_hint(f.provider).unwrap_or_else(|| "Default model".into());
         let agent = chip("form-agent", f.picker == Some(Picker::Agent))
             .child(provider_icon(f.provider, 13., TEXT))
             .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(f.provider)))
-            .child(div().text_color(TEXT_3).child(model))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
@@ -203,25 +154,6 @@ impl Desktop {
             }));
         let agent_menu = (f.picker == Some(Picker::Agent)).then(|| ui::dropdown(36., ui::menu_in("agent-menu-in", self.agent_picker(cx))));
         div().relative().child(agent).children(agent_menu)
-    }
-
-    pub(super) fn access_select(&self, cx: &mut Context<Self>) -> Div {
-        let f = &self.new_form.draft;
-        let access = chip("form-access", f.picker == Some(Picker::Access))
-            .child(div().font_weight(FontWeight::MEDIUM).text_color(access_color(f.access)).child(f.access.label()))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_picker(Picker::Access, cx);
-            }));
-        let menu = (f.picker == Some(Picker::Access)).then(|| ui::dropdown(36., self.access_picker(cx)));
-        let plan = f.plan.then(|| {
-            chip("form-plan", false).child(div().font_weight(FontWeight::MEDIUM).child("Plan first")).child(icon("x", 12., TEXT_4)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.new_form.draft.plan = false;
-                cx.notify();
-            }))
-        });
-        div().flex().items_center().gap(px(4.)).child(div().relative().child(access).children(menu)).children(plan)
     }
 
     pub(super) fn branch_select(&self, cx: &mut Context<Self>) -> Div {

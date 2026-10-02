@@ -19,18 +19,14 @@ pub enum Access {
     Ask,
     Edits,
     Auto,
-    Full,
 }
 
 impl Access {
-    pub const ALL: [Access; 4] = [Access::Ask, Access::Edits, Access::Auto, Access::Full];
-
     pub fn wire(self) -> &'static str {
         match self {
             Access::Ask => "ask",
             Access::Edits => "edits",
             Access::Auto => "auto",
-            Access::Full => "full",
         }
     }
 
@@ -39,7 +35,6 @@ impl Access {
             Access::Ask => "Ask",
             Access::Edits => "Auto-accept edits",
             Access::Auto => "Auto",
-            Access::Full => "Full access",
         }
     }
 
@@ -48,12 +43,7 @@ impl Access {
             Access::Ask => "Ask before commands and file changes.",
             Access::Edits => "Auto-approve edits, ask before other actions.",
             Access::Auto => "A reviewer model approves or denies actions.",
-            Access::Full => "Run commands and edits without prompts.",
         }
-    }
-
-    fn from_wire(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|a| a.wire() == s)
     }
 }
 
@@ -77,8 +67,6 @@ struct Draft {
     provider: &'static str,
     model: String,
     effort: String,
-    access: Access,
-    plan: bool,
     pending: Option<String>,
     error: Option<(String, String)>,
     picker: Option<Picker>,
@@ -98,8 +86,6 @@ impl Default for Draft {
             provider: "claude",
             model: String::new(),
             effort: String::new(),
-            access: Access::Ask,
-            plan: false,
             pending: None,
             error: None,
             picker: None,
@@ -132,7 +118,6 @@ impl Draft {
             (self.model, self.effort) = (String::new(), String::new());
         }
         (self.provider, self.picker) = (provider, None);
-        self.plan &= plans_first(provider);
     }
 
     fn spec(&self, project: &str, tree: &str, name: &str, prompt: &str) -> Value {
@@ -141,8 +126,7 @@ impl Draft {
         } else {
             json!({"worktree": tree})
         };
-        let plan = self.plan && plans_first(self.provider);
-        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": self.access.wire(), "plan": plan});
+        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": Access::Ask.wire()});
         for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
             if !value.is_empty() {
                 spec[key] = value.as_str().into();
@@ -155,17 +139,15 @@ impl Draft {
         spec
     }
 
-    /// What to remember for the Project. Full access keeps the last pick, so it is chosen afresh each time.
-    fn pick(&self, last: &LaunchPick) -> LaunchPick {
-        let access = if self.access == Access::Full { last.access.clone() } else { self.access.wire().to_string() };
-        LaunchPick { provider: self.provider.to_string(), model: self.model.clone(), effort: self.effort.clone(), access }
+    /// What to remember for the Project.
+    fn pick(&self) -> LaunchPick {
+        LaunchPick { provider: self.provider.to_string(), model: self.model.clone(), effort: self.effort.clone() }
     }
 
     fn open(&mut self, last: &LaunchPick) {
         self.provider = if last.provider == "codex" { "codex" } else { "claude" };
         (self.model, self.effort) = (last.model.clone(), last.effort.clone());
-        self.access = Access::from_wire(&last.access).filter(|a| *a != Access::Full).unwrap_or(Access::Ask);
-        (self.plan, self.pending, self.error) = (false, None, None);
+        (self.pending, self.error) = (None, None);
     }
 
     fn answer(&mut self, request: &str, error: Option<(String, String)>) -> bool {
@@ -183,10 +165,6 @@ impl Draft {
         }
         Some(message)
     }
-}
-
-fn plans_first(provider: &str) -> bool {
-    provider == "claude"
 }
 
 fn slug(prompt: &str) -> String {
@@ -360,8 +338,7 @@ impl Desktop {
         let f = &self.new_form.draft;
         let Some(project) = f.repo.clone() else { return };
         let spec = f.spec(&project, &tree, &name, &prompt);
-        let launch = &mut self.store.repos.entry(project).or_default().launch;
-        *launch = f.pick(launch);
+        self.store.repos.entry(project).or_default().launch = f.pick();
         self.store.save();
         let request = self.outbox.create(spec);
         (self.new_form.draft.pending, self.new_form.draft.error) = (Some(request), None);
@@ -430,7 +407,6 @@ impl Desktop {
             .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let agent = self.agent_select(cx);
-        let access = self.access_select(cx);
         let branch = f.worktree.then(|| self.branch_select(cx));
         let ready = self.session_ready(cx);
         let send = ui::primary(div().id("form-start").ml_auto().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
@@ -462,7 +438,6 @@ impl Desktop {
                     .pb(px(10.))
                     .text_size(px(13.))
                     .child(agent)
-                    .child(access)
                     .children(branch)
                     .child(send),
             );
@@ -511,7 +486,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Access, Draft, auto_name, default_first, name_problem, slug};
+    use super::{Draft, auto_name, default_first, name_problem, slug};
     use serde_json::json;
     use store::LaunchPick;
     use std::collections::HashSet;
@@ -576,34 +551,24 @@ mod tests {
     }
 
     #[test]
-    fn a_spec_carries_access_and_plan_not_argv() {
-        let draft = Draft { access: Access::Edits, plan: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "edits", "plan": true, "prompt": "Fix CI"});
-        assert_eq!(draft.spec("/p", "/p/w", "", "  Fix CI  "), want);
+    fn a_spec_always_asks_and_carries_no_argv() {
+        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "ask", "prompt": "Fix CI"});
+        assert_eq!(Draft::default().spec("/p", "/p/w", "", "  Fix CI  "), want);
         let new = Draft { worktree: true, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "ask", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "ask"});
         assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
     }
 
     #[test]
-    fn full_access_is_never_remembered() {
-        let last = LaunchPick { provider: "claude".into(), access: "edits".into(), ..LaunchPick::default() };
-        assert_eq!(Draft { access: Access::Full, ..Draft::default() }.pick(&last), last);
-        let mut draft = Draft::default();
-        draft.open(&LaunchPick { provider: "claude".into(), access: "full".into(), ..LaunchPick::default() });
-        assert_eq!(draft.access, Access::Ask);
-    }
-
-    #[test]
     fn picks_are_remembered_per_project() {
-        let draft = Draft { provider: "codex", model: "gpt-5".into(), effort: "high".into(), access: Access::Auto, ..Draft::default() };
-        let pick = draft.pick(&LaunchPick::default());
-        assert_eq!(pick, LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: "high".into(), access: "auto".into() });
-        let mut next = Draft { plan: true, ..Draft::default() };
+        let draft = Draft { provider: "codex", model: "gpt-5".into(), effort: "high".into(), ..Draft::default() };
+        let pick = draft.pick();
+        assert_eq!(pick, LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: "high".into() });
+        let mut next = Draft::default();
         next.open(&pick);
-        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access, next.plan), ("codex", "gpt-5", "high", Access::Auto, false));
+        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str()), ("codex", "gpt-5", "high"));
         next.open(&LaunchPick::default());
-        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access), ("claude", "", "", Access::Ask));
+        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str()), ("claude", "", ""));
     }
 
     #[test]
@@ -619,21 +584,12 @@ mod tests {
     }
 
     #[test]
-    fn codex_cannot_plan_first() {
-        let mut draft = Draft { plan: true, ..Draft::default() };
-        draft.pick_provider("codex");
-        assert_eq!((draft.provider, draft.plan), ("codex", false));
-        let forced = Draft { provider: "codex", plan: true, ..Draft::default() };
-        assert_eq!(forced.spec("/p", "/p", "", "")["plan"], false);
-    }
-
-    #[test]
     fn a_create_error_keeps_the_draft() {
-        let mut draft = Draft { access: Access::Auto, pending: Some("r1".into()), ..Draft::default() };
+        let mut draft = Draft { provider: "codex", pending: Some("r1".into()), ..Draft::default() };
         assert!(!draft.ready("", true));
         assert!(!draft.answer("r0", None));
         assert!(draft.answer("r1", Some(("Setup exited 1".into(), "npm ERR!".into()))));
-        assert_eq!((draft.access, draft.pending.as_deref(), draft.ready("", true)), (Access::Auto, None, true));
+        assert_eq!((draft.provider, draft.pending.as_deref(), draft.ready("", true)), ("codex", None, true));
         assert_eq!(draft.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
     }
 
