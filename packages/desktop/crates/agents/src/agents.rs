@@ -145,6 +145,8 @@ struct Frame {
     setup: bool,
     detail: String,
     phone_max_access: String,
+    step: String,
+    note: String,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -176,6 +178,8 @@ pub enum Event {
     PairFailed(String),
     /// pocketd made the Terminal for a create; `setup` runs before the agent.
     Creating { request: String, terminal: String, cwd: String, setup: bool },
+    /// The step a create has reached; a step sent again carries a note on how it went.
+    Progress { request: String, step: String, note: String },
     Created { request: String, agent: String },
     CreateFailed { request: String, code: String, message: String, detail: String },
     Providers { phone_max: String },
@@ -233,7 +237,7 @@ impl Agents {
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
             Event::Providers { phone_max } => self.phone_max = phone_max,
-            Event::Creating { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) => {}
+            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) => {}
         }
     }
 
@@ -305,6 +309,7 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 fn launch_event(f: &Frame) -> Option<Event> {
     Some(match f.kind.as_str() {
         "agent.creating" => Event::Creating { request: f.request_id.clone(), terminal: f.terminal_id.clone(), cwd: f.cwd.clone(), setup: f.setup },
+        "agent.progress" => Event::Progress { request: f.request_id.clone(), step: f.step.clone(), note: f.note.clone() },
         "agent.created" => Event::Created { request: f.request_id.clone(), agent: f.agent_id.clone() },
         "agent.providers" => Event::Providers { phone_max: f.phone_max_access.clone() },
         "error" if f.id == CONFIG => Event::ConfigFailed(f.message.clone()),
@@ -412,7 +417,7 @@ fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unansw
             Err(_) => return None,
         };
         let Ok(f) = serde_json::from_str::<Frame>(&raw) else { continue };
-        if f.kind != "agent.creating" {
+        if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
         if let Some(ev) = launch_event(&f) {
@@ -700,10 +705,13 @@ mod tests {
     fn launch_replies_become_launch_events() {
         let ev = |raw: &str| launch_event(&serde_json::from_str::<Frame>(raw).unwrap());
         let creating = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_creating.json");
+        let progress = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_progress.json");
         let created = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_created.json");
         let providers = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_providers.json");
         let failed = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/error_detail.json");
         assert!(matches!(ev(creating), Some(Event::Creating { request, terminal, cwd, setup: true }) if request == "r1" && terminal == "t1" && cwd == "/w/fix"));
+        assert!(matches!(ev(progress), Some(Event::Progress { request, step, note })
+            if request == "r1" && step == "fetch" && note == "Couldn't fetch, using local main"));
         assert!(matches!(ev(created), Some(Event::Created { request, agent }) if request == "r1" && agent == "a1"));
         assert!(matches!(ev(providers), Some(Event::Providers { phone_max }) if phone_max == "ask"));
         assert!(matches!(ev(failed), Some(Event::CreateFailed { request, code, message, detail })
@@ -743,8 +751,11 @@ mod tests {
         assert_eq!(read(&mut ws), create);
         let creating = json!({"type": "agent.creating", "id": format!("create-{request}"), "requestId": request, "terminalId": "t1"});
         ws.send(Message::text(creating.to_string())).unwrap();
+        let progress = json!({"type": "agent.progress", "id": format!("create-{request}"), "requestId": request, "step": "setup"});
+        ws.send(Message::text(progress.to_string())).unwrap();
         let mut events = futures::executor::block_on_stream(events);
         assert!(matches!(events.next(), Some(Event::Creating { .. })));
+        assert!(matches!(events.next(), Some(Event::Progress { step, .. }) if step == "setup"));
         drop(ws);
 
         let mut ws = accept(&server);

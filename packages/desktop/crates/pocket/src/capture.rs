@@ -1,4 +1,5 @@
 use crate::actions::{ToggleFocus, ToggleRail};
+use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Layout, Overlay, Screen, Side};
 use crate::status::Status;
@@ -6,11 +7,11 @@ use git::Kind;
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 16] = [
+const STEPS: [(&str, Step); 18] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -42,6 +43,22 @@ const STEPS: [(&str, Step); 16] = [
     ("phone-access", |d, window, cx| d.open(Overlay::PhoneAccess, window, cx)),
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
+    ("creating", |d, _, _| {
+        let Some(p) = d.project.clone() else { return };
+        let now = Instant::now();
+        let spec = serde_json::json!({"project": p, "checkout": {"new": {"name": "fix-flaky-snapshot", "base": "main", "copy": true, "setup": true}}, "prompt": "Fix the flaky snapshot"});
+        let mut c = Create::new("capture".into(), format!("{p}.worktrees/fix-flaky-snapshot"), spec, now - Duration::from_secs(9));
+        for (step, note, ago) in [("verify", "", 8.6), ("fetch", "", 8.3), ("fetch", "Couldn't fetch, using local main", 0.), ("worktree", "", 6.1), ("copy", "", 5.6), ("setup", "", 5.5)] {
+            c.reach(step, note, now - Duration::from_secs_f32(ago));
+        }
+        d.worktree = Some(c.path.clone());
+        d.creates.list.push(c);
+    }),
+    ("fail", |d, _, _| {
+        if let Some(c) = d.creates.list.first_mut() {
+            c.fail("Setup exited 1".into(), "npm ERR! missing script: setup".into(), Instant::now());
+        }
+    }),
 ];
 
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,
@@ -121,6 +138,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     (d.layout, d.widths, d.panel, d.terminal.tab_menu) = (Layout::Sidebars, [None; 2], false, false);
     (d.session, d.worktree, d.terminal.focused, d.diff.file, d.preview.file) = (None, None, None, None, None);
     d.workspaces.clear();
+    d.creates.list.clear();
     d.set_appearance(WindowAppearance::Light, window, cx);
 }
 

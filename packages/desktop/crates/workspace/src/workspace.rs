@@ -37,9 +37,12 @@ impl Workspace {
         }
     }
 
+    /// Selects the tab showing terminal `id`, giving it one if none does.
     pub fn add_tab(&mut self, id: String) {
-        self.tabs.push(Tab::Term(vec![vec![id]]));
-        self.active = self.tabs.len() - 1;
+        self.active = self.tab_of(&id).unwrap_or_else(|| {
+            self.tabs.push(Tab::Term(vec![vec![id]]));
+            self.tabs.len() - 1
+        });
     }
 
     /// Splits the active terminal tab; with a doc tab active the pane opens as a new tab.
@@ -172,6 +175,13 @@ mod tests {
         w.add_tab("x".into());
         w.sync(&["a".to_string()], &[]);
         assert_eq!(w.tabs, vec![term(&[&["x"]]), term(&[&["a"]])]);
+    }
+
+    #[test]
+    fn adding_a_terminal_a_tab_already_shows_selects_that_tab() {
+        let mut w = with(&["a", "b"]);
+        w.add_tab("a".into());
+        assert_eq!((w.tabs, w.active), (vec![term(&[&["a"]]), term(&[&["b"]])], 0));
     }
 
     #[test]

@@ -112,7 +112,7 @@ impl Desktop {
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
             return self.on_pair(ev, cx);
         }
-        if let Event::Creating { .. } | Event::CreateFailed { .. } = ev {
+        if let Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } = ev {
             return self.on_launch(ev, window, cx);
         }
         if let Event::ConfigFailed(message) = ev {

@@ -6,6 +6,7 @@ pub(crate) mod jump;
 pub(crate) mod project;
 pub(crate) mod sounds;
 
+use crate::creating::Creates;
 use crate::desktop::alerts::Alerts;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::desktop::dock::Badge;
@@ -41,6 +42,7 @@ pub struct Desktop {
     pub(crate) chime: Chime,
     pub(crate) badge: Badge,
     pub(crate) terminals: Terminals,
+    pub(crate) creates: Creates,
     pub(crate) agents: Agents,
     pub(crate) store: Store,
     pub(crate) project: Option<String>,
@@ -119,6 +121,7 @@ impl Desktop {
             chime: Chime::new(),
             badge: Badge::default(),
             terminals: Terminals::new(),
+            creates: Creates::default(),
             agents: Agents::default(),
             project: store.projects.first().cloned(),
             store,
@@ -311,6 +314,7 @@ impl Desktop {
 
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
+            _ if self.shown_create().is_some() => self.creating_page(cx),
             Some(tree) => self.session_page(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),

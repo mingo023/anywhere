@@ -1,6 +1,7 @@
 pub(crate) mod picker;
 
 use agents::Event;
+use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{default_base, home, typed_or};
@@ -12,6 +13,7 @@ use picker::Picker;
 use serde_json::{Value, json};
 use store::LaunchPick;
 use std::collections::HashSet;
+use std::time::Instant;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -62,6 +64,8 @@ struct Draft {
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,
     base: usize,
+    /// The base to pick once the branches load, instead of the repo's.
+    want_base: Option<String>,
     copy_env: bool,
     run_setup: bool,
     provider: &'static str,
@@ -81,6 +85,7 @@ impl Default for Draft {
             repo: None,
             branches: Vec::new(),
             base: 0,
+            want_base: None,
             copy_env: false,
             run_setup: false,
             provider: "claude",
@@ -126,7 +131,7 @@ impl Draft {
         } else {
             json!({"worktree": tree})
         };
-        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": Access::Ask.wire()});
+        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": Access::Ask.wire(), "plan": false});
         for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
             if !value.is_empty() {
                 spec[key] = value.as_str().into();
@@ -268,7 +273,7 @@ impl Desktop {
         });
         f.draft.worktree = worktree;
         f.draft.open(&last);
-        f.draft.picker = None;
+        (f.draft.picker, f.draft.want_base) = (None, None);
         match self.project.clone() {
             Some(repo) => self.pick_repo(repo, window, cx),
             None => {
@@ -306,7 +311,7 @@ impl Desktop {
                 if f.draft.repo.as_ref() != Some(&repo) {
                     return;
                 }
-                default_first(&mut branches, &cfg.base, &current);
+                default_first(&mut branches, f.draft.want_base.as_deref().unwrap_or(&cfg.base), &current);
                 f.draft.base = 0;
                 f.draft.branches = branches;
                 f.draft.taken = taken;
@@ -328,7 +333,8 @@ impl Desktop {
         self.new_form.draft.ready(&self.new_name(cx), self.cwd().is_some())
     }
 
-    fn start_session(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    /// A new worktree's sheet closes at once and its progress shows in the main view; a session's waits for pocketd.
+    fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.session_ready(cx) {
             return;
         }
@@ -337,39 +343,54 @@ impl Desktop {
         let tree = self.cwd().unwrap_or_default();
         let f = &self.new_form.draft;
         let Some(project) = f.repo.clone() else { return };
-        let spec = f.spec(&project, &tree, &name, &prompt);
-        self.store.repos.entry(project).or_default().launch = f.pick();
+        let (spec, worktree) = (f.spec(&project, &tree, &name, &prompt), f.worktree);
+        self.store.repos.entry(project.clone()).or_default().launch = f.pick();
+        if worktree {
+            self.store.collapsed.remove(&project);
+        }
         self.store.save();
-        let request = self.outbox.create(spec);
-        (self.new_form.draft.pending, self.new_form.draft.error) = (Some(request), None);
-        cx.notify();
+        let request = self.outbox.create(spec.clone());
+        if !worktree {
+            (self.new_form.draft.pending, self.new_form.draft.error) = (Some(request), None);
+            return cx.notify();
+        }
+        let path = format!("{}/{name}", self.worktrees_dir(&project));
+        self.creates.list.push(Create::new(request, path.clone(), spec, Instant::now()));
+        self.close_overlay(window, cx);
+        self.select_tree(project, Some(path), cx);
     }
 
     /// pocketd's replies to a create. The Terminal opens once pocketd lists it (`Terminals::arrived`).
     pub(crate) fn on_launch(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             Event::Creating { request, terminal, cwd, setup } => {
-                self.terminals.created(&request, terminal, cwd, setup);
+                self.terminals.created(&request, terminal, cwd.clone(), setup);
                 self.daemon.send(json!({"op": "list"}));
-                let f = &mut self.new_form.draft;
-                let new_tree = f.worktree.then(|| f.repo.clone()).flatten();
-                if !f.answer(&request, None) {
-                    return cx.notify();
-                }
-                if self.overlay == Some(Overlay::NewSession) {
-                    self.close_overlay(window, cx);
-                }
-                if let Some(p) = new_tree {
-                    if self.store.collapsed.remove(&p) {
-                        self.store.save();
+                if let Some(expected) = self.creates.started(&request, cwd.clone(), &mut self.worktrees) {
+                    if self.worktree.as_ref() == Some(&expected) {
+                        self.worktree = Some(cwd);
                     }
                     self.refresh_git(cx);
+                } else if self.new_form.draft.answer(&request, None) && self.overlay == Some(Overlay::NewSession) {
+                    self.close_overlay(window, cx);
                 }
             }
+            Event::Progress { request, step, note } => {
+                if let Some(c) = self.creates.get(&request) {
+                    c.reach(&step, &note, Instant::now());
+                }
+            }
+            Event::Created { request, .. } => {
+                self.creates.remove(&request);
+            }
             Event::CreateFailed { request, message, detail, .. } => {
-                let open = self.overlay == Some(Overlay::NewSession);
-                if let Some(message) = self.new_form.draft.failed(&request, message, detail, open) {
-                    self.error = Some(message);
+                if let Some(c) = self.creates.get(&request) {
+                    c.fail(message, detail, Instant::now());
+                } else {
+                    let open = self.overlay == Some(Overlay::NewSession);
+                    if let Some(message) = self.new_form.draft.failed(&request, message, detail, open) {
+                        self.error = Some(message);
+                    }
                 }
             }
             _ => {}
@@ -385,6 +406,14 @@ impl Desktop {
         self.overlay = Some(Overlay::NewSession);
         self.reset_new_form(None, true, window, cx);
         cx.notify();
+    }
+
+    /// The sheet again, filled in as it was for a create that failed before git made its worktree.
+    pub(crate) fn reopen_new_worktree(&mut self, c: &Create, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_worktree(&crate::actions::NewWorktree, window, cx);
+        self.new_form.draft.want_base = Some(c.base().to_string());
+        self.new_form.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
+        self.new_form.name.update(cx, |s, cx| s.set_value(c.name(), window, cx));
     }
 
     pub fn new_worktree_in(&mut self, p: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -551,11 +580,11 @@ mod tests {
     }
 
     #[test]
-    fn a_spec_always_asks_and_carries_no_argv() {
-        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "ask", "prompt": "Fix CI"});
+    fn a_spec_always_asks_without_planning_and_carries_no_argv() {
+        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "ask", "plan": false, "prompt": "Fix CI"});
         assert_eq!(Draft::default().spec("/p", "/p/w", "", "  Fix CI  "), want);
         let new = Draft { worktree: true, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "ask"});
+        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "ask", "plan": false});
         assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
     }
 

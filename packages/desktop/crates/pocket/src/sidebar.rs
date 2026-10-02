@@ -162,16 +162,14 @@ impl Desktop {
         in_tree(self.cards(project), Some(tree), |cwd| self.tree_of(cwd))
     }
 
-    fn setting_up(&self, tree: &str) -> bool {
-        setting_up(&self.terminals.setups, tree)
-    }
-
     /// A project's row, then its worktrees' rows while it is open.
     fn project_block(&self, i: usize, p: &str, cx: &mut Context<Self>) -> AnyElement {
         let current = self.cwd().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let kept = self.store.projects.iter().any(|k| k == p);
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
-        let fold = ProjectRow::new(self.worktrees.get(p).map(Vec::as_slice), self.store.collapsed.contains(p), &self.terminals.setups);
+        let trees = self.worktrees.get(p).map(|w| self.creates.trees(p, w));
+        let setups = self.creates.setups(&self.terminals.setups);
+        let fold = ProjectRow::new(trees.as_deref(), self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref(), &main);
         let ProjectRow { git, branched, open, setting_up } = fold;
         let cards = if open { self.tree_cards(p, &main) } else { self.cards(p) };
@@ -212,16 +210,23 @@ impl Desktop {
             .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
         let mut out = vec![row.into_any_element()];
         if open {
-            let trees: Vec<String> = self.worktrees[p].iter().filter(|w| !w.main).map(|w| w.path.clone()).collect();
+            let trees: Vec<String> = trees.iter().flatten().filter(|w| !w.main).map(|w| w.path.clone()).collect();
             for tree in &trees {
                 let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
-                let mark = row_mark(tree, self.setting_up(tree), &self.tree_cards(p, tree));
+                let mark = if self.creates.failed(tree) {
+                    ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
+                } else {
+                    row_mark(tree, self::setting_up(&setups, tree), &self.tree_cards(p, tree))
+                };
                 let trail = ui::row_trail(mark, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
                 let (target, path) = (p.to_string(), tree.clone());
                 out.push(
                     ui::worktree_row(id(format!("aside-tree:{tree}")), basename(tree), current.as_ref() == Some(tree))
                         .child(trail)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), Some(path.clone()), cx)))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.creates.show_progress(&path);
+                            this.select_tree(target.clone(), Some(path.clone()), cx);
+                        }))
                         .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
                         .into_any_element(),
                 );
