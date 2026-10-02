@@ -61,16 +61,23 @@ impl Desktop {
         let mut out = Vec::new();
         for (r, row) in numbered(rows).into_iter().enumerate() {
             let m = if r == 0 { &surface::MAIN } else { &surface::SMALL };
-            let panes: Vec<Div> = row.into_iter().map(|(id, n)| self.pane(&id, n, m, cx)).collect();
-            out.push(div().flex().gap(px(0.5)).min_h_0().when(r == 0, |d| d.flex_1()).when(r > 0, |d| d.h(px(250.)).flex_none()).children(panes));
+            if r > 0 {
+                out.push(div().h(px(0.5)).flex_none().bg(SEPARATOR));
+            }
+            let mut panes = Vec::new();
+            for (i, (id, n)) in row.into_iter().enumerate() {
+                if i > 0 {
+                    panes.push(div().w(px(0.5)).flex_none().bg(SEPARATOR));
+                }
+                panes.push(self.pane(&id, n, m, cx));
+            }
+            out.push(div().flex().min_h_0().when(r == 0, |d| d.flex_1()).when(r > 0, |d| d.h(px(250.)).flex_none()).children(panes));
         }
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .gap(px(0.5))
-            .bg(SEPARATOR)
             .border_t(px(0.5))
             .border_color(SEPARATOR)
             .key_context(keys::CONTEXT)
