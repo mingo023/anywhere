@@ -7,13 +7,14 @@ use crate::desktop::chrome::{Confirm, Overlay, empty};
 use crate::explorer::mermaid::Diagrams;
 use crate::syntax::language_for;
 use crate::util::basename;
-use code::{code_pane, decorations, gutter};
+use code::{Mark, code_pane, gutter};
 use git::Line;
-use gpui_kit::component::input::{EditorState, InputEvent, TextDecoration, TextDecorationCollection};
+use gpui_kit::component::input::{EditorState, InputEvent};
 use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use theme::*;
 use workspace::Doc;
 
@@ -99,7 +100,6 @@ fn pane() -> Div {
 /// The editors a file previews in.
 pub struct Views {
     pub(crate) code: Entity<EditorState>,
-    pub(crate) marks: TextDecorationCollection,
     pub(crate) md: Entity<TextViewState>,
     pub(crate) diagrams: Entity<Diagrams>,
 }
@@ -120,7 +120,6 @@ pub struct CodeSync {
     /// The views already hold this file, so its scroll position stays.
     pub same: bool,
     pub reload: bool,
-    pub marks: Vec<TextDecoration>,
 }
 
 /// The file Explore shows. The editors are `V` so the rules over the plain state test without GPUI.
@@ -131,6 +130,8 @@ pub struct PreviewState<V = Views> {
     pub(crate) stale: bool,
     pub(crate) code_file: Option<String>,
     pub(crate) code_text: SharedString,
+    /// What git changed in the text the editor holds.
+    pub(crate) marks: Rc<[(usize, Mark)]>,
     pub(crate) md_source: bool,
     /// The copied path and the timer that turns its check back; a new copy replaces, and so cancels, the old one.
     pub(crate) path_copied: Option<(String, Task<()>)>,
@@ -142,7 +143,6 @@ pub struct PreviewState<V = Views> {
 impl PreviewState {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
-        let marks = code.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
         let md = cx.new(|cx| TextViewState::markdown("", cx));
         let diagrams = cx.new(|_| Diagrams::new(&md));
         let subs = vec![cx.subscribe(&code, |this, code, ev: &InputEvent, cx| {
@@ -151,7 +151,7 @@ impl PreviewState {
                 this.edited(text, cx);
             }
         })];
-        (Self::with(Views { code, marks, md, diagrams }), subs)
+        (Self::with(Views { code, md, diagrams }), subs)
     }
 }
 
@@ -164,6 +164,7 @@ impl<V> PreviewState<V> {
             stale: false,
             code_file: None,
             code_text: SharedString::default(),
+            marks: Rc::default(),
             md_source: false,
             path_copied: None,
             drafts: HashMap::new(),
@@ -229,10 +230,10 @@ impl<V> PreviewState<V> {
         let same = self.code_file == self.file;
         let reload = !same || text != self.code_text;
         let language = language_for(self.file.as_deref().unwrap_or_default());
-        let marks = decorations(&text, &gutter(&self.diff));
         self.code_file = self.file.clone();
         self.code_text = text.clone();
-        Some(CodeSync { text, language, same, reload, marks })
+        self.marks = gutter(&self.diff).into();
+        Some(CodeSync { text, language, same, reload })
     }
 
     /// Keeps the editor's text as the draft of the file it holds, dropping the draft once the text matches the file on disk. Returns the file when that flipped whether it's dirty.
@@ -348,7 +349,7 @@ impl Desktop {
         let header = self.file_header(&path, cx);
         let body = match self.preview.body() {
             Body::Markdown => self.markdown_pane(cx).into_any_element(),
-            Body::Code => code_pane(&self.preview.views.code).into_any_element(),
+            Body::Code => code_pane(&self.preview.views.code, self.preview.marks.clone()).into_any_element(),
             Body::Image => pane()
                 .p(px(24.))
                 .flex()
@@ -371,7 +372,7 @@ impl Desktop {
 
     /// Loads the open file into the code editor after it changed, keeping the scroll position when the same file refreshes.
     pub fn sync_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(CodeSync { text, language, same, reload, marks }) = self.preview.take_sync() else { return };
+        let Some(CodeSync { text, language, same, reload }) = self.preview.take_sync() else { return };
         self.preview.views.code.update(cx, |s, cx| {
             if !same {
                 s.set_highlighter(language, cx);
@@ -384,7 +385,6 @@ impl Desktop {
                 }
             }
         });
-        self.preview.views.marks.set(marks, cx);
         if reload {
             self.preview.views.md.update(cx, |md, cx| {
                 md.set_text(&self.preview.code_text, cx);
@@ -398,7 +398,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Body, Preview, PreviewState, classify, decode, language, preview, size};
+    use super::{Body, Mark, Preview, PreviewState, classify, decode, language, preview, size};
     use git::{Kind, Line};
 
     #[test]
@@ -523,7 +523,7 @@ mod tests {
         state.apply(("/r/a.rs".into(), text("a\nb\n"), added.clone()));
         let sync = state.take_sync().unwrap();
         assert_eq!((sync.same, sync.reload), (true, false));
-        assert_eq!(sync.marks.iter().map(|m| (m.range.start, m.range.end)).collect::<Vec<_>>(), [(2, 3)]);
+        assert_eq!(*state.marks, [(2, Mark::Added)]);
         state.apply(("/r/a.rs".into(), text("a\nc\n"), added));
         let sync = state.take_sync().unwrap();
         assert_eq!((sync.text.as_ref(), sync.same, sync.reload), ("a\nc\n", true, true));

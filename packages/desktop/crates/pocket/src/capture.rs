@@ -10,7 +10,7 @@ use std::time::Duration;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 15] = [
+const STEPS: [(&str, Step); 16] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -24,6 +24,11 @@ const STEPS: [(&str, Step); 15] = [
         d.refresh_git(cx);
     }),
     ("changes", |d, _, cx| d.open_changes(None, false, cx)),
+    ("file", |d, _, cx| {
+        if let Some(path) = d.cwd().zip(d.repo().and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
+            d.open_file(path, false, cx);
+        }
+    }),
     ("comment", |d, window, cx| {
         if let Some(i) = d.diff.lines.iter().position(|l| l.kind == Kind::Add) {
             d.open_comment(i, window, cx);
