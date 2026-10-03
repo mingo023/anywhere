@@ -84,13 +84,13 @@ impl Desktop {
             }))
             .child(ui::menu_row("commit-push", "arrow-up", "Commit & Push", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Push, window, cx))))
             .child(ui::menu_row("commit-amend", "compose", "Amend Last Commit", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Amend, window, cx))));
-        let button = ui::primary(div().relative().h(px(30.)).flex().rounded(px(9.)))
+        let button = ui::primary(div().h(px(30.)).flex().rounded(px(9.)))
             .text_size(px(13.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(ON_TEXT)
             .child(commit)
-            .child(chevron)
-            .when(menu_open, |d| d.child(ui::dropdown(34., ui::menu_in("commit-menu-in", menu))));
+            .child(chevron);
+        let button = div().relative().child(button).when(menu_open, |d| d.child(ui::dropdown(34., ui::menu_in("commit-menu-in", menu))));
         let error = self.changes.error.clone().map(|e| {
             div()
                 .id("commit-error")
