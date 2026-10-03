@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
+#[cfg(not(target_os = "macos"))]
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::raw_window_handle::HasWindowHandle;
 use wry::{NewWindowResponse, PageLoadEvent, WebView, WebViewBuilder};
@@ -74,10 +75,9 @@ impl Page {
     pub fn new(url: &str, parent: &impl HasWindowHandle, sink: impl Fn(Event) + 'static) -> wry::Result<Self> {
         let sink = Rc::new(sink);
         let [ipc, loads, titles, opens, links] = [(); 5].map(|_| sink.clone());
+        let parked = Rect { x: PARKED, y: PARKED, width: 800., height: 600. };
         let builder = WebViewBuilder::new()
             .with_url(url)
-            .with_bounds(bounds(Rect { x: PARKED, y: PARKED, width: 800., height: 600. }))
-            .with_visible(false)
             .with_initialization_script(MOVED)
             .with_ipc_handler(move |request| {
                 if request.body() == "moved" {
@@ -106,24 +106,27 @@ impl Page {
             .with_back_forward_navigation_gestures(true)
             .with_devtools(true);
         #[cfg(target_os = "macos")]
-        let builder = builder.with_user_agent(macos::user_agent());
-        let view = builder.build_as_child(parent)?;
-        Ok(Self {
-            #[cfg(target_os = "macos")]
-            glue: macos::Glue::new(&view, move || sink(Event::Pressed)),
-            view,
-            placed: Cell::new(None),
-        })
+        {
+            let frame = macos::Frame::new(parent, parked)?;
+            let view = builder.with_user_agent(macos::user_agent()).build_as_child(&frame)?;
+            frame.fill(&view);
+            Ok(Self { view, placed: Cell::new(None), glue: macos::Glue::new(frame, move || sink(Event::Pressed)) })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let view = builder.with_bounds(bounds(parked)).with_visible(false).build_as_child(parent)?;
+            Ok(Self { view, placed: Cell::new(None) })
+        }
     }
 
     /// Shows the page over `rect`. True if it was parked, and so doesn't hold the keys.
     pub fn place(&self, rect: Rect) -> bool {
         let was = self.placed.replace(Some(rect));
         if was != Some(rect) && !self.closed() {
-            let _ = self.view.set_bounds(bounds(rect));
+            self.set_bounds(rect);
         }
         if was.is_none() {
-            let _ = self.view.set_visible(true);
+            self.set_visible(true);
         }
         was.is_none()
     }
@@ -133,11 +136,25 @@ impl Page {
         self.give_keys();
         #[cfg(target_os = "macos")]
         self.glue.parked();
-        let _ = self.view.set_visible(false);
+        self.set_visible(false);
         if !self.closed() {
             // At its own size, so the page doesn't lay out again for a viewport nobody sees.
-            let _ = self.view.set_bounds(bounds(Rect { x: PARKED, y: PARKED, ..rect }));
+            self.set_bounds(Rect { x: PARKED, y: PARKED, ..rect });
         }
+    }
+
+    fn set_bounds(&self, rect: Rect) {
+        #[cfg(target_os = "macos")]
+        self.glue.frame.place(rect);
+        #[cfg(not(target_os = "macos"))]
+        let _ = self.view.set_bounds(bounds(rect));
+    }
+
+    fn set_visible(&self, visible: bool) {
+        #[cfg(target_os = "macos")]
+        self.glue.frame.set_visible(visible);
+        #[cfg(not(target_os = "macos"))]
+        let _ = self.view.set_visible(visible);
     }
 
     pub fn load(&self, url: &str) {
@@ -176,6 +193,9 @@ impl Page {
 
     pub fn give_keys(&self) {
         if self.holds_keys() {
+            #[cfg(target_os = "macos")]
+            self.glue.give_keys();
+            #[cfg(not(target_os = "macos"))]
             let _ = self.view.focus_parent();
         }
     }
@@ -183,7 +203,7 @@ impl Page {
     /// Whether the page, or a view inside it, is first responder.
     fn holds_keys(&self) -> bool {
         #[cfg(target_os = "macos")]
-        return macos::holds(&self.view);
+        return self.glue.holds_keys();
         #[cfg(not(target_os = "macos"))]
         false
     }
@@ -217,6 +237,7 @@ fn opens_here(url: &str) -> bool {
     SCHEMES.iter().any(|s| url.starts_with(s))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn bounds(rect: Rect) -> wry::Rect {
     wry::Rect {
         position: LogicalPosition::new(rect.x, rect.y).into(),
