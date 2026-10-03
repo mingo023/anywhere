@@ -404,7 +404,7 @@ impl Desktop {
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {
         let text = if self.project.is_none() { "Add a project to begin." } else { "Pick a session, or start a new one." };
         let observe = self.agents.observe_only();
-        let (pad, toggle) = self.bar_start(cx);
+        let (pad, toggle) = self.bar_start(12., cx);
         let bar = chrome::drag_area(ui::page_bar())
             .pl(px(pad))
             .children(toggle)

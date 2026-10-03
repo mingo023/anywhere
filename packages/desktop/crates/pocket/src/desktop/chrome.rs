@@ -214,21 +214,21 @@ impl Desktop {
         cx.notify();
     }
 
-    /// A top bar's left padding and the sidebar toggle it starts with.
-    pub(crate) fn bar_start(&self, cx: &mut Context<Self>) -> (f32, Option<Stateful<Div>>) {
+    /// A top bar's left padding, `pad` unless Focus needs room for the traffic lights, and the sidebar toggle it starts with.
+    pub(crate) fn bar_start(&self, pad: f32, cx: &mut Context<Self>) -> (f32, Option<Stateful<Div>>) {
         let toggle = |name: &str, cx: &mut Context<Self>| {
             icon_button_sized("focus-toggle", name, 28., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
         };
         match self.layout {
             // Leaves room for the window's traffic lights once the sidebars are hidden.
             Layout::Focus => (91., Some(toggle("sidebar-expand", cx).relative().when(changes_badge(self.repo()).is_some(), |d| d.child(changes_dot())))),
-            Layout::Compact | Layout::Sidebars => (24., None),
+            Layout::Compact | Layout::Sidebars => (pad, None),
         }
     }
 
     /// The page's top bar: sidebar toggle, breadcrumb and meta on the left, `right` on the far side.
     pub fn page_bar(&self, crumbs: Vec<String>, meta: Vec<AnyElement>, right: impl IntoElement, cx: &mut Context<Self>) -> Div {
-        let (pad, toggle) = self.bar_start(cx);
+        let (pad, toggle) = self.bar_start(12., cx);
         drag_area(ui::page_bar())
             .pl(px(pad))
             .children(toggle)

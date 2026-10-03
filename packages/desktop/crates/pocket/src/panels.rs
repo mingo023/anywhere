@@ -169,7 +169,7 @@ impl Desktop {
     fn pane_view(&mut self, tree: &str, pane: &Pane<Tab>, layout: &[(PaneId, Rect)], window: &mut Window, cx: &mut Context<Self>) -> Stateful<Div> {
         let p = pane.id;
         let (top, left) = edges(layout, p);
-        let (pad, toggle) = if top && left { self.bar_start(cx) } else { (10., None) };
+        let (pad, toggle) = if top && left { self.bar_start(10., cx) } else { (10., None) };
         let ring = match pane.active() {
             Some(Tab::Term(t)) => self.summary(t).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window)),
             _ => None,

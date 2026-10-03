@@ -688,7 +688,7 @@ pub fn breadcrumb(crumbs: Vec<String>) -> Div {
 }
 
 pub fn page_bar() -> Div {
-    div().h(px(42.)).pl(px(14.)).pr(px(12.)).flex().flex_none().items_center().gap(px(8.))
+    div().h(px(42.)).px(px(12.)).flex().flex_none().items_center().gap(px(8.))
 }
 
 pub fn meta_item() -> Div {
