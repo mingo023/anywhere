@@ -38,6 +38,7 @@ impl Desktop {
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.side = side;
+                    this.refresh_graph(cx);
                     cx.notify();
                 }))
         });

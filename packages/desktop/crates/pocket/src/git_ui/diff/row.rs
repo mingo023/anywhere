@@ -34,7 +34,7 @@ fn hunk_info(lines: &[Line], i: usize) -> (usize, String) {
     (git::hunk_start(text, '+').saturating_sub(before + 1), context)
 }
 
-fn hunk(lines: &[Line], i: usize) -> Div {
+pub(crate) fn hunk(lines: &[Line], i: usize) -> Div {
     let (hidden, context) = hunk_info(lines, i);
     div()
         .min_h(px(ROW))
@@ -57,7 +57,7 @@ fn fold_start(lines: &[Line], i: usize) -> Option<usize> {
     (hidden > 0).then(|| git::hunk_start(&lines[i].text, '+') - hidden)
 }
 
-fn code(l: &Line, hl: Option<&Spans>, numbers: Vec<Option<usize>>, picked: bool) -> Div {
+pub(crate) fn code(l: &Line, hl: Option<&Spans>, numbers: Vec<Option<usize>>, picked: bool) -> Div {
     let (bg, fg, sign) = colors(l.kind);
     let bg = if picked { Some(if l.kind == Kind::Context { ACCENT_TINT } else { ACCENT_BG }) } else { bg };
     div()
@@ -101,6 +101,9 @@ impl Desktop {
             return self.fold(id, i, cx);
         }
         let row = code(&self.diff.lines[i], self.diff.hl.get(i), numbers, self.diff.pick.picked(&self.diff.lines, i)).id((id, i));
+        if self.diff.at.is_some() {
+            return row;
+        }
         let last = self.diff.pick.last() == Some(i);
         row.group("diff-line")
             .cursor_pointer()

@@ -122,15 +122,17 @@ impl Desktop {
         let p = match tab {
             Tab::Term(rows) => rows.concat(),
             Tab::Doc(doc) => {
-                let path = match doc {
-                    Doc::File(p) | Doc::Diff(p) => p,
+                let (path, text) = match doc {
+                    Doc::File(p) | Doc::Diff(p) => (p, basename(p)),
+                    Doc::CommitFile { sha, path } => (path, format!("{} ({})", basename(path), git::short_sha(sha))),
+                    Doc::Commit(sha) => return row.child(icon("diff-multiple", 14., ink)).child(label(git::short_sha(sha).to_string()).when(preview, |d| d.italic())),
                 };
                 let totals = match doc {
                     Doc::Diff(p) => self.repo().and_then(|r| r.files.iter().find(|f| f.path == *p)).map(|f| ui::meta_diff(f.added, f.removed, 11.)),
-                    Doc::File(_) => None,
+                    _ => None,
                 };
                 let unsaved = matches!(doc, Doc::File(p) if self.preview.dirty(p)).then(|| dot(6., TEXT_2));
-                return row.child(file_icon(path, false, false, 14.)).child(label(basename(path)).when(preview, |d| d.italic())).children(totals).children(unsaved);
+                return row.child(file_icon(path, false, false, 14.)).child(label(text).when(preview, |d| d.italic())).children(totals).children(unsaved);
             }
         };
         let count = |text: String| tab_label(text, p.len());

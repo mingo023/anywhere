@@ -4,6 +4,9 @@ use std::ops::Range;
 use std::path::Path;
 use std::process::Command;
 
+pub mod graph;
+use graph::LaneColor;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileStat {
     pub path: String,
@@ -400,6 +403,160 @@ pub fn split(lines: &[Line]) -> Vec<(Option<usize>, Option<usize>)> {
     out
 }
 
+/// A commit as the graph shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GraphCommit {
+    pub sha: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub subject: String,
+}
+
+/// `n` commits reachable from `revs`, children before parents, after skipping `skip`.
+pub fn log_graph(cwd: &str, revs: &[String], skip: usize, n: usize) -> Vec<GraphCommit> {
+    let (skip, n) = (format!("--skip={skip}"), format!("-n{n}"));
+    let mut args = vec!["log", "--format=%H%x00%P%x00%aN%x00%s", "--topo-order", skip.as_str(), n.as_str()];
+    args.extend(revs.iter().map(String::as_str));
+    args.push("--");
+    lines(git(cwd, &args))
+        .into_iter()
+        .filter_map(|l| {
+            let mut p = l.splitn(4, '\0');
+            Some(GraphCommit {
+                sha: p.next()?.into(),
+                parents: p.next()?.split_whitespace().map(str::to_string).collect(),
+                author: p.next()?.into(),
+                subject: p.next()?.into(),
+            })
+        })
+        .collect()
+}
+
+/// A branch the graph labels: its short name, the commit it points at, and whether it is a remote-tracking branch.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Tip {
+    pub name: String,
+    pub sha: String,
+    pub remote: bool,
+}
+
+/// What the graph follows: HEAD, the checked-out branch, its upstream and the base branch it grew from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Tips {
+    pub head: String,
+    pub branch: Option<Tip>,
+    pub upstream: Option<Tip>,
+    pub base: Option<Tip>,
+}
+
+impl Tips {
+    /// The commits the graph's history starts from, each once.
+    pub fn revs(&self) -> Vec<String> {
+        let mut revs = vec![self.head.clone()];
+        for t in [&self.upstream, &self.base].into_iter().flatten() {
+            if !revs.contains(&t.sha) {
+                revs.push(t.sha.clone());
+            }
+        }
+        revs
+    }
+
+    /// The tips pointing at `sha`, with the colour each labels its lane with.
+    pub fn pointing_at<'a>(&'a self, sha: &'a str) -> impl Iterator<Item = (LaneColor, &'a Tip)> {
+        [(LaneColor::Head, &self.branch), (LaneColor::Upstream, &self.upstream), (LaneColor::Base, &self.base)]
+            .into_iter()
+            .filter_map(move |(c, t)| Some((c, t.as_ref().filter(|t| t.sha == sha)?)))
+    }
+
+    /// The colour of the lane leaving `sha`, when a tip points at it.
+    pub fn color(&self, sha: &str) -> Option<LaneColor> {
+        (sha == self.head).then_some(LaneColor::Head).or_else(|| self.pointing_at(sha).next().map(|(c, _)| c))
+    }
+}
+
+/// The worktree's tips; `None` before its first commit.
+pub fn tips(cwd: &str) -> Option<Tips> {
+    let head = git(cwd, &["rev-parse", "--verify", "-q", "HEAD"])?.trim().to_string();
+    let refs: Vec<(String, String, String)> = lines(git(cwd, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads", "refs/remotes"]))
+        .into_iter()
+        .filter_map(|l| {
+            let mut p = l.splitn(3, '\0');
+            Some((p.next()?.to_string(), p.next()?.to_string(), p.next()?.to_string()))
+        })
+        .collect();
+    let tip = |name: &str| {
+        refs.iter().find(|(r, ..)| r == name).map(|(r, sha, _)| {
+            let short = r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/")).unwrap_or(r);
+            Tip { name: short.to_string(), sha: sha.clone(), remote: r.starts_with("refs/remotes/") }
+        })
+    };
+    let current = git(cwd, &["symbolic-ref", "-q", "HEAD"]).map(|s| s.trim().to_string());
+    let branch = current.as_deref().and_then(tip);
+    let upstream = current.as_deref().and_then(|c| refs.iter().find(|(r, ..)| r == c)).and_then(|(.., u)| tip(u));
+    let base = match current.as_deref() {
+        Some("refs/heads/main" | "refs/heads/master") => None,
+        _ => tip("refs/heads/main").or_else(|| tip("refs/heads/master")),
+    };
+    Some(Tips { head, branch, upstream, base })
+}
+
+/// A file a commit changed; `old_path` is set for renames and copies.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommitFile {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub status: char,
+}
+
+pub fn first_parent(cwd: &str, sha: &str) -> Option<String> {
+    git(cwd, &["rev-parse", "--verify", "-q", &format!("{sha}^")]).map(|s| s.trim().to_string())
+}
+
+/// The files `sha` changed against `parent`, or every file it holds when it is a root commit.
+pub fn commit_files(cwd: &str, sha: &str, parent: Option<&str>) -> Vec<CommitFile> {
+    let mut args = vec!["diff-tree", "-r", "-z", "-M", "--name-status", "--no-commit-id"];
+    match parent {
+        Some(p) => args.extend([p, sha]),
+        None => args.extend(["--root", sha]),
+    }
+    let out = git(cwd, &args).unwrap_or_default();
+    let mut tokens = out.split('\0').filter(|t| !t.is_empty());
+    let mut files = Vec::new();
+    while let Some(status) = tokens.next().and_then(|s| s.chars().next()) {
+        let Some(first) = tokens.next() else { break };
+        let (old_path, path) = match status {
+            'R' | 'C' => match tokens.next() {
+                Some(new) => (Some(first.to_string()), new.to_string()),
+                None => break,
+            },
+            _ => (None, first.to_string()),
+        };
+        files.push(CommitFile { path, old_path, status });
+    }
+    files
+}
+
+/// `file` before and after commit `sha`.
+pub fn commit_texts(cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile) -> (String, String) {
+    let show = |rev: &str, path: &str| git(cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
+    let old = match parent {
+        Some(p) if file.status != 'A' => show(p, file.old_path.as_deref().unwrap_or(&file.path)),
+        _ => String::new(),
+    };
+    let new = if file.status == 'D' { String::new() } else { show(sha, &file.path) };
+    (old, new)
+}
+
+/// The file at `path` before and after commit `sha`, following a rename back to the old name.
+pub fn texts_at(cwd: &str, sha: &str, path: &str) -> (String, String) {
+    let parent = first_parent(cwd, sha);
+    commit_files(cwd, sha, parent.as_deref()).into_iter().find(|f| f.path == path).map(|f| commit_texts(cwd, sha, parent.as_deref(), &f)).unwrap_or_default()
+}
+
+pub fn short_sha(sha: &str) -> &str {
+    &sha[..sha.len().min(7)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -667,5 +824,112 @@ mod tests {
         assert!(diff_texts("a\0", "b", &HashSet::new()).is_empty());
         let added = diff_texts("", "x\ny\n", &HashSet::new());
         assert_eq!(added.iter().map(|l| l.kind).collect::<Vec<_>>(), [Kind::Hunk, Kind::Add, Kind::Add]);
+    }
+
+    fn sh(repo: &Path, args: &[&str]) {
+        assert!(Command::new("git").arg("-C").arg(repo).args(args).output().unwrap().status.success(), "git {args:?}");
+    }
+
+    fn sha(r: &str, rev: &str) -> String {
+        git(r, &["rev-parse", rev]).unwrap().trim().to_string()
+    }
+
+    #[test]
+    fn tips_follow_the_branch_its_upstream_and_main() {
+        let dir = scratch_repo("tips");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "main"]);
+        sh(&repo, &["checkout", "-qb", "feature"]);
+        sh(&repo, &["update-ref", "refs/remotes/origin/feature", "HEAD"]);
+        for (k, v) in [("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"), ("branch.feature.remote", "origin"), ("branch.feature.merge", "refs/heads/feature")] {
+            sh(&repo, &["config", k, v]);
+        }
+        std::fs::write(repo.join("b"), "b\n").unwrap();
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-qm", "b"]);
+        let (head, main) = (sha(r, "HEAD"), sha(r, "main"));
+        let t = tips(r).unwrap();
+        assert_eq!(t.head, head);
+        assert_eq!(t.branch, Some(Tip { name: "feature".into(), sha: head.clone(), remote: false }));
+        assert_eq!(t.upstream, Some(Tip { name: "origin/feature".into(), sha: main.clone(), remote: true }));
+        assert_eq!(t.base, Some(Tip { name: "main".into(), sha: main.clone(), remote: false }));
+        assert_eq!(t.revs(), vec![head, main.clone()]);
+        assert_eq!(t.color(&main), Some(LaneColor::Upstream));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn on_main_the_graph_has_no_base() {
+        let dir = scratch_repo("tips-main");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        sh(&repo, &["branch", "-M", "main"]);
+        let t = tips(r).unwrap();
+        assert_eq!(t.revs(), vec![sha(r, "HEAD")]);
+        assert_eq!(t.branch.map(|b| b.name).as_deref(), Some("main"));
+        assert_eq!((t.upstream, t.base), (None, None));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn log_graph_pages_through_history_children_first() {
+        let dir = scratch_repo("log");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        for name in ["b", "c"] {
+            std::fs::write(repo.join(name), name).unwrap();
+            sh(&repo, &["add", "."]);
+            sh(&repo, &["commit", "-qm", name]);
+        }
+        let head = vec![sha(r, "HEAD")];
+        let all = log_graph(r, &head, 0, 50);
+        assert_eq!(all.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["c", "b", "init"]);
+        assert_eq!(all[0].sha, head[0]);
+        assert_eq!(all[0].parents, vec![all[1].sha.clone()]);
+        assert_eq!(all[0].author, "t");
+        assert!(all[2].parents.is_empty());
+        assert_eq!(log_graph(r, &head, 1, 1), all[1..2].to_vec());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn commit_files_lists_what_a_commit_added_deleted_and_renamed() {
+        let dir = scratch_repo("files");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        std::fs::write(repo.join("a"), "one\ntwo\nthree\nfour\nfive\n").unwrap();
+        std::fs::write(repo.join("gone"), "x\n").unwrap();
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-qm", "two"]);
+        sh(&repo, &["mv", "a", "b"]);
+        std::fs::write(repo.join("b"), "one\ntwo\nthree\nfour\nfive\nsix\n").unwrap();
+        std::fs::remove_file(repo.join("gone")).unwrap();
+        std::fs::write(repo.join("new"), "n\n").unwrap();
+        sh(&repo, &["add", "-A"]);
+        sh(&repo, &["commit", "-qm", "three"]);
+        let head = sha(r, "HEAD");
+        let parent = first_parent(r, &head);
+        assert_eq!(parent, Some(sha(r, "HEAD^")));
+        let file = |path: &str, old: Option<&str>, status| CommitFile { path: path.into(), old_path: old.map(str::to_string), status };
+        assert_eq!(commit_files(r, &head, parent.as_deref()), vec![file("b", Some("a"), 'R'), file("gone", None, 'D'), file("new", None, 'A')]);
+        assert_eq!(texts_at(r, &head, "b"), ("one\ntwo\nthree\nfour\nfive\n".into(), "one\ntwo\nthree\nfour\nfive\nsix\n".into()));
+        assert_eq!(texts_at(r, &head, "gone"), ("x\n".into(), String::new()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_root_commit_lists_every_file_as_added() {
+        let dir = scratch_repo("root");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        let root = sha(r, "HEAD");
+        assert_eq!(first_parent(r, &root), None);
+        assert_eq!(commit_files(r, &root, None), vec![CommitFile { path: "a".into(), old_path: None, status: 'A' }]);
+        assert_eq!(texts_at(r, &root, "a"), (String::new(), "a\n".into()));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

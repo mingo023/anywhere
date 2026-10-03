@@ -1,8 +1,10 @@
-/// What a doc tab shows: a file by its absolute path, or a file's changes by its path in the worktree.
+/// What a doc tab shows: a file by its absolute path, a file's changes by its path in the worktree, a file's changes in commit `sha`, or every change of a commit.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Doc {
     File(String),
     Diff(String),
+    CommitFile { sha: String, path: String },
+    Commit(String),
 }
 
 /// The tabs of one worktree: terminal tabs hold rows of panes, each a pocketd terminal id.

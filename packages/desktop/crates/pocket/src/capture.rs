@@ -2,16 +2,18 @@ use crate::actions::{ToggleFocus, ToggleRail};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Layout, Overlay, Screen, Side};
+use crate::git_ui::graph::GraphState;
 use crate::status::Status;
 use git::Kind;
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 18] = [
+const STEPS: [(&str, Step); 21] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -24,7 +26,21 @@ const STEPS: [(&str, Step); 18] = [
         d.side = Side::Explorer;
         d.refresh_git(cx);
     }),
-    ("changes", |d, _, cx| d.open_changes(None, false, cx)),
+    ("changes", |d, _, cx| {
+        d.open_changes(None, false, cx);
+        d.refresh_graph(cx);
+    }),
+    ("graph-expand", |d, _, cx| d.toggle_commit(0, cx)),
+    ("graph-file", |d, _, cx| {
+        if let Some(doc) = d.graph.file_doc(0, 0) {
+            d.open_doc(doc, false, cx);
+        }
+    }),
+    ("graph-commit", |d, _, cx| {
+        if let Some(sha) = d.graph.commits.first().map(|c| c.sha.clone()) {
+            d.open_doc(Doc::Commit(sha), false, cx);
+        }
+    }),
     ("file", |d, _, cx| {
         if let Some(path) = d.cwd().zip(d.repo().and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
             d.open_file(path, false, cx);
@@ -137,8 +153,11 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
     (d.layout, d.widths, d.panel, d.terminal.tab_menu) = (Layout::Sidebars, [None; 2], false, false);
     (d.session, d.worktree, d.terminal.focused, d.diff.file, d.preview.file) = (None, None, None, None, None);
+    d.diff.at = None;
+    d.commit.sha = None;
     d.workspaces.clear();
     d.creates.list.clear();
+    d.graph = GraphState::default();
     d.set_appearance(WindowAppearance::Light, window, cx);
 }
 
@@ -146,7 +165,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
 async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Desktop>, ms: u64) {
     cx.background_executor().timer(Duration::from_millis(ms)).await;
     for _ in 0..50 {
-        if desktop.read_with(cx, |d, _| d.git_done == d.git_run) {
+        if desktop.read_with(cx, |d, _| d.git_done == d.git_run && !d.graph.busy()) {
             break;
         }
         cx.background_executor().timer(Duration::from_millis(100)).await;

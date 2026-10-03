@@ -325,7 +325,8 @@ impl Desktop {
         let body = match self.workspace(tree).active().cloned() {
             Some(Tab::Term(rows)) => self.panes(rows, cx),
             Some(Tab::Doc(Doc::File(p))) if self.preview.file.as_ref() == Some(&p) => self.file_view(cx),
-            Some(Tab::Doc(Doc::Diff(p))) if self.diff.file.as_ref() == Some(&p) => self.diff_view(cx),
+            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. }))) if self.loaded(&doc) => self.diff_view(cx),
+            Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(&doc) => self.commit_view(cx),
             Some(Tab::Doc(_)) | None => div().flex_1(),
         };
         div().flex_1().min_h_0().flex().flex_col().bg(SURFACE_SUNKEN).child(bar).when(observe, |d| d.child(observe_banner())).child(body)

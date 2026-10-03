@@ -97,7 +97,7 @@ impl Desktop {
             let changed = self.file_status(&f).is_some();
             (f, changed)
         });
-        let diff = self.cwd().zip(self.diff.file.clone());
+        let diff = self.cwd().zip(self.diff.file.clone()).filter(|_| self.diff.at.is_none());
         let shown = self.diff.lines.clone();
         let open = self.diff.open.clone();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
@@ -109,7 +109,7 @@ impl Desktop {
                 let r = git::read(&c);
                 (c, r)
             }).collect();
-            let diff = diff.map(|(cwd, path)| diff::read_diff(&cwd, path, open, &shown));
+            let diff = diff.map(|(cwd, path)| diff::read_diff(&cwd, path, None, open, &shown));
             let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
             let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
                 let listing = util::list_dir(&d);
@@ -146,6 +146,7 @@ impl Desktop {
             .ok();
         })
         .detach();
+        self.refresh_graph(cx);
     }
 
     pub fn repo_name(&self, path: &str) -> String {

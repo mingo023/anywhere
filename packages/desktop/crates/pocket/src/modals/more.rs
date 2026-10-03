@@ -11,8 +11,8 @@ impl Desktop {
         let menu = ui::pop(div().absolute().right(px(22.)).top(px(58.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
         let path = match self.active_doc() {
             Some(Doc::File(p)) => Some(p),
-            Some(Doc::Diff(p)) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
-            None => None,
+            Some(Doc::Diff(p) | Doc::CommitFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
+            Some(Doc::Commit(_)) | None => None,
         };
         let Some(path) = path.filter(|_| self.screen == Screen::Sessions) else {
             return menu

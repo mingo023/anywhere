@@ -115,7 +115,7 @@ impl Desktop {
 
     /// In the tree a file sits under its folder, so only its name shows, indented past the folders' chevrons.
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.diff.file.as_ref() == Some(&f.path);
+        let selected = self.diff.file.as_ref() == Some(&f.path) && self.diff.at.is_none();
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
         let comments = self.diff.comments.iter().filter(|c| c.path == f.path).count();
         let id = |kind: &str| ElementId::Name(format!("{kind}:{}:{}", s.key(), f.path).into());

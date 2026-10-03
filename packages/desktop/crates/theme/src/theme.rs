@@ -123,6 +123,11 @@ pub const MODIFIED: Token = Token::new(0xad5700ff, 0xffca16ff);
 pub const TEAL: Token = Token::new(0x0e7c86ff, 0x0bd8b6ff);
 pub const TEAL_BG: Token = Token::fixed(0x0f9d8a14);
 
+pub const GRAPH_HEAD: Token = Token::new(0x1a5cffff, 0x57a3f8ff);
+pub const GRAPH_UPSTREAM: Token = Token::new(0x652d90ff, 0xad80d7ff);
+pub const GRAPH_BASE: Token = Token::fixed(0xea5c00ff);
+pub const GRAPH_LANES: [Token; 5] = [Token::fixed(0xffb000ff), Token::fixed(0xdc267fff), Token::fixed(0x994f00ff), Token::fixed(0x40b0a6ff), Token::fixed(0xb66dffff)];
+
 pub const SYN_KEYWORD: Token = Token::new(0x8e4ec6ff, 0xd19dffff);
 pub const SYN_FN: Token = Token::new(0x3e63ddff, 0x9eb1ffff);
 pub const SYN_STRING: Token = Token::new(0x18794eff, 0x3dd68cff);
@@ -243,7 +248,7 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "comment", "compose", "copy",
+    "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple",
     "discard", "external", "file", "filter", "folder", "forward", "inbox", "list-flat", "list-tree", "mic", "minus", "more", "openai", "plus", "prompt", "search", "send", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "trash", "unfold", "worktree", "x", "x-bold",
 );

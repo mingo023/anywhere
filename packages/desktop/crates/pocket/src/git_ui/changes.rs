@@ -214,8 +214,9 @@ impl Desktop {
         panel
             .child(self.changes_header(&repo, cx))
             .child(self.commit_box(&repo, cx))
-            .map(|d| if repo.files.is_empty() { d.child(empty("No changes.")) } else { d.child(list) })
+            .map(|d| if repo.files.is_empty() { d.child(div().flex_1().child(empty("No changes."))) } else { d.child(list) })
             .when(!notes.is_empty(), |d| d.child(div().id("change-notes").flex_none().max_h(px(240.)).overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col().children(notes)))
+            .child(self.graph_section(cx))
     }
 
     /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.

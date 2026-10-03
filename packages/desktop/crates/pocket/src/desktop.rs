@@ -16,7 +16,9 @@ use crate::desktop::sounds::Chime;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::git_ui::changes::ChangesState;
+use crate::git_ui::commit::CommitState;
 use crate::git_ui::diff::DiffState;
+use crate::git_ui::graph::GraphState;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, new_session};
@@ -57,6 +59,8 @@ pub struct Desktop {
     pub(crate) repos: HashMap<String, Repo>,
     pub(crate) diff: DiffState,
     pub(crate) changes: ChangesState,
+    pub(crate) graph: GraphState,
+    pub(crate) commit: CommitState,
     pub(crate) terminal: TerminalViewState,
     pub(crate) initials: String,
     pub(crate) explorer: ExplorerState,
@@ -135,6 +139,8 @@ impl Desktop {
             repos: HashMap::new(),
             diff,
             changes,
+            graph: GraphState::default(),
+            commit: CommitState::default(),
             initials: String::new(),
             explorer: ExplorerState::new(),
             git_run: 0,
@@ -181,6 +187,7 @@ impl Desktop {
         theme::set_appearance(appearance, cx);
         window.set_background_appearance(theme::window_background());
         self.recolor_diff(cx);
+        self.recolor_commit(cx);
         cx.notify();
     }
 
@@ -270,14 +277,14 @@ impl Desktop {
                 self.load_file(cx);
             }
             Doc::Diff(path) => {
-                if self.diff.file.as_ref() != Some(&path) {
-                    self.diff.pick.range = None;
-                    self.diff.open.clear();
-                    self.diff.set_lines(Vec::new(), true);
-                    self.diff.file = Some(path);
-                }
+                self.diff.select(path, None);
                 self.load_diff(cx);
             }
+            Doc::CommitFile { sha, path } => {
+                self.diff.select(path, Some(sha));
+                self.load_diff(cx);
+            }
+            Doc::Commit(sha) => self.show_commit(sha, cx),
         }
         cx.notify();
     }
@@ -285,7 +292,9 @@ impl Desktop {
     pub fn loaded(&self, doc: &Doc) -> bool {
         match doc {
             Doc::File(p) => self.preview.file.as_ref() == Some(p),
-            Doc::Diff(p) => self.diff.file.as_ref() == Some(p),
+            Doc::Diff(p) => self.diff.file.as_ref() == Some(p) && self.diff.at.is_none(),
+            Doc::CommitFile { sha, path } => self.diff.file.as_ref() == Some(path) && self.diff.at.as_ref() == Some(sha),
+            Doc::Commit(sha) => self.commit.sha.as_ref() == Some(sha),
         }
     }
 

@@ -16,7 +16,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 |---|---|
 | `pocket` | the binary: app bootstrap, window, the `Desktop` shell and feature views |
 | `workspace` | tabs and splits of a worktree |
-| `git` | git reads and writes, diffs |
+| `git` | git reads and writes, diffs, commit graph lanes |
 | `daemon` | the pocketd socket client |
 | `agents` | the phone-socket client and the agent list |
 | `term` | the ghostty VT |
@@ -30,7 +30,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing |
 | `terminal_view` | the session page: tabs, panes, keyboard and IME input |
 | `sidebar` | projects aside, compact rail, sessions column |
-| `git_ui` | `changes` panel and commit, `diff` view and comments |
+| `git_ui` | `changes` panel and commit, `diff` view and comments, `graph` commit graph, `commit` stacked commit diff |
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview |
 | `inbox`, `palette` | their screens |
 | `modals` | overlays: new session, add project, confirm, more, pair phone |

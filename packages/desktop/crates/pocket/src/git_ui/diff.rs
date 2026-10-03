@@ -2,6 +2,7 @@ mod comment;
 mod composer;
 mod row;
 mod target;
+pub(crate) use row::{code, hunk};
 
 use git::{self, Kind, Line};
 use theme::*;
@@ -12,6 +13,7 @@ use crate::explorer::status_word;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::util::{ago_long, now_ms};
 use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde_json::json;
 use std::collections::HashSet;
@@ -31,7 +33,7 @@ pub struct Comment {
 
 const NUM: f32 = 44.;
 const SIGN: f32 = 18.;
-const ROW: f32 = 22.;
+pub(crate) const ROW: f32 = 22.;
 
 const MAX_COLORED: usize = 512 * 1024;
 const MAX_WORD_LINES: usize = 5;
@@ -40,6 +42,7 @@ type Sides = (Vec<Spans>, Vec<Spans>);
 
 pub struct DiffLoad {
     path: String,
+    at: Option<String>,
     open: HashSet<usize>,
     lines: Vec<Line>,
     source: (String, String),
@@ -47,17 +50,20 @@ pub struct DiffLoad {
     dark: bool,
 }
 
-/// Reads and diffs `path`, colouring it only when the lines differ from `shown`. Run off the UI thread.
-pub fn read_diff(cwd: &str, path: String, open: HashSet<usize>, shown: &[Line]) -> DiffLoad {
+/// Reads and diffs `path` in the working tree, or with `at` in that commit, colouring it only when the lines differ from `shown`. Run off the UI thread.
+pub fn read_diff(cwd: &str, path: String, at: Option<String>, open: HashSet<usize>, shown: &[Line]) -> DiffLoad {
     let dark = theme::is_dark();
-    let (old, new) = git::texts(cwd, &path);
+    let (old, new) = match &at {
+        Some(sha) => git::texts_at(cwd, sha, &path),
+        None => git::texts(cwd, &path),
+    };
     let lines = git::diff_texts(&old, &new, &open);
     let colors = (lines != shown).then(|| {
         let syntax = syntax(&path, &old, &new);
         let hl = highlights(&lines, &syntax.0, &syntax.1);
         (syntax, hl)
     });
-    DiffLoad { path, open, lines, source: (old, new), colors, dark }
+    DiffLoad { path, at, open, lines, source: (old, new), colors, dark }
 }
 
 /// Syntax colours for every line of the old and new file; none when either is too big to parse quickly. Run off the UI thread.
@@ -136,7 +142,7 @@ fn rows(lines: &[Line], split: bool, composer: Option<usize>, notes: &[(usize, u
 }
 
 /// The smallest splice turning `old` into `new`, so the list keeps its scroll offset and measured heights.
-fn changed(old: &[Row], new: &[Row]) -> (Range<usize>, usize) {
+pub(crate) fn changed<T: PartialEq>(old: &[T], new: &[T]) -> (Range<usize>, usize) {
     let head = old.iter().zip(new).take_while(|(a, b)| a == b).count();
     let tail = old[head..].iter().rev().zip(new[head..].iter().rev()).take_while(|(a, b)| a == b).count();
     (head..old.len() - tail, new.len() - head - tail)
@@ -281,6 +287,7 @@ impl Pick {
 
 pub struct DiffState {
     pub(crate) file: Option<String>,
+    pub(crate) at: Option<String>,
     pub(crate) lines: Vec<git::Line>,
     pub(crate) rows: Vec<Row>,
     pub(crate) list: ListState,
@@ -307,6 +314,7 @@ impl DiffState {
         })];
         let state = Self {
             file: None,
+            at: None,
             lines: Vec::new(),
             rows: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(400.)),
@@ -327,12 +335,23 @@ impl DiffState {
 
     /// Shows `load` unless another file, fold state or appearance was picked while it ran.
     pub fn apply(&mut self, load: DiffLoad) -> bool {
-        if self.file.as_ref() != Some(&load.path) || load.open != self.open || load.colors.is_some() && load.dark != theme::is_dark() {
+        if self.file.as_ref() != Some(&load.path) || self.at != load.at || load.open != self.open || load.colors.is_some() && load.dark != theme::is_dark() {
             return false;
         }
         self.source = load.source;
         let recolored = load.colors.map(|(syntax, hl)| (self.syntax, self.hl) = (syntax, hl)).is_some();
         self.set_lines(load.lines, true) | recolored
+    }
+
+    /// Shows `path` in the working tree, or with `at` in that commit, dropping the pick, folds and lines of another file.
+    pub fn select(&mut self, path: String, at: Option<String>) {
+        if self.file.as_ref() == Some(&path) && self.at == at {
+            return;
+        }
+        self.pick.range = None;
+        self.open.clear();
+        self.set_lines(Vec::new(), true);
+        (self.file, self.at) = (Some(path), at);
     }
 
     pub fn set_lines(&mut self, lines: Vec<Line>, reset: bool) -> bool {
@@ -355,7 +374,7 @@ impl DiffState {
 
     /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
     pub fn layout(&mut self, reset: bool) {
-        let notes = notes(&self.comments, self.file.as_deref(), &self.lines);
+        let notes = notes(&self.comments, self.file.as_deref().filter(|_| self.at.is_none()), &self.lines);
         let rows = rows(&self.lines, self.split, self.pick.composer_line(), &notes);
         if reset {
             self.list.reset(rows.len());
@@ -381,7 +400,8 @@ impl Desktop {
         let Some(path) = self.diff.file.clone() else {
             return empty("No changes.");
         };
-        let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned();
+        let at = self.diff.at.clone();
+        let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at.is_none());
         let viewed = self.diff.viewed.contains(&path);
         let toggle = path.clone();
         let right = div()
@@ -400,34 +420,52 @@ impl Desktop {
                 },
                 cx,
             )))
-            .child(ui::button("viewed", Variant::Glass, None, div().flex().items_center().gap(px(7.)).child(checkbox(viewed)).child("Viewed")).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    if !this.diff.viewed.remove(&toggle) {
-                        this.diff.viewed.insert(toggle.clone());
-                    }
-                    cx.notify();
-                },
-            )))
+            .when(at.is_none(), |d| {
+                d.child(ui::button("viewed", Variant::Glass, None, div().flex().items_center().gap(px(7.)).child(checkbox(viewed)).child("Viewed")).on_click(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
+                        if !this.diff.viewed.remove(&toggle) {
+                            this.diff.viewed.insert(toggle.clone());
+                        }
+                        cx.notify();
+                    },
+                )))
+            })
             .child(ui::icon_group([
                 ui::group_button("diff-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
             ]));
-        let (color, state) = status_word(file.as_ref().map(|f| f.status));
-        let mut meta = vec![ui::meta_item().child(dot(7., color)).child(ui::meta_value(state)).into_any_element()];
+        let status = match &at {
+            Some(sha) => self.graph.file(sha, &path).map(|f| Some(f.status)),
+            None => Some(file.as_ref().map(|f| f.status)),
+        };
+        let mut meta = Vec::new();
+        if let Some(status) = status {
+            let (color, state) = status_word(status);
+            meta.push(ui::meta_item().child(dot(7., color)).child(ui::meta_value(state)).into_any_element());
+        }
+        if let Some(sha) = &at {
+            meta.push(ui::meta_item().child(ui::meta_value(git::short_sha(sha).to_string())).into_any_element());
+            if let Some(c) = self.graph.commit(sha) {
+                meta.push(ui::meta_item().child(div().max_w(px(320.)).truncate().child(c.subject.clone())).into_any_element());
+            }
+        }
         if let Some(f) = &file {
             meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
         }
-        let comments = self.diff.comments.iter().filter(|c| c.path == path).count();
-        if comments > 0 {
-            let label = format!("{comments} comment{}", if comments == 1 { "" } else { "s" });
-            meta.push(ui::meta_item().child(icon("comment", 13., TEXT_2)).child(ui::meta_value(label)).into_any_element());
-        }
-        let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
-        if let Some((a, ts)) = self.agents.last_edit(&abs) {
-            let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
-            meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
+        if at.is_none() {
+            let comments = self.diff.comments.iter().filter(|c| c.path == path).count();
+            if comments > 0 {
+                let label = format!("{comments} comment{}", if comments == 1 { "" } else { "s" });
+                meta.push(ui::meta_item().child(icon("comment", 13., TEXT_2)).child(ui::meta_value(label)).into_any_element());
+            }
+            let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
+            if let Some((a, ts)) = self.agents.last_edit(&abs) {
+                let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
+                meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
+            }
         }
         let (dir, name) = path.rsplit_once('/').map_or((None, path.clone()), |(d, n)| (Some(d.to_string()), n.to_string()));
-        let crumbs = std::iter::once("Changes".to_string()).chain(dir).chain([name]).collect();
+        let first = at.as_deref().map_or_else(|| "Changes".to_string(), |sha| git::short_sha(sha).to_string());
+        let crumbs = std::iter::once(first).chain(dir).chain([name]).collect();
         div()
             .flex_1()
             .min_h_0()
@@ -466,7 +504,7 @@ impl Desktop {
     }
 
     pub fn open_changes(&mut self, path: Option<String>, pin: bool, cx: &mut Context<Self>) {
-        let path = path.or_else(|| self.diff.file.clone()).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
+        let path = path.or_else(|| self.diff.file.clone().filter(|_| self.diff.at.is_none())).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
         self.side = Side::Changes;
         match path {
             Some(path) => self.open_doc(Doc::Diff(path), pin, cx),
@@ -486,8 +524,8 @@ impl Desktop {
 
     fn read_diff_in_background(&mut self, shown: Vec<Line>, cx: &mut Context<Self>) {
         let Some((cwd, path)) = self.cwd().zip(self.diff.file.clone()) else { return };
-        let open = self.diff.open.clone();
-        let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, open, &shown) });
+        let (open, at) = (self.diff.open.clone(), self.diff.at.clone());
+        let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, at, open, &shown) });
         cx.spawn(async move |this, cx| {
             let load = task.await;
             this.update(cx, |d, cx| {
