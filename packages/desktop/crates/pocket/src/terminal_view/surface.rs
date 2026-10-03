@@ -57,7 +57,13 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
             let wheel_hitbox = hitbox.clone();
             window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && e.button == MouseButton::Left && hitbox.is_hovered(window) {
-                    down.update(cx, |d, cx| d.select_start(&down_pane, at(e.position), e.click_count, e.modifiers.shift, line, cx));
+                    down.update(cx, |d, cx| {
+                        if e.modifiers.platform && d.open_link(&down_pane, at(e.position), window, cx) {
+                            cx.stop_propagation();
+                        } else {
+                            d.select_start(&down_pane, at(e.position), e.click_count, e.modifiers.shift, line, cx);
+                        }
+                    });
                 }
             });
             window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {

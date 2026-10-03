@@ -24,6 +24,7 @@ pub enum Pick {
     /// `tree` is `None` for the project's main worktree.
     Tree { project: String, tree: Option<String> },
     UpNext,
+    Browser,
     PairPhone,
     PhoneAccess,
     Sound(Cue),
@@ -239,6 +240,7 @@ fn action_entries(words: &[String], project: &str, sounds: Sounds, agents: &Agen
         Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Go to next Needs you".into(), detail: String::new(), keys: Some("⌘ J") },
         Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
+        Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
         Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::PhoneAccess, lead: Lead::Icon("shield"), title: "Phone access level…".into(), detail: String::new(), keys: None },
     ]
@@ -349,6 +351,7 @@ impl Desktop {
                 }
             }
             Pick::UpNext => self.go_to_up_next(&crate::actions::GoToUpNext, window, cx),
+            Pick::Browser => self.open_browser(None, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
             Pick::PhoneAccess => self.open(Overlay::PhoneAccess, window, cx),
             Pick::Sound(cue) => {
@@ -639,6 +642,7 @@ mod tests {
             (Pick::Split, "Open selected in a split"),
             (Pick::Next, "Go to next Needs you"),
             (Pick::UpNext, "Go to Up next"),
+            (Pick::Browser, "Open browser"),
             (Pick::Sound(Cue::NeedsYou), "Needs you sound: On"),
             (Pick::Sound(Cue::Done), "Done sound: On"),
             (Pick::Sound(Cue::Failed), "Failed sound: On"),
@@ -656,9 +660,9 @@ mod tests {
             action_entries(&[], "app", Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
-        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::PairPhone, Pick::PhoneAccess]);
-        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext]);
-        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext]);
+        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::PairPhone, Pick::PhoneAccess]);
+        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser]);
+        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser]);
     }
 
     #[test]

@@ -7,11 +7,12 @@ pub enum Doc {
     Commit(String),
 }
 
-/// The tabs of one worktree: terminal tabs hold rows of panes, each a pocketd terminal id.
+/// The tabs of one worktree: terminal tabs hold rows of panes, each a pocketd terminal id; web tabs a browser page by the app's id for it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tab {
     Term(Vec<Vec<String>>),
     Doc(Doc),
+    Web(u64),
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -89,6 +90,11 @@ impl Workspace {
         }
     }
 
+    pub fn open_web(&mut self, id: u64) {
+        self.tabs.push(Tab::Web(id));
+        self.active = self.tabs.len() - 1;
+    }
+
     pub fn doc_tab(&self, doc: &Doc) -> Option<usize> {
         self.tabs.iter().position(|t| matches!(t, Tab::Doc(d) if d == doc))
     }
@@ -130,6 +136,7 @@ impl Workspace {
                 self.pin(&doc);
                 Vec::new()
             }
+            Tab::Web(_) => Vec::new(),
         };
         if self.active > i || self.active == self.tabs.len() {
             self.active = self.active.saturating_sub(1);
@@ -299,6 +306,18 @@ mod tests {
         w.open_doc(file("x"), false);
         w.close_tab(1);
         assert_eq!(w.preview, None);
+    }
+
+    #[test]
+    fn a_web_tab_opens_shown_and_closes_with_no_sessions() {
+        let mut w = with(&["a", "b"]);
+        w.active = 0;
+        w.open_web(7);
+        assert_eq!((w.active(), w.active), (Some(&Tab::Web(7)), 2));
+        w.remove("b");
+        assert_eq!(w.active(), Some(&Tab::Web(7)));
+        assert_eq!(w.close_tab(1), Vec::<String>::new());
+        assert_eq!(w.tabs, vec![term(&[&["a"]])]);
     }
 
     #[test]

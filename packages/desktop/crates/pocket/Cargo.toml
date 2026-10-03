@@ -31,6 +31,7 @@ term.workspace = true
 theme.workspace = true
 tree-sitter-javascript.workspace = true
 ui.workspace = true
+web.workspace = true
 workspace.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

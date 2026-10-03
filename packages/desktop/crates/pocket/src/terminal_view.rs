@@ -1,5 +1,6 @@
 pub(crate) mod context;
 pub(crate) mod cursor;
+pub(crate) mod link;
 pub(crate) mod pane;
 pub(crate) mod scroll;
 pub(crate) mod surface;
@@ -91,6 +92,15 @@ impl Desktop {
         }
         self.terminal.selection = Some(Drag { pane: pane.to_string(), at, line, extend });
         cx.notify();
+    }
+
+    /// Opens the link under `at` in a browser tab; false if there is none.
+    pub(crate) fn open_link(&mut self, pane: &str, at: Pointer, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(t) = self.terminals.sessions.term(pane) else { return false };
+        let (f, cells) = t.frame();
+        let Some(url) = link::link_at(cells, f.cols, at.row, at.col) else { return false };
+        self.open_browser(Some(url), window, cx);
+        true
     }
 
     pub(crate) fn select_extend(&mut self, pane: &str, at: Pointer, cx: &mut Context<Self>) {
@@ -327,6 +337,7 @@ impl Desktop {
             Some(Tab::Doc(Doc::File(p))) if self.preview.file.as_ref() == Some(&p) => self.file_view(cx),
             Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. }))) if self.loaded(&doc) => self.diff_view(cx),
             Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(&doc) => self.commit_view(cx),
+            Some(Tab::Web(id)) => self.browser_view(id, window, cx),
             Some(Tab::Doc(_)) | None => div().flex_1(),
         };
         div().flex_1().min_h_0().flex().flex_col().bg(SURFACE_SUNKEN).child(bar).when(observe, |d| d.child(observe_banner())).child(body)

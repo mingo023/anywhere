@@ -51,6 +51,7 @@ pub enum Confirm {
     Paste { pane: String, text: String },
     CloseFile(String),
     Quit(usize),
+    OpenExternal(String),
 }
 
 /// The sidebar row whose `⋯` menu is open.

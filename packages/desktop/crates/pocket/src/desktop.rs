@@ -6,6 +6,7 @@ pub(crate) mod jump;
 pub(crate) mod project;
 pub(crate) mod sounds;
 
+use crate::browser::Browsers;
 use crate::creating::Creates;
 use crate::desktop::alerts::Alerts;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
@@ -62,6 +63,7 @@ pub struct Desktop {
     pub(crate) graph: GraphState,
     pub(crate) commit: CommitState,
     pub(crate) terminal: TerminalViewState,
+    pub(crate) browsers: Browsers,
     pub(crate) initials: String,
     pub(crate) explorer: ExplorerState,
     pub(crate) git_run: u64,
@@ -97,6 +99,7 @@ impl Desktop {
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
+        let (browsers, browser_subs) = Browsers::new(window, cx);
         let root = cx.focus_handle();
         window.focus(&root, cx);
         let this = cx.weak_entity();
@@ -117,6 +120,7 @@ impl Desktop {
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
         _subs.extend(geometry_subs);
+        _subs.extend(browser_subs);
         let (layout, widths) = (store.layout, [store.widths.projects, store.widths.sessions]);
         Self {
             daemon,
@@ -148,6 +152,7 @@ impl Desktop {
             error: None,
             root,
             terminal: TerminalViewState::new(cx),
+            browsers,
             inbox: InboxState::new(cx),
             palette,
             sidebar,
@@ -237,6 +242,7 @@ impl Desktop {
         match w.active().cloned() {
             Some(Tab::Term(rows)) => self.focus_pane(rows[0][0].clone(), window, cx),
             Some(Tab::Doc(doc)) => self.show_doc(doc, cx),
+            Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
             None => {}
         }
         cx.notify();
@@ -246,7 +252,7 @@ impl Desktop {
     pub fn active_doc(&self) -> Option<Doc> {
         match self.workspaces.get(&self.cwd()?)?.active()? {
             Tab::Doc(doc) => Some(doc.clone()),
-            Tab::Term(_) => None,
+            Tab::Term(_) | Tab::Web(_) => None,
         }
     }
 
@@ -305,9 +311,13 @@ impl Desktop {
         }
     }
 
+    pub(crate) fn menu_open(&self) -> bool {
+        self.terminal.tab_menu || self.terminal.tab_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu
+    }
+
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self) -> bool {
-        let open = self.terminal.tab_menu || self.terminal.tab_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu;
+        let open = self.menu_open();
         (self.terminal.tab_menu, self.terminal.tab_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (false, None, None, false, false);
         self.sidebar.menu_at = None;
         open
@@ -385,6 +395,7 @@ impl Render for Desktop {
         self.sync_code(window, cx);
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
+        self.sync_browser();
         let lead = match self.layout {
             Layout::Sidebars => Some(self.aside(cx)),
             Layout::Compact => Some(self.nav(cx)),
@@ -430,6 +441,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::toggle_rail))
             .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::new_tab))
+            .on_action(cx.listener(Self::new_browser))
             .on_action(cx.listener(Self::close_active_tab))
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::quit))

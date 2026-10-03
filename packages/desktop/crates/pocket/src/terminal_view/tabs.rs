@@ -1,3 +1,4 @@
+use crate::browser::Browser;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{id, state};
 use crate::status::Status;
@@ -121,6 +122,15 @@ impl Desktop {
         let label = |text: String| div().max_w(px(150.)).truncate().child(text);
         let p = match tab {
             Tab::Term(rows) => rows.concat(),
+            Tab::Web(id) => {
+                let b = self.browsers.tabs.get(id);
+                let lead = match b {
+                    Some(b) if b.loading => spinner(format!("tab-loading:{id}"), 13., TEXT_3).into_any_element(),
+                    _ => icon("globe", 13., TEXT_3).into_any_element(),
+                };
+                let text = b.map(Browser::label).unwrap_or_default();
+                return row.child(lead).child(label(text.to_string()));
+            }
             Tab::Doc(doc) => {
                 let (path, text) = match doc {
                     Doc::File(p) | Doc::Diff(p) => (p, basename(p)),
@@ -219,7 +229,7 @@ impl Desktop {
                 let selected = i == active;
                 let closable = match tab {
                     Tab::Term(rows) => rows.iter().flatten().all(|id| self.terminals.may_close(id, observe)),
-                    Tab::Doc(_) => true,
+                    Tab::Doc(_) | Tab::Web(_) => true,
                 };
                 let close = div()
                     .id(("close-tab", i))
@@ -241,7 +251,7 @@ impl Desktop {
                     }));
                 let doc = match tab {
                     Tab::Doc(d) => Some(d.clone()),
-                    Tab::Term(_) => None,
+                    Tab::Term(_) | Tab::Web(_) => None,
                 };
                 let tab = div()
                     .id(("tab", i))

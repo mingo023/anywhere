@@ -22,13 +22,15 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `term` | the ghostty VT |
 | `store` | the saved projects and sound toggles |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
+| `web` | the WKWebView page of a browser tab, address and link parsing |
 | `ui`, `theme` | widgets, colours, icons |
 
 | `pocket` module | Owns |
 |---|---|
 | `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars |
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing |
-| `terminal_view` | the session page: tabs, panes, keyboard and IME input |
+| `terminal_view` | the session page: tabs, panes, keyboard and IME input; `terminal_view/link` the link under the pointer |
+| `browser` | browser tabs: pages, address bar, navigation |
 | `sidebar` | projects aside, compact rail, sessions column |
 | `git_ui` | `changes` panel and commit, `diff` view and comments, `graph` commit graph, `commit` stacked commit diff |
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview |

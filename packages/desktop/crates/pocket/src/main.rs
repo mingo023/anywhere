@@ -1,4 +1,5 @@
 mod actions;
+mod browser;
 mod capture;
 mod creating;
 mod desktop;

@@ -13,7 +13,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 21] = [
+const STEPS: [(&str, Step); 23] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -41,6 +41,8 @@ const STEPS: [(&str, Step); 21] = [
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
+    ("tab-menu", |d, _, _| d.terminal.tab_menu = true),
+    ("browser", |d, window, cx| d.open_browser(None, window, cx)),
     ("file", |d, _, cx| {
         if let Some(path) = d.cwd().zip(d.repo().and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
             d.open_file(path, false, cx);

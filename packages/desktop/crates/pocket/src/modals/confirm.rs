@@ -78,6 +78,10 @@ impl ConfirmText {
         Self { title: "Quit without saving?".into(), action: "Quit", facts: vec![format!("{files} unsaved edits")], dirty: 0, danger: true }
     }
 
+    fn open_external(url: &str) -> Self {
+        Self { title: "Open in another app?".into(), action: "Open", facts: vec![format!("The page asks to open {url}")], dirty: 0, danger: false }
+    }
+
     fn detail(&self) -> Option<String> {
         (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
@@ -103,6 +107,7 @@ impl Desktop {
             Some(Confirm::CloseTerminals { ids, busy, worktree }) => ConfirmText::close_terminals(busy, worktree, ids.len()),
             Some(Confirm::CloseFile(path)) => ConfirmText::close_file(path),
             Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
+            Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -142,6 +147,7 @@ impl Desktop {
             Some(Confirm::CloseTerminals { ids, .. }) => ids.iter().for_each(|id| self.close_pane(id, cx)),
             Some(Confirm::CloseFile(path)) => self.save_file(path, true, cx),
             Some(Confirm::Quit(_)) => cx.quit(),
+            Some(Confirm::OpenExternal(url)) => cx.open_url(&url),
             None => {}
         }
         self.close_overlay(window, cx);
@@ -217,6 +223,12 @@ mod tests {
     fn quitting_with_unsaved_edits_counts_the_files() {
         assert_eq!(ConfirmText::quit(1).detail(), Some("1 file has unsaved edits.".into()));
         assert_eq!(ConfirmText::quit(3).detail(), Some("3 files have unsaved edits.".into()));
+    }
+
+    #[test]
+    fn opening_another_app_shows_the_link_and_is_not_destructive() {
+        let got = ConfirmText::open_external("zoommtg://zoom.us/join");
+        assert_eq!((got.detail(), got.danger), (Some("The page asks to open zoommtg://zoom.us/join.".into()), false));
     }
 
     #[test]

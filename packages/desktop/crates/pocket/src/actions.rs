@@ -1,11 +1,16 @@
+use crate::browser;
 use gpui_kit::*;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
 pub struct JumpTo(pub usize);
+
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct PageEdit(pub web::Edit);
 
 pub fn bindings() -> Vec<KeyBinding> {
     let mut out = vec![
@@ -28,6 +33,17 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-c", CopySelection, Some(keys::CONTEXT)),
         KeyBinding::new("cmd-a", SelectAll, Some(keys::CONTEXT)),
         KeyBinding::new("cmd-v", Paste, Some(keys::CONTEXT)),
+        KeyBinding::new("cmd-shift-b", NewBrowser, None),
+        KeyBinding::new("cmd-l", FocusAddress, Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-r", Reload, Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-[", Back, Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-]", Forward, Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-c", PageEdit(web::Edit::Copy), Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-x", PageEdit(web::Edit::Cut), Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-v", PageEdit(web::Edit::Paste), Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-a", PageEdit(web::Edit::SelectAll), Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-z", PageEdit(web::Edit::Undo), Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-shift-z", PageEdit(web::Edit::Redo), Some(browser::CONTEXT)),
     ];
     out.extend((1..=9).map(|n| KeyBinding::new(&format!("cmd-{n}"), JumpTo(n), None)));
     out

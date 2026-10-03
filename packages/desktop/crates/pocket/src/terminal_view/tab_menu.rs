@@ -59,6 +59,10 @@ impl Desktop {
                 item("tab-menu-shell", icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T"))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_tab(&crate::actions::NewTab, window, cx))),
             )
+            .child(
+                item("tab-menu-browser", icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx))),
+            )
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))
             .child(agent("tab-menu-claude", "claude", cx))
             .child(agent("tab-menu-codex", "codex", cx))
