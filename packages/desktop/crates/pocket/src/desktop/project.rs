@@ -93,13 +93,13 @@ impl Desktop {
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
         let cwds = self.git_cwds();
         let projects = self.store.projects.clone();
-        let file = self.preview.file.clone().map(|f| {
+        let files: Vec<_> = self.preview.panes.iter().filter_map(|(p, f)| {
+            let f = f.file.clone()?;
             let changed = self.file_status(&f).is_some();
-            (f, changed)
-        });
-        let diff = self.cwd().zip(self.diff.file.clone()).filter(|_| self.diff.at.is_none());
-        let shown = self.diff.lines.clone();
-        let open = self.diff.open.clone();
+            Some((*p, f, changed))
+        }).collect();
+        let root = self.cwd();
+        let diffs: Vec<_> = self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.working_file()?.to_string(), v.open.clone(), v.lines.clone()))).collect();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
         dirs.extend(self.explore_root().map(PathBuf::from));
         self.git_run += 1;
@@ -109,7 +109,7 @@ impl Desktop {
                 let r = git::read(&c);
                 (c, r)
             }).collect();
-            let diff = diff.map(|(cwd, path)| diff::read_diff(&cwd, path, None, open, &shown));
+            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, open, shown)| (p, diff::read_diff(&cwd, path, None, open, &shown))).collect()).unwrap_or_default();
             let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
             let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
                 let listing = util::list_dir(&d);
@@ -119,11 +119,11 @@ impl Desktop {
                 let w = git::worktrees(&p);
                 (p, w)
             }).collect();
-            let file = file.map(|(f, changed)| preview::load(&f, changed));
-            (repos, diff, initials, tree, worktrees, file)
+            let files: Vec<_> = files.into_iter().map(|(p, f, changed)| (p, preview::load(&f, changed))).collect();
+            (repos, diffs, initials, tree, worktrees, files)
         });
         cx.spawn(async move |this, cx| {
-            let (repos, diff, initials, tree, worktrees, file) = task.await;
+            let (repos, diffs, initials, tree, worktrees, files) = task.await;
             this.update(cx, |d, cx| {
                 if run != d.git_run {
                     return;
@@ -133,11 +133,11 @@ impl Desktop {
                 let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 let mut changed = repos != d.repos || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.repos, d.explorer.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
-                if let Some(file) = file {
-                    changed |= d.preview.apply(file);
+                for (pane, file) in files {
+                    changed |= d.preview.apply(pane, file);
                 }
-                if let Some(load) = diff {
-                    changed |= d.diff.apply(load);
+                for (pane, load) in diffs {
+                    changed |= d.diff.apply(pane, load);
                 }
                 if changed {
                     cx.notify();
@@ -235,6 +235,8 @@ impl Desktop {
                             d.close_pane(&id, cx);
                         }
                         d.workspaces.remove(&tree);
+                        d.store.layouts.remove(&tree);
+                        d.save_soon(cx);
                         if d.worktree.as_ref() == Some(&tree) {
                             (d.worktree, d.session) = (None, None);
                         }

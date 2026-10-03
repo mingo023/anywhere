@@ -5,6 +5,7 @@ use git::{Kind, Line};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
+use workspace::tree::PaneId;
 
 fn colors(kind: Kind) -> (Option<Token>, Token, &'static str) {
     match kind {
@@ -96,44 +97,46 @@ fn add_button(left: f32) -> Div {
 
 impl Desktop {
     /// One side of a row: pressing picks its line, dragging or shift-clicking stretches the pick; "+" or a drag opens the composer.
-    fn cell(&self, id: &'static str, i: usize, numbers: Vec<Option<usize>>, add_at: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        if self.diff.lines[i].kind == Kind::Hunk {
-            return self.fold(id, i, cx);
+    fn cell(&self, pane: PaneId, id: &'static str, i: usize, numbers: Vec<Option<usize>>, add_at: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let v = &self.diff.panes[&pane];
+        if v.lines[i].kind == Kind::Hunk {
+            return self.fold(pane, id, i, cx);
         }
-        let row = code(&self.diff.lines[i], self.diff.hl.get(i), numbers, self.diff.pick.picked(&self.diff.lines, i)).id((id, i));
-        if self.diff.at.is_some() {
+        let row = code(&v.lines[i], v.hl.get(i), numbers, v.pick.picked(&v.lines, i)).id((id, i));
+        if v.at.is_some() {
             return row;
         }
-        let last = self.diff.pick.last() == Some(i);
+        let last = v.pick.last() == Some(i);
         row.group("diff-line")
             .cursor_pointer()
             .child(
                 add_button(add_at)
                     .when(!last, |b| b.opacity(0.).group_hover("diff-line", |s| s.opacity(1.)))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.open_comment(i, window, cx))),
+                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.open_comment(pane, i, window, cx))),
             )
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.select_line(i, ev.modifiers.shift, window, cx)))
-            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| this.drag_to(i, ev.dragging(), window, cx)))
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.select_line(pane, i, ev.modifiers.shift, window, cx)))
+            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| this.drag_to(pane, i, ev.dragging(), window, cx)))
     }
 
     /// A hunk header; clicking it unfolds the lines hidden above it.
-    fn fold(&self, id: &'static str, i: usize, cx: &mut Context<Self>) -> Stateful<Div> {
-        let row = hunk(&self.diff.lines, i).id((id, i));
-        match fold_start(&self.diff.lines, i) {
-            Some(start) => row.cursor_pointer().hover(|s| s.bg(FILL_2)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.expand(start, cx))),
+    fn fold(&self, pane: PaneId, id: &'static str, i: usize, cx: &mut Context<Self>) -> Stateful<Div> {
+        let v = &self.diff.panes[&pane];
+        let row = hunk(&v.lines, i).id((id, i));
+        match fold_start(&v.lines, i) {
+            Some(start) => row.cursor_pointer().hover(|s| s.bg(FILL_2)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.expand(pane, start, cx))),
             None => row,
         }
     }
 
-    pub(super) fn diff_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(&row) = self.diff.rows.get(ix) else { return Empty.into_any_element() };
+    pub(super) fn diff_row(&self, pane: PaneId, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some((v, &row)) = self.diff.view(pane).and_then(|v| Some((v, v.rows.get(ix)?))) else { return Empty.into_any_element() };
         match row {
-            Row::Unified(i) => self.cell("line", i, vec![self.diff.lines[i].old, self.diff.lines[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
-            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if self.diff.lines[i].kind == Kind::Hunk => self.fold("fold", i, cx).w_full().into_any_element(),
+            Row::Unified(i) => self.cell(pane, "line", i, vec![v.lines[i].old, v.lines[i].new], 2. * NUM - 10., cx).w_full().into_any_element(),
+            Row::Split(Some(i), _) | Row::Split(None, Some(i)) if v.lines[i].kind == Kind::Hunk => self.fold(pane, "fold", i, cx).w_full().into_any_element(),
             Row::Split(l, r) => {
                 let mut side = |id, i: Option<usize>, n: fn(&Line) -> Option<usize>| match i {
-                    Some(i) => self.cell(id, i, vec![n(&self.diff.lines[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
+                    Some(i) => self.cell(pane, id, i, vec![n(&v.lines[i])], NUM - 10., cx).flex_1().min_w_0().into_any_element(),
                     None => div().flex_1().min_h(px(ROW)).bg(SURFACE_SUNKEN).into_any_element(),
                 };
                 div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()

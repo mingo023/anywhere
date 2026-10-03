@@ -127,7 +127,7 @@ impl Desktop {
         let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let key = path.to_string_lossy().to_string();
         if !is_dir {
-            let selected = self.preview.file.as_ref() == Some(&key);
+            let selected = self.preview.file(self.focused_pane()) == Some(key.as_str());
             let git = self.file_status(&key);
             let touched = touched.contains(&key);
             return ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)

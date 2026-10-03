@@ -11,12 +11,12 @@ use gpui_kit::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
-use workspace::{Doc, Tab};
+use workspace::tree::PaneId;
+use workspace::{Doc, Place, Tab};
 
-pub(crate) enum Intent {
-    Tab(String),
-    Split(String, bool),
-}
+/// A spawn awaiting its terminal: the worktree to adopt it in, and where its tab goes.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Intent(pub(crate) String, pub(crate) Place);
 
 /// What a pane's measured size asks of pocketd.
 #[derive(Debug, PartialEq)]
@@ -88,12 +88,9 @@ impl Terminals {
         }
     }
 
-    /// Matches a spawned terminal to the oldest pending intent; returns the worktree to adopt it in and the split direction, if any.
-    pub(crate) fn spawned(&mut self) -> Option<(String, Option<bool>)> {
-        match self.intents.pop_front()? {
-            Intent::Tab(tree) => Some((tree, None)),
-            Intent::Split(tree, down) => Some((tree, Some(down))),
-        }
+    /// Matches a spawned terminal to the oldest pending intent.
+    pub(crate) fn spawned(&mut self) -> Option<Intent> {
+        self.intents.pop_front()
     }
 
     pub(crate) fn created(&mut self, request: &str, id: String, tree: String, setup: bool) {
@@ -183,17 +180,23 @@ impl Desktop {
                 for id in self.terminals.listed(m.items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
+                let restoring = !self.panels.restored;
+                self.restore_layouts();
                 for (id, tree) in self.terminals.arrived() {
-                    self.adopt(id, tree, None, window, cx);
+                    self.adopt(id, tree, Place::Pane(None), window, cx);
                 }
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
                 }
+                // Restored docs load into the worktree on screen, which needs the project chosen above.
+                if restoring {
+                    self.load_active(cx);
+                }
             }
             "spawned" => {
                 self.error = None;
-                if let Some((tree, split)) = self.terminals.spawned() {
-                    self.adopt(m.id, tree, split, window, cx);
+                if let Some(Intent(tree, place)) = self.terminals.spawned() {
+                    self.adopt(m.id, tree, place, window, cx);
                 }
                 self.daemon.send(json!({"op": "list"}));
             }
@@ -224,14 +227,12 @@ impl Desktop {
         cx.notify();
     }
 
-    fn adopt(&mut self, id: String, tree: String, split: Option<bool>, window: &mut Window, cx: &mut Context<Self>) {
-        let w = self.workspace(&tree);
-        match split {
-            Some(down) => w.split(id.clone(), down),
-            None => w.add_tab(id.clone()),
-        }
+    fn adopt(&mut self, id: String, tree: String, place: Place, window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace(&tree).open_term(id.clone(), place);
         self.show_tree(&tree, &tree);
+        self.load_active(cx);
         self.focus_pane(id, window, cx);
+        self.save_soon(cx);
     }
 
     pub(crate) fn send_spawn(&mut self, op: serde_json::Value, intent: Intent, cx: &mut Context<Self>) {
@@ -244,24 +245,20 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Opens a login shell in the worktree's folder, as a new tab or a split of the active one.
-    pub fn new_shell(&mut self, split: Option<bool>, cx: &mut Context<Self>) {
-        self.run_in_tree(split, daemon::shell_op, cx);
+    /// Opens a login shell in the worktree's folder, its tab at `place`.
+    pub fn new_shell(&mut self, place: Place, cx: &mut Context<Self>) {
+        self.run_in_tree(place, daemon::shell_op, cx);
     }
 
-    pub fn new_agent_tab(&mut self, provider: &str, cx: &mut Context<Self>) {
-        self.terminal.tab_menu = false;
+    pub fn new_agent_tab(&mut self, provider: &str, place: Place, cx: &mut Context<Self>) {
         let argv = [provider.to_string()];
-        self.run_in_tree(None, |cwd| daemon::agent_op(&argv, cwd), cx);
+        self.run_in_tree(place, |cwd| daemon::agent_op(&argv, cwd), cx);
     }
 
-    fn run_in_tree(&mut self, split: Option<bool>, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
+    fn run_in_tree(&mut self, place: Place, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
-        let intent = match split {
-            Some(down) => Intent::Split(tree.clone(), down),
-            None => Intent::Tab(tree.clone()),
-        };
-        self.send_spawn(op(&tree), intent, cx);
+        let op = op(&tree);
+        self.send_spawn(op, Intent(tree, place), cx);
     }
 
     pub fn close_pane(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -271,10 +268,12 @@ impl Desktop {
         if self.terminals.close(id) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
+        let ids = [id.to_string()];
         for w in self.workspaces.values_mut() {
-            w.remove(id);
+            w.remove(&ids);
         }
         self.load_active(cx);
+        self.save_soon(cx);
         cx.notify();
     }
 
@@ -290,10 +289,10 @@ impl Desktop {
         }
     }
 
-    pub fn close_tab(&mut self, i: usize, cx: &mut Context<Self>) {
+    pub fn close_tab(&mut self, pane: PaneId, i: usize, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
-        let ids = match self.workspace(&tree).tabs.get(i).cloned() {
-            Some(Tab::Term(rows)) => rows.concat(),
+        let ids = match self.workspace(&tree).tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned() {
+            Some(Tab::Term(id)) => vec![id],
             Some(Tab::Doc(Doc::File(path))) if self.preview.dirty(&path) => {
                 self.confirm = Some(Confirm::CloseFile(path));
                 self.overlay = Some(Overlay::Confirm);
@@ -303,13 +302,15 @@ impl Desktop {
             _ => Vec::new(),
         };
         let observe = self.agents.observe_only();
-        if !ids.iter().all(|id| self.terminals.may_close(id, observe)) || self.ask_close(ids, cx) {
+        if !ids.iter().all(|id| self.terminals.may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
             return;
         }
-        for id in self.workspace(&tree).close_tab(i) {
+        self.workspace(&tree).close(pane, i);
+        for id in ids {
             self.close_pane(&id, cx);
         }
         self.load_active(cx);
+        self.save_soon(cx);
         cx.notify();
     }
 
@@ -343,6 +344,8 @@ mod tests {
     use super::{Fit, Intent, Terminals};
     use daemon::{Info, Msg};
     use std::collections::HashMap;
+    use workspace::Place;
+    use workspace::tree::Edge;
 
     fn info(id: &str) -> Info {
         Info { id: id.into(), cmd: "/bin/zsh".into(), cwd: "/w".into(), ..Default::default() }
@@ -359,17 +362,17 @@ mod tests {
     #[test]
     fn spawned_terminals_open_as_the_tab_asked_for() {
         let mut t = Terminals::new();
-        t.intents.push_back(Intent::Tab("/w".into()));
-        assert_eq!(t.spawned(), Some(("/w".to_string(), None)));
+        t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
+        assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Pane(None))));
     }
 
     #[test]
     fn spawned_terminals_take_intents_in_the_order_they_were_sent() {
         let mut t = Terminals::new();
-        t.intents.push_back(Intent::Split("/w".into(), true));
-        t.intents.push_back(Intent::Split("/v".into(), false));
-        assert_eq!(t.spawned(), Some(("/w".to_string(), Some(true))));
-        assert_eq!(t.spawned(), Some(("/v".to_string(), Some(false))));
+        t.intents.push_back(Intent("/w".into(), Place::Split(0, Edge::Bottom)));
+        t.intents.push_back(Intent("/v".into(), Place::Split(0, Edge::Right)));
+        assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Split(0, Edge::Bottom))));
+        assert_eq!(t.spawned(), Some(Intent("/v".into(), Place::Split(0, Edge::Right))));
     }
 
     #[test]
@@ -382,11 +385,11 @@ mod tests {
     #[test]
     fn a_failed_spawn_drops_its_intent_but_a_terminal_error_does_not() {
         let mut t = Terminals::new();
-        t.intents.push_back(Intent::Tab("/w".into()));
-        t.intents.push_back(Intent::Tab("/v".into()));
+        t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
+        t.intents.push_back(Intent("/v".into(), Place::Pane(None)));
         t.errored("a");
         t.errored("");
-        assert_eq!(t.spawned(), Some(("/v".to_string(), None)));
+        assert_eq!(t.spawned(), Some(Intent("/v".into(), Place::Pane(None))));
     }
 
     #[test]
@@ -525,7 +528,7 @@ mod tests {
     #[test]
     fn losing_pocketd_drops_spawns_it_never_answered() {
         let mut t = Terminals::new();
-        t.intents.push_back(Intent::Tab("/w".into()));
+        t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
         t.disconnected(std::time::Instant::now());
         assert_eq!(t.spawned(), None);
     }
@@ -534,9 +537,9 @@ mod tests {
     fn a_spawn_sent_just_before_up_is_still_adopted() {
         let mut t = Terminals::new();
         t.disconnected(std::time::Instant::now());
-        t.spawn_sent(true, Intent::Tab("/w".into()));
+        t.spawn_sent(true, Intent("/w".into(), Place::Pane(None)));
         t.reconnected();
-        assert_eq!(t.spawned(), Some(("/w".to_string(), None)));
+        assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Pane(None))));
     }
 
     #[test]
@@ -550,9 +553,9 @@ mod tests {
     #[test]
     fn failed_spawn_send_records_no_intent() {
         let mut t = Terminals::new();
-        t.spawn_sent(false, Intent::Tab("/w".into()));
-        t.spawn_sent(true, Intent::Tab("/v".into()));
-        assert_eq!(t.spawned(), Some(("/v".to_string(), None)));
+        t.spawn_sent(false, Intent("/w".into(), Place::Pane(None)));
+        t.spawn_sent(true, Intent("/v".into(), Place::Pane(None)));
+        assert_eq!(t.spawned(), Some(Intent("/v".into(), Place::Pane(None))));
     }
 
     #[test]

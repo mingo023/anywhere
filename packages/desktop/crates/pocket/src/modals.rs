@@ -40,7 +40,7 @@ impl Desktop {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = None;
-        if self.active_web_tab().is_some() {
+        if self.web_tab(self.focused_pane()).is_some() {
             window.focus(&self.browsers.focus, cx);
         } else if !self.terminal.focus.is_focused(window) {
             window.focus(&self.root, cx);

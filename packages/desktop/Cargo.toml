@@ -49,6 +49,7 @@ merman = { version = "=0.8.0-alpha.6", default-features = false, features = ["sv
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSDockTile", "NSResponder", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std"] }
 qrcode = { version = "0.14", default-features = false }
 resvg = "0.46"
 serde = { version = "1", features = ["derive"] }

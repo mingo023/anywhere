@@ -1,5 +1,8 @@
 mod cursor;
 mod press;
+mod snapshot;
+
+pub(super) use snapshot::snapshot;
 
 use super::{Edit, Rect};
 use objc2::rc::Retained;

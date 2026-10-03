@@ -362,7 +362,7 @@ impl Desktop {
                 .when(!detail.is_empty(), |d| d.child(div().font_family(MONO).text_size(px(12.)).text_color(TEXT_2).child(detail)))
         });
         let r = c.request.clone();
-        let output = self.workspaces.get(&c.path).is_some_and(|w| !w.tabs.is_empty()).then(|| {
+        let output = self.workspaces.get(&c.path).is_some_and(|w| w.tree.panes().iter().any(|p| !p.tabs.is_empty())).then(|| {
             let r = r.clone();
             ui::link("create-output", "View output").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if let Some(c) = this.creates.get(&r) {

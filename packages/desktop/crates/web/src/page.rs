@@ -157,6 +157,14 @@ impl Page {
         let _ = self.view.set_visible(visible);
     }
 
+    /// Calls `done` with a TIFF of what the page shows, or `None` if it can't be taken.
+    pub fn snapshot(&self, done: impl FnOnce(Option<Vec<u8>>) + 'static) {
+        #[cfg(target_os = "macos")]
+        macos::snapshot(&self.view, done);
+        #[cfg(not(target_os = "macos"))]
+        done(None);
+    }
+
     pub fn load(&self, url: &str) {
         let _ = self.view.load_url(url);
     }

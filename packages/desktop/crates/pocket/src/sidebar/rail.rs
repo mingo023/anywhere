@@ -1,5 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, drag_area, state};
+use crate::sidebar::column::{changes_badge, changes_dot};
 use crate::status::{Card, Status};
 use crate::terminal_view::context;
 use agents::Level;
@@ -22,6 +23,7 @@ impl Desktop {
         };
         let toggle = div()
             .id("nav-panel")
+            .relative()
             .w(px(36.))
             .h(px(32.))
             .flex()
@@ -33,6 +35,7 @@ impl Desktop {
             .when(self.panel, |d| d.bg(FILL_3))
             .hover(|s| s.bg(FILL_3))
             .child(icon("sidebar", 18., TEXT_2))
+            .when(changes_badge(self.repo()).is_some(), |d| d.child(changes_dot()))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_rail(&crate::actions::ToggleRail, window, cx)));
         let project = self.project.clone().unwrap_or_default();
         let badge = |d: Div, color: Token| d.absolute().right(px(3.)).size(px(8.)).rounded(px(4.)).bg(color).shadow(vec![ui::ring(Token::new(0xfafafaff, 0x171717ff), 2.)]);

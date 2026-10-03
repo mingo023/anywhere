@@ -8,6 +8,7 @@ mod git_ui;
 mod inbox;
 mod modals;
 mod palette;
+mod panels;
 mod sidebar;
 mod status;
 mod syntax;

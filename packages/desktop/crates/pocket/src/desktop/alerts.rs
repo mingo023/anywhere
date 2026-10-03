@@ -180,13 +180,10 @@ impl Desktop {
         cx.dismiss_system_notification(agent);
     }
 
-    /// The terminals on screen: the worktree's active tab's.
+    /// The terminals on screen: those of the tabs the drawn panes show.
     fn visible_panes(&mut self) -> Vec<String> {
         let Some(tree) = self.cwd().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
-        match self.workspace(&tree).active() {
-            Some(Tab::Term(rows)) => rows.concat(),
-            _ => Vec::new(),
-        }
+        self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect()
     }
 
     pub(crate) fn sync_view(&mut self, window: &Window, cx: &mut App) {

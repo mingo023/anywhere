@@ -6,3 +6,9 @@ publish.workspace = true
 
 [lib]
 path = "src/workspace.rs"
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

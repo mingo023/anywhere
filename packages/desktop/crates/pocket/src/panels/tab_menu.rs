@@ -2,6 +2,8 @@ use crate::desktop::Desktop;
 use agents::Summary;
 use gpui_kit::*;
 use theme::*;
+use workspace::Place;
+use workspace::tree::PaneId;
 
 /// The last model seen for `provider`, as a short label.
 pub fn model_hint(list: &[Summary], provider: &str) -> Option<String> {
@@ -14,7 +16,7 @@ impl Desktop {
         model_hint(&self.agents.list, provider)
     }
 
-    pub(crate) fn tab_menu_view(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(crate) fn tab_menu_view(&self, pane: PaneId, cx: &mut Context<Self>) -> Stateful<Div> {
         let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
         let item = |id: &'static str, lead: AnyElement, label: String, hint: Option<String>, keys: Option<&str>| {
             div()
@@ -35,7 +37,10 @@ impl Desktop {
         };
         let agent = |id: &'static str, provider: &'static str, cx: &mut Context<Self>| {
             item(id, provider_icon(provider, 14., TEXT).into_any_element(), provider_name(provider).into(), self.model_hint(provider), None)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_agent_tab(provider, cx)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.panels.menu = None;
+                    this.new_agent_tab(provider, Place::Pane(Some(pane)), cx);
+                }))
         };
         ui::pop(div().id("tab-menu"))
             .w(px(264.))
@@ -57,7 +62,10 @@ impl Desktop {
             )
             .child(
                 item("tab-menu-shell", icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T"))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_tab(&crate::actions::NewTab, window, cx))),
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.panels.menu = None;
+                        this.new_shell(Place::Pane(Some(pane)), cx);
+                    })),
             )
             .child(
                 item("tab-menu-browser", icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
@@ -67,7 +75,7 @@ impl Desktop {
             .child(agent("tab-menu-claude", "claude", cx))
             .child(agent("tab-menu-codex", "codex", cx))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.terminal.tab_menu = false;
+                this.panels.menu = None;
                 cx.notify();
             }))
     }

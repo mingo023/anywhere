@@ -37,8 +37,8 @@ impl Desktop {
             .map(|(i, c)| note(ElementId::NamedInteger("note".into(), i as u64), line_label(c.lines), ui::State::Sent, c.text.clone(), c.path.clone()))
             .collect();
         let draft = self.diff.input.read(cx).value().trim().to_string();
-        if let (true, false, Some(path), Some((lo, hi, _))) =
-            (self.diff.pick.composing, draft.is_empty(), self.diff.file.clone(), self.diff.pick.range.and_then(|s| span(&self.diff.lines, ordered(s))))
+        if let Some(v) = self.diff.draft()
+            && let (true, false, Some(path), Some((lo, hi, _))) = (v.pick.composing, draft.is_empty(), v.file.clone(), v.pick.range.and_then(|s| span(&v.lines, ordered(s))))
         {
             notes.push(note("draft".into(), line_label((lo, hi)), ui::State::Draft, draft, path));
         }

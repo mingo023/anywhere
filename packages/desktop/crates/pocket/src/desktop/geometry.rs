@@ -62,7 +62,7 @@ impl Geometry {
 }
 
 impl Desktop {
-    /// Writes `desktop.json` once the window, layout and widths have held still for `SAVE_DELAY`.
+    /// Writes `desktop.json` once the window, layout, widths and panels have held still for `SAVE_DELAY`.
     pub(crate) fn save_soon(&mut self, cx: &mut Context<Self>) {
         self.geometry.save = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SAVE_DELAY).await;
@@ -71,7 +71,7 @@ impl Desktop {
         }));
     }
 
-    /// Copies the window, layout and widths into the store and encodes it; capture mode keeps none of them.
+    /// Copies the window, layout, widths and panels into the store and encodes it; capture mode keeps none of them.
     fn remember_chrome(&mut self) -> Option<(PathBuf, Vec<u8>)> {
         if self.capturing {
             return None;
@@ -81,6 +81,7 @@ impl Desktop {
         }
         self.store.layout = self.layout;
         self.store.widths = ColumnWidths { projects: self.widths[0], sessions: self.widths[1] };
+        self.remember_layouts();
         self.store.encode()
     }
 }

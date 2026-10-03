@@ -4,11 +4,12 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::Path;
 use ui::{self, menu_row};
-use workspace::Doc;
+use workspace::{Doc, Place};
 
 impl Desktop {
     pub(super) fn more_menu(&mut self, cx: &mut Context<Self>) -> Div {
-        let menu = ui::pop(div().absolute().right(px(22.)).top(px(58.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
+        let at = self.panels.more_at.unwrap_or_default();
+        let menu = ui::pop(div().absolute().left(at.x - px(216.)).top(at.y + px(18.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
         let path = match self.active_doc() {
             Some(Doc::File(p)) => Some(p),
             Some(Doc::Diff(p) | Doc::CommitFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
@@ -17,7 +18,7 @@ impl Desktop {
         let Some(path) = path.filter(|_| self.screen == Screen::Sessions) else {
             return menu
                 .child(menu_row("more-tab", "terminal", "New terminal tab", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.new_shell(None, cx);
+                    this.new_shell(Place::Pane(None), cx);
                     this.close_overlay(window, cx);
                 })))
                 .when(!self.agents.observe_only(), |d| {

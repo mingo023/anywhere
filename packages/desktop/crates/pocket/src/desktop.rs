@@ -5,6 +5,7 @@ pub(crate) mod dock;
 pub(crate) mod jump;
 pub(crate) mod project;
 pub(crate) mod sounds;
+pub(crate) mod toast;
 
 use crate::browser::Browsers;
 use crate::creating::Creates;
@@ -17,13 +18,14 @@ use crate::desktop::sounds::Chime;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::git_ui::changes::ChangesState;
-use crate::git_ui::commit::CommitState;
+use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::DiffState;
 use crate::git_ui::graph::GraphState;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, new_session};
 use crate::palette::PaletteState;
+use crate::panels::Panels;
 use crate::sidebar::SidebarState;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
@@ -36,7 +38,11 @@ use std::collections::HashMap;
 use std::time::Instant;
 use store::Store;
 use theme::*;
+use workspace::tree::PaneId;
 use workspace::{Doc, Tab, Workspace};
+
+/// The pane a worktree starts with.
+pub(crate) const MAIN: PaneId = 0;
 
 pub struct Desktop {
     pub(crate) daemon: Daemon,
@@ -61,8 +67,9 @@ pub struct Desktop {
     pub(crate) diff: DiffState,
     pub(crate) changes: ChangesState,
     pub(crate) graph: GraphState,
-    pub(crate) commit: CommitState,
+    pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
+    pub(crate) panels: Panels,
     pub(crate) browsers: Browsers,
     pub(crate) initials: String,
     pub(crate) explorer: ExplorerState,
@@ -95,11 +102,10 @@ impl Desktop {
         let (chips, chips_subs) = Chips::new(window, cx);
         let (diff, diff_subs) = DiffState::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
-        let (preview, preview_subs) = PreviewState::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
-        let (browsers, browser_subs) = Browsers::new(window, cx);
+        let browsers = Browsers::new(window, cx);
         let root = cx.focus_handle();
         window.focus(&root, cx);
         let this = cx.weak_entity();
@@ -116,11 +122,9 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(diff_subs);
         _subs.extend(changes_subs);
-        _subs.extend(preview_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
         _subs.extend(geometry_subs);
-        _subs.extend(browser_subs);
         let (layout, widths) = (store.layout, [store.widths.projects, store.widths.sessions]);
         Self {
             daemon,
@@ -144,7 +148,7 @@ impl Desktop {
             diff,
             changes,
             graph: GraphState::default(),
-            commit: CommitState::default(),
+            commit: Commits::default(),
             initials: String::new(),
             explorer: ExplorerState::new(),
             git_run: 0,
@@ -152,6 +156,7 @@ impl Desktop {
             error: None,
             root,
             terminal: TerminalViewState::new(cx),
+            panels: Panels::default(),
             browsers,
             inbox: InboxState::new(cx),
             palette,
@@ -162,7 +167,7 @@ impl Desktop {
             worktree: None,
             confirm: None,
             row_menu: None,
-            preview,
+            preview: PreviewState::default(),
             new_form,
             repo_form,
             pair: PairPhone::default(),
@@ -181,10 +186,12 @@ impl Desktop {
         self.side = Side::Sessions;
         self.session = Some(id.to_string());
         let w = self.workspace(&tree);
-        if let Some(i) = w.tab_of(&term) {
-            w.active = i;
+        if let Some((pane, i)) = w.tab_of(&term) {
+            w.tree.select(pane, i);
         }
+        self.load_active(cx);
         self.focus_pane(term, window, cx);
+        self.save_soon(cx);
         self.refresh_git(cx);
     }
 
@@ -218,8 +225,12 @@ impl Desktop {
         self.project = p;
         self.session = None;
         self.worktree = None;
-        self.diff.file = None;
-        self.preview.file = None;
+        for v in self.diff.panes.values_mut() {
+            v.file = None;
+        }
+        for p in self.preview.panes.values_mut() {
+            p.file = None;
+        }
         self.explorer.tree.clear();
     }
 
@@ -235,111 +246,142 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn select_tab(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// Shows tab `i` of `pane` and focuses the pane.
+    pub fn select_tab(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
-        let w = self.workspace(&tree);
-        w.active = i;
-        match w.active().cloned() {
-            Some(Tab::Term(rows)) => self.focus_pane(rows[0][0].clone(), window, cx),
-            Some(Tab::Doc(doc)) => self.show_doc(doc, cx),
+        self.workspace(&tree).tree.select(pane, i);
+        match self.pane_tab(pane) {
+            Some(Tab::Term(id)) => self.focus_pane(id, window, cx),
+            Some(Tab::Doc(doc)) => self.show_doc(pane, doc, cx),
             Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
             None => {}
         }
+        self.save_soon(cx);
         cx.notify();
     }
 
-    /// The file or changes the worktree's active tab shows.
+    /// The pane keys and actions go to.
+    pub(crate) fn focused_pane(&self) -> PaneId {
+        self.cwd().and_then(|t| self.workspaces.get(&t)).map_or(MAIN, |w| w.tree.focused)
+    }
+
+    pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
+        self.cwd().and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tree.panes().iter().map(|p| p.id).collect())
+    }
+
+    /// The tab `pane` shows in the worktree on screen.
+    pub(crate) fn pane_tab(&self, pane: PaneId) -> Option<Tab> {
+        self.workspaces.get(&self.cwd()?)?.tree.pane(pane)?.active().cloned()
+    }
+
+    /// The file or changes the focused pane shows.
     pub fn active_doc(&self) -> Option<Doc> {
-        match self.workspaces.get(&self.cwd()?)?.active()? {
-            Tab::Doc(doc) => Some(doc.clone()),
+        match self.pane_tab(self.focused_pane())? {
+            Tab::Doc(doc) => Some(doc),
             Tab::Term(_) | Tab::Web(_) => None,
         }
     }
 
     /// Opens `doc` in its tab of the worktree on screen; unless `pin`, in the preview tab the next open takes over.
+    /// With no pane holding docs it opens in a new pane right of the focused one, or in the focused one when that has no room to split.
     pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
         self.screen = Screen::Sessions;
-        self.workspace(&tree).open_doc(doc.clone(), pin);
-        self.show_doc(doc, cx);
+        let bounds = self.panels.bounds;
+        let w = self.workspace(&tree);
+        let pane = w.doc_pane(bounds);
+        let (pane, _) = w.open_doc(doc.clone(), pin, pane);
+        self.show_doc(pane, doc, cx);
+        self.save_soon(cx);
     }
 
-    pub(crate) fn pin_doc(&mut self, doc: &Doc) {
+    pub(crate) fn pin_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
         if let Some(tree) = self.cwd() {
             self.workspace(&tree).pin(doc);
+            self.save_soon(cx);
         }
     }
 
     pub(crate) fn close_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some(i) = self.cwd().and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
-            self.close_tab(i, cx);
+        if let Some((pane, i)) = self.cwd().and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
+            self.close_tab(pane, i, cx);
         }
     }
 
-    fn show_doc(&mut self, doc: Doc, cx: &mut Context<Self>) {
+    fn show_doc(&mut self, pane: PaneId, doc: Doc, cx: &mut Context<Self>) {
         match doc {
             Doc::File(path) => {
-                self.preview.open(path);
-                self.load_file(cx);
+                self.preview.open(pane, path);
+                self.load_file(pane, cx);
             }
             Doc::Diff(path) => {
-                self.diff.select(path, None);
-                self.load_diff(cx);
+                self.diff.select(pane, path, None);
+                self.load_diff(pane, cx);
             }
             Doc::CommitFile { sha, path } => {
-                self.diff.select(path, Some(sha));
-                self.load_diff(cx);
+                self.diff.select(pane, path, Some(sha));
+                self.load_diff(pane, cx);
             }
-            Doc::Commit(sha) => self.show_commit(sha, cx),
+            Doc::Commit(sha) => self.show_commit(pane, sha, cx),
         }
         cx.notify();
     }
 
-    pub fn loaded(&self, doc: &Doc) -> bool {
+    pub fn loaded(&self, pane: PaneId, doc: &Doc) -> bool {
+        let diff = self.diff.view(pane);
         match doc {
-            Doc::File(p) => self.preview.file.as_ref() == Some(p),
-            Doc::Diff(p) => self.diff.file.as_ref() == Some(p) && self.diff.at.is_none(),
-            Doc::CommitFile { sha, path } => self.diff.file.as_ref() == Some(path) && self.diff.at.as_ref() == Some(sha),
-            Doc::Commit(sha) => self.commit.sha.as_ref() == Some(sha),
+            Doc::File(p) => self.preview.file(pane) == Some(p.as_str()),
+            Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, None)),
+            Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, Some(sha.as_str()))),
+            Doc::Commit(sha) => self.commit.get(pane).is_some_and(|c| c.sha.as_ref() == Some(sha)),
         }
     }
 
-    /// Loads the doc a tab revealed by closing or switching worktrees shows, unless it is loaded already.
+    /// Drops what closed panes showed, and loads the docs that tabs revealed by closing or switching worktrees show, unless they are loaded already.
     pub(crate) fn load_active(&mut self, cx: &mut Context<Self>) {
-        if let Some(doc) = self.active_doc().filter(|d| !self.loaded(d)) {
-            self.show_doc(doc, cx);
+        let panes = self.pane_ids();
+        self.diff.retain_panes(&panes);
+        self.commit.retain_panes(&panes);
+        self.preview.retain_panes(&panes);
+        self.browsers.retain_panes(&panes);
+        for pane in panes {
+            if let Some(Tab::Doc(doc)) = self.pane_tab(pane)
+                && !self.loaded(pane, &doc)
+            {
+                self.show_doc(pane, doc, cx);
+            }
         }
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.terminal.tab_menu || self.terminal.tab_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu
     }
 
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self) -> bool {
         let open = self.menu_open();
-        (self.terminal.tab_menu, self.terminal.tab_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (false, None, None, false, false);
+        (self.panels.menu, self.panels.actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, false, false);
         self.sidebar.menu_at = None;
         open
     }
 
-    /// The worktree whose tabs the main view shows, if it shows any.
-    pub(crate) fn session_tree(&mut self) -> Option<String> {
+    /// The worktree whose panes the main view shows.
+    pub(crate) fn session_tree(&self) -> Option<String> {
         if self.terminals.link.is_down() || matches!(self.screen, Screen::Inbox) {
             return None;
         }
-        self.cwd().filter(|t| !self.workspace(t).tabs.is_empty())
+        self.cwd()
     }
 
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
             _ if self.shown_create().is_some() => self.creating_page(cx),
-            Some(tree) => self.session_page(&tree, window, cx),
+            Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
             None => self.blank_page(cx),
         };
-        ui::page(div()).flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body)
+        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx))
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
@@ -366,8 +408,7 @@ impl Desktop {
         let bar = chrome::drag_area(ui::page_bar())
             .pl(px(pad))
             .children(toggle)
-            .child(ui::breadcrumb(vec!["Sessions".into()]))
-            .when(self.cwd().is_some() && !observe, |d| d.child(self.new_tab_controls(cx)));
+            .child(ui::breadcrumb(vec!["Sessions".into()]));
         div().flex_1().flex().flex_col().child(bar).when(observe, |d| d.child(chrome::observe_banner())).child(
             div()
                 .flex_1()
@@ -392,10 +433,11 @@ impl Desktop {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_panels();
         self.sync_code(window, cx);
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
-        self.sync_browser();
+        self.sync_browser(window);
         let lead = match self.layout {
             Layout::Sidebars => Some(self.aside(cx)),
             Layout::Compact => Some(self.nav(cx)),
@@ -443,6 +485,13 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::new_browser))
             .on_action(cx.listener(Self::close_active_tab))
+            .on_action(cx.listener(Self::split_right))
+            .on_action(cx.listener(Self::split_down))
+            .on_action(cx.listener(Self::focus_toward))
+            .on_action(cx.listener(Self::prev_tab))
+            .on_action(cx.listener(Self::next_tab))
+            .on_action(cx.listener(Self::zoom_pane))
+            .on_action(cx.listener(Self::equalize_panes))
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::open_selected))

@@ -13,6 +13,8 @@ use std::ops::Range;
 use store::Sounds;
 use theme::*;
 use ui::{self, dot};
+use workspace::Place;
+use workspace::tree::Edge;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pick {
@@ -343,7 +345,7 @@ impl Desktop {
                 self.open_file(path, true, cx);
             }
             Pick::New => self.open(Overlay::NewSession, window, cx),
-            Pick::Split => self.new_shell(Some(false), cx),
+            Pick::Split => self.new_shell(Place::Split(self.focused_pane(), Edge::Right), cx),
             Pick::Next => self.next_needs_you(&crate::actions::NextNeedsYou, window, cx),
             Pick::Tree { project, tree } => {
                 if self.projects().contains(&project) {

@@ -15,21 +15,22 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | Crate | Owns |
 |---|---|
 | `pocket` | the binary: app bootstrap, window, the `Desktop` shell and feature views |
-| `workspace` | tabs and splits of a worktree |
+| `workspace` | the pane tree of a worktree: panes, their tabs, splits |
 | `git` | git reads and writes, diffs, commit graph lanes |
 | `daemon` | the pocketd socket client |
 | `agents` | the phone-socket client and the agent list |
 | `term` | the ghostty VT |
-| `store` | the saved projects and sound toggles |
+| `store` | the saved projects, sound toggles and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `web` | the WKWebView page of a browser tab, address and link parsing |
 | `ui`, `theme` | widgets, colours, icons |
 
 | `pocket` module | Owns |
 |---|---|
-| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars |
+| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast |
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing |
-| `terminal_view` | the session page: tabs, panes, keyboard and IME input; `terminal_view/link` the link under the pointer |
+| `panels` | the main area's pane tree: strips, dividers, drag and drop, saved layouts, shortcuts |
+| `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer |
 | `browser` | browser tabs: pages, address bar, navigation |
 | `sidebar` | projects aside, compact rail, sessions column |
 | `git_ui` | `changes` panel and commit, `diff` view and comments, `graph` commit graph, `commit` stacked commit diff |

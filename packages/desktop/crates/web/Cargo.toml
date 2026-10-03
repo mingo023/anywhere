@@ -13,5 +13,6 @@ wry.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 block2.workspace = true
 objc2.workspace = true
-objc2-app-kit = { workspace = true, features = ["block2", "NSEvent", "NSTrackingArea", "NSView", "NSWindow"] }
-objc2-foundation = { workspace = true, features = ["NSBundle", "NSGeometry"] }
+objc2-app-kit = { workspace = true, features = ["block2", "NSEvent", "NSImage", "NSTrackingArea", "NSView", "NSWindow"] }
+objc2-foundation = { workspace = true, features = ["NSBundle", "NSData", "NSError", "NSGeometry"] }
+objc2-web-kit = { workspace = true, features = ["block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }

@@ -8,7 +8,7 @@ use ui::Variant;
 
 impl Desktop {
     pub(super) fn composer(&self, cx: &mut Context<Self>) -> Div {
-        let lines = self.diff.pick.label(&self.diff.lines).unwrap_or_default();
+        let lines = self.diff.draft().and_then(|v| v.pick.label(&v.lines)).unwrap_or_default();
         let target = self.comment_target();
         let ready = target.is_some() && !self.diff.input.read(cx).value().trim().is_empty();
         let head = div()

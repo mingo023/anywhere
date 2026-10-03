@@ -1,7 +1,8 @@
 use crate::browser;
 use gpui_kit::*;
+use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -11,6 +12,11 @@ pub struct JumpTo(pub usize);
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
 pub struct PageEdit(pub web::Edit);
+
+/// Focuses the panel touching the focused one at this edge.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct FocusPane(pub Edge);
 
 pub fn bindings() -> Vec<KeyBinding> {
     let mut out = vec![
@@ -34,6 +40,20 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-a", SelectAll, Some(keys::CONTEXT)),
         KeyBinding::new("cmd-v", Paste, Some(keys::CONTEXT)),
         KeyBinding::new("cmd-shift-b", NewBrowser, None),
+        KeyBinding::new("cmd-d", SplitRight, None),
+        KeyBinding::new("cmd-shift-d", SplitDown, None),
+        KeyBinding::new("cmd-alt-left", FocusPane(Edge::Left), None),
+        KeyBinding::new("cmd-alt-right", FocusPane(Edge::Right), None),
+        KeyBinding::new("cmd-alt-up", FocusPane(Edge::Top), None),
+        KeyBinding::new("cmd-alt-down", FocusPane(Edge::Bottom), None),
+        // gpui-base's `Input` binds these to add cursors; at equal depth the later binding wins, so panels keep them in the code editor too.
+        KeyBinding::new("cmd-alt-up", FocusPane(Edge::Top), Some("Input")),
+        KeyBinding::new("cmd-alt-down", FocusPane(Edge::Bottom), Some("Input")),
+        // macOS reports ⌘⇧[ as `{` with shift already applied (gpui-pre-macos parse_keystroke), so `cmd-shift-[` would never match.
+        KeyBinding::new("cmd-{", PrevTab, None),
+        KeyBinding::new("cmd-}", NextTab, None),
+        KeyBinding::new("cmd-shift-enter", ZoomPane, None),
+        KeyBinding::new("cmd-ctrl-=", EqualizePanes, None),
         KeyBinding::new("cmd-l", FocusAddress, Some(browser::CONTEXT)),
         KeyBinding::new("cmd-r", Reload, Some(browser::CONTEXT)),
         KeyBinding::new("cmd-[", Back, Some(browser::CONTEXT)),
@@ -52,6 +72,7 @@ pub fn bindings() -> Vec<KeyBinding> {
 #[cfg(test)]
 mod tests {
     use super::bindings;
+    use gpui_kit::Keystroke;
     use std::collections::HashSet;
 
     #[test]
@@ -61,6 +82,20 @@ mod tests {
             let keys: Vec<String> = b.keystrokes().iter().map(|k| k.unparse()).collect();
             let context = b.predicate().map(|p| p.to_string());
             assert!(seen.insert((keys.clone(), context.clone())), "{keys:?} in {context:?} is bound twice");
+        }
+    }
+
+    /// The actions bound to `keys` outside any context.
+    fn bound(keys: &str) -> Vec<&'static str> {
+        let want = vec![Keystroke::parse(keys).unwrap().unparse()];
+        bindings().iter().filter(|b| b.predicate().is_none() && b.keystrokes().iter().map(|k| k.unparse()).collect::<Vec<_>>() == want).map(|b| b.action().name()).collect()
+    }
+
+    #[test]
+    fn the_panel_shortcuts_work_everywhere() {
+        let panel = [("cmd-d", "desktop::SplitRight"), ("cmd-shift-d", "desktop::SplitDown"), ("cmd-alt-left", "desktop::FocusPane"), ("cmd-alt-right", "desktop::FocusPane"), ("cmd-alt-up", "desktop::FocusPane"), ("cmd-alt-down", "desktop::FocusPane"), ("cmd-{", "desktop::PrevTab"), ("cmd-}", "desktop::NextTab"), ("cmd-shift-enter", "desktop::ZoomPane"), ("cmd-ctrl-=", "desktop::EqualizePanes"), ("cmd-w", "desktop::CloseTab")];
+        for (keys, action) in panel {
+            assert_eq!(bound(keys), [action], "{keys}");
         }
     }
 }

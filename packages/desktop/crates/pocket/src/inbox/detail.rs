@@ -38,7 +38,7 @@ impl Desktop {
             .child(ui::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.focus_agent(&agent, window, cx)
             })));
-        let pane = self.pane(&n.terminal, None, &surface::MAIN, cx);
+        let pane = self.pane(&n.terminal, &surface::MAIN, cx);
         let hints = div()
             .h(px(36.))
             .flex_none()

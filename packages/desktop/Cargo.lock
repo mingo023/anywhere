@@ -7053,6 +7053,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "workspace",
 ]
 
 [[package]]
@@ -8590,6 +8591,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "objc2-web-kit",
  "wry",
 ]
 
@@ -9586,6 +9588,10 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 [[package]]
 name = "workspace"
 version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "writeable"

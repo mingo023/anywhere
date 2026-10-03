@@ -9,6 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 use theme::*;
 use ui::{self, Segment, Variant, dot};
+use workspace::tree::PaneId;
 
 /// `path` relative to `root`, or whole when it lies outside.
 pub fn relative(path: &str, root: &str) -> String {
@@ -31,7 +32,7 @@ impl Desktop {
     }
 
     /// The bar over a file: its breadcrumbs, language, size and git status, and what can be done with it.
-    pub(super) fn file_header(&mut self, path: &str, cx: &mut Context<Self>) -> Div {
+    pub(super) fn file_header(&mut self, pane: PaneId, path: &str, cx: &mut Context<Self>) -> Div {
         let root = self.explore_root().unwrap_or_default();
         let rel = relative(path, &root);
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
@@ -39,21 +40,24 @@ impl Desktop {
         let prompt = format!("About {rel}: ");
         let copy = rel.clone();
         let opened = path.to_string();
-        let text = self.preview.text();
+        let file = self.preview.pane(pane);
+        let text = file.and_then(|f| f.text());
         let right = div()
             .flex()
             .items_center()
             .gap(px(8.))
-            .when(self.preview.markdown(), |d| {
+            .when(file.is_some_and(|f| f.markdown()), |d| {
                 d.child(div().id("md-mode").child(ui::segmented(
                     vec![Segment { icon: None, value: false, label: "Preview".into(), badge: None }, Segment { icon: None, value: true, label: "Source".into(), badge: None }],
-                    self.preview.md_source,
+                    file.is_some_and(|f| f.md_source),
                     true,
                     false,
-                    |this, v, cx| {
-                        this.preview.md_source = v;
-                        let text = this.preview.code_text.clone();
-                        this.preview.views.md.update(cx, |md, cx| md.set_text(&text, cx));
+                    move |this, v, cx| {
+                        let Some(f) = this.preview.panes.get_mut(&pane) else { return };
+                        f.md_source = v;
+                        if let Some(views) = &f.views {
+                            views.md.update(cx, |md, cx| md.set_text(&f.code_text, cx));
+                        }
                         cx.notify();
                     },
                     cx,
@@ -74,7 +78,7 @@ impl Desktop {
                     false => ui::group_button("copy-path", "copy"),
                 }
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.copy_path(&copy, cx))),
-                ui::group_button("file-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
+                ui::group_button("file-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx))),
             ]));
         let (status_color, status_label) = status_word(self.file_status(path));
         let mut meta = vec![ui::meta_item().child(icon("file", 13., TEXT_2)).child(language(path)).into_any_element()];

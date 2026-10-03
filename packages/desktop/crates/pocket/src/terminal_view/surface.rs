@@ -10,7 +10,6 @@ pub struct Metrics {
 }
 
 pub const MAIN: Metrics = Metrics { size: 13., line: 17. };
-pub const SMALL: Metrics = Metrics { size: 12., line: 15. };
 
 /// Geist Mono with ligatures off: a merged `--` would collapse two cells into one.
 pub(crate) fn term_font() -> Font {

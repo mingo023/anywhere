@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use workspace::Workspace;
 
 /// How a repository shows in the rail and how new worktrees of it are made.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
@@ -78,6 +79,9 @@ pub struct Store {
     pub layout: Layout,
     pub widths: ColumnWidths,
     pub sounds: Sounds,
+    /// Each worktree's panels, keyed by the worktree's path.
+    #[serde(deserialize_with = "readable_layouts")]
+    pub layouts: BTreeMap<String, Workspace>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -127,6 +131,12 @@ impl Store {
     }
 }
 
+/// Drops layouts that don't parse, since `Store::load` forgets everything on any error.
+fn readable_layouts<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, Workspace>, D::Error> {
+    let raw = BTreeMap::<String, serde_json::Value>::deserialize(d)?;
+    Ok(raw.into_iter().filter_map(|(path, v)| Some((path, serde_json::from_value(v).ok()?))).collect())
+}
+
 /// Replaces `path` in one rename, owner-only, so pocketd never reads half a file.
 pub fn write(path: &Path, raw: &[u8]) {
     static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -173,6 +183,44 @@ mod tests {
         std::fs::write(dir.join("desktop.json"), r#"{"projects":["/w"]}"#).unwrap();
         let s = Store::load(&dir);
         assert_eq!((s.projects.len(), &s.window, s.layout, s.widths), (1, &None, Layout::Sidebars, ColumnWidths::default()));
+        assert!(s.layouts.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn panels_round_trip_through_desktop_json() {
+        use workspace::tree::Edge;
+        use workspace::{Doc, Tab, Workspace};
+        let dir = std::env::temp_dir().join(format!("pocket-store-layouts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = Store::load(&dir);
+        let mut w = Workspace::default();
+        w.tree.push(0, Tab::Term("t1".into()));
+        w.tree.split(0, Edge::Right, Tab::Doc(Doc::File("/w/a.rs".into())));
+        s.layouts.insert("/w".into(), w);
+        s.save();
+        assert_eq!(Store::load(&dir).layouts, s.layouts);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_unreadable_layout_is_dropped_and_the_rest_of_desktop_json_kept() {
+        use workspace::{Tab, Workspace};
+        let dir = std::env::temp_dir().join(format!("pocket-store-bad-layout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut good = Workspace::default();
+        good.tree.push(0, Tab::Term("t1".into()));
+        let raw = serde_json::json!({
+            "projects": ["/w"],
+            "layouts": { "/w": serde_json::to_value(&good).unwrap(), "/x": { "tree": 5 } },
+        });
+        std::fs::write(dir.join("desktop.json"), raw.to_string()).unwrap();
+        let s = Store::load(&dir);
+        assert_eq!(s.projects, ["/w"]);
+        assert_eq!(s.layouts.get("/w"), Some(&good));
+        assert!(!s.layouts.contains_key("/x"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

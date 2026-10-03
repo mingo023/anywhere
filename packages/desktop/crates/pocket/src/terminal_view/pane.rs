@@ -1,5 +1,4 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::id;
 use crate::status;
 use crate::terminal_view::{cursor, scroll};
 use crate::terminal_view::surface::{self, Metrics};
@@ -10,7 +9,6 @@ use daemon::Info;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
-use ui::{self, icon_button_sized};
 
 /// "/bin/zsh -l" reads as "zsh": the login flag the desktop adds says nothing about the pane.
 /// A login shell shows as its name only: the script it may run to start an agent is ours, not the user's.
@@ -29,50 +27,13 @@ pub fn pane_label(agent: Option<&Summary>, session: Option<&Session>) -> String 
     }
 }
 
-pub fn pane_title(agent: Option<&Summary>, session: Option<&Session>) -> String {
-    match agent {
-        Some(a) => format!("{} — {}", a.provider, basename(&a.cwd)),
-        None => pane_label(None, session),
-    }
-}
-
-/// Numbers a split tab's panes in reading order, for their headers; a lone pane has no header.
-pub fn numbered(rows: Vec<Vec<String>>) -> Vec<Vec<(String, Option<usize>)>> {
-    let split = rows.len() > 1 || rows[0].len() > 1;
-    let mut n = 0;
-    rows.into_iter()
-        .map(|row| {
-            row.into_iter()
-                .map(|id| {
-                    n += 1;
-                    (id, split.then_some(n))
-                })
-                .collect()
-        })
-        .collect()
-}
-
 impl Desktop {
     pub fn pane_label(&self, id: &str) -> String {
         pane_label(self.summary(id), self.terminals.sessions.get(id))
     }
 
-    pub(crate) fn panes(&mut self, rows: Vec<Vec<String>>, cx: &mut Context<Self>) -> Div {
-        let mut out = Vec::new();
-        for (r, row) in numbered(rows).into_iter().enumerate() {
-            let m = if r == 0 { &surface::MAIN } else { &surface::SMALL };
-            if r > 0 {
-                out.push(div().h(px(0.5)).flex_none().bg(SEPARATOR));
-            }
-            let mut panes = Vec::new();
-            for (i, (id, n)) in row.into_iter().enumerate() {
-                if i > 0 {
-                    panes.push(div().w(px(0.5)).flex_none().bg(SEPARATOR));
-                }
-                panes.push(self.pane(&id, n, m, cx));
-            }
-            out.push(div().flex().min_h_0().when(r == 0, |d| d.flex_1()).when(r > 0, |d| d.h(px(250.)).flex_none()).children(panes));
-        }
+    /// The body of a terminal tab; only the focused pane's takes keys.
+    pub(crate) fn term_body(&mut self, id: &str, focused: bool, cx: &mut Context<Self>) -> Div {
         div()
             .flex_1()
             .min_h_0()
@@ -80,20 +41,21 @@ impl Desktop {
             .flex_col()
             .border_t(px(0.5))
             .border_color(SEPARATOR)
-            .key_context(keys::CONTEXT)
-            .track_focus(&self.terminal.focus)
-            .on_key_down(cx.listener(Self::on_term_key))
-            .on_action(cx.listener(Self::copy_selection))
-            .on_action(cx.listener(Self::select_all))
-            .on_action(cx.listener(Self::paste))
-            .children(out)
+            .when(focused, |d| {
+                d.key_context(keys::CONTEXT)
+                    .track_focus(&self.terminal.focus)
+                    .on_key_down(cx.listener(Self::on_term_key))
+                    .on_action(cx.listener(Self::copy_selection))
+                    .on_action(cx.listener(Self::select_all))
+                    .on_action(cx.listener(Self::paste))
+            })
+            .child(self.pane(id, &surface::MAIN, cx))
     }
 
-    pub fn pane(&mut self, id: &str, n: Option<usize>, m: &'static Metrics, cx: &mut Context<Self>) -> Div {
+    pub fn pane(&mut self, id: &str, m: &'static Metrics, cx: &mut Context<Self>) -> Div {
         let focused = self.terminal.focused.as_deref() == Some(id);
         let exit = self.terminals.sessions.get(id).and_then(|s| s.exit);
         let known = self.terminals.sessions.get(id).is_some();
-        let title = pane_title(self.summary(id), self.terminals.sessions.get(id));
         let banner = self.summary(id).and_then(status::banner).map(|text| {
             div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
         });
@@ -115,31 +77,6 @@ impl Desktop {
             let preedit = self.terminal.marked.clone().filter(|_| typing);
             cursor::overlay(focused.then(|| cx.entity()), at, rows, c, preedit, m)
         });
-        let close_id = id.to_string();
-        let closable = self.terminals.may_close(id, self.agents.observe_only());
-        let header = n.map(|n| {
-            div()
-                .h(px(30.))
-                .flex_none()
-                .pl(px(16.))
-                .pr(px(6.))
-                .flex()
-                .items_center()
-                .border_b(px(0.5))
-                .border_color(SEPARATOR)
-                .text_color(if focused { TEXT } else { TEXT_3 })
-                .font_family(MONO)
-                .text_size(px(11.5))
-                .child(div().flex_1().truncate().child(format!("{n} · {title}")))
-                .when(closable, |d| {
-                    d.child(icon_button_sized(self::id(format!("close-{close_id}")), "x", 22., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        if !this.ask_close(vec![close_id.clone()], cx) {
-                            this.close_pane(&close_id, cx);
-                        }
-                    })))
-                })
-        });
         let focus_id = id.to_string();
         let drop_id = id.to_string();
         let screen = div()
@@ -157,12 +94,10 @@ impl Desktop {
             .flex()
             .flex_col()
             .bg(SURFACE_SUNKEN)
-            .when(focused && n.is_some(), |d| d.shadow(vec![BoxShadow { inset: true, ..ui::ring(SEPARATOR_STRONG, 0.5) }]))
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
             .drag_over::<ExternalPaths>(|s, _, _, _| s.shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT, 1.5) }]))
             .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| this.drop_paths(drop_id.clone(), paths, window, cx)))
-            .children(header)
             .children(banner)
             .child(
                 div()
@@ -184,7 +119,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Info, command_line, numbered, pane_label, pane_title};
+    use super::{Info, command_line, pane_label};
     use crate::terminals::sessions::Session;
     use agents::Summary;
 
@@ -209,29 +144,6 @@ mod tests {
     #[test]
     fn a_pane_without_a_session_reads_as_session() {
         assert_eq!(pane_label(None, None), "session");
-    }
-
-    #[test]
-    fn an_agent_pane_title_names_its_folder_and_a_shell_one_its_label() {
-        let agent = Summary { provider: "codex".into(), cwd: "/code/pocket".into(), ..Default::default() };
-        assert_eq!(pane_title(Some(&agent), None), "codex — pocket");
-        assert_eq!(pane_title(None, Some(&shell("", None))), "zsh");
-    }
-
-    fn rows(rows: &[&[&str]]) -> Vec<Vec<String>> {
-        rows.iter().map(|r| r.iter().map(|id| id.to_string()).collect()).collect()
-    }
-
-    #[test]
-    fn a_lone_pane_goes_unnumbered() {
-        assert_eq!(numbered(rows(&[&["a"]])), vec![vec![("a".to_string(), None)]]);
-    }
-
-    #[test]
-    fn split_panes_are_numbered_in_reading_order() {
-        let n = |id: &str, n| (id.to_string(), Some(n));
-        assert_eq!(numbered(rows(&[&["a", "b"], &["c"]])), vec![vec![n("a", 1), n("b", 2)], vec![n("c", 3)]]);
-        assert_eq!(numbered(rows(&[&["a"], &["b"]])), vec![vec![n("a", 1)], vec![n("b", 2)]]);
     }
 
     #[test]

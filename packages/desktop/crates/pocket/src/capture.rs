@@ -13,7 +13,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 23] = [
+const STEPS: [(&str, Step); 24] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -41,7 +41,7 @@ const STEPS: [(&str, Step); 23] = [
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
-    ("tab-menu", |d, _, _| d.terminal.tab_menu = true),
+    ("tab-menu", |d, _, _| d.panels.menu = Some(d.focused_pane())),
     ("browser", |d, window, cx| d.open_browser(None, window, cx)),
     ("file", |d, _, cx| {
         if let Some(path) = d.cwd().zip(d.repo().and_then(|r| r.files.first())).map(|(root, f)| format!("{root}/{}", f.path)) {
@@ -49,8 +49,9 @@ const STEPS: [(&str, Step); 23] = [
         }
     }),
     ("comment", |d, window, cx| {
-        if let Some(i) = d.diff.lines.iter().position(|l| l.kind == Kind::Add) {
-            d.open_comment(i, window, cx);
+        let pane = d.focused_pane();
+        if let Some(i) = d.diff.view(pane).and_then(|v| v.lines.iter().position(|l| l.kind == Kind::Add)) {
+            d.open_comment(pane, i, window, cx);
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
@@ -77,6 +78,7 @@ const STEPS: [(&str, Step); 23] = [
             c.fail("Setup exited 1".into(), "npm ERR! missing script: setup".into(), Instant::now());
         }
     }),
+    ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
 ];
 
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,
@@ -153,10 +155,17 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_comment(window, cx);
     d.close_overlay(window, cx);
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
-    (d.layout, d.widths, d.panel, d.terminal.tab_menu) = (Layout::Sidebars, [None; 2], false, false);
-    (d.session, d.worktree, d.terminal.focused, d.diff.file, d.preview.file) = (None, None, None, None, None);
-    d.diff.at = None;
-    d.commit.sha = None;
+    (d.layout, d.widths, d.panel, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
+    (d.session, d.worktree, d.terminal.focused) = (None, None, None);
+    for p in d.preview.panes.values_mut() {
+        p.file = None;
+    }
+    for v in d.diff.panes.values_mut() {
+        (v.file, v.at) = (None, None);
+    }
+    for c in d.commit.panes.values_mut() {
+        c.sha = None;
+    }
     d.workspaces.clear();
     d.creates.list.clear();
     d.graph = GraphState::default();

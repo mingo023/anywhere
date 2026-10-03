@@ -2,7 +2,9 @@ use crate::actions::{ToggleFocus, ToggleRail};
 use crate::desktop::Desktop;
 use crate::status::Status;
 use crate::terminals::close::Busy;
+use crate::sidebar::column::{changes_badge, changes_dot};
 use gpui_kit::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use theme::*;
 use ui::{self, State, icon_button_sized};
 
@@ -21,7 +23,7 @@ pub enum Side {
 
 pub use store::Layout;
 
-const SEAM: f32 = 20.;
+pub(crate) const SEAM: f32 = 20.;
 
 /// A sidebar column whose right edge the user drags.
 #[derive(Clone, Copy, PartialEq)]
@@ -219,7 +221,7 @@ impl Desktop {
         };
         match self.layout {
             // Leaves room for the window's traffic lights once the sidebars are hidden.
-            Layout::Focus => (91., Some(toggle("sidebar-expand", cx))),
+            Layout::Focus => (91., Some(toggle("sidebar-expand", cx).relative().when(changes_badge(self.repo()).is_some(), |d| d.child(changes_dot())))),
             Layout::Compact | Layout::Sidebars => (24., None),
         }
     }

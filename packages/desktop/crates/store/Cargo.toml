@@ -10,3 +10,4 @@ path = "src/store.rs"
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+workspace.workspace = true

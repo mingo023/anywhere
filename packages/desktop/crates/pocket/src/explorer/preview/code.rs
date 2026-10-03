@@ -1,4 +1,4 @@
-use super::pane;
+use super::frame;
 use git::{Kind, Line};
 use gpui_kit::component::input::{Editor, EditorState, RopeExt};
 use gpui_kit::*;
@@ -86,7 +86,7 @@ fn hunks(code: Entity<EditorState>, marks: Rc<[(usize, Mark)]>) -> impl IntoElem
 
 /// The editor a text file shows and is edited in.
 pub fn code_pane(code: &Entity<EditorState>, marks: Rc<[(usize, Mark)]>) -> Div {
-    pane()
+    frame()
         .relative()
         .bg(SURFACE_SUNKEN)
         .child(Editor::new(code).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))

@@ -4,34 +4,22 @@ pub(crate) mod link;
 pub(crate) mod pane;
 pub(crate) mod scroll;
 pub(crate) mod surface;
-pub(crate) mod tab_actions;
-pub(crate) mod tab_menu;
-pub(crate) mod tabs;
 
 use crate::actions::{CloseTab, CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, drag_area, observe_banner};
-use gpui_kit::prelude::FluentBuilder as _;
+use crate::desktop::chrome::{Confirm, Overlay};
 use gpui_kit::*;
 use scroll::{Wheel, WheelRows};
 use std::ops::Range;
 use std::time::Duration;
 use term::{Autoscroll, Pointer, Scroll};
-use theme::*;
-use workspace::{Doc, Tab};
+use workspace::Place;
 
 pub struct TerminalViewState {
     pub(crate) focus: FocusHandle,
     pub(crate) focused: Option<String>,
     /// The IME's uncommitted text, drawn at the cursor until it commits.
     pub(crate) marked: Option<String>,
-    pub(crate) tab_scroll: ScrollHandle,
-    /// The worktree and tab last scrolled into view, so a tab is revealed once when it becomes active rather than every frame.
-    pub(crate) tab_revealed: Option<(String, usize)>,
-    pub(crate) tab_menu: bool,
-    /// The tab whose right-click menu is open, and where the click was.
-    pub(crate) tab_actions: Option<(Tab, Point<Pixels>)>,
-    pub(crate) tab_drag: Option<tabs::TabDrag>,
     pub(crate) selection: Option<Drag>,
     pub(crate) wheel: WheelRows,
     pub(crate) autoscroll: Option<Task<()>>,
@@ -47,7 +35,7 @@ pub struct TerminalViewState {
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, tab_scroll: ScrollHandle::new(), tab_revealed: None, tab_menu: false, tab_actions: None, tab_drag: None, selection: None, wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
     }
 }
 
@@ -266,8 +254,8 @@ impl Desktop {
     }
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
-        self.terminal.tab_menu = false;
-        self.new_shell(None, cx);
+        self.panels.menu = None;
+        self.new_shell(Place::Pane(None), cx);
     }
 
     pub fn close_active_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
@@ -275,8 +263,9 @@ impl Desktop {
             return;
         }
         let Some(tree) = self.session_tree() else { return };
-        let active = self.workspace(&tree).active;
-        self.close_tab(active, cx);
+        let p = self.workspace(&tree).tree.focused();
+        let (pane, i) = (p.id, p.active);
+        self.close_tab(pane, i, cx);
     }
 
     pub(crate) fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -287,60 +276,6 @@ impl Desktop {
             self.send_input(&id, &bytes, cx);
             cx.stop_propagation();
         }
-    }
-
-    pub(crate) fn session_page(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let (added, removed) = self.repo().map(|r| r.totals()).unwrap_or_default();
-        let diff = (added + removed > 0).then(|| {
-            div()
-                .id("bar-diff")
-                .flex_none()
-                .mr(px(4.))
-                .cursor_pointer()
-                .child(ui::meta_diff(added, removed, 12.))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, false, cx)))
-        });
-        let error = self.error.clone().map(|e| div().min_w_0().truncate().mr(px(6.)).text_size(px(12.5)).text_color(FAILED_TEXT).child(e));
-        let ring = self.terminal.focused.as_deref().and_then(|t| self.summary(t)).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window));
-        let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().children(error).children(ring);
-        let observe = self.agents.observe_only();
-        let right = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(8.))
-            .when(!observe, |d| {
-                d.child(ui::icon_group([
-                    ui::group_button("split-right", "split-right").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(false), cx))),
-                    ui::group_button("split-down", "split-down").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.new_shell(Some(true), cx))),
-                ]))
-            })
-            .child(ui::icon_group([
-                ui::group_button("session-more", "more").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::More, window, cx))),
-            ]));
-        let (pad, toggle) = self.bar_start(cx);
-        let bar = drag_area(div())
-            .h(px(42.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .pl(px(pad))
-            .pr(px(10.))
-            .children(toggle)
-            .child(self.term_tabs(tree, window, cx))
-            .child(status)
-            .children(diff)
-            .child(right);
-        let body = match self.workspace(tree).active().cloned() {
-            Some(Tab::Term(rows)) => self.panes(rows, cx),
-            Some(Tab::Doc(Doc::File(p))) if self.preview.file.as_ref() == Some(&p) => self.file_view(cx),
-            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. }))) if self.loaded(&doc) => self.diff_view(cx),
-            Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(&doc) => self.commit_view(cx),
-            Some(Tab::Web(id)) => self.browser_view(id, window, cx),
-            Some(Tab::Doc(_)) | None => div().flex_1(),
-        };
-        div().flex_1().min_h_0().flex().flex_col().bg(SURFACE_SUNKEN).child(bar).when(observe, |d| d.child(observe_banner())).child(body)
     }
 }
 

@@ -153,7 +153,7 @@ impl Desktop {
         let (commit, row) = (&self.graph.commits[i], &self.graph.rows[i]);
         let f = &self.graph.files[&commit.sha][j];
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
-        let selected = self.diff.at.as_ref() == Some(&commit.sha) && self.diff.file.as_ref() == Some(&f.path);
+        let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, Some(commit.sha.as_str())));
         div()
             .id(("graph-file", ix))
             .w_full()

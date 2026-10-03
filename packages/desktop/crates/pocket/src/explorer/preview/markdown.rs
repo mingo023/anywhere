@@ -1,5 +1,4 @@
-use super::pane;
-use crate::desktop::Desktop;
+use super::{Views, frame};
 use crate::explorer::mermaid::Mermaid;
 use gpui_kit::base::text::CodeBlock;
 use gpui_kit::component::ActiveTheme;
@@ -41,21 +40,19 @@ fn code_actions(block: &CodeBlock) -> Div {
         .child(Clipboard::new("copy").value(block.code()))
 }
 
-impl Desktop {
-    /// A markdown file rendered, with its mermaid fences drawn as diagrams.
-    pub(super) fn markdown_pane(&self, cx: &App) -> Div {
-        // Side padding sits on the TextView so its scrollbar reaches the edge; vertical padding there would skew the scrollbar's thumb.
-        pane().py(px(32.)).bg(PAGE).child(
-            TextView::new(&self.preview.views.md)
-                .plugin(Mermaid(self.preview.views.diagrams.clone()))
-                .code_block_actions(|block, _, _| code_actions(block))
-                .selectable(true)
-                .scrollable(true)
-                .style(markdown_style(cx.theme().highlight_theme.clone()))
-                .size_full()
-                .px(px(40.)),
-        )
-    }
+/// A markdown file rendered, with its mermaid fences drawn as diagrams.
+pub(super) fn markdown_pane(views: &Views, cx: &App) -> Div {
+    // Side padding sits on the TextView so its scrollbar reaches the edge; vertical padding there would skew the scrollbar's thumb.
+    frame().py(px(32.)).bg(PAGE).child(
+        TextView::new(&views.md)
+            .plugin(Mermaid(views.diagrams.clone()))
+            .code_block_actions(|block, _, _| code_actions(block))
+            .selectable(true)
+            .scrollable(true)
+            .style(markdown_style(cx.theme().highlight_theme.clone()))
+            .size_full()
+            .px(px(40.)),
+    )
 }
 
 #[cfg(test)]
