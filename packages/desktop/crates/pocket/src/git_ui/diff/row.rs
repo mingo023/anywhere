@@ -113,7 +113,7 @@ impl Desktop {
                 add_button(add_at)
                     .when(!last, |b| b.opacity(0.).group_hover("diff-line", |s| s.opacity(1.)))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.open_comment(pane, i, window, cx))),
+                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.open_composer(pane, i, window, cx))),
             )
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.select_line(pane, i, ev.modifiers.shift, window, cx)))
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, window, cx| this.drag_to(pane, i, ev.dragging(), window, cx)))
@@ -141,8 +141,12 @@ impl Desktop {
                 };
                 div().w_full().flex().child(side("old", l, |l| l.old)).child(side("new", r, |l| l.new)).into_any_element()
             }
-            Row::Composer => div().w_full().child(self.composer(cx)).into_any_element(),
-            Row::Comment(c) => div().w_full().child(self.comment_card(c, cx)).into_any_element(),
+            Row::Composer => div()
+                .w_full()
+                .children(self.diff.draft_quote().map(|q| {
+                    self.chat_card(&q, false, cx).mt(px(6.)).mb(px(10.)).mr(px(20.)).ml(px(if self.diff.split { NUM + SIGN } else { 2. * NUM + SIGN }))
+                }))
+                .into_any_element(),
         }
     }
 }

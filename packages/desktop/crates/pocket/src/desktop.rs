@@ -7,6 +7,7 @@ pub(crate) mod project;
 pub(crate) mod sounds;
 pub(crate) mod toast;
 
+use crate::add_to_chat::ChatComposer;
 use crate::browser::Browsers;
 use crate::creating::Creates;
 use crate::desktop::alerts::Alerts;
@@ -65,6 +66,7 @@ pub struct Desktop {
     pub(crate) workspaces: HashMap<String, Workspace>,
     pub(crate) repos: HashMap<String, Repo>,
     pub(crate) diff: DiffState,
+    pub(crate) chat: ChatComposer,
     pub(crate) changes: ChangesState,
     pub(crate) graph: GraphState,
     pub(crate) commit: Commits,
@@ -100,7 +102,7 @@ impl Desktop {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
-        let (diff, diff_subs) = DiffState::new(window, cx);
+        let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
@@ -120,7 +122,7 @@ impl Desktop {
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(chips_subs);
-        _subs.extend(diff_subs);
+        _subs.extend(chat_subs);
         _subs.extend(changes_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
@@ -145,7 +147,8 @@ impl Desktop {
             session: None,
             workspaces: HashMap::new(),
             repos: HashMap::new(),
-            diff,
+            diff: DiffState::default(),
+            chat,
             changes,
             graph: GraphState::default(),
             commit: Commits::default(),
@@ -381,7 +384,7 @@ impl Desktop {
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
             None => self.blank_page(cx),
         };
-        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx))
+        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.added_toast())
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
@@ -495,11 +498,14 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::open_selected))
+            .on_action(cx.listener(Self::add_to_chat))
             .children(lead)
             .children(column)
             .child(page)
             .children(panel)
             .children(overlay)
+            .children(self.chat_pill(cx))
+            .children(self.chat_popover(cx))
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::actions::{ToggleFocus, ToggleRail};
+use crate::add_to_chat::Quote;
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Layout, Overlay, Screen, Side};
@@ -13,7 +14,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 24] = [
+const STEPS: [(&str, Step); 26] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -48,10 +49,17 @@ const STEPS: [(&str, Step); 24] = [
             d.open_file(path, false, cx);
         }
     }),
-    ("comment", |d, window, cx| {
+    ("pill", |d, _, _| d.chat.pill = Some((d.focused_pane(), point(px(420.), px(260.))))),
+    ("ask-file", |d, _, _| {
+        let pane = d.focused_pane();
+        let Some((path, text)) = d.preview.pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };
+        let end = text.match_indices('\n').nth(2).map_or(text.len(), |(i, _)| i);
+        d.chat.file = Quote::code(&crate::util::basename(&path), &text, 0..end).map(|q| (point(px(420.), px(260.)), q));
+    }),
+    ("add-to-chat", |d, window, cx| {
         let pane = d.focused_pane();
         if let Some(i) = d.diff.view(pane).and_then(|v| v.lines.iter().position(|l| l.kind == Kind::Add)) {
-            d.open_comment(pane, i, window, cx);
+            d.open_composer(pane, i, window, cx);
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
@@ -152,7 +160,7 @@ impl Capture {
 }
 
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
-    d.cancel_comment(window, cx);
+    d.cancel_chat(window, cx);
     d.close_overlay(window, cx);
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
     (d.layout, d.widths, d.panel, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);

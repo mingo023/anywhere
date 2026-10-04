@@ -1,4 +1,5 @@
 mod actions;
+mod add_to_chat;
 mod browser;
 mod capture;
 mod creating;

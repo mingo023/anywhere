@@ -2,6 +2,9 @@ mod code;
 mod header;
 mod markdown;
 
+pub(crate) use header::relative;
+
+use crate::add_to_chat::offers_chat;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, empty};
 use crate::explorer::mermaid::Diagrams;
@@ -116,6 +119,9 @@ impl Views {
             if let InputEvent::Change = ev {
                 let text = code.read(cx).value();
                 this.edited(pane, text, cx);
+                if this.chat.pill.take().is_some() {
+                    cx.notify();
+                }
             }
         });
         Self { code, md, diagrams, _edits }
@@ -395,8 +401,8 @@ impl Desktop {
         let header = self.file_header(pane, &path, cx);
         let Some(FilePane { views: Some(views), marks, .. }) = self.preview.pane(pane) else { return div() };
         let body = match self.preview.body(pane) {
-            Body::Markdown => markdown_pane(views, cx).into_any_element(),
-            Body::Code => code_pane(&views.code, marks.clone()).into_any_element(),
+            Body::Markdown => offers_chat(pane, markdown_pane(views, cx), cx).into_any_element(),
+            Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone()), cx).into_any_element(),
             Body::Image => frame()
                 .p(px(24.))
                 .flex()

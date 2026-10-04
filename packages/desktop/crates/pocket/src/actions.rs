@@ -2,7 +2,7 @@ use crate::browser;
 use gpui_kit::*;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -21,6 +21,7 @@ pub struct FocusPane(pub Edge);
 pub fn bindings() -> Vec<KeyBinding> {
     let mut out = vec![
         KeyBinding::new("cmd-k", OpenPalette, None),
+        KeyBinding::new("cmd-l", AddToChat, None),
         KeyBinding::new("cmd-p", GoToFile, None),
         KeyBinding::new("cmd-n", StartSession, None),
         KeyBinding::new("cmd-j", NextNeedsYou, None),

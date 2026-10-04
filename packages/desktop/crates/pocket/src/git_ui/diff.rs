@@ -1,36 +1,21 @@
-mod comment;
-mod composer;
 mod row;
-mod target;
 pub(crate) use row::{code, hunk};
 
 use git::{self, Kind, Line};
 use theme::*;
 use ui::{self, Segment, Variant, checkbox, dot};
-use crate::desktop::{Desktop, MAIN};
+use crate::add_to_chat::{Body, Quote};
+use crate::desktop::Desktop;
 use crate::desktop::chrome::{Side, doc_bar, empty};
 use crate::explorer::status_word;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::util::{ago_long, now_ms};
-use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Range, RangeInclusive};
 use workspace::Doc;
 use workspace::tree::PaneId;
-
-/// A comment sent to an agent about lines of a file, kept so the diff can show it until resolved.
-#[derive(Debug, PartialEq)]
-pub struct Comment {
-    pub path: String,
-    pub lines: (usize, usize),
-    pub old_side: bool,
-    pub label: String,
-    pub text: String,
-    pub at: i64,
-}
 
 const NUM: f32 = 44.;
 const SIGN: f32 = 18.;
@@ -119,23 +104,21 @@ pub enum Row {
     Unified(usize),
     Split(Option<usize>, Option<usize>),
     Composer,
-    Comment(usize),
 }
 
-/// Lays out the diff, with each `(line, comment)` note and then the composer under the row holding their line.
-fn rows(lines: &[Line], split: bool, composer: Option<usize>, notes: &[(usize, usize)]) -> Vec<Row> {
+/// Lays out the diff, with the composer under the row holding its line.
+fn rows(lines: &[Line], split: bool, composer: Option<usize>) -> Vec<Row> {
     let base: Vec<Row> =
         if split { git::split(lines).into_iter().map(|(l, r)| Row::Split(l, r)).collect() } else { (0..lines.len()).map(Row::Unified).collect() };
-    let mut out = Vec::with_capacity(base.len() + notes.len() + 1);
+    let mut out = Vec::with_capacity(base.len() + 1);
     for row in base {
         out.push(row);
         let holds = |i: usize| match row {
             Row::Unified(j) => j == i,
             Row::Split(l, r) => l == Some(i) || r == Some(i),
-            Row::Composer | Row::Comment(_) => false,
+            Row::Composer => false,
         };
-        out.extend(notes.iter().filter(|(line, _)| holds(*line)).map(|&(_, c)| Row::Comment(c)));
-        if composer.is_some_and(&holds) {
+        if composer.is_some_and(holds) {
             out.push(Row::Composer);
         }
     }
@@ -162,32 +145,6 @@ pub(crate) fn span(lines: &[Line], range: RangeInclusive<usize>) -> Option<(usiz
     Some((*nums.iter().min()?, *nums.iter().max()?, old_side))
 }
 
-/// "Line 54" or "Lines 50–54".
-fn label(lines: &[Line], range: RangeInclusive<usize>) -> Option<String> {
-    let (lo, hi, _) = span(lines, range)?;
-    Some(if lo == hi { format!("Line {lo}") } else { format!("Lines {lo}–{hi}") })
-}
-
-/// The line a sent comment hangs under: its last line, on the side it was made.
-fn anchor(lines: &[Line], c: &Comment) -> Option<usize> {
-    lines.iter().position(|l| if c.old_side { l.new.is_none() && l.old == Some(c.lines.1) } else { l.new == Some(c.lines.1) })
-}
-
-/// `(line, comment)` for each comment on `path` whose line is in the diff.
-fn notes(comments: &[Comment], path: Option<&str>, lines: &[Line]) -> Vec<(usize, usize)> {
-    comments.iter().enumerate().filter(|(_, c)| Some(c.path.as_str()) == path).filter_map(|(i, c)| Some((anchor(lines, c)?, i))).collect()
-}
-
-/// The session a comment goes to: the one picked, else the open one, else the newest of the project's `live` ones.
-fn comment_target(picked: Option<String>, open: Option<String>, live: &[String]) -> Option<String> {
-    let alive = |id: &String| live.contains(id);
-    picked.filter(alive).or_else(|| open.filter(alive)).or_else(|| live.first().cloned())
-}
-
-pub(crate) fn line_label((lo, hi): (usize, usize)) -> String {
-    if lo == hi { format!("L{lo}") } else { format!("L{lo}-{hi}") }
-}
-
 /// Where line `i` of `old` sits in `new`, so a selection survives the diff refreshing under it.
 fn remap(old: &[Line], new: &[Line], i: usize) -> Option<usize> {
     let l = old.get(i)?;
@@ -199,7 +156,7 @@ fn same_hunk(lines: &[Line], a: usize, b: usize) -> bool {
     !lines[a.min(b)..=a.max(b)].iter().any(|l| l.kind == Kind::Hunk)
 }
 
-/// The diff lines picked for a comment: `range` runs from where the pick started to where it ends.
+/// The diff lines picked to ask about: `range` runs from where the pick started to where it ends.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Pick {
     pub(crate) range: Option<(usize, usize)>,
@@ -272,21 +229,24 @@ impl Pick {
         self.range.map(|s| *ordered(s).end())
     }
 
+    pub fn quote(&self, lines: &[Line], path: &str) -> Option<Quote> {
+        let range = ordered(self.range?);
+        let (lo, hi, removed) = span(lines, range.clone())?;
+        let text = lines[range]
+            .iter()
+            .filter(|l| l.kind != Kind::Hunk)
+            .map(|l| format!("{}{}", match l.kind { Kind::Add => '+', Kind::Del => '-', _ => ' ' }, l.text))
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(Quote { path: path.to_string(), body: Body::Diff { lines: (lo, hi), removed, text } })
+    }
+
     pub fn composer_line(&self) -> Option<usize> {
         self.last().filter(|_| self.composing && !self.dragging)
     }
-
-    pub fn label(&self, lines: &[Line]) -> Option<String> {
-        label(lines, ordered(self.range?))
-    }
-
-    pub fn comment(&self, lines: &[Line], path: String, label: String, text: String, at: i64) -> Option<Comment> {
-        let (lo, hi, old_side) = span(lines, ordered(self.range?))?;
-        Some(Comment { path, lines: (lo, hi), old_side, label, text, at })
-    }
 }
 
-/// One pane's diff: the file it shows, its lines, and the lines picked there for a comment.
+/// One pane's diff: the file it shows, its lines, and the lines picked there to ask about.
 pub struct DiffView {
     pub(crate) file: Option<String>,
     pub(crate) at: Option<String>,
@@ -337,9 +297,8 @@ impl DiffView {
     }
 
     /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
-    fn layout(&mut self, reset: bool, split: bool, comments: &[Comment]) {
-        let notes = notes(comments, self.working_file(), &self.lines);
-        let rows = rows(&self.lines, split, self.pick.composer_line(), &notes);
+    fn layout(&mut self, reset: bool, split: bool) {
+        let rows = rows(&self.lines, split, self.pick.composer_line());
         if reset {
             self.list.reset(rows.len());
         } else {
@@ -350,43 +309,29 @@ impl DiffView {
     }
 }
 
-/// The diff each pane shows, and the comments, one of them being written, shared by all. The input is `I` so the rules test without GPUI.
-pub struct DiffState<I = Entity<TextareaState>> {
+/// The diff each pane shows, and the pane whose pick is being asked about.
+#[derive(Default)]
+pub struct DiffState {
     pub(crate) panes: HashMap<PaneId, DiffView>,
     pub(crate) split: bool,
-    pub(crate) input: I,
-    /// The pane whose pick the comment being written is about.
+    /// The pane whose pick the composer is about; `MAIN` is 0, so it's the default.
     pub(crate) drafting: PaneId,
-    pub(crate) target: Option<String>,
-    pub(crate) target_menu: bool,
-    pub(crate) comments: Vec<Comment>,
     pub(crate) viewed: HashSet<String>,
 }
 
 impl DiffState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask the agent about these lines…").rows(3));
-        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| match ev {
-            InputEvent::PressEnter { secondary: true, .. } => this.submit_comment(window, cx),
-            InputEvent::Change => cx.notify(),
-            _ => {}
-        })];
-        (Self::with(input), subs)
-    }
-}
-
-impl<I> DiffState<I> {
-    pub fn with(input: I) -> Self {
-        Self { panes: HashMap::new(), split: false, input, drafting: MAIN, target: None, target_menu: false, comments: Vec::new(), viewed: HashSet::new() }
-    }
-
     pub fn view(&self, pane: PaneId) -> Option<&DiffView> {
         self.panes.get(&pane)
     }
 
-    /// The pane the comment is being written in.
+    /// The pane the composer is in.
     pub fn draft(&self) -> Option<&DiffView> {
         self.panes.get(&self.drafting)
+    }
+
+    pub fn draft_quote(&self) -> Option<Quote> {
+        let v = self.draft().filter(|v| v.pick.composing)?;
+        v.pick.quote(&v.lines, v.working_file()?)
     }
 
     /// Shows `load` in `pane` unless another file, fold state or appearance was picked there while it ran.
@@ -399,7 +344,7 @@ impl<I> DiffState<I> {
         let recolored = load.colors.map(|(syntax, hl)| (v.syntax, v.hl) = (syntax, hl)).is_some();
         let changed = v.set_lines(load.lines);
         if changed {
-            v.layout(true, self.split, &self.comments);
+            v.layout(true, self.split);
         }
         changed | recolored
     }
@@ -413,7 +358,7 @@ impl<I> DiffState<I> {
         v.pick.range = None;
         v.open.clear();
         if v.set_lines(Vec::new()) {
-            v.layout(true, self.split, &self.comments);
+            v.layout(true, self.split);
         }
         (v.file, v.at) = (Some(path), at);
     }
@@ -425,50 +370,36 @@ impl<I> DiffState<I> {
         let lines = git::diff_texts(&v.source.0, &v.source.1, &v.open);
         v.hl = highlights(&lines, &v.syntax.0, &v.syntax.1);
         if v.set_lines(lines) {
-            v.layout(false, self.split, &self.comments);
+            v.layout(false, self.split);
         }
     }
 
     pub fn layout(&mut self, pane: PaneId, reset: bool) {
         if let Some(v) = self.panes.get_mut(&pane) {
-            v.layout(reset, self.split, &self.comments);
+            v.layout(reset, self.split);
         }
     }
 
     pub fn relayout(&mut self, reset: bool) {
         for v in self.panes.values_mut() {
-            v.layout(reset, self.split, &self.comments);
+            v.layout(reset, self.split);
         }
     }
 
-    /// Moves the comment being written to `pane`, dropping the pick another pane held.
+    /// Moves the composer to `pane`, dropping the pick another pane held.
     pub fn draft_in(&mut self, pane: PaneId) {
         self.drafting = pane;
         for (_, v) in self.panes.iter_mut().filter(|(p, v)| **p != pane && v.pick != Pick::default()) {
             v.pick = Pick::default();
-            v.layout(false, self.split, &self.comments);
+            v.layout(false, self.split);
         }
     }
 
     pub fn cancel_draft(&mut self) {
         if let Some(v) = self.panes.get_mut(&self.drafting) {
             v.pick.cancel();
-            v.layout(false, self.split, &self.comments);
+            v.layout(false, self.split);
         }
-    }
-
-    pub fn add_comment(&mut self, comment: Comment) {
-        self.comments.push(comment);
-        self.relayout(false);
-    }
-
-    fn resolve_comment(&mut self, i: usize) -> bool {
-        let found = i < self.comments.len();
-        if found {
-            self.comments.remove(i);
-            self.relayout(false);
-        }
-        found
     }
 
     pub fn retain_panes(&mut self, panes: &[PaneId]) {
@@ -532,11 +463,6 @@ impl Desktop {
             meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
         }
         if at.is_none() {
-            let comments = self.diff.comments.iter().filter(|c| c.path == path).count();
-            if comments > 0 {
-                let label = format!("{comments} comment{}", if comments == 1 { "" } else { "s" });
-                meta.push(ui::meta_item().child(icon("comment", 13., TEXT_2)).child(ui::meta_value(label)).into_any_element());
-            }
             let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
             if let Some((a, ts)) = self.agents.last_edit(&abs) {
                 let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
@@ -578,12 +504,6 @@ impl Desktop {
         cx.notify();
     }
 
-    fn resolve_comment(&mut self, i: usize, cx: &mut Context<Self>) {
-        if self.diff.resolve_comment(i) {
-            cx.notify();
-        }
-    }
-
     pub fn open_changes(&mut self, path: Option<String>, pin: bool, cx: &mut Context<Self>) {
         let shown = self.diff.view(self.focused_pane()).and_then(|v| v.working_file()).map(str::to_string);
         let path = path.or(shown).or_else(|| self.repo()?.files.first().map(|f| f.path.clone()));
@@ -621,12 +541,13 @@ impl Desktop {
         .detach();
     }
 
-    /// Starts a comment on line `i` of `pane`'s diff, or with `extend` stretches the open one to it.
+    /// Picks line `i` of `pane`'s diff, or with `extend` stretches the pick to it.
     pub fn select_line(&mut self, pane: PaneId, i: usize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.chat.file = None;
         self.diff.draft_in(pane);
         let Some(v) = self.diff.panes.get_mut(&pane) else { return };
         if v.pick.press(&v.lines, i, extend) {
-            self.diff.input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.chat.input.update(cx, |s, cx| s.set_value("", window, cx));
         }
         self.diff.layout(pane, false);
         cx.notify();
@@ -648,57 +569,28 @@ impl Desktop {
         }
         self.diff.layout(pane, false);
         if self.diff.view(pane).is_some_and(|v| v.pick.composing) {
-            self.diff.input.update(cx, |s, cx| s.focus(window, cx));
+            self.chat.input.update(cx, |s, cx| s.focus(window, cx));
         }
         cx.notify();
     }
 
-    pub fn open_comment(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open_composer(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.chat.file = None;
         self.diff.draft_in(pane);
         let Some(v) = self.diff.panes.get_mut(&pane) else { return };
         if v.pick.open(&v.lines, i) {
-            self.diff.input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.chat.input.update(cx, |s, cx| s.set_value("", window, cx));
         }
         self.diff.layout(pane, false);
-        self.diff.input.update(cx, |s, cx| s.focus(window, cx));
+        self.chat.input.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
-    }
-
-    pub fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.diff.cancel_draft();
-        self.diff.target_menu = false;
-        self.diff.input.update(cx, |s, cx| s.set_value("", window, cx));
-        window.focus(&self.root, cx);
-        cx.notify();
-    }
-
-    pub fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.agents.observe_only() {
-            return;
-        }
-        let text = self.diff.input.read(cx).value().trim().to_string();
-        let Some(v) = self.diff.draft() else { return };
-        let (Some(target), Some(path), Some(lines)) = (self.comment_target(), v.file.clone(), v.pick.label(&v.lines)) else { return };
-        if text.is_empty() {
-            return;
-        }
-        let Some(terminal) = self.agents.get(&target).map(|a| a.terminal_id.clone()) else { return };
-        self.daemon.send(json!({"op": "prompt", "id": terminal, "text": format!("{path} {}: {text}", lines.to_lowercase())}));
-        if let Some(comment) = self.diff.draft().and_then(|v| v.pick.comment(&v.lines, path, lines, text, now_ms())) {
-            self.diff.add_comment(comment);
-        }
-        self.cancel_comment(window, cx);
-    }
-
-    pub fn comment_target(&self) -> Option<String> {
-        let live: Vec<String> = self.cards(self.project.as_deref()?).into_iter().map(|c| c.id).collect();
-        comment_target(self.diff.target.clone(), self.session.clone(), &live)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Comment, DiffLoad, DiffState, Pick, Row, changed, comment_target, highlights, label, notes, remap, rows};
+    use super::{DiffLoad, DiffState, Pick, Row, changed, highlights, remap, rows};
+    use crate::add_to_chat::{Body, Quote};
     use crate::desktop::MAIN;
     use git::parse;
     use gpui_kit::HighlightStyle;
@@ -844,91 +736,11 @@ mod tests {
     }
 
     #[test]
-    fn labels_the_pick_by_its_new_lines_in_either_direction() {
-        let l = parse(DIFF);
-        assert_eq!(Pick { range: Some((4, 1)), ..Pick::default() }.label(&l).as_deref(), Some("Lines 1–3"));
-        assert_eq!(Pick { range: Some((3, 3)), ..Pick::default() }.label(&l).as_deref(), Some("Line 2"));
-        assert_eq!(Pick::default().label(&l), None);
-    }
-
-    #[test]
-    fn comments_on_the_pick_by_its_new_lines() {
-        let l = parse(DIFF);
-        let pick = Pick { range: Some((4, 1)), ..Pick::default() };
-        let comment = pick.comment(&l, "a.rs".into(), "Lines 1–3".into(), "why?".into(), 7);
-        let want = Comment { path: "a.rs".into(), lines: (1, 3), old_side: false, label: "Lines 1–3".into(), text: "why?".into(), at: 7 };
-        assert_eq!(comment, Some(want));
-    }
-
-    #[test]
-    fn comments_on_removed_lines_alone_by_their_old_lines() {
-        let l = parse(DIFF);
-        let comment = Pick { range: Some((2, 2)), ..Pick::default() }.comment(&l, "a.rs".into(), "Line 2".into(), "gone?".into(), 7);
-        assert_eq!(comment.map(|c| (c.lines, c.old_side)), Some(((2, 2), true)));
-        assert_eq!(Pick { range: Some((0, 0)), ..Pick::default() }.comment(&l, "a.rs".into(), String::new(), String::new(), 7), None);
-    }
-
-    fn sent(path: &str, lines: (usize, usize), old_side: bool) -> Comment {
-        Comment { path: path.into(), lines, old_side, label: String::new(), text: String::new(), at: 0 }
-    }
-
-    #[test]
-    fn hangs_each_comment_of_the_file_under_its_last_line_on_its_side() {
-        let l = parse(DIFF);
-        let comments = [sent("a.rs", (1, 3), false), sent("b.rs", (1, 1), false), sent("a.rs", (2, 2), true)];
-        assert_eq!(notes(&comments, Some("a.rs"), &l), vec![(4, 0), (2, 2)]);
-        assert_eq!(notes(&comments, None, &l), vec![]);
-    }
-
-    #[test]
-    fn comments_keep_their_line_number_when_the_diff_refreshes() {
-        let comments = [sent("a.rs", (2, 2), false)];
-        assert_eq!(notes(&comments, Some("a.rs"), &parse(DIFF)), vec![(3, 0)]);
-        let refreshed = parse("@@ -1,2 +1,4 @@\n z\n a\n-b\n+c\n+d\n");
-        assert_eq!(notes(&comments, Some("a.rs"), &refreshed), vec![(2, 0)]);
-    }
-
-    #[test]
-    fn comments_whose_line_left_the_diff_are_not_shown() {
-        let comments = [sent("a.rs", (3, 3), false), sent("a.rs", (2, 2), true)];
-        assert_eq!(notes(&comments, Some("a.rs"), &parse("@@ -1,1 +1,1 @@\n a\n")), vec![]);
-    }
-
-    #[test]
-    fn comments_go_to_the_picked_session_while_it_lives() {
-        let live = ["new".to_string(), "open".into(), "picked".into()];
-        assert_eq!(comment_target(Some("picked".into()), Some("open".into()), &live).as_deref(), Some("picked"));
-    }
-
-    #[test]
-    fn comments_fall_back_to_the_open_session_then_the_newest() {
-        let live = ["new".to_string(), "open".into()];
-        assert_eq!(comment_target(Some("gone".into()), Some("open".into()), &live).as_deref(), Some("open"));
-        assert_eq!(comment_target(Some("gone".into()), Some("elsewhere".into()), &live).as_deref(), Some("new"));
-        assert_eq!(comment_target(None, None, &[]), None);
-    }
-
-    #[test]
     fn places_the_composer_under_its_line() {
         let l = parse(DIFF);
-        assert_eq!(rows(&l, false, Some(3), &[]), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
-        assert_eq!(rows(&l, true, Some(2), &[]), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
-        assert_eq!(rows(&l, false, None, &[]).len(), 5);
-    }
-
-    #[test]
-    fn places_sent_comments_before_the_composer() {
-        let l = parse(DIFF);
-        assert_eq!(rows(&l, false, Some(3), &[(3, 0)])[4..], [Row::Comment(0), Row::Composer, Row::Unified(4)]);
-    }
-
-    #[test]
-    fn labels_ranges_by_their_new_lines() {
-        let l = parse(DIFF);
-        assert_eq!(label(&l, 1..=1).as_deref(), Some("Line 1"));
-        assert_eq!(label(&l, 0..=4).as_deref(), Some("Lines 1–3"));
-        assert_eq!(label(&l, 2..=2).as_deref(), Some("Line 2"));
-        assert_eq!(label(&l, 0..=0), None);
+        assert_eq!(rows(&l, false, Some(3)), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
+        assert_eq!(rows(&l, true, Some(2)), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
+        assert_eq!(rows(&l, false, None).len(), 5);
     }
 
     #[test]
@@ -983,8 +795,8 @@ mod tests {
         DiffLoad { path: path.into(), at: None, open: HashSet::new(), lines: parse(text), source: Default::default(), colors: None, dark: false }
     }
 
-    fn showing(panes: &[(PaneId, &str)]) -> DiffState<()> {
-        let mut state = DiffState::with(());
+    fn showing(panes: &[(PaneId, &str)]) -> DiffState {
+        let mut state = DiffState::default();
         for &(pane, path) in panes {
             state.select(pane, path.into(), None);
             state.apply(pane, load(path, DIFF));
@@ -1003,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn starting_a_comment_in_one_pane_drops_the_pick_in_another() {
+    fn asking_in_one_pane_drops_the_pick_in_another() {
         let mut state = showing(&[(MAIN, "a.rs"), (OTHER, "a.rs")]);
         state.draft_in(MAIN);
         state.panes.get_mut(&MAIN).unwrap().pick.open(&parse(DIFF), 2);
@@ -1024,18 +836,33 @@ mod tests {
     }
 
     #[test]
-    fn a_sent_comment_shows_in_every_pane_showing_its_file() {
-        let mut state = showing(&[(MAIN, "a.rs"), (OTHER, "a.rs"), (2, "b.rs")]);
-        state.add_comment(sent("a.rs", (3, 3), false));
-        assert!(state.view(MAIN).unwrap().rows.contains(&Row::Comment(0)));
-        assert!(state.view(OTHER).unwrap().rows.contains(&Row::Comment(0)));
-        assert!(!state.view(2).unwrap().rows.contains(&Row::Comment(0)));
-    }
-
-    #[test]
     fn a_closed_panes_diff_is_dropped() {
         let mut state = showing(&[(MAIN, "a.rs"), (OTHER, "b.rs")]);
         state.retain_panes(&[MAIN]);
         assert!(state.view(OTHER).is_none() && state.view(MAIN).is_some());
+    }
+
+    #[test]
+    fn a_pick_quotes_its_lines_with_their_signs_numbered_on_the_new_side() {
+        let l = parse(DIFF);
+        let quote = Pick { range: Some((4, 1)), ..Pick::default() }.quote(&l, "a.rs");
+        assert_eq!(quote, Some(Quote { path: "a.rs".into(), body: Body::Diff { lines: (1, 3), removed: false, text: " a\n-b\n+c\n+d".into() } }));
+    }
+
+    #[test]
+    fn a_pick_of_removed_lines_alone_quotes_their_old_numbers() {
+        let l = parse(DIFF);
+        let quote = Pick { range: Some((2, 2)), ..Pick::default() }.quote(&l, "a.rs");
+        assert_eq!(quote.map(|q| q.body), Some(Body::Diff { lines: (2, 2), removed: true, text: "-b".into() }));
+        assert_eq!(Pick { range: Some((0, 0)), ..Pick::default() }.quote(&l, "a.rs"), None);
+    }
+
+    #[test]
+    fn a_draft_quotes_its_pick_only_while_composing() {
+        let mut state = showing(&[(MAIN, "a.rs")]);
+        state.panes.get_mut(&MAIN).unwrap().pick = Pick { range: Some((3, 3)), dragging: false, composing: false };
+        assert_eq!(state.draft_quote(), None);
+        state.panes.get_mut(&MAIN).unwrap().pick.composing = true;
+        assert_eq!(state.draft_quote().map(|q| q.path), Some("a.rs".to_string()));
     }
 }

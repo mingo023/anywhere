@@ -117,7 +117,6 @@ impl Desktop {
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, None));
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
-        let comments = self.diff.comments.iter().filter(|c| c.path == f.path).count();
         let id = |kind: &str| ElementId::Name(format!("{kind}:{}:{}", s.key(), f.path).into());
         let path = f.path.clone();
         let actions = match s {
@@ -167,20 +166,6 @@ impl Desktop {
                     )
                     .when(!in_tree && !dir.is_empty(), |d| d.child(div().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_4).child(dir.to_string()))),
             )
-            .when(comments > 0, |d| {
-                d.child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(3.))
-                        .text_size(px(11.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(WAITING_TEXT)
-                        .child(icon("comment", 11., WAITING_TEXT))
-                        .child(comments.to_string()),
-                )
-            })
             .child(div().flex().flex_none().gap(px(2.)).opacity(0.).group_hover(ROW_GROUP, |st| st.opacity(1.)).children(actions))
             .child(
                 div()

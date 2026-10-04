@@ -1,6 +1,5 @@
 mod commit_box;
 mod header;
-mod notes;
 mod rows;
 
 use crate::desktop::Desktop;
@@ -210,12 +209,10 @@ impl Desktop {
         .pt(px(6.))
         .pb(px(8.));
         let list = div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes.scroll);
-        let notes = self.notes(&repo, cx);
         panel
             .child(self.changes_header(&repo, cx))
             .child(self.commit_box(&repo, cx))
             .map(|d| if repo.files.is_empty() { d.child(div().flex_1().child(empty("No changes."))) } else { d.child(list) })
-            .when(!notes.is_empty(), |d| d.child(div().id("change-notes").flex_none().max_h(px(240.)).overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col().children(notes)))
             .child(self.graph_section(cx))
     }
 
