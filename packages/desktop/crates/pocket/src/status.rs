@@ -51,6 +51,7 @@ pub enum Kind {
 pub struct Card {
     pub id: String,
     pub provider: String,
+    pub agent: String,
     pub title: String,
     pub cwd: String,
     pub at: i64,
@@ -66,6 +67,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
     Card {
         id: a.id.clone(),
         provider: a.provider.clone(),
+        agent: agent(a),
         title: if a.title.is_empty() { "New session".into() } else { a.title.clone() },
         cwd: cwd.to_string(),
         at: a.updated_at,
@@ -73,6 +75,18 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         status: Status::of(a).unwrap_or(Status::Idle),
         kind,
         notice: notice(a),
+    }
+}
+
+/// "Opus 5.5 · high": the model, else the provider, then the effort it was started with.
+fn agent(a: &Summary) -> String {
+    let model = match a.model.as_deref() {
+        Some(m) if !m.is_empty() => agents::model_label(a),
+        _ => theme::provider_name(&a.provider).to_string(),
+    };
+    match a.effort.as_deref() {
+        Some(e) if !e.is_empty() => format!("{model} · {e}"),
+        _ => model,
     }
 }
 
@@ -208,6 +222,15 @@ mod tests {
         let a = Summary { title: "Fix".into(), cwd: "/elsewhere".into(), created_at: 2, updated_at: 5, ..agent("t1", "working") };
         let c = card(&a, "/w");
         assert_eq!((c.id.as_str(), c.title.as_str(), c.cwd.as_str(), c.created, c.at, c.status, c.kind), ("agent-t1", "Fix", "/w", 2, 5, Status::Working, Kind::Agent));
+    }
+
+    #[test]
+    fn a_card_names_its_model_and_effort_else_its_provider() {
+        let named = |model: Option<&str>, effort: Option<&str>| card(&Summary { provider: "claude".into(), model: model.map(Into::into), effort: effort.map(Into::into), ..agent("t1", "idle") }, "/w").agent;
+        assert_eq!(named(Some("claude-opus-5-5"), Some("high")), "Opus 5.5 · high");
+        assert_eq!(named(Some("claude-opus-5-5"), None), "Opus 5.5");
+        assert_eq!(named(None, Some("high")), "Claude Code · high");
+        assert_eq!(named(Some(""), Some("")), "Claude Code");
     }
 
     #[test]

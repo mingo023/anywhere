@@ -50,6 +50,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 		pr.a = d.Agents.AddFunc(terminal.NewID(), info.Cwd, provider, driver)
 	}
 	pr.a.SetTerminal(info.ID)
+	pr.a.SetEffort(pr.launch.Effort)
 	if o := t.TakeOrigin(); o != "" {
 		pr.a.SetOrigin(o)
 	}

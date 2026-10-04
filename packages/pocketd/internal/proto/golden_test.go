@@ -35,6 +35,7 @@ var serverGolden = map[string]any{
 		s.Status, s.Compacting, s.Attached, s.ProviderSessionID = "working", true, false, ""
 	})),
 	"agent_update_restore_cleared": NewAgentUpdate(with(func(s *AgentSummary) { s.Status = "working" })),
+	"agent_update_model":           NewAgentUpdate(with(func(s *AgentSummary) { s.Model, s.Effort = "claude-opus-5-5", "high" })),
 	"agent_list_restored": NewAgentList("l1", []AgentSummary{
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),

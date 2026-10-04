@@ -471,6 +471,10 @@ pub fn provider_label(provider: &str, faded: bool) -> Div {
     div().flex().flex_none().items_center().gap(px(6.)).when(faded, |d| d.opacity(0.5)).child(provider_icon(provider, 12., TEXT_2)).child(provider_name(provider))
 }
 
+pub fn agent_label(provider: &str, label: String) -> Div {
+    div().flex().min_w_0().items_center().gap(px(6.)).child(provider_icon(provider, 12., TEXT_2)).child(div().truncate().child(label))
+}
+
 /// The group of a session row; its time hides while the row is hovered, making room for a caller's hover controls.
 pub const SESSION_ROW: &str = "session-row";
 

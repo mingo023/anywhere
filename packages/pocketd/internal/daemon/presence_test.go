@@ -97,6 +97,18 @@ func TestClaudeInATerminalIsAnAgentWhileItRuns(t *testing.T) {
 	waitGone(t, d, a.ID)
 }
 
+func TestAnAgentReportsTheEffortItWasStartedWith(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Args: []string{"--effort", "high"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	if a := waitAgent(t, d, term); a.Effort != "high" {
+		t.Fatalf("agent = %+v", a)
+	}
+}
+
 func TestANewClaudePidIsANewAgent(t *testing.T) {
 	d := newDaemon(t)
 	term := shell(t, d)

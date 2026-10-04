@@ -19,6 +19,7 @@ pub struct Summary {
     pub cwd: String,
     pub provider: String,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub status: String,
     pub failed: bool,
     pub attached: bool,

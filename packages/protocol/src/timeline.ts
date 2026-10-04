@@ -87,6 +87,7 @@ export const AgentSummary = Schema.Struct({
   cwd: Schema.String,
   provider: Schema.String,
   model: Schema.optional(Schema.String),
+  effort: Schema.optional(Schema.String),
   status: AgentStatus,
   failed: Schema.optional(Schema.Boolean),
   attached: Schema.Boolean,

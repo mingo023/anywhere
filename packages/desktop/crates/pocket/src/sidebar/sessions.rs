@@ -46,7 +46,7 @@ impl Desktop {
             Kind::NotAttached => State::NotAttached,
             _ => state(c.status, added, removed),
         };
-        let lead = ui::provider_label(&c.provider, false);
+        let lead = ui::agent_label(&c.provider, c.agent);
         let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone());
         let menu = RowMenu::Session(c.id.clone());
         let open = self.row_menu.as_ref() == Some(&menu);

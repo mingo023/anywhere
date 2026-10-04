@@ -183,6 +183,7 @@ type AgentSummary struct {
 	Cwd               string `json:"cwd"`
 	Provider          string `json:"provider"`
 	Model             string `json:"model,omitempty"`
+	Effort            string `json:"effort,omitempty"`
 	Status            string `json:"status"`
 	Failed            bool   `json:"failed,omitempty"`
 	Attached          bool   `json:"attached"`

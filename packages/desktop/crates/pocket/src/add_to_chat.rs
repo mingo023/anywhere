@@ -335,7 +335,7 @@ mod tests {
     }
 
     fn card(id: &str, status: Status, kind: Kind) -> Card {
-        Card { id: id.into(), provider: "claude".into(), title: format!("{id} title"), cwd: "/p".into(), at: 0, created: 0, status, kind, notice: None }
+        Card { id: id.into(), provider: "claude".into(), agent: String::new(), title: format!("{id} title"), cwd: "/p".into(), at: 0, created: 0, status, kind, notice: None }
     }
 
     fn choice(id: &str, note: &str, ready: bool) -> Choice {

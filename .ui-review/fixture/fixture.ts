@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 
 type Agent = {
   id: string; title: string; provider: "claude" | "codex"; repo: string; branch?: string;
-  status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string;
+  status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string; effort?: string;
   diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string;
 };
 type Scenario = { repos: string[]; merged?: string[]; agents: Agent[] };
@@ -37,7 +37,7 @@ const SCENARIOS: Record<string, Scenario> = {
     merged: ["fix/ota-resume"],
     agents: [
       { id: "fix", title: "Fix stale terminal reveal", provider: "codex", repo: "app-android", branch: "fix/restore-handoff", status: "idle", ago: 2, waiting: "pnpm test --filter app-android", diff: RESTORE, term: "codex" },
-      { id: "tests", title: "Write tests for restore handoff", provider: "claude", model: "opus", repo: "app-android", branch: "fix/restore-handoff", status: "running", ago: 0, children: [["pnpm", "test", "--watch"]] },
+      { id: "tests", title: "Write tests for restore handoff", provider: "claude", model: "opus", effort: "high", repo: "app-android", branch: "fix/restore-handoff", status: "running", ago: 0, children: [["pnpm", "test", "--watch"]] },
       { id: "callers", title: "Explore restore callers", provider: "codex", repo: "app-android", branch: "fix/restore-handoff", status: "idle", ago: 40 },
       { id: "repro", title: "Reproduce stale flash on emulator", provider: "codex", repo: "app-android", branch: "fix/restore-handoff", status: "idle", ago: 60 },
       { id: "split", title: "Split restore hook", provider: "claude", repo: "app-android", branch: "refactor/restore-hook", status: "running", ago: 1 },
@@ -103,7 +103,7 @@ const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.re
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left = { claude: 62, codex: 41 };
 const summaries = scenario.agents.map((a) => ({
-  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, status: status(a), restore: a.restore,
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, status: status(a), restore: a.restore,
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
   tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000,
 }));

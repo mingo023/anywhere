@@ -36,6 +36,7 @@ type Agent struct {
 	title           string
 	fallback        string
 	model           string
+	effort          string
 	phase           string // idle, working or needsYou
 	unseenEnd       bool
 	failed          bool
@@ -210,7 +211,7 @@ func (a *Agent) summary() proto.AgentSummary {
 	epoch, maxSeq := a.Timeline.State()
 	status := a.status()
 	return proto.AgentSummary{
-		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model,
+		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort,
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting,
 		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
@@ -366,6 +367,10 @@ func (a *Agent) SetTitle(title string) {
 
 func (a *Agent) SetModel(model string) {
 	a.update(false, func() { a.model = model })
+}
+
+func (a *Agent) SetEffort(effort string) {
+	a.update(false, func() { a.effort = effort })
 }
 
 // SetLocation places the agent in a registered Project; all "" when it is in none.
