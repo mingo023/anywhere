@@ -251,7 +251,7 @@ pub fn tone(state: State) -> Option<Tone> {
 pub fn glyph(id: impl Into<ElementId>, t: Tone) -> AnyElement {
     match t.glyph {
         Glyph::Dot => dot(7., t.mark).into_any_element(),
-        Glyph::Spinner => spinner(id, 11., t.mark).into_any_element(),
+        Glyph::Spinner => dot_spinner(id, 11., t.mark).into_any_element(),
         Glyph::Check => icon("check", 11., t.mark).into_any_element(),
         Glyph::Cross => icon("x-bold", 11., t.mark).into_any_element(),
     }

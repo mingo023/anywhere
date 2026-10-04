@@ -227,6 +227,22 @@ pub fn spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) -> i
     })
 }
 
+pub fn dot_spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) -> impl IntoElement {
+    const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    div()
+        .size(px(size))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(size * 1.6))
+        .line_height(px(size))
+        .text_color(color.into())
+        .with_animation(id, Animation::new(std::time::Duration::from_secs(1)).repeat(), |d, t| {
+            d.child(FRAMES[(t * FRAMES.len() as f32) as usize % FRAMES.len()])
+        })
+}
+
 pub const FONTS: [&[u8]; 9] = [
     include_bytes!("../assets/fonts/Geist-Regular.ttf"),
     include_bytes!("../assets/fonts/Geist-Medium.ttf"),
