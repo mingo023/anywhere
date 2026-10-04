@@ -1,8 +1,7 @@
 use crate::actions::{GoToUpNext, JumpTo, NextNeedsYou, NextSession, PrevSession};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Layout, Side};
+use crate::desktop::chrome::Side;
 use crate::sidebar::in_tree;
-use crate::sidebar::rail::live;
 use crate::sidebar::sessions::matching;
 use crate::status::{self, Card};
 use gpui_kit::*;
@@ -15,12 +14,9 @@ pub fn arms_chips(m: &Modifiers, overlay_open: bool) -> bool {
     *m == Modifiers::command() && !overlay_open
 }
 
-/// The sessions ⌘n and ⌃Tab walk, in the order shown: the rail's in Compact, else the Sessions column's.
-pub(crate) fn walkable(layout: Layout, cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>, query: &str, selected: Option<&str>) -> Vec<Card> {
-    match layout {
-        Layout::Compact => live(cards, selected),
-        Layout::Sidebars | Layout::Focus => matching(in_tree(cards, tree, tree_of), query),
-    }
+/// The sessions ⌘n and ⌃Tab walk, in the order the Sessions column shows them.
+pub(crate) fn walkable(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>, query: &str) -> Vec<Card> {
+    matching(in_tree(cards, tree, tree_of), query)
 }
 
 /// The ⌘1–⌘9 chips on session rows, shown once ⌘ has been held alone for `CHIP_DELAY_MS`.
@@ -52,7 +48,7 @@ impl Desktop {
         let Some(project) = self.project.as_deref() else { return Vec::new() };
         let tree = self.cwd();
         let query = self.sidebar.search.read(cx).value();
-        walkable(self.layout, self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), &query, self.session.as_deref())
+        walkable(self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), &query)
     }
 
     fn all_cards(&self) -> Vec<Card> {
@@ -119,7 +115,6 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{arms_chips, walkable};
-    use crate::desktop::chrome::Layout;
     use crate::status::{self, Card};
     use agents::Summary;
     use gpui_kit::Modifiers;
@@ -128,17 +123,15 @@ mod tests {
         status::card(&Summary { id: id.into(), title: format!("Fix {id}"), status: status.into(), attached: true, ..Default::default() }, cwd)
     }
 
-    fn ids(layout: Layout, query: &str, selected: Option<&str>) -> Vec<String> {
+    fn ids(query: &str) -> Vec<String> {
         let cards = vec![card("a", "idle", "/app"), card("b", "working", "/app-wt"), card("c", "done", "/app"), card("d", "idle", "/app")];
-        walkable(layout, cards, Some("/app"), |cwd| Some(cwd.to_string()), query, selected).into_iter().map(|c| c.id).collect()
+        walkable(cards, Some("/app"), |cwd| Some(cwd.to_string()), query).into_iter().map(|c| c.id).collect()
     }
 
     #[test]
-    fn cmd_n_counts_the_filtered_list_and_the_rail_in_compact() {
-        assert_eq!(ids(Layout::Sidebars, "", None), vec!["a", "c", "d"]);
-        assert_eq!(ids(Layout::Sidebars, "fix c", None), vec!["c"]);
-        assert_eq!(ids(Layout::Focus, "", None), vec!["a", "c", "d"]);
-        assert_eq!(ids(Layout::Compact, "fix c", Some("d")), vec!["b", "c", "d"]);
+    fn cmd_n_counts_the_filtered_list() {
+        assert_eq!(ids(""), vec!["a", "c", "d"]);
+        assert_eq!(ids("fix c"), vec!["c"]);
     }
 
     #[test]

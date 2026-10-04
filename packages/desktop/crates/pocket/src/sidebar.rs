@@ -1,13 +1,14 @@
 pub(crate) mod column;
 mod host;
-mod panel;
+pub(crate) mod project_picker;
 pub(crate) mod rail;
 mod row_menu;
 pub(crate) mod sessions;
 mod usage;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, Overlay, RowMenu, Screen, drag_area, id, state};
+use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, drag_area, id, state};
+use crate::sidebar::project_picker::ProjectPicker;
 use crate::status::{self, Card};
 use crate::util::basename;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -29,6 +30,15 @@ fn row_mark(key: &str, setting_up: bool, cards: &[Card]) -> Option<AnyElement> {
 /// The cards whose folder lies in `tree`, as `tree_of` places folders.
 pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>) -> Vec<Card> {
     cards.into_iter().filter(|c| tree_of(&c.cwd).as_deref() == tree).collect()
+}
+
+/// The Sessions, Explorer and Changes column; the inbox lists in it too.
+pub(crate) fn column_shown(layout: Layout, screen: Screen, hidden: bool) -> bool {
+    match layout {
+        Layout::Sidebars => true,
+        Layout::Compact => screen == Screen::Inbox || !hidden,
+        Layout::Focus => false,
+    }
 }
 
 /// How a project's row folds its worktrees.
@@ -69,13 +79,18 @@ pub struct SidebarState {
     pub(crate) search: Entity<InputState>,
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
+    pub(crate) picker: ProjectPicker,
+    /// Whether the user hid Compact's column.
+    pub(crate) column_hidden: bool,
 }
 
 impl SidebarState {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
-        let subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
-        (Self { search, menu_at: None }, subs)
+        let (picker, picker_subs) = ProjectPicker::new(window, cx);
+        let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
+        subs.extend(picker_subs);
+        (Self { search, menu_at: None, picker, column_hidden: false }, subs)
     }
 }
 
@@ -93,6 +108,10 @@ impl Desktop {
                 icon_button_sized("aside-bell", "bell", 28., TEXT_3)
                     .when(unseen > 0, |d| d.child(ui::count_badge(unseen).top(px(-3.)).right(px(-3.))))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox(window, cx))),
+            )
+            .child(
+                icon_button_sized("aside-collapse", "sidebar-collapse", 28., TEXT_3)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_sidebar(&crate::actions::ToggleSidebar, window, cx))),
             );
         let search = ui::trigger_field("aside-search", "search", "Search", "⌘K")
             .mx(px(4.))
@@ -252,7 +271,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRow, in_tree, setting_up};
+    use super::{ProjectRow, column_shown, in_tree, setting_up};
+    use crate::desktop::chrome::{Layout, Screen};
     use crate::status::{self, Card};
     use agents::Summary;
     use std::collections::HashMap;
@@ -315,5 +335,17 @@ mod tests {
         let selected = |collapsed, current| ProjectRow::new(Some(&trees), collapsed, &HashMap::new()).selected(current, "/p");
         let got = [selected(true, Some("/wt")), selected(false, Some("/wt")), selected(false, Some("/p")), selected(true, None)];
         assert_eq!(got, [true, false, true, false]);
+    }
+
+    #[test]
+    fn compact_shows_the_column_unless_hidden_and_always_for_the_inbox() {
+        let got = [
+            column_shown(Layout::Sidebars, Screen::Sessions, true),
+            column_shown(Layout::Compact, Screen::Sessions, false),
+            column_shown(Layout::Compact, Screen::Sessions, true),
+            column_shown(Layout::Compact, Screen::Inbox, true),
+            column_shown(Layout::Focus, Screen::Sessions, false),
+        ];
+        assert_eq!(got, [true, true, false, true, false]);
     }
 }

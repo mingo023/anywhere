@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, Overlay, Screen, Side, column, drag_area};
+use crate::desktop::chrome::{Column, HEADER, LIGHTS, Layout, Overlay, RAIL, Screen, Side, column, drag_area};
 use crate::util::basename;
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -80,8 +80,8 @@ impl Desktop {
         let tabs = div().p(px(8.)).flex().flex_none().gap(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).children(tabs);
         let column = column()
             .w(px(self.width(Column::Sessions, 334.)))
-            .child(drag_area(self.column_header(cx)).h(px(42.)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
-            .child(tabs)
+            .child(drag_area(self.column_header(cx)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
+            .when(self.layout != Layout::Compact, |d| d.child(tabs))
             .child(body);
         self.resizable(column, Column::Sessions, cx)
     }
@@ -91,7 +91,7 @@ impl Desktop {
         let add = icon_button_sized("column-add", "plus", 28., TEXT_2)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx)));
         div()
-            .pl(px(18.))
+            .pl(px(if self.layout == Layout::Compact { LIGHTS - RAIL } else { 18. }))
             .pr(px(12.))
             .flex()
             .items_center()

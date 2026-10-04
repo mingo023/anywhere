@@ -61,7 +61,6 @@ pub struct Desktop {
     pub(crate) layout: Layout,
     /// Indexed by `Column`; `None` keeps the design's width.
     pub(crate) widths: [Option<f32>; 2],
-    pub(crate) panel: bool,
     pub(crate) session: Option<String>,
     pub(crate) workspaces: HashMap<String, Workspace>,
     pub(crate) repos: HashMap<String, Repo>,
@@ -143,7 +142,6 @@ impl Desktop {
             side: Side::Sessions,
             layout,
             widths,
-            panel: false,
             session: None,
             workspaces: HashMap::new(),
             repos: HashMap::new(),
@@ -357,7 +355,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.sidebar.picker.open
     }
 
     /// Returns whether a menu was open.
@@ -365,6 +363,7 @@ impl Desktop {
         let open = self.menu_open();
         (self.panels.menu, self.panels.actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, false, false);
         self.sidebar.menu_at = None;
+        self.sidebar.picker.open = false;
         open
     }
 
@@ -446,8 +445,7 @@ impl Render for Desktop {
             Layout::Compact => Some(self.nav(cx)),
             Layout::Focus => None,
         };
-        let column = (self.layout == Layout::Sidebars).then(|| self.column_view(cx));
-        let panel = (self.layout == Layout::Compact && self.panel).then(|| self.panel_view(cx));
+        let column = crate::sidebar::column_shown(self.layout, self.screen, self.sidebar.column_hidden).then(|| self.column_view(cx));
         let page = self.main_view(window, cx);
         let overlay = self.overlay_view(window, cx);
         div()
@@ -484,6 +482,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::prev_session))
             .on_modifiers_changed(cx.listener(Self::on_modifiers))
             .on_action(cx.listener(Self::toggle_rail))
+            .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::toggle_focus))
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::new_browser))
@@ -502,7 +501,6 @@ impl Render for Desktop {
             .children(lead)
             .children(column)
             .child(page)
-            .children(panel)
             .children(overlay)
             .children(self.chat_pill(cx))
             .children(self.chat_popover(cx))

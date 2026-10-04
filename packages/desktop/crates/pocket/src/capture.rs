@@ -1,4 +1,4 @@
-use crate::actions::{ToggleFocus, ToggleRail};
+use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
 use crate::add_to_chat::Quote;
 use crate::creating::Create;
 use crate::desktop::Desktop;
@@ -14,7 +14,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 26] = [
+const STEPS: [(&str, Step); 28] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -23,6 +23,8 @@ const STEPS: [(&str, Step); 26] = [
     ("worktree", |d, _, _| d.worktree = d.cwd().and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
     ("rail", |d, window, cx| d.toggle_rail(&ToggleRail, window, cx)),
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
+    ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
+    ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
     ("explore", |d, _, cx| {
         d.side = Side::Explorer;
         d.refresh_git(cx);
@@ -163,7 +165,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_chat(window, cx);
     d.close_overlay(window, cx);
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
-    (d.layout, d.widths, d.panel, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
+    (d.layout, d.widths, d.sidebar.column_hidden, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
     (d.session, d.worktree, d.terminal.focused) = (None, None, None);
     for p in d.preview.panes.values_mut() {
         p.file = None;

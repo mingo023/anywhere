@@ -2,7 +2,7 @@ use crate::browser;
 use gpui_kit::*;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -28,6 +28,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-shift-j", GoToUpNext, None),
         KeyBinding::new("ctrl-tab", NextSession, None),
         KeyBinding::new("ctrl-shift-tab", PrevSession, None),
+        KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-\\", ToggleRail, None),
         KeyBinding::new("cmd-.", ToggleFocus, None),
         KeyBinding::new("cmd-t", NewTab, None),

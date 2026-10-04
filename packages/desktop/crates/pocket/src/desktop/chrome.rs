@@ -1,4 +1,4 @@
-use crate::actions::{ToggleFocus, ToggleRail};
+use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
 use crate::desktop::Desktop;
 use crate::status::Status;
 use crate::terminals::close::Busy;
@@ -14,7 +14,7 @@ pub enum Screen {
     Inbox,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Side {
     Sessions,
     Explorer,
@@ -24,6 +24,14 @@ pub enum Side {
 pub use store::Layout;
 
 pub(crate) const SEAM: f32 = 20.;
+
+/// Where content starts to clear the window's traffic lights.
+pub(crate) const LIGHTS: f32 = 91.;
+
+pub(crate) const RAIL: f32 = 56.;
+
+/// A sidebar column's title bar.
+pub(crate) const HEADER: f32 = 42.;
 
 /// A sidebar column whose right edge the user drags.
 #[derive(Clone, Copy, PartialEq)]
@@ -132,24 +140,35 @@ pub fn empty(text: impl Into<SharedString>) -> Div {
     div().p(px(16.)).text_size(px(13.5)).text_color(TEXT_2).child(text.into())
 }
 
+pub fn sidebar_toggled(layout: Layout) -> Layout {
+    match layout {
+        Layout::Sidebars => Layout::Compact,
+        Layout::Compact | Layout::Focus => Layout::Sidebars,
+    }
+}
+
 impl Desktop {
     pub(crate) fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
         if self.layout == Layout::Compact {
-            self.panel = !self.panel;
+            self.sidebar.column_hidden = !self.sidebar.column_hidden;
             cx.notify();
         }
     }
 
+    pub(crate) fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
+        self.close_menus();
+        self.layout = sidebar_toggled(self.layout);
+        self.save_soon(cx);
+        cx.notify();
+    }
+
     pub(crate) fn toggle_focus(&mut self, _: &ToggleFocus, _: &mut Window, cx: &mut Context<Self>) {
-        if self.panel {
-            self.panel = false;
-        } else {
-            self.layout = match self.layout {
-                Layout::Sidebars => Layout::Compact,
-                Layout::Compact => Layout::Focus,
-                Layout::Focus => Layout::Sidebars,
-            };
-        }
+        self.close_menus();
+        self.layout = match self.layout {
+            Layout::Sidebars => Layout::Compact,
+            Layout::Compact => Layout::Focus,
+            Layout::Focus => Layout::Sidebars,
+        };
         self.save_soon(cx);
         cx.notify();
     }
@@ -221,7 +240,7 @@ impl Desktop {
         };
         match self.layout {
             // Leaves room for the window's traffic lights once the sidebars are hidden.
-            Layout::Focus => (91., Some(toggle("sidebar-expand", cx).relative().when(changes_badge(self.repo()).is_some(), |d| d.child(changes_dot())))),
+            Layout::Focus => (LIGHTS, Some(toggle("sidebar-expand", cx).relative().when(changes_badge(self.repo()).is_some(), |d| d.child(changes_dot())))),
             Layout::Compact | Layout::Sidebars => (pad, None),
         }
     }
@@ -235,5 +254,15 @@ impl Desktop {
             .child(ui::breadcrumb(crumbs))
             .child(ui::meta_row(meta))
             .child(div().ml_auto().flex().flex_none().items_center().gap(px(8.)).child(right))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Layout, sidebar_toggled};
+
+    #[test]
+    fn cmd_b_swaps_the_projects_sidebar_for_the_rail_and_brings_it_back() {
+        assert_eq!([Layout::Sidebars, Layout::Compact, Layout::Focus].map(sidebar_toggled), [Layout::Compact, Layout::Sidebars, Layout::Sidebars]);
     }
 }
