@@ -34,8 +34,11 @@ impl Desktop {
             return wrap.child(list.child(empty("Add a project with + to start.")));
         }
         let chips = self.chips.shown && self.overlay.is_none();
-        let cards: Vec<_> = self.visible_sessions(cx).into_iter().enumerate().map(|(i, c)| self.card(i, c, chips, cx)).collect();
-        wrap.child(list.child(div().p(px(8.)).flex().flex_col().gap(px(2.)).children(cards)))
+        let (pinned, rest): (Vec<_>, Vec<_>) = self.visible_sessions(cx).into_iter().enumerate().partition(|(_, c)| c.pinned);
+        let pinned: Vec<_> = pinned.into_iter().map(|(i, c)| self.card(i, c, chips, cx)).collect();
+        let rest: Vec<_> = rest.into_iter().map(|(i, c)| self.card(i, c, chips, cx)).collect();
+        let cards = div().p(px(8.)).flex().flex_col().gap(px(2.)).when(!pinned.is_empty(), |d| d.child(ui::pinned_group(pinned))).children(rest);
+        wrap.child(list.child(cards))
     }
 
     fn card(&self, i: usize, c: Card, chips: bool, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -46,7 +49,6 @@ impl Desktop {
             Kind::NotAttached => State::NotAttached,
             _ => state(c.status, added, removed),
         };
-        let lead = ui::agent_label(&c.provider, c.agent);
         let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone());
         let menu = RowMenu::Session(c.id.clone());
         let open = self.row_menu.as_ref() == Some(&menu);
@@ -57,15 +59,18 @@ impl Desktop {
         } else {
             ago(c.at, now_ms()).into_any_element()
         };
-        let when = div().flex().items_center().gap(px(5.)).when(c.pinned, |d| d.child(icon("pin", 11., TEXT_3))).child(when);
         let more = div()
             .absolute()
             .top(px(7.))
             .right(px(6.))
             .when(!open, |d| d.invisible().group_hover(ui::SESSION_ROW, |s| s.visible()))
             .child(self.row_menu_button(&c.id, menu.clone(), cx));
-        ui::session_row(("card", i), selected, lead, when, c.title, c.notice, branch, Some(pill))
-            .relative()
+        let row = if c.pinned {
+            ui::pinned_row(("card", i), selected, when, c.title, c.notice, branch, Some(pill))
+        } else {
+            ui::session_row(("card", i), selected, ui::agent_label(&c.provider, c.model), when, c.title, c.notice, branch, Some(pill))
+        };
+        row.relative()
             .child(more)
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&id, window, cx)))

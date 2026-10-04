@@ -482,9 +482,64 @@ pub const SESSION_ROW: &str = "session-row";
 #[allow(clippy::too_many_arguments)]
 pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
     let id = id.into();
-    let line = || div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_2);
+    session_card(id.clone(), selected, state)
+        .child(session_line().child(div().flex_1().min_w_0().flex().child(lead)).child(session_when(when)))
+        .child(session_title(title))
+        .children(session_notice(notice))
+        .child(session_foot(id, branch, state))
+}
+
+/// A pinned session's card: a pin before its title in place of the agent line.
+pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
+    let id = id.into();
+    session_card(id.clone(), selected, state)
+        .child(div().flex().items_center().gap(px(8.)).child(icon("pin", 13., TEXT_2)).child(session_title(title).flex_1().min_w_0()).child(session_when(when).text_size(px(12.)).text_color(TEXT_2)))
+        .children(session_notice(notice))
+        .child(session_foot(id, branch, state))
+}
+
+/// The box holding the pinned sessions, headed by a pin and their count.
+pub fn pinned_group(rows: Vec<Stateful<Div>>) -> Div {
+    let header = div()
+        .h(px(32.))
+        .px(px(10.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .text_size(px(14.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(TEXT)
+        .child(icon("pin", 14., TEXT))
+        .child(div().flex_1().child("Pinned"))
+        .child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(rows.len().to_string()));
+    div().flex_none().mb(px(8.)).p(px(4.)).rounded(px(10.)).bg(FILL_1).flex().flex_col().gap(px(2.)).child(header).children(rows)
+}
+
+fn session_line() -> Div {
+    div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_2)
+}
+
+fn session_when(when: impl IntoElement) -> Div {
+    div().group_hover(SESSION_ROW, |s| s.invisible()).child(when)
+}
+
+fn session_title(title: String) -> Div {
+    div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title)
+}
+
+fn session_notice(notice: Option<&'static str>) -> Option<Div> {
+    notice.map(|n| div().truncate().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_2).child(n))
+}
+
+fn session_foot(id: ElementId, branch: Option<String>, state: Option<State>) -> Div {
+    session_line()
+        .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_2)).child(div().truncate().child(b))))
+        .children(state.map(|s| status_label(id, s)))
+}
+
+fn session_card(id: ElementId, selected: bool, state: Option<State>) -> Stateful<Div> {
     div()
-        .id(id.clone())
+        .id(id)
         .group(SESSION_ROW)
         .relative()
         .px(px(10.))
@@ -497,14 +552,6 @@ pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
         .cursor_pointer()
         .when(state == Some(State::NeedsYou), |d| d.bg(WAITING_BG))
         .child(div().absolute().inset_0().rounded(px(8.)).map(|d| if selected { d.bg(FILL_3) } else { d.group_hover(SESSION_ROW, |s| s.bg(FILL_1)) }))
-        .child(line().child(div().flex_1().min_w_0().flex().child(lead)).child(div().group_hover(SESSION_ROW, |s| s.invisible()).child(when)))
-        .child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
-        .children(notice.map(|n| div().truncate().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_2).child(n)))
-        .child(
-            line()
-                .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_2)).child(div().truncate().child(b))))
-                .children(state.map(|s| status_label(id, s))),
-        )
 }
 
 /// The "⌘n" chip a session row shows in place of its age while ⌘ is held.

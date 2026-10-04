@@ -235,6 +235,7 @@ pub fn dot_spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) 
         .flex()
         .items_center()
         .justify_center()
+        // A braille glyph's dots cover a fraction of its em box.
         .text_size(px(size * 1.6))
         .line_height(px(size))
         .text_color(color.into())
