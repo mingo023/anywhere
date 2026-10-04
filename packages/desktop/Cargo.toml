@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+exclude = ["vendor"]
 default-members = ["crates/pocket"]
 
 [workspace.package]
@@ -57,6 +58,10 @@ serde_json = "1"
 tree-sitter-javascript = "0.23.1"
 tungstenite = "0.26"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
+
+# gpui-pre 0.3.6 with `List` keeping item heights as hints on a width change instead of re-measuring every item; drop once upstream does.
+[patch.crates-io]
+gpui-pre = { path = "vendor/gpui-pre" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.
 [profile.dev]
