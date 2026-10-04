@@ -189,6 +189,7 @@ type AgentSummary struct {
 	Attached          bool   `json:"attached"`
 	Restore           string `json:"restore,omitempty"`
 	Compacting        bool   `json:"compacting,omitempty"`
+	Pinned            bool   `json:"pinned,omitempty"`
 	Epoch             int64  `json:"epoch"`
 	MaxSeq            int64  `json:"maxSeq"`
 	ProviderSessionID string `json:"providerSessionId,omitempty"`

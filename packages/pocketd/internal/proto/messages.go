@@ -22,6 +22,7 @@ type ClientMessage struct {
 	Option          string
 	Message         string
 	AgentIDs        []string
+	Pinned          bool
 	Spec            *LaunchSpec
 	Key             string
 	Value           string
@@ -97,6 +98,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
 	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close":
 		ok = get("agentId", &m.AgentID)
+	case m.Type == "agent.pin":
+		ok = get("agentId", &m.AgentID) && get("pinned", &m.Pinned)
 	case m.Type == "agent.view", m.Type == "agent.seen":
 		ok = stringList("agentIds", &m.AgentIDs)
 	case m.Type == "agent.timeline":

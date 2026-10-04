@@ -8,6 +8,7 @@ use ui::{self, icon_button_sized};
 
 #[derive(Debug, PartialEq)]
 enum SessionItem {
+    Pin(bool),
     CopyPath,
     CopyResume(String),
     Close,
@@ -29,8 +30,9 @@ fn resume_command(provider: &str, session_id: &str, cwd: &str) -> Option<String>
 
 fn session_items(s: &Summary, observe: bool) -> Vec<SessionItem> {
     let resume = s.provider_session_id.as_deref().and_then(|id| resume_command(&s.provider, id, &s.cwd));
+    let pin = (!observe).then_some(SessionItem::Pin(!s.pinned));
     let close = (!observe).then_some(SessionItem::Close);
-    [Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), close].into_iter().flatten().collect()
+    [pin, Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), close].into_iter().flatten().collect()
 }
 
 impl Desktop {
@@ -126,6 +128,14 @@ impl Desktop {
                 let mut rows = vec![];
                 for item in session_items(s, self.agents.observe_only()) {
                     let row = match item {
+                        SessionItem::Pin(pin) => {
+                            let id = id.clone();
+                            ui::menu_row("aside-menu-pin", "pin", if pin { "Pin" } else { "Unpin" }, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.row_menu = None;
+                                this.outbox.pin(&id, pin);
+                                cx.notify();
+                            }))
+                        }
                         SessionItem::CopyPath => {
                             let cwd = s.cwd.clone();
                             ui::menu_row("aside-menu-copy-path", "copy", "Copy path", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -182,9 +192,15 @@ mod tests {
     #[test]
     fn no_resume_item_without_a_provider_session_id() {
         let fresh = Summary { provider: "claude".into(), cwd: "/w".into(), ..Default::default() };
-        assert_eq!(session_items(&fresh, false), [SessionItem::CopyPath, SessionItem::Close]);
+        assert_eq!(session_items(&fresh, false), [SessionItem::Pin(true), SessionItem::CopyPath, SessionItem::Close]);
         let resumable = Summary { provider_session_id: Some("s1".into()), ..fresh };
-        assert_eq!(session_items(&resumable, false), [SessionItem::CopyPath, SessionItem::CopyResume("cd '/w' && claude --resume 's1'".into()), SessionItem::Close]);
+        assert_eq!(session_items(&resumable, false), [SessionItem::Pin(true), SessionItem::CopyPath, SessionItem::CopyResume("cd '/w' && claude --resume 's1'".into()), SessionItem::Close]);
+    }
+
+    #[test]
+    fn a_pinned_session_offers_unpin() {
+        let s = Summary { provider: "claude".into(), cwd: "/w".into(), pinned: true, ..Default::default() };
+        assert_eq!(session_items(&s, false)[0], SessionItem::Pin(false));
     }
 
     #[test]

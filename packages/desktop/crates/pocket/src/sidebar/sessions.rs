@@ -57,6 +57,7 @@ impl Desktop {
         } else {
             ago(c.at, now_ms()).into_any_element()
         };
+        let when = div().flex().items_center().gap(px(5.)).when(c.pinned, |d| d.child(icon("pin", 11., TEXT_3))).child(when);
         let more = div()
             .absolute()
             .top(px(7.))

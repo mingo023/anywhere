@@ -14,9 +14,11 @@ pub fn arms_chips(m: &Modifiers, overlay_open: bool) -> bool {
     *m == Modifiers::command() && !overlay_open
 }
 
-/// The sessions ⌘n and ⌃Tab walk, in the order the Sessions column shows them.
+/// The sessions ⌘n and ⌃Tab walk, in the order the Sessions column shows them: pinned first.
 pub(crate) fn walkable(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>, query: &str) -> Vec<Card> {
-    matching(in_tree(cards, tree, tree_of), query)
+    let mut cards = matching(in_tree(cards, tree, tree_of), query);
+    cards.sort_by_key(|c| !c.pinned);
+    cards
 }
 
 /// The ⌘1–⌘9 chips on session rows, shown once ⌘ has been held alone for `CHIP_DELAY_MS`.
@@ -132,6 +134,14 @@ mod tests {
     fn cmd_n_counts_the_filtered_list() {
         assert_eq!(ids(""), vec!["a", "c", "d"]);
         assert_eq!(ids("fix c"), vec!["c"]);
+    }
+
+    #[test]
+    fn pinned_sessions_come_first_in_their_own_order() {
+        let pinned = |id: &str| Card { pinned: true, ..card(id, "idle", "/app") };
+        let cards = vec![card("a", "idle", "/app"), pinned("b"), card("c", "idle", "/app"), pinned("d")];
+        let order: Vec<String> = walkable(cards, Some("/app"), |cwd| Some(cwd.to_string()), "").into_iter().map(|c| c.id).collect();
+        assert_eq!(order, vec!["b", "d", "a", "c"]);
     }
 
     #[test]

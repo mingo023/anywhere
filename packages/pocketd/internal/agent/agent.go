@@ -41,6 +41,7 @@ type Agent struct {
 	unseenEnd       bool
 	failed          bool
 	compacting      bool
+	pinned          bool
 	compactFromIdle bool
 	attached        bool
 	restore         string
@@ -109,12 +110,12 @@ type Restored struct {
 	Origin                                    string
 	Fallback                                  string // title until the provider names the Conversation
 	CreatedAt                                 int64
-	Done, Failed                              bool
+	Done, Failed, Pinned                      bool
 }
 
 func (r *Registry) Restore(x Restored, d Driver) *Agent {
 	a := &Agent{id: x.ID, cwd: x.Cwd, provider: x.Provider, hub: r.hub, reg: r, Timeline: timeline.New(), driver: d, terminal: x.Terminal,
-		conversation: x.Conversation, fallback: x.Fallback, phase: "idle", unseenEnd: x.Done, failed: x.Failed, attached: true,
+		conversation: x.Conversation, fallback: x.Fallback, phase: "idle", unseenEnd: x.Done, failed: x.Failed, pinned: x.Pinned, attached: true,
 		origin: cmp.Or(x.Origin, "desktop"), createdAt: x.CreatedAt, updatedAt: now()}
 	r.mu.Lock()
 	r.agents[x.ID] = a
@@ -212,7 +213,7 @@ func (a *Agent) summary() proto.AgentSummary {
 	status := a.status()
 	return proto.AgentSummary{
 		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort,
-		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting,
+		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned,
 		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
 		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin,
@@ -371,6 +372,10 @@ func (a *Agent) SetModel(model string) {
 
 func (a *Agent) SetEffort(effort string) {
 	a.update(false, func() { a.effort = effort })
+}
+
+func (a *Agent) SetPinned(pinned bool) {
+	a.update(false, func() { a.pinned = pinned })
 }
 
 // SetLocation places the agent in a registered Project; all "" when it is in none.

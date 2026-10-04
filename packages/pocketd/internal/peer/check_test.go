@@ -23,6 +23,7 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ws:project.list":       {"", "", "", ""},
 		"ws:agent.prompt":       {"", "", "", "scope_denied"},
 		"ws:agent.close":        {"", "", "", "scope_denied"},
+		"ws:agent.pin":          {"", "", "", "scope_denied"},
 		"ws:permission.resolve": {"", "", "", "scope_denied"},
 		"ws:pair.begin":         {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ws:agent.create":       {"", "", "scope_denied", "scope_denied"},

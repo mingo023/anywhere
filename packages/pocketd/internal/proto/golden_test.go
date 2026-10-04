@@ -36,6 +36,7 @@ var serverGolden = map[string]any{
 	})),
 	"agent_update_restore_cleared": NewAgentUpdate(with(func(s *AgentSummary) { s.Status = "working" })),
 	"agent_update_model":           NewAgentUpdate(with(func(s *AgentSummary) { s.Model, s.Effort = "claude-opus-5-5", "high" })),
+	"agent_update_pinned":          NewAgentUpdate(with(func(s *AgentSummary) { s.Pinned = true })),
 	"agent_list_restored": NewAgentList("l1", []AgentSummary{
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),
@@ -151,6 +152,8 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.prompt","id":"1","agentId":"a","text":null}`,
 		`{"type":"agent.close","id":null,"agentId":"a"}`,
 		`{"type":"agent.view","id":"1"}`,
+		`{"type":"agent.pin","id":"1","agentId":"a"}`,
+		`{"type":"agent.pin","id":"1","agentId":"a","pinned":"yes"}`,
 		`{"type":"agent.view","id":"1","agentIds":null}`,
 		`{"type":"agent.seen","id":"1","agentIds":"a1"}`,
 		`{"type":"agent.seen","id":"1","agentIds":[1]}`,

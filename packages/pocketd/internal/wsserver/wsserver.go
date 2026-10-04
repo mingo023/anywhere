@@ -438,6 +438,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		err = a.Driver().Compact()
 	case "agent.close":
 		a.Driver().Close()
+	case "agent.pin":
+		a.SetPinned(m.Pinned)
 	}
 	if err != nil {
 		return err

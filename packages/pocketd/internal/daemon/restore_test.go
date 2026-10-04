@@ -105,6 +105,25 @@ func TestAPermissionModeHookUpdatesTheSavedAccess(t *testing.T) {
 	}
 }
 
+func TestAPinOutlivesARestart(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	hookFrom(d, pr, sessionStart("s1", transcript(t, "hi")))
+	pr.a.SetPinned(true)
+	if !d.Snapshot().Terminals[0].Pinned {
+		t.Fatal("the file forgets the pin")
+	}
+	next := newDaemon(t)
+	resuming(next, "/bin/sh")
+	saved := savedAgent(t.TempDir(), "claude")
+	saved.Terminals[0].Pinned = true
+	next.Restore(saved, "/bin/sh")
+	t.Cleanup(next.Terminals.Get("t-1").Close)
+	if a, _ := next.Agents.Get("a-1"); !a.Summary().Pinned {
+		t.Fatal("the restored agent is not pinned")
+	}
+}
+
 func TestATerminalWithoutAConversationSavesNoAgent(t *testing.T) {
 	d := newDaemon(t)
 	claudeIn(t, d)

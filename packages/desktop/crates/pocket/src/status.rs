@@ -59,6 +59,7 @@ pub struct Card {
     pub status: Status,
     pub kind: Kind,
     pub notice: Option<&'static str>,
+    pub pinned: bool,
 }
 
 /// An agent's card, placed by the folder its terminal started in.
@@ -75,6 +76,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         status: Status::of(a).unwrap_or(Status::Idle),
         kind,
         notice: notice(a),
+        pinned: a.pinned,
     }
 }
 

@@ -296,6 +296,26 @@ func TestPromptAcksAndReachesDriver(t *testing.T) {
 	}
 }
 
+func TestPinningAnAgentTellsEveryPhone(t *testing.T) {
+	reg, _, p := setup(t)
+	p.hello()
+	p.send(`{"type":"agent.pin","id":"p","agentId":"a1","pinned":true}`)
+	acked, told := false, false
+	for !acked || !told {
+		switch m := p.recv(); m["type"] {
+		case "ack":
+			acked = true
+		case "agent.update":
+			told = m["agent"].(map[string]any)["pinned"] == true
+		default:
+			t.Fatalf("%v", m)
+		}
+	}
+	if a, _ := reg.Get("a1"); !a.Summary().Pinned {
+		t.Fatal("the agent is not pinned")
+	}
+}
+
 type resumingDriver struct{ fakeDriver }
 
 func (*resumingDriver) Prompt(string) error { return agent.ErrResuming }

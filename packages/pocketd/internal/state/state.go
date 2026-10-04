@@ -35,6 +35,7 @@ type Terminal struct {
 	CreatedAt      int64   `json:"createdAt,omitempty"`
 	Status         string  `json:"status,omitempty"`
 	Failed         bool    `json:"failed,omitempty"`
+	Pinned         bool    `json:"pinned,omitempty"`
 	Origin         string  `json:"origin,omitempty"`
 }
 

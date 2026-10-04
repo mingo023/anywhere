@@ -139,7 +139,7 @@ func (pr *presence) save(e *state.Terminal) {
 	e.TranscriptPath = pr.transcript
 	pr.mu.Unlock()
 	e.Provider, e.ConversationID, e.Launch = pr.provider, s.ProviderSessionID, &launch
-	e.AgentID, e.CreatedAt, e.Status, e.Failed, e.Origin = s.ID, s.CreatedAt, s.Status, s.Failed, s.Origin
+	e.AgentID, e.CreatedAt, e.Status, e.Failed, e.Origin, e.Pinned = s.ID, s.CreatedAt, s.Status, s.Failed, s.Origin, s.Pinned
 }
 
 // endAgent ends pr once; the poller and a hook's observe can both find it gone.

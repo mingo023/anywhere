@@ -93,6 +93,7 @@ export const AgentSummary = Schema.Struct({
   attached: Schema.Boolean,
   restore: Schema.optional(Schema.String),
   compacting: Schema.optional(Schema.Boolean),
+  pinned: Schema.optional(Schema.Boolean),
   epoch: Schema.Number,
   maxSeq: Schema.Number,
   providerSessionId: Schema.optional(Schema.String),

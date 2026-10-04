@@ -25,6 +25,7 @@ pub struct Summary {
     pub attached: bool,
     pub restore: String,
     pub compacting: bool,
+    pub pinned: bool,
     pub provider_session_id: Option<String>,
     pub tokens_used: u64,
     pub context_window: Option<u64>,
@@ -331,6 +332,10 @@ impl Outbox {
 
     pub fn seen(&self, ids: &[String]) {
         self.send(json!({"type": "agent.seen", "id": "seen", "agentIds": ids}));
+    }
+
+    pub fn pin(&self, agent_id: &str, pinned: bool) {
+        self.send(json!({"type": "agent.pin", "id": "pin", "agentId": agent_id, "pinned": pinned}));
     }
 
     pub fn resolve(&self, request_id: &str, decision: Decision) {
