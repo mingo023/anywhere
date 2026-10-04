@@ -58,5 +58,9 @@ tree-sitter-javascript = "0.23.1"
 tungstenite = "0.26"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
 
+# macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.
+[profile.dev]
+split-debuginfo = "packed"
+
 [profile.dev.package."*"]
 opt-level = 2
