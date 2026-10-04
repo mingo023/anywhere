@@ -66,13 +66,18 @@ func (d *Daemon) Snapshot() state.File {
 	f := state.File{Version: state.Version, Terminals: []state.Terminal{}}
 	for _, info := range d.Terminals.List() {
 		e := state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows}
+		var resuming *agent.Agent
 		d.mu.Lock()
 		h := d.restoring[info.ID]
 		if h != nil && !h.over {
 			e = h.saved
 			e.Cols, e.Rows = info.Cols, info.Rows
+			resuming = h.a
 		}
 		d.mu.Unlock()
+		if resuming != nil {
+			e.Pinned = resuming.Summary().Pinned
+		}
 		if pr := d.presentIn(info.ID); pr != nil && e.AgentID == "" {
 			pr.save(&e)
 		}

@@ -119,8 +119,13 @@ func TestAPinOutlivesARestart(t *testing.T) {
 	saved.Terminals[0].Pinned = true
 	next.Restore(saved, "/bin/sh")
 	t.Cleanup(next.Terminals.Get("t-1").Close)
-	if a, _ := next.Agents.Get("a-1"); !a.Summary().Pinned {
+	a, _ := next.Agents.Get("a-1")
+	if !a.Summary().Pinned {
 		t.Fatal("the restored agent is not pinned")
+	}
+	a.SetPinned(false)
+	if next.Snapshot().Terminals[0].Pinned {
+		t.Fatal("a resuming agent's file forgets the unpin")
 	}
 }
 
