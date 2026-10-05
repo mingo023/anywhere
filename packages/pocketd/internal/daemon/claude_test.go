@@ -206,6 +206,28 @@ func TestHooksDriveTheStatus(t *testing.T) {
 	}
 }
 
+func TestASubagentHookLeavesTheSessionAlone(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	for _, e := range []string{"PermissionRequest", "Notification", "PreToolUse", "PostToolUse"} {
+		out := make(chan []byte, 1)
+		go func() {
+			out <- hookFrom(d, pr, fmt.Sprintf(`{"hook_event_name":%q,"agent_id":"a1","tool_name":"Bash","tool_input":{"command":"ls"}}`, e))
+		}()
+		select {
+		case b := <-out:
+			if b != nil {
+				t.Errorf("%s replied %s", e, b)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%s is held open", e)
+		}
+	}
+	if s := pr.a.Summary().Status; s != "idle" {
+		t.Fatalf("status = %s", s)
+	}
+}
+
 func TestEscOrCtrlCClearsTheTurn(t *testing.T) {
 	for _, key := range []string{"\x1b", "\x1b[27u", "\x03", "\x1b[99;5u"} {
 		d := newDaemon(t)

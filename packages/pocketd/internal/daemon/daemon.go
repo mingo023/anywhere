@@ -130,6 +130,7 @@ func permissionKey(agentID, tool string, input json.RawMessage) string {
 type hookInput struct {
 	Event                 string            `json:"hook_event_name"`
 	SessionID             string            `json:"session_id"`
+	SubagentID            string            `json:"agent_id"`
 	TranscriptPath        string            `json:"transcript_path"`
 	Cwd                   string            `json:"cwd"`
 	Model                 string            `json:"model"`
@@ -170,6 +171,11 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 	pr := d.claudeAt(m.ID, NearestClaude(chain))
 	if pr == nil {
 		return nil, errHookForged
+	}
+	// A background subagent's ask has no dialog at the desk, so only the main
+	// loop drives the status; nil lets Claude decide.
+	if in.SubagentID != "" {
+		return nil, nil
 	}
 	if in.PermissionMode != "" {
 		pr.setMode(in.PermissionMode)
