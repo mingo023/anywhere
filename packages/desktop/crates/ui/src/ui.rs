@@ -862,6 +862,18 @@ pub fn alert(title: &str, body: impl IntoIterator<Item = AnyElement>, buttons: i
     )
 }
 
+/// A left-aligned alert for longer content: title, body, then the buttons in a row at the bottom right, Cancel first and the action last.
+pub fn dialog(title: &str, body: impl IntoIterator<Item = AnyElement>, buttons: impl IntoIterator<Item = Stateful<Div>>) -> Div {
+    div().absolute().inset_0().flex().items_center().justify_center().child(
+        pop(div().w(px(400.)).p(px(20.)).flex().flex_col().gap(px(10.)))
+            .rounded(px(R_DIALOG))
+            .occlude()
+            .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title.to_string()))
+            .children(body)
+            .child(div().pt(px(10.)).flex().justify_end().gap(px(8.)).children(buttons)),
+    )
+}
+
 pub fn palette_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, title: impl IntoElement, detail: impl IntoElement, keys: Option<&str>) -> Stateful<Div> {
     div()
         .id(id)

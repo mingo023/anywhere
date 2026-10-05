@@ -187,7 +187,7 @@ impl Desktop {
         let current = self.cwd().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let kept = self.store.projects.iter().any(|k| k == p);
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
-        let trees = self.worktrees.get(p).map(|w| self.creates.trees(p, w));
+        let trees = self.worktrees.get(p).map(|w| self.removals.hide(self.creates.trees(p, w)));
         let setups = self.creates.setups(&self.terminals.setups);
         let fold = ProjectRow::new(trees.as_deref(), self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref(), &main);
@@ -233,9 +233,7 @@ impl Desktop {
             let trees: Vec<String> = trees.iter().flatten().filter(|w| !w.main).map(|w| w.path.clone()).collect();
             for tree in &trees {
                 let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
-                let mark = if self.removals.running(tree) {
-                    Some(ui::busy(id(format!("aside-deleting:{tree}")), "Deleting…").into_any_element())
-                } else if self.creates.failed(tree) {
+                let mark = if self.creates.failed(tree) {
                     ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
                 } else {
                     row_mark(tree, self::setting_up(&setups, tree), &self.tree_cards(p, tree))

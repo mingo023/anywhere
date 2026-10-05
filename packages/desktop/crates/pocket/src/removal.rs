@@ -1,13 +1,14 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
+use crate::util::basename;
 use gpui_kit::*;
 use std::collections::HashSet;
-use std::path::Path;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const TEARDOWN_LIMIT: Duration = Duration::from_secs(120);
 
-/// Worktrees being deleted: their rows say so, and a second delete of one is ignored.
+/// Worktrees being deleted: their rows leave at once, a toast stays until they're gone, and a second delete of one is ignored.
 #[derive(Default)]
 pub(crate) struct Removals {
     running: HashSet<String>,
@@ -17,6 +18,24 @@ impl Removals {
     pub(crate) fn running(&self, tree: &str) -> bool {
         self.running.contains(tree)
     }
+
+    /// Whether `tree` wasn't already being deleted.
+    pub(crate) fn start(&mut self, tree: &str) -> bool {
+        self.running.insert(tree.to_string())
+    }
+
+    pub(crate) fn hide(&self, mut trees: Vec<git::Worktree>) -> Vec<git::Worktree> {
+        trees.retain(|w| !self.running(&w.path));
+        trees
+    }
+
+    pub(crate) fn label(&self) -> Option<String> {
+        match self.running.len() {
+            0 => None,
+            1 => self.running.iter().next().map(|t| format!("Deleting {}…", basename(t))),
+            n => Some(format!("Deleting {n} worktrees…")),
+        }
+    }
 }
 
 /// A worktree to delete, and what goes with it.
@@ -24,7 +43,7 @@ impl Removals {
 pub(crate) struct Removal {
     pub(crate) project: String,
     pub(crate) tree: String,
-    /// `None` when the tree is detached.
+    /// `None` when the tree is detached or on a branch the project builds on, which always stays.
     pub(crate) branch: Option<String>,
     pub(crate) delete_branch: bool,
     pub(crate) teardown: bool,
@@ -46,12 +65,15 @@ enum Failure {
     /// Nothing was deleted; holds the end of the script's output.
     Teardown(String),
     Remove(String),
-    /// The worktree is gone but this branch stayed, for this reason.
-    Branch(String, String),
 }
 
-fn needs_confirm(dirty: usize, terminals: usize, lost: usize) -> bool {
-    dirty + terminals + lost > 0
+/// A deleted worktree.
+#[derive(Debug, PartialEq)]
+struct Removed {
+    /// The set-aside folder, still holding the tree's files.
+    aside: Option<PathBuf>,
+    /// A branch that stayed, and why.
+    kept: Option<(String, String)>,
 }
 
 /// Whether "Delete worktree and branch" may take `branch`: not a detached tree, nor a branch the project builds on.
@@ -59,38 +81,47 @@ pub(crate) fn branch_deletable(branch: &str, base: &str) -> bool {
     !["", "detached", "main", "master", base].contains(&branch)
 }
 
+/// Moves `tree` into the temp folder, an instant rename where deleting a `target/` takes seconds.
+/// `None` when it can't, e.g. across volumes: git then deletes it in place.
+fn set_aside(tree: &str) -> Option<PathBuf> {
+    let name = Path::new(tree).file_name()?.to_string_lossy();
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_nanos();
+    let aside = std::env::temp_dir().join(format!("pocket-deleted-{name}-{nanos}"));
+    std::fs::rename(tree, &aside).ok().map(|_| aside)
+}
+
 /// Teardown goes first: scripts like `docker compose down` need the folder.
-fn run(r: &Removal, teardown: &str) -> Result<(), Failure> {
+fn run(r: &Removal, teardown: &str) -> Result<Removed, Failure> {
     if r.teardown && !teardown.is_empty() && Path::new(&r.tree).is_dir() {
         daemon::run_script(teardown, &r.tree, TEARDOWN_LIMIT).map_err(Failure::Teardown)?;
     }
-    git::remove_worktree(&r.project, &r.tree).map_err(Failure::Remove)?;
-    match r.branch.as_deref().filter(|_| r.delete_branch) {
-        Some(b) => git::delete_branch(&r.project, b).map_err(|e| Failure::Branch(b.to_string(), e)),
-        None => Ok(()),
+    let aside = set_aside(&r.tree);
+    if let Err(e) = git::remove_worktree(&r.project, &r.tree) {
+        if let Some(aside) = &aside {
+            std::fs::rename(aside, &r.tree).ok();
+        }
+        return Err(Failure::Remove(e));
     }
+    let kept = r.branch.as_deref().filter(|_| r.delete_branch).and_then(|b| git::delete_branch(&r.project, b).err().map(|e| (b.to_string(), e)));
+    Ok(Removed { aside, kept })
 }
 
 impl Desktop {
-    /// Asks first when deleting would close terminals or lose uncommitted changes or commits.
-    pub(crate) fn ask_delete_worktree(&mut self, project: String, tree: String, delete_branch: bool, cx: &mut Context<Self>) {
+    /// Asks first, offering to delete the tree's branch too and warning about the work that would go.
+    pub(crate) fn ask_delete_worktree(&mut self, project: String, tree: String, cx: &mut Context<Self>) {
         if self.removals.running(&tree) {
             return;
         }
-        let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| !b.is_empty() && b != "detached");
-        let removal = Removal { project, tree, branch, delete_branch, teardown: true };
+        let base = self.store.repos.get(&project).map_or("", |r| r.base.as_str());
+        let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b, base));
+        let removal = Removal { project, tree, delete_branch: branch.is_some(), branch, teardown: true };
         let job = removal.clone();
-        let task = cx.background_executor().spawn(async move { (git::read(&job.tree).map(|r| r.files.len()), job.lost()) });
+        let task = cx.background_executor().spawn(async move { (git::read(&job.tree).map_or(0, |r| r.files.len()), job.lost()) });
         cx.spawn(async move |this, cx| {
             let (dirty, lost) = task.await;
             this.update(cx, |d, cx| {
-                // An unreadable tree may still hold work: ask.
-                if dirty.is_none_or(|n| needs_confirm(n, d.tree_terminals(&removal.tree).len(), lost)) {
-                    d.confirm = Some(Confirm::DeleteWorktree { removal, dirty: dirty.unwrap_or(0), lost });
-                    d.overlay = Some(Overlay::Confirm);
-                } else {
-                    d.delete_worktree(removal, cx);
-                }
+                d.confirm = Some(Confirm::DeleteWorktree { removal, dirty, lost });
+                d.overlay = Some(Overlay::Confirm);
                 cx.notify();
             })
             .ok();
@@ -99,8 +130,11 @@ impl Desktop {
     }
 
     pub(crate) fn delete_worktree(&mut self, removal: Removal, cx: &mut Context<Self>) {
-        if !self.removals.running.insert(removal.tree.clone()) {
+        if !self.removals.start(&removal.tree) {
             return;
+        }
+        if self.worktree.as_deref() == Some(&removal.tree) {
+            self.select_tree(removal.project.clone(), None, cx);
         }
         let teardown = self.store.repos.get(&removal.project).map(|r| r.teardown.clone()).unwrap_or_default();
         let job = removal.clone();
@@ -115,11 +149,15 @@ impl Desktop {
                         d.overlay = Some(Overlay::Confirm);
                     }
                     Err(Failure::Remove(e)) => d.error = Some(e),
-                    Err(Failure::Branch(branch, e)) => {
-                        d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
+                    Ok(Removed { aside, kept }) => {
+                        if let Some(aside) = aside {
+                            cx.background_executor().spawn(async move { std::fs::remove_dir_all(aside) }).detach();
+                        }
+                        if let Some((branch, e)) = kept {
+                            d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
+                        }
                         d.forget_tree(&removal.tree, cx);
                     }
-                    Ok(()) => d.forget_tree(&removal.tree, cx),
                 }
                 d.refresh_git(cx);
                 cx.notify();
@@ -134,6 +172,10 @@ impl Desktop {
         for id in self.tree_terminals(tree) {
             self.close_pane(&id, cx);
         }
+        // Its row would show again until the git refresh lands.
+        for trees in self.worktrees.values_mut() {
+            trees.retain(|w| w.path != tree);
+        }
         self.workspaces.remove(tree);
         self.prs.forget(tree);
         self.store.layouts.remove(tree);
@@ -146,7 +188,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Removal, branch_deletable, needs_confirm, run};
+    use super::{Failure, Removal, Removals, Removed, branch_deletable, run};
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -168,12 +210,21 @@ mod tests {
         (dir, removal)
     }
 
+    fn tree(path: &str, main: bool) -> git::Worktree {
+        git::Worktree { path: path.into(), branch: String::new(), main }
+    }
+
     #[test]
-    fn deleting_asks_only_when_it_would_lose_work_or_close_terminals() {
-        assert!(!needs_confirm(0, 0, 0));
-        assert!(needs_confirm(2, 0, 0));
-        assert!(needs_confirm(0, 1, 0));
-        assert!(needs_confirm(0, 0, 3));
+    fn a_worktree_being_deleted_leaves_the_sidebar() {
+        let removals = Removals { running: ["/wt".to_string()].into() };
+        let shown = removals.hide(vec![tree("/p", true), tree("/wt", false), tree("/wt2", false)]);
+        assert_eq!(shown, [tree("/p", true), tree("/wt2", false)]);
+    }
+
+    #[test]
+    fn the_toast_names_the_worktree_being_deleted_or_counts_them() {
+        let labels = [&[][..], &["/src/feat"], &["/src/feat", "/src/fix"]].map(|trees| Removals { running: trees.iter().map(|t| t.to_string()).collect() }.label());
+        assert_eq!(labels, [None, Some("Deleting feat…".into()), Some("Deleting 2 worktrees…".into())]);
     }
 
     #[test]
@@ -199,9 +250,32 @@ mod tests {
     #[test]
     fn deletes_the_worktree_then_its_branch() {
         let (dir, r) = scratch("both");
-        assert_eq!(run(&r, ""), Ok(()));
+        let removed = run(&r, "").unwrap();
+        std::fs::remove_dir_all(removed.aside.unwrap()).unwrap();
         assert!(!Path::new(&r.tree).exists());
         assert!(!git::branches(&r.project).contains(&"feat".to_string()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_folder_is_set_aside_so_its_files_are_purged_after_the_worktree_is_gone() {
+        let (dir, r) = scratch("aside");
+        std::fs::write(Path::new(&r.tree).join("big"), "x").unwrap();
+        let aside = run(&r, "").unwrap().aside.unwrap();
+        assert!(!Path::new(&r.tree).exists());
+        assert_eq!(git::worktrees(&r.project).len(), 1);
+        assert!(aside.join("big").exists());
+        std::fs::remove_dir_all(&aside).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_removal_git_refuses_leaves_the_folder_in_place() {
+        let (dir, r) = scratch("refused");
+        std::fs::write(Path::new(&r.tree).join("work"), "x").unwrap();
+        let elsewhere = dir.join("elsewhere").to_string_lossy().into_owned();
+        assert!(matches!(run(&Removal { project: elsewhere, ..r.clone() }, ""), Err(Failure::Remove(_))));
+        assert!(Path::new(&r.tree).join("work").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -209,7 +283,9 @@ mod tests {
     fn a_branch_that_cannot_be_deleted_leaves_the_worktree_deleted() {
         let (dir, r) = scratch("kept");
         let r = Removal { branch: Some("gone".into()), ..r };
-        assert!(matches!(run(&r, ""), Err(Failure::Branch(b, _)) if b == "gone"));
+        let removed = run(&r, "").unwrap();
+        assert_eq!(removed.kept.map(|(b, _)| b).as_deref(), Some("gone"));
+        std::fs::remove_dir_all(removed.aside.unwrap()).unwrap();
         assert!(!Path::new(&r.tree).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -227,7 +303,7 @@ mod tests {
     fn teardown_is_skipped_once_the_folder_is_gone() {
         let (dir, r) = scratch("gone");
         std::fs::remove_dir_all(&r.tree).unwrap();
-        assert_eq!(run(&Removal { delete_branch: false, ..r.clone() }, "exit 1"), Ok(()));
+        assert_eq!(run(&Removal { delete_branch: false, ..r.clone() }, "exit 1"), Ok(Removed { aside: None, kept: None }));
         assert_eq!(git::worktrees(&r.project).len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }

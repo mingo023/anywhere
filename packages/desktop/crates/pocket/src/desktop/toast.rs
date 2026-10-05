@@ -26,7 +26,7 @@ impl Desktop {
             .id("error-toast")
             .absolute()
             .right(px(16.))
-            .bottom(px(16.))
+            .bottom(px(if self.removals.label().is_some() { 56. } else { 16. }))
             .w(px(300.))
             .pl(px(12.))
             .pr(px(10.))
@@ -40,5 +40,26 @@ impl Desktop {
             .child(div().flex_1().min_w_0().text_size(px(13.)).text_color(TEXT).child(error))
             .child(dismiss);
         Some(toast.with_animation("error-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
+    }
+
+    /// Worktrees being deleted, floated under the error toast until their folders are gone from git.
+    pub(crate) fn deleting_toast(&self) -> Option<impl IntoElement> {
+        let label = self.removals.label()?;
+        let toast = ui::pop(div())
+            .absolute()
+            .right(px(16.))
+            .bottom(px(16.))
+            .h(px(32.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(10.))
+            .text_size(px(12.5))
+            .text_color(TEXT_2)
+            .whitespace_nowrap()
+            .child(spinner("deleting-toast-spinner", 12., TEXT_3))
+            .child(label);
+        Some(toast.with_animation("deleting-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))
     }
 }

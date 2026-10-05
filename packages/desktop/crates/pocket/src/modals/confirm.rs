@@ -34,9 +34,10 @@ impl ConfirmText {
         Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, lost: 0, danger: true }
     }
 
+    /// `lost` counts the commits only the tree's branch, or its detached HEAD, holds; a kept branch keeps them.
     fn delete_worktree(r: &Removal, dirty: usize, lost: usize, terminals: usize) -> Self {
-        let branch = r.branch.as_ref().map(|b| if r.delete_branch { format!("Deletes the branch {b}") } else { format!("Keeps the branch {b}") });
-        let facts = closes(terminals).into_iter().chain([format!("Deletes the folder {}", tilde(&r.tree))]).chain(branch).collect();
+        let facts = closes(terminals).into_iter().chain([format!("Deletes the folder {}", tilde(&r.tree))]).collect();
+        let lost = if r.branch.is_some() && !r.delete_branch { 0 } else { lost };
         Self { title: format!("Delete {}?", basename(&r.tree)), action: "Delete", facts, dirty, lost, danger: true }
     }
 
@@ -126,7 +127,32 @@ impl Desktop {
         if let Some(detail) = text.detail() {
             body.push(div().text_size(px(13.)).text_color(TEXT_2).child(detail).into_any_element());
         }
-        if let Some(warning) = text.warning() {
+        if let Some(Confirm::DeleteWorktree { removal: Removal { branch: Some(branch), delete_branch, .. }, .. }) = &self.confirm {
+            body.push(
+                div()
+                    .id("confirm-delete-branch")
+                    .mt(px(4.))
+                    .flex()
+                    .items_start()
+                    .gap(px(8.))
+                    .cursor_pointer()
+                    .text_size(px(13.))
+                    .text_color(TEXT)
+                    .child(ui::checkbox(*delete_branch).mt(px(2.)))
+                    .child(div().min_w_0().child(format!("Also delete branch {branch}")))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        if let Some(Confirm::DeleteWorktree { removal, .. }) = &mut this.confirm {
+                            removal.delete_branch = !removal.delete_branch;
+                        }
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        let worktree = matches!(self.confirm, Some(Confirm::DeleteWorktree { .. }));
+        if let Some(warning) = text.warning().filter(|_| worktree) {
+            body.push(div().text_size(px(12.5)).text_color(FAILED_TEXT).child(warning).into_any_element());
+        } else if let Some(warning) = text.warning() {
             body.push(div().w_full().mt(px(4.)).px(px(12.)).py(px(8.)).rounded(px(8.)).bg(FAILED_BG).text_size(px(12.5)).text_color(FAILED).child(warning).into_any_element());
         }
         if let Some(Confirm::TeardownFailed { tail, .. }) = &self.confirm {
@@ -137,6 +163,9 @@ impl Desktop {
         let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_)))
             .then(|| ui::button("confirm-dont-save", Variant::Secondary, None, "Don't save").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_unsaved(window, cx))));
         let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        if worktree {
+            return ui::dialog(&text.title, body, [cancel, action]);
+        }
         ui::alert(&text.title, body, std::iter::once(action).chain(dont_save).chain([cancel]))
     }
 
@@ -204,25 +233,24 @@ mod tests {
     }
 
     #[test]
-    fn deleting_a_worktree_keeps_its_branch_and_warns_about_uncommitted_files() {
-        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), false), 2, 0, 1);
-        assert_eq!(got, text("Delete feat?", "Delete", &["Closes 1 terminal", "Deletes the folder /src/feat", "Keeps the branch feat-x"], 2));
-        let warnings = [0, 1, 2].map(|dirty| ConfirmText::delete_worktree(&removal(Some("feat-x"), false), dirty, 0, 0).warning());
+    fn deleting_a_worktree_names_its_folder_and_warns_about_uncommitted_files() {
+        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 2, 0, 1);
+        assert_eq!(got, text("Delete feat?", "Delete", &["Closes 1 terminal", "Deletes the folder /src/feat"], 2));
+        let warnings = [0, 1, 2].map(|dirty| ConfirmText::delete_worktree(&removal(Some("feat-x"), true), dirty, 0, 0).warning());
         assert_eq!(warnings, [None, Some("1 uncommitted file will be lost.".into()), Some("2 uncommitted files will be lost.".into())]);
     }
 
     #[test]
-    fn deleting_the_branch_too_says_so_and_warns_about_commits_no_other_branch_has() {
-        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 0, 3, 0);
-        assert_eq!(got.facts, ["Deletes the folder /src/feat", "Deletes the branch feat-x"]);
-        assert_eq!(got.warning(), Some("3 commits on no other branch will be lost.".into()));
-        let both = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 1, 1, 0).warning();
-        assert_eq!(both, Some("1 uncommitted file and 1 commit on no other branch will be lost.".into()));
+    fn commits_only_the_branch_holds_are_lost_only_while_it_goes_too() {
+        let warning = |delete_branch| ConfirmText::delete_worktree(&removal(Some("feat-x"), delete_branch), 1, 3, 0).warning();
+        assert_eq!(warning(true), Some("1 uncommitted file and 3 commits on no other branch will be lost.".into()));
+        assert_eq!(warning(false), Some("1 uncommitted file will be lost.".into()));
     }
 
     #[test]
-    fn a_detached_worktree_names_no_branch() {
-        assert_eq!(ConfirmText::delete_worktree(&removal(None, false), 0, 2, 0).facts, ["Deletes the folder /src/feat"]);
+    fn a_detached_worktree_loses_its_commits() {
+        let got = ConfirmText::delete_worktree(&removal(None, false), 0, 2, 0);
+        assert_eq!((got.warning(), got.facts), (Some("2 commits on no other branch will be lost.".into()), vec!["Deletes the folder /src/feat".to_string()]));
     }
 
     #[test]

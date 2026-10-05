@@ -387,7 +387,7 @@ impl Desktop {
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
             None => self.blank_page(cx),
         };
-        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.added_toast())
+        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast())
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {

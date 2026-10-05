@@ -2,7 +2,7 @@ use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
 use crate::add_to_chat::Quote;
 use crate::creating::Create;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Layout, Overlay, Screen, Side};
+use crate::desktop::chrome::{Confirm, Layout, Overlay, Screen, Side};
 use crate::git_ui::graph::GraphState;
 use crate::settings::{Section, SettingsState};
 use crate::status::Status;
@@ -16,7 +16,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 33] = [
+const STEPS: [(&str, Step); 35] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -93,6 +93,17 @@ const STEPS: [(&str, Step); 33] = [
         if let Some(c) = d.creates.list.first_mut() {
             c.fail("Setup exited 1".into(), "npm ERR! missing script: setup".into(), Instant::now());
         }
+    }),
+    ("deleting", |d, _, _| {
+        let Some(tree) = d.project.as_ref().and_then(|p| d.worktrees.get(p)).and_then(|w| w.iter().find(|w| !w.main)).map(|w| w.path.clone()) else { return };
+        d.removals.start(&tree);
+    }),
+    ("delete-worktree", |d, _, cx| {
+        let Some((project, w)) = d.project.clone().and_then(|p| d.worktrees.get(&p)?.iter().find(|w| !w.main).cloned().map(|w| (p, w))) else { return };
+        let removal = crate::removal::Removal { project, tree: w.path, branch: Some(w.branch), delete_branch: true, teardown: true };
+        d.confirm = Some(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3 });
+        d.overlay = Some(Overlay::Confirm);
+        cx.notify();
     }),
     ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
     ("prs", |d, _, _| {
