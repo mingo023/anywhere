@@ -68,6 +68,21 @@ pub fn tick_rows(at: &Pointer, line: f32) -> usize {
     (past / line as f64).ceil().clamp(1., 3.) as usize
 }
 
+/// What ⌘V puts in a terminal.
+#[derive(Debug, PartialEq)]
+pub enum Pasted {
+    Text(String),
+    /// An image with no text: agents (Claude Code, Codex) read it off the clipboard themselves on ^V, as iTerm sends.
+    CtrlV,
+}
+
+pub fn pasted(item: &ClipboardItem) -> Option<Pasted> {
+    match item.text().filter(|t| !t.is_empty()) {
+        Some(text) => Some(Pasted::Text(text)),
+        None => item.entries().iter().any(|e| matches!(e, ClipboardEntry::Image(_))).then_some(Pasted::CtrlV),
+    }
+}
+
 impl Desktop {
     pub fn focus_pane(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         self.terminal.focused = Some(id);
@@ -201,8 +216,11 @@ impl Desktop {
 
     pub(crate) fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(pane) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) else { return };
-        let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()).filter(|t| !t.is_empty()) else { return };
-        self.offer_paste(pane, text, cx);
+        match cx.read_from_clipboard().as_ref().and_then(pasted) {
+            Some(Pasted::Text(text)) => self.offer_paste(pane, text, cx),
+            Some(Pasted::CtrlV) => self.send_input(&pane, b"\x16", cx),
+            None => {}
+        }
     }
 
     pub(crate) fn drop_paths(&mut self, pane: String, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
@@ -370,7 +388,8 @@ impl EntityInputHandler for Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drag, tick_rows};
+    use super::{Drag, Pasted, pasted, tick_rows};
+    use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use term::Pointer;
 
     fn at(row: u16, col: u16) -> Pointer {
@@ -391,5 +410,17 @@ mod tests {
         let past = |y: f64| tick_rows(&Pointer { y, ..at(0, 0) }, 20.);
         assert_eq!((past(0.5), past(-15.), past(-35.), past(-500.)), (1, 1, 2, 3));
         assert_eq!((past(100. + 10.), past(100. + 45.)), (1, 3));
+    }
+
+    #[test]
+    fn an_image_without_text_pastes_as_ctrl_v() {
+        let image = ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, vec![1]));
+        assert_eq!(pasted(&image), Some(Pasted::CtrlV));
+    }
+
+    #[test]
+    fn text_pastes_as_text_and_an_empty_clipboard_pastes_nothing() {
+        assert_eq!(pasted(&ClipboardItem::new_string("ls".into())), Some(Pasted::Text("ls".into())));
+        assert_eq!(pasted(&ClipboardItem::new_string(String::new())), None);
     }
 }
