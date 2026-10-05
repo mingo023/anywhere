@@ -1,5 +1,5 @@
 use agents::Summary;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Variants run from most to least urgent; cards and roll-ups sort on that order.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -155,11 +155,9 @@ impl Alert {
     }
 }
 
-/// The agents to notify about and those whose notification should go, once alerts went from `before` to `now`.
-pub fn alerts(before: &HashMap<String, Alert>, now: &HashMap<String, Alert>, shown: &HashSet<String>, viewing: &[String]) -> (Vec<String>, Vec<String>) {
-    let show = now.iter().filter(|(id, a)| a.status.alerting() && before.get(*id).is_some_and(|b| a.news(b)) && !viewing.contains(id)).map(|(id, _)| id.clone()).collect();
-    let dismiss = shown.iter().filter(|id| !now.get(*id).is_some_and(|a| a.status.alerting()) || viewing.contains(id)).cloned().collect();
-    (show, dismiss)
+/// The agents to notify about, once alerts went from `before` to `now`.
+pub fn alerts(before: &HashMap<String, Alert>, now: &HashMap<String, Alert>, viewing: &[String]) -> Vec<String> {
+    now.iter().filter(|(id, a)| a.status.alerting() && before.get(*id).is_some_and(|b| a.news(b)) && !viewing.contains(id)).map(|(id, _)| id.clone()).collect()
 }
 
 /// The sessions that want a look: Needs you, then Failed, then Done, each oldest transition first.
@@ -319,7 +317,7 @@ mod tests {
         let asking = |ask: Option<&str>| Alert { status: Status::NeedsYou, ask: ask.map(String::from) };
         let before = HashMap::from([("a".to_string(), asking(Some("q1"))), ("b".to_string(), asking(Some("q1"))), ("c".to_string(), asking(None))]);
         let now = HashMap::from([("a".to_string(), asking(Some("q2"))), ("b".to_string(), asking(None)), ("c".to_string(), asking(Some("q3")))]);
-        let (mut show, _) = alerts(&before, &now, &HashSet::new(), &[]);
+        let mut show = alerts(&before, &now, &[]);
         show.sort();
         assert_eq!(show, vec!["a", "c"]);
     }
@@ -328,18 +326,9 @@ mod tests {
     fn alerts_when_an_unseen_agent_enters_needs_you_or_done() {
         let before = statuses(&[("a", Status::Working), ("b", Status::Working), ("c", Status::Idle), ("d", Status::Done), ("f", Status::Working), ("g", Status::Working), ("h", Status::Done)]);
         let now = statuses(&[("a", Status::Done), ("b", Status::Done), ("c", Status::Working), ("d", Status::Done), ("e", Status::NeedsYou), ("f", Status::NeedsYou), ("g", Status::Failed), ("h", Status::Failed)]);
-        let (mut show, dismiss) = alerts(&before, &now, &HashSet::new(), &["b".into()]);
+        let mut show = alerts(&before, &now, &["b".into()]);
         show.sort();
-        assert_eq!((show, dismiss), (vec!["a".to_string(), "f".into(), "g".into(), "h".into()], vec![]));
-    }
-
-    #[test]
-    fn dismisses_once_seen_or_out_of_the_status() {
-        let now = statuses(&[("a", Status::Done), ("b", Status::Working), ("c", Status::NeedsYou)]);
-        let shown: HashSet<String> = ["a", "b", "c", "gone"].map(String::from).into();
-        let (show, mut dismiss) = alerts(&now, &now, &shown, &["a".into()]);
-        dismiss.sort();
-        assert_eq!((show, dismiss), (vec![], vec!["a".to_string(), "b".into(), "gone".into()]));
+        assert_eq!(show, vec!["a", "f", "g", "h"]);
     }
 
     fn at(id: &str, status: &str, at: i64) -> Card {

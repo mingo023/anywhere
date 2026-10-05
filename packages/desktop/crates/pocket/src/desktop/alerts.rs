@@ -5,7 +5,7 @@ use crate::status::{self, Alert, Status};
 use crate::util::basename;
 use agents::{Agents, Decision, Event, Permission, Summary};
 use gpui_kit::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use workspace::Tab;
 
 pub const ALLOW: &str = "allow";
@@ -15,7 +15,6 @@ const LINE_MAX: usize = 240;
 pub struct Alerts {
     pub(crate) viewing: Option<Vec<String>>,
     pub(crate) statuses: HashMap<String, Alert>,
-    pub(crate) alerted: HashSet<String>,
     /// The ask each shown banner offers to answer, by agent.
     asks: HashMap<String, String>,
 }
@@ -41,30 +40,21 @@ fn line(agents: &Agents, a: &Summary, status: Status) -> String {
 
 impl Alerts {
     pub fn new() -> Self {
-        Self { viewing: None, statuses: HashMap::new(), alerted: HashSet::new(), asks: HashMap::new() }
+        Self { viewing: None, statuses: HashMap::new(), asks: HashMap::new() }
     }
 
-    pub fn listed(&mut self, list: &[Summary]) {
-        // Notifications outlive the app, so any listed agent may still have one from before a restart.
-        self.alerted.extend(list.iter().map(|a| a.id.clone()));
-    }
-
-    /// Takes the agents' new statuses and asks; returns the notifications to show and the ones to dismiss. A `quiet` sync shows none.
-    pub fn sync(&mut self, agents: &Agents, place: impl Fn(&Summary) -> String, quiet: bool) -> (Vec<Notice>, Vec<String>) {
+    /// Takes the agents' new statuses and asks; returns the notifications to show. A `quiet` sync shows none.
+    /// Shown ones stay until the user clears them or the agent's next one replaces them, as in Superset.
+    pub fn sync(&mut self, agents: &Agents, place: impl Fn(&Summary) -> String, quiet: bool) -> Vec<Notice> {
         let ask = |id: &str| agents.pending.iter().find(|p| p.agent_id == id).map(|p| p.request_id.clone());
         let now: HashMap<String, Alert> = agents.list.iter().filter_map(|a| Some((a.id.clone(), Alert { status: Status::of(a)?, ask: ask(&a.id) }))).collect();
-        let (show, dismiss) = status::alerts(&self.statuses, &now, &self.alerted, self.viewing.as_deref().unwrap_or_default());
-        for id in &dismiss {
-            self.alerted.remove(id);
-            self.asks.remove(id);
-        }
+        let show = status::alerts(&self.statuses, &now, self.viewing.as_deref().unwrap_or_default());
         let mut notices = Vec::new();
         let fresh: Vec<String> = show.into_iter().filter(|id| now[id].ask.is_none() || self.asks.get(id) != now[id].ask.as_ref()).collect();
         for id in fresh.into_iter().filter(|_| !quiet) {
             let Some(a) = agents.get(&id) else { continue };
             let title = if a.title.is_empty() { theme::provider_name(&a.provider).to_string() } else { a.title.clone() };
             let Alert { status, ask } = now[&id].clone();
-            self.alerted.insert(id.clone());
             match &ask {
                 Some(q) => self.asks.insert(id.clone(), q.clone()),
                 None => self.asks.remove(&id),
@@ -72,7 +62,7 @@ impl Alerts {
             notices.push(Notice { body: body(&place(a), &line(agents, a, status)), id, title, ask });
         }
         self.statuses = now;
-        (notices, dismiss)
+        notices
     }
 
     /// The ask `agent`'s banner showed, while it is still pending; never a newer one.
@@ -127,9 +117,6 @@ impl Desktop {
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
         }
-        if let Event::Agents(list) = &ev {
-            self.alerts.listed(list);
-        }
         self.agents.apply(ev);
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
@@ -156,11 +143,8 @@ impl Desktop {
 
     fn sync_alerts(&mut self, cx: &mut App) {
         let mut alerts = std::mem::replace(&mut self.alerts, Alerts::new());
-        let (show, dismiss) = alerts.sync(&self.agents, |a| self.place(a), self.capturing);
+        let show = alerts.sync(&self.agents, |a| self.place(a), self.capturing);
         self.alerts = alerts;
-        for id in dismiss {
-            cx.dismiss_system_notification(&id);
-        }
         for n in show {
             let actions = n.actions();
             cx.show_system_notification(SystemNotification { tag: n.id.into(), title: n.title.into(), body: n.body.into(), actions });
@@ -204,11 +188,11 @@ mod tests {
         Summary { id: id.into(), terminal_id: format!("t-{id}"), title: id.to_uppercase(), status: status.into(), attached: true, ..Default::default() }
     }
 
-    fn sync(alerts: &mut Alerts, list: &[Summary], quiet: bool) -> (Vec<Notice>, Vec<String>) {
+    fn sync(alerts: &mut Alerts, list: &[Summary], quiet: bool) -> Vec<Notice> {
         asking(alerts, list, &[], quiet)
     }
 
-    fn asking(alerts: &mut Alerts, list: &[Summary], asks: &[(&str, &str)], quiet: bool) -> (Vec<Notice>, Vec<String>) {
+    fn asking(alerts: &mut Alerts, list: &[Summary], asks: &[(&str, &str)], quiet: bool) -> Vec<Notice> {
         let pending = asks.iter().map(|(agent, q)| Permission { request_id: q.to_string(), agent_id: agent.to_string(), tool_name: "Bash".into(), ..Default::default() }).collect();
         alerts.sync(&Agents { list: list.to_vec(), pending, ..Default::default() }, |a| format!("app · {}", a.id), quiet)
     }
@@ -223,18 +207,17 @@ mod tests {
         sync(&mut alerts, &[agent("a", "working")], false);
         let first = sync(&mut alerts, &[agent("a", "needsYou")], false);
         let again = sync(&mut alerts, &[agent("a", "needsYou")], false);
-        assert_eq!((first.0, again.0), (vec![notice("a", "Needs you", None)], vec![]));
+        assert_eq!((first, again), (vec![notice("a", "Needs you", None)], vec![]));
     }
 
     #[test]
     fn viewing_an_agents_pane_marks_it_seen_instead_of_notifying() {
         let mut alerts = Alerts::new();
-        sync(&mut alerts, &[agent("a", "working"), agent("b", "working")], false);
-        sync(&mut alerts, &[agent("a", "needsYou"), agent("b", "working")], false);
-        let list = [agent("a", "needsYou"), agent("b", "done")];
-        let viewed = alerts.view(&["t-a".into(), "t-b".into()], &list);
-        let (show, dismiss) = sync(&mut alerts, &list, false);
-        assert_eq!((viewed, show, dismiss), (Some(vec!["a".to_string(), "b".into()]), vec![], vec!["a".to_string()]));
+        sync(&mut alerts, &[agent("a", "working")], false);
+        let list = [agent("a", "done")];
+        let viewed = alerts.view(&["t-a".into()], &list);
+        let show = sync(&mut alerts, &list, false);
+        assert_eq!((viewed, show), (Some(vec!["a".to_string()]), vec![]));
     }
 
     #[test]
@@ -243,7 +226,7 @@ mod tests {
         alerts.view(&["t-a".into()], &[agent("a", "working")]);
         sync(&mut alerts, &[agent("a", "working")], false);
         let viewed = alerts.view(&[], &[agent("a", "working")]);
-        let (show, _) = sync(&mut alerts, &[agent("a", "done")], false);
+        let show = sync(&mut alerts, &[agent("a", "done")], false);
         assert_eq!((viewed, show), (Some(vec![]), vec![notice("a", "Done", None)]));
     }
 
@@ -257,29 +240,19 @@ mod tests {
     }
 
     #[test]
-    fn a_listed_agent_loses_a_notification_left_from_before_a_restart() {
-        let mut alerts = Alerts::new();
-        let list = [agent("a", "working"), agent("b", "done")];
-        alerts.listed(&list);
-        let (show, mut dismiss) = sync(&mut alerts, &list, false);
-        dismiss.sort();
-        assert_eq!((show, dismiss), (vec![], vec!["a".to_string()]));
-    }
-
-    #[test]
     fn a_quiet_sync_shows_nothing_and_does_not_show_it_later() {
         let mut alerts = Alerts::new();
         sync(&mut alerts, &[agent("a", "working")], true);
         let quiet = sync(&mut alerts, &[agent("a", "done")], true);
         let later = sync(&mut alerts, &[agent("a", "done")], false);
-        assert_eq!((quiet, later), ((vec![], vec![]), (vec![], vec![])));
+        assert_eq!((quiet, later), (vec![], vec![]));
     }
 
     #[test]
     fn only_a_permission_ask_offers_allow_and_deny() {
         let mut alerts = Alerts::new();
         sync(&mut alerts, &[agent("a", "working"), agent("b", "working")], false);
-        let (shown, _) = asking(&mut alerts, &[agent("a", "needsYou"), agent("b", "done")], &[("a", "q1")], false);
+        let shown = asking(&mut alerts, &[agent("a", "needsYou"), agent("b", "done")], &[("a", "q1")], false);
         let actions: Vec<Vec<(String, String)>> = shown.iter().map(|n| n.actions().into_iter().map(|x| (x.id.to_string(), x.label.to_string())).collect()).collect();
         let allow_deny = vec![(ALLOW.to_string(), "Allow".to_string()), (DENY.to_string(), "Deny and stop".to_string())];
         let mut got: Vec<_> = shown.iter().map(|n| n.id.as_str()).zip(actions).collect();
@@ -299,10 +272,10 @@ mod tests {
     fn an_ask_replayed_after_a_reconnect_does_not_notify_again() {
         let mut alerts = Alerts::new();
         sync(&mut alerts, &[agent("a", "working")], false);
-        let (first, _) = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q1")], false);
+        let first = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q1")], false);
         asking(&mut alerts, &[agent("a", "needsYou")], &[], false);
-        let (replayed, _) = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q1")], false);
-        let (fresh, _) = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q2")], false);
+        let replayed = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q1")], false);
+        let fresh = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q2")], false);
         assert_eq!((first.len(), replayed, fresh.len()), (1, vec![], 1));
     }
 
@@ -310,7 +283,7 @@ mod tests {
     fn a_banner_never_answers_a_newer_ask() {
         let mut alerts = Alerts::new();
         sync(&mut alerts, &[agent("a", "working")], false);
-        let (shown, _) = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q1")], false);
+        let shown = asking(&mut alerts, &[agent("a", "needsYou")], &[("a", "q1")], false);
         assert_eq!(shown, vec![notice("a", "Wants to use Bash", Some("q1"))]);
         let q = |id: &str| Permission { request_id: id.into(), agent_id: "a".into(), ..Default::default() };
         assert_eq!(alerts.answerable("a", &[q("q1")]), Some("q1"));
