@@ -139,7 +139,7 @@ impl Desktop {
         self.store.layouts.remove(tree);
         self.save_soon(cx);
         if self.worktree.as_deref() == Some(tree) {
-            (self.worktree, self.session) = (None, None);
+            self.worktree = None;
         }
     }
 }

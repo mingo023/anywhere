@@ -42,7 +42,7 @@ impl Desktop {
     }
 
     fn card(&self, i: usize, c: Card, chips: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.session.as_ref() == Some(&c.id);
+        let selected = self.session() == Some(c.id.as_str());
         let (added, removed) = self.repos.get(&c.cwd).map(|r| r.totals()).unwrap_or_default();
         let id = c.id.clone();
         let pill = match c.kind {

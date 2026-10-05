@@ -24,7 +24,7 @@ impl Desktop {
                 .when(!self.agents.observe_only(), |d| {
                     d.child(menu_row("more-close", "x", "Close session", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.close_overlay(window, cx);
-                        if let Some(id) = this.session.take() {
+                        if let Some(id) = this.session().map(str::to_string) {
                             this.close_session(&id, cx);
                         }
                     })))

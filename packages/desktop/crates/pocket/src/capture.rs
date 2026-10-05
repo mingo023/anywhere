@@ -185,7 +185,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.close_overlay(window, cx);
     (d.screen, d.side, d.settings) = (Screen::Sessions, Side::Sessions, SettingsState::default());
     (d.layout, d.widths, d.sidebar.column_hidden, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
-    (d.session, d.worktree, d.terminal.focused) = (None, None, None);
+    (d.worktree, d.terminal.focused) = (None, None);
     for p in d.preview.panes.values_mut() {
         p.file = None;
     }

@@ -65,12 +65,12 @@ impl Desktop {
     }
 
     pub(crate) fn next_needs_you(&mut self, _: &NextNeedsYou, window: &mut Window, cx: &mut Context<Self>) {
-        let next = status::next_needs_you(&self.all_cards(), self.session.as_deref());
+        let next = status::next_needs_you(&self.all_cards(), self.session());
         self.go_to(next, window, cx);
     }
 
     pub(crate) fn go_to_up_next(&mut self, _: &GoToUpNext, window: &mut Window, cx: &mut Context<Self>) {
-        let next = status::next_up(&self.all_cards(), self.session.as_deref());
+        let next = status::next_up(&self.all_cards(), self.session());
         self.go_to(next, window, cx);
     }
 
@@ -84,7 +84,7 @@ impl Desktop {
 
     fn step_session(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let ids: Vec<String> = self.visible_sessions(cx).into_iter().map(|c| c.id).collect();
-        let next = status::cycle(&ids, self.session.as_deref(), forward);
+        let next = status::cycle(&ids, self.session(), forward);
         self.go_to(next, window, cx);
     }
 

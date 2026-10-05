@@ -206,6 +206,10 @@ impl Agents {
         self.list.iter().find(|a| a.id == id)
     }
 
+    pub fn in_terminal(&self, terminal: &str) -> Option<&Summary> {
+        self.list.iter().find(|a| a.terminal_id == terminal)
+    }
+
     pub fn apply(&mut self, ev: Event) {
         match ev {
             Event::Agents(list) => self.list = list,
@@ -506,6 +510,14 @@ mod tests {
         a.apply(Event::Agent(agent("a", "closed")));
         a.apply(Event::Agent(agent("c", "closed")));
         assert_eq!(a.list, vec![agent("b", "working")]);
+    }
+
+    #[test]
+    fn an_agent_is_found_by_the_terminal_it_runs_in() {
+        let agent = |id: &str, terminal: &str| Summary { id: id.into(), terminal_id: terminal.into(), ..Default::default() };
+        let a = Agents { list: vec![agent("a", "t1"), agent("b", "t2")], ..Default::default() };
+        assert_eq!(a.in_terminal("t2"), Some(&agent("b", "t2")));
+        assert_eq!(a.in_terminal("shell"), None);
     }
 
     #[test]

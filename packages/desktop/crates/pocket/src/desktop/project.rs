@@ -46,7 +46,12 @@ impl Desktop {
 
     /// The agent in `terminal`.
     pub fn summary(&self, terminal: &str) -> Option<&Summary> {
-        self.agents.list.iter().find(|a| a.terminal_id == terminal)
+        self.agents.in_terminal(terminal)
+    }
+
+    /// The selected session: the agent in the focused pane.
+    pub fn session(&self) -> Option<&str> {
+        self.summary(self.terminal.focused.as_deref()?).map(|a| a.id.as_str())
     }
 
     pub fn cwd_of(&self, id: &str) -> Option<String> {

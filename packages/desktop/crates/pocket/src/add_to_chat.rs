@@ -226,7 +226,7 @@ impl Desktop {
     }
 
     fn chat_target(&self, choices: &[Choice]) -> Option<String> {
-        default_target(self.chat.target.as_deref(), self.session.as_deref(), choices)
+        default_target(self.chat.target.as_deref(), self.session(), choices)
     }
 
     fn chat_quote(&self) -> Option<Quote> {

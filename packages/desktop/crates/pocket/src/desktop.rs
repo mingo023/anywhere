@@ -65,7 +65,6 @@ pub struct Desktop {
     pub(crate) layout: Layout,
     /// Indexed by `Column`; `None` keeps the design's width.
     pub(crate) widths: [Option<f32>; 2],
-    pub(crate) session: Option<String>,
     pub(crate) workspaces: HashMap<String, Workspace>,
     pub(crate) repos: HashMap<String, Repo>,
     pub(crate) diff: DiffState,
@@ -149,7 +148,6 @@ impl Desktop {
             side: Side::Sessions,
             layout,
             widths,
-            session: None,
             workspaces: HashMap::new(),
             repos: HashMap::new(),
             diff: DiffState::default(),
@@ -194,7 +192,6 @@ impl Desktop {
         let Some(tree) = self.tree_of(&cwd) else { return };
         self.show_tree(&cwd, &tree);
         self.side = Side::Sessions;
-        self.session = Some(id.to_string());
         let w = self.workspace(&tree);
         if let Some((pane, i)) = w.tab_of(&term) {
             w.tree.select(pane, i);
@@ -233,7 +230,6 @@ impl Desktop {
 
     fn set_project(&mut self, p: Option<String>) {
         self.project = p;
-        self.session = None;
         self.worktree = None;
         for v in self.diff.panes.values_mut() {
             v.file = None;
@@ -252,7 +248,6 @@ impl Desktop {
             self.refresh_git(cx);
             self.load_active(cx);
         }
-        self.session = None;
         cx.notify();
     }
 
