@@ -1,5 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Confirm;
+use crate::removal::Removal;
 use crate::status::{self, Status};
 use crate::terminals::close::Busy;
 use crate::util::{basename, tilde};
@@ -23,18 +24,25 @@ struct ConfirmText {
     action: &'static str,
     facts: Vec<String>,
     dirty: usize,
+    lost: usize,
     danger: bool,
 }
 
 impl ConfirmText {
     fn remove_project(name: &str, terminals: usize) -> Self {
         let facts = closes(terminals).into_iter().chain(["Its files stay on disk".to_string()]).collect();
-        Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, danger: true }
+        Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, lost: 0, danger: true }
     }
 
-    fn delete_worktree(tree: &str, branch: &str, dirty: usize, terminals: usize) -> Self {
-        let facts = closes(terminals).into_iter().chain([format!("Deletes the folder {}", tilde(tree)), format!("Keeps the branch {branch}")]).collect();
-        Self { title: format!("Delete {}?", basename(tree)), action: "Delete", facts, dirty, danger: true }
+    fn delete_worktree(r: &Removal, dirty: usize, lost: usize, terminals: usize) -> Self {
+        let branch = r.branch.as_ref().map(|b| if r.delete_branch { format!("Deletes the branch {b}") } else { format!("Keeps the branch {b}") });
+        let facts = closes(terminals).into_iter().chain([format!("Deletes the folder {}", tilde(&r.tree))]).chain(branch).collect();
+        Self { title: format!("Delete {}?", basename(&r.tree)), action: "Delete", facts, dirty, lost, danger: true }
+    }
+
+    fn teardown_failed(tree: &str) -> Self {
+        let facts = vec!["Its teardown script failed".into(), "Deleting anyway skips it".into()];
+        Self { title: format!("Couldn't tear down {}", basename(tree)), action: "Delete anyway", facts, dirty: 0, lost: 0, danger: true }
     }
 
     fn discard(paths: &[String], files: &[FileStat]) -> Self {
@@ -44,7 +52,7 @@ impl ConfirmText {
             many => format!("Discard changes to {} files?", many.len()),
         };
         let deletes = (untracked > 0).then(|| format!("Deletes {untracked} untracked {}", if untracked == 1 { "file" } else { "files" }));
-        Self { title, action: "Discard", facts: std::iter::once("Unstaged edits can't be restored".to_string()).chain(deletes).collect(), dirty: 0, danger: true }
+        Self { title, action: "Discard", facts: std::iter::once("Unstaged edits can't be restored".to_string()).chain(deletes).collect(), dirty: 0, lost: 0, danger: true }
     }
 
     fn close_terminals(busy: &Busy, worktree: &str, n: usize) -> Self {
@@ -53,7 +61,7 @@ impl ConfirmText {
             Busy::Shell { command } => format!("\"{command}\" is still working in {worktree}"),
         };
         let (title, action) = if n == 1 { ("Close terminal?".to_string(), "Close terminal") } else { (format!("Close {n} terminals?"), "Close terminals") };
-        Self { title, action, facts: vec![fact], dirty: 0, danger: true }
+        Self { title, action, facts: vec![fact], dirty: 0, lost: 0, danger: true }
     }
 
     fn paste(text: &str, title: &str) -> Self {
@@ -61,25 +69,25 @@ impl ConfirmText {
             0 | 1 => "1 line".to_string(),
             n => format!("{n} lines"),
         };
-        Self { title: format!("Paste {lines} into {title}?"), action: "Paste", facts: Vec::new(), dirty: 0, danger: false }
+        Self { title: format!("Paste {lines} into {title}?"), action: "Paste", facts: Vec::new(), dirty: 0, lost: 0, danger: false }
     }
 
     fn close_session(title: &str, working: bool) -> Self {
         let facts = std::iter::once("Closes its terminal".to_string()).chain(working.then(|| "Stops its current turn".to_string())).collect();
-        Self { title: format!("Close {title}?"), action: "Close", facts, dirty: 0, danger: true }
+        Self { title: format!("Close {title}?"), action: "Close", facts, dirty: 0, lost: 0, danger: true }
     }
 
     fn close_file(path: &str) -> Self {
-        Self { title: format!("Save changes to {}?", basename(path)), action: "Save", facts: vec!["Your edits are lost if you don't save them".into()], dirty: 0, danger: false }
+        Self { title: format!("Save changes to {}?", basename(path)), action: "Save", facts: vec!["Your edits are lost if you don't save them".into()], dirty: 0, lost: 0, danger: false }
     }
 
     fn quit(unsaved: usize) -> Self {
         let files = if unsaved == 1 { "1 file has".to_string() } else { format!("{unsaved} files have") };
-        Self { title: "Quit without saving?".into(), action: "Quit", facts: vec![format!("{files} unsaved edits")], dirty: 0, danger: true }
+        Self { title: "Quit without saving?".into(), action: "Quit", facts: vec![format!("{files} unsaved edits")], dirty: 0, lost: 0, danger: true }
     }
 
     fn open_external(url: &str) -> Self {
-        Self { title: "Open in another app?".into(), action: "Open", facts: vec![format!("The page asks to open {url}")], dirty: 0, danger: false }
+        Self { title: "Open in another app?".into(), action: "Open", facts: vec![format!("The page asks to open {url}")], dirty: 0, lost: 0, danger: false }
     }
 
     fn detail(&self) -> Option<String> {
@@ -87,8 +95,11 @@ impl ConfirmText {
     }
 
     fn warning(&self) -> Option<String> {
-        let files = if self.dirty == 1 { "file" } else { "files" };
-        (self.dirty > 0).then(|| format!("{} uncommitted {files} will be lost.", self.dirty))
+        let count = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        let files = (self.dirty > 0).then(|| count(self.dirty, "uncommitted file", "uncommitted files"));
+        let commits = (self.lost > 0).then(|| count(self.lost, "commit", "commits") + " on no other branch");
+        let lost: Vec<String> = files.into_iter().chain(commits).collect();
+        (!lost.is_empty()).then(|| format!("{} will be lost.", lost.join(" and ")))
     }
 }
 
@@ -96,7 +107,8 @@ impl Desktop {
     pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
         let text = match &self.confirm {
             Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), self.project_terminals(p).len()),
-            Some(Confirm::DeleteWorktree { tree, branch, dirty, .. }) => ConfirmText::delete_worktree(tree, branch, *dirty, self.tree_terminals(tree).len()),
+            Some(Confirm::DeleteWorktree { removal, dirty, lost }) => ConfirmText::delete_worktree(removal, *dirty, *lost, self.tree_terminals(&removal.tree).len()),
+            Some(Confirm::TeardownFailed { removal, .. }) => ConfirmText::teardown_failed(&removal.tree),
             Some(Confirm::Discard(paths)) => ConfirmText::discard(paths, self.repo().map_or(&[], |r| r.files.as_slice())),
             Some(Confirm::CloseSession(id)) => {
                 let Some(a) = self.agents.get(id) else { return div() };
@@ -117,6 +129,9 @@ impl Desktop {
         if let Some(warning) = text.warning() {
             body.push(div().w_full().mt(px(4.)).px(px(12.)).py(px(8.)).rounded(px(8.)).bg(FAILED_BG).text_size(px(12.5)).text_color(FAILED).child(warning).into_any_element());
         }
+        if let Some(Confirm::TeardownFailed { tail, .. }) = &self.confirm {
+            body.push(div().w_full().px(px(10.)).py(px(8.)).rounded(px(8.)).bg(FILL_2).text_left().font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(tail.clone()).into_any_element());
+        }
         let variant = if text.danger { Variant::Danger } else { Variant::Primary };
         let action = ui::button("confirm-go", variant, None, text.action).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
         let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_)))
@@ -136,7 +151,8 @@ impl Desktop {
     fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.confirm.take() {
             Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
-            Some(Confirm::DeleteWorktree { project, tree, .. }) => self.delete_worktree(project, tree, cx),
+            Some(Confirm::DeleteWorktree { removal, .. }) => self.delete_worktree(removal, cx),
+            Some(Confirm::TeardownFailed { removal, .. }) => self.delete_worktree(Removal { teardown: false, ..removal }, cx),
             Some(Confirm::Discard(paths)) => self.discard(paths, cx),
             Some(Confirm::CloseSession(id)) => {
                 if let Some(term) = self.agents.get(&id).map(|a| a.terminal_id.clone()) {
@@ -157,9 +173,10 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Busy, ConfirmText, FileStat};
+    use crate::removal::Removal;
 
     fn text(title: &str, action: &'static str, facts: &[&str], dirty: usize) -> ConfirmText {
-        ConfirmText { title: title.into(), action, facts: facts.iter().map(|f| f.to_string()).collect(), dirty, danger: true }
+        ConfirmText { title: title.into(), action, facts: facts.iter().map(|f| f.to_string()).collect(), dirty, lost: 0, danger: true }
     }
 
     #[test]
@@ -182,12 +199,36 @@ mod tests {
         assert_eq!(ConfirmText::remove_project("app", 3), text("Remove app?", "Remove", &["Closes 3 terminals", keeps], 0));
     }
 
+    fn removal(branch: Option<&str>, delete_branch: bool) -> Removal {
+        Removal { project: "/src/app".into(), tree: "/src/feat".into(), branch: branch.map(String::from), delete_branch, teardown: true }
+    }
+
     #[test]
     fn deleting_a_worktree_keeps_its_branch_and_warns_about_uncommitted_files() {
-        let got = ConfirmText::delete_worktree("/src/feat", "feat-x", 2, 1);
+        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), false), 2, 0, 1);
         assert_eq!(got, text("Delete feat?", "Delete", &["Closes 1 terminal", "Deletes the folder /src/feat", "Keeps the branch feat-x"], 2));
-        let warnings = [0, 1, 2].map(|dirty| ConfirmText::delete_worktree("/src/feat", "feat-x", dirty, 0).warning());
+        let warnings = [0, 1, 2].map(|dirty| ConfirmText::delete_worktree(&removal(Some("feat-x"), false), dirty, 0, 0).warning());
         assert_eq!(warnings, [None, Some("1 uncommitted file will be lost.".into()), Some("2 uncommitted files will be lost.".into())]);
+    }
+
+    #[test]
+    fn deleting_the_branch_too_says_so_and_warns_about_commits_no_other_branch_has() {
+        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 0, 3, 0);
+        assert_eq!(got.facts, ["Deletes the folder /src/feat", "Deletes the branch feat-x"]);
+        assert_eq!(got.warning(), Some("3 commits on no other branch will be lost.".into()));
+        let both = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 1, 1, 0).warning();
+        assert_eq!(both, Some("1 uncommitted file and 1 commit on no other branch will be lost.".into()));
+    }
+
+    #[test]
+    fn a_detached_worktree_names_no_branch() {
+        assert_eq!(ConfirmText::delete_worktree(&removal(None, false), 0, 2, 0).facts, ["Deletes the folder /src/feat"]);
+    }
+
+    #[test]
+    fn a_failed_teardown_offers_to_delete_anyway() {
+        let got = ConfirmText::teardown_failed("/src/feat");
+        assert_eq!(got, text("Couldn't tear down feat", "Delete anyway", &["Its teardown script failed", "Deleting anyway skips it"], 0));
     }
 
     fn file(path: &str, status: char, staged: bool) -> FileStat {
@@ -210,7 +251,7 @@ mod tests {
         let paste = |t: &str| ConfirmText::paste(t, "zsh");
         assert_eq!(paste("ls\nrm -rf ~\n").title, "Paste 2 lines into zsh?");
         assert_eq!(paste("a\x1b[201~b").title, "Paste 1 line into zsh?");
-        assert_eq!(paste("ls\n"), ConfirmText { title: "Paste 1 line into zsh?".into(), action: "Paste", facts: vec![], dirty: 0, danger: false });
+        assert_eq!(paste("ls\n"), ConfirmText { title: "Paste 1 line into zsh?".into(), action: "Paste", facts: vec![], dirty: 0, lost: 0, danger: false });
     }
 
     #[test]

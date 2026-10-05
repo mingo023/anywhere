@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"c4","requestId":"r4","spec":{"project":"/Users/me/pocket","checkout":{"new":{"pr":"#123","copy":true,"setup":false}},"provider":"codex","access":"ask","plan":false}}

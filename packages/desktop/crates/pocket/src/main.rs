@@ -10,6 +10,7 @@ mod inbox;
 mod modals;
 mod palette;
 mod panels;
+mod removal;
 mod sidebar;
 mod status;
 mod syntax;

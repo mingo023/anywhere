@@ -1,5 +1,6 @@
 use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
 use crate::desktop::Desktop;
+use crate::removal::Removal;
 use crate::status::Status;
 use crate::terminals::close::Busy;
 use crate::sidebar::column::{changes_badge, changes_dot};
@@ -54,7 +55,8 @@ pub enum Overlay {
 #[derive(Clone)]
 pub enum Confirm {
     RemoveProject(String),
-    DeleteWorktree { project: String, tree: String, branch: String, dirty: usize },
+    DeleteWorktree { removal: Removal, dirty: usize, lost: usize },
+    TeardownFailed { removal: Removal, tail: String },
     Discard(Vec<String>),
     CloseSession(String),
     CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },

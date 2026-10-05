@@ -22,11 +22,13 @@ use crate::git_ui::changes::ChangesState;
 use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::DiffState;
 use crate::git_ui::graph::GraphState;
+use crate::git_ui::pull_requests::PullRequests;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, new_session};
 use crate::palette::PaletteState;
 use crate::panels::Panels;
+use crate::removal::Removals;
 use crate::sidebar::SidebarState;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
@@ -53,6 +55,7 @@ pub struct Desktop {
     pub(crate) badge: Badge,
     pub(crate) terminals: Terminals,
     pub(crate) creates: Creates,
+    pub(crate) removals: Removals,
     pub(crate) agents: Agents,
     pub(crate) store: Store,
     pub(crate) project: Option<String>,
@@ -67,6 +70,7 @@ pub struct Desktop {
     pub(crate) diff: DiffState,
     pub(crate) chat: ChatComposer,
     pub(crate) changes: ChangesState,
+    pub(crate) prs: PullRequests,
     pub(crate) graph: GraphState,
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
@@ -135,6 +139,7 @@ impl Desktop {
             badge: Badge::default(),
             terminals: Terminals::new(),
             creates: Creates::default(),
+            removals: Removals::default(),
             agents: Agents::default(),
             project: store.projects.first().cloned(),
             store,
@@ -148,6 +153,7 @@ impl Desktop {
             diff: DiffState::default(),
             chat,
             changes,
+            prs: PullRequests::default(),
             graph: GraphState::default(),
             commit: Commits::default(),
             initials: String::new(),

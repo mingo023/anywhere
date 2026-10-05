@@ -251,6 +251,11 @@ impl Agents {
         self.caps.iter().any(|c| c == PAIR_CAP)
     }
 
+    /// pocketd can open an existing branch as a worktree.
+    pub fn opens(&self) -> bool {
+        self.caps.iter().any(|c| c == OPEN_CAP)
+    }
+
     /// Scopes arrived and exclude owner. Before hello.ok, or from a pocketd
     /// that predates scopes, nothing is known, so nothing is disabled.
     pub fn observe_only(&self) -> bool {
@@ -320,6 +325,7 @@ fn launch_event(f: &Frame) -> Option<Event> {
     })
 }
 const PAIR_CAP: &str = "pair.v1";
+const OPEN_CAP: &str = "open.v1";
 
 /// Client messages for pocketd. They wait in a queue while it is unreachable.
 #[derive(Clone)]
@@ -396,7 +402,7 @@ pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 4] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1"];
+const CAPS: [&str; 5] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP];
 
 fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
@@ -602,7 +608,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -626,6 +632,14 @@ mod tests {
         a.apply(Event::Connected { scopes: vec!["observe".into()], caps: vec![] });
         assert!(a.observe_only() && !a.pairing());
         std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn opening_branches_waits_for_pocketd_to_offer_it() {
+        let mut a = Agents::default();
+        assert!(!a.opens());
+        a.apply(Event::Connected { scopes: vec![], caps: vec!["open.v1".into()] });
+        assert!(a.opens());
     }
 
     #[test]

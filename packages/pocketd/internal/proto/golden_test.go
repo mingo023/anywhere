@@ -177,6 +177,11 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,"ACCESS":"full"}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"Worktree":"/w"},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","Base":"main"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"branch":"b","base":"main"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"7","base":"main"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"7","branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","Branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","new":null},"provider":"claude","access":"ask","plan":false,"model":null}}`,
 		`{"type":"config.set","id":"1","key":"phone.maxAccess","value":"full"}`,
 		`{"type":"config.set","id":"1","key":"theme","value":"ask"}`,
@@ -200,6 +205,9 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"hello","id":"1","token":"t","clientId":"c","protocolVersion":3,"caps":[],"protocol":{"min":3,"max":3.0}}`,
 		`{"type":"pair","id":"1","code":"c","name":"","platform":"android"}`,
 		`{"type":"hello","id":"1","clientId":"desktop","protocolVersion":3}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"#7"}},"provider":"claude","access":"ask","plan":false}}`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != nil {
 			t.Errorf("%s: %v", raw, err)

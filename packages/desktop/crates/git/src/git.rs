@@ -4,6 +4,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::process::Command;
 
+pub mod github;
 pub mod graph;
 use graph::LaneColor;
 
@@ -154,6 +155,13 @@ pub fn branches(cwd: &str) -> Vec<String> {
     lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]))
 }
 
+/// Branches on origin that have no local twin, most recently committed first.
+pub fn remote_branches(cwd: &str) -> Vec<String> {
+    let local: HashSet<String> = branches(cwd).into_iter().collect();
+    let remote = lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:lstrip=3)", "refs/remotes/origin"]));
+    remote.into_iter().filter(|b| b != "HEAD" && !local.contains(b)).collect()
+}
+
 pub fn remotes(cwd: &str) -> usize {
     lines(git(cwd, &["remote"])).len()
 }
@@ -171,6 +179,25 @@ pub fn ls_files(cwd: &str) -> Vec<String> {
 /// Deletes the worktree's folder, uncommitted changes included; its branch stays.
 pub fn remove_worktree(repo: &str, path: &str) -> Result<(), String> {
     let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "remove", "--force", path]).output().map_err(|e| e.to_string())?;
+    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+}
+
+/// Commits that deleting `branch` would lose, or with no branch the detached HEAD of `cwd`: those no other branch, remote or tag holds.
+pub fn lost_commits(cwd: &str, branch: Option<&str>) -> usize {
+    let (tip, exclude) = match branch {
+        // `--exclude` matches the names `--branches` lists, which lack `refs/heads/`.
+        Some(b) => (format!("refs/heads/{b}"), Some(format!("--exclude={b}"))),
+        None => ("HEAD".to_string(), None),
+    };
+    let mut args = vec!["rev-list", "--count", tip.as_str(), "--not"];
+    args.extend(exclude.as_deref());
+    args.extend(["--branches", "--remotes", "--tags"]);
+    git(cwd, &args).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
+}
+
+/// Deletes `branch`, merged or not; git refuses while a worktree has it checked out.
+pub fn delete_branch(repo: &str, branch: &str) -> Result<(), String> {
+    let out = Command::new("git").arg("-C").arg(repo).args(["branch", "-D", "--", branch]).output().map_err(|e| e.to_string())?;
     if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
@@ -930,6 +957,78 @@ mod tests {
         assert_eq!(first_parent(r, &root), None);
         assert_eq!(commit_files(r, &root, None), vec![CommitFile { path: "a".into(), old_path: None, status: 'A' }]);
         assert_eq!(texts_at(r, &root, "a"), (String::new(), "a\n".into()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn remote_branches_leave_out_head_and_branches_already_local() {
+        let dir = scratch_repo("remote-branches");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        sh(&repo, &["branch", "-M", "main"]);
+        for b in ["main", "feat/x"] {
+            sh(&repo, &["update-ref", &format!("refs/remotes/origin/{b}"), "HEAD"]);
+        }
+        sh(&repo, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+        assert_eq!(remote_branches(r), ["feat/x"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn commit_file(dir: &Path, name: &str) {
+        std::fs::write(dir.join(name), "x\n").unwrap();
+        sh(dir, &["add", "."]);
+        sh(dir, &["commit", "-qm", name]);
+    }
+
+    #[test]
+    fn lost_commits_are_those_no_other_branch_remote_or_tag_holds() {
+        let dir = scratch_repo("lost");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "main"]);
+        let tree = dir.join("fix");
+        add_worktree(r, tree.to_str().unwrap(), "fix/a", "HEAD").unwrap();
+        assert_eq!(lost_commits(r, Some("fix/a")), 0);
+        commit_file(&tree, "b");
+        commit_file(&tree, "c");
+        assert_eq!(lost_commits(r, Some("fix/a")), 2);
+        sh(&repo, &["update-ref", "refs/remotes/origin/fix/a", "fix/a~1"]);
+        assert_eq!(lost_commits(r, Some("fix/a")), 1);
+        sh(&repo, &["update-ref", "refs/remotes/origin/fix/a", "fix/a"]);
+        assert_eq!(lost_commits(r, Some("fix/a")), 0);
+        sh(&repo, &["update-ref", "-d", "refs/remotes/origin/fix/a"]);
+        sh(&repo, &["merge", "-q", "--ff-only", "fix/a"]);
+        assert_eq!(lost_commits(r, Some("fix/a")), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_detached_tree_loses_the_commits_only_its_head_holds() {
+        let dir = scratch_repo("lost-detached");
+        let repo = dir.join("repo");
+        committer(&repo);
+        let tree = dir.join("look");
+        sh(&repo, &["worktree", "add", "-q", "--detach", tree.to_str().unwrap()]);
+        let t = tree.to_str().unwrap();
+        assert_eq!(lost_commits(t, None), 0);
+        commit_file(&tree, "b");
+        assert_eq!(lost_commits(t, None), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_branch_deletes_once_its_worktree_is_removed() {
+        let dir = scratch_repo("delete-branch");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        let tree = dir.join("fix");
+        add_worktree(r, tree.to_str().unwrap(), "fix", "HEAD").unwrap();
+        assert!(delete_branch(r, "fix").unwrap_err().contains("fix"));
+        remove_worktree(r, tree.to_str().unwrap()).unwrap();
+        delete_branch(r, "fix").unwrap();
+        assert!(!branches(r).contains(&"fix".to_string()));
+        assert!(delete_branch(r, "fix").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

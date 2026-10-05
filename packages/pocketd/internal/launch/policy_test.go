@@ -31,9 +31,11 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		{"phone edits above ask", phone, spec("claude", "edits", false), "ask", "On your Mac: ⌘K → Phone access level"},
 		{"phone auto above edits", phone, spec("claude", "auto", false), "edits", "On your Mac: ⌘K → Phone access level"},
 		{"phone full", phone, spec("claude", "full", false), "auto", "Full access starts only from your Mac"},
-		{"phone base", phone, newTree(proto.NewWorktree{Name: "n", Base: "dev"}), "ask", "Only your Mac picks the base, copy or setup"},
-		{"phone copy", phone, newTree(proto.NewWorktree{Name: "n", Copy: &no}), "ask", "Only your Mac picks the base, copy or setup"},
-		{"phone setup", phone, newTree(proto.NewWorktree{Name: "n", Setup: &no}), "ask", "Only your Mac picks the base, copy or setup"},
+		{"phone base", phone, newTree(proto.NewWorktree{Name: "n", Base: "dev"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
+		{"phone branch", phone, newTree(proto.NewWorktree{Branch: "fix/login"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
+		{"phone pr", phone, newTree(proto.NewWorktree{PR: "123"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
+		{"phone copy", phone, newTree(proto.NewWorktree{Name: "n", Copy: &no}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
+		{"phone setup", phone, newTree(proto.NewWorktree{Name: "n", Setup: &no}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
 	} {
 		f := Check(c.w, c.s, c.maxAccess)
 		switch {

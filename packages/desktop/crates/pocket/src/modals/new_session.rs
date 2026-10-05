@@ -6,6 +6,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{default_base, home, typed_or};
 use crate::util::tilde;
+use git::github;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -55,6 +56,39 @@ pub struct NewForm {
     draft: Draft,
 }
 
+/// Where a new worktree's branch comes from.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub(crate) enum Source {
+    /// A new branch named after the worktree, from the base.
+    #[default]
+    New,
+    /// An existing branch, local or on origin.
+    Branch,
+    /// A GitHub pull request's head.
+    Pr,
+}
+
+impl Source {
+    const ALL: [Source; 3] = [Source::New, Source::Branch, Source::Pr];
+
+    fn label(self) -> &'static str {
+        match self {
+            Source::New => "New branch",
+            Source::Branch => "Existing branch",
+            Source::Pr => "Pull request",
+        }
+    }
+
+    /// What a create's `checkout.new` asked for, and what its name field held.
+    fn of(new: &Value, folder: String) -> (Self, String) {
+        match (new["branch"].as_str(), new["pr"].as_str()) {
+            (Some(b), _) => (Source::Branch, b.to_string()),
+            (_, Some(pr)) => (Source::Pr, pr.to_string()),
+            _ => (Source::New, folder),
+        }
+    }
+}
+
 /// The form's choices besides its text inputs.
 struct Draft {
     /// Branches and worktree folders a new worktree's name must not reuse.
@@ -63,6 +97,9 @@ struct Draft {
     worktree: bool,
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,
+    /// Branches on origin with no local twin.
+    remote_branches: Vec<String>,
+    source: Source,
     base: usize,
     /// The base to pick once the branches load, instead of the repo's.
     want_base: Option<String>,
@@ -84,6 +121,8 @@ impl Default for Draft {
             worktree: false,
             repo: None,
             branches: Vec::new(),
+            remote_branches: Vec::new(),
+            source: Source::New,
             base: 0,
             want_base: None,
             copy_env: false,
@@ -107,14 +146,33 @@ impl Draft {
         auto_name(prompt, self.seed, &self.taken)
     }
 
+    /// What the name field shows while empty.
+    fn placeholder(&self, prompt: &str) -> String {
+        match self.source {
+            Source::New => self.auto_name(prompt),
+            Source::Branch => "Branch to open".into(),
+            Source::Pr => "123, #123 or a PR URL".into(),
+        }
+    }
+
     /// `in_tree`: a worktree is open to start the session in.
     fn ready(&self, name: &str, in_tree: bool) -> bool {
-        let place = if self.worktree {
-            self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none()
-        } else {
-            in_tree
+        let place = match (self.worktree, self.source) {
+            (false, _) => in_tree,
+            (true, Source::New) => self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none(),
+            (true, Source::Branch) => self.repo.is_some() && !name.is_empty(),
+            (true, Source::Pr) => self.repo.is_some() && parse_pr(name).is_some(),
         };
         place && self.pending.is_none()
+    }
+
+    /// The folder pocketd will likely make for `name`; `Creates::started` swaps in the one it made.
+    fn folder(&self, name: &str) -> String {
+        match self.source {
+            Source::New => name.to_string(),
+            Source::Branch => name.replace('/', "-"),
+            Source::Pr => format!("pr-{}", parse_pr(name).unwrap_or_default()),
+        }
     }
 
     /// A model or effort remembered for one agent means nothing to another.
@@ -126,10 +184,11 @@ impl Draft {
     }
 
     fn spec(&self, project: &str, tree: &str, name: &str, prompt: &str) -> Value {
-        let checkout = if self.worktree {
-            json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}})
-        } else {
-            json!({"worktree": tree})
+        let checkout = match (self.worktree, self.source) {
+            (false, _) => json!({"worktree": tree}),
+            (true, Source::New) => json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}}),
+            (true, Source::Branch) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
+            (true, Source::Pr) => json!({"new": {"pr": name, "copy": self.copy_env, "setup": self.run_setup}}),
         };
         let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": Access::Ask.wire(), "plan": false});
         for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
@@ -170,6 +229,19 @@ impl Draft {
         }
         Some(message)
     }
+}
+
+/// The number in "123", "#123" or a pull request URL.
+fn parse_pr(s: &str) -> Option<u32> {
+    let s = s.trim();
+    let n = match s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")) {
+        Some(url) => match url.split('/').collect::<Vec<_>>()[..] {
+            [_, _, _, "pull", n, ..] => n.split(['?', '#']).next().unwrap_or(n),
+            _ => return None,
+        },
+        None => s.strip_prefix('#').unwrap_or(s),
+    };
+    n.bytes().all(|b| b.is_ascii_digit()).then(|| n.parse().ok()).flatten().filter(|&n| n > 0)
 }
 
 fn slug(prompt: &str) -> String {
@@ -235,7 +307,7 @@ impl NewForm {
             cx.subscribe_in(&prompt, window, |this, prompt, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
                 InputEvent::Change => {
-                    let name = this.new_form.draft.auto_name(&prompt.read(cx).value());
+                    let name = this.new_form.draft.placeholder(&prompt.read(cx).value());
                     this.new_form.name.update(cx, |b, cx| b.set_placeholder(name, window, cx));
                     cx.notify();
                 }
@@ -262,6 +334,7 @@ impl Desktop {
         let f = &mut self.new_form;
         f.draft.seed = crate::util::now_ms() as usize;
         f.draft.taken.clear();
+        f.draft.source = Source::New;
         let placeholder = f.draft.auto_name(&text);
         f.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
@@ -289,6 +362,7 @@ impl Desktop {
         let f = &mut self.new_form.draft;
         f.repo = Some(repo.clone());
         f.branches.clear();
+        f.remote_branches.clear();
         f.base = 0;
         f.copy_env = !cfg.copy.is_empty();
         f.run_setup = !cfg.setup.is_empty();
@@ -302,10 +376,10 @@ impl Desktop {
             }).collect();
             let entries = std::fs::read_dir(&folders).into_iter().flatten().flatten();
             let taken: HashSet<String> = all.into_iter().chain(entries.filter_map(|e| e.file_name().into_string().ok())).collect();
-            (current, branches, taken)
+            (current, branches, taken, git::remote_branches(&dir))
         });
         cx.spawn_in(window, async move |this, cx| {
-            let (current, mut branches, taken) = task.await;
+            let (current, mut branches, taken, remote) = task.await;
             this.update_in(cx, |d, window, cx| {
                 let f = &mut d.new_form;
                 if f.draft.repo.as_ref() != Some(&repo) {
@@ -314,8 +388,9 @@ impl Desktop {
                 default_first(&mut branches, f.draft.want_base.as_deref().unwrap_or(&cfg.base), &current);
                 f.draft.base = 0;
                 f.draft.branches = branches;
+                f.draft.remote_branches = remote;
                 f.draft.taken = taken;
-                let name = f.draft.auto_name(&f.prompt.read(cx).value());
+                let name = f.draft.placeholder(&f.prompt.read(cx).value());
                 f.name.update(cx, |s, cx| s.set_placeholder(name, window, cx));
                 cx.notify();
             })
@@ -324,9 +399,24 @@ impl Desktop {
         .detach();
     }
 
+    /// The new worktree's name, or the branch to open.
     fn new_name(&self, cx: &App) -> String {
         let f = &self.new_form;
-        typed_or(&f.name, || f.draft.auto_name(&f.prompt.read(cx).value()), cx)
+        match f.draft.source {
+            Source::New => typed_or(&f.name, || f.draft.auto_name(&f.prompt.read(cx).value()), cx),
+            _ => f.name.read(cx).value().trim().to_string(),
+        }
+    }
+
+    fn pick_source(&mut self, source: Source, window: &mut Window, cx: &mut Context<Self>) {
+        let f = &mut self.new_form;
+        if f.draft.source != source {
+            f.name.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+        (f.draft.source, f.draft.picker) = (source, None);
+        let placeholder = f.draft.placeholder(&f.prompt.read(cx).value());
+        f.name.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
+        cx.notify();
     }
 
     fn session_ready(&self, cx: &App) -> bool {
@@ -343,7 +433,7 @@ impl Desktop {
         let tree = self.cwd().unwrap_or_default();
         let f = &self.new_form.draft;
         let Some(project) = f.repo.clone() else { return };
-        let (spec, worktree) = (f.spec(&project, &tree, &name, &prompt), f.worktree);
+        let (spec, worktree, folder) = (f.spec(&project, &tree, &name, &prompt), f.worktree, f.folder(&name));
         self.store.repos.entry(project.clone()).or_default().launch = f.pick();
         if worktree {
             self.store.collapsed.remove(&project);
@@ -354,7 +444,7 @@ impl Desktop {
             (self.new_form.draft.pending, self.new_form.draft.error) = (Some(request), None);
             return cx.notify();
         }
-        let path = format!("{}/{name}", self.worktrees_dir(&project));
+        let path = format!("{}/{folder}", self.worktrees_dir(&project));
         self.creates.list.push(Create::new(request, path.clone(), spec, Instant::now()));
         self.close_overlay(window, cx);
         self.select_tree(project, Some(path), cx);
@@ -412,8 +502,10 @@ impl Desktop {
     pub(crate) fn reopen_new_worktree(&mut self, c: &Create, window: &mut Window, cx: &mut Context<Self>) {
         self.new_worktree(&crate::actions::NewWorktree, window, cx);
         self.new_form.draft.want_base = Some(c.base().to_string());
+        let (source, name) = Source::of(c.asked(), c.name());
+        self.pick_source(source, window, cx);
         self.new_form.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
-        self.new_form.name.update(cx, |s, cx| s.set_value(c.name(), window, cx));
+        self.new_form.name.update(cx, |s, cx| s.set_value(name, window, cx));
     }
 
     pub fn new_worktree_in(&mut self, p: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -436,16 +528,24 @@ impl Desktop {
             .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let agent = self.agent_select(cx);
-        let branch = f.worktree.then(|| self.branch_select(cx));
+        let source = (f.worktree && self.agents.opens()).then(|| self.source_select(cx));
+        let branch = (f.worktree && f.source != Source::Pr).then(|| self.branch_select(cx));
         let ready = self.session_ready(cx);
         let send = ui::primary(div().id("form-start").ml_auto().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
             .child(icon("arrow-up", 16., ON_TEXT))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
-        let problem = if f.worktree { name_problem(&self.new_name(cx), &f.taken) } else { None };
+        let problem = match (f.worktree, f.source) {
+            (true, Source::New) => name_problem(&self.new_name(cx), &f.taken),
+            (true, Source::Pr) => {
+                let name = self.new_name(cx);
+                (!name.is_empty() && parse_pr(&name).is_none()).then_some("Use 123, #123 or a PR URL")
+            }
+            _ => None,
+        };
         let name_field = f.worktree.then(|| {
             ui::field_box()
-                .child(icon("worktree", 14., TEXT_3))
+                .child(icon(if f.source == Source::New { "worktree" } else { "branch" }, 14., TEXT_3))
                 .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&self.new_form.name).appearance(false).p_0().text_size(px(13.))))
                 .children(problem.map(|p| div().flex_none().text_size(px(12.)).text_color(FAILED).child(p)))
         });
@@ -467,6 +567,7 @@ impl Desktop {
                     .pb(px(10.))
                     .text_size(px(13.))
                     .child(agent)
+                    .children(source)
                     .children(branch)
                     .child(send),
             );
@@ -485,16 +586,19 @@ impl Desktop {
                 .when(!detail.is_empty(), |d| d.child(div().font_family(MONO).text_size(px(12.)).text_color(TEXT_2).child(detail)))
         });
         let mono = |s: String| div().font_family(MONO).text_color(TEXT_2).child(s);
-        let summary: Vec<AnyElement> = if f.worktree {
-            vec![
+        let summary: Vec<AnyElement> = match (f.worktree, f.source) {
+            (true, Source::New) => vec![
                 div().child("New branch").into_any_element(),
                 mono(self.new_name(cx)).into_any_element(),
                 div().child("from").into_any_element(),
                 mono(f.base_branch()).into_any_element(),
-            ]
-        } else {
-            let place = self.repo().map(|r| r.branch.clone()).or_else(|| self.cwd().map(|c| tilde(&c))).unwrap_or_default();
-            vec![div().child("In").into_any_element(), mono(place).into_any_element()]
+            ],
+            (true, Source::Branch) => vec![div().child("Open branch").into_any_element(), mono(self.new_name(cx)).into_any_element()],
+            (true, Source::Pr) => vec![div().child("Open pull request").into_any_element(), mono(self.new_name(cx)).into_any_element()],
+            (false, _) => {
+                let place = self.repo().map(|r| r.branch.clone()).or_else(|| self.cwd().map(|c| tilde(&c))).unwrap_or_default();
+                vec![div().child("In").into_any_element(), mono(place).into_any_element()]
+            }
         };
         let footer = div()
             .flex()
@@ -515,7 +619,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, auto_name, default_first, name_problem, slug};
+    use super::{Draft, Source, auto_name, default_first, name_problem, parse_pr, slug};
     use serde_json::json;
     use store::LaunchPick;
     use std::collections::HashSet;
@@ -586,6 +690,49 @@ mod tests {
         let new = Draft { worktree: true, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "ask", "plan": false});
         assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
+    }
+
+    #[test]
+    fn an_existing_branch_needs_only_a_repository_and_a_branch() {
+        let draft = Draft { worktree: true, source: Source::Branch, repo: Some("/src/app".into()), taken: ["main".to_string()].into(), ..Draft::default() };
+        assert!(draft.ready("main", false));
+        assert!(!draft.ready("", true));
+        assert!(!Draft { repo: None, ..draft }.ready("main", true));
+    }
+
+    #[test]
+    fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
+        let draft = Draft { worktree: true, source: Source::Branch, branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
+        let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "access": "ask", "plan": false});
+        assert_eq!(draft.spec("/p", "/p", "fix/login", ""), want);
+        assert_eq!(draft.spec("/p", "/p", "origin/fix/login", ""), want);
+        assert_eq!(draft.folder("fix/login"), "fix-login");
+    }
+
+    #[test]
+    fn a_failed_open_reopens_on_the_branch_it_asked_for() {
+        assert_eq!(Source::of(&json!({"branch": "fix/login", "copy": true}), "fix-login".into()), (Source::Branch, "fix/login".to_string()));
+        assert_eq!(Source::of(&json!({"name": "calm-otter", "base": "main"}), "calm-otter".into()), (Source::New, "calm-otter".to_string()));
+    }
+
+    #[test]
+    fn a_pr_is_a_number_a_hash_number_or_a_pull_url() {
+        for ok in ["123", " #123 ", "https://github.com/acme/app/pull/123", "https://github.com/acme/app/pull/123/files", "https://github.com/acme/app/pull/123?w=1", "https://github.com/acme/app/pull/123#issuecomment-1"] {
+            assert_eq!(parse_pr(ok), Some(123), "{ok}");
+        }
+        for bad in ["", "#", "+5", "0", "abc", "https://github.com/acme/app/issues/123"] {
+            assert_eq!(parse_pr(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_pr_is_sent_as_typed_and_reopens_as_a_pr() {
+        let draft = Draft { worktree: true, source: Source::Pr, repo: Some("/p".into()), copy_env: true, ..Draft::default() };
+        assert!(draft.ready("#7", false) && !draft.ready("seven", false));
+        let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "access": "ask", "plan": false});
+        assert_eq!(draft.spec("/p", "/p", "#7", ""), want);
+        assert_eq!(draft.folder("#7"), "pr-7");
+        assert_eq!(Source::of(&want["checkout"]["new"], "pr-7".into()), (Source::Pr, "#7".to_string()));
     }
 
     #[test]

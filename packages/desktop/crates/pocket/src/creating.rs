@@ -104,6 +104,11 @@ impl Create {
         git::Worktree { path: self.path.clone(), branch: self.name(), main: false }
     }
 
+    /// The spec's `checkout.new`: what the sheet asked for.
+    pub(crate) fn asked(&self) -> &Value {
+        &self.spec["checkout"]["new"]
+    }
+
     pub(crate) fn base(&self) -> &str {
         self.spec["checkout"]["new"]["base"].as_str().unwrap_or_default()
     }

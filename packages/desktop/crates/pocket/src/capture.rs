@@ -6,6 +6,7 @@ use crate::desktop::chrome::{Layout, Overlay, Screen, Side};
 use crate::git_ui::graph::GraphState;
 use crate::status::Status;
 use git::Kind;
+use git::github::{Checks, Pr, PrState};
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
@@ -14,7 +15,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 28] = [
+const STEPS: [(&str, Step); 29] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -89,6 +90,19 @@ const STEPS: [(&str, Step); 28] = [
         }
     }),
     ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
+    ("prs", |d, _, _| {
+        let Some(trees) = d.project.as_ref().and_then(|p| d.worktrees.get(p)) else { return };
+        let trees: Vec<String> = trees.iter().filter(|w| !w.main).map(|w| w.path.clone()).collect();
+        let now = Instant::now();
+        let checks = [Checks { passed: 4, ..Checks::default() }, Checks { passed: 2, failed: 1, ..Checks::default() }, Checks { passed: 1, pending: 2, ..Checks::default() }, Checks { passed: 5, ..Checks::default() }];
+        for (i, tree) in trees.into_iter().enumerate() {
+            let number = 120 + i as u32;
+            let state = if i == 3 { PrState::Merged } else { PrState::Open };
+            let pr = Pr { number, title: format!("Capture PR {number}"), url: format!("https://github.com/acme/app/pull/{number}"), state, draft: false, checks: checks[i % 4] };
+            d.prs.start(&tree, now);
+            d.prs.apply(tree, now, Ok(Some(pr)), now);
+        }
+    }),
 ];
 
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,

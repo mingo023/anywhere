@@ -1,3 +1,4 @@
+use super::Source;
 use crate::desktop::Desktop;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -6,6 +7,7 @@ use theme::*;
 #[derive(Clone, Copy, PartialEq)]
 pub enum Picker {
     Agent,
+    Source,
     Branch,
 }
 
@@ -142,6 +144,60 @@ impl Desktop {
         picker_menu("branch-menu", 300., rows, cx)
     }
 
+    fn source_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let f = &self.new_form.draft;
+        let mut rows = vec![pick_head("Start from").into_any_element()];
+        for source in Source::ALL {
+            rows.push(
+                pick_row(source.label(), f.source == source, None::<Div>, div().child(source.label()), None)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_source(source, window, cx)))
+                    .into_any_element(),
+            );
+        }
+        picker_menu("source-menu", 220., rows, cx)
+    }
+
+    /// Local branches, then origin's, that hold what the name field holds. Picking one fills the field.
+    fn open_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let f = &self.new_form.draft;
+        let typed = self.new_form.name.read(cx).value().trim().to_lowercase();
+        let local = f.branches.iter().map(|(b, _)| (b, false));
+        let remote = f.remote_branches.iter().map(|b| (b, true));
+        let mut rows = Vec::new();
+        let mut head = None;
+        for (i, (b, on_origin)) in local.chain(remote).filter(|(b, _)| b.to_lowercase().contains(&typed)).take(50).enumerate() {
+            if head != Some(on_origin) {
+                rows.push(pick_head(if on_origin { "On origin" } else { "Local" }).into_any_element());
+                head = Some(on_origin);
+            }
+            let label = if on_origin { format!("origin/{b}") } else { b.clone() };
+            let name = b.clone();
+            rows.push(
+                pick_row(("open", i), b.to_lowercase() == typed, Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), None)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.new_form.name.update(cx, |s, cx| s.set_value(name.clone(), window, cx));
+                        this.new_form.draft.picker = None;
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        picker_menu("open-menu", 300., rows, cx)
+    }
+
+    pub(super) fn source_select(&self, cx: &mut Context<Self>) -> Div {
+        let f = &self.new_form.draft;
+        let source = chip("form-source", f.picker == Some(Picker::Source))
+            .child(div().font_weight(FontWeight::MEDIUM).child(f.source.label()))
+            .child(icon("chevron-down", 12., TEXT_4))
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.toggle_picker(Picker::Source, cx);
+            }));
+        let source_menu = (f.picker == Some(Picker::Source)).then(|| ui::dropdown(36., ui::menu_in("source-menu-in", self.source_picker(cx))));
+        div().relative().child(source).children(source_menu)
+    }
+
     pub(super) fn agent_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
         let agent = chip("form-agent", f.picker == Some(Picker::Agent))
@@ -156,17 +212,20 @@ impl Desktop {
         div().relative().child(agent).children(agent_menu)
     }
 
+    /// The base to branch from, or for an existing branch, the list to pick it from.
     pub(super) fn branch_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
+        let label = if f.source == Source::New { f.base_branch() } else { "Branches".into() };
         let branch = chip("form-branch", f.picker == Some(Picker::Branch))
             .child(icon("branch", 14., TEXT_3))
-            .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(f.base_branch()))
+            .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.toggle_picker(Picker::Branch, cx);
             }));
-        let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., ui::menu_in("branch-menu-in", self.branch_picker(cx))));
+        let menu = |cx: &mut Context<Self>| if f.source == Source::New { self.branch_picker(cx) } else { self.open_picker(cx) };
+        let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., ui::menu_in("branch-menu-in", menu(cx))));
         div().relative().child(branch).children(branch_menu)
     }
 }

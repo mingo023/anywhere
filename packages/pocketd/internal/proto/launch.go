@@ -7,6 +7,9 @@ import (
 
 const CapLaunch = "launch.v1"
 
+// CapOpen: a NewWorktree may open an existing branch instead of naming a new one.
+const CapOpen = "open.v1"
+
 const MaxPrompt = 64 << 10
 
 var (
@@ -31,10 +34,26 @@ type Checkout struct {
 }
 
 type NewWorktree struct {
-	Name  string `json:"name"`
-	Base  string `json:"base,omitempty"`
+	Name string `json:"name"`
+	Base string `json:"base,omitempty"`
+	// Branch is an existing local branch, or one origin has.
+	Branch string `json:"branch,omitempty"`
+	// PR is "123", "#123" or a PR URL, passed to gh as is.
+	PR    string `json:"pr,omitempty"`
 	Copy  *bool  `json:"copy,omitempty"`
 	Setup *bool  `json:"setup,omitempty"`
+}
+
+// valid: at most one of Base, Branch and PR, and a Name unless opening a
+// Branch or PR.
+func (n *NewWorktree) valid() bool {
+	set := 0
+	for _, s := range []string{n.Base, n.Branch, n.PR} {
+		if s != "" {
+			set++
+		}
+	}
+	return set <= 1 && (n.Name != "" || n.Branch != "" || n.PR != "")
 }
 
 type AgentCreating struct {
@@ -138,7 +157,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 		return false
 	}
 	if n, has := checkout["new"]; has {
-		if _, ok := strictObject(n, "name", "base", "copy", "setup"); !ok {
+		if _, ok := strictObject(n, "name", "base", "branch", "pr", "copy", "setup"); !ok {
 			return false
 		}
 	}
@@ -147,7 +166,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 		return false
 	}
 	c := s.Checkout
-	if (c.Worktree == "") == (c.New == nil) || c.New != nil && c.New.Name == "" {
+	if (c.Worktree == "") == (c.New == nil) || c.New != nil && !c.New.valid() {
 		return false
 	}
 	if s.Provider != "claude" && s.Provider != "codex" || !slices.Contains(Accesses, s.Access) || len(s.Prompt) > MaxPrompt {

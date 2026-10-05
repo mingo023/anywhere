@@ -10,8 +10,8 @@ func Check(w Who, s proto.LaunchSpec, maxAccess string) *Failure {
 	if w.Owner {
 		return nil
 	}
-	if n := s.Checkout.New; n != nil && (n.Base != "" || n.Copy != nil || n.Setup != nil) {
-		return fail("access_not_allowed", "Only your Mac picks the base, copy or setup")
+	if n := s.Checkout.New; n != nil && (n.Base != "" || n.Branch != "" || n.PR != "" || n.Copy != nil || n.Setup != nil) {
+		return fail("access_not_allowed", "Only your Mac picks the base, branch, PR, copy or setup")
 	}
 	if s.Access == "full" {
 		return fail("access_not_allowed", "Full access starts only from your Mac")

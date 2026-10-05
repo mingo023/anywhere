@@ -5,6 +5,7 @@ mod rows;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, empty};
 use git::FileStat;
+use git::github;
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -300,6 +301,41 @@ impl Desktop {
             this.update(cx, |d, cx| {
                 d.changes.busy = None;
                 d.changes.error = res.err();
+                d.refresh_git(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn create_pr(&mut self, cx: &mut Context<Self>) {
+        self.changes.menu = false;
+        let (Some(tree), Some(base)) = (self.cwd(), self.repo().and_then(|r| r.base.clone())) else { return cx.notify() };
+        if self.changes.busy.is_some() {
+            return cx.notify();
+        }
+        self.changes.busy = Some("Creating PR…");
+        self.changes.error = None;
+        let dir = tree.clone();
+        let task = cx.background_executor().spawn(async move {
+            daemon::run_login(git::PUSH, &dir, "")?;
+            daemon::run_login(&github::create_argv(&base), &dir, "")
+        });
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            this.update(cx, |d, cx| {
+                d.changes.busy = None;
+                match res {
+                    Ok(out) => {
+                        if let Some(url) = out.lines().last() {
+                            cx.open_url(url);
+                        }
+                        d.prs.forget(&tree);
+                    }
+                    Err(e) => d.changes.error = Some(e),
+                }
                 d.refresh_git(cx);
                 cx.notify();
             })

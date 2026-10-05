@@ -9,3 +9,4 @@ path = "src/git.rs"
 
 [dependencies]
 imara-diff.workspace = true
+serde_json.workspace = true

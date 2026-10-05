@@ -7,8 +7,10 @@ export const PhoneAccess = Schema.Literal("ask", "edits", "auto");
 export type PhoneAccess = typeof PhoneAccess.Type;
 
 export const NewWorktree = Schema.Struct({
-  name: Schema.String,
+  name: Schema.optional(Schema.String),
   base: Schema.optional(Schema.String),
+  branch: Schema.optional(Schema.String),
+  pr: Schema.optional(Schema.String),
   copy: Schema.optional(Schema.Boolean),
   setup: Schema.optional(Schema.Boolean),
 });

@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use crate::git_ui::pull_requests::{self, PrItem};
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -23,6 +24,11 @@ impl Desktop {
                 cx.notify();
             },
         ));
+        let pr = self.cwd().and_then(|tree| {
+            let pr = self.prs.get(&tree)?;
+            let url = pr.url.clone();
+            Some(pull_requests::chip("changes-pr", pr).cursor_pointer().on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.open_url(&url)))
+        });
         div()
             .h(px(40.))
             .flex_none()
@@ -43,6 +49,7 @@ impl Desktop {
                     .child(icon("branch", 12., TEXT_3))
                     .child(div().truncate().font_family(MONO).text_size(px(12.)).child(repo.branch.clone())),
             )
+            .children(pr)
             .child(view)
             .child(div().relative().child(more).when(open, |d| d.child(ui::dropdown(30., ui::menu_in("changes-menu-in", self.changes_menu_view(repo, cx))))))
     }
@@ -51,6 +58,22 @@ impl Desktop {
         let info = |text: String| div().h(px(26.)).px(px(10.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_3).child(text);
         let base = repo.base.as_ref().map(|b| format!("{} → {b}", repo.branch));
         let counts = repo.base.is_some().then(|| format!("{} ahead · {} behind", repo.ahead, repo.behind));
+        let pr = self.cwd().and_then(|tree| self.prs.item(&tree, &repo.branch, repo.base.as_deref())).map(|item| match item {
+            PrItem::Open(url) => {
+                let url = url.to_string();
+                ui::menu_row("changes-open-pr", "external", "Open pull request", None)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.changes.menu = false;
+                        cx.open_url(&url);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            }
+            PrItem::Create => ui::menu_row("changes-create-pr", "plus", "Create pull request", None)
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.create_pr(cx)))
+                .into_any_element(),
+            PrItem::Hint(text) => info(text.to_string()).into_any_element(),
+        });
         ui::pop(div().id("changes-menu"))
             .w(px(220.))
             .p(px(6.))
@@ -62,6 +85,7 @@ impl Desktop {
                 cx.notify();
             }))
             .child(ui::menu_row("changes-push", "arrow-up", "Push", None).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.push(cx))))
+            .children(pr)
             .when(base.is_some(), |d| d.child(ui::menu_divider()))
             .children(base.map(info))
             .children(counts.map(info))

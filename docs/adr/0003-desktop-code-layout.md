@@ -33,6 +33,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer |
 | `browser` | browser tabs: pages, address bar, navigation |
 | `sidebar` | projects aside, compact rail, `sidebar/project_picker` the rail's project switcher, sessions column |
+| `removal` | deleting a worktree: its teardown script, its branch, the confirm and the row's "Deleting…" |
 | `git_ui` | `changes` panel and commit, `diff` view, `graph` commit graph, `commit` stacked commit diff |
 | `add_to_chat` | quoting a selection into an agent's input: the composer, its agent menu, the selection pill |
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview |

@@ -26,6 +26,7 @@ pub struct RepoForm {
     url: Entity<InputState>,
     name: Entity<InputState>,
     setup: Entity<InputState>,
+    teardown: Entity<InputState>,
     draft: RepoDraft,
 }
 
@@ -104,6 +105,7 @@ impl RepoForm {
         let url = cx.new(|cx| InputState::new(window, cx).placeholder("https://github.com/org/repo.git"));
         let name = cx.new(|cx| InputState::new(window, cx));
         let setup = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm install"));
+        let teardown = cx.new(|cx| InputState::new(window, cx).placeholder("docker compose down"));
         let subs = vec![
             cx.subscribe_in(&url, window, |this, url, ev: &InputEvent, window, cx| {
                 if let InputEvent::Change = ev {
@@ -114,7 +116,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { url, name, setup, draft: RepoDraft::default() }, subs)
+        (Self { url, name, setup, teardown, draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -158,6 +160,7 @@ impl Desktop {
             s.set_placeholder("", window, cx);
         });
         f.setup.update(cx, |s, cx| s.set_value(cfg.setup, window, cx));
+        f.teardown.update(cx, |s, cx| s.set_value(cfg.teardown, window, cx));
         if let Some(p) = editing {
             self.set_repo_path(p, window, cx);
         }
@@ -213,6 +216,7 @@ impl Desktop {
             base: f.draft.branches.get(f.draft.base).cloned().unwrap_or_default(),
             worktrees: f.draft.worktrees.clone(),
             setup: f.setup.read(cx).value().trim().to_string(),
+            teardown: f.teardown.read(cx).value().trim().to_string(),
             copy: f.draft.copy.clone(),
             launch: self.store.repos.get(&path).map(|r| r.launch.clone()).unwrap_or_default(),
         };
@@ -379,6 +383,10 @@ impl Desktop {
             "When a worktree is created",
             ui::field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.setup).appearance(false).p_0().text_size(px(13.)))),
         );
+        let teardown = field(
+            "When a worktree is deleted",
+            ui::field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.teardown).appearance(false).p_0().text_size(px(13.)))),
+        );
         let repo = f.draft.path.clone().filter(|_| f.draft.source == Source::Local);
         let copies = div()
             .flex()
@@ -433,7 +441,7 @@ impl Desktop {
             self.folder_card(cx).into_any_element(),
             identity.into_any_element(),
             layout.into_any_element(),
-            div().flex().flex_col().gap(px(10.)).child(setup).child(copies).into_any_element(),
+            div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).child(copies).into_any_element(),
             footer(note, cancel, submit).into_any_element(),
         ]);
         ui::modal(title, 640., 64., close, body)

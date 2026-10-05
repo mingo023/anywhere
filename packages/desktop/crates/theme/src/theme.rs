@@ -108,6 +108,7 @@ pub const FAILED_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff);
 pub const SUCCESS: Token = Token::new(0x2b9a66ff, 0x30a46cff);
 pub const SUCCESS_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff);
 pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
+pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
 
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
 pub const AGENT_CODEX: Token = Token::fixed(0x0f9d8aff);

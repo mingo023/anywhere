@@ -3,8 +3,9 @@ use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::ffi::CStr;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -149,6 +150,48 @@ fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, inp
     } else {
         Err(Some(text(&out.stderr)).filter(|e| !e.is_empty()).unwrap_or_else(|| text(&out.stdout)))
     }
+}
+
+/// Runs `script` in `cwd` under the login shell, in its own process group so a timeout kills whatever it started too.
+/// Its output, or on failure its last 20 lines.
+pub fn run_script(script: &str, cwd: &str, timeout: Duration) -> Result<String, String> {
+    run_script_in(login_shell(), terminal_env(), script, cwd, timeout)
+}
+
+fn run_script_in(shell: &str, env: Vec<(String, String)>, script: &str, cwd: &str, timeout: Duration) -> Result<String, String> {
+    let (mut out, writer) = std::io::pipe().map_err(|e| e.to_string())?;
+    let mut child = Command::new(shell)
+        .args(["-l", "-c", script])
+        .current_dir(cwd)
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::null())
+        .stdout(writer.try_clone().map_err(|e| e.to_string())?)
+        .stderr(writer)
+        .process_group(0)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    // Read on its own thread: a script that prints more than the pipe holds blocks until someone reads it.
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out.read_to_end(&mut buf);
+        let _ = tx.send(buf);
+    });
+    // The pipe closes once the script and everything it started have exited.
+    let Ok(buf) = rx.recv_timeout(timeout) else {
+        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+        let _ = child.wait();
+        return Err(format!("Timed out after {timeout:?}"));
+    };
+    let status = child.wait().map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&buf).trim().to_string();
+    if status.success() {
+        return Ok(text);
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let tail = lines[lines.len().saturating_sub(20)..].join("\n");
+    Err(if tail.is_empty() { status.to_string() } else { tail })
 }
 
 fn spawn_op(cmd: &str, args: Vec<String>, cwd: &str) -> Value {
@@ -296,6 +339,34 @@ mod tests {
             assert_eq!(ok, Ok("in\n[it's \"x\"]".to_string()), "{shell}");
             assert_eq!(run_in(shell, env, &["sh", "-c", "echo out; echo oops >&2; exit 3"], "/", ""), Err("oops".to_string()), "{shell}");
         }
+    }
+
+    fn bare_env() -> Vec<(String, String)> {
+        let home = std::env::temp_dir().join("pocket-desktop-no-home");
+        vec![("HOME".to_string(), home.to_string_lossy().into_owned()), ("PATH".to_string(), "/usr/bin:/bin".to_string())]
+    }
+
+    #[test]
+    fn a_script_returns_its_output_and_on_failure_its_last_twenty_lines() {
+        for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
+            let wait = Duration::from_secs(5);
+            assert_eq!(run_script_in(shell, bare_env(), "echo out; echo err >&2", "/", wait), Ok("out\nerr".to_string()), "{shell}");
+            let tail: Vec<String> = (12..=30).map(|n| n.to_string()).chain(["oops".to_string()]).collect();
+            assert_eq!(run_script_in(shell, bare_env(), "seq 30; echo oops >&2; exit 3", "/", wait), Err(tail.join("\n")), "{shell}");
+            assert_eq!(run_script_in(shell, bare_env(), "exit 4", "/", wait), Err("exit status: 4".to_string()), "{shell}");
+        }
+    }
+
+    #[test]
+    fn a_script_that_runs_too_long_is_killed_with_what_it_started() {
+        let marker = std::env::temp_dir().join(format!("pocket-script-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let started = std::time::Instant::now();
+        let script = format!("(sleep 1; touch '{}') & sleep 5", marker.display());
+        assert_eq!(run_script_in("/bin/sh", bare_env(), &script, "/", Duration::from_millis(300)), Err("Timed out after 300ms".to_string()));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(!marker.exists(), "the background job outlived the timeout");
     }
 
     #[test]

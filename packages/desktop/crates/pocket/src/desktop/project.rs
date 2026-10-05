@@ -133,6 +133,7 @@ impl Desktop {
                 let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 let mut changed = repos != d.repos || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.repos, d.explorer.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
+                d.poll_prs(cx);
                 for (pane, file) in files {
                     changed |= d.preview.apply(pane, file);
                 }
@@ -198,55 +199,5 @@ impl Desktop {
             self.overlay = Some(Overlay::Confirm);
         }
         cx.notify();
-    }
-
-    /// Asks first when deleting would close terminals or lose uncommitted changes.
-    pub(crate) fn ask_delete_worktree(&mut self, project: String, tree: String, cx: &mut Context<Self>) {
-        let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).unwrap_or_default();
-        let dir = tree.clone();
-        let task = cx.background_executor().spawn(async move { git::read(&dir).map(|r| r.files.len()) });
-        cx.spawn(async move |this, cx| {
-            let dirty = task.await;
-            this.update(cx, |d, cx| {
-                if dirty == Some(0) && d.tree_terminals(&tree).is_empty() {
-                    d.delete_worktree(project, tree, cx);
-                } else {
-                    d.confirm = Some(Confirm::DeleteWorktree { project, tree, branch, dirty: dirty.unwrap_or(0) });
-                    d.overlay = Some(Overlay::Confirm);
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// Closes the worktree's terminals and deletes its folder; its branch stays.
-    pub(crate) fn delete_worktree(&mut self, project: String, tree: String, cx: &mut Context<Self>) {
-        let dir = tree.clone();
-        let task = cx.background_executor().spawn(async move { git::remove_worktree(&project, &dir) });
-        cx.spawn(async move |this, cx| {
-            let res = task.await;
-            this.update(cx, |d, cx| {
-                match res {
-                    Err(e) => d.error = Some(e),
-                    Ok(()) => {
-                        for id in d.tree_terminals(&tree) {
-                            d.close_pane(&id, cx);
-                        }
-                        d.workspaces.remove(&tree);
-                        d.store.layouts.remove(&tree);
-                        d.save_soon(cx);
-                        if d.worktree.as_ref() == Some(&tree) {
-                            (d.worktree, d.session) = (None, None);
-                        }
-                    }
-                }
-                d.refresh_git(cx);
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 }

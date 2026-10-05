@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"c3","requestId":"r3","spec":{"project":"/Users/me/pocket","checkout":{"new":{"branch":"fix/login","copy":true,"setup":true}},"provider":"claude","access":"ask","plan":false}}

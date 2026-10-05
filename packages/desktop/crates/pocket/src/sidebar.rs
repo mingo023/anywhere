@@ -10,6 +10,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, drag_area, id, state};
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::status::{self, Card};
+use crate::git_ui::pull_requests;
 use crate::util::basename;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -20,7 +21,7 @@ use ui::{self, icon_button_sized};
 
 fn row_mark(key: &str, setting_up: bool, cards: &[Card]) -> Option<AnyElement> {
     if setting_up {
-        Some(ui::setting_up(id(format!("aside-setup:{key}"))).into_any_element())
+        Some(ui::busy(id(format!("aside-setup:{key}")), "Setting up…").into_any_element())
     } else {
         let rolled = status::roll_up(cards.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0));
         ui::indicator(id(format!("aside-spin:{key}")), rolled)
@@ -232,7 +233,9 @@ impl Desktop {
             let trees: Vec<String> = trees.iter().flatten().filter(|w| !w.main).map(|w| w.path.clone()).collect();
             for tree in &trees {
                 let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
-                let mark = if self.creates.failed(tree) {
+                let mark = if self.removals.running(tree) {
+                    Some(ui::busy(id(format!("aside-deleting:{tree}")), "Deleting…").into_any_element())
+                } else if self.creates.failed(tree) {
                     ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
                 } else {
                     row_mark(tree, self::setting_up(&setups, tree), &self.tree_cards(p, tree))
@@ -241,6 +244,7 @@ impl Desktop {
                 let (target, path) = (p.to_string(), tree.clone());
                 out.push(
                     ui::worktree_row(id(format!("aside-tree:{tree}")), basename(tree), current.as_ref() == Some(tree))
+                        .children(self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr)))
                         .child(trail)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.creates.show_progress(&path);

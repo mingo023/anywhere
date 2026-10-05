@@ -12,6 +12,7 @@ pub struct RepoConfig {
     pub base: String,
     pub worktrees: String,
     pub setup: String,
+    pub teardown: String,
     pub copy: Vec<String>,
     pub launch: LaunchPick,
 }
@@ -309,5 +310,14 @@ mod tests {
     fn a_launch_pick_saved_before_model_and_effort_loads_with_them_empty() {
         let old: RepoConfig = serde_json::from_str(r#"{"launch":{"provider":"codex","access":"auto"}}"#).unwrap();
         assert_eq!(old.launch, LaunchPick { provider: "codex".into(), model: String::new(), effort: String::new() });
+    }
+
+    #[test]
+    fn a_teardown_round_trips_and_an_old_desktop_json_loads_without_one() {
+        let old: RepoConfig = serde_json::from_str(r#"{"name":"w","setup":"make"}"#).unwrap();
+        assert_eq!(old.teardown, "");
+        let cfg = RepoConfig { teardown: "docker compose down".into(), ..Default::default() };
+        let back: RepoConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(back, cfg);
     }
 }

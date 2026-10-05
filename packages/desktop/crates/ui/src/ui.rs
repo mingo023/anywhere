@@ -423,7 +423,7 @@ pub fn indicator(id: impl Into<ElementId>, state: Option<State>) -> Option<AnyEl
     tone(state?).map(|t| glyph(id, t))
 }
 
-pub fn setting_up(id: impl Into<ElementId>) -> Div {
+pub fn busy(id: impl Into<ElementId>, label: &'static str) -> Div {
     div()
         .flex()
         .flex_none()
@@ -433,7 +433,7 @@ pub fn setting_up(id: impl Into<ElementId>) -> Div {
         .font_weight(FontWeight::NORMAL)
         .text_color(TEXT_4)
         .child(spinner(id, 11., TEXT_4))
-        .child("Setting up…")
+        .child(label)
 }
 
 /// A sidebar row's right end: its status mark, swapped for its buttons while the row is hovered or its menu is open.

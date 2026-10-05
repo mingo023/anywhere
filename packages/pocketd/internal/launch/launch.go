@@ -186,6 +186,16 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 		return "", "", fl
 	}
 	n := s.Checkout.New
+	if n.Branch != "" {
+		progress(proto.StepFetch, "")
+		o, err := worktree.PrepareBranch(f, s.Project, n.Name, n.Branch, env)
+		return opened(f, s, o, err, progress)
+	}
+	if n.PR != "" {
+		progress(proto.StepFetch, "")
+		o, err := openPR(f, s, env)
+		return opened(f, s, o, err, progress)
+	}
 	plan, err := worktree.Prepare(f, s.Project, n.Name, n.Base)
 	if err != nil {
 		return "", "", gitFailure(err)
@@ -199,15 +209,54 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 	if err != nil {
 		return "", "", gitFailure(err)
 	}
+	return filled(f, s, c.Path, progress)
+}
+
+func openPR(f registry.File, s proto.LaunchSpec, env []string) (*worktree.Open, error) {
+	gh, err := terminal.LookPath("gh", env)
+	if err != nil {
+		return nil, worktree.ErrNoGh
+	}
+	pr, err := worktree.View(gh, s.Project, s.Checkout.New.PR, env)
+	if err != nil {
+		return nil, err
+	}
+	return worktree.PreparePR(f, s.Project, s.Checkout.New.Name, pr, env)
+}
+
+// opened adds o's Worktree and fills it, or takes the one already on its
+// branch as it is.
+func opened(f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, progress func(step, note string)) (string, string, *Failure) {
+	if err != nil {
+		return "", "", gitFailure(err)
+	}
+	progress(proto.StepWorktree, "")
+	if o.Note != "" {
+		progress(proto.StepWorktree, o.Note)
+	}
+	if o.Adopt != "" {
+		return o.Adopt, "", nil
+	}
+	c, err := o.Add()
+	if err != nil {
+		return "", "", gitFailure(err)
+	}
+	return filled(f, s, c.Path, progress)
+}
+
+// filled copies into a new Worktree at path and picks its setup, unless the
+// owner turned them off.
+func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step, note string)) (string, string, *Failure) {
+	n := s.Checkout.New
 	if on(n.Copy) {
 		progress(proto.StepCopy, "")
-		worktree.CopyInto(f, s.Project, c.Path)
+		worktree.CopyInto(f, s.Project, path)
 	}
 	setup := ""
 	if on(n.Setup) {
 		setup = f.Repos[s.Project].Setup
 	}
-	return c.Path, setup, nil
+	return path, setup, nil
 }
 
 func on(b *bool) bool { return b == nil || *b }

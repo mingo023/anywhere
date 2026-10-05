@@ -1,5 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, RowMenu, id};
+use crate::removal::branch_deletable;
 use agents::Summary;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -115,14 +116,30 @@ impl Desktop {
                         .into_any_element(),
                 ]
             }
-            RowMenu::Tree { project, tree } => vec![
-                ui::danger_row("aside-menu-delete", "trash", "Delete worktree…")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.row_menu = None;
-                        this.ask_delete_worktree(project.clone(), tree.clone(), cx);
-                    }))
-                    .into_any_element(),
-            ],
+            RowMenu::Tree { project, tree } => {
+                let base = self.store.repos.get(&project).map_or("", |r| r.base.as_str());
+                let with_branch = self.worktrees.get(&project).into_iter().flatten().any(|w| w.path == tree && branch_deletable(&w.branch, base));
+                let (p, t) = (project.clone(), tree.clone());
+                let mut rows = vec![
+                    ui::danger_row("aside-menu-delete", "trash", "Delete worktree…")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.row_menu = None;
+                            this.ask_delete_worktree(p.clone(), t.clone(), false, cx);
+                        }))
+                        .into_any_element(),
+                ];
+                if with_branch {
+                    rows.push(
+                        ui::danger_row("aside-menu-delete-branch", "trash", "Delete worktree and branch…")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.row_menu = None;
+                                this.ask_delete_worktree(project.clone(), tree.clone(), true, cx);
+                            }))
+                            .into_any_element(),
+                    );
+                }
+                rows
+            }
             RowMenu::Session(id) => {
                 let Some(s) = self.agents.get(&id) else { return vec![] };
                 let mut rows = vec![];

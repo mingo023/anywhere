@@ -206,3 +206,50 @@ func TestATerminalThatCantStartFailsTheStepAfterTheWorktree(t *testing.T) {
 		t.Fatalf("steps %q", steps)
 	}
 }
+
+// opening runs a create for branch in a newWorktree project and gives its
+// steps and the folder its terminal started in.
+func opening(t *testing.T, branch string) (steps []string, cwd string) {
+	defer func(w time.Duration) { createWait = w }(createWait)
+	createWait = 500 * time.Millisecond
+	t.Setenv("SHELL", "/bin/sh")
+	l, s := newWorktree(t, "true")
+	git(t, s.Project, "branch", "feat")
+	s.Checkout.New = &proto.NewWorktree{Branch: branch}
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(step, note string) {
+		steps = append(steps, strings.TrimSpace(step+" "+note))
+	}, func(c Creating) {
+		if cwd = c.Cwd; c.Setup {
+			go l.Exited(c.Terminal, "setup", 0)
+		}
+	})
+	if term := l.d.Terminals.Get(r.TerminalID); term != nil {
+		t.Cleanup(term.Close)
+	}
+	return steps, cwd
+}
+
+func TestABranchOpensInItsOwnWorktreeWithCopyAndSetup(t *testing.T) {
+	steps, cwd := opening(t, "feat")
+	want := []string{"prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"}
+	if !slices.Equal(steps, want) || filepath.Base(cwd) != "feat" || filepath.Base(filepath.Dir(cwd)) != "wt" {
+		t.Fatalf("steps %q in %s", steps, cwd)
+	}
+}
+
+func TestABranchAlreadyCheckedOutIsUsedWithoutCopyOrSetup(t *testing.T) {
+	steps, cwd := opening(t, "main")
+	want := []string{"prepare", "verify", "fetch", "worktree", "worktree Already open in repo", "agent"}
+	if !slices.Equal(steps, want) || filepath.Base(cwd) != "repo" {
+		t.Fatalf("steps %q in %s", steps, cwd)
+	}
+}
+
+func TestAPRWithoutGhAsksToInstallIt(t *testing.T) {
+	l, s := newWorktree(t, "")
+	s.Checkout.New = &proto.NewWorktree{PR: "7"}
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(string, string) {}, func(Creating) {})
+	if r.Err == nil || r.Err.Code != "spawn_failed" || r.Err.Message != "Install GitHub CLI (gh) to open pull requests" {
+		t.Fatalf("got %+v", r.Err)
+	}
+}
