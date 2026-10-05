@@ -2,6 +2,7 @@ mod mouse;
 mod paste;
 mod selection;
 
+pub use mouse::{Button, MouseAction};
 pub use paste::{dropped_paths, paste_bytes, paste_is_safe};
 pub use selection::{Autoscroll, Pointer};
 use std::ffi::c_void;

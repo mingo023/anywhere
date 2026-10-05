@@ -28,8 +28,8 @@ pub fn grid_top(bounds: Bounds<Pixels>, rows: u16, line: f32) -> Pixels {
     bounds.origin.y + (bounds.size.height - px(rows as f32 * line)) / 2.
 }
 
-/// Sizes the pane's session to its bounds, selects its text with the mouse over the `grid` on screen,
-/// and, for the focused pane, takes the IME input.
+/// Sizes the pane's session to its bounds, selects its text with the mouse over the `grid` on screen
+/// or hands the mouse to a program tracking it, and, for the focused pane, takes the IME input.
 pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16, u16)>, focus: Option<FocusHandle>) -> impl IntoElement {
     let fit_view = view.clone();
     let pane = id.clone();
@@ -52,27 +52,44 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
             let top = grid_top(bounds, rows, line);
             let at = move |p: Point<Pixels>| Pointer::at(f32::from(p.x - bounds.origin.x), f32::from(p.y - top), cell, line, cols, rows);
             let (down, moved, up, wheel) = (view.clone(), view.clone(), view.clone(), view);
-            let (down_pane, moved_pane, wheel_pane) = (pane.clone(), pane.clone(), pane);
-            let wheel_hitbox = hitbox.clone();
+            let (down_pane, moved_pane, up_pane, wheel_pane) = (pane.clone(), pane.clone(), pane.clone(), pane);
+            let (moved_hitbox, wheel_hitbox) = (hitbox.clone(), hitbox.clone());
             window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
-                if phase == DispatchPhase::Bubble && e.button == MouseButton::Left && hitbox.is_hovered(window) {
+                if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                     down.update(cx, |d, cx| {
-                        if e.modifiers.platform && d.open_link(&down_pane, at(e.position), window, cx) {
+                        let left = e.button == MouseButton::Left;
+                        if left && e.modifiers.platform && d.open_link(&down_pane, at(e.position), window, cx) {
                             cx.stop_propagation();
-                        } else {
+                            return;
+                        }
+                        let taken = term_button(e.button).is_some_and(|b| d.mouse_press(&down_pane, at(e.position), b, e.modifiers, cx));
+                        if left && !taken {
                             d.select_start(&down_pane, at(e.position), e.click_count, e.modifiers.shift, line, cx);
                         }
                     });
                 }
             });
-            window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
-                if phase == DispatchPhase::Bubble && e.pressed_button == Some(MouseButton::Left) {
-                    moved.update(cx, |d, cx| d.select_extend(&moved_pane, at(e.position), cx));
+            window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble {
+                    let hovered = moved_hitbox.is_hovered(window);
+                    moved.update(cx, |d, cx| {
+                        d.mouse_motion(&moved_pane, at(e.position), hovered, e.pressed_button.is_some(), e.modifiers);
+                        if e.pressed_button == Some(MouseButton::Left) {
+                            d.select_extend(&moved_pane, at(e.position), cx);
+                        }
+                    });
                 }
             });
             window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
-                if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
-                    up.update(cx, |d, _| d.select_release());
+                if phase == DispatchPhase::Bubble {
+                    up.update(cx, |d, _| {
+                        if let Some(b) = term_button(e.button) {
+                            d.mouse_release(&up_pane, at(e.position), b, e.modifiers);
+                        }
+                        if e.button == MouseButton::Left {
+                            d.select_release();
+                        }
+                    });
                 }
             });
             window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
@@ -84,6 +101,15 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
     )
     .absolute()
     .size_full()
+}
+
+fn term_button(b: MouseButton) -> Option<term::Button> {
+    match b {
+        MouseButton::Left => Some(term::Button::Left),
+        MouseButton::Right => Some(term::Button::Right),
+        MouseButton::Middle => Some(term::Button::Middle),
+        _ => None,
+    }
 }
 
 /// Nerd Font icons, as shell prompts draw them, sit in the Private Use Areas that Geist Mono leaves empty.

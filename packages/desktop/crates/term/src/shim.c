@@ -32,7 +32,9 @@ typedef struct {
   GhosttySelectionGesture gesture;
   GhosttySelectionGestureEvent press, drag, tick, release;
   GhosttyMouseEncoder mouse;
-  GhosttyMouseEvent wheel;
+  GhosttyMouseEvent mouse_event;
+  bool reported;
+  uint16_t reported_col, reported_row;
 } PTerm;
 
 typedef struct {
@@ -58,7 +60,7 @@ PTerm* pt_new(uint16_t cols, uint16_t rows, size_t scrollback) {
       ghostty_selection_gesture_event_new(NULL, &p->tick, GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_AUTOSCROLL_TICK) != GHOSTTY_SUCCESS ||
       ghostty_selection_gesture_event_new(NULL, &p->release, GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_RELEASE) != GHOSTTY_SUCCESS ||
       ghostty_mouse_encoder_new(NULL, &p->mouse) != GHOSTTY_SUCCESS ||
-      ghostty_mouse_event_new(NULL, &p->wheel) != GHOSTTY_SUCCESS) {
+      ghostty_mouse_event_new(NULL, &p->mouse_event) != GHOSTTY_SUCCESS) {
     pt_free(p);
     return NULL;
   }
@@ -93,7 +95,13 @@ uint8_t pt_mouse_tracking(PTerm* p) {
 }
 
 // Our cells aren't whole pixels and the encoder's are, so it gets the cell's centre on a whole-pixel grid rather than the raw position.
-size_t pt_wheel(PTerm* p, const PPointer* at, uint8_t up, uint8_t ctrl, uint8_t alt, uint8_t* out, size_t cap) {
+size_t pt_mouse(PTerm* p, const PPointer* at, uint8_t action, uint8_t button, uint8_t ctrl, uint8_t alt, uint8_t* out, size_t cap) {
+  if (!pt_mouse_tracking(p)) {
+    p->reported = false;
+    return 0;
+  }
+  // The encoder's own motion dedupe forgets its cell whenever it's reconfigured, which is every event here.
+  if (action == GHOSTTY_MOUSE_ACTION_MOTION && p->reported && p->reported_col == at->col && p->reported_row == at->row) return 0;
   uint16_t cols = 1, rows = 1;
   ghostty_terminal_get(p->term, GHOSTTY_TERMINAL_DATA_COLS, &cols);
   ghostty_terminal_get(p->term, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
@@ -105,12 +113,21 @@ size_t pt_wheel(PTerm* p, const PPointer* at, uint8_t up, uint8_t ctrl, uint8_t 
   size.cell_height = ch;
   ghostty_mouse_encoder_setopt_from_terminal(p->mouse, p->term);
   ghostty_mouse_encoder_setopt(p->mouse, GHOSTTY_MOUSE_ENCODER_OPT_SIZE, &size);
-  ghostty_mouse_event_set_action(p->wheel, GHOSTTY_MOUSE_ACTION_PRESS);
-  ghostty_mouse_event_set_button(p->wheel, up ? GHOSTTY_MOUSE_BUTTON_FOUR : GHOSTTY_MOUSE_BUTTON_FIVE);
-  ghostty_mouse_event_set_mods(p->wheel, (ctrl ? GHOSTTY_MODS_CTRL : 0) | (alt ? GHOSTTY_MODS_ALT : 0));
-  ghostty_mouse_event_set_position(p->wheel, (GhosttyMousePosition){(at->col + 0.5f) * cw, (at->row + 0.5f) * ch});
+  ghostty_mouse_event_set_action(p->mouse_event, (GhosttyMouseAction)action);
+  if (button)
+    ghostty_mouse_event_set_button(p->mouse_event, (GhosttyMouseButton)button);
+  else
+    ghostty_mouse_event_clear_button(p->mouse_event);
+  ghostty_mouse_event_set_mods(p->mouse_event, (ctrl ? GHOSTTY_MODS_CTRL : 0) | (alt ? GHOSTTY_MODS_ALT : 0));
+  ghostty_mouse_event_set_position(p->mouse_event, (GhosttyMousePosition){(at->col + 0.5f) * cw, (at->row + 0.5f) * ch});
   size_t n = 0;
-  return ghostty_mouse_encoder_encode(p->mouse, p->wheel, (char*)out, cap, &n) == GHOSTTY_SUCCESS ? n : 0;
+  if (ghostty_mouse_encoder_encode(p->mouse, p->mouse_event, (char*)out, cap, &n) != GHOSTTY_SUCCESS) return 0;
+  if (n) {
+    p->reported = true;
+    p->reported_col = at->col;
+    p->reported_row = at->row;
+  }
+  return n;
 }
 
 void pt_scroll(PTerm* p, int tag, intptr_t delta) {
@@ -280,7 +297,7 @@ size_t pt_frame(PTerm* p, PFrame* f, PCell* out, size_t cap) {
 }
 
 void pt_free(PTerm* p) {
-  ghostty_mouse_event_free(p->wheel);
+  ghostty_mouse_event_free(p->mouse_event);
   ghostty_mouse_encoder_free(p->mouse);
   ghostty_selection_gesture_event_free(p->release);
   ghostty_selection_gesture_event_free(p->tick);

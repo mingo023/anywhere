@@ -1,6 +1,7 @@
 pub(crate) mod context;
 pub(crate) mod cursor;
 pub(crate) mod link;
+pub(crate) mod mouse;
 pub(crate) mod pane;
 pub(crate) mod scroll;
 pub(crate) mod surface;
@@ -9,10 +10,11 @@ use crate::actions::{CloseTab, CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use gpui_kit::*;
+use mouse::{Move, Reporting};
 use scroll::{Wheel, WheelRows};
 use std::ops::Range;
 use std::time::Duration;
-use term::{Autoscroll, Pointer, Scroll};
+use term::{Autoscroll, Button, MouseAction, Pointer, Scroll};
 use workspace::Place;
 
 pub struct TerminalViewState {
@@ -21,6 +23,7 @@ pub struct TerminalViewState {
     /// The IME's uncommitted text, drawn at the cursor until it commits.
     pub(crate) marked: Option<String>,
     pub(crate) selection: Option<Drag>,
+    pub(crate) reporting: Reporting,
     pub(crate) wheel: WheelRows,
     pub(crate) autoscroll: Option<Task<()>>,
     blink: Option<Task<()>>,
@@ -35,7 +38,7 @@ pub struct TerminalViewState {
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
     }
 }
 
@@ -80,6 +83,46 @@ impl Desktop {
         }
         self.terminal.selection = Some(Drag { pane: pane.to_string(), at, line, extend });
         cx.notify();
+    }
+
+    /// Hands the press to a program tracking the mouse; false leaves it for selecting text.
+    pub(crate) fn mouse_press(&mut self, pane: &str, at: Pointer, button: Button, mods: Modifiers, cx: &mut Context<Self>) -> bool {
+        let Some(t) = self.terminals.sessions.term(pane) else { return false };
+        let tracking = t.mouse_tracking() && !self.agents.observe_only();
+        if !self.terminal.reporting.press(pane, button, tracking, mods.shift) {
+            return false;
+        }
+        t.select_none();
+        self.send_mouse(pane, at, MouseAction::Press, Some(button), mods);
+        cx.notify();
+        true
+    }
+
+    pub(crate) fn mouse_motion(&mut self, pane: &str, at: Pointer, hovered: bool, pressed: bool, mods: Modifiers) {
+        let button = match self.terminal.reporting.motion(pane, hovered, pressed) {
+            Move::Drag(b) => Some(b),
+            Move::Hover => None,
+            Move::Skip => return,
+        };
+        self.send_mouse(pane, at, MouseAction::Motion, button, mods);
+    }
+
+    pub(crate) fn mouse_release(&mut self, pane: &str, at: Pointer, button: Button, mods: Modifiers) {
+        if self.terminal.reporting.release(pane, button) {
+            self.send_mouse(pane, at, MouseAction::Release, Some(button), mods);
+        }
+    }
+
+    /// Unlike `send_input`, leaves the selection and scroll alone: hovering a program that tracks the mouse mustn't clear them.
+    fn send_mouse(&mut self, pane: &str, at: Pointer, action: MouseAction, button: Option<Button>, mods: Modifiers) {
+        if self.agents.observe_only() {
+            return;
+        }
+        let Some(t) = self.terminals.sessions.term(pane) else { return };
+        let bytes = t.mouse_report(at, action, button, mods.control, mods.alt);
+        if !bytes.is_empty() {
+            self.daemon.input(pane, &bytes);
+        }
     }
 
     /// Opens the link under `at` in a browser tab; false if there is none.

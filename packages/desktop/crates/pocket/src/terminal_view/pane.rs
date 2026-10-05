@@ -95,7 +95,7 @@ impl Desktop {
             .flex_col()
             .bg(SURFACE_SUNKEN)
             .overflow_hidden()
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
+            .on_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_pane(focus_id.clone(), window, cx)))
             .drag_over::<ExternalPaths>(|s, _, _, _| s.shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT, 1.5) }]))
             .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| this.drop_paths(drop_id.clone(), paths, window, cx)))
             .children(banner)
