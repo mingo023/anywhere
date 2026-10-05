@@ -9,10 +9,11 @@ use gpui_kit::prelude::FluentBuilder as _;
 use theme::*;
 use ui::{self, State, icon_button_sized};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Screen {
     Sessions,
     Inbox,
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

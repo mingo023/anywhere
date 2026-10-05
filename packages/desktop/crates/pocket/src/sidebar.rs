@@ -158,7 +158,7 @@ impl Desktop {
             )
             .child(
                 ui::glass(icon_button_sized("aside-settings", "settings", 34., TEXT).rounded(px(17.)))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.project_settings(&crate::actions::ProjectSettings, window, cx))),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx))),
             );
         let aside = ui::side(div())
             .w(px(self.width(Column::Projects, 272.)))

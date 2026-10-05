@@ -25,6 +25,12 @@ type Repo struct {
 type File struct {
 	Projects []string        `json:"projects"`
 	Repos    map[string]Repo `json:"repos"`
+	Worktree Worktree        `json:"worktree"`
+}
+
+// Worktree is where new worktrees go when a project doesn't say.
+type Worktree struct {
+	Root string `json:"root"`
 }
 
 // Path is where the desktop writes desktop.json: next to the socket it talks to.

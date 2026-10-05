@@ -27,6 +27,14 @@ func TestADesktopJSONLoadsAndItsUnknownKeysAreIgnored(t *testing.T) {
 	}
 }
 
+func TestTheWorktreeRootLoadsFromItsOwnKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "desktop.json")
+	write(t, path, `{"worktree":{"root":"/wt"},"appearance":{"mode":"dark"}}`, time.Now())
+	if got := New(path).Load().Worktree.Root; got != "/wt" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestARewriteWithANewMtimeReloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "desktop.json")
 	at := time.Now()

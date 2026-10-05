@@ -238,7 +238,7 @@ impl Render for Storybook {
 fn main() {
     gpui_kit::application().with_assets(Assets).run(|cx| {
         gpui_kit::init(cx);
-        theme::init(cx);
+        theme::init(cx.window_appearance(), cx);
         let bounds = Bounds::centered(None, size(px(1200.), px(900.)), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

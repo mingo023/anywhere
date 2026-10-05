@@ -93,7 +93,7 @@ impl Chime {
                 let s = now.get(&a.id)?;
                 (before.get(&a.id)? != s).then_some((Cue::of(*s)?, a.updated_at))
             })
-            .filter(|(cue, at)| cue.on(on) && (*cue != Cue::Done || now_ms - at <= FRESH_MS))
+            .filter(|(cue, at)| on.all && cue.on(on) && (*cue != Cue::Done || now_ms - at <= FRESH_MS))
             .map(|(cue, _)| cue)
             .min();
         self.statuses = now;
@@ -206,5 +206,12 @@ mod tests {
         assert!(!c.heard(&[agent("a", "needsYou"), agent("b", "working")], &[], on, NOW));
         assert!(c.heard(&[agent("a", "needsYou"), agent("b", "done")], &[], on, NOW));
         assert_eq!(c.flush(), Some(Cue::Done));
+    }
+
+    #[test]
+    fn muting_all_sounds_silences_every_cue() {
+        let mut c = primed(&[agent("a", "working"), agent("b", "working"), agent("c", "working")]);
+        let on = Sounds { all: false, ..Sounds::default() };
+        assert!(!c.heard(&[agent("a", "needsYou"), agent("b", "done"), agent("c", "failed")], &[], on, NOW));
     }
 }

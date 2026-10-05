@@ -95,7 +95,7 @@ impl Desktop {
                 let kept = self.store.projects.contains(&p);
                 let target = p.clone();
                 let first = if kept {
-                    ui::menu_row("aside-menu-settings", "settings", "Settings…", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    ui::menu_row("aside-menu-settings", "settings", "Project settings…", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.select_project(target.clone(), cx);
                         this.project_settings(&crate::actions::ProjectSettings, window, cx);
                     }))

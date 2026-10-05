@@ -30,6 +30,8 @@ pub struct LaunchPick {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(default)]
 pub struct Sounds {
+    /// Mutes every cue without forgetting which ones are on.
+    pub all: bool,
     pub needs_you: bool,
     pub done: bool,
     pub failed: bool,
@@ -37,8 +39,47 @@ pub struct Sounds {
 
 impl Default for Sounds {
     fn default() -> Self {
-        Self { needs_you: true, done: true, failed: true }
+        Self { all: true, needs_you: true, done: true, failed: true }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+#[serde(default)]
+pub struct Notifications {
+    /// macOS banners for sessions that need you or finish.
+    pub banners: bool,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self { banners: true }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Appearance {
+    #[serde(deserialize_with = "lenient_mode")]
+    pub mode: Mode,
+    /// `None` follows the macOS setting.
+    pub reduce_motion: Option<bool>,
+}
+
+/// Where new worktrees go when a project doesn't say.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct WorktreeDefaults {
+    /// Empty means `~/.worktrees`; each project gets a folder in it.
+    pub root: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
@@ -80,6 +121,9 @@ pub struct Store {
     pub layout: Layout,
     pub widths: ColumnWidths,
     pub sounds: Sounds,
+    pub notifications: Notifications,
+    pub appearance: Appearance,
+    pub worktree: WorktreeDefaults,
     /// Each worktree's panels, keyed by the worktree's path.
     #[serde(deserialize_with = "readable_layouts")]
     pub layouts: BTreeMap<String, Workspace>,
@@ -124,6 +168,25 @@ impl Store {
         }
     }
 
+    /// The folder `repo`'s new worktrees go in: its own setting, else a folder named for it under the root, else under `~/.worktrees`.
+    pub fn worktrees_dir(&self, repo: &str, home: &str) -> String {
+        if let Some(dir) = self.repos.get(repo).map(|r| r.worktrees.as_str()).filter(|w| !w.is_empty()) {
+            return dir.to_string();
+        }
+        format!("{}/{}", self.worktree_root(home), self.repo_name(repo))
+    }
+
+    /// The name `repo` was given, else its folder's.
+    pub fn repo_name(&self, repo: &str) -> String {
+        let named = self.repos.get(repo).map(|r| r.name.clone()).filter(|n| !n.is_empty());
+        named.unwrap_or_else(|| repo.trim_end_matches('/').rsplit('/').next().unwrap_or_default().to_string())
+    }
+
+    /// The folder new worktrees go under, one subfolder per project: the chosen root, else `~/.worktrees`.
+    pub fn worktree_root(&self, home: &str) -> String {
+        if self.worktree.root.is_empty() { format!("{home}/.worktrees") } else { self.worktree.root.trim_end_matches('/').to_string() }
+    }
+
     /// Puts project `from` where `to` is, shifting the ones between.
     pub fn move_project(&mut self, from: &str, to: &str) {
         let (Some(i), Some(j)) = (self.projects.iter().position(|p| p == from), self.projects.iter().position(|p| p == to)) else { return };
@@ -136,6 +199,11 @@ impl Store {
 fn readable_layouts<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, Workspace>, D::Error> {
     let raw = BTreeMap::<String, serde_json::Value>::deserialize(d)?;
     Ok(raw.into_iter().filter_map(|(path, v)| Some((path, serde_json::from_value(v).ok()?))).collect())
+}
+
+/// Reads a mode this build doesn't know as `System`, since `Store::load` forgets everything on any error.
+fn lenient_mode<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Mode, D::Error> {
+    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
 }
 
 /// Replaces `path` in one rename, owner-only, so pocketd never reads half a file.
@@ -257,9 +325,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pocket-sounds-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("desktop.json"), r#"{"projects":["/w"]}"#).unwrap();
-        assert_eq!(Store::load(&dir).sounds, Sounds { needs_you: true, done: true, failed: true });
+        assert_eq!(Store::load(&dir).sounds, Sounds::default());
         std::fs::write(dir.join("desktop.json"), r#"{"sounds":{"done":false}}"#).unwrap();
-        assert_eq!(Store::load(&dir).sounds, Sounds { needs_you: true, done: false, failed: true });
+        assert_eq!(Store::load(&dir).sounds, Sounds { done: false, ..Sounds::default() });
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -319,5 +387,45 @@ mod tests {
         let cfg = RepoConfig { teardown: "docker compose down".into(), ..Default::default() };
         let back: RepoConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
         assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn a_desktop_json_from_before_settings_loads_with_defaults() {
+        let s: Store = serde_json::from_str(r#"{"projects":["/w"],"sounds":{"done":false}}"#).unwrap();
+        assert_eq!((s.notifications.banners, s.appearance, &s.worktree.root), (true, Appearance::default(), &String::new()));
+        assert_eq!((s.sounds.all, s.sounds.done), (true, false));
+    }
+
+    #[test]
+    fn settings_round_trip_through_desktop_json() {
+        let dir = std::env::temp_dir().join(format!("pocket-store-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = Store::load(&dir);
+        s.notifications.banners = false;
+        s.appearance = Appearance { mode: Mode::Dark, reduce_motion: Some(true) };
+        s.sounds.all = false;
+        s.worktree.root = "/wt".into();
+        s.save();
+        assert_eq!(Store::load(&dir), s);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_unknown_appearance_mode_falls_back_to_system_and_keeps_projects() {
+        let s: Store = serde_json::from_str(r#"{"projects":["/w"],"appearance":{"mode":"sepia","reduce_motion":false}}"#).unwrap();
+        assert_eq!((s.projects.len(), s.appearance), (1, Appearance { mode: Mode::System, reduce_motion: Some(false) }));
+        let s: Store = serde_json::from_str(r#"{"appearance":{"mode":3}}"#).unwrap();
+        assert_eq!(s.appearance.mode, Mode::System);
+    }
+
+    #[test]
+    fn worktrees_dir_prefers_the_repo_then_the_root_then_home() {
+        let mut s = Store::default();
+        s.repos.insert("/w/own".into(), RepoConfig { worktrees: "/elsewhere".into(), ..Default::default() });
+        s.repos.insert("/w/named".into(), RepoConfig { name: "Named".into(), ..Default::default() });
+        assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/h/.worktrees/Named", "/h/.worktrees/plain"]);
+        s.worktree.root = "/wt/".into();
+        assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/wt/Named", "/wt/plain"]);
     }
 }

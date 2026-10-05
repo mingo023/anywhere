@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::Overlay;
+use crate::desktop::chrome::{Overlay, Screen};
 use crate::modals::form::{default_base, footer, home, typed_or};
 use crate::util::{basename, tilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -121,7 +121,7 @@ impl RepoForm {
 }
 
 impl Desktop {
-    fn pick_path(&self, dirs: bool, window: &mut Window, cx: &mut Context<Self>, then: impl FnOnce(&mut Self, Vec<PathBuf>, &mut Window, &mut Context<Self>) + 'static) {
+    pub(crate) fn pick_path(&self, dirs: bool, window: &mut Window, cx: &mut Context<Self>, then: impl FnOnce(&mut Self, Vec<PathBuf>, &mut Window, &mut Context<Self>) + 'static) {
         let rx = cx.prompt_for_paths(PathPromptOptions { files: !dirs, directories: dirs, multiple: !dirs, prompt: None });
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
@@ -140,9 +140,13 @@ impl Desktop {
     }
 
     pub fn project_settings(&mut self, _: &crate::actions::ProjectSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.edit_project(self.project.clone(), window, cx);
+    }
+
+    pub(crate) fn edit_project(&mut self, project: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus();
         self.overlay = Some(Overlay::AddRepo);
-        self.reset_repo_form(self.project.clone(), window, cx);
+        self.reset_repo_form(project, window, cx);
         cx.notify();
     }
 
@@ -251,7 +255,10 @@ impl Desktop {
         self.store.repos.insert(path.clone(), cfg);
         self.store.save();
         self.close_overlay(window, cx);
-        self.select_project(path, cx);
+        // Edit… in Settings opens this form; saving stays there.
+        if self.screen != Screen::Settings {
+            self.select_project(path, cx);
+        }
         self.refresh_git(cx);
     }
 
@@ -363,7 +370,8 @@ impl Desktop {
                 this.repo_form.draft.base = (this.repo_form.draft.base + 1) % count.max(1);
                 cx.notify();
             }));
-        let folder = if f.draft.worktrees.is_empty() { format!("~/.worktrees/{name}") } else { tilde(&f.draft.worktrees) };
+        let root = tilde(&self.store.worktree_root(&home()));
+        let folder = if f.draft.worktrees.is_empty() { format!("{root}/{name}") } else { tilde(&f.draft.worktrees) };
         let worktrees = ui::field_box()
             .child(icon("folder", 13., TEXT_3))
             .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(13.)).child(folder))

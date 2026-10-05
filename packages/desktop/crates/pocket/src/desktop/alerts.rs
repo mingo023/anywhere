@@ -143,7 +143,7 @@ impl Desktop {
 
     fn sync_alerts(&mut self, cx: &mut App) {
         let mut alerts = std::mem::replace(&mut self.alerts, Alerts::new());
-        let show = alerts.sync(&self.agents, |a| self.place(a), self.capturing);
+        let show = alerts.sync(&self.agents, |a| self.place(a), self.capturing || !self.store.notifications.banners);
         self.alerts = alerts;
         for n in show {
             let actions = n.actions();

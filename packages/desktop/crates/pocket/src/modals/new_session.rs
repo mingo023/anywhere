@@ -323,11 +323,6 @@ impl NewForm {
 }
 
 impl Desktop {
-    fn worktrees_dir(&self, repo: &str) -> String {
-        let custom = self.store.repos.get(repo).map(|r| r.worktrees.clone()).filter(|w| !w.is_empty());
-        custom.unwrap_or_else(|| format!("{}/.worktrees/{}", home(), self.repo_name(repo)))
-    }
-
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let last = self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default();
         let text = prompt.unwrap_or_default();
@@ -358,7 +353,7 @@ impl Desktop {
 
     fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let cfg = self.store.repos.get(&repo).cloned().unwrap_or_default();
-        let folders = self.worktrees_dir(&repo);
+        let folders = self.store.worktrees_dir(&repo, &home());
         let f = &mut self.new_form.draft;
         f.repo = Some(repo.clone());
         f.branches.clear();
@@ -444,7 +439,7 @@ impl Desktop {
             (self.new_form.draft.pending, self.new_form.draft.error) = (Some(request), None);
             return cx.notify();
         }
-        let path = format!("{}/{folder}", self.worktrees_dir(&project));
+        let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &home()));
         self.creates.list.push(Create::new(request, path.clone(), spec, Instant::now()));
         self.close_overlay(window, cx);
         self.select_tree(project, Some(path), cx);

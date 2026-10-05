@@ -286,10 +286,10 @@ impl AssetSource for Assets {
     }
 }
 
-/// Loads the bundled fonts and follows the system appearance. Call after `gpui_kit::init`.
-pub fn init(cx: &mut App) {
+/// Loads the bundled fonts and applies `appearance`. Call after `gpui_kit::init`.
+pub fn init(appearance: WindowAppearance, cx: &mut App) {
     cx.text_system().add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()).expect("bundled fonts load");
-    set_appearance(cx.window_appearance(), cx);
+    set_appearance(appearance, cx);
 }
 
 /// Switches every token to `appearance` and points gpui-kit's theme at them.

@@ -78,8 +78,8 @@ impl Desktop {
         let inbox = rail_button("nav-inbox", "inbox", self.screen == Screen::Inbox)
             .when(unseen > 0, |d| d.child(ui::count_badge(unseen).top(px(-3.)).right(px(-3.))))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_inbox(window, cx)));
-        let settings = rail_button("nav-settings", "settings", false)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.project_settings(&crate::actions::ProjectSettings, window, cx)));
+        let settings = rail_button("nav-settings", "settings", self.screen == Screen::Settings)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
         let bars = self.usage().into_iter().map(|(p, left, level)| {
             let fill = if level == Level::Low { provider_color(p) } else { context::glyph(level) };
             div().w(px(24.)).h(px(3.)).flex().rounded(px(2.)).bg(SEPARATOR_STRONG).child(div().w(relative(left as f32 / 100.)).rounded(px(2.)).bg(fill))

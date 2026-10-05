@@ -4,6 +4,7 @@ use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Layout, Overlay, Screen, Side};
 use crate::git_ui::graph::GraphState;
+use crate::settings::{Section, SettingsState};
 use crate::status::Status;
 use git::Kind;
 use git::github::{Checks, Pr, PrState};
@@ -15,7 +16,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 29] = [
+const STEPS: [(&str, Step); 33] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -66,6 +67,10 @@ const STEPS: [(&str, Step); 29] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
+    ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
+    ("settings-keybindings", |d, _, _| d.settings.section = Section::Keybindings),
+    ("settings-worktrees", |d, _, _| d.settings.section = Section::Worktrees),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
@@ -178,7 +183,7 @@ impl Capture {
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_chat(window, cx);
     d.close_overlay(window, cx);
-    (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
+    (d.screen, d.side, d.settings) = (Screen::Sessions, Side::Sessions, SettingsState::default());
     (d.layout, d.widths, d.sidebar.column_hidden, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
     (d.session, d.worktree, d.terminal.focused) = (None, None, None);
     for p in d.preview.panes.values_mut() {

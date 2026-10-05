@@ -29,6 +29,7 @@ use crate::modals::{add_project, new_session};
 use crate::palette::PaletteState;
 use crate::panels::Panels;
 use crate::removal::Removals;
+use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
@@ -85,6 +86,7 @@ pub struct Desktop {
     pub(crate) root: FocusHandle,
     pub(crate) palette: PaletteState,
     pub(crate) sidebar: SidebarState,
+    pub(crate) settings: SettingsState,
     pub(crate) chips: Chips,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) worktrees: HashMap<String, Vec<git::Worktree>>,
@@ -117,7 +119,7 @@ impl Desktop {
         window.on_window_should_close(cx, move |_, cx| this.update(cx, |d, cx| d.may_quit(cx)).unwrap_or(true));
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
-            cx.observe_window_activation(window, |_, _, cx| follow_reduce_motion(cx)),
+            cx.observe_window_activation(window, |this, _, cx| follow_reduce_motion(this.store.appearance.reduce_motion, cx)),
             cx.observe_window_appearance(window, |this, window, cx| this.set_appearance(window.appearance(), window, cx)),
             // Unfocused, GPUI dispatches keys from the window's root node, above this view's action handlers.
             cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
@@ -168,6 +170,7 @@ impl Desktop {
             inbox: InboxState::new(cx),
             palette,
             sidebar,
+            settings: SettingsState::default(),
             chips,
             overlay: None,
             worktrees: HashMap::new(),
@@ -375,7 +378,7 @@ impl Desktop {
 
     /// The worktree whose panes the main view shows.
     pub(crate) fn session_tree(&self) -> Option<String> {
-        if self.terminals.link.is_down() || matches!(self.screen, Screen::Inbox) {
+        if self.terminals.link.is_down() || self.screen != Screen::Sessions {
             return None;
         }
         self.cwd()
@@ -446,13 +449,15 @@ impl Render for Desktop {
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
         self.sync_browser(window);
+        let settings = self.screen == Screen::Settings;
         let lead = match self.layout {
+            _ if settings => None,
             Layout::Sidebars => Some(self.aside(cx)),
             Layout::Compact => Some(self.nav(cx)),
             Layout::Focus => None,
         };
-        let column = crate::sidebar::column_shown(self.layout, self.screen, self.sidebar.column_hidden).then(|| self.column_view(cx));
-        let page = self.main_view(window, cx);
+        let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen, self.sidebar.column_hidden).then(|| self.column_view(cx)) };
+        let page = if settings { self.settings_page(cx) } else { self.main_view(window, cx) };
         let overlay = self.overlay_view(window, cx);
         div()
             .relative()
@@ -471,6 +476,8 @@ impl Render for Desktop {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
+                } else if this.overlay.is_none() && this.screen == Screen::Settings {
+                    this.close_settings(window, cx);
                 } else {
                     return;
                 }
@@ -481,6 +488,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::go_to_file))
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))
+            .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::next_needs_you))
             .on_action(cx.listener(Self::go_to_up_next))
             .on_action(cx.listener(Self::jump_to))
@@ -513,8 +521,8 @@ impl Render for Desktop {
     }
 }
 
-/// GPUI leaves `reduce_motion` to the app; this mirrors the macOS setting into it.
-pub(crate) fn follow_reduce_motion(cx: &mut App) {
+/// GPUI leaves `reduce_motion` to the app; this sets the user's choice, or mirrors the macOS setting when `pref` is `None`.
+pub(crate) fn follow_reduce_motion(pref: Option<bool>, cx: &mut App) {
     #[cfg(target_os = "macos")]
-    cx.set_reduce_motion(objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion());
+    cx.set_reduce_motion(crate::settings::reduce_motion(pref, || objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()));
 }

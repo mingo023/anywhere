@@ -11,6 +11,7 @@ mod modals;
 mod palette;
 mod panels;
 mod removal;
+mod settings;
 mod sidebar;
 mod status;
 mod syntax;
@@ -37,9 +38,16 @@ fn main() {
     let store = Store::load(&home);
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
-        theme::init(cx);
+        let capturing = capture.is_some();
+        // Captures stay light (capture.rs forces it per screen).
+        let forced = settings::forced(store.appearance.mode).filter(|_| !capturing);
+        if forced.is_some() {
+            cx.set_window_appearance(forced);
+        }
+        let appearance = forced.unwrap_or_else(|| cx.window_appearance());
+        theme::init(appearance, cx);
         syntax::init();
-        follow_reduce_motion(cx);
+        follow_reduce_motion(store.appearance.reduce_motion, cx);
         cx.bind_keys(actions::bindings());
         cx.bind_keys(keys::bindings());
         cx.on_action(|_: &actions::Quit, cx| cx.quit());
@@ -47,7 +55,6 @@ fn main() {
         let mut displays = cx.displays();
         displays.sort_by_key(|d| Some(d.id()) != primary);
         let rects: Vec<_> = displays.iter().map(|d| (d.uuid().ok().map(|u| u.to_string()), d.bounds())).collect();
-        let capturing = capture.is_some();
         let (display, bounds) = if capturing { geometry::restore(None, &[]) } else { geometry::restore(store.window.as_ref(), &rects) };
         let mut opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

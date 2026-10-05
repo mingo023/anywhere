@@ -3,7 +3,7 @@ use crate::desktop::chrome::{Confirm, Overlay, state};
 use crate::explorer::{self, preview};
 use crate::git_ui::diff;
 use crate::status::{self, Card, Status};
-use crate::util::{self, basename};
+use crate::util;
 use agents::Summary;
 use git::Repo;
 use gpui_kit::*;
@@ -151,7 +151,7 @@ impl Desktop {
     }
 
     pub fn repo_name(&self, path: &str) -> String {
-        self.store.repos.get(path).map(|r| r.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| basename(path))
+        self.store.repo_name(path)
     }
 
     pub fn repo_color(&self, path: &str) -> u32 {

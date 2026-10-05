@@ -611,6 +611,20 @@ pub fn tree_row(
         .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
 }
 
+/// An on/off control for a setting that applies at once.
+pub fn switch(on: bool) -> Div {
+    div()
+        .w(px(30.))
+        .h(px(18.))
+        .p(px(2.))
+        .flex()
+        .flex_none()
+        .rounded(px(9.))
+        .when(on, |d| d.bg(ACCENT).justify_end())
+        .when(!on, |d| d.bg(FILL_4))
+        .child(div().size(px(14.)).rounded(px(7.)).bg(WHITE).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
+}
+
 pub fn checkbox(on: bool) -> Div {
     div()
         .size(px(14.))

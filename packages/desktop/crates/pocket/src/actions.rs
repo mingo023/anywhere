@@ -2,7 +2,7 @@ use crate::browser;
 use gpui_kit::*;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -36,7 +36,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-shift-n", NewWorktree, None),
-        KeyBinding::new("cmd-,", ProjectSettings, None),
+        KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-enter", OpenSession, None),
         KeyBinding::new("cmd-c", CopySelection, Some(keys::CONTEXT)),
         KeyBinding::new("cmd-a", SelectAll, Some(keys::CONTEXT)),
@@ -99,5 +99,10 @@ mod tests {
         for (keys, action) in panel {
             assert_eq!(bound(keys), [action], "{keys}");
         }
+    }
+
+    #[test]
+    fn cmd_comma_opens_settings() {
+        assert_eq!(bound("cmd-,"), ["desktop::OpenSettings"]);
     }
 }

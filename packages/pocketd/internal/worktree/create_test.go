@@ -43,7 +43,7 @@ func TestTakenNamesAreBranchesAndFolders(t *testing.T) {
 	}
 }
 
-func TestWorktreesGoWhereTheRepoSaysElseUnderHome(t *testing.T) {
+func TestWorktreesGoWhereTheRepoSaysElseUnderTheRootElseHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	for _, c := range []struct {
@@ -57,6 +57,15 @@ func TestWorktreesGoWhereTheRepoSaysElseUnderHome(t *testing.T) {
 		if got := Dir(registered("/w/pocket", c.repo), "/w/pocket"); got != c.want {
 			t.Errorf("%+v: got %s", c.repo, got)
 		}
+	}
+	rooted := registered("/w/pocket", registry.Repo{Name: "Pocket"})
+	rooted.Worktree.Root = "/wt"
+	if got := Dir(rooted, "/w/pocket"); got != "/wt/Pocket" {
+		t.Errorf("under the root: got %s", got)
+	}
+	rooted.Repos["/w/pocket"] = registry.Repo{Worktrees: "/own"}
+	if got := Dir(rooted, "/w/pocket"); got != "/own" {
+		t.Errorf("the repo's own folder beats the root: got %s", got)
 	}
 }
 

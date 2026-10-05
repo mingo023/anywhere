@@ -20,7 +20,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `daemon` | the pocketd socket client |
 | `agents` | the phone-socket client and the agent list |
 | `term` | the ghostty VT |
-| `store` | the saved projects, sound toggles and each worktree's panels |
+| `store` | the saved projects, settings (sounds, notifications, appearance, worktree root) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `web` | the WKWebView page of a browser tab, address and link parsing |
 | `ui`, `theme` | widgets, colours, icons |
@@ -38,4 +38,5 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `add_to_chat` | quoting a selection into an agent's input: the composer, its agent menu, the selection pill |
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview |
 | `inbox`, `palette` | their screens |
+| `settings` | the Settings screen (⌘,): nav, `settings/general`, `settings/appearance`, `settings/keybindings`, `settings/worktrees` |
 | `modals` | overlays: new session, add project, confirm, more, pair phone |

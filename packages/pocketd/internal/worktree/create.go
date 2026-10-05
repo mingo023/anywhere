@@ -84,6 +84,9 @@ func Dir(f registry.File, project string) string {
 	if d := f.Repos[project].Worktrees; d != "" {
 		return d
 	}
+	if r := f.Worktree.Root; r != "" {
+		return filepath.Join(r, f.Name(project))
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".worktrees", f.Name(project))
 }
