@@ -33,8 +33,12 @@ type Message struct {
 		Attached          bool   `json:"attached"`
 	} `json:"agent"`
 	Agents []struct {
-		ID string `json:"id"`
+		ID      string `json:"id"`
+		Restore string `json:"restore"`
 	} `json:"agents"`
+	Host struct {
+		UpgradeFailed string `json:"upgradeFailed"`
+	} `json:"host"`
 	Item struct {
 		Kind string `json:"kind"`
 		Text string `json:"text"`

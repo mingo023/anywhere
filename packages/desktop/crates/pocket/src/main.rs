@@ -17,6 +17,7 @@ mod status;
 mod syntax;
 mod terminal_view;
 mod terminals;
+mod updates;
 mod util;
 
 use crate::desktop::geometry::{self, MIN_WINDOW};
@@ -30,6 +31,9 @@ use std::time::Duration;
 use store::Store;
 
 fn main() {
+    if channel::is_release() {
+        std::thread::spawn(daemon::service::register_if_needed);
+    }
     let capture = capture::Capture::from_args();
     let path = daemon::sock_path();
     let (daemon, mut rx) = Daemon::spawn(&path);
@@ -51,6 +55,10 @@ fn main() {
         cx.bind_keys(actions::bindings());
         cx.bind_keys(keys::bindings());
         cx.on_action(|_: &actions::Quit, cx| cx.quit());
+        let check = channel::is_release().then(|| [MenuItem::action("Check for Updates…", actions::CheckForUpdates), MenuItem::separator()]);
+        cx.set_menus([Menu::new("Anywhere").items(
+            check.into_iter().flatten().chain([MenuItem::os_submenu("Services", SystemMenuType::Services), MenuItem::separator(), MenuItem::action("Quit Anywhere", actions::Quit)]),
+        )]);
         let primary = cx.primary_display().map(|d| d.id());
         let mut displays = cx.displays();
         displays.sort_by_key(|d| Some(d.id()) != primary);

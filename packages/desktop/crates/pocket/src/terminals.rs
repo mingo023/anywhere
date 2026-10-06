@@ -216,6 +216,13 @@ impl Desktop {
             }
             "down" => {
                 self.terminals.disconnected(Instant::now());
+                if channel::is_release() {
+                    cx.spawn(async |this, cx| {
+                        let service = cx.background_executor().spawn(async { daemon::service::status() }).await;
+                        this.update(cx, |d, _| d.terminals.link.service = Some(service))
+                    })
+                    .detach();
+                }
                 cx.spawn(async |this, cx| {
                     cx.background_executor().timer(link::HINT_AFTER).await;
                     this.update(cx, |_, cx| cx.notify())

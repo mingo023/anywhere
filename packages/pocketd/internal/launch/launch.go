@@ -81,6 +81,9 @@ func New(d *daemon.Daemon, reg *registry.Registry, set *config.Settings, ev *eve
 	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, receipts: newReceipts(time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
 }
 
+// Starting reports whether a create is running; an upgrade waits for it.
+func (l *Launcher) Starting() bool { return l.receipts.inFlight() }
+
 // Create runs one agent.create. progress is called as each step starts, and
 // again with a note on how a step went. creating is called once the Terminal
 // exists, before setup runs. A retry of the same request joins the first and

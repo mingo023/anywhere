@@ -6,6 +6,7 @@ use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::git_ui::graph::GraphState;
 use crate::settings::{Section, SettingsState};
 use crate::status::Status;
+use crate::updates::Update;
 use git::Kind;
 use git::github::{Checks, Pr, PrState};
 use gpui_kit::component::Root;
@@ -16,7 +17,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 39] = [
+const STEPS: [(&str, Step); 43] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -106,6 +107,8 @@ const STEPS: [(&str, Step); 39] = [
         cx.notify();
     }),
     ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
+    ("update-ready", |d, _, _| d.updates.update = Update::Ready { version: "0.2.0".into() }),
+    ("whats-new", |d, _, _| d.updates.update = Update::WhatsNew { version: "0.2.0".into() }),
     ("prs", |d, _, _| {
         let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
@@ -136,6 +139,8 @@ const STEPS: [(&str, Step); 39] = [
             d.start_rename(tree, window, cx);
         }
     }),
+    ("daemon-down", |d, _, _| d.terminals.disconnected(Instant::now() - crate::terminals::link::HINT_AFTER)),
+    ("service-off", |d, _, _| d.terminals.link.service = Some(daemon::service::Service::RequiresApproval)),
 ];
 
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,
@@ -228,6 +233,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.graph = GraphState::default();
     d.agents.names.clear();
     d.sidebar.rename = None;
+    d.updates.update = Update::Idle;
+    d.terminals.link = Default::default();
     d.set_appearance(WindowAppearance::Light, window, cx);
 }
 

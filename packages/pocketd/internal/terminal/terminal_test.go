@@ -1,7 +1,11 @@
 package terminal
 
 import (
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -263,4 +267,107 @@ func TestSpawnKeepsTheGivenID(t *testing.T) {
 	if s.Info().ID != "t-1" || m.Get("t-1") != s {
 		t.Fatalf("id = %q", s.Info().ID)
 	}
+}
+
+func TestAPausedTerminalKeepsItsOutputUntilResumed(t *testing.T) {
+	s := spawn(t, NewManager(), `printf 'ready\n'; read x; echo "got:$x"; sleep 5`)
+	waitScreen(t, s, "ready")
+	if err := s.Pause(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	s.Write([]byte("hi\r"))
+	time.Sleep(300 * time.Millisecond)
+	if strings.Contains(s.Screen(), "got:hi") {
+		t.Fatal("a paused terminal read the pty")
+	}
+	s.Resume()
+	waitScreen(t, s, "got:hi")
+}
+
+func TestAResizedTerminalCanStillPause(t *testing.T) {
+	s := spawn(t, NewManager(), `printf 'ready\n'; read x; stty size; sleep 5`)
+	waitScreen(t, s, "ready")
+	s.Resize(60, 10)
+	s.Write([]byte("\r"))
+	waitScreen(t, s, "10 60")
+	if err := s.Pause(500 * time.Millisecond); err != nil {
+		t.Fatalf("pause after a resize: %v", err)
+	}
+	s.Resume()
+}
+
+func TestPausingAnExitedTerminalSaysItIsClosed(t *testing.T) {
+	s := spawn(t, NewManager(), `exit 0`)
+	<-s.Done()
+	if err := s.Pause(time.Second); !errors.Is(err, ErrClosed) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestHandoffNeedsAPausedTerminal(t *testing.T) {
+	s := spawn(t, NewManager(), `sleep 5`)
+	if _, err := s.Handoff(); err == nil {
+		t.Fatal("handed over a terminal that is still reading")
+	}
+}
+
+func TestATerminalSurvivesAnExec(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^TestHandoffHelper$")
+	cmd.Env = append(os.Environ(), "POCKETD_HANDOFF=before")
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "ADOPTED exit=7") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// TestHandoffHelper is both images of TestATerminalSurvivesAnExec.
+func TestHandoffHelper(t *testing.T) {
+	switch os.Getenv("POCKETD_HANDOFF") {
+	case "before":
+		handBefore(t)
+	case "after":
+		handAfter(t)
+	default:
+		t.Skip("runs only under TestATerminalSurvivesAnExec")
+	}
+}
+
+func handBefore(t *testing.T) {
+	s, err := NewManager().Spawn(Spec{ID: "t-1", Cmd: "sh", Args: []string{"-c", `echo before; read x; sleep 0.3; echo "after $x"; sleep 1; exit 7`}, Cols: 40, Rows: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, s, "before")
+	if err := s.Pause(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	h, err := s.Handoff()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Write([]byte("go\r"))
+	exe, _ := os.Executable()
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "POCKETD_HANDOFF") })
+	env = append(env, "POCKETD_HANDOFF=after", "POCKETD_HANDOFF_FD="+strconv.Itoa(h.FD), "POCKETD_HANDOFF_PID="+strconv.Itoa(h.Pid),
+		"POCKETD_HANDOFF_SCREEN="+base64.StdEncoding.EncodeToString(h.Screen))
+	t.Fatal(syscall.Exec(exe, []string{exe, "-test.run=^TestHandoffHelper$"}, env))
+}
+
+func handAfter(t *testing.T) {
+	fd, _ := strconv.Atoi(os.Getenv("POCKETD_HANDOFF_FD"))
+	pid, _ := strconv.Atoi(os.Getenv("POCKETD_HANDOFF_PID"))
+	screen, _ := base64.StdEncoding.DecodeString(os.Getenv("POCKETD_HANDOFF_SCREEN"))
+	s, err := NewManager().Adopt(Adopted{ID: "t-1", Cmd: "sh", Cols: 40, Rows: 5, FD: fd, Pid: pid, Screen: screen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, s, "after go")
+	if !strings.Contains(s.Screen(), "before") {
+		t.Fatalf("the old screen is gone:\n%s", s.Screen())
+	}
+	fmt.Printf("ADOPTED exit=%d\n", s.ExitCode())
 }

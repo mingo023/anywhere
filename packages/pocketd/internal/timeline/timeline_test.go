@@ -136,3 +136,15 @@ func TestTodoWriteToleratesOddEntries(t *testing.T) {
 		t.Fatalf("%+v", it)
 	}
 }
+
+func TestContinueStartsANewEpochPastTheOldSeq(t *testing.T) {
+	tl := New()
+	tl.Continue(3, 12)
+	if epoch, seq := tl.State(); epoch != 4 || seq != 12 {
+		t.Fatalf("state = %d, %d", epoch, seq)
+	}
+	it, _ := tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	if it.Seq != 13 || it.ID != "i13" {
+		t.Fatalf("first item after continue: %+v", it)
+	}
+}

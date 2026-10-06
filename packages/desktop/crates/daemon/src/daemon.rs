@@ -11,6 +11,8 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+pub mod service;
+
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Info {
@@ -53,7 +55,7 @@ fn sock_path_in(env: impl Fn(&str) -> Option<String>) -> PathBuf {
     }
     let home = env("POCKET_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env("HOME").unwrap_or_default()).join(".coding-pocket"));
+        .unwrap_or_else(|| PathBuf::from(env("HOME").unwrap_or_default()).join(channel::home_dir_name()));
     home.join("pocketd.sock")
 }
 
@@ -290,7 +292,10 @@ mod tests {
         let env = |pairs: &'static [(&'static str, &'static str)]| {
             move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
         };
-        assert_eq!(sock_path_in(env(&[("POCKETD_SOCK", ""), ("POCKET_HOME", ""), ("HOME", "/h")])), PathBuf::from("/h/.coding-pocket/pocketd.sock"));
+        assert_eq!(
+            sock_path_in(env(&[("POCKETD_SOCK", ""), ("POCKET_HOME", ""), ("HOME", "/h")])),
+            PathBuf::from("/h").join(channel::home_dir_name()).join("pocketd.sock")
+        );
         assert_eq!(sock_path_in(env(&[("POCKET_HOME", "/p"), ("HOME", "/h")])), PathBuf::from("/p/pocketd.sock"));
         assert_eq!(sock_path_in(env(&[("POCKETD_SOCK", "/s.sock")])), PathBuf::from("/s.sock"));
     }

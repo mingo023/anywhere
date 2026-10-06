@@ -19,7 +19,7 @@ const Layout = "2006-01-02T15:04:05.000Z07:00"
 // stop{reason}, tick, status{agent,provider,from,to}, seen{agent,principal},
 // answer{agent,principal,decision}, prompt{agent,provider,origin,ack},
 // create{origin,provider,ok,code}, restore{agent,ok,ms,outcome,reason},
-// push{agent,alert,acted}, refusal{surface,code}.
+// push{agent,alert,acted}, refusal{surface,code}, upgrade{version,ok,reason}.
 type Event struct {
 	TS        string `json:"ts"`
 	Kind      string `json:"kind"`

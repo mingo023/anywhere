@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"cmp"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 
 	"pocketd/internal/proc"
 	"pocketd/internal/vt"
@@ -51,6 +53,8 @@ type Event struct {
 	Text string
 }
 
+var ErrClosed = errors.New("terminal closed")
+
 type subscriber struct {
 	fn  func(Event)
 	tty bool
@@ -60,7 +64,7 @@ type Terminal struct {
 	info   Info
 	mu     sync.Mutex
 	pty    *os.File
-	cmd    *exec.Cmd
+	proc   *os.Process
 	vt     *vt.VT
 	subs   map[*subscriber]bool
 	done   chan struct{}
@@ -68,6 +72,8 @@ type Terminal struct {
 	closed bool
 	input  func(id string, b []byte)
 	origin string
+	resume chan struct{} // closed by Resume; nil unless paused
+	parked chan struct{} // closed once the pump stops reading for this pause
 }
 
 type Manager struct {
@@ -134,10 +140,15 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 	if err != nil {
 		return nil, err
 	}
+	if f, err = pollable(f); err != nil {
+		cmd.Process.Kill()
+		cmd.Wait()
+		return nil, err
+	}
 	s := &Terminal{
 		info:   Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows},
 		pty:    f,
-		cmd:    cmd,
+		proc:   cmd.Process,
 		subs:   map[*subscriber]bool{},
 		done:   make(chan struct{}),
 		input:  m.OnInput,
@@ -149,6 +160,11 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		f.Close()
 		return nil, err
 	}
+	m.start(s)
+	return s, nil
+}
+
+func (m *Manager) start(s *Terminal) {
 	m.mu.Lock()
 	m.terminals[s.info.ID] = s
 	m.mu.Unlock()
@@ -157,7 +173,67 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		delete(m.terminals, s.info.ID)
 		m.mu.Unlock()
 	})
+}
+
+// Adopted is a Terminal the image before exec handed down.
+type Adopted struct {
+	ID, Cmd             string
+	Args                []string
+	Cwd                 string
+	Cols, Rows, FD, Pid int
+	Screen              []byte
+}
+
+// Adopt takes over a handed-down Terminal. Its fd is still non-blocking,
+// so the new file is pollable too.
+func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
+	syscall.CloseOnExec(a.FD)
+	f := os.NewFile(uintptr(a.FD), "/dev/ptmx")
+	p, _ := os.FindProcess(a.Pid) // never fails on unix
+	s := &Terminal{
+		info:  Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows},
+		pty:   f,
+		proc:  p,
+		subs:  map[*subscriber]bool{},
+		done:  make(chan struct{}),
+		input: m.OnInput,
+	}
+	var err error
+	if s.vt, err = vt.New(a.Cols, a.Rows, s.replyToQuery); err != nil {
+		f.Close()
+		return nil, err
+	}
+	s.vt.Write(a.Screen)
+	m.start(s)
 	return s, nil
+}
+
+// pollable moves f to a non-blocking fd the runtime poller owns, so a read
+// deadline can stop the pump. creack/pty's file blocks a thread instead.
+func pollable(f *os.File) (*os.File, error) {
+	defer f.Close()
+	fd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.SetNonblock(fd, true); err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), f.Name()), nil
+}
+
+// setsize is pty.Setsize without Fd, which would make f blocking again.
+func setsize(f *os.File, cols, rows int) error {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var ioErr error
+	err = rc.Control(func(fd uintptr) {
+		ioErr = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
+	})
+	return cmp.Or(err, ioErr)
 }
 
 func (m *Manager) Get(id string) *Terminal {
@@ -214,20 +290,123 @@ func (s *Terminal) pump(onExit func()) {
 			s.broadcast(Event{Kind: "output", Data: chunk})
 			s.mu.Unlock()
 		}
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			s.park()
+			continue
+		}
 		if err != nil {
 			break
 		}
 	}
-	s.cmd.Wait()
+	code := -1
+	if st, err := s.proc.Wait(); err == nil {
+		code = st.ExitCode()
+	}
 	onExit()
 	s.mu.Lock()
 	s.closed = true
-	s.code = s.cmd.ProcessState.ExitCode()
+	s.code = code
 	s.broadcast(Event{Kind: "exit", Code: s.code})
 	s.vt.Free()
 	s.pty.Close()
 	s.mu.Unlock()
 	close(s.done)
+}
+
+// park holds the pump while paused. A Resume that beat the deadline leaves
+// nothing to wait for.
+func (s *Terminal) park() {
+	s.mu.Lock()
+	parked, resume := s.parked, s.resume
+	s.mu.Unlock()
+	if resume == nil {
+		return
+	}
+	close(parked)
+	<-resume
+}
+
+// Pause stops reading the pty, so output waits in the kernel, and returns
+// once the pump has stopped or wait has passed.
+func (s *Terminal) Pause(wait time.Duration) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrClosed
+	}
+	if s.resume == nil {
+		if err := s.pty.SetReadDeadline(time.Now()); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		s.resume, s.parked = make(chan struct{}), make(chan struct{})
+	}
+	parked := s.parked
+	s.mu.Unlock()
+	select {
+	case <-parked:
+		return nil
+	case <-s.done:
+		return ErrClosed
+	case <-time.After(wait):
+		return fmt.Errorf("terminal %s: reader didn't pause", s.info.ID)
+	}
+}
+
+// Resume reads the pty again and keeps it from surviving an exec.
+func (s *Terminal) Resume() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resume == nil {
+		return
+	}
+	inherit(s.pty, false)
+	s.pty.SetReadDeadline(time.Time{})
+	close(s.resume)
+	s.resume, s.parked = nil, nil
+}
+
+// Handed is what the next image needs to adopt a Terminal.
+type Handed struct {
+	FD, Pid int
+	Screen  []byte
+}
+
+// Handoff readies a paused Terminal for exec: its pty survives it, and
+// Screen redraws what it shows.
+func (s *Terminal) Handoff() (Handed, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return Handed{}, ErrClosed
+	}
+	if s.resume == nil {
+		return Handed{}, fmt.Errorf("terminal %s: handoff needs a paused terminal", s.info.ID)
+	}
+	fd, err := inherit(s.pty, true)
+	if err != nil {
+		return Handed{}, err
+	}
+	return Handed{FD: fd, Pid: s.proc.Pid, Screen: s.vt.Snapshot()}, nil
+}
+
+// inherit sets whether f survives exec, and returns its fd. Fd would make f blocking again.
+func inherit(f *os.File, on bool) (int, error) {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	var fd int
+	var ioErr error
+	err = rc.Control(func(p uintptr) {
+		fd = int(p)
+		flags := unix.FD_CLOEXEC
+		if on {
+			flags = 0
+		}
+		_, ioErr = unix.FcntlInt(p, unix.F_SETFD, flags)
+	})
+	return fd, cmp.Or(err, ioErr)
 }
 
 func (s *Terminal) broadcast(e Event) {
@@ -252,7 +431,7 @@ func (s *Terminal) TakeOrigin() string {
 	return o
 }
 
-func (s *Terminal) Pid() int { return s.cmd.Process.Pid }
+func (s *Terminal) Pid() int { return s.proc.Pid }
 
 func (s *Terminal) Pgrp() (int, error) {
 	s.mu.Lock()
@@ -279,7 +458,7 @@ func (s *Terminal) Attach(tty bool, fn func(Event)) (snapshot []byte, detach fun
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return nil, nil, errors.New("terminal closed")
+		return nil, nil, ErrClosed
 	}
 	sub := &subscriber{fn: fn, tty: tty}
 	s.subs[sub] = true
@@ -322,7 +501,7 @@ func (s *Terminal) Resize(cols, rows int) {
 		return
 	}
 	s.info.Cols, s.info.Rows = cols, rows
-	pty.Setsize(s.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	setsize(s.pty, cols, rows)
 	s.vt.Resize(cols, rows)
 	s.broadcast(Event{Kind: "resize", Cols: cols, Rows: rows})
 }

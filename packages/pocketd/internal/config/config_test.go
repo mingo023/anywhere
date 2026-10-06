@@ -14,7 +14,7 @@ func refuse(string) error {
 func TestLoadCreatesPrivateConfigOnce(t *testing.T) {
 	t.Setenv("POCKET_HOME", t.TempDir())
 	first, err := Load(refuse)
-	if err != nil || first.Port != 4517 || first.Listen != "auto" {
+	if err != nil || first.Port != DefaultPort() || first.Listen != "auto" {
 		t.Fatalf("%+v %v", first, err)
 	}
 	st, _ := os.Stat(filepath.Join(Home(), "config.json"))
@@ -67,5 +67,27 @@ func TestLoadRejectsAnUnknownListenMode(t *testing.T) {
 	os.WriteFile(filepath.Join(Home(), "config.json"), []byte(`{"port":1,"listen":"loopback"}`), 0o600)
 	if c, err := Load(keep); err != nil || c.Listen != "loopback" {
 		t.Fatalf("%+v %v", c, err)
+	}
+}
+
+func release(t *testing.T) {
+	channel = "release"
+	t.Cleanup(func() { channel = "" })
+}
+
+func TestADevBuildKeepsOutOfTheInstalledAppsHomeServiceAndPort(t *testing.T) {
+	t.Setenv("POCKET_HOME", "")
+	t.Setenv("HOME", "/h")
+	if Release() || Home() != "/h/.coding-pocket-dev" || Label() != "dev.mingo.anywhere.dev.pocketd" || DefaultPort() != 4518 {
+		t.Fatal(Home(), Label(), DefaultPort())
+	}
+}
+
+func TestAReleaseBuildKeepsTheNamesInstalledCopiesUse(t *testing.T) {
+	release(t)
+	t.Setenv("POCKET_HOME", "")
+	t.Setenv("HOME", "/h")
+	if !Release() || Home() != "/h/.coding-pocket" || Label() != "dev.mingo.anywhere.pocketd" || DefaultPort() != 4517 {
+		t.Fatal(Home(), Label(), DefaultPort())
 	}
 }

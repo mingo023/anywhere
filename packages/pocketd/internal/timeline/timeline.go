@@ -64,6 +64,14 @@ func (t *Timeline) Clear() {
 	t.reset()
 }
 
+// Continue picks up a timeline from the image before an upgrade: a new
+// epoch so phones refetch, and seq past every item they hold.
+func (t *Timeline) Continue(epoch, seq int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.epoch, t.seq = epoch+1, seq
+}
+
 func (t *Timeline) State() (epoch, maxSeq int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

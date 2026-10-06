@@ -92,6 +92,7 @@ export const ServerMessage = Schema.Union(
     protocol: Schema.optional(Range),
     scopes: Schema.optional(Schema.Array(Scope)),
     host: Schema.optional(HostState),
+    version: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("pair.ok"), id: Schema.String, deviceId: Schema.String, token: Schema.String }),
   Schema.Struct({

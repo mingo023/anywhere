@@ -3,7 +3,7 @@ use crate::desktop::chrome::Screen;
 use crate::inbox;
 use crate::status::{self, Alert, Status};
 use crate::util::basename;
-use agents::{Agents, Decision, Event, Permission, Summary};
+use agents::{Agents, Decision, Event, Host, Permission, Summary};
 use gpui_kit::*;
 use std::collections::HashMap;
 use workspace::Tab;
@@ -113,6 +113,11 @@ impl Desktop {
             self.error = Some("Couldn't name the session from its prompt".into());
             return cx.notify();
         }
+        if let Event::Host(host) = &ev
+            && let Some(message) = upgrade_toast(self.agents.host.as_ref(), host)
+        {
+            self.error = Some(message);
+        }
         let connected = matches!(ev, Event::Connected { .. });
         if connected {
             self.pair.lost();
@@ -183,10 +188,17 @@ impl Desktop {
     }
 }
 
+/// The toast for a failed pocketd upgrade, once per version it failed on.
+pub(crate) fn upgrade_toast(prev: Option<&Host>, next: &Host) -> Option<String> {
+    let failed = &next.upgrade_failed;
+    (!failed.is_empty() && prev.is_none_or(|p| &p.upgrade_failed != failed))
+        .then(|| format!("Couldn't update pocketd to {failed}. The current one keeps going."))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ALLOW, Alerts, DENY, Notice, body};
-    use agents::{Agents, Permission, Summary};
+    use super::{ALLOW, Alerts, DENY, Notice, body, upgrade_toast};
+    use agents::{Agents, Host, Permission, Summary};
 
     fn agent(id: &str, status: &str) -> Summary {
         Summary { id: id.into(), terminal_id: format!("t-{id}"), title: id.to_uppercase(), status: status.into(), attached: true, ..Default::default() }
@@ -293,5 +305,18 @@ mod tests {
         assert_eq!(alerts.answerable("a", &[q("q1")]), Some("q1"));
         assert_eq!(alerts.answerable("a", &[q("q2")]), None);
         assert_eq!(alerts.answerable("b", &[q("q1")]), None);
+    }
+
+    #[test]
+    fn an_upgrade_that_fails_shows_one_toast() {
+        let failed = Host { upgrade_failed: "1.2.0".into(), ..Default::default() };
+        let first = upgrade_toast(Some(&Host::default()), &failed);
+        let again = upgrade_toast(Some(&failed), &failed);
+        assert_eq!((first.is_some(), again), (true, None));
+    }
+
+    #[test]
+    fn a_host_change_without_a_failed_upgrade_shows_no_toast() {
+        assert_eq!(upgrade_toast(None, &Host { tailnet: true, ..Default::default() }), None);
     }
 }

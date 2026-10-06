@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>dev.mingo.anywhere.pocketd</string>
+	<string>dev.mingo.anywhere.dev.pocketd</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Users/me/bin/pocketd</string>

@@ -2,7 +2,7 @@ package vt
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../../../third_party/ghostty/zig-out/include
-#cgo LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out/lib/libghostty-vt.a
+#cgo LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out/lib/ghostty-vt.xcframework/macos-arm64_x86_64/libghostty-vt.a
 #include <ghostty/vt.h>
 #include <stdint.h>
 

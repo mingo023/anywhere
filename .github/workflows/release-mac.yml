@@ -1,0 +1,93 @@
+# Publishes a tagged release: scripts/release-mac.sh, unchanged from the maintainer's Mac.
+# Tag pushes only; secrets live in the `release` environment, which only v* tags can deploy to.
+name: Release macOS
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-mac
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    environment: release
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # check_tag and changelog ranges need the tags.
+          fetch-depth: 0
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/pocketd/go.mod
+          cache-dependency-path: packages/pocketd/go.sum
+
+      - name: Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            packages/desktop/target
+            !packages/desktop/target/release-mac
+          key: cargo-release-${{ hashFiles('packages/desktop/Cargo.lock') }}
+          restore-keys: cargo-release-
+
+      - name: Signing keychain
+        env:
+          CERT_P12: ${{ secrets.ANYWHERE_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.ANYWHERE_CERT_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -base64 24)"
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          # Splits on purpose: one argument per existing keychain path, none of which hold spaces on the runner.
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Notary key
+        env:
+          NOTARY_KEY: ${{ secrets.ANYWHERE_NOTARY_KEY }}
+        run: |
+          printf '%s' "$NOTARY_KEY" > "$RUNNER_TEMP/notary.p8"
+          echo "ANYWHERE_NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANYWHERE_SIGN_ID: ${{ vars.ANYWHERE_SIGN_ID }}
+          ANYWHERE_NOTARY_KEY_ID: ${{ secrets.ANYWHERE_NOTARY_KEY_ID }}
+          ANYWHERE_NOTARY_ISSUER: ${{ secrets.ANYWHERE_NOTARY_ISSUER }}
+          ANYWHERE_SPARKLE_KEY: ${{ secrets.ANYWHERE_SPARKLE_KEY }}
+        run: scripts/release-mac.sh "${GITHUB_REF_NAME#v}" --publish
+
+      - name: Remove keys
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/notary.p8"

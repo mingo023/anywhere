@@ -67,6 +67,8 @@ type Server struct {
 	AskOpen func(terminalID string) bool
 	Launch  *launch.Launcher
 	Names   *names.Names
+	// Version is the pocketd build, sent in hello.ok.
+	Version string
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -231,6 +233,7 @@ func (c *conn) handle(raw []byte) {
 			c.ws.SetReadLimit(authedReadLimit)
 		}
 		ok := proto.NewHelloOK(m.ID, c.s.Hostname, version, caps)
+		ok.Version = c.s.Version
 		if slices.Contains(caps, proto.CapScopes) {
 			ok.Scopes = c.who.Names()
 		}

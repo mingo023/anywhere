@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"pocketd/internal/agent"
+	"pocketd/internal/handoff"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 )
@@ -35,6 +36,7 @@ type hint struct {
 	live    agent.Driver // pr's driver, which takes over once the restore settles
 	over    bool
 	timer   *time.Timer
+	handoff bool // handed down by the pocketd before exec; its agent never stopped
 }
 
 // pending drives an Agent whose provider hasn't come back.
@@ -105,7 +107,7 @@ func (d *Daemon) Restore(f state.File, shell string) {
 		case d.Resume == nil:
 			d.report(e.AgentID, false, 0, "", "resume_off")
 		default:
-			d.expect(e, t, reason)
+			d.expect(e, t, reason, nil)
 		}
 	}
 }
@@ -133,10 +135,13 @@ func (d *Daemon) reopen(e state.Terminal, shell string) (*terminal.Terminal, str
 
 // expect lists e's Agent under its old id until its provider shows up in t.
 // Without t, or with a reason, it is a failed placeholder at once.
-func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string) {
-	h := &hint{saved: e, started: time.Now()}
+func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, carried *handoff.Agent) {
+	h := &hint{saved: e, started: time.Now(), handoff: carried != nil}
 	x := agent.Restored{ID: e.AgentID, Cwd: e.LaunchDir, Provider: e.Provider, Conversation: e.ConversationID,
 		Origin: e.Origin, Fallback: filepath.Base(e.LaunchDir), CreatedAt: e.CreatedAt, Done: e.Status == "done", Failed: e.Failed, Pinned: e.Pinned}
+	if carried != nil {
+		x.Named, x.Phase, x.Epoch, x.Seq = carried.Named, carried.Phase, carried.Epoch, carried.Seq
+	}
 	if t != nil {
 		x.Terminal = t.Info().ID
 	}
@@ -234,6 +239,9 @@ func (d *Daemon) finish(h *hint, reason string) {
 		h.a.SetDriver(h.live)
 	}
 	d.mu.Unlock()
+	if h.handoff && reason == "" {
+		return
+	}
 	if reason != "" {
 		h.a.SetAttached(false)
 	}

@@ -112,12 +112,18 @@ type Restored struct {
 	Fallback                                  string // title until the provider names the Conversation
 	CreatedAt                                 int64
 	Done, Failed, Pinned                      bool
+	// Named, Phase, Epoch and Seq carry an Agent across an upgrade's exec.
+	Named, Phase string
+	Epoch, Seq   int64
 }
 
 func (r *Registry) Restore(x Restored, d Driver) *Agent {
 	a := &Agent{id: x.ID, cwd: x.Cwd, provider: x.Provider, hub: r.hub, reg: r, Timeline: timeline.New(), driver: d, terminal: x.Terminal,
-		conversation: x.Conversation, fallback: x.Fallback, phase: "idle", unseenEnd: x.Done, failed: x.Failed, pinned: x.Pinned, attached: true,
+		conversation: x.Conversation, named: x.Named, fallback: x.Fallback, phase: cmp.Or(x.Phase, "idle"), unseenEnd: x.Done, failed: x.Failed, pinned: x.Pinned, attached: true,
 		origin: cmp.Or(x.Origin, "desktop"), createdAt: x.CreatedAt, updatedAt: now()}
+	if x.Seq > 0 {
+		a.Timeline.Continue(x.Epoch, x.Seq)
+	}
 	r.mu.Lock()
 	r.agents[x.ID] = a
 	r.mu.Unlock()
@@ -190,6 +196,12 @@ func (r *Registry) MarkSeen(ids []string) {
 
 func (a *Agent) ID() string       { return a.id }
 func (a *Agent) Provider() string { return a.provider }
+
+func (a *Agent) Named() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.named
+}
 
 func (a *Agent) Driver() Driver {
 	a.mu.Lock()

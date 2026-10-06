@@ -129,6 +129,8 @@ pub struct Store {
     /// Each worktree's panels, keyed by the worktree's path.
     #[serde(deserialize_with = "readable_layouts")]
     pub layouts: BTreeMap<String, Workspace>,
+    /// The app version that last launched, so a relaunch on another one says what's new.
+    pub seen_version: Option<String>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -456,5 +458,11 @@ mod tests {
         assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/h/.worktrees/Named", "/h/.worktrees/plain"]);
         s.worktree.root = "/wt/".into();
         assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/wt/Named", "/wt/plain"]);
+    }
+
+    #[test]
+    fn a_desktop_json_from_before_updates_has_seen_no_version() {
+        let s: Store = serde_json::from_str(r#"{"projects":["/w"]}"#).unwrap();
+        assert_eq!(s.seen_version, None);
     }
 }

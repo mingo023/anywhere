@@ -228,6 +228,14 @@ func TestTheDesktopsHelloStillGetsIn(t *testing.T) {
 	}
 }
 
+func TestHelloOkNamesThePocketdVersion(t *testing.T) {
+	_, _, p := setup(t, func(s *Server) { s.Version = "0.1.0" })
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3}`)
+	if m := p.recv(); m["type"] != "hello.ok" || m["version"] != "0.1.0" {
+		t.Fatalf("%v", m)
+	}
+}
+
 func TestSecondHelloResendsSnapshot(t *testing.T) {
 	_, _, p := setup(t)
 	p.hello()

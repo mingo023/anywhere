@@ -83,6 +83,9 @@ var ClaudeAttachWait = 5 * time.Second
 // attach connects pr to its provider's status. A claude starts attached, so
 // it doesn't flash "not attached" before its first hook.
 func (d *Daemon) attach(pr *presence) {
+	if h := d.hintOf(pr); h != nil && h.handoff {
+		defer d.handedOver(pr, h)
+	}
 	if pr.provider == "codex" {
 		d.attachCodex(pr)
 		if h := d.hintOf(pr); h != nil && pr.sock != "" {

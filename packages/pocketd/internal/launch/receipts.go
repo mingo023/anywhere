@@ -71,3 +71,15 @@ func (r *receipts) outcome(x *receipt) (Creating, Result) {
 	defer r.mu.Unlock()
 	return x.creating, x.result
 }
+
+// inFlight reports whether a create hasn't finished.
+func (r *receipts) inFlight() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, x := range r.m {
+		if x.at.IsZero() {
+			return true
+		}
+	}
+	return false
+}

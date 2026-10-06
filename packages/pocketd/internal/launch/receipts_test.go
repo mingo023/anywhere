@@ -52,3 +52,18 @@ func TestAReceiptExpiresAfterTenMinutes(t *testing.T) {
 		t.Fatal("a finished receipt outlived ten minutes")
 	}
 }
+
+func TestAReceiptIsInFlightUntilItFinishes(t *testing.T) {
+	r := newReceipts(time.Now)
+	if r.inFlight() {
+		t.Fatal("no receipts, yet in flight")
+	}
+	x, _ := r.take("k", proto.LaunchSpec{})
+	if !r.inFlight() {
+		t.Fatal("a running create isn't in flight")
+	}
+	r.finish(x, Result{})
+	if r.inFlight() {
+		t.Fatal("a finished create is still in flight")
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"pocketd/internal/config"
 	"pocketd/internal/launchagent"
 	"pocketd/internal/lock"
 	"pocketd/internal/ops"
@@ -25,6 +26,9 @@ type installCheck struct {
 
 // refusal says why install must not go ahead, or "" if it may.
 func (c installCheck) refusal() string {
+	if strings.Contains(c.Exe, ".app/Contents/") {
+		return fmt.Sprintf("%s ships inside Anywhere.app, which runs it as a Login Item. Turn Anywhere on in System Settings > General > Login Items instead.", c.Exe)
+	}
 	for _, dir := range c.Temp {
 		if strings.HasPrefix(c.Exe, dir+string(filepath.Separator)) {
 			return fmt.Sprintf("%s is a temporary build and will be deleted. Build it with go build -o bin/pocketd ./cmd/pocketd, then run bin/pocketd daemon install.", c.Exe)
@@ -68,7 +72,7 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	home := filepath.Join(user, ".coding-pocket")
+	home := filepath.Join(user, config.HomeName())
 	holder, running := lock.Holder(home)
 	check := installCheck{Exe: exe, Temp: tempDirs(), Home: os.Getenv("POCKET_HOME"), Sock: os.Getenv("POCKETD_SOCK"), DefaultHome: home,
 		InTerminal: running && peer.Classify(os.Getpid(), map[int]string{holder: "pocketd"}).Kind == peer.PTY}
@@ -105,7 +109,7 @@ func uninstall(force bool) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	home := filepath.Join(user, ".coding-pocket")
+	home := filepath.Join(user, config.HomeName())
 	loaded, _ := launchagent.Loaded(os.Getuid())
 	if loaded && !force {
 		if n := terminals(filepath.Join(home, "pocketd.sock")); n > 0 {

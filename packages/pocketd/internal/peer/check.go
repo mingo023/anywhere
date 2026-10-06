@@ -31,6 +31,7 @@ var Needs = map[string]Scope{
 	"ws:worktree.rename":    Own,
 	"ops:launch-exit":       Observe,
 	"ops:config-set":        Own,
+	"ops:upgrade":           Own,
 	"ops:list":              Observe,
 	"ops:status":            Observe,
 	"ops:hook":              Observe,

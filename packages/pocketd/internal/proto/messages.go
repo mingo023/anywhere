@@ -135,11 +135,13 @@ type HelloOK struct {
 	Protocol        Range      `json:"protocol"`
 	Scopes          []string   `json:"scopes,omitempty"`
 	Host            *HostState `json:"host,omitempty"`
+	// Version is the pocketd build (the release tag, or a VCS stamp), not the protocol version.
+	Version string `json:"version,omitempty"`
 }
 
 // NewHelloOK answers with the negotiated version and caps (see Negotiate) and this server's range.
 func NewHelloOK(id, hostname string, version int, caps []string) HelloOK {
-	return HelloOK{"hello.ok", id, hostname, hostname, version, caps, Range{MinVersion, MaxVersion}, nil, nil}
+	return HelloOK{"hello.ok", id, hostname, hostname, version, caps, Range{MinVersion, MaxVersion}, nil, nil, ""}
 }
 
 type PairOK struct {
@@ -297,6 +299,8 @@ func NewCodedError(id, code, message, detail string) Error {
 type HostState struct {
 	Tailnet      bool `json:"tailnet"`
 	KeepingAwake bool `json:"keepingAwake"`
+	// UpgradeFailed is the version pocketd last failed to upgrade to.
+	UpgradeFailed string `json:"upgradeFailed,omitempty"`
 }
 
 type HostChanged struct {

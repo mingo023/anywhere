@@ -33,6 +33,8 @@ use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
+use crate::terminals::link::Hint;
+use crate::updates::Updates;
 use agents::{Agents, Outbox};
 use daemon::Daemon;
 use git::Repo;
@@ -86,6 +88,7 @@ pub struct Desktop {
     pub(crate) palette: PaletteState,
     pub(crate) sidebar: SidebarState,
     pub(crate) settings: SettingsState,
+    pub(crate) updates: Updates,
     pub(crate) chips: Chips,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) worktrees: HashMap<String, Vec<git::Worktree>>,
@@ -102,7 +105,7 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub(crate) fn new(daemon: Daemon, outbox: Outbox, store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(daemon: Daemon, outbox: Outbox, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
@@ -112,6 +115,7 @@ impl Desktop {
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let browsers = Browsers::new(window, cx);
+        let updates = Updates::new(&mut store, cx);
         let root = cx.focus_handle();
         window.focus(&root, cx);
         let this = cx.weak_entity();
@@ -169,6 +173,7 @@ impl Desktop {
             palette,
             sidebar,
             settings: SettingsState::default(),
+            updates,
             chips,
             overlay: None,
             worktrees: HashMap::new(),
@@ -391,20 +396,17 @@ impl Desktop {
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
-        let hint = self.terminals.link.hint(Instant::now());
-        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(
-            div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(px(6.))
-                .text_size(px(14.))
-                .text_color(TEXT_3)
-                .child("Starting Pocket's terminal service…")
-                .when(hint, |d| d.child("Not starting? In Terminal:").child(div().font_family(MONO).child("pocketd daemon install"))),
-        )
+        let starting = "Starting Pocket's terminal service…";
+        let body = div().flex_1().flex().flex_col().items_center().justify_center().gap(px(6.)).text_size(px(14.)).text_color(TEXT_3);
+        let body = match self.terminals.link.hint(Instant::now()) {
+            None => body.child(starting),
+            Some(Hint::Install) => body.child(starting).child("Not starting? In Terminal:").child(div().font_family(MONO).child("pocketd daemon install")),
+            Some(Hint::LoginItems) => body
+                .child("Anywhere's background service is off.")
+                .child(ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items").mt(px(6.)).on_click(|_, _, _| daemon::service::open_login_items())),
+            Some(Hint::Reopen) => body.child(starting).child("Not starting? Quit and reopen Anywhere."),
+        };
+        div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(body)
     }
 
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {
@@ -484,6 +486,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))
             .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::check_for_updates))
             .on_action(cx.listener(Self::next_needs_you))
             .on_action(cx.listener(Self::go_to_up_next))
             .on_action(cx.listener(Self::jump_to))

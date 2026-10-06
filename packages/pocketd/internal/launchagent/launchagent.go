@@ -11,9 +11,8 @@ import (
 	"path/filepath"
 
 	"pocketd/internal/atomicfile"
+	"pocketd/internal/config"
 )
-
-const Label = "dev.mingo.anywhere.pocketd"
 
 type Spec struct{ Exe, LogPath string }
 
@@ -56,14 +55,14 @@ func escape(s string) string {
 }
 
 func Plist(s Spec) []byte {
-	return fmt.Appendf(nil, plist, Label, escape(s.Exe), escape(s.LogPath))
+	return fmt.Appendf(nil, plist, config.Label(), escape(s.Exe), escape(s.LogPath))
 }
 
 func Path(home string) string {
-	return filepath.Join(home, "Library", "LaunchAgents", Label+".plist")
+	return filepath.Join(home, "Library", "LaunchAgents", config.Label()+".plist")
 }
 
-func target(uid int) string { return fmt.Sprintf("gui/%d/%s", uid, Label) }
+func target(uid int) string { return fmt.Sprintf("gui/%d/%s", uid, config.Label()) }
 
 // Loaded asks launchd; `launchctl print` exits 113 for a label it doesn't know.
 func Loaded(uid int) (bool, error) {

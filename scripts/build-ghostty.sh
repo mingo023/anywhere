@@ -4,7 +4,7 @@ set -eu
 REV=4ae9f1a2de5484de3d6a13fe03676b8853b9c41c
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="$ROOT/third_party/ghostty"
-LIB="$DIR/zig-out/lib/libghostty-vt.a"
+LIB="$DIR/zig-out/lib/ghostty-vt.xcframework/macos-arm64_x86_64/libghostty-vt.a"
 STAMP="$DIR/zig-out/.rev"
 SHORT=$(echo "$REV" | cut -c1-7)
 if [ -f "$LIB" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$REV" ]; then
@@ -25,5 +25,6 @@ if [ ! -d "$DIR/.git" ]; then
 fi
 git -C "$DIR" checkout --quiet "$REV"
 cd "$DIR"
-zig build -Demit-lib-vt -Doptimize=ReleaseFast
+# The xcframework's macOS lib is universal (arm64 + x86_64); it needs xcodebuild.
+zig build -Demit-lib-vt -Demit-xcframework=true -Doptimize=ReleaseFast
 echo "$REV" > "$STAMP"

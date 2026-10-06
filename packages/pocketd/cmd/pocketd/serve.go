@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -22,6 +23,7 @@ import (
 	"pocketd/internal/daemon"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
+	"pocketd/internal/handoff"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
@@ -42,7 +44,7 @@ import (
 	"pocketd/internal/wsserver"
 )
 
-func serve(sock string) error {
+func serve(sock, handed string) error {
 	home := config.Home()
 	held, err := lock.Acquire(home)
 	if err != nil {
@@ -66,7 +68,14 @@ func serve(sock string) error {
 		log.Printf("events: %v; serving without them", err)
 	}
 	defer evs.Close()
-	launchd := os.Getenv("XPC_SERVICE_NAME") == launchagent.Label
+	launchd := os.Getenv("XPC_SERVICE_NAME") == config.Label()
+	if launchd && config.Release() {
+		// The bundled plist can't name a log path under ~, so launchd drops stderr.
+		if f, err := os.OpenFile(filepath.Join(home, "logs", "launchd.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+			debug.SetCrashOutput(f, debug.CrashOptions{})
+			f.Close()
+		}
+	}
 	evs.Emit(events.Event{Kind: "start", Version: versionString(), PID: os.Getpid(), Service: &launchd})
 	defer func() {
 		reason := "error"
@@ -139,16 +148,38 @@ func serve(sock string) error {
 	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
 		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
 	}
-	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames}
+	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon}
+	// Taken before restoring, so a binary swapped meanwhile still counts as a change.
+	var watch *selfWatch
+	if st, err := os.Stat(exe); err == nil {
+		if sum, err := fileSum(exe); err == nil {
+			watch = &selfWatch{exe: exe, sum: sum, seen: st}
+		}
+	}
+	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString()}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}
 	statePath := state.Path(d.Home)
-	saved, err := state.Load(statePath)
-	if err != nil {
-		log.Print(err)
+	if handed != "" {
+		f, err := handoff.Read(handed)
+		os.Remove(handed)
+		if err != nil {
+			return fmt.Errorf("handoff: %w", err)
+		}
+		d.Adopt(f)
+		// The awake assertion died with the old image.
+		select {
+		case kick <- struct{}{}:
+		default:
+		}
+	} else {
+		saved, err := state.Load(statePath)
+		if err != nil {
+			log.Print(err)
+		}
+		d.Restore(saved, cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
 	}
-	d.Restore(saved, cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
 	go d.Watch(context.Background())
 	phones, err := reach.Listen(cfg.Port, cfg.Listen, ws)
 	if err != nil {
@@ -160,6 +191,9 @@ func serve(sock string) error {
 	ln, err := ops.Listen(sock)
 	if err != nil {
 		return err
+	}
+	if watch != nil {
+		go watch.run(ctx, up.run)
 	}
 	// Closing the listener ends Serve, so a stop signal exits 0 and launchd leaves pocketd stopped.
 	go func() {
@@ -183,7 +217,7 @@ func serve(sock string) error {
 			agents[a.Status]++
 		}
 		service := "none"
-		if user, _ := os.UserHomeDir(); home == filepath.Join(user, ".coding-pocket") {
+		if user, _ := os.UserHomeDir(); home == filepath.Join(user, config.HomeName()) {
 			service = launchagent.Service(os.Getuid(), launchagent.Path(user))
 		}
 		h := mon.State()
@@ -199,6 +233,7 @@ func serve(sock string) error {
 		Status:     status,
 		LaunchExit: l.Exited,
 		ConfigSet:  configSetter(l, settings),
+		Upgrade:    up.run,
 	}).Serve(ln)
 	if ctx.Err() != nil {
 		writer.Freeze()

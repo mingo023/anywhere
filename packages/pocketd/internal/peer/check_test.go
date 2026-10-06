@@ -40,6 +40,7 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ops:pair.begin":        {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:launch-exit":       {"", "", "", ""},
 		"ops:config-set":        {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ops:upgrade":           {"", "scope_denied", "scope_denied", "scope_denied"},
 	} {
 		for i, p := range []Principal{owner, phone, legacy, pty} {
 			if got := code(p.Check(verb, "", "")); got != want[i] {

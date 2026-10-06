@@ -1,5 +1,5 @@
 POCKETD := packages/pocketd/bin/pocketd
-SERVICE := gui/$(shell id -u)/dev.mingo.anywhere.pocketd
+SERVICE := gui/$(shell id -u)/dev.mingo.anywhere.dev.pocketd
 
 .PHONY: all pocketd desktop run app
 
@@ -7,7 +7,7 @@ all: desktop
 
 pocketd:
 	cd packages/pocketd && go build -o bin/pocketd ./cmd/pocketd
-	if launchctl print $(SERVICE) >/dev/null 2>&1; then launchctl kickstart -k $(SERVICE); else $(POCKETD) daemon install; fi
+	launchctl print $(SERVICE) >/dev/null 2>&1 || $(POCKETD) daemon install
 
 desktop: pocketd
 	cd packages/desktop && cargo build --release -p pocket

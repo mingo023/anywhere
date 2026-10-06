@@ -1,0 +1,1 @@
+{"format":1,"terminals":[{"saved":{"terminalId":"t-1","launchDir":"/w","cols":80,"rows":24,"provider":"claude","conversationId":"c1","agentId":"a-1","createdAt":7,"status":"working"},"cmd":"zsh","args":["-l"],"cwd":"/w","fd":7,"pid":42,"screen":"aGk=","agent":{"named":"Fix login","phase":"working","epoch":2,"seq":9}}]}

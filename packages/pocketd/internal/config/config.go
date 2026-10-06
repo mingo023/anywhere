@@ -12,12 +12,41 @@ import (
 	"pocketd/internal/atomicfile"
 )
 
+// channel is "release" in builds made by scripts/release-mac.sh
+// (-ldflags "-X pocketd/internal/config.channel=release"). Every other build is Dev,
+// so it never touches the installed app's home, service or phone port (ADR 0004).
+var channel string
+
+func Release() bool { return channel == "release" }
+
+func HomeName() string {
+	if Release() {
+		return ".coding-pocket"
+	}
+	return ".coding-pocket-dev"
+}
+
+func Label() string {
+	if Release() {
+		return "dev.mingo.anywhere.pocketd"
+	}
+	return "dev.mingo.anywhere.dev.pocketd"
+}
+
+// DefaultPort is the phone port a new config.json gets. Release and Dev differ so both can run.
+func DefaultPort() int {
+	if Release() {
+		return 4517
+	}
+	return 4518
+}
+
 func Home() string {
 	if h := os.Getenv("POCKET_HOME"); h != "" {
 		return h
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".coding-pocket")
+	return filepath.Join(home, HomeName())
 }
 
 func Sock() string {
@@ -68,7 +97,7 @@ func Load(adopt func(token string) error) (Config, error) {
 }
 
 func create(path string) (Config, error) {
-	c := Config{Port: 4517, Listen: "auto"}
+	c := Config{Port: DefaultPort(), Listen: "auto"}
 	raw, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Config{}, err

@@ -1,7 +1,7 @@
 {
   "target": {
     "kind": "headless",
-    "launch": "POCKET_HOME=~/.coding-pocket packages/desktop/target/release/pocket-desktop",
+    "launch": "POCKET_HOME=~/.coding-pocket-dev packages/desktop/target/release/pocket-desktop",
     "capture": ".ui-review/fixture/capture.sh",
     "url": null,
     "window_owner": "pocket-desktop"

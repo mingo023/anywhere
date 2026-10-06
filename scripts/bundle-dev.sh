@@ -1,10 +1,10 @@
 #!/bin/sh
-# Builds a signed Anywhere.app and opens it: macOS drops notifications from a binary with no bundle id.
+# Builds a signed "Anywhere Dev.app" and opens it: macOS drops notifications from a binary with no bundle id.
 # The ad-hoc signature changes every build, so macOS may ask to allow notifications again.
 # Usage: scripts/bundle-dev.sh [--no-open]
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ID=dev.mingo.anywhere.desktop
+ID=dev.mingo.anywhere.dev
 OPEN=1
 case "${1:-}" in
   --no-open) OPEN=0 ;;
@@ -13,7 +13,7 @@ case "${1:-}" in
 esac
 TARGET="${CARGO_TARGET_DIR:-$ROOT/packages/desktop/target}"
 (cd "$ROOT/packages/desktop" && cargo build --release -p pocket)
-APP="$TARGET/release/Anywhere.app"
+APP="$TARGET/release/Anywhere Dev.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TARGET/release/pocket-desktop" "$APP/Contents/MacOS/pocket-desktop"
@@ -24,14 +24,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>$ID</string>
-  <key>CFBundleName</key><string>Anywhere</string>
+  <key>CFBundleName</key><string>Anywhere Dev</string>
   <key>CFBundleExecutable</key><string>pocket-desktop</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.0.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict>
 </plist>
 PLIST

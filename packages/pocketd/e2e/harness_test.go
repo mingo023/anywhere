@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,6 +38,11 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
+	next := exec.Command("go", "build", "-ldflags", "-X main.version=e2e-next", "-o", filepath.Join(dir, "pocketd-next"), "../cmd/pocketd")
+	if out, err := next.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "build pocketd-next: %v\n%s", err, out)
+		os.Exit(1)
+	}
 	binDir = dir
 	code := m.Run()
 	os.RemoveAll(dir)
@@ -55,6 +61,7 @@ type Harness struct {
 	log       *bytes.Buffer
 	cmd       *exec.Cmd
 	exited    chan struct{}
+	exe       string
 }
 
 func freePort(t *testing.T) int {
@@ -126,7 +133,7 @@ func (h *Harness) serve() bool {
 	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
 		h.t.Fatal(err)
 	}
-	cmd := exec.Command(filepath.Join(binDir, "pocketd"), "serve")
+	cmd := exec.Command(cmp.Or(h.exe, filepath.Join(binDir, "pocketd")), "serve")
 	cmd.Env = h.Env
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
@@ -343,4 +350,57 @@ func (h *Harness) Paired(caps ...string) *Phone {
 	p.Send(map[string]any{"type": "hello", "id": "h", "token": paired.Token, "clientId": "e2e", "protocolVersion": 3, "caps": caps})
 	p.WaitFor("hello.ok", func(m Message) bool { return m.Type == "hello.ok" })
 	return p
+}
+
+// ownBinary serves pocketd from a copy in h.Home, which a test may replace.
+func ownBinary(h *Harness) {
+	h.exe = filepath.Join(h.Home, "bin", "pocketd")
+	copyFile(h.t, filepath.Join(binDir, "pocketd"), h.exe)
+}
+
+// replaceBinary swaps h.exe for src by rename, as Sparkle does. Writing over
+// a running binary gets it killed on macOS.
+func (h *Harness) replaceBinary(src string) {
+	h.t.Helper()
+	copyFile(h.t, src, h.exe+".new")
+	if err := os.Rename(h.exe+".new", h.exe); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func copyFile(t *testing.T, src, dst string) {
+	t.Helper()
+	b, err := os.ReadFile(src)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(dst), 0o755)
+	}
+	if err == nil {
+		err = os.WriteFile(dst, b, 0o755)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Upgrade runs `pocketd upgrade` and fails the test unless it succeeds.
+func (h *Harness) Upgrade() {
+	h.t.Helper()
+	if out, code := h.Pocketd("upgrade"); code != 0 {
+		h.t.Fatalf("upgrade exited %d: %s", code, out)
+	}
+}
+
+// Status is pocketd's status, or the zero Status while it doesn't answer.
+func (h *Harness) Status() ops.Status {
+	c, err := ops.Dial(h.Sock)
+	if err != nil {
+		return ops.Status{}
+	}
+	defer c.Close()
+	c.Send(ops.Msg{Op: "status"})
+	m, err := c.Recv()
+	if err != nil || m.Status == nil {
+		return ops.Status{}
+	}
+	return *m.Status
 }

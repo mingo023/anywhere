@@ -6,6 +6,7 @@ mod rename;
 mod row_menu;
 pub(crate) mod sessions;
 mod tree_tip;
+mod update;
 mod usage;
 
 use crate::desktop::Desktop;
@@ -190,6 +191,7 @@ impl Desktop {
             .child(body)
             .children(self.usage_card())
             .children(self.host_lines(cx))
+            .children(self.update_card(cx))
             .child(foot);
         self.resizable(aside, Column::Projects, cx)
     }

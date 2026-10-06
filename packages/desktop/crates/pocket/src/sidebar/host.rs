@@ -44,14 +44,14 @@ mod tests {
 
     #[test]
     fn tailscale_line_comes_before_keeping_awake() {
-        let host = Host { tailnet: false, keeping_awake: true };
+        let host = Host { tailnet: false, keeping_awake: true, ..Default::default() };
         assert_eq!(host_lines(Some(&host)), [HostLine::NeedsTailscale, HostLine::KeepingAwake]);
-        assert_eq!(host_lines(Some(&Host { tailnet: true, keeping_awake: true })), [HostLine::KeepingAwake]);
+        assert_eq!(host_lines(Some(&Host { tailnet: true, keeping_awake: true, ..Default::default() })), [HostLine::KeepingAwake]);
     }
 
     #[test]
     fn no_host_no_lines() {
         assert_eq!(host_lines(None), []);
-        assert_eq!(host_lines(Some(&Host { tailnet: true, keeping_awake: false })), []);
+        assert_eq!(host_lines(Some(&Host { tailnet: true, keeping_awake: false, ..Default::default() })), []);
     }
 }

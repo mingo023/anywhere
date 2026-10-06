@@ -109,6 +109,9 @@ type Server struct {
 	// LaunchExit gets `pocketd hook exit` from a create's wrapper.
 	LaunchExit func(terminalID, phase string, status int)
 	ConfigSet  func(key, value string) error
+	// Upgrade execs pocketd's binary on disk. It returns only on failure;
+	// on success the caller sees the socket close.
+	Upgrade func() error
 }
 
 func (s *Server) asking(id string) string {
@@ -234,6 +237,15 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				s.LaunchExit(m.ID, m.Text, m.Code)
 			}
 			c.Send(Msg{Ev: "ok"})
+			continue
+		case "upgrade":
+			if s.Upgrade == nil {
+				c.Send(Msg{Ev: "error", Error: "upgrade unsupported"})
+				continue
+			}
+			if err := s.Upgrade(); err != nil {
+				c.Send(Msg{Ev: "error", Error: err.Error()})
+			}
 			continue
 		case "config-set":
 			if s.ConfigSet == nil {

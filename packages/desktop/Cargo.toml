@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 agents = { path = "crates/agents" }
+channel = { path = "crates/channel" }
 daemon = { path = "crates/daemon" }
 git = { path = "crates/git" }
 keys = { path = "crates/keys" }
@@ -50,6 +51,7 @@ merman = { version = "=0.8.0-alpha.6", default-features = false, features = ["sv
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSDockTile", "NSResponder", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std"] }
 qrcode = { version = "0.14", default-features = false }
 resvg = "0.46"

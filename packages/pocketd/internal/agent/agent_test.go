@@ -433,3 +433,19 @@ func TestNamingsTitleOutranksTheProvidersUntilTheConversationChanges(t *testing.
 		t.Fatal(got)
 	}
 }
+
+func TestARestoredAgentContinuesItsNamePhaseAndSeq(t *testing.T) {
+	r := NewRegistry(hub.New())
+	a := r.Restore(Restored{ID: "a-1", Provider: "claude", Named: "Fix login", Phase: "needsYou", Epoch: 3, Seq: 12}, fakeDriver{})
+	s := a.Summary()
+	if s.Title != "Fix login" || s.Status != "needsYou" || s.Epoch != 4 || s.MaxSeq != 12 || a.Named() != "Fix login" {
+		t.Fatalf("summary = %+v", s)
+	}
+}
+
+func TestARestoredAgentWithoutAPhaseIsIdle(t *testing.T) {
+	a := NewRegistry(hub.New()).Restore(Restored{ID: "a-1", Provider: "claude"}, fakeDriver{})
+	if s := a.Summary(); s.Status != "idle" || s.MaxSeq != 0 {
+		t.Fatalf("summary = %+v", s)
+	}
+}

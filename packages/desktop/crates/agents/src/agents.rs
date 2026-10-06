@@ -158,6 +158,8 @@ struct Frame {
 pub struct Host {
     pub tailnet: bool,
     pub keeping_awake: bool,
+    /// The version pocketd last failed to upgrade to; empty when none failed.
+    pub upgrade_failed: String,
 }
 
 /// The host state a `hello.ok` or `host.changed` frame carries.
@@ -695,9 +697,9 @@ mod tests {
         let mut a = Agents::default();
         let frame = |raw: &str| serde_json::from_str::<Frame>(raw).unwrap();
         a.apply(host_event(&frame(r#"{"type":"hello.ok","host":{"tailnet":false,"keepingAwake":true}}"#)).unwrap());
-        assert_eq!(a.host, Some(Host { tailnet: false, keeping_awake: true }));
+        assert_eq!(a.host, Some(Host { tailnet: false, keeping_awake: true, ..Default::default() }));
         a.apply(host_event(&frame(r#"{"type":"host.changed","host":{"tailnet":true,"keepingAwake":false}}"#)).unwrap());
-        assert_eq!(a.host, Some(Host { tailnet: true, keeping_awake: false }));
+        assert_eq!(a.host, Some(Host { tailnet: true, keeping_awake: false, ..Default::default() }));
         assert!(host_event(&frame(r#"{"type":"hello.ok"}"#)).is_none());
     }
 
@@ -716,10 +718,10 @@ mod tests {
         for ev in got.by_ref().take(2) {
             a.apply(ev);
         }
-        assert_eq!(a.host, Some(Host { tailnet: true, keeping_awake: false }));
+        assert_eq!(a.host, Some(Host { tailnet: true, keeping_awake: false, ..Default::default() }));
         ws.send(Message::text(changed)).unwrap();
         a.apply(got.next().unwrap());
-        assert_eq!(a.host, Some(Host { tailnet: true, keeping_awake: true }));
+        assert_eq!(a.host, Some(Host { tailnet: true, keeping_awake: true, ..Default::default() }));
         std::fs::remove_file(&sock).unwrap();
     }
 
@@ -884,5 +886,12 @@ mod tests {
         out.rename("/w/calm-otter", "Fix login");
         assert_eq!(read(&mut ws), json!({"type": "worktree.rename", "id": "rename", "path": "/w/calm-otter", "title": "Fix login"}));
         std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_host_frame_carries_a_failed_upgrade() {
+        let frame = serde_json::from_str::<Frame>(r#"{"type":"host.changed","host":{"tailnet":true,"keepingAwake":false,"upgradeFailed":"1.2.0"}}"#).unwrap();
+        let Some(Event::Host(host)) = host_event(&frame) else { panic!("no host event") };
+        assert_eq!(host.upgrade_failed, "1.2.0");
     }
 }

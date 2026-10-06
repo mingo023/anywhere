@@ -17,7 +17,11 @@ impl Desktop {
             let id = SharedString::from(format!("settings-sound-{}", cue.name()));
             row(cue.name(), None, pref_switch(id, cue.on(sounds), sounds.all, move |s| cue.flip(&mut s.sounds), cx)).pl(px(32.)).when(!sounds.all, |d| d.opacity(0.5))
         }));
-        div().flex().flex_col().gap(px(24.)).child(notifications).child(group("Sounds", rows))
+        let check = div().when(self.updates.available(), |d| {
+            d.child(ui::button("settings-check-updates", ui::Variant::Secondary, None, "Check for Updates…").on_click(cx.listener(|this, _: &ClickEvent, _, _| this.updates.check())))
+        });
+        let updates = group("Updates", vec![row(format!("Anywhere {}", channel::version()), None, check)]);
+        div().flex().flex_col().gap(px(24.)).child(notifications).child(group("Sounds", rows)).child(updates)
     }
 }
 
