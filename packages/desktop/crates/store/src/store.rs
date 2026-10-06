@@ -139,6 +139,11 @@ impl Store {
         s
     }
 
+    /// The folder Pocket keeps its files in.
+    pub fn home(&self) -> &Path {
+        self.path.parent().unwrap_or(&self.path)
+    }
+
     pub fn save(&self) {
         if let Some((path, raw)) = self.encode() {
             write(&path, &raw);

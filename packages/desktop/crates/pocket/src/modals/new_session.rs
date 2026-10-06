@@ -14,6 +14,8 @@ use picker::Picker;
 use serde_json::{Value, json};
 use store::LaunchPick;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 use theme::*;
 
@@ -111,6 +113,13 @@ struct Draft {
     pending: Option<String>,
     error: Option<(String, String)>,
     picker: Option<Picker>,
+    images: Vec<Attachment>,
+}
+
+/// A pasted image and the file the agent reads it from.
+struct Attachment {
+    path: PathBuf,
+    image: Arc<Image>,
 }
 
 impl Default for Draft {
@@ -133,6 +142,7 @@ impl Default for Draft {
             pending: None,
             error: None,
             picker: None,
+            images: Vec::new(),
         }
     }
 }
@@ -142,8 +152,8 @@ impl Draft {
         self.branches.get(self.base).map(|(b, _)| b.clone()).unwrap_or_default()
     }
 
-    fn auto_name(&self, prompt: &str) -> String {
-        auto_name(prompt, self.seed, &self.taken)
+    fn auto_name(&self) -> String {
+        free_name(self.seed, &self.taken)
     }
 
     /// pocketd names a new branch left unnamed from its prompt; the name sent is a placeholder.
@@ -152,9 +162,9 @@ impl Draft {
     }
 
     /// What the name field shows while empty.
-    fn placeholder(&self, prompt: &str) -> String {
+    fn placeholder(&self) -> String {
         match self.source {
-            Source::New => self.auto_name(prompt),
+            Source::New => self.auto_name(),
             Source::Branch => "Branch to open".into(),
             Source::Pr => "123, #123 or a PR URL".into(),
         }
@@ -201,7 +211,7 @@ impl Draft {
                 spec[key] = value.as_str().into();
             }
         }
-        let prompt = prompt.trim();
+        let prompt = with_images(prompt.trim(), &self.images);
         if !prompt.is_empty() {
             spec["prompt"] = prompt.into();
         }
@@ -234,6 +244,34 @@ impl Draft {
         }
         Some(message)
     }
+
+    /// Whether the image is new to this draft and its file still needs writing.
+    fn attach(&mut self, attachment: Attachment) -> bool {
+        let new = !self.images.iter().any(|a| a.path == attachment.path);
+        if new {
+            self.images.push(attachment);
+        }
+        new
+    }
+
+    /// Drops the image whose file couldn't be written, if this draft still holds it.
+    fn unsaved(&mut self, path: &Path, detail: String) {
+        let held = self.images.len();
+        self.images.retain(|a| a.path != path);
+        if self.images.len() < held {
+            self.error = Some(("Couldn't save the pasted image".into(), detail));
+        }
+    }
+}
+
+/// The prompt goes to the agent as text, so images go in as paths it can read.
+fn with_images(prompt: &str, images: &[Attachment]) -> String {
+    if images.is_empty() {
+        return prompt.to_string();
+    }
+    let list: Vec<String> = images.iter().map(|a| format!("- {}", a.path.display())).collect();
+    let block = format!("# Attached images\n\n{}", list.join("\n"));
+    if prompt.is_empty() { block } else { format!("{prompt}\n\n{block}") }
 }
 
 /// The number in "123", "#123" or a pull request URL.
@@ -247,10 +285,6 @@ fn parse_pr(s: &str) -> Option<u32> {
         None => s.strip_prefix('#').unwrap_or(s),
     };
     n.bytes().all(|b| b.is_ascii_digit()).then(|| n.parse().ok()).flatten().filter(|&n| n > 0)
-}
-
-fn slug(prompt: &str) -> String {
-    prompt.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).take(4).map(str::to_lowercase).collect::<Vec<_>>().join("-")
 }
 
 const ADJECTIVES: [&str; 8] = ["brave", "calm", "eager", "fuzzy", "keen", "lucky", "quiet", "swift"];
@@ -271,14 +305,6 @@ fn unique(base: &str, taken: &HashSet<String>) -> String {
     std::iter::once(base.to_string()).chain((2..).map(|n| format!("{base}-{n}"))).find(|n| !is_taken(n, taken)).unwrap()
 }
 
-/// The name a worktree gets when the user leaves Name empty: the prompt's slug, else a random one.
-fn auto_name(prompt: &str, seed: usize, taken: &HashSet<String>) -> String {
-    match slug(prompt) {
-        s if s.is_empty() => free_name(seed, taken),
-        s => unique(&s, taken),
-    }
-}
-
 /// Why `name` can't name a new worktree and its branch, if it can't.
 fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
     let valid = !name.is_empty()
@@ -297,6 +323,62 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
     }
 }
 
+/// The image a paste carries when it has no text; text, copied files included, pastes as itself.
+fn pasted_image(item: &ClipboardItem) -> Option<Image> {
+    if item.text().is_some() {
+        return None;
+    }
+    item.entries().iter().find_map(|e| match e {
+        ClipboardEntry::Image(image) => Some(image.clone()),
+        _ => None,
+    })
+}
+
+fn attachment_path(image: &Image, dir: &Path) -> PathBuf {
+    dir.join(format!("{}.{}", image.id, image.format.extension()))
+}
+
+/// Owner-only, like the rest of Pocket's files: screenshots can hold secrets.
+fn save_image(image: &Image, path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    if let Some(dir) = path.parent() {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    }
+    std::fs::write(path, &image.bytes)
+}
+
+/// The image shows at once and its file is written behind it, so starting never waits on a write; the agent opens it long after.
+fn paste_image(desktop: &WeakEntity<Desktop>, item: &ClipboardItem, window: &mut Window, cx: &mut App) -> bool {
+    let (Some(image), Some(d)) = (pasted_image(item), desktop.upgrade()) else { return false };
+    let image = Arc::new(image);
+    let path = attachment_path(&image, &d.read(cx).store.home().join("attachments"));
+    let new = d.update(cx, |d, cx| {
+        cx.notify();
+        d.new_form.draft.attach(Attachment { path: path.clone(), image: image.clone() })
+    });
+    if !new {
+        return true;
+    }
+    let save = cx.background_executor().spawn({
+        let path = path.clone();
+        async move { save_image(&image, &path) }
+    });
+    let desktop = desktop.clone();
+    window
+        .spawn(cx, async move |cx| {
+            if let Err(e) = save.await {
+                desktop
+                    .update(cx, |d, cx| {
+                        d.new_form.draft.unsaved(&path, e.to_string());
+                        cx.notify();
+                    })
+                    .ok();
+            }
+        })
+        .detach();
+    true
+}
+
 fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, current: &str) {
     let default = default_base(branches.iter().map(|(b, _)| b.as_str()), preferred, current);
     if !branches.is_empty() {
@@ -309,14 +391,10 @@ impl NewForm {
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4));
         let name = cx.new(|cx| InputState::new(window, cx));
         let subs = vec![
-            cx.subscribe_in(&prompt, window, |this, prompt, ev: &InputEvent, window, cx| match ev {
-                InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
-                InputEvent::Change => {
-                    let name = this.new_form.draft.placeholder(&prompt.read(cx).value());
-                    this.new_form.name.update(cx, |b, cx| b.set_placeholder(name, window, cx));
-                    cx.notify();
+            cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { secondary: true, .. } = ev {
+                    this.start_session(window, cx);
                 }
-                _ => {}
             }),
             cx.subscribe_in(&name, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
@@ -335,7 +413,7 @@ impl Desktop {
         f.draft.seed = crate::util::now_ms() as usize;
         f.draft.taken.clear();
         f.draft.source = Source::New;
-        let placeholder = f.draft.auto_name(&text);
+        let placeholder = f.draft.auto_name();
         f.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
@@ -345,6 +423,7 @@ impl Desktop {
             s.set_placeholder(placeholder, window, cx);
         });
         f.draft.worktree = worktree;
+        f.draft.images.clear();
         f.draft.open(&last);
         (f.draft.picker, f.draft.want_base) = (None, None);
         match self.project.clone() {
@@ -390,7 +469,7 @@ impl Desktop {
                 f.draft.branches = branches;
                 f.draft.remote_branches = remote;
                 f.draft.taken = taken;
-                let name = f.draft.placeholder(&f.prompt.read(cx).value());
+                let name = f.draft.placeholder();
                 f.name.update(cx, |s, cx| s.set_placeholder(name, window, cx));
                 cx.notify();
             })
@@ -403,7 +482,7 @@ impl Desktop {
     fn new_name(&self, cx: &App) -> String {
         let f = &self.new_form;
         match f.draft.source {
-            Source::New => typed_or(&f.name, || f.draft.auto_name(&f.prompt.read(cx).value()), cx),
+            Source::New => typed_or(&f.name, || f.draft.auto_name(), cx),
             _ => f.name.read(cx).value().trim().to_string(),
         }
     }
@@ -414,7 +493,7 @@ impl Desktop {
             f.name.update(cx, |s, cx| s.set_value("", window, cx));
         }
         (f.draft.source, f.draft.picker) = (source, None);
-        let placeholder = f.draft.placeholder(&f.prompt.read(cx).value());
+        let placeholder = f.draft.placeholder();
         f.name.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
         cx.notify();
     }
@@ -553,14 +632,40 @@ impl Desktop {
                 .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&self.new_form.name).appearance(false).p_0().text_size(px(13.))))
                 .children(problem.map(|p| div().flex_none().text_size(px(12.)).text_color(FAILED).child(p)))
         });
+        let desktop = cx.entity().downgrade();
+        let images = (!f.images.is_empty()).then(|| {
+            div().flex().gap(px(8.)).pt(px(14.)).px(px(16.)).children(f.images.iter().enumerate().map(|(i, a)| {
+                let remove = div()
+                    .id(("image-remove", i))
+                    .absolute()
+                    .top(px(-6.))
+                    .right(px(-6.))
+                    .size(px(18.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(9.))
+                    .bg(POPOVER)
+                    .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
+                    .cursor_pointer()
+                    .active(|s| s.opacity(0.6))
+                    .child(icon("x", 10., TEXT_2))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.new_form.draft.images.remove(i);
+                        cx.notify();
+                    }));
+                div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(img(a.image.clone()).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover)).child(remove)
+            }))
+        });
         let composer = div()
             .flex()
             .flex_col()
             .rounded(px(14.))
             .bg(SURFACE)
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.)])
+            .children(images)
             // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
-            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&self.new_form.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25))))
+            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&self.new_form.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25)).on_paste(move |item, window, cx| paste_image(&desktop, item, window, cx))))
             .child(
                 div()
                     .flex()
@@ -623,7 +728,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Source, auto_name, default_first, name_problem, parse_pr, slug};
+    use super::{Attachment, Draft, Source, attachment_path, default_first, name_problem, parse_pr, pasted_image, save_image};
+    use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use serde_json::json;
     use store::LaunchPick;
     use std::collections::HashSet;
@@ -657,22 +763,40 @@ mod tests {
     }
 
     #[test]
-    fn slug_names_a_worktree_after_the_prompt() {
-        assert_eq!(slug("The RestoreView snapshot fails on CI"), "the-restoreview-snapshot-fails");
-        assert_eq!(slug("fix: flaky!"), "fix-flaky");
-        assert_eq!(slug("  …  "), "");
+    fn an_empty_name_falls_back_to_a_free_one() {
+        let taken: HashSet<String> = ["brave-otter", "Brave-Heron", "release/1.0"].map(String::from).into();
+        let draft = Draft { worktree: true, taken, ..Draft::default() };
+        assert_eq!((draft.auto_name(), draft.placeholder()), ("brave-maple".to_string(), "brave-maple".to_string()));
+        let fresh = |seed| Draft { seed, ..Draft::default() }.auto_name();
+        assert_eq!((fresh(63), fresh(64)), ("swift-lynx".to_string(), "brave-otter".to_string()));
     }
 
     #[test]
-    fn an_empty_name_falls_back_to_a_free_one() {
-        let taken: HashSet<String> = ["fix-flaky", "brave-otter", "Brave-Heron", "Fix-Login", "fix-login-2", "release/1.0"].map(String::from).into();
-        assert_eq!(auto_name("fix: flaky!", 0, &taken), "fix-flaky-2");
-        assert_eq!(auto_name("Fix login", 0, &taken), "fix-login-3");
-        assert_eq!(auto_name("Release", 0, &taken), "release-2");
-        assert_eq!(auto_name("Add dark mode", 0, &taken), "add-dark-mode");
-        assert_eq!(auto_name("", 0, &taken), "brave-maple");
-        assert_eq!(auto_name("", 63, &HashSet::new()), "swift-lynx");
-        assert_eq!(auto_name("", 64, &HashSet::new()), "brave-otter");
+    fn an_image_paste_is_saved_to_a_private_file_and_text_pastes_as_itself() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("pocket-paste-test-{}", std::process::id()));
+        let image = pasted_image(&ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, vec![1, 2, 3]))).unwrap();
+        let path = attachment_path(&image, &root.join("attachments"));
+        save_image(&image, &path).unwrap();
+        assert_eq!((path.extension().and_then(|e| e.to_str()), std::fs::read(&path).unwrap()), (Some("png"), vec![1, 2, 3]));
+        assert_eq!(std::fs::metadata(root.join("attachments")).unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(pasted_image(&ClipboardItem::new_string("fix ci".into())).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_same_image_attaches_once_and_one_that_failed_to_save_is_dropped_with_why() {
+        let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
+        let at = |path: &str| Attachment { path: path.into(), image: image.clone() };
+        let mut draft = Draft::default();
+        assert!(draft.attach(at("/h/a.png")));
+        assert!(!draft.attach(at("/h/a.png")));
+        assert!(draft.attach(at("/h/b.png")));
+        draft.unsaved("/h/c.png".as_ref(), "disk full".into());
+        assert_eq!((draft.images.len(), draft.error.is_none()), (2, true));
+        draft.unsaved("/h/a.png".as_ref(), "disk full".into());
+        assert_eq!(draft.images.iter().map(|a| a.path.to_str().unwrap()).collect::<Vec<_>>(), ["/h/b.png"]);
+        assert_eq!(draft.error, Some(("Couldn't save the pasted image".to_string(), "disk full".to_string())));
     }
 
     #[test]
@@ -685,6 +809,16 @@ mod tests {
         for bad in ["", "fix login", "fix/login", "-x", ".x", "x.", "a..b", "x.lock", "tên", "HEAD"] {
             assert_eq!(name_problem(bad, &taken), Some("Use letters, digits, - _ or ."), "{bad}");
         }
+    }
+
+    #[test]
+    fn attached_images_follow_the_prompt_as_paths() {
+        let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
+        let at = |path: &str| Attachment { path: path.into(), image: image.clone() };
+        let draft = Draft { images: vec![at("/h/attachments/a.png"), at("/h/attachments/b.png")], ..Draft::default() };
+        let block = "# Attached images\n\n- /h/attachments/a.png\n- /h/attachments/b.png";
+        assert_eq!(draft.spec("/p", "/p/w", "", " Fix CI ")["prompt"], format!("Fix CI\n\n{block}"));
+        assert_eq!(draft.spec("/p", "/p/w", "", "")["prompt"], block);
     }
 
     #[test]
