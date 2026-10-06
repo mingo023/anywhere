@@ -75,9 +75,14 @@ impl RepoDraft {
         let named = !name.is_empty();
         match self.source {
             _ if self.busy => false,
-            Source::Local => named && matches!(self.probe, Some(Probe::Git { .. })),
+            Source::Local => named && matches!(self.probe, Some(Probe::Git { .. } | Probe::NotGit)),
             Source::Clone => named && self.path.is_some() && !url.trim().is_empty(),
         }
+    }
+
+    /// A local folder that isn't a repository, so it never gets worktrees.
+    fn plain_folder(&self) -> bool {
+        self.source == Source::Local && matches!(self.probe, Some(Probe::NotGit))
     }
 
     fn add_copies(&mut self, repo: &str, paths: Vec<PathBuf>) {
@@ -273,9 +278,9 @@ impl Desktop {
         };
         let (mark, line, color) = match &f.probe {
             _ if clone => (None, "The repository is cloned into a folder named after it.".to_string(), TEXT_4),
-            None => (None, "Pick the folder of a git repository.".into(), TEXT_4),
+            None => (None, "Pick a folder.".into(), TEXT_4),
             Some(Probe::Loading) => (None, "Checking…".into(), TEXT_4),
-            Some(Probe::NotGit) => (Some("x"), "Not a git repository".into(), FAILED),
+            Some(Probe::NotGit) => (None, "Folder · not a git repository".into(), TEXT_3),
             Some(Probe::Git { branch, clean, remotes }) => {
                 let state = if *clean { "clean" } else { "uncommitted changes" };
                 let remotes = match remotes {
@@ -445,13 +450,11 @@ impl Desktop {
             body.push(source.into_any_element());
         }
         body.extend(url.map(IntoElement::into_any_element));
-        body.extend([
-            self.folder_card(cx).into_any_element(),
-            identity.into_any_element(),
-            layout.into_any_element(),
-            div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).child(copies).into_any_element(),
-            footer(note, cancel, submit).into_any_element(),
-        ]);
+        body.extend([self.folder_card(cx).into_any_element(), identity.into_any_element()]);
+        if !f.draft.plain_folder() {
+            body.extend([layout.into_any_element(), div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).child(copies).into_any_element()]);
+        }
+        body.push(footer(note, cancel, submit).into_any_element());
         ui::modal(title, 640., 64., close, body)
     }
 }
@@ -473,14 +476,22 @@ mod tests {
     }
 
     #[test]
-    fn a_local_folder_is_ready_once_named_and_found_to_be_a_git_repository() {
+    fn a_local_folder_is_ready_once_named_and_probed_whether_or_not_it_is_a_git_repository() {
         let git = || Some(Probe::Git { branch: "main".into(), clean: true, remotes: 1 });
         assert!(local(git()).ready("app", ""));
+        assert!(local(Some(Probe::NotGit)).ready("app", ""));
         assert!(!local(git()).ready("", ""));
         assert!(!local(Some(Probe::Loading)).ready("app", ""));
-        assert!(!local(Some(Probe::NotGit)).ready("app", ""));
         assert!(!local(None).ready("app", ""));
         assert!(!RepoDraft { busy: true, ..local(git()) }.ready("app", ""));
+    }
+
+    #[test]
+    fn only_a_local_folder_found_not_to_be_a_repository_is_plain() {
+        assert!(local(Some(Probe::NotGit)).plain_folder());
+        assert!(!local(Some(Probe::Git { branch: "main".into(), clean: true, remotes: 1 })).plain_folder());
+        assert!(!local(Some(Probe::Loading)).plain_folder());
+        assert!(!RepoDraft { source: Source::Clone, ..local(Some(Probe::NotGit)) }.plain_folder());
     }
 
     #[test]

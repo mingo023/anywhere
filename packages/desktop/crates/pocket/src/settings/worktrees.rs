@@ -30,7 +30,9 @@ impl Desktop {
             });
         let hint = format!("New worktrees go in {shown}/<project>/<name>. Existing ones stay put.");
         let defaults = group("New worktrees", vec![row("Folder", Some(&hint), folder)]);
-        let projects = self.store.projects.clone().into_iter().enumerate().map(|(i, p)| {
+        let repos: Vec<String> = self.store.projects.iter().filter(|p| self.worktrees.get(*p).is_some_and(|w| !w.is_empty())).cloned().collect();
+        let any = !repos.is_empty();
+        let projects = repos.into_iter().enumerate().map(|(i, p)| {
             let custom = self.store.repos.get(&p).is_some_and(|r| !r.worktrees.is_empty());
             let dir = tilde(&self.store.worktrees_dir(&p, &home()));
             let name = div().flex().items_center().gap(px(8.)).child(ui::swatch(self.repo_color(&p), 10., 3.)).child(self.repo_name(&p));
@@ -38,6 +40,6 @@ impl Desktop {
             row(name, Some(&dir), div().flex().items_center().gap(px(8.)).when(custom, |d| d.child(ui::tag("custom"))).child(edit))
         });
         let projects = group("Projects", projects.collect());
-        div().flex().flex_col().gap(px(24.)).child(defaults).when(!self.store.projects.is_empty(), |d| d.child(projects))
+        div().flex().flex_col().gap(px(24.)).child(defaults).when(any, |d| d.child(projects))
     }
 }
