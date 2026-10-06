@@ -1,7 +1,9 @@
+mod key;
 mod mouse;
 mod paste;
 mod selection;
 
+pub use key::Mods;
 pub use mouse::{Button, MouseAction};
 pub use paste::{dropped_paths, paste_bytes, paste_is_safe};
 pub use selection::{Autoscroll, Pointer};

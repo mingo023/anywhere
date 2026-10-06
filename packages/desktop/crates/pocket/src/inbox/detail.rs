@@ -60,7 +60,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .child(header)
-            .child(div().flex_1().min_h_0().px(px(10.)).pt(px(10.)).flex().track_focus(&self.terminal.focus).on_key_down(cx.listener(Self::on_term_key)).child(pane))
+            .child(div().flex_1().min_h_0().px(px(10.)).pt(px(10.)).flex().key_context(keys::CONTEXT).track_focus(&self.terminal.focus).on_key_down(cx.listener(Self::on_term_key)).child(pane))
             .child(hints)
     }
 }

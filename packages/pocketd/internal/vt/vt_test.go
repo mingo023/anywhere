@@ -44,3 +44,15 @@ func TestSnapshotRedrawsScreen(t *testing.T) {
 		t.Fatal("snapshot lost text")
 	}
 }
+
+func TestSnapshotKeepsKittyKeyboardFlags(t *testing.T) {
+	src := newVT(t, func([]byte) {})
+	src.Write([]byte("\x1b[?1049h\x1b[>5u"))
+	var got []byte
+	dst := newVT(t, func(b []byte) { got = append(got, b...) })
+	dst.Write(src.Snapshot())
+	dst.Write([]byte("\x1b[?u"))
+	if string(got) != "\x1b[?5u" {
+		t.Fatalf("flags after snapshot = %q, want %q", got, "\x1b[?5u")
+	}
+}

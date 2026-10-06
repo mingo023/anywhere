@@ -3845,6 +3845,7 @@ name = "keys"
 version = "0.0.0"
 dependencies = [
  "gpui-kit",
+ "term",
 ]
 
 [[package]]

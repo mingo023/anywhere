@@ -1,6 +1,7 @@
 #include <ghostty/vt.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct {
   uint32_t cp;
@@ -33,6 +34,8 @@ typedef struct {
   GhosttySelectionGestureEvent press, drag, tick, release;
   GhosttyMouseEncoder mouse;
   GhosttyMouseEvent mouse_event;
+  GhosttyKeyEncoder keys;
+  GhosttyKeyEvent key_event;
   bool reported;
   uint16_t reported_col, reported_row;
 } PTerm;
@@ -60,7 +63,9 @@ PTerm* pt_new(uint16_t cols, uint16_t rows, size_t scrollback) {
       ghostty_selection_gesture_event_new(NULL, &p->tick, GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_AUTOSCROLL_TICK) != GHOSTTY_SUCCESS ||
       ghostty_selection_gesture_event_new(NULL, &p->release, GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_RELEASE) != GHOSTTY_SUCCESS ||
       ghostty_mouse_encoder_new(NULL, &p->mouse) != GHOSTTY_SUCCESS ||
-      ghostty_mouse_event_new(NULL, &p->mouse_event) != GHOSTTY_SUCCESS) {
+      ghostty_mouse_event_new(NULL, &p->mouse_event) != GHOSTTY_SUCCESS ||
+      ghostty_key_encoder_new(NULL, &p->keys) != GHOSTTY_SUCCESS ||
+      ghostty_key_event_new(NULL, &p->key_event) != GHOSTTY_SUCCESS) {
     pt_free(p);
     return NULL;
   }
@@ -92,6 +97,49 @@ uint8_t pt_mouse_tracking(PTerm* p) {
   bool on = false;
   ghostty_terminal_get(p->term, GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING, &on);
   return on;
+}
+
+typedef struct {
+  bool shift, ctrl, alt, cmd;
+} PMods;
+
+static const struct {
+  const char* name;
+  GhosttyKey key;
+} NAMED_KEYS[] = {
+    {"enter", GHOSTTY_KEY_ENTER}, {"backspace", GHOSTTY_KEY_BACKSPACE}, {"escape", GHOSTTY_KEY_ESCAPE}, {"tab", GHOSTTY_KEY_TAB},
+    {"space", GHOSTTY_KEY_SPACE}, {"up", GHOSTTY_KEY_ARROW_UP}, {"down", GHOSTTY_KEY_ARROW_DOWN}, {"left", GHOSTTY_KEY_ARROW_LEFT},
+    {"right", GHOSTTY_KEY_ARROW_RIGHT}, {"home", GHOSTTY_KEY_HOME}, {"end", GHOSTTY_KEY_END}, {"delete", GHOSTTY_KEY_DELETE},
+    {"pageup", GHOSTTY_KEY_PAGE_UP}, {"pagedown", GHOSTTY_KEY_PAGE_DOWN}, {"f1", GHOSTTY_KEY_F1}, {"f2", GHOSTTY_KEY_F2},
+    {"f3", GHOSTTY_KEY_F3}, {"f4", GHOSTTY_KEY_F4}, {"f5", GHOSTTY_KEY_F5}, {"f6", GHOSTTY_KEY_F6},
+    {"f7", GHOSTTY_KEY_F7}, {"f8", GHOSTTY_KEY_F8}, {"f9", GHOSTTY_KEY_F9}, {"f10", GHOSTTY_KEY_F10},
+    {"f11", GHOSTTY_KEY_F11}, {"f12", GHOSTTY_KEY_F12},
+};
+
+uint8_t pt_kitty_keyboard(PTerm* p) {
+  GhosttyKittyKeyFlags flags = GHOSTTY_KITTY_KEY_DISABLED;
+  ghostty_terminal_get(p->term, GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS, &flags);
+  return flags != GHOSTTY_KITTY_KEY_DISABLED;
+}
+
+// Keys without a name here go by their text, which also covers layouts whose keys have no US name.
+size_t pt_key(PTerm* p, const char* name, size_t name_len, PMods m, const char* text, size_t text_len, uint32_t unshifted, uint8_t* out, size_t cap) {
+  GhosttyKey key = GHOSTTY_KEY_UNIDENTIFIED;
+  for (size_t i = 0; i < sizeof NAMED_KEYS / sizeof *NAMED_KEYS; i++)
+    if (strlen(NAMED_KEYS[i].name) == name_len && !memcmp(NAMED_KEYS[i].name, name, name_len)) key = NAMED_KEYS[i].key;
+  if (key == GHOSTTY_KEY_UNIDENTIFIED && !text_len) return 0;
+  GhosttyMods mods = (m.shift ? GHOSTTY_MODS_SHIFT : 0) | (m.ctrl ? GHOSTTY_MODS_CTRL : 0) | (m.alt ? GHOSTTY_MODS_ALT : 0) | (m.cmd ? GHOSTTY_MODS_SUPER : 0);
+  ghostty_key_encoder_setopt_from_terminal(p->keys, p->term);
+  // setopt_from_terminal resets option-as-alt, so it's set again on every key.
+  GhosttyOptionAsAlt option_as_alt = GHOSTTY_OPTION_AS_ALT_TRUE;
+  ghostty_key_encoder_setopt(p->keys, GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT, &option_as_alt);
+  ghostty_key_event_set_action(p->key_event, GHOSTTY_KEY_ACTION_PRESS);
+  ghostty_key_event_set_key(p->key_event, key);
+  ghostty_key_event_set_mods(p->key_event, mods);
+  ghostty_key_event_set_utf8(p->key_event, text, text_len);
+  ghostty_key_event_set_unshifted_codepoint(p->key_event, unshifted);
+  size_t n = 0;
+  return ghostty_key_encoder_encode(p->keys, p->key_event, (char*)out, cap, &n) == GHOSTTY_SUCCESS ? n : 0;
 }
 
 // Our cells aren't whole pixels and the encoder's are, so it gets the cell's centre on a whole-pixel grid rather than the raw position.
@@ -297,6 +345,8 @@ size_t pt_frame(PTerm* p, PFrame* f, PCell* out, size_t cap) {
 }
 
 void pt_free(PTerm* p) {
+  ghostty_key_event_free(p->key_event);
+  ghostty_key_encoder_free(p->keys);
   ghostty_mouse_event_free(p->mouse_event);
   ghostty_mouse_encoder_free(p->mouse);
   ghostty_selection_gesture_event_free(p->release);

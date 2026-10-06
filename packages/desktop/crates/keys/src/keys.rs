@@ -1,56 +1,40 @@
 use gpui_kit::{KeyBinding, Keystroke, NoAction};
+use term::{Mods, Term};
 
 pub const CONTEXT: &str = "Terminal";
 
-/// gpui-component's Root binds tab and shift-tab to focus cycling; in the terminal they belong to the CLI.
-pub fn bindings() -> [KeyBinding; 2] {
-    [KeyBinding::new("tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT))]
+/// gpui-component's Root binds tab and shift-tab to focus cycling, and Pocket binds cmd-enter to open the inbox's session; in the terminal they belong to the CLI.
+pub fn bindings() -> [KeyBinding; 3] {
+    [KeyBinding::new("tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("cmd-enter", NoAction {}, Some(CONTEXT))]
 }
 
-pub fn key_bytes(k: &Keystroke, app_cursor: bool) -> Option<Vec<u8>> {
+/// What a key down sends to the pty, in the encoding the program asked for; `None` for text, which arrives through the input handler, and for Pocket's own ⌘ keys.
+pub fn key_bytes(k: &Keystroke, term: &mut Term) -> Option<Vec<u8>> {
     let m = &k.modifiers;
-    let cursor = |c: &str| format!("\x1b{}{c}", if app_cursor { 'O' } else { '[' });
-    let seq = match k.key.as_str() {
+    let single_char = k.key.chars().count() == 1;
+    let newline = !m.control && !m.alt && m.platform != m.shift;
+    match k.key.as_str() {
         "left" if m.alt => return Some(b"\x1bb".to_vec()),
         "right" if m.alt => return Some(b"\x1bf".to_vec()),
         "left" if m.platform => return Some(vec![0x01]),
         "right" if m.platform => return Some(vec![0x05]),
         "backspace" if m.platform => return Some(vec![0x15]),
-        _ if m.platform => return None,
-        "enter" => "\r".into(),
-        "backspace" => "\x7f".into(),
-        "escape" => "\x1b".into(),
-        "tab" if m.shift => "\x1b[Z".into(),
-        "tab" => "\t".into(),
-        "up" => cursor("A"),
-        "down" => cursor("B"),
-        "right" => cursor("C"),
-        "left" => cursor("D"),
-        "home" => cursor("H"),
-        "end" => cursor("F"),
-        "delete" => "\x1b[3~".into(),
-        "pageup" => "\x1b[5~".into(),
-        "pagedown" => "\x1b[6~".into(),
-        "f1" => "\x1bOP".into(),
-        "f2" => "\x1bOQ".into(),
-        "f3" => "\x1bOR".into(),
-        "f4" => "\x1bOS".into(),
-        "f5" => "\x1b[15~".into(),
-        "f6" => "\x1b[17~".into(),
-        "f7" => "\x1b[18~".into(),
-        "f8" => "\x1b[19~".into(),
-        "f9" => "\x1b[20~".into(),
-        "f10" => "\x1b[21~".into(),
-        "f11" => "\x1b[23~".into(),
-        "f12" => "\x1b[24~".into(),
-        "space" | "2" if m.control => "\0".into(),
-        "/" if m.control => "\x1f".into(),
+        // The newline Claude Code's /terminal-setup installs; other agent CLIs read it as alt-enter, whatever keyboard protocol they're on.
+        "enter" if newline => return Some(b"\x1b\r".to_vec()),
+        // Shells would print a ⌘ key's escape sequence; only programs on the Kitty protocol expect one.
+        _ if m.platform && !term.kitty_keyboard() => return None,
+        _ if single_char && !m.control && !m.alt && !m.platform => return None,
+        _ => {}
+    }
+    let text = match k.key.as_str() {
         "space" => " ".into(),
-        key if m.control && key.len() == 1 => char::from(key.as_bytes()[0] & 0x1f).into(),
-        key if m.alt && key.len() == 1 => if m.shift { key.to_ascii_uppercase() } else { key.to_string() },
-        _ => return None,
+        key if single_char && m.shift => key.to_uppercase(),
+        key if single_char => key.into(),
+        _ => String::new(),
     };
-    Some(if m.alt { format!("\x1b{seq}") } else { seq }.into_bytes())
+    let mods = Mods { shift: m.shift, ctrl: m.control, alt: m.alt, cmd: m.platform };
+    let bytes = term.key_report(&k.key, mods, &text);
+    (!bytes.is_empty()).then_some(bytes)
 }
 
 #[cfg(test)]
@@ -59,7 +43,7 @@ mod tests {
     use gpui_kit::{KeyContext, Keymap, actions};
 
     fn bytes(s: &str) -> Option<Vec<u8>> {
-        key_bytes(&Keystroke::parse(s).unwrap(), false)
+        key_bytes(&Keystroke::parse(s).unwrap(), &mut Term::new(80, 24))
     }
 
     #[test]
@@ -82,7 +66,7 @@ mod tests {
     fn alt_prefixes_escape() {
         let mut k = Keystroke::parse("alt-b").unwrap();
         k.key_char = Some("∫".into());
-        assert_eq!(key_bytes(&k, false), Some(b"\x1bb".to_vec()));
+        assert_eq!(key_bytes(&k, &mut Term::new(80, 24)), Some(b"\x1bb".to_vec()));
         assert_eq!(bytes("alt-shift-b"), Some(b"\x1bB".to_vec()));
         assert_eq!(bytes("alt-backspace"), Some(b"\x1b\x7f".to_vec()));
         assert_eq!(bytes("alt-ctrl-c"), Some(b"\x1b\x03".to_vec()));
@@ -104,7 +88,9 @@ mod tests {
 
     #[test]
     fn arrows_follow_application_cursor_mode() {
-        let app = |s| key_bytes(&Keystroke::parse(s).unwrap(), true);
+        let mut t = Term::new(80, 24);
+        t.write(b"\x1b[?1h");
+        let mut app = |s| key_bytes(&Keystroke::parse(s).unwrap(), &mut t);
         assert_eq!(app("up"), Some(b"\x1bOA".to_vec()));
         assert_eq!(app("left"), Some(b"\x1bOD".to_vec()));
         assert_eq!(app("home"), Some(b"\x1bOH".to_vec()));
@@ -115,9 +101,12 @@ mod tests {
     fn leaves_typed_characters_to_text_input() {
         let mut k = Keystroke::parse("e").unwrap();
         k.key_char = Some("é".into());
-        assert_eq!(key_bytes(&k, false), None);
+        assert_eq!(key_bytes(&k, &mut Term::new(80, 24)), None);
         assert_eq!(bytes("cmd-c"), None);
         assert_eq!(bytes("shift"), None);
+        let mut kitty = Term::new(80, 24);
+        kitty.write(b"\x1b[>5u");
+        assert_eq!(key_bytes(&Keystroke::parse("a").unwrap(), &mut kitty), None);
     }
 
     #[test]
@@ -138,13 +127,33 @@ mod tests {
     }
 
     #[test]
-    fn command_keys_never_reach_the_pty() {
-        for key in ["cmd-v", "cmd-a", "cmd-k", "cmd-up", "cmd-enter", "cmd-shift-t"] {
+    fn command_keys_never_reach_a_shell() {
+        for key in ["cmd-v", "cmd-a", "cmd-k", "cmd-up", "cmd-shift-t"] {
             assert_eq!(bytes(key), None, "{key}");
         }
     }
 
-    actions!(test, [CycleFocus]);
+    #[test]
+    fn modified_enter_reaches_programs_on_the_kitty_protocol() {
+        let mut t = Term::new(80, 24);
+        t.write(b"\x1b[>5u");
+        let mut kitty = |s| key_bytes(&Keystroke::parse(s).unwrap(), &mut t);
+        assert_eq!(kitty("ctrl-enter"), Some(b"\x1b[13;5u".to_vec()));
+        assert_eq!(kitty("enter"), Some(b"\r".to_vec()));
+    }
+
+    #[test]
+    fn command_and_shift_enter_insert_a_newline_in_any_keyboard_protocol() {
+        for setup in [&b""[..], b"\x1b[>5u"] {
+            let mut t = Term::new(80, 24);
+            t.write(setup);
+            for key in ["cmd-enter", "shift-enter"] {
+                assert_eq!(key_bytes(&Keystroke::parse(key).unwrap(), &mut t), Some(b"\x1b\r".to_vec()), "{key}");
+            }
+        }
+    }
+
+    actions!(test, [CycleFocus, OpenSession]);
 
     #[test]
     fn tab_reaches_the_terminal_past_root_focus_cycling() {
@@ -155,5 +164,14 @@ mod tests {
         for key in ["tab", "shift-tab"] {
             assert!(keymap.bindings_for_input(&[Keystroke::parse(key).unwrap()], &stack).0.is_empty(), "{key}");
         }
+    }
+
+    #[test]
+    fn cmd_enter_reaches_the_terminal_past_open_session() {
+        let mut keymap = Keymap::default();
+        keymap.add_bindings([KeyBinding::new("cmd-enter", OpenSession, None)]);
+        keymap.add_bindings(bindings());
+        let stack = [KeyContext::parse("Root").unwrap(), KeyContext::parse(CONTEXT).unwrap()];
+        assert!(keymap.bindings_for_input(&[Keystroke::parse("cmd-enter").unwrap()], &stack).0.is_empty());
     }
 }

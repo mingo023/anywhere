@@ -30,6 +30,7 @@ static GhosttyResult vt_format(GhosttyTerminal t, GhosttyFormatterFormat emit, u
 		o.extra.keyboard = true;
 		o.extra.screen.cursor = true;
 		o.extra.screen.style = true;
+		o.extra.screen.kitty_keyboard = true;
 	}
 	GhosttyFormatter f;
 	GhosttyResult r = ghostty_formatter_terminal_new(NULL, &f, t, o);

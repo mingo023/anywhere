@@ -331,9 +331,8 @@ impl Desktop {
 
     pub(crate) fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) else { return };
-        let Some(s) = self.terminals.sessions.get(&id) else { return };
-        let app_cursor = s.term.as_ref().is_some_and(|t| t.app_cursor());
-        if let Some(bytes) = keys::key_bytes(&ev.keystroke, app_cursor) {
+        let Some(t) = self.terminals.sessions.term(&id) else { return };
+        if let Some(bytes) = keys::key_bytes(&ev.keystroke, t) {
             self.send_input(&id, &bytes, cx);
             cx.stop_propagation();
         }
