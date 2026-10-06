@@ -28,6 +28,7 @@ import (
 	"pocketd/internal/launchagent"
 	"pocketd/internal/lock"
 	"pocketd/internal/logfile"
+	"pocketd/internal/names"
 	"pocketd/internal/ops"
 	"pocketd/internal/pairing"
 	"pocketd/internal/proc"
@@ -129,14 +130,16 @@ func serve(sock string) error {
 		return "", false
 	}
 	settings := config.NewSettings(home)
+	worktreeNames := names.Open(home)
 	l := launch.New(d, reg, settings, evs)
+	l.Names = worktreeNames
 	if settings.ResumeAgents() {
 		d.Resume = l.ResumeCmd
 	}
 	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
 		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
 	}
-	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l}
+	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}

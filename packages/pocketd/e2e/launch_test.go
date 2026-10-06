@@ -147,3 +147,18 @@ func TestAPhoneCreateInAnUntrustedProjectIsRefused(t *testing.T) {
 		t.Fatalf("got %s", e.Raw)
 	}
 }
+
+func TestAnAutoNamedWorktreeTakesItsNamesFromThePrompt(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner("names.v1")
+	o.WaitFor("the names snapshot", func(m Message) bool { return m.Type == "worktree.names" })
+	create(o, "r1", inRepo(h, map[string]any{"checkout": map[string]any{"new": map[string]any{"name": "hello", "autoName": true}}, "prompt": "hello"}))
+	c := reply(o, "agent.creating", "error")
+	if c.Type != "agent.creating" {
+		t.Fatalf("got %s", c.Raw)
+	}
+	o.WaitAll("the worktree's name, the session's name and the renamed branch",
+		func(m Message) bool { return m.Type == "worktree.names" && m.Names[c.Cwd] == "Say hello" },
+		func(m Message) bool { return m.Type == "agent.update" && m.Agent.Title == "Say hello" },
+		func(m Message) bool { return m.Type == "agent.update" && m.Agent.Branch == "say-hello" })
+}

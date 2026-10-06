@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"create-r1","requestId":"r1","spec":{"project":"/Users/me/repo","checkout":{"new":{"name":"fix-the-login","base":"main","autoName":true}},"provider":"claude","access":"ask","plan":false,"prompt":"fix the login"}}

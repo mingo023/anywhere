@@ -146,6 +146,11 @@ impl Draft {
         auto_name(prompt, self.seed, &self.taken)
     }
 
+    /// pocketd names a new branch left unnamed from its prompt; the name sent is a placeholder.
+    fn auto_names(&self, typed: &str, prompt: &str, offered: bool) -> bool {
+        offered && self.worktree && self.source == Source::New && typed.trim().is_empty() && !prompt.trim().is_empty()
+    }
+
     /// What the name field shows while empty.
     fn placeholder(&self, prompt: &str) -> String {
         match self.source {
@@ -425,10 +430,14 @@ impl Desktop {
         }
         let name = self.new_name(cx);
         let prompt = self.new_form.prompt.read(cx).value().to_string();
+        let typed = self.new_form.name.read(cx).value().to_string();
         let tree = self.cwd().unwrap_or_default();
         let f = &self.new_form.draft;
         let Some(project) = f.repo.clone() else { return };
-        let (spec, worktree, folder) = (f.spec(&project, &tree, &name, &prompt), f.worktree, f.folder(&name));
+        let (mut spec, worktree, folder) = (f.spec(&project, &tree, &name, &prompt), f.worktree, f.folder(&name));
+        if f.auto_names(&typed, &prompt, self.agents.names_offered()) {
+            spec["checkout"]["new"]["autoName"] = true.into();
+        }
         self.store.repos.entry(project.clone()).or_default().launch = f.pick();
         if worktree {
             self.store.collapsed.remove(&project);
@@ -771,5 +780,16 @@ mod tests {
         assert_eq!(draft.error, None);
         assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), true), None);
         assert_eq!(draft.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
+    }
+
+    #[test]
+    fn pocketd_names_only_an_unnamed_new_branch_that_has_a_prompt() {
+        let new = Draft { worktree: true, source: Source::New, ..Draft::default() };
+        assert!(new.auto_names(" ", "fix the login", true));
+        assert!(!new.auto_names("fix-login", "fix the login", true));
+        assert!(!new.auto_names("", "  ", true));
+        assert!(!new.auto_names("", "fix the login", false));
+        assert!(!Draft { worktree: true, source: Source::Branch, ..Draft::default() }.auto_names("", "fix", true));
+        assert!(!Draft::default().auto_names("", "fix the login", true));
     }
 }

@@ -115,14 +115,30 @@ impl Desktop {
                         .into_any_element(),
                 ]
             }
-            RowMenu::Tree { project, tree } => vec![
-                ui::danger_row("aside-menu-delete", "trash", "Delete worktree…")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.row_menu = None;
-                        this.ask_delete_worktree(project.clone(), tree.clone(), cx);
-                    }))
-                    .into_any_element(),
-            ],
+            RowMenu::Tree { project, tree } => {
+                let mut rows = vec![];
+                if self.agents.names_offered() {
+                    let rename = tree.clone();
+                    rows.push(
+                        ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.row_menu = None;
+                                this.start_rename(rename.clone(), window, cx);
+                            }))
+                            .into_any_element(),
+                    );
+                    rows.push(ui::menu_divider().into_any_element());
+                }
+                rows.push(
+                    ui::danger_row("aside-menu-delete", "trash", "Delete worktree…")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.row_menu = None;
+                            this.ask_delete_worktree(project.clone(), tree.clone(), cx);
+                        }))
+                        .into_any_element(),
+                );
+                rows
+            }
             RowMenu::Session(id) => {
                 let Some(s) = self.agents.get(&id) else { return vec![] };
                 let mut rows = vec![];

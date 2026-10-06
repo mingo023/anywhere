@@ -7,3 +7,4 @@ export const DIFF_LINE_CHARS = 160;
 export const CAP_REGISTRY = "registry.v1";
 export const CAP_SUMMARY_V2 = "summary.v2";
 export const CAP_LAUNCH = "launch.v1";
+export const CAP_NAMES = "names.v1";

@@ -23,6 +23,7 @@ import (
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
+	"pocketd/internal/names"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -65,6 +66,7 @@ type Server struct {
 	// AskOpen reports whether the agent in a Terminal waits on the user.
 	AskOpen func(terminalID string) bool
 	Launch  *launch.Launcher
+	Names   *names.Names
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -76,20 +78,21 @@ type Server struct {
 }
 
 type conn struct {
-	s        *Server
-	key      string
-	ws       *websocket.Conn
-	ip       netip.Addr
-	ctx      context.Context
-	cancel   func()
-	authed   bool
-	onAuth   func()
-	device   string
-	who      peer.Principal
-	offer    *openOffer
-	stop     func()
-	stopHost func()
-	caps     []string
+	s         *Server
+	key       string
+	ws        *websocket.Conn
+	ip        netip.Addr
+	ctx       context.Context
+	cancel    func()
+	authed    bool
+	onAuth    func()
+	device    string
+	who       peer.Principal
+	offer     *openOffer
+	stop      func()
+	stopHost  func()
+	stopNames func()
+	caps      []string
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +130,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.stopHost != nil {
 			c.stopHost()
+		}
+		if c.stopNames != nil {
+			c.stopNames()
 		}
 	}()
 	go c.keepalive()
@@ -229,16 +235,23 @@ func (c *conn) handle(raw []byte) {
 			ok.Scopes = c.who.Names()
 		}
 		hostMsgs := c.withHost(&ok)
+		nameMsgs := c.withNames(caps)
 		c.send(ok)
 		c.send(proto.NewAgentList("", c.s.Agents.List()))
 		for _, req := range c.s.Broker.Open() {
 			c.send(proto.NewPermissionRequest(req))
+		}
+		if c.stopNames != nil && slices.Contains(caps, proto.CapNames) {
+			c.send(proto.NewWorktreeNames(c.s.Names.Titles()))
 		}
 		if msgs != nil {
 			go c.forward(msgs)
 		}
 		if hostMsgs != nil {
 			go c.forward(hostMsgs)
+		}
+		if nameMsgs != nil {
+			go c.forward(nameMsgs)
 		}
 		return
 	}
@@ -267,6 +280,16 @@ func (c *conn) withHost(reply *proto.HelloOK) <-chan []byte {
 	}
 	state := c.s.Monitor.State()
 	reply.Host = &state
+	return msgs
+}
+
+// withNames subscribes c to display names when it speaks names.v1.
+func (c *conn) withNames(caps []string) <-chan []byte {
+	if c.s.Names == nil || !slices.Contains(caps, proto.CapNames) || c.stopNames != nil {
+		return nil
+	}
+	var msgs <-chan []byte
+	msgs, c.stopNames = c.s.Names.Subscribe()
 	return msgs
 }
 
@@ -411,6 +434,15 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return nil
 	case "config.set":
 		c.configSet(m)
+		return nil
+	case "worktree.rename":
+		if c.s.Names == nil {
+			return errors.New("Names are off")
+		}
+		if err := c.s.Names.Rename(m.Path, m.Title); err != nil {
+			return err
+		}
+		c.send(proto.NewAck(m.ID))
 		return nil
 	}
 	a, err := c.s.Agents.Get(m.AgentID)

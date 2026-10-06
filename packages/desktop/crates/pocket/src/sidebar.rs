@@ -2,20 +2,25 @@ pub(crate) mod column;
 mod host;
 pub(crate) mod project_picker;
 pub(crate) mod rail;
+mod rename;
 mod row_menu;
 pub(crate) mod sessions;
+mod tree_tip;
 mod usage;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, drag_area, id, state};
 use crate::sidebar::project_picker::ProjectPicker;
+use crate::sidebar::rename::Rename;
+use crate::sidebar::tree_tip::TreeTip;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
 use crate::util::basename;
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::time::Duration;
 use theme::*;
 use ui::{self, icon_button_sized};
 
@@ -70,6 +75,15 @@ fn setting_up(setups: &HashMap<String, String>, tree: &str) -> bool {
     setups.values().any(|t| t == tree)
 }
 
+/// A worktree row's label and hover tip: its display name over its branch; a detached one names its folder.
+fn tree_label(w: &git::Worktree, names: &HashMap<String, String>) -> (String, String) {
+    let place = if w.branch.is_empty() || w.branch == "detached" { basename(&w.path) } else { w.branch.clone() };
+    match names.get(&w.path).filter(|t| !t.is_empty()) {
+        Some(title) => (title.clone(), place),
+        None => (place.clone(), place),
+    }
+}
+
 #[derive(Clone)]
 struct DragProject {
     path: String,
@@ -83,6 +97,8 @@ pub struct SidebarState {
     pub(crate) picker: ProjectPicker,
     /// Whether the user hid Compact's column.
     pub(crate) column_hidden: bool,
+    /// The worktree row being renamed.
+    pub(crate) rename: Option<Rename>,
 }
 
 impl SidebarState {
@@ -91,7 +107,7 @@ impl SidebarState {
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
-        (Self { search, menu_at: None, picker, column_hidden: false }, subs)
+        (Self { search, menu_at: None, picker, column_hidden: false, rename: None }, subs)
     }
 }
 
@@ -230,8 +246,16 @@ impl Desktop {
             .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
         let mut out = vec![row.into_any_element()];
         if open {
-            let trees: Vec<String> = trees.iter().flatten().filter(|w| !w.main).map(|w| w.path.clone()).collect();
-            for tree in &trees {
+            let trees: Vec<(String, String, String)> = trees
+                .iter()
+                .flatten()
+                .filter(|w| !w.main)
+                .map(|w| {
+                    let (label, tip) = tree_label(w, &self.agents.names);
+                    (w.path.clone(), label, tip)
+                })
+                .collect();
+            for (tree, label, tip) in &trees {
                 let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
                 let mark = if self.creates.failed(tree) {
                     ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
@@ -240,11 +264,31 @@ impl Desktop {
                 };
                 let trail = ui::row_trail(mark, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
                 let (target, path) = (p.to_string(), tree.clone());
+                let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
+                    Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.5)).into_any_element(),
+                    None => {
+                        let tip = tip.clone();
+                        div()
+                            .id(id(format!("aside-tree-label:{tree}")))
+                            .truncate()
+                            .child(label.clone())
+                            .tooltip(move |_, cx| cx.new(|_| TreeTip(tip.clone())).into())
+                            .tooltip_show_delay(Duration::from_millis(350))
+                            .into_any_element()
+                    }
+                };
                 out.push(
-                    ui::worktree_row(id(format!("aside-tree:{tree}")), basename(tree), current.as_ref() == Some(tree))
+                    ui::worktree_row(id(format!("aside-tree:{tree}")), label, current.as_ref() == Some(tree))
                         .children(self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr)))
                         .child(trail)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                            // The rename input sits inside the row; its clicks must not restart or leave it.
+                            if this.sidebar.renaming(&path) {
+                                return;
+                            }
+                            if ev.click_count() > 1 && this.agents.names_offered() {
+                                return this.start_rename(path.clone(), window, cx);
+                            }
                             this.creates.show_progress(&path);
                             this.select_tree(target.clone(), Some(path.clone()), cx);
                         }))
@@ -273,7 +317,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRow, column_shown, in_tree, setting_up};
+    use super::{ProjectRow, column_shown, in_tree, setting_up, tree_label};
     use crate::desktop::chrome::{Layout, Screen};
     use crate::status::{self, Card};
     use agents::Summary;
@@ -337,6 +381,17 @@ mod tests {
         let selected = |collapsed, current| ProjectRow::new(Some(&trees), collapsed, &HashMap::new()).selected(current, "/p");
         let got = [selected(true, Some("/wt")), selected(false, Some("/wt")), selected(false, Some("/p")), selected(true, None)];
         assert_eq!(got, [true, false, true, false]);
+    }
+
+    #[test]
+    fn a_worktree_shows_its_name_over_its_branch_and_a_detached_one_its_folder() {
+        let named = git::Worktree { path: "/wt/calm-otter".into(), branch: "fix-login".into(), main: false };
+        let names: HashMap<String, String> = [("/wt/calm-otter".to_string(), "Fix the login form".to_string())].into();
+        assert_eq!(tree_label(&named, &names), ("Fix the login form".into(), "fix-login".into()));
+        assert_eq!(tree_label(&named, &HashMap::new()), ("fix-login".into(), "fix-login".into()));
+        let detached = git::Worktree { branch: "detached".into(), ..named };
+        assert_eq!(tree_label(&detached, &HashMap::new()), ("calm-otter".into(), "calm-otter".into()));
+        assert_eq!(tree_label(&detached, &names), ("Fix the login form".into(), "calm-otter".into()));
     }
 
     #[test]

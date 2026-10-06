@@ -419,3 +419,17 @@ func TestDoneSurvivesRestore(t *testing.T) {
 		t.Fatalf("summary = %+v", s)
 	}
 }
+
+func TestNamingsTitleOutranksTheProvidersUntilTheConversationChanges(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetConversation("c1")
+	a.SetTitle("Provider title")
+	a.SetNamed("Fix login")
+	if got := a.Summary().Title; got != "Fix login" {
+		t.Fatal(got)
+	}
+	a.SetConversation("c2")
+	if got := a.Summary().Title; got != "" {
+		t.Fatal(got)
+	}
+}

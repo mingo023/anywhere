@@ -31,6 +31,8 @@ type ClientMessage struct {
 	Code            string
 	Name            string
 	Platform        string
+	Path            string
+	Title           string
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -112,6 +114,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("requestId", &m.RequestID) && m.RequestID != "" && len(m.RequestID) <= 64 && decodeSpec(fields["spec"], &m.Spec)
 	case m.Type == "config.set":
 		ok = get("key", &m.Key) && m.Key == "phone.maxAccess" && get("value", &m.Value) && slices.Contains(PhoneAccesses, m.Value)
+	case m.Type == "worktree.rename":
+		ok = get("path", &m.Path) && m.Path != "" && get("title", &m.Title)
 	default:
 		ok = false
 	}

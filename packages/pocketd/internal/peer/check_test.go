@@ -29,6 +29,7 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ws:agent.create":       {"", "", "scope_denied", "scope_denied"},
 		"ws:agent.providers":    {"", "", "", ""},
 		"ws:config.set":         {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:worktree.rename":    {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:list":              {"", "", "", ""},
 		"ops:status":            {"", "", "", ""},
 		"ops:hook":              {"", "", "", ""},

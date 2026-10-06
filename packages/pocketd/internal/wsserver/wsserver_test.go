@@ -21,6 +21,7 @@ import (
 	"pocketd/internal/events"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
+	"pocketd/internal/names"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -763,5 +764,42 @@ func TestAnEmptyRegistryListsNoProjects(t *testing.T) {
 	p.send(`{"type":"project.list","id":"p"}`)
 	if m := p.recv(); m["type"] != "project.list" || m["projects"] == nil || len(m["projects"].([]any)) != 0 {
 		t.Fatalf("%v", m)
+	}
+}
+
+const helloWithNames = `{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3,"caps":["names.v1"]}`
+
+func TestANamesClientGetsEveryNameThenEachRename(t *testing.T) {
+	n := names.Open(t.TempDir())
+	n.Rename("/w/a", "First")
+	_, _, p := local(t, peer.OwnerOf(1), func(s *Server) { s.Names = n })
+	p.send(helloWithNames)
+	for _, want := range []string{"hello.ok", "agent.list"} {
+		if m := p.recv(); m["type"] != want {
+			t.Fatalf("%v", m)
+		}
+	}
+	if m := p.recv(); m["type"] != "worktree.names" || !reflect.DeepEqual(m["names"], map[string]any{"/w/a": "First"}) {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"worktree.rename","id":"r","path":"/w/a","title":"Second"}`)
+	got := map[string]map[string]any{}
+	for range 2 {
+		m := p.recv()
+		got[m["type"].(string)] = m
+	}
+	if got["ack"]["id"] != "r" || !reflect.DeepEqual(got["worktree.names"]["names"], map[string]any{"/w/a": "Second"}) {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestAClientWithoutTheNamesCapGetsNoNames(t *testing.T) {
+	n := names.Open(t.TempDir())
+	_, _, old := setup(t, func(s *Server) { s.Names = n })
+	old.hello()
+	n.Rename("/w/a", "First")
+	old.send(`{"type":"agent.list","id":"l"}`)
+	if m := old.recv(); m["type"] != "agent.list" {
+		t.Fatalf("old client got %v", m)
 	}
 }

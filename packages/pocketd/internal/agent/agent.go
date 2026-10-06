@@ -35,6 +35,7 @@ type Agent struct {
 	conversation    string
 	title           string
 	fallback        string
+	named           string // from naming; outranks title until the Conversation changes
 	model           string
 	effort          string
 	phase           string // idle, working or needsYou
@@ -212,7 +213,7 @@ func (a *Agent) summary() proto.AgentSummary {
 	epoch, maxSeq := a.Timeline.State()
 	status := a.status()
 	return proto.AgentSummary{
-		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort,
+		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort,
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned,
 		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
@@ -355,6 +356,7 @@ func (a *Agent) SetConversation(id string) {
 		if a.conversation != "" && a.conversation != id {
 			a.Timeline.Clear()
 			a.title = ""
+			a.named = ""
 			a.tokensUsed = 0
 		}
 		a.conversation = id
@@ -364,6 +366,11 @@ func (a *Agent) SetConversation(id string) {
 // SetTitle takes the provider's title; it outranks the one taken from the first prompt.
 func (a *Agent) SetTitle(title string) {
 	a.update(false, func() { a.title = title })
+}
+
+// SetNamed takes naming's title for the session.
+func (a *Agent) SetNamed(title string) {
+	a.update(false, func() { a.named = title })
 }
 
 func (a *Agent) SetModel(model string) {

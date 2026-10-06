@@ -467,7 +467,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.close_picker() || this.close_menus() {
+                if this.sidebar.cancel_rename() || this.close_picker() || this.close_menus() {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);

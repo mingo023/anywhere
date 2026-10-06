@@ -16,7 +16,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 35] = [
+const STEPS: [(&str, Step); 37] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -119,6 +119,17 @@ const STEPS: [(&str, Step); 35] = [
             d.prs.apply(tree, now, Ok(Some(pr)), now);
         }
     }),
+    ("names", |d, _, _| {
+        let tree = d.project.as_ref().and_then(|p| d.worktrees.get(p)).into_iter().flatten().find(|w| !w.main).map(|w| w.path.clone());
+        if let Some(tree) = tree {
+            d.agents.names.insert(tree, "Fix the login form".into());
+        }
+    }),
+    ("rename", |d, window, cx| {
+        if let Some(tree) = d.agents.names.keys().next().cloned() {
+            d.start_rename(tree, window, cx);
+        }
+    }),
 ];
 
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,
@@ -209,6 +220,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.workspaces.clear();
     d.creates.list.clear();
     d.graph = GraphState::default();
+    d.agents.names.clear();
+    d.sidebar.rename = None;
     d.set_appearance(WindowAppearance::Light, window, cx);
 }
 

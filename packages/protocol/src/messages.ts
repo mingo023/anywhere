@@ -67,6 +67,12 @@ export const ClientMessage = Schema.Union(
     key: Schema.Literal("phone.maxAccess"),
     value: PhoneAccess,
   }),
+  Schema.Struct({
+    type: Schema.Literal("worktree.rename"),
+    id: Schema.String,
+    path: Schema.NonEmptyString,
+    title: Schema.String,
+  }),
 );
 export type ClientMessage = typeof ClientMessage.Type;
 
@@ -148,6 +154,8 @@ export const ServerMessage = Schema.Union(
     detail: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("host.changed"), host: HostState }),
+  Schema.Struct({ type: Schema.Literal("worktree.names"), names: Schema.Record({ key: Schema.String, value: Schema.String }) }),
+  Schema.Struct({ type: Schema.Literal("naming.failed"), agentId: Schema.String }),
   ProjectList,
 );
 export type ServerMessage = typeof ServerMessage.Type;

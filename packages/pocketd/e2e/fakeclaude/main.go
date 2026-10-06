@@ -148,6 +148,10 @@ func runTool(s *session, id, command string, desktop bool) {
 }
 
 func main() {
+	if slices.Contains(os.Args, "-p") {
+		fmt.Println(`{"title":"Say hello","branchName":"say-hello","vague":false}`)
+		return
+	}
 	if i := slices.Index(os.Args, "--model"); i > 0 && i+1 < len(os.Args) && os.Args[i+1] == "bogus" {
 		fmt.Println("fake claude: unknown model bogus")
 		os.Exit(1)

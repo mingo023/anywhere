@@ -13,6 +13,7 @@ export const NewWorktree = Schema.Struct({
   pr: Schema.optional(Schema.String),
   copy: Schema.optional(Schema.Boolean),
   setup: Schema.optional(Schema.Boolean),
+  autoName: Schema.optional(Schema.Boolean),
 });
 
 export const Checkout = Schema.Union(Schema.Struct({ worktree: Schema.String }), Schema.Struct({ new: NewWorktree }));

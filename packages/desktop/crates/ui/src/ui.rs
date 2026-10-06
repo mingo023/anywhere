@@ -966,14 +966,14 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
 }
 
 /// Indented past the project row's chevron (4 + 14 + gap 7) so its glyph sits under the project's mark and its name under the project's.
-pub fn worktree_row(id: impl Into<ElementId>, name: String, selected: bool) -> Stateful<Div> {
+pub fn worktree_row(id: impl Into<ElementId>, label: impl IntoElement, selected: bool) -> Stateful<Div> {
     sidebar_row(id, selected)
         .pl(px(25.))
         .text_size(px(13.5))
         .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
         .text_color(if selected { TEXT } else { TEXT_BODY })
         .child(div().w(px(22.)).flex().flex_none().justify_center().child(icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 })))
-        .child(div().flex_1().min_w_0().truncate().child(name))
+        .child(div().flex_1().min_w_0().truncate().child(label))
 }
 
 #[cfg(test)]

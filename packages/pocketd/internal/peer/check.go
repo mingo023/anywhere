@@ -28,6 +28,7 @@ var Needs = map[string]Scope{
 	"ws:agent.create":       Spawn,
 	"ws:agent.providers":    Observe,
 	"ws:config.set":         Own,
+	"ws:worktree.rename":    Own,
 	"ops:launch-exit":       Observe,
 	"ops:config-set":        Own,
 	"ops:list":              Observe,

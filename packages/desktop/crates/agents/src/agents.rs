@@ -149,6 +149,7 @@ struct Frame {
     phone_max_access: String,
     step: String,
     note: String,
+    names: HashMap<String, String>,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -186,6 +187,10 @@ pub enum Event {
     CreateFailed { request: String, code: String, message: String, detail: String },
     Providers { phone_max: String },
     ConfigFailed(String),
+    /// Every worktree's display name by path, sent whole.
+    Names(HashMap<String, String>),
+    /// pocketd couldn't name the session from its prompt.
+    NamingFailed(String),
 }
 
 #[derive(Default)]
@@ -199,6 +204,8 @@ pub struct Agents {
     /// The most a paired phone may start a session with, from `agent.providers`.
     pub phone_max: String,
     pub caps: Vec<String>,
+    /// Worktree display names by path, from `worktree.names`.
+    pub names: HashMap<String, String>,
 }
 
 impl Agents {
@@ -239,11 +246,13 @@ impl Agents {
                 self.host = None;
                 self.scopes = scopes;
                 self.caps = caps;
+                self.names.clear();
             }
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
             Event::Providers { phone_max } => self.phone_max = phone_max,
-            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) => {}
+            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::NamingFailed(_) => {}
+            Event::Names(names) => self.names = names,
         }
     }
 
@@ -258,6 +267,19 @@ impl Agents {
     /// pocketd can open an existing branch as a worktree.
     pub fn opens(&self) -> bool {
         self.caps.iter().any(|c| c == OPEN_CAP)
+    }
+
+    /// pocketd names worktrees from their prompt and takes renames.
+    pub fn names_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == NAMES_CAP)
+    }
+
+    /// Shows a rename before pocketd echoes it; a blank title clears the name.
+    pub fn set_name(&mut self, path: &str, title: &str) {
+        match title.trim() {
+            "" => self.names.remove(path),
+            t => self.names.insert(path.to_string(), t.to_string()),
+        };
     }
 
     /// Scopes arrived and exclude owner. Before hello.ok, or from a pocketd
@@ -328,8 +350,17 @@ fn launch_event(f: &Frame) -> Option<Event> {
         _ => return None,
     })
 }
+
+fn names_event(f: &Frame) -> Option<Event> {
+    match f.kind.as_str() {
+        "worktree.names" => Some(Event::Names(f.names.clone())),
+        "naming.failed" => Some(Event::NamingFailed(f.agent_id.clone())),
+        _ => None,
+    }
+}
 const PAIR_CAP: &str = "pair.v1";
 const OPEN_CAP: &str = "open.v1";
+const NAMES_CAP: &str = "names.v1";
 
 /// Client messages for pocketd. They wait in a queue while it is unreachable.
 #[derive(Clone)]
@@ -381,6 +412,11 @@ impl Outbox {
         self.providers();
     }
 
+    /// Sets the display name of the worktree at `path`; "" clears it.
+    pub fn rename(&self, path: &str, title: &str) {
+        self.send(json!({"type": "worktree.rename", "id": "rename", "path": path, "title": title}));
+    }
+
     fn send(&self, m: Value) {
         let _ = self.0.send(m);
     }
@@ -406,7 +442,7 @@ pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 5] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP];
+const CAPS: [&str; 6] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP];
 
 fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
@@ -436,7 +472,7 @@ fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unansw
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = launch_event(&f) {
+        if let Some(ev) = launch_event(&f).or_else(|| names_event(&f)) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -620,7 +656,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -809,5 +845,44 @@ mod tests {
     fn a_refused_config_set_becomes_config_failed() {
         let f: Frame = serde_json::from_str(r#"{"type":"error","id":"config","code":"invalid_config","message":"phone.maxAccess can't be full"}"#).unwrap();
         assert!(matches!(launch_event(&f), Some(Event::ConfigFailed(m)) if m == "phone.maxAccess can't be full"));
+    }
+
+    #[test]
+    fn names_frames_become_names_events() {
+        let ev = |raw: &str| names_event(&serde_json::from_str::<Frame>(raw).unwrap());
+        let names = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/worktree_names.json");
+        let failed = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/naming_failed.json");
+        assert!(matches!(ev(names), Some(Event::Names(n)) if n.get("/Users/me/wt/calm-otter").map(String::as_str) == Some("Fix login")));
+        assert!(matches!(ev(failed), Some(Event::NamingFailed(id)) if id == "a1"));
+        assert!(ev(r#"{"type":"agent.list","agents":[]}"#).is_none());
+    }
+
+    #[test]
+    fn names_start_over_on_each_connect_and_wait_for_pocketd_to_offer_them() {
+        let mut a = Agents::default();
+        a.apply(Event::Names([("/w".to_string(), "Fix".to_string())].into()));
+        assert!(!a.names_offered());
+        a.apply(Event::Connected { scopes: vec![], caps: vec!["names.v1".into()] });
+        assert!(a.names.is_empty() && a.names_offered());
+    }
+
+    #[test]
+    fn a_rename_shows_at_once_and_a_blank_one_clears_it() {
+        let mut a = Agents::default();
+        a.set_name("/w", " Mine ");
+        assert_eq!(a.names["/w"], "Mine");
+        a.set_name("/w", "  ");
+        assert!(!a.names.contains_key("/w"));
+    }
+
+    #[test]
+    fn rename_sends_the_path_and_title() {
+        let (server, sock) = pocketd("rename");
+        let (out, _events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        out.rename("/w/calm-otter", "Fix login");
+        assert_eq!(read(&mut ws), json!({"type": "worktree.rename", "id": "rename", "path": "/w/calm-otter", "title": "Fix login"}));
+        std::fs::remove_file(&sock).unwrap();
     }
 }

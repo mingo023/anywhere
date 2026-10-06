@@ -42,10 +42,11 @@ type NewWorktree struct {
 	PR    string `json:"pr,omitempty"`
 	Copy  *bool  `json:"copy,omitempty"`
 	Setup *bool  `json:"setup,omitempty"`
+	// AutoName: Name is a placeholder; pocketd names the branch and Worktree from the prompt.
+	AutoName bool `json:"autoName,omitempty"`
 }
 
-// valid: at most one of Base, Branch and PR, and a Name unless opening a
-// Branch or PR.
+// valid: at most one of Base, Branch and PR, a Name unless opening a Branch or PR, and AutoName only on a Name.
 func (n *NewWorktree) valid() bool {
 	set := 0
 	for _, s := range []string{n.Base, n.Branch, n.PR} {
@@ -53,7 +54,7 @@ func (n *NewWorktree) valid() bool {
 			set++
 		}
 	}
-	return set <= 1 && (n.Name != "" || n.Branch != "" || n.PR != "")
+	return set <= 1 && (n.Name != "" || n.Branch != "" || n.PR != "") && (!n.AutoName || n.Name != "" && n.Branch == "" && n.PR == "")
 }
 
 type AgentCreating struct {
@@ -157,7 +158,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 		return false
 	}
 	if n, has := checkout["new"]; has {
-		if _, ok := strictObject(n, "name", "base", "branch", "pr", "copy", "setup"); !ok {
+		if _, ok := strictObject(n, "name", "base", "branch", "pr", "copy", "setup", "autoName"); !ok {
 			return false
 		}
 	}

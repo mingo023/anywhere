@@ -11,6 +11,8 @@ import (
 	"pocketd/internal/config"
 	"pocketd/internal/daemon"
 	"pocketd/internal/events"
+	"pocketd/internal/names"
+	"pocketd/internal/naming"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
@@ -61,10 +63,13 @@ type found struct {
 }
 
 type Launcher struct {
-	d        *daemon.Daemon
-	reg      *registry.Registry
-	set      *config.Settings
-	ev       *events.Log
+	d   *daemon.Daemon
+	reg *registry.Registry
+	set *config.Settings
+	ev  *events.Log
+	// Names takes the display names naming gives new Worktrees; nil names none.
+	Names    *names.Names
+	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
 	receipts *receipts
 
 	mu      sync.Mutex
@@ -73,7 +78,7 @@ type Launcher struct {
 }
 
 func New(d *daemon.Daemon, reg *registry.Registry, set *config.Settings, ev *events.Log) *Launcher {
-	return &Launcher{d: d, reg: reg, set: set, ev: ev, receipts: newReceipts(time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
+	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, receipts: newReceipts(time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
 }
 
 // Create runs one agent.create. progress is called as each step starts, and
@@ -136,6 +141,10 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	if fl != nil {
 		return Result{Err: fl}
 	}
+	if n := s.Checkout.New; n != nil && n.Branch == "" && n.PR == "" && l.Names != nil {
+		// A deleted Worktree's name would otherwise stick to the new one at its path.
+		l.Names.Forget(cwd)
+	}
 	id := terminal.NewID()
 	exits := make(chan exit, 2)
 	l.mu.Lock()
@@ -165,7 +174,15 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
 	}
 	creating(Creating{Terminal: id, Cwd: cwd, Setup: setup != ""})
-	return l.wait(t, id, exits, progress)
+	r := l.wait(t, id, exits, progress)
+	if r.Err == nil && s.Prompt != "" {
+		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, agent: r.AgentID}
+		if n := s.Checkout.New; n != nil && n.AutoName {
+			j.project, j.tree, j.branch = s.Project, cwd, n.Name
+		}
+		go l.name(j)
+	}
+	return r
 }
 
 // checkout is the Session's folder and the setup to run there. A new

@@ -109,6 +109,10 @@ impl Desktop {
             self.error = Some(message);
             return cx.notify();
         }
+        if let Event::NamingFailed(_) = ev {
+            self.error = Some("Couldn't name the session from its prompt".into());
+            return cx.notify();
+        }
         let connected = matches!(ev, Event::Connected { .. });
         if connected {
             self.pair.lost();

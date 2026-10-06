@@ -91,6 +91,8 @@ var serverGolden = map[string]any{
 		{Name: "pocket", Path: "/Users/me/dev/pocket", Branch: "main", IsMain: true},
 		{Name: "calm-otter", Path: "/Users/me/.worktrees/pocket/calm-otter", Branch: ""},
 	}}}),
+	"worktree_names": NewWorktreeNames(map[string]string{"/Users/me/wt/calm-otter": "Fix login"}),
+	"naming_failed":  NewNamingFailed("a1"),
 }
 
 func helloOKHost() HelloOK {
@@ -185,6 +187,11 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","new":null},"provider":"claude","access":"ask","plan":false,"model":null}}`,
 		`{"type":"config.set","id":"1","key":"phone.maxAccess","value":"full"}`,
 		`{"type":"config.set","id":"1","key":"theme","value":"ask"}`,
+		`{"type":"worktree.rename","id":"1","path":"","title":"x"}`,
+		`{"type":"worktree.rename","id":"1","path":"/p"}`,
+		`{"type":"worktree.rename","id":"1","path":"/p","title":null}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","branch":"b","autoName":true}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"1","autoName":true}},"provider":"claude","access":"ask","plan":false}}`,
 		`null`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
@@ -208,6 +215,8 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"#7"}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"worktree.rename","id":"1","path":"/p","title":""}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","base":"main","autoName":true}},"provider":"claude","access":"ask","plan":false,"prompt":"x"}}`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != nil {
 			t.Errorf("%s: %v", raw, err)
