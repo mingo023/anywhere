@@ -62,7 +62,7 @@ fn numstat(out: &str) -> Vec<(String, usize, usize)> {
 }
 
 pub fn read(cwd: &str) -> Option<Repo> {
-    let branch = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
+    let branch = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).or_else(|| git(cwd, &["symbolic-ref", "--short", "HEAD"]))?.trim().to_string();
     let staged = lines(git(cwd, &["diff", "--cached", "--name-only"]));
     let unstaged = lines(git(cwd, &["diff", "--name-only"]));
     let statuses = name_status(&git(cwd, &["diff", "HEAD", "--name-status"]).unwrap_or_default());
@@ -786,6 +786,20 @@ mod tests {
         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
         assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], vec![7..12]));
         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+    }
+
+    #[test]
+    fn a_repository_without_commits_reads_as_one_on_its_branch() {
+        let dir = std::env::temp_dir().join(format!("pocket-git-unborn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let d = dir.to_str().unwrap();
+        assert!(read(d).is_none());
+        assert!(Command::new("git").arg("-C").arg(d).args(["init", "-q", "-b", "trunk"]).output().unwrap().status.success());
+        std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+        let r = read(d).unwrap();
+        assert_eq!(r.branch, "trunk");
+        assert_eq!(r.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["a.txt"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
