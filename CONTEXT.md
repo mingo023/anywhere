@@ -13,7 +13,7 @@ A git repository added to Pocket, listed on the sidebar in the user's order. Sel
 _Avoid_: repository, repo, folder
 
 **Worktree**:
-A git worktree of a project, listed under it on the sidebar by its name: the name of its folder, which stays when its branch changes. One Pocket creates starts on a new branch of the same name. Deleting a worktree closes its terminals and removes its folder but keeps its branch; the main worktree can't be deleted. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
+A git worktree of a project, listed under it on the sidebar by its name: the name of its folder, which stays when its branch changes. A project lists its main worktree and the ones Pocket created or the user imported; a folder in any other worktree belongs to the main one. One Pocket creates starts on a new branch of the same name. Deleting a worktree closes its terminals and removes its folder but keeps its branch; the main worktree can't be deleted. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
 _Avoid_: workspace, branch
 
 **Login shell**:

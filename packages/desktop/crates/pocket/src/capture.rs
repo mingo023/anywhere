@@ -2,7 +2,7 @@ use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
 use crate::add_to_chat::Quote;
 use crate::creating::Create;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Layout, Overlay, Screen, Side};
+use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::git_ui::graph::GraphState;
 use crate::settings::{Section, SettingsState};
 use crate::status::Status;
@@ -16,7 +16,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 37] = [
+const STEPS: [(&str, Step); 39] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -95,11 +95,11 @@ const STEPS: [(&str, Step); 37] = [
         }
     }),
     ("deleting", |d, _, _| {
-        let Some(tree) = d.project.as_ref().and_then(|p| d.worktrees.get(p)).and_then(|w| w.iter().find(|w| !w.main)).map(|w| w.path.clone()) else { return };
+        let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
         d.removals.start(&tree);
     }),
     ("delete-worktree", |d, _, cx| {
-        let Some((project, w)) = d.project.clone().and_then(|p| d.worktrees.get(&p)?.iter().find(|w| !w.main).cloned().map(|w| (p, w))) else { return };
+        let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
         let removal = crate::removal::Removal { project, tree: w.path, branch: Some(w.branch), delete_branch: true, teardown: true };
         d.confirm = Some(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3 });
         d.overlay = Some(Overlay::Confirm);
@@ -107,8 +107,8 @@ const STEPS: [(&str, Step); 37] = [
     }),
     ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
     ("prs", |d, _, _| {
-        let Some(trees) = d.project.as_ref().and_then(|p| d.worktrees.get(p)) else { return };
-        let trees: Vec<String> = trees.iter().filter(|w| !w.main).map(|w| w.path.clone()).collect();
+        let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
+        let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         let now = Instant::now();
         let checks = [Checks { passed: 4, ..Checks::default() }, Checks { passed: 2, failed: 1, ..Checks::default() }, Checks { passed: 1, pending: 2, ..Checks::default() }, Checks { passed: 5, ..Checks::default() }];
         for (i, tree) in trees.into_iter().enumerate() {
@@ -120,9 +120,15 @@ const STEPS: [(&str, Step); 37] = [
         }
     }),
     ("names", |d, _, _| {
-        let tree = d.project.as_ref().and_then(|p| d.worktrees.get(p)).into_iter().flatten().find(|w| !w.main).map(|w| w.path.clone());
+        let tree = d.project.as_ref().and_then(|p| d.listed_trees(p)).into_iter().flatten().find(|w| !w.main).map(|w| w.path);
         if let Some(tree) = tree {
             d.agents.names.insert(tree, "Fix the login form".into());
+        }
+    }),
+    ("project-menu", |d, _, _| d.row_menu = d.project.clone().map(RowMenu::Project)),
+    ("import", |d, _, cx| {
+        if let Some(p) = d.project.clone() {
+            d.import_worktrees(&p, cx);
         }
     }),
     ("rename", |d, window, cx| {

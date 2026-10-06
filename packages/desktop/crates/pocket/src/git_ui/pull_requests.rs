@@ -156,7 +156,7 @@ pub(crate) fn chip(id: impl Into<ElementId>, pr: &Pr) -> Stateful<Div> {
 impl Desktop {
     /// Asks `gh` about the next due worktree, off the UI thread.
     pub(crate) fn poll_prs(&mut self, cx: &mut Context<Self>) {
-        let mut trees: Vec<String> = self.project.as_ref().and_then(|p| self.worktrees.get(p)).into_iter().flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path.clone()).collect();
+        let mut trees: Vec<String> = self.project.as_ref().and_then(|p| self.listed_trees(p)).into_iter().flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path).collect();
         trees.sort();
         let Some(tree) = self.prs.due(self.cwd().as_deref(), &trees, Instant::now()) else { return };
         let started = Instant::now();

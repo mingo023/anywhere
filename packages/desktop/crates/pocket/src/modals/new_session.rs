@@ -539,6 +539,10 @@ impl Desktop {
             Event::Creating { request, terminal, cwd, setup } => {
                 self.terminals.created(&request, terminal, cwd.clone(), setup);
                 self.daemon.send(json!({"op": "list"}));
+                if self.creates.get(&request).is_some() {
+                    self.store.track(&cwd);
+                    self.save_soon(cx);
+                }
                 if let Some(expected) = self.creates.started(&request, cwd.clone(), &mut self.worktrees) {
                     if self.worktree.as_ref() == Some(&expected) {
                         self.worktree = Some(cwd);

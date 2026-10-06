@@ -104,8 +104,21 @@ impl Desktop {
                         this.keep_project(&target, cx);
                     }))
                 };
-                vec![
-                    first.into_any_element(),
+                let mut rows = vec![first.into_any_element()];
+                let untracked = self.untracked_trees(&p).len();
+                if kept && untracked > 0 {
+                    let target = p.clone();
+                    let label = if untracked == 1 { "Import 1 worktree".to_string() } else { format!("Import {untracked} worktrees") };
+                    rows.push(
+                        ui::menu_row("aside-menu-import", "branch", &label, None)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.row_menu = None;
+                                this.import_worktrees(&target, cx);
+                            }))
+                            .into_any_element(),
+                    );
+                }
+                rows.extend([
                     ui::menu_divider().into_any_element(),
                     ui::danger_row("aside-menu-remove", "x", if kept { "Remove from Pocket" } else { "Remove" })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -113,7 +126,8 @@ impl Desktop {
                             this.ask_remove_project(p.clone(), cx);
                         }))
                         .into_any_element(),
-                ]
+                ]);
+                rows
             }
             RowMenu::Tree { project, tree } => {
                 let mut rows = vec![];

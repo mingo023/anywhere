@@ -203,7 +203,7 @@ impl Desktop {
         let current = self.cwd().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let kept = self.store.projects.iter().any(|k| k == p);
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
-        let trees = self.worktrees.get(p).map(|w| self.removals.hide(self.creates.trees(p, w)));
+        let trees = self.listed_trees(p).map(|w| self.removals.hide(self.creates.trees(p, &w)));
         let setups = self.creates.setups(&self.terminals.setups);
         let fold = ProjectRow::new(trees.as_deref(), self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref(), &main);

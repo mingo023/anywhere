@@ -319,8 +319,8 @@ impl Desktop {
                     .collect();
                 let trees = scope
                     .iter()
-                    .filter_map(|p| Some((p, self.repo_name(p), self.worktrees.get(p)?)))
-                    .flat_map(|(p, name, trees)| trees.iter().map(move |w| (p.clone(), name.clone(), w.clone())))
+                    .filter_map(|p| Some((p, self.repo_name(p), self.listed_trees(p)?)))
+                    .flat_map(|(p, name, trees)| trees.into_iter().map(move |w| (p.clone(), name.clone(), w)))
                     .collect();
                 let root = self.explore_root().unwrap_or_default();
                 let changed: Vec<String> = self.repos.get(&root).map(|r| r.files.iter().map(|f| f.path.clone()).collect()).unwrap_or_default();

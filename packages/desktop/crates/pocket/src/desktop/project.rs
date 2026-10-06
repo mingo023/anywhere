@@ -23,11 +23,29 @@ impl Desktop {
     }
 
     pub fn worktree_of(&self, cwd: &str) -> Option<&git::Worktree> {
-        project::worktree_of(cwd, &self.worktrees)
+        project::worktree_of(cwd, &self.worktrees, |t| self.store.is_tracked(t))
+    }
+
+    /// The worktrees `p` lists; `None` until git has listed them.
+    pub fn listed_trees(&self, p: &str) -> Option<Vec<git::Worktree>> {
+        self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.is_tracked(t)))
+    }
+
+    pub(crate) fn untracked_trees(&self, p: &str) -> Vec<git::Worktree> {
+        self.worktrees.get(p).map(|w| project::untracked(w, |t| self.store.is_tracked(t))).unwrap_or_default()
+    }
+
+    pub(crate) fn import_worktrees(&mut self, p: &str, cx: &mut Context<Self>) {
+        for w in self.untracked_trees(p) {
+            self.store.track(&w.path);
+        }
+        self.store.collapsed.remove(p);
+        self.save_soon(cx);
+        cx.notify();
     }
 
     pub fn tree_of(&self, cwd: &str) -> Option<String> {
-        project::tree_of(cwd, &self.worktrees, || self.projects())
+        project::tree_of(cwd, &self.worktrees, |t| self.store.is_tracked(t), || self.projects())
     }
 
     pub fn cards(&self, project: &str) -> Vec<Card> {
@@ -92,7 +110,8 @@ impl Desktop {
 
     fn git_cwds(&self) -> Vec<String> {
         let sessions = self.project.as_deref().map(|p| self.cards(p).into_iter().map(|c| c.cwd).collect()).unwrap_or_default();
-        project::git_cwds(self.project.as_deref(), sessions, &self.worktrees, self.cwd())
+        let listed: project::Worktrees = self.project.iter().filter_map(|p| Some((p.clone(), self.listed_trees(p)?))).collect();
+        project::git_cwds(self.project.as_deref(), sessions, &listed, self.cwd())
     }
 
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {

@@ -124,6 +124,8 @@ pub struct Store {
     pub notifications: Notifications,
     pub appearance: Appearance,
     pub worktree: WorktreeDefaults,
+    /// The worktrees projects list besides their main ones, by path.
+    pub tracked: BTreeSet<String>,
     /// Each worktree's panels, keyed by the worktree's path.
     #[serde(deserialize_with = "readable_layouts")]
     pub layouts: BTreeMap<String, Workspace>,
@@ -171,6 +173,18 @@ impl Store {
         if !self.collapsed.remove(path) {
             self.collapsed.insert(path.to_string());
         }
+    }
+
+    pub fn track(&mut self, tree: &str) {
+        self.tracked.insert(tree.to_string());
+    }
+
+    pub fn untrack(&mut self, tree: &str) {
+        self.tracked.remove(tree);
+    }
+
+    pub fn is_tracked(&self, tree: &str) -> bool {
+        self.tracked.contains(tree)
     }
 
     /// The folder `repo`'s new worktrees go in: its own setting, else a folder named for it under the root, else under `~/.worktrees`.
@@ -244,6 +258,7 @@ mod tests {
         s.window = Some(WindowGeometry { display: Some("D1".into()), x: 40., y: 60., width: 1200., height: 800. });
         s.layout = Layout::Compact;
         s.widths = ColumnWidths { projects: Some(260.), sessions: None };
+        s.track("/t/fix");
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);
@@ -257,7 +272,7 @@ mod tests {
         std::fs::write(dir.join("desktop.json"), r#"{"projects":["/w"]}"#).unwrap();
         let s = Store::load(&dir);
         assert_eq!((s.projects.len(), &s.window, s.layout, s.widths), (1, &None, Layout::Sidebars, ColumnWidths::default()));
-        assert!(s.layouts.is_empty());
+        assert!(s.layouts.is_empty() && s.tracked.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -422,6 +437,15 @@ mod tests {
         assert_eq!((s.projects.len(), s.appearance), (1, Appearance { mode: Mode::System, reduce_motion: Some(false) }));
         let s: Store = serde_json::from_str(r#"{"appearance":{"mode":3}}"#).unwrap();
         assert_eq!(s.appearance.mode, Mode::System);
+    }
+
+    #[test]
+    fn a_tracked_worktree_stays_tracked_until_untracked() {
+        let mut s = Store::default();
+        s.track("/t/fix");
+        s.track("/t/spike");
+        s.untrack("/t/fix");
+        assert!(!s.is_tracked("/t/fix") && s.is_tracked("/t/spike"));
     }
 
     #[test]

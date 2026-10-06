@@ -84,7 +84,7 @@ fn parent(path: &str) -> String {
 
 impl Desktop {
     fn picked_entries(&self, cx: &App) -> Vec<Entry> {
-        let trees = |p: &str| self.worktrees.get(p).map(|w| self.creates.trees(p, w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path).collect();
+        let trees = |p: &str| self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), |p| self.repo_name(p), trees)
     }
 
