@@ -47,10 +47,18 @@ impl Chips {
 
 impl Desktop {
     pub(crate) fn visible_sessions(&self, cx: &App) -> Vec<Card> {
+        self.sessions_matching(&self.sidebar.search.read(cx).value())
+    }
+
+    /// How many sessions the Sessions column lists before search narrows it.
+    pub(crate) fn session_count(&self) -> usize {
+        self.sessions_matching("").len()
+    }
+
+    fn sessions_matching(&self, query: &str) -> Vec<Card> {
         let Some(project) = self.project.as_deref() else { return Vec::new() };
         let tree = self.cwd();
-        let query = self.sidebar.search.read(cx).value();
-        walkable(self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), &query)
+        walkable(self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), query)
     }
 
     fn all_cards(&self) -> Vec<Card> {

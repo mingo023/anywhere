@@ -13,12 +13,31 @@ pub(crate) fn changes_badge(repo: Option<&Repo>) -> Option<(String, String)> {
     Some((short(added), short(removed)))
 }
 
+/// The Sessions toggle's count, while the worktree has any session.
+pub(crate) fn sessions_badge(count: usize) -> Option<String> {
+    (count > 0).then(|| short(count))
+}
+
 fn short(n: usize) -> String {
     match n {
         ..1_000 => n.to_string(),
         1_000..10_000 => format!("{:.1}k", n as f32 / 1000.).replace(".0k", "k"),
         _ => format!("{}k", n / 1000),
     }
+}
+
+fn pill() -> Div {
+    div()
+        .h(px(17.))
+        .px(px(5.))
+        .flex()
+        .items_center()
+        .gap(px(6.6))
+        .rounded(px(8.))
+        .bg(HAIRLINE)
+        .font_family(MONO)
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_size(px(11.))
 }
 
 /// Marks a sidebar toggle while the hidden Changes list has something in it.
@@ -37,24 +56,30 @@ impl Desktop {
             (_, Side::Explorer) => self.explorer(cx).into_any_element(),
             (_, Side::Changes) => self.changes_list(cx).into_any_element(),
         };
+        let tabs = (self.layout != Layout::Compact).then(|| self.column_tabs(cx));
+        let column = column()
+            .w(px(self.width(Column::Sessions, 334.)))
+            .child(drag_area(self.column_header(cx)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
+            .children(tabs)
+            .child(body);
+        self.resizable(column, Column::Sessions, cx)
+    }
+
+    fn column_tabs(&self, cx: &mut Context<Self>) -> Div {
         let totals = changes_badge(self.repo());
+        let count = sessions_badge(self.session_count());
         let tabs = [(Side::Sessions, "Sessions"), (Side::Explorer, "Explorer"), (Side::Changes, "Changes")].into_iter().enumerate().map(|(i, (side, label))| {
             let selected = self.side == side;
-            let badge = totals.clone().filter(|_| side == Side::Changes).map(|(added, removed)| {
-                div()
-                    .h(px(17.))
-                    .px(px(5.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.6))
-                    .rounded(px(8.))
-                    .bg(HAIRLINE)
-                    .font_family(MONO)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_size(px(11.))
-                    .child(div().text_color(SUCCESS_TEXT).child(format!("+{added}")))
-                    .child(div().text_color(FAILED).child(format!("−{removed}")))
-            });
+            let badge = match side {
+                Side::Sessions => count.clone().map(|n| pill().text_color(TEXT_2).child(n)),
+                Side::Explorer => None,
+                Side::Changes => totals.clone().map(|(added, removed)| {
+                    pill()
+                        .child(div().text_color(SUCCESS_TEXT).child(format!("+{added}")))
+                        .child(div().text_color(FAILED).child(format!("−{removed}")))
+                }),
+            };
+            let keeps_label = side == Side::Sessions || badge.is_none();
             div()
                 .id(("column-tab", i))
                 .flex_1()
@@ -69,7 +94,7 @@ impl Desktop {
                 .text_size(px(13.))
                 .when(selected, |d| d.bg(FILL_4).text_color(TEXT).font_weight(FontWeight::SEMIBOLD))
                 .when(!selected, |d| d.text_color(TEXT_2).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_2)))
-                .when(badge.is_none(), |d| d.child(label))
+                .when(keeps_label, |d| d.child(label))
                 .children(badge)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.side = side;
@@ -77,13 +102,7 @@ impl Desktop {
                     cx.notify();
                 }))
         });
-        let tabs = div().p(px(8.)).flex().flex_none().gap(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).children(tabs);
-        let column = column()
-            .w(px(self.width(Column::Sessions, 334.)))
-            .child(drag_area(self.column_header(cx)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
-            .when(self.layout != Layout::Compact, |d| d.child(tabs))
-            .child(body);
-        self.resizable(column, Column::Sessions, cx)
+        div().p(px(8.)).flex().flex_none().gap(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).children(tabs)
     }
 
     fn column_header(&self, cx: &mut Context<Self>) -> Div {
@@ -103,7 +122,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{changes_badge, short};
+    use super::{changes_badge, sessions_badge, short};
     use git::{FileStat, Repo};
 
     fn changed(added: usize, removed: usize) -> FileStat {
@@ -126,6 +145,12 @@ mod tests {
     fn binary_changes_alone_still_badge_the_worktree() {
         let repo = Repo { files: vec![changed(0, 0)], ..Default::default() };
         assert_eq!(changes_badge(Some(&repo)), Some(("0".into(), "0".into())));
+    }
+
+    #[test]
+    fn a_worktree_without_sessions_has_no_sessions_badge() {
+        assert_eq!(sessions_badge(0), None);
+        assert_eq!(sessions_badge(2), Some("2".into()));
     }
 
     #[test]
