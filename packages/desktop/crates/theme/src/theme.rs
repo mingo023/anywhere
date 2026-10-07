@@ -67,8 +67,6 @@ pub const WINDOW: Token = Token::new(0xf4f4f5ff, 0x171717d9);
 pub const WINDOW_SOLID: Token = Token::new(0xf4f4f5ff, 0x171717ff);
 pub const SURFACE: Token = Token::new(0xffffffff, 0xebebeb1a);
 pub const SURFACE_SUNKEN: Token = Token::new(0xfafafaff, 0x00000000);
-/// Opaque because the editor's gutter must cover text scrolled under it and still match the code beside it.
-pub const EDITOR: Token = Token::new(0xfafafaff, 0x171717ff);
 pub const PAGE: Token = Token::new(0xf7f7f7ff, 0x00000000);
 /// A recessed block inside a page: tables, code blocks.
 pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
@@ -155,8 +153,8 @@ pub fn highlight_theme(dark: bool) -> Arc<HighlightTheme> {
         }
     }
     for (key, c) in [
-        ("editor.background", EDITOR),
-        ("editor.gutter.background", EDITOR),
+        ("editor.background", SURFACE_SUNKEN),
+        ("editor.gutter.background", SURFACE_SUNKEN),
         ("editor.foreground", TEXT_BODY),
         ("editor.line_number", TEXT_5),
         ("editor.active_line_number", TEXT_2),
