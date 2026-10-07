@@ -1,9 +1,9 @@
-use crate::status::Status;
+use crate::inbox;
 use agents::Summary;
 
-/// The Dock badge: how many sessions need you, seen or not; none at zero.
+/// The Dock badge: the bell's count, so every session in the inbox; none at zero.
 pub fn badge_label(agents: &[Summary]) -> Option<String> {
-    let n = agents.iter().filter(|a| Status::of(a) == Some(Status::NeedsYou)).count();
+    let n = agents.iter().filter(|a| inbox::noted(a).is_some()).count();
     (n > 0).then(|| n.to_string())
 }
 
@@ -46,9 +46,9 @@ mod tests {
     }
 
     #[test]
-    fn the_badge_counts_needs_you_and_clears_at_zero() {
-        let asking = [agent("a", "needsYou"), agent("b", "done"), agent("c", "needsYou"), Summary { attached: false, ..agent("d", "needsYou") }];
-        assert_eq!(badge_label(&asking).as_deref(), Some("2"));
+    fn the_badge_counts_what_the_bell_counts_and_clears_at_zero() {
+        let noted = [agent("a", "needsYou"), agent("b", "done"), Summary { failed: true, ..agent("c", "done") }, agent("w", "working"), Summary { attached: false, ..agent("d", "needsYou") }];
+        assert_eq!(badge_label(&noted).as_deref(), Some("3"));
         assert_eq!(badge_label(&[agent("a", "working")]), None);
     }
 }
