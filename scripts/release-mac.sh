@@ -27,13 +27,13 @@ fail() {
 build() {
   "$ROOT/scripts/build-ghostty.sh"
   for triple in aarch64-apple-darwin x86_64-apple-darwin; do
-    (cd "$DESKTOP" && ANYWHERE_CHANNEL=release ANYWHERE_VERSION="$VERSION" cargo build --release -p pocket --target "$triple")
+    (cd "$DESKTOP" && ANYWHERE_CHANNEL=release ANYWHERE_VERSION="$VERSION" cargo build --profile dist -p pocket --target "$triple")
   done
   lipo -create -output "$OUT/pocket-desktop" \
-    "$TARGET/aarch64-apple-darwin/release/pocket-desktop" "$TARGET/x86_64-apple-darwin/release/pocket-desktop"
+    "$TARGET/aarch64-apple-darwin/dist/pocket-desktop" "$TARGET/x86_64-apple-darwin/dist/pocket-desktop"
   for arch in arm64 amd64; do
     (cd "$ROOT/packages/pocketd" && CGO_ENABLED=1 GOARCH="$arch" go build -trimpath \
-      -ldflags "-X main.version=$VERSION -X pocketd/internal/config.channel=release" -o "$OUT/pocketd-$arch" ./cmd/pocketd)
+      -ldflags "-s -w -X main.version=$VERSION -X pocketd/internal/config.channel=release" -o "$OUT/pocketd-$arch" ./cmd/pocketd)
   done
   lipo -create -output "$OUT/pocketd" "$OUT/pocketd-arm64" "$OUT/pocketd-amd64"
   rm "$OUT/pocketd-arm64" "$OUT/pocketd-amd64"
@@ -108,7 +108,8 @@ make_dmg() {
   mkdir -p "$stage"
   ditto "$APP" "$stage/Anywhere.app"
   ln -s /Applications "$stage/Applications"
-  hdiutil create -volname Anywhere -srcfolder "$stage" -format UDZO -ov "$DMG"
+  # LZMA: about a quarter smaller than UDZO; mounts on macOS 10.15+.
+  hdiutil create -volname Anywhere -srcfolder "$stage" -format ULMO -ov "$DMG"
   rm -rf "$stage"
   codesign --force --timestamp --sign "$SIGN_ID" "$DMG"
 }
