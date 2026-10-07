@@ -172,7 +172,7 @@ Shared layout, from spec §3.10:
 - Bindings dispatch before the terminal's key listener (`window.rs:5929-5961`), so any global takes the key from the PTY.
 - Handlers stop propagation by default.
 
-**Likely existing bug.** `open_selected` returns without `cx.propagate()` off the Inbox (`inbox.rs:119-125`). The global `cmd-enter` (`actions.rs:40`) probably swallows ⌘↵ submit in the commit box, the new-session prompt and the composer. Pin it with a test and fix it separately before rebinding ships.
+**Fixed bug.** The global `cmd-enter` tied with `Input`'s ⌘↵ and, bound later, swallowed submit in the commit box, the new-session prompt and the composer. `OpenSession` is now scoped to the `Inbox` context (`actions.rs`).
 
 **Recorder (later):**
 - Use `cx.intercept_keystrokes` only while recording. `capture_key_down` is too late, because ⌘K would open the palette first.

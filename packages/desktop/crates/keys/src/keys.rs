@@ -169,9 +169,9 @@ mod tests {
     #[test]
     fn cmd_enter_reaches_the_terminal_past_open_session() {
         let mut keymap = Keymap::default();
-        keymap.add_bindings([KeyBinding::new("cmd-enter", OpenSession, None)]);
+        keymap.add_bindings([KeyBinding::new("cmd-enter", OpenSession, Some("Inbox"))]);
         keymap.add_bindings(bindings());
-        let stack = [KeyContext::parse("Root").unwrap(), KeyContext::parse(CONTEXT).unwrap()];
+        let stack = [KeyContext::parse("Root").unwrap(), KeyContext::parse("Inbox").unwrap(), KeyContext::parse(CONTEXT).unwrap()];
         assert!(keymap.bindings_for_input(&[Keystroke::parse("cmd-enter").unwrap()], &stack).0.is_empty());
     }
 }

@@ -464,6 +464,7 @@ impl Render for Desktop {
             .font_family(SANS)
             .line_height(relative(1.2))
             .text_color(TEXT)
+            .when(self.screen == Screen::Inbox, |d| d.key_context(crate::inbox::CONTEXT))
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 if ev.keystroke.key != "escape" {

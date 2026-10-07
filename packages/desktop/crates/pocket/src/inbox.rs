@@ -9,6 +9,8 @@ use crate::util::basename;
 use agents::{Agents, Summary};
 use gpui_kit::*;
 
+pub(crate) const CONTEXT: &str = "Inbox";
+
 pub struct Note {
     pub agent: String,
     pub terminal: String,

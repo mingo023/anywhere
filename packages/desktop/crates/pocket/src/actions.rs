@@ -1,4 +1,4 @@
-use crate::browser;
+use crate::{browser, inbox};
 use gpui_kit::*;
 use workspace::tree::Edge;
 
@@ -37,7 +37,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-shift-n", NewWorktree, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("cmd-enter", OpenSession, None),
+        // Unscoped, it ties with a text field's own ⌘↵ in depth and, bound later, wins.
+        KeyBinding::new("cmd-enter", OpenSession, Some(inbox::CONTEXT)),
         KeyBinding::new("cmd-c", CopySelection, Some(keys::CONTEXT)),
         KeyBinding::new("cmd-a", SelectAll, Some(keys::CONTEXT)),
         KeyBinding::new("cmd-v", Paste, Some(keys::CONTEXT)),
@@ -74,7 +75,8 @@ pub fn bindings() -> Vec<KeyBinding> {
 #[cfg(test)]
 mod tests {
     use super::bindings;
-    use gpui_kit::Keystroke;
+    use crate::inbox;
+    use gpui_kit::{KeyBinding, KeyContext, Keymap, Keystroke, actions};
     use std::collections::HashSet;
 
     #[test]
@@ -86,6 +88,8 @@ mod tests {
             assert!(seen.insert((keys.clone(), context.clone())), "{keys:?} in {context:?} is bound twice");
         }
     }
+
+    actions!(test, [Submit]);
 
     /// The actions bound to `keys` outside any context.
     fn bound(keys: &str) -> Vec<&'static str> {
@@ -99,6 +103,19 @@ mod tests {
         for (keys, action) in panel {
             assert_eq!(bound(keys), [action], "{keys}");
         }
+    }
+
+    #[test]
+    fn cmd_enter_opens_a_session_only_from_the_inbox() {
+        let mut keymap = Keymap::default();
+        keymap.add_bindings([KeyBinding::new("secondary-enter", Submit, Some("Input"))]);
+        keymap.add_bindings(bindings());
+        let action = |stack: &[&str]| {
+            let stack: Vec<KeyContext> = stack.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
+            keymap.bindings_for_input(&[Keystroke::parse("cmd-enter").unwrap()], &stack).0.first().map(|b| b.action().name())
+        };
+        assert_eq!(action(&["Root", inbox::CONTEXT, "Input"]), Some("test::Submit"));
+        assert_eq!(action(&["Root", inbox::CONTEXT]), Some("desktop::OpenSession"));
     }
 
     #[test]

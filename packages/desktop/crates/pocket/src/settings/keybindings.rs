@@ -1,6 +1,6 @@
 use super::{card, group, row};
 use crate::desktop::Desktop;
-use crate::{actions, browser};
+use crate::{actions, browser, inbox};
 use gpui_kit::*;
 use theme::*;
 
@@ -66,12 +66,13 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
     })
 }
 
-/// Where `b` works: `Some(None)` everywhere, `Some(Some(place))` in a terminal or browser, `None` somewhere the list leaves out.
+/// Where `b` works: `Some(None)` everywhere, `Some(Some(place))` in a terminal, browser or the Inbox, `None` somewhere the list leaves out.
 fn place(b: &KeyBinding) -> Option<Option<&'static str>> {
     match b.predicate().map(|p| p.to_string()).as_deref() {
         None => Some(None),
         Some(keys::CONTEXT) => Some(Some("Terminal")),
         Some(browser::CONTEXT) => Some(Some("Browser")),
+        Some(inbox::CONTEXT) => Some(Some("Inbox")),
         Some(_) => None,
     }
 }
@@ -154,7 +155,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .gap(px(24.))
-            .child(div().px(px(14.)).text_size(px(12.)).text_color(TEXT_2).child("Shortcuts work everywhere unless marked Terminal or Browser."))
+            .child(div().px(px(14.)).text_size(px(12.)).text_color(TEXT_2).child("Shortcuts work everywhere unless marked with where they work."))
             .children(groups)
             .child(div().flex().flex_col().gap(px(6.)).child(fixed_title).children(fixed))
     }
@@ -188,9 +189,9 @@ mod tests {
     }
 
     #[test]
-    fn terminal_and_browser_shortcuts_are_marked_with_where_they_work() {
+    fn terminal_browser_and_inbox_shortcuts_are_marked_with_where_they_work() {
         let rows = shortcut_rows(&bindings());
         let at = |l: &str| rows.iter().find(|r| r.label == l).unwrap().place;
-        assert_eq!([at("Copy"), at("Reload"), at("Settings")], [Some("Terminal"), Some("Browser"), None]);
+        assert_eq!([at("Copy"), at("Reload"), at("Open session"), at("Settings")], [Some("Terminal"), Some("Browser"), Some("Inbox"), None]);
     }
 }
