@@ -244,7 +244,8 @@ pub fn dot_spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) 
         .text_size(px(size * 1.6))
         .line_height(px(size))
         .text_color(color.into())
-        .with_animation(id, Animation::new(std::time::Duration::from_secs(1)).repeat(), |d, t| {
+        // Uncapped, a repeating animation redraws the whole window every vsync.
+        .with_animation(id, Animation::new(std::time::Duration::from_secs(1)).repeat().with_max_fps(FRAMES.len() as f32), |d, t| {
             d.child(FRAMES[(t * FRAMES.len() as f32) as usize % FRAMES.len()])
         })
 }
