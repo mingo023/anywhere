@@ -46,6 +46,7 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "CloseTab" => ("Close tab", Panels),
         "PrevTab" => ("Previous tab", Panels),
         "NextTab" => ("Next tab", Panels),
+        "JumpToTab" => ("Jump to tab", Panels),
         "SplitRight" => ("Split right", Panels),
         "SplitDown" => ("Split down", Panels),
         "FocusPane" => ("Focus pane", Panels),
@@ -118,7 +119,7 @@ fn shortcut_rows(bindings: &[KeyBinding]) -> Vec<Shortcut> {
 static SHORTCUTS: std::sync::LazyLock<Vec<Shortcut>> = std::sync::LazyLock::new(|| shortcut_rows(&actions::bindings()));
 
 fn shortcuts(keys: &[String]) -> Div {
-    // Jump to session has nine; the first and last say it.
+    // Some rows have nine; the first and last say it.
     let shown: Vec<&String> = if keys.len() > 4 { vec![&keys[0], &keys[keys.len() - 1]] } else { keys.iter().collect() };
     let sep = if keys.len() > 4 { "–" } else { "or" };
     div().flex().flex_none().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_3).children(shown.into_iter().enumerate().flat_map(|(i, k)| {

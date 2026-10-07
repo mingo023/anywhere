@@ -1,4 +1,4 @@
-use crate::actions::{EqualizePanes, FocusPane, NextTab, PrevTab, SplitDown, SplitRight, ZoomPane};
+use crate::actions::{EqualizePanes, FocusPane, JumpToTab, NextTab, PrevTab, SplitDown, SplitRight, ZoomPane};
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use workspace::Place;
@@ -48,6 +48,13 @@ impl Desktop {
     fn step_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.panel_tree() else { return };
         if let Some((pane, i)) = self.workspace(&tree).tree.step(forward) {
+            self.select_tab(pane, i, window, cx);
+        }
+    }
+
+    pub(crate) fn jump_to_tab(&mut self, a: &JumpToTab, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tree) = self.panel_tree() else { return };
+        if let Some((pane, i)) = self.workspace(&tree).tree.nth_tab(a.0) {
             self.select_tab(pane, i, window, cx);
         }
     }

@@ -501,6 +501,12 @@ impl<T> Tree<T> {
         (n > 0).then(|| (p.id, if forward { (p.active + 1) % n } else { (p.active + n - 1) % n }))
     }
 
+    /// The focused pane's `n`th tab, 1-based, if it has one.
+    pub fn nth_tab(&self, n: usize) -> Option<(PaneId, usize)> {
+        let p = self.focused();
+        (1..=p.tabs.len()).contains(&n).then(|| (p.id, n - 1))
+    }
+
     /// Each drawn pane's rect within `bounds`: the zoomed pane alone over all of it, else every pane's.
     pub fn drawn_layout(&self, bounds: Rect) -> Vec<(PaneId, Rect)> {
         match self.zoomed {
@@ -886,6 +892,14 @@ mod tests {
         let mut t = with(&["a", "b"]);
         let c = t.split(0, Edge::Right, "c").unwrap();
         assert_eq!(t.step(true), Some((c, 0)));
+    }
+
+    #[test]
+    fn nth_tab_picks_a_tab_of_the_focused_pane_only_if_it_exists() {
+        let mut t = with(&["a", "b"]);
+        assert_eq!([t.nth_tab(0), t.nth_tab(1), t.nth_tab(2), t.nth_tab(3)], [None, Some((0, 0)), Some((0, 1)), None]);
+        let c = t.split(0, Edge::Right, "c").unwrap();
+        assert_eq!([t.nth_tab(1), t.nth_tab(2)], [Some((c, 0)), None]);
     }
 
     #[test]

@@ -562,9 +562,9 @@ fn session_card(id: ElementId, selected: bool, state: Option<State>) -> Stateful
         .child(div().absolute().inset_0().rounded(px(8.)).map(|d| if selected { d.bg(FILL_3) } else { d.group_hover(SESSION_ROW, |s| s.bg(FILL_1)) }))
 }
 
-/// The "⌘n" chip a session row shows in place of its age while ⌘ is held.
+/// The "⌃n" chip a session row shows in place of its age while ⌃ is held.
 pub fn jump_chip(n: usize) -> Div {
-    div().h(px(16.)).px(px(4.)).flex().items_center().rounded(px(4.)).bg(FILL_4).font_family(MONO).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(format!("⌘{n}"))
+    div().h(px(16.)).px(px(4.)).flex().items_center().rounded(px(4.)).bg(FILL_4).font_family(MONO).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(format!("⌃{n}"))
 }
 
 /// A card's status as coloured text: the pill's glyph and label without its background.

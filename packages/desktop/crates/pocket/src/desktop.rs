@@ -467,6 +467,7 @@ impl Render for Desktop {
             .when(self.screen == Screen::Inbox, |d| d.key_context(crate::inbox::CONTEXT))
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                this.hide_chips(cx);
                 if ev.keystroke.key != "escape" {
                     return;
                 }
@@ -505,6 +506,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::focus_toward))
             .on_action(cx.listener(Self::prev_tab))
             .on_action(cx.listener(Self::next_tab))
+            .on_action(cx.listener(Self::jump_to_tab))
             .on_action(cx.listener(Self::zoom_pane))
             .on_action(cx.listener(Self::equalize_panes))
             .on_action(cx.listener(Self::save))

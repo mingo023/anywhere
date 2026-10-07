@@ -9,6 +9,11 @@ actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYo
 #[action(namespace = desktop, no_json)]
 pub struct JumpTo(pub usize);
 
+/// The nth tab in the focused pane, 1-based.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct JumpToTab(pub usize);
+
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
 pub struct PageEdit(pub web::Edit);
@@ -68,7 +73,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-z", PageEdit(web::Edit::Undo), Some(browser::CONTEXT)),
         KeyBinding::new("cmd-shift-z", PageEdit(web::Edit::Redo), Some(browser::CONTEXT)),
     ];
-    out.extend((1..=9).map(|n| KeyBinding::new(&format!("cmd-{n}"), JumpTo(n), None)));
+    out.extend((1..=9).map(|n| KeyBinding::new(&format!("cmd-{n}"), JumpToTab(n), None)));
+    // Not ⌘⇧n: macOS takes ⌘⇧3–5 for screenshots before the app sees them.
+    out.extend((1..=9).map(|n| KeyBinding::new(&format!("ctrl-{n}"), JumpTo(n), None)));
     out
 }
 
@@ -103,6 +110,12 @@ mod tests {
         for (keys, action) in panel {
             assert_eq!(bound(keys), [action], "{keys}");
         }
+    }
+
+    #[test]
+    fn cmd_n_jumps_to_a_tab_and_ctrl_n_to_a_session() {
+        assert_eq!([bound("cmd-1"), bound("cmd-9")], [["desktop::JumpToTab"], ["desktop::JumpToTab"]]);
+        assert_eq!([bound("ctrl-1"), bound("ctrl-9")], [["desktop::JumpTo"], ["desktop::JumpTo"]]);
     }
 
     #[test]

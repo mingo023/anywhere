@@ -9,19 +9,19 @@ use std::time::Duration;
 
 pub const CHIP_DELAY_MS: u64 = 280;
 
-/// Whether ⌘ alone is down with nothing over the window, which starts the chip timer.
+/// Whether ⌃ alone is down with nothing over the window, which starts the chip timer.
 pub fn arms_chips(m: &Modifiers, overlay_open: bool) -> bool {
-    *m == Modifiers::command() && !overlay_open
+    *m == Modifiers::control() && !overlay_open
 }
 
-/// The sessions ⌘n and ⌃Tab walk, in the order the Sessions column shows them: pinned first.
+/// The sessions ⌃n and ⌃Tab walk, in the order the Sessions column shows them: pinned first.
 pub(crate) fn walkable(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>, query: &str) -> Vec<Card> {
     let mut cards = matching(in_tree(cards, tree, tree_of), query);
     cards.sort_by_key(|c| !c.pinned);
     cards
 }
 
-/// The ⌘1–⌘9 chips on session rows, shown once ⌘ has been held alone for `CHIP_DELAY_MS`.
+/// The ⌃1–⌃9 chips on session rows, shown once ⌃ has been held alone for `CHIP_DELAY_MS`.
 #[derive(Default)]
 pub struct Chips {
     pub(crate) shown: bool,
@@ -104,10 +104,15 @@ impl Desktop {
         self.step_session(false, window, cx);
     }
 
-    pub(crate) fn on_modifiers(&mut self, ev: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
+    /// Also on any key: a ⌃ combo held past `CHIP_DELAY_MS`, like ⌃R in a terminal, isn't a jump.
+    pub(crate) fn hide_chips(&mut self, cx: &mut Context<Self>) {
         if self.chips.hide() {
             cx.notify();
         }
+    }
+
+    pub(crate) fn on_modifiers(&mut self, ev: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.hide_chips(cx);
         if !arms_chips(&ev.modifiers, self.overlay.is_some()) {
             return;
         }
@@ -139,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn cmd_n_counts_the_filtered_list() {
+    fn ctrl_n_counts_the_filtered_list() {
         assert_eq!(ids(""), vec!["a", "c", "d"]);
         assert_eq!(ids("fix c"), vec!["c"]);
     }
@@ -153,11 +158,12 @@ mod tests {
     }
 
     #[test]
-    fn chips_arm_on_cmd_alone_and_never_over_an_overlay() {
-        let cmd_shift = Modifiers { shift: true, ..Modifiers::command() };
-        assert!(arms_chips(&Modifiers::command(), false));
-        assert!(!arms_chips(&Modifiers::command(), true));
-        assert!(!arms_chips(&cmd_shift, false));
+    fn chips_arm_on_ctrl_alone_and_never_over_an_overlay() {
+        let ctrl_shift = Modifiers { shift: true, ..Modifiers::control() };
+        assert!(arms_chips(&Modifiers::control(), false));
+        assert!(!arms_chips(&Modifiers::control(), true));
+        assert!(!arms_chips(&ctrl_shift, false));
+        assert!(!arms_chips(&Modifiers::command(), false));
         assert!(!arms_chips(&Modifiers::default(), false));
     }
 }
