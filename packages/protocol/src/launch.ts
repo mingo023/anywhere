@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export const Access = Schema.Literal("ask", "edits", "auto", "full");
+export const Access = Schema.Literal("settings", "ask", "edits", "auto", "full");
 export type Access = typeof Access.Type;
 
 export const PhoneAccess = Schema.Literal("ask", "edits", "auto");

@@ -19,10 +19,13 @@ func TestResumeBringsBackTheSavedAccessPlanModelAndEffort(t *testing.T) {
 		t    state.Terminal
 		want string
 	}{
+		{saved("claude", state.Launch{Access: "settings"}), "claude --resume c-1"},
+		{saved("claude", state.Launch{Access: "settings", Plan: true}), "claude --resume c-1 --permission-mode plan"},
 		{saved("claude", state.Launch{Access: "ask"}), "claude --resume c-1 --permission-mode default"},
 		{saved("claude", state.Launch{Access: "edits"}), "claude --resume c-1 --permission-mode acceptEdits"},
 		{saved("claude", state.Launch{Access: "auto"}), "claude --resume c-1 --permission-mode auto"},
 		{saved("claude", state.Launch{Access: "edits", Plan: true, Model: "opus", Effort: "high"}), "claude --resume c-1 --permission-mode plan --model opus --effort high"},
+		{saved("codex", state.Launch{Access: "settings", Model: "gpt-5.5"}), "codex resume c-1 -m gpt-5.5"},
 		{saved("codex", state.Launch{Access: "ask"}), "codex resume c-1 -s read-only -a on-request"},
 		{saved("codex", state.Launch{Access: "edits", Model: "gpt-5.5", Effort: "high"}), "codex resume c-1 -s workspace-write -a on-request -m gpt-5.5"},
 		{saved("codex", state.Launch{Access: "auto"}), "codex resume c-1 --approve-for-me"},

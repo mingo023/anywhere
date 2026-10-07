@@ -205,7 +205,7 @@ impl Draft {
             (true, Source::Branch) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
             (true, Source::Pr) => json!({"new": {"pr": name, "copy": self.copy_env, "setup": self.run_setup}}),
         };
-        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": Access::Ask.wire(), "plan": false});
+        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": "settings", "plan": false});
         for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
             if !value.is_empty() {
                 spec[key] = value.as_str().into();
@@ -826,11 +826,11 @@ mod tests {
     }
 
     #[test]
-    fn a_spec_always_asks_without_planning_and_carries_no_argv() {
-        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "ask", "plan": false, "prompt": "Fix CI"});
+    fn a_spec_leaves_access_to_the_agents_settings_without_planning_and_carries_no_argv() {
+        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "settings", "plan": false, "prompt": "Fix CI"});
         assert_eq!(Draft::default().spec("/p", "/p/w", "", "  Fix CI  "), want);
         let new = Draft { worktree: true, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "ask", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "settings", "plan": false});
         assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
     }
 
@@ -845,7 +845,7 @@ mod tests {
     #[test]
     fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
         let draft = Draft { worktree: true, source: Source::Branch, branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "access": "ask", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "access": "settings", "plan": false});
         assert_eq!(draft.spec("/p", "/p", "fix/login", ""), want);
         assert_eq!(draft.spec("/p", "/p", "origin/fix/login", ""), want);
         assert_eq!(draft.folder("fix/login"), "fix-login");
@@ -871,7 +871,7 @@ mod tests {
     fn a_pr_is_sent_as_typed_and_reopens_as_a_pr() {
         let draft = Draft { worktree: true, source: Source::Pr, repo: Some("/p".into()), copy_env: true, ..Draft::default() };
         assert!(draft.ready("#7", false) && !draft.ready("seven", false));
-        let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "access": "ask", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "access": "settings", "plan": false});
         assert_eq!(draft.spec("/p", "/p", "#7", ""), want);
         assert_eq!(draft.folder("#7"), "pr-7");
         assert_eq!(Source::of(&want["checkout"]["new"], "pr-7".into()), (Source::Pr, "#7".to_string()));

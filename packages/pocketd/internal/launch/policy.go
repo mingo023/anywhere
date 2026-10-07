@@ -16,6 +16,10 @@ func Check(w Who, s proto.LaunchSpec, maxAccess string) *Failure {
 	if s.Access == "full" {
 		return fail("access_not_allowed", "Full access starts only from your Mac")
 	}
+	// The agent's own settings could allow more than maxAccess.
+	if s.Access == "settings" {
+		return fail("access_not_allowed", "Only your Mac starts agents with their own settings")
+	}
 	if rank[s.Access] > rank[maxAccess] {
 		return fail("access_not_allowed", "On your Mac: ⌘K → Phone access level")
 	}

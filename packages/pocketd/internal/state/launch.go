@@ -3,7 +3,8 @@ package state
 import "strings"
 
 // Parse reads the access, plan, model and effort that a claude or codex
-// argv asks for: the inverse of launch.Argv. What it can't read is ask.
+// argv asks for: the inverse of launch.Argv. An argv with no access flags is
+// settings; one whose access it can't read is ask.
 func Parse(provider string, argv []string) Launch {
 	var mode, sandbox, model, effort string
 	var bypass, approveForMe bool
@@ -32,10 +33,14 @@ func Parse(provider string, argv []string) Launch {
 	switch {
 	case bypass:
 		l.Access = "full"
+	case provider == "claude" && mode == "":
+		l.Access = "settings"
 	case provider == "claude":
 		l = Mode(l, mode)
 	case approveForMe:
 		l.Access = "auto"
+	case sandbox == "":
+		l.Access = "settings"
 	case sandbox == "danger-full-access":
 		l.Access = "full"
 	case sandbox == "workspace-write":

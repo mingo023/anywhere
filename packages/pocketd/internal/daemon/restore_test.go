@@ -83,7 +83,7 @@ func TestTheFileHoldsNoTitleEnvArgvOrText(t *testing.T) {
 		t.Fatalf("Snapshot = %+v", f)
 	}
 	e := f.Terminals[0]
-	if e.Provider != "claude" || e.ConversationID != "s1" || e.TranscriptPath != path || e.AgentID != pr.a.ID() || e.Launch == nil || e.Launch.Access != "ask" {
+	if e.Provider != "claude" || e.ConversationID != "s1" || e.TranscriptPath != path || e.AgentID != pr.a.ID() || e.Launch == nil || e.Launch.Access != "settings" {
 		t.Fatalf("entry = %+v", e)
 	}
 	raw, _ := json.Marshal(f)

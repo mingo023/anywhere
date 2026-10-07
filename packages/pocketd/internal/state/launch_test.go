@@ -29,9 +29,17 @@ func TestParseReadsBackWhatEveryLaunchArgvAsksFor(t *testing.T) {
 }
 
 func TestParseUnknownIsAsk(t *testing.T) {
-	for _, argv := range [][]string{{"claude"}, {"claude", "--permission-mode", "dontAsk"}, {"codex", "-s", "sideways"}, {"codex", "--model"}} {
+	for _, argv := range [][]string{{"claude", "--permission-mode", "dontAsk"}, {"codex", "-s", "sideways"}} {
 		if got := Parse(argv[0], argv); got.Access != "ask" || got.Plan {
 			t.Errorf("Parse(%q) = %+v, want ask", argv, got)
+		}
+	}
+}
+
+func TestParseWithoutAccessFlagsIsTheAgentsSettings(t *testing.T) {
+	for _, argv := range [][]string{{"claude"}, {"claude", "--model", "opus", "--", "--permission-mode auto"}, {"codex"}, {"codex", "--model"}} {
+		if got := Parse(argv[0], argv); got.Access != "settings" || got.Plan {
+			t.Errorf("Parse(%q) = %+v, want settings", argv, got)
 		}
 	}
 }

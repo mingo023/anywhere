@@ -18,11 +18,13 @@ func TestArgvMatchesTheF14TableForEveryProviderAccessAndPlan(t *testing.T) {
 		plan             bool
 		want             string
 	}{
+		{"claude", "settings", false, "claude"},
 		{"claude", "ask", false, "claude --permission-mode default"},
 		{"claude", "edits", false, "claude --permission-mode acceptEdits"},
 		{"claude", "auto", false, "claude --permission-mode auto"},
 		{"claude", "full", false, "claude --permission-mode bypassPermissions --allow-dangerously-skip-permissions"},
 		{"claude", "full", true, "claude --permission-mode plan"},
+		{"codex", "settings", false, "codex"},
 		{"codex", "ask", false, "codex -s read-only -a on-request"},
 		{"codex", "edits", false, "codex -s workspace-write -a on-request"},
 		{"codex", "auto", false, "codex --approve-for-me"},
@@ -75,7 +77,7 @@ func TestABadModelOrEffortIsAnInvalidSpec(t *testing.T) {
 
 func TestNoAccessEverPassesFullAuto(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
-		for _, access := range []string{"ask", "edits", "auto", "full"} {
+		for _, access := range proto.Accesses {
 			for _, plan := range []bool{false, true} {
 				if argv, _ := Argv(spec(provider, access, plan), ""); slices.Contains(argv, "--full-auto") {
 					t.Errorf("%s %s plan=%v: got %q", provider, access, plan, argv)

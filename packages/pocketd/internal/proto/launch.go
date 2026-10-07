@@ -13,7 +13,8 @@ const CapOpen = "open.v1"
 const MaxPrompt = 64 << 10
 
 var (
-	Accesses      = []string{"ask", "edits", "auto", "full"}
+	// "settings" leaves access to the agent's own settings.
+	Accesses      = []string{"settings", "ask", "edits", "auto", "full"}
 	PhoneAccesses = []string{"ask", "edits", "auto"}
 )
 

@@ -14,17 +14,19 @@ var ClaudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 var model = regexp.MustCompile(`^[A-Za-z0-9._:\[\]][A-Za-z0-9._:\[\]-]{0,63}$`)
 
 var claudeAccess = map[string][]string{
-	"ask":   {"--permission-mode", "default"},
-	"edits": {"--permission-mode", "acceptEdits"},
-	"auto":  {"--permission-mode", "auto"},
-	"full":  {"--permission-mode", "bypassPermissions", "--allow-dangerously-skip-permissions"},
+	"settings": nil,
+	"ask":      {"--permission-mode", "default"},
+	"edits":    {"--permission-mode", "acceptEdits"},
+	"auto":     {"--permission-mode", "auto"},
+	"full":     {"--permission-mode", "bypassPermissions", "--allow-dangerously-skip-permissions"},
 }
 
 var codexAccess = map[string][]string{
-	"ask":   {"-s", "read-only", "-a", "on-request"},
-	"edits": {"-s", "workspace-write", "-a", "on-request"},
-	"auto":  {"--approve-for-me"},
-	"full":  {"-s", "danger-full-access", "-a", "never"},
+	"settings": nil,
+	"ask":      {"-s", "read-only", "-a", "on-request"},
+	"edits":    {"-s", "workspace-write", "-a", "on-request"},
+	"auto":     {"--approve-for-me"},
+	"full":     {"-s", "danger-full-access", "-a", "never"},
 }
 
 // Argv is a Session's command line. name is a new Worktree's name; without

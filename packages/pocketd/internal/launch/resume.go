@@ -29,10 +29,13 @@ func Resume(t state.Terminal) ([]string, *Failure) {
 		if l.Plan {
 			mode = "plan"
 		}
-		if mode == "" {
+		if mode == "" && l.Access != "settings" {
 			mode = "default"
 		}
-		argv = []string{"claude", "--resume", t.ConversationID, "--permission-mode", mode}
+		argv = []string{"claude", "--resume", t.ConversationID}
+		if mode != "" {
+			argv = append(argv, "--permission-mode", mode)
+		}
 		if l.Model != "" {
 			argv = append(argv, "--model", l.Model)
 		}
@@ -42,6 +45,7 @@ func Resume(t state.Terminal) ([]string, *Failure) {
 	case "codex":
 		argv = []string{"codex", "resume", t.ConversationID}
 		switch l.Access {
+		case "settings":
 		case "edits":
 			argv = append(argv, "-s", "workspace-write", "-a", "on-request")
 		case "auto":

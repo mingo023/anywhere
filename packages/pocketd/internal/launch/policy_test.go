@@ -22,6 +22,7 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		want      string
 	}{
 		{"owner full", owner, spec("claude", "full", false), "ask", ""},
+		{"owner settings", owner, spec("claude", "settings", false), "ask", ""},
 		{"owner base", owner, newTree(proto.NewWorktree{Name: "n", Base: "dev"}), "ask", ""},
 		{"phone ask", phone, spec("claude", "ask", false), "ask", ""},
 		{"phone edits under auto", phone, spec("codex", "edits", false), "auto", ""},
@@ -31,6 +32,7 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		{"phone edits above ask", phone, spec("claude", "edits", false), "ask", "On your Mac: ⌘K → Phone access level"},
 		{"phone auto above edits", phone, spec("claude", "auto", false), "edits", "On your Mac: ⌘K → Phone access level"},
 		{"phone full", phone, spec("claude", "full", false), "auto", "Full access starts only from your Mac"},
+		{"phone settings", phone, spec("codex", "settings", false), "auto", "Only your Mac starts agents with their own settings"},
 		{"phone base", phone, newTree(proto.NewWorktree{Name: "n", Base: "dev"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
 		{"phone branch", phone, newTree(proto.NewWorktree{Branch: "fix/login"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
 		{"phone pr", phone, newTree(proto.NewWorktree{PR: "123"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
