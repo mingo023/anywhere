@@ -363,57 +363,65 @@ fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
     div()
         .id(id)
         .group(ROW_GROUP)
-        .h(px(32.))
-        .pr(px(6.))
+        .h(px(28.))
+        .px(px(6.))
         .flex()
         .flex_none()
         .items_center()
         .gap(px(7.))
-        .rounded(px(9.))
+        .rounded(px(8.))
+        .text_size(px(13.))
+        .font_weight(FontWeight::NORMAL)
         .cursor_pointer()
         .when(selected, |d| d.bg(FILL_4))
         .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
 }
 
+const ROW_MARK_SIZE: f32 = 20.;
+
 /// `kept` is false for a project Pocket shows only while it has terminals: its mark is dashed and its name dim.
-pub fn repo_row(id: impl Into<ElementId>, lead: impl IntoElement, name: &str, selected: bool, kept: bool) -> Stateful<Div> {
+/// A `chevron` takes the mark's place while the row is hovered.
+pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: &str, selected: bool, kept: bool) -> Stateful<Div> {
     let mark = if kept {
-        repo_mark(name, false, None)
+        repo_tile(&mark_letter(name), ROW_MARK_SIZE, false, None)
     } else {
         div()
-            .size(px(22.))
+            .size(px(ROW_MARK_SIZE))
             .flex()
             .flex_none()
             .items_center()
             .justify_center()
-            .rounded(px(6.))
+            .rounded(px(5.))
             .border(px(1.))
             .border_dashed()
             .border_color(TEXT_5)
-            .text_size(px(11.))
+            .text_size(px(10.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(TEXT_3)
             .child(mark_letter(name))
     };
+    let lead = match chevron {
+        Some(c) => div()
+            .relative()
+            .flex_none()
+            .child(mark.group_hover(ROW_GROUP, |s| s.opacity(0.)))
+            .child(c.absolute().inset_0().opacity(0.).group_hover(ROW_GROUP, |s| s.opacity(1.))),
+        None => mark,
+    };
     sidebar_row(id, selected)
-        .pl(px(4.))
-        .text_size(px(14.5))
-        .font_weight(FontWeight::SEMIBOLD)
         .child(lead)
-        .child(mark)
         .child(div().flex_1().min_w_0().truncate().when(!kept, |d| d.text_color(TEXT_3)).child(name.to_string()))
 }
 
 pub fn chevron(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
     div()
         .id(id)
-        .w(px(14.))
-        .h(px(20.))
+        .size(px(ROW_MARK_SIZE))
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .rounded(px(4.))
+        .rounded(px(5.))
         .hover(|s| s.bg(FILL_3))
         .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
 }
@@ -965,14 +973,11 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .child(div().text_size(px(11.5)).text_color(TEXT_2).child(keys.to_string()))
 }
 
-/// Indented past the project row's chevron (4 + 14 + gap 7) so its glyph sits under the project's mark and its name under the project's.
+/// Its glyph sits under the project's mark and its name under the project's.
 pub fn worktree_row(id: impl Into<ElementId>, label: impl IntoElement, selected: bool) -> Stateful<Div> {
     sidebar_row(id, selected)
-        .pl(px(25.))
-        .text_size(px(13.5))
-        .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
         .text_color(if selected { TEXT } else { TEXT_BODY })
-        .child(div().w(px(22.)).flex().flex_none().justify_center().child(icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 })))
+        .child(div().w(px(ROW_MARK_SIZE)).flex().flex_none().justify_center().child(icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 })))
         .child(div().flex_1().min_w_0().truncate().child(label))
 }
 

@@ -140,11 +140,12 @@ impl Desktop {
         let header = div()
             .pt(px(10.))
             .pb(px(4.))
-            .px(px(10.))
+            .pl(px(6.))
+            .pr(px(10.))
             .flex()
             .items_center()
-            .text_size(px(12.))
-            .font_weight(FontWeight::SEMIBOLD)
+            .text_size(px(11.))
+            .font_weight(FontWeight::BOLD)
             .text_color(TEXT_3)
             .child(div().flex_1().child("Projects"))
             .child(
@@ -211,19 +212,15 @@ impl Desktop {
         let selected = fold.selected(current.as_deref(), &main);
         let ProjectRow { git, branched, open, setting_up } = fold;
         let cards = if open { self.tree_cards(p, &main) } else { self.cards(p) };
-        let lead = if branched {
+        let chevron = branched.then(|| {
             let target = p.to_string();
-            ui::chevron(("aside-chevron", i), open)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.store.toggle(&target);
-                    this.store.save();
-                    cx.notify();
-                }))
-                .into_any_element()
-        } else {
-            div().w(px(14.)).flex_none().into_any_element()
-        };
+            ui::chevron(("aside-chevron", i), open).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.store.toggle(&target);
+                this.store.save();
+                cx.notify();
+            }))
+        });
         let menu = RowMenu::Project(p.to_string());
         let mut buttons = Vec::new();
         if git {
@@ -241,7 +238,7 @@ impl Desktop {
         buttons.push(self.row_menu_button(p, menu.clone(), cx));
         let trail = ui::row_trail(row_mark(p, setting_up, &cards), buttons, self.row_menu.as_ref() == Some(&menu));
         let target = p.to_string();
-        let row = ui::repo_row(("aside-repo", i), lead, &self.repo_name(p), selected, kept)
+        let row = ui::repo_row(("aside-repo", i), chevron, &self.repo_name(p), selected, kept)
             .child(trail)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), None, cx)))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
@@ -267,7 +264,7 @@ impl Desktop {
                 let trail = ui::row_trail(mark, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
                 let (target, path) = (p.to_string(), tree.clone());
                 let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
-                    Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.5)).into_any_element(),
+                    Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
                     None => {
                         let tip = tip.clone();
                         div()

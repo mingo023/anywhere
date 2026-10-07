@@ -136,9 +136,9 @@ impl Render for Storybook {
                 "Project row",
                 "Sidebar rail",
                 list()
-                    .child(ui::repo_row("repo-android", ui::chevron("chev-android", true), "app-android", true, true))
-                    .child(ui::repo_row("repo-ios", ui::chevron("chev-ios", false), "app-ios", false, true).children(ui::indicator("spin-ios", Some(State::NeedsYou))))
-                    .child(ui::repo_row("repo-scratch", div().w(px(14.)).flex_none(), "scratch", false, false).children(ui::indicator("spin-scratch", Some(State::Working)))),
+                    .child(ui::repo_row("repo-android", Some(ui::chevron("chev-android", true)), "app-android", true, true))
+                    .child(ui::repo_row("repo-ios", Some(ui::chevron("chev-ios", false)), "app-ios", false, true).children(ui::indicator("spin-ios", Some(State::NeedsYou))))
+                    .child(ui::repo_row("repo-scratch", None, "scratch", false, false).children(ui::indicator("spin-scratch", Some(State::Working)))),
             ))
             .child(story(
                 "Session row",
