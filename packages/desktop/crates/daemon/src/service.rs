@@ -66,6 +66,20 @@ pub fn register_if_needed() {
     }
 }
 
+/// Restarts the bundled service through launchd; pocketd resumes its agents on the way back.
+#[cfg(target_os = "macos")]
+pub fn restart() -> Result<(), String> {
+    let uid = unsafe { libc::getuid() };
+    let target = format!("gui/{uid}/{}", channel::daemon_label());
+    let out = std::process::Command::new("launchctl").args(["kickstart", "-k", &target]).output().map_err(|e| e.to_string())?;
+    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn restart() -> Result<(), String> {
+    Err(format!("{} needs macOS", plist()))
+}
+
 #[cfg(target_os = "macos")]
 pub fn open_login_items() {
     unsafe { objc2_service_management::SMAppService::openSystemSettingsLoginItems() }

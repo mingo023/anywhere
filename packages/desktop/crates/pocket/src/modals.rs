@@ -84,7 +84,7 @@ mod tests {
     fn connected(scopes: &[&str], caps: &[&str]) -> Agents {
         let mut a = Agents::default();
         let strings = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
-        a.apply(Event::Connected { scopes: strings(scopes), caps: strings(caps) });
+        a.apply(Event::Connected { scopes: strings(scopes), caps: strings(caps), version: String::new() });
         a
     }
 

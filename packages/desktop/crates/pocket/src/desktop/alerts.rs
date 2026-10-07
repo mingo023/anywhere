@@ -2,10 +2,12 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::inbox;
 use crate::status::{self, Alert, Status};
+use crate::terminals::link;
 use crate::util::basename;
 use agents::{Agents, Decision, Event, Host, Permission, Summary};
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::time::Instant;
 use workspace::Tab;
 
 pub const ALLOW: &str = "allow";
@@ -119,7 +121,16 @@ impl Desktop {
             self.error = Some(message);
         }
         let connected = matches!(ev, Event::Connected { .. });
-        if connected {
+        if let Event::Connected { version, .. } = &ev {
+            self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
+            if self.terminals.link.stale().is_some() {
+                cx.spawn(async |this, cx| {
+                    cx.background_executor().timer(link::STALE_AFTER).await;
+                    this.update(cx, |_, cx| cx.notify())
+                })
+                .detach();
+            }
+            cx.notify();
             self.pair.lost();
             self.outbox.providers();
         }

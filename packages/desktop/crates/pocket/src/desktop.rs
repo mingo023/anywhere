@@ -396,17 +396,35 @@ impl Desktop {
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
-        let starting = "Starting Pocket's terminal service…";
+        let link = &self.terminals.link;
+        let starting = if link.stale().is_some() { "Updating Anywhere's background service…" } else { "Starting Pocket's terminal service…" };
         let body = div().flex_1().flex().flex_col().items_center().justify_center().gap(px(6.)).text_size(px(14.)).text_color(TEXT_3);
-        let body = match self.terminals.link.hint(Instant::now()) {
+        let body = match link.hint(Instant::now()) {
             None => body.child(starting),
             Some(Hint::Install) => body.child(starting).child("Not starting? In Terminal:").child(div().font_family(MONO).child("pocketd daemon install")),
             Some(Hint::LoginItems) => body
                 .child("Anywhere's background service is off.")
                 .child(ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items").mt(px(6.)).on_click(|_, _, _| daemon::service::open_login_items())),
             Some(Hint::Reopen) => body.child(starting).child("Not starting? Quit and reopen Anywhere."),
+            Some(Hint::Stale) => body
+                .child(format!("Anywhere's background service is {}; this app is {}.", link.stale().unwrap_or_default(), channel::version()))
+                .child("It couldn't update in place. A restart interrupts open sessions, which then resume.")
+                .child(ui::button("restart-service", ui::Variant::Primary, None, "Restart service").mt(px(6.)).on_click(cx.listener(|this, _, _, cx| this.restart_service(cx)))),
         };
         div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(body)
+    }
+
+    fn restart_service(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async |this, cx| {
+            let result = cx.background_executor().spawn(async { daemon::service::restart() }).await;
+            this.update(cx, |d, cx| {
+                if let Err(e) = result {
+                    d.error = Some(format!("Couldn't restart the service: {e}"));
+                    cx.notify();
+                }
+            })
+        })
+        .detach();
     }
 
     fn blank_page(&self, cx: &mut Context<Self>) -> Div {

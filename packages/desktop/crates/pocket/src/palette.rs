@@ -658,7 +658,7 @@ mod tests {
     fn pair_phone_is_offered_only_to_the_owner() {
         let picks = |scopes: &[&str]| {
             let mut a = Agents::default();
-            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into()] });
+            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into()], version: String::new() });
             action_entries(&[], "app", Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
@@ -671,7 +671,7 @@ mod tests {
     fn phone_access_is_offered_only_to_the_owner() {
         let picks = |scopes: &[&str]| {
             let mut a = Agents::default();
-            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into()] });
+            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into()], version: String::new() });
             action_entries(&["phone".to_string()], "app", Sounds::default(), &a).into_iter().map(|e| e.pick).collect::<Vec<_>>()
         };
         assert_eq!(picks(&["observe", "drive", "approve", "spawn", "owner"]), vec![Pick::PairPhone, Pick::PhoneAccess]);

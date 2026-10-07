@@ -30,7 +30,7 @@ func watching(t *testing.T) *selfWatch {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &selfWatch{exe: exe, sum: sum, seen: st}
+	return &selfWatch{exe: exe, sum: sum, seen: st, now: time.Now}
 }
 
 func TestARebuiltBinaryUpgradesEvenWithTheSameVersion(t *testing.T) {
@@ -74,21 +74,55 @@ func TestABusyUpgradeIsRetriedNextTick(t *testing.T) {
 	}
 }
 
-func TestAFailedUpgradeWaitsForTheNextChange(t *testing.T) {
+func TestAFailedUpgradeIsRetriedWithBackoff(t *testing.T) {
 	w := watching(t)
 	writePocketd(t, w.exe, "exit 1")
+	clock := time.Now()
+	w.now = func() time.Time { return clock }
+	calls := 0
+	upgrade := func() error { calls++; return errors.New("dry run failed") }
+	w.check(upgrade)
+	w.check(upgrade)
+	clock = clock.Add(retryFirst)
+	w.check(upgrade)
+	clock = clock.Add(retryFirst)
+	w.check(upgrade)
+	clock = clock.Add(retryFirst)
+	w.check(upgrade)
+	if calls != 3 {
+		t.Fatalf("%d upgrades, want 3: at once, after %v and after %v more", calls, retryFirst, 2*retryFirst)
+	}
+}
+
+func TestAChangedBinaryIsTriedAtOnceAfterFailures(t *testing.T) {
+	w := watching(t)
+	writePocketd(t, w.exe, "exit 1")
+	clock := time.Now()
+	w.now = func() time.Time { return clock }
 	results := []error{errors.New("dry run failed"), nil}
 	calls := 0
 	upgrade := func() error { calls++; return results[calls-1] }
 	w.check(upgrade)
-	w.check(upgrade)
-	if calls != 1 {
-		t.Fatalf("%d upgrades before the fix, want 1", calls)
-	}
 	writePocketd(t, w.exe, "echo 'pocketd abc-dirty' # fixed")
 	w.check(upgrade)
+	w.check(upgrade)
 	if calls != 2 {
-		t.Fatalf("%d upgrades after the fix, want 2", calls)
+		t.Fatalf("%d upgrades, want 2", calls)
+	}
+}
+
+func TestTheBackoffCapsAtFiveMinutes(t *testing.T) {
+	w := watching(t)
+	writePocketd(t, w.exe, "exit 1")
+	clock := time.Now()
+	w.now = func() time.Time { return clock }
+	upgrade := func() error { return errors.New("dry run failed") }
+	for range 10 {
+		w.check(upgrade)
+		clock = clock.Add(retryMax)
+	}
+	if w.backoff != retryMax {
+		t.Fatalf("backoff %v, want %v", w.backoff, retryMax)
 	}
 }
 

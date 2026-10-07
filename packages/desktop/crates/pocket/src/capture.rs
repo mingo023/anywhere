@@ -17,7 +17,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 43] = [
+const STEPS: [(&str, Step); 45] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -141,6 +141,8 @@ const STEPS: [(&str, Step); 43] = [
     }),
     ("daemon-down", |d, _, _| d.terminals.disconnected(Instant::now() - crate::terminals::link::HINT_AFTER)),
     ("service-off", |d, _, _| d.terminals.link.service = Some(daemon::service::Service::RequiresApproval)),
+    ("service-updating", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now())),
+    ("service-stale", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER)),
 ];
 
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,
@@ -234,7 +236,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.agents.names.clear();
     d.sidebar.rename = None;
     d.updates.update = Update::Idle;
-    d.terminals.link = Default::default();
+    d.terminals.link.up();
+    d.terminals.link.service = None;
     d.set_appearance(WindowAppearance::Light, window, cx);
 }
 

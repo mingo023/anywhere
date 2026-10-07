@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1
+
+- Make the file preview glass like the other panes
+- Switch tabs with ⌘1–9; jump to sessions with ⌃1–9
+- Let ⌘↵ submit text fields; open the inbox's session only from the inbox
+- Start Mac sessions with the agent's own permission settings
+- Keep the dark glass window translucent behind modals
+- Slim the sidebar's project and worktree rows to Apple Notes' type
+- Count the worktree's sessions on the Sessions tab
+- Halve the release DMG: 81 MB to 40 MB
+- Insert a newline on cmd-enter and shift-enter in the terminal, no setup needed
+
 ## 0.1.0
 
 The first release of Anywhere: run Claude Code and Codex sessions on your Mac, and follow them from your phone.

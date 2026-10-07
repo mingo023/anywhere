@@ -150,6 +150,7 @@ struct Frame {
     step: String,
     note: String,
     names: HashMap<String, String>,
+    version: String,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -173,8 +174,8 @@ pub enum Event {
     Items(String, Vec<Item>),
     Asked(Permission),
     Resolved(String),
-    /// hello.ok arrived with the scopes pocketd granted this conn and the caps both sides speak.
-    Connected { scopes: Vec<String>, caps: Vec<String> },
+    /// hello.ok arrived with the scopes pocketd granted this conn, the caps both sides speak and pocketd's build.
+    Connected { scopes: Vec<String>, caps: Vec<String>, version: String },
     Host(Host),
     /// A pairing code from `Outbox::pair_begin`; `expires_at` is Unix ms.
     PairCode { url: String, code: String, expires_at: i64 },
@@ -208,6 +209,8 @@ pub struct Agents {
     pub caps: Vec<String>,
     /// Worktree display names by path, from `worktree.names`.
     pub names: HashMap<String, String>,
+    /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
+    pub version: String,
 }
 
 impl Agents {
@@ -243,11 +246,12 @@ impl Agents {
                 }
             }
             Event::Resolved(id) => self.pending.retain(|p| p.request_id != id),
-            Event::Connected { scopes, caps } => {
+            Event::Connected { scopes, caps, version } => {
                 self.pending.clear();
                 self.host = None;
                 self.scopes = scopes;
                 self.caps = caps;
+                self.version = version;
                 self.names.clear();
             }
             Event::Host(h) => self.host = Some(h),
@@ -348,9 +352,16 @@ fn launch_event(f: &Frame) -> Option<Event> {
         "agent.created" => Event::Created { request: f.request_id.clone(), agent: f.agent_id.clone() },
         "agent.providers" => Event::Providers { phone_max: f.phone_max_access.clone() },
         "error" if f.id == CONFIG => Event::ConfigFailed(f.message.clone()),
-        "error" => Event::CreateFailed { request: f.id.strip_prefix(CREATE)?.to_string(), code: f.code.clone(), message: f.message.clone(), detail: f.detail.clone() },
+        "error" => Event::CreateFailed { request: f.id.strip_prefix(CREATE)?.to_string(), code: f.code.clone(), message: readable(&f.message), detail: f.detail.clone() },
         _ => return None,
     })
+}
+
+/// A pocketd older than this app rejects a create it can't parse as malformed.
+pub const OUTDATED: &str = "Anywhere's background service is out of date. Restart it to update.";
+
+fn readable(message: &str) -> String {
+    if message == "Malformed message" { OUTDATED.into() } else { message.into() }
 }
 
 fn names_event(f: &Frame) -> Option<Event> {
@@ -482,7 +493,7 @@ fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unansw
         let ev = match f.kind.as_str() {
             "hello.ok" => {
                 let host = host_event(&f);
-                tx.unbounded_send(Event::Connected { scopes: f.scopes, caps: f.caps }).ok()?;
+                tx.unbounded_send(Event::Connected { scopes: f.scopes, caps: f.caps, version: f.version }).ok()?;
                 let Some(ev) = host else { continue };
                 ev
             }
@@ -580,7 +591,7 @@ mod tests {
         a.apply(Event::Resolved("r1".into()));
         assert!(a.pending.is_empty());
         a.apply(Event::Asked(Permission { request_id: "r2".into(), ..Default::default() }));
-        a.apply(Event::Connected { scopes: vec![], caps: vec![] });
+        a.apply(Event::Connected { scopes: vec![], caps: vec![], version: String::new() });
         assert!(a.pending.is_empty());
     }
 
@@ -679,8 +690,21 @@ mod tests {
         let mut a = Agents::default();
         a.apply(futures::executor::block_on(futures::StreamExt::into_future(events)).0.unwrap());
         assert!(a.owner() && !a.observe_only() && a.pairing());
-        a.apply(Event::Connected { scopes: vec!["observe".into()], caps: vec![] });
+        a.apply(Event::Connected { scopes: vec!["observe".into()], caps: vec![], version: String::new() });
         assert!(a.observe_only() && !a.pairing());
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn connected_carries_pocketds_build_from_hello_ok() {
+        let (server, sock) = pocketd("version");
+        let (_out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        let ok = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/hello_ok_version.json");
+        ws.send(Message::text(ok)).unwrap();
+        let ev = futures::executor::block_on(futures::StreamExt::into_future(events)).0.unwrap();
+        assert!(matches!(ev, Event::Connected { version, .. } if version == "0.1.0"));
         std::fs::remove_file(&sock).unwrap();
     }
 
@@ -688,7 +712,7 @@ mod tests {
     fn opening_branches_waits_for_pocketd_to_offer_it() {
         let mut a = Agents::default();
         assert!(!a.opens());
-        a.apply(Event::Connected { scopes: vec![], caps: vec!["open.v1".into()] });
+        a.apply(Event::Connected { scopes: vec![], caps: vec!["open.v1".into()], version: String::new() });
         assert!(a.opens());
     }
 
@@ -728,7 +752,7 @@ mod tests {
     #[test]
     fn connecting_clears_the_host() {
         let mut a = Agents { host: Some(Host::default()), ..Default::default() };
-        a.apply(Event::Connected { scopes: vec![], caps: vec![] });
+        a.apply(Event::Connected { scopes: vec![], caps: vec![], version: String::new() });
         assert_eq!(a.host, None);
     }
 
@@ -850,6 +874,14 @@ mod tests {
     }
 
     #[test]
+    fn a_create_an_older_pocketd_cant_parse_reads_as_out_of_date() {
+        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"create-1","message":"Malformed message"}"#).unwrap();
+        assert!(matches!(launch_event(&f), Some(Event::CreateFailed { message, .. }) if message == OUTDATED));
+        let f: Frame = serde_json::from_str(r#"{"type":"hello.ok","version":"0.1.0"}"#).unwrap();
+        assert_eq!(f.version, "0.1.0");
+    }
+
+    #[test]
     fn names_frames_become_names_events() {
         let ev = |raw: &str| names_event(&serde_json::from_str::<Frame>(raw).unwrap());
         let names = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/worktree_names.json");
@@ -864,7 +896,7 @@ mod tests {
         let mut a = Agents::default();
         a.apply(Event::Names([("/w".to_string(), "Fix".to_string())].into()));
         assert!(!a.names_offered());
-        a.apply(Event::Connected { scopes: vec![], caps: vec!["names.v1".into()] });
+        a.apply(Event::Connected { scopes: vec![], caps: vec!["names.v1".into()], version: String::new() });
         assert!(a.names.is_empty() && a.names_offered());
     }
 

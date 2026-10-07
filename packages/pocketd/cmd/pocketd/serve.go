@@ -153,7 +153,7 @@ func serve(sock, handed string) error {
 	var watch *selfWatch
 	if st, err := os.Stat(exe); err == nil {
 		if sum, err := fileSum(exe); err == nil {
-			watch = &selfWatch{exe: exe, sum: sum, seen: st}
+			watch = &selfWatch{exe: exe, sum: sum, seen: st, now: time.Now}
 		}
 	}
 	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString()}

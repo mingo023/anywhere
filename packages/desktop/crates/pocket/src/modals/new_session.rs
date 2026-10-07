@@ -5,6 +5,7 @@ use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{default_base, home, typed_or};
+use crate::terminals::link;
 use crate::util::tilde;
 use git::github;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
@@ -506,6 +507,10 @@ impl Desktop {
     fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.session_ready(cx) {
             return;
+        }
+        if self.terminals.link.stale().is_some() {
+            self.error = Some(link::UPDATING.into());
+            return cx.notify();
         }
         let name = self.new_name(cx);
         let prompt = self.new_form.prompt.read(cx).value().to_string();
