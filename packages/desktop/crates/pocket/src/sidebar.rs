@@ -75,7 +75,7 @@ fn tree_place(w: &git::Worktree) -> String {
 }
 
 /// A worktree row's label and hover tip: its display name over its `tree_place`.
-fn tree_label(w: &git::Worktree, names: &HashMap<String, String>) -> (String, String) {
+pub(crate) fn tree_label(w: &git::Worktree, names: &HashMap<String, String>) -> (String, String) {
     let place = tree_place(w);
     match names.get(&w.path).filter(|t| !t.is_empty()) {
         Some(title) => (title.clone(), place),

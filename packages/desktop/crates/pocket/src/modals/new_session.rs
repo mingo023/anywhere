@@ -168,10 +168,14 @@ impl Draft {
         offered && self.worktree && self.source == Source::New && !prompt.trim().is_empty()
     }
 
-    /// A pull request always gets its own worktree.
+    /// A pull request always gets its own worktree; the checkout picked returns once it is unlinked.
+    fn in_worktree(&self) -> bool {
+        self.worktree || matches!(self.source, Source::Pr(_))
+    }
+
     fn link_pr(&mut self, typed: &str) {
         if parse_pr(typed).is_some() {
-            (self.source, self.worktree, self.picker) = (Source::Pr(typed.trim().to_string()), true, None);
+            (self.source, self.picker) = (Source::Pr(typed.trim().to_string()), None);
         }
     }
 
@@ -194,7 +198,7 @@ impl Draft {
 
     /// `in_tree`: a worktree is open to start the session in.
     fn ready(&self, name: &str, in_tree: bool) -> bool {
-        let place = match (self.worktree, &self.source) {
+        let place = match (self.in_worktree(), &self.source) {
             (false, _) => in_tree,
             (true, Source::New) => self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none(),
             (true, Source::Branch(_)) => self.repo.is_some() && !name.is_empty(),
@@ -221,7 +225,7 @@ impl Draft {
     }
 
     fn spec(&self, project: &str, tree: &str, name: &str, prompt: &str) -> Value {
-        let checkout = match (self.worktree, &self.source) {
+        let checkout = match (self.in_worktree(), &self.source) {
             (false, _) => json!({"worktree": tree}),
             (true, Source::New) => json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}}),
             (true, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
@@ -293,18 +297,18 @@ struct Checkout {
     hint: &'static str,
 }
 
-/// Not a worktree means the open tree: the project's own checkout, or the worktree `open` names.
-fn checkout_choice(worktree: bool, open: Option<&str>, main: Option<&str>) -> Checkout {
+/// Not a worktree means the open tree: the project's own checkout, or the worktree named `other`.
+fn checkout_choice(worktree: bool, other: Option<String>) -> Checkout {
     if worktree {
         return Checkout { glyph: "worktree", label: "Worktree".into(), hint: "Its own branch and copy of the files" };
     }
-    match open.filter(|&tree| Some(tree) != main) {
-        Some(tree) => Checkout { glyph: "worktree", label: crate::util::basename(tree), hint: "This worktree as it is: files and branch are shared" },
+    match other {
+        Some(label) => Checkout { glyph: "worktree", label, hint: "This worktree as it is: files and branch are shared" },
         None => Checkout { glyph: "laptop", label: "Local".into(), hint: "The project's checkout as it is: files and branch are shared" },
     }
 }
 
-/// Branches that get a commit time and show while the branch menu has no search.
+/// Branches the branch menu shows while it has no search.
 const RECENT: usize = 20;
 
 /// The most rows a branch search lists.
@@ -454,10 +458,13 @@ impl NewForm {
                 }
             }),
             cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
-            cx.subscribe(&pr, |this, pr, ev: &InputEvent, cx| {
-                if let InputEvent::PressEnter { .. } = ev {
+            cx.subscribe_in(&pr, window, |this, pr, ev: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { secondary, .. } = ev {
                     let typed = pr.read(cx).value().to_string();
                     this.new_form.draft.link_pr(&typed);
+                    if *secondary {
+                        this.start_session(window, cx);
+                    }
                 }
                 cx.notify()
             }),
@@ -504,10 +511,9 @@ impl Desktop {
         let dir = repo.clone();
         let task = cx.background_executor().spawn(async move {
             let current = git::read(&dir).map(|r| r.branch).unwrap_or_default();
-            let all = git::branches(&dir);
-            let branches: Vec<(String, Option<i64>)> = all.iter().enumerate().map(|(i, b)| (b.clone(), (i < RECENT).then(|| git::committed_at(&dir, b)).flatten())).collect();
+            let branches = git::dated_branches(&dir);
             let entries = std::fs::read_dir(&folders).into_iter().flatten().flatten();
-            let taken: HashSet<String> = all.into_iter().chain(entries.filter_map(|e| e.file_name().into_string().ok())).collect();
+            let taken: HashSet<String> = branches.iter().map(|(b, _)| b.clone()).chain(entries.filter_map(|e| e.file_name().into_string().ok())).collect();
             (current, branches, taken, git::remote_branches(&dir))
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -552,7 +558,7 @@ impl Desktop {
         let tree = self.cwd().unwrap_or_default();
         let f = &self.new_form.draft;
         let Some(project) = f.repo.clone() else { return };
-        let (mut spec, worktree, folder) = (f.spec(&project, &tree, &name, &prompt), f.worktree, f.folder(&name));
+        let (mut spec, worktree, folder) = (f.spec(&project, &tree, &name, &prompt), f.in_worktree(), f.folder(&name));
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
@@ -649,7 +655,7 @@ impl Desktop {
             .gap(px(8.))
             .px(px(4.))
             .pb(px(2.))
-            .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child(if f.worktree { "New worktree" } else { "New session" }))
+            .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child(if f.in_worktree() { "New worktree" } else { "New session" }))
             .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let agent = self.agent_select(cx);
@@ -770,18 +776,18 @@ mod tests {
 
     #[test]
     fn local_is_the_projects_checkout_or_names_the_open_worktree() {
-        let choice = |worktree, open| {
-            let c = checkout_choice(worktree, open, Some("/p"));
+        let choice = |worktree, other: Option<&str>| {
+            let c = checkout_choice(worktree, other.map(String::from));
             (c.glyph, c.label)
         };
-        assert_eq!(choice(false, Some("/p")), ("laptop", "Local".to_string()));
-        assert_eq!(choice(false, Some("/wt/calm-cedar")), ("worktree", "calm-cedar".to_string()));
-        assert_eq!(choice(true, Some("/wt/calm-cedar")), ("worktree", "Worktree".to_string()));
+        assert_eq!(choice(false, None), ("laptop", "Local".to_string()));
+        assert_eq!(choice(false, Some("Fix login")), ("worktree", "Fix login".to_string()));
+        assert_eq!(choice(true, Some("Fix login")), ("worktree", "Worktree".to_string()));
     }
 
     #[test]
     fn a_local_session_sends_only_the_open_tree_whatever_the_worktree_choices_were() {
-        let draft = Draft { worktree: false, source: Source::Pr("#7".into()), repo: Some("/p".into()), branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
+        let draft = Draft { worktree: false, source: Source::Branch("fix/login".into()), repo: Some("/p".into()), branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         assert!(draft.ready("", true));
         assert_eq!(draft.spec("/p", "/wt/calm-cedar", "", "")["checkout"], json!({"worktree": "/wt/calm-cedar"}));
     }
@@ -920,14 +926,14 @@ mod tests {
     }
 
     #[test]
-    fn linking_a_pr_forces_a_worktree_and_names_it_only_when_it_parses() {
+    fn linking_a_pr_forces_a_worktree_until_it_is_unlinked_and_names_it_only_when_it_parses() {
         let mut draft = Draft::default();
         draft.link_pr("seven");
-        assert_eq!((draft.linked_pr(), draft.worktree), (None, false));
+        assert_eq!((draft.linked_pr(), draft.in_worktree()), (None, false));
         draft.link_pr(" #7 ");
-        assert_eq!((draft.linked_pr(), draft.worktree, draft.name()), (Some(7), true, "#7".to_string()));
+        assert_eq!((draft.linked_pr(), draft.in_worktree(), draft.name()), (Some(7), true, "#7".to_string()));
         draft.unlink_pr();
-        assert_eq!((draft.linked_pr(), draft.name()), (None, draft.auto_name()));
+        assert_eq!((draft.linked_pr(), draft.in_worktree(), draft.name()), (None, false, draft.auto_name()));
     }
 
     #[test]

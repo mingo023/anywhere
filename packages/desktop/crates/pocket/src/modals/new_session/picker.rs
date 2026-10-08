@@ -1,5 +1,6 @@
 use super::{Checkout, Source, checkout_choice, listed_branches, parse_pr};
 use crate::desktop::Desktop;
+use crate::sidebar::tree_label;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -157,7 +158,7 @@ impl Desktop {
         let f = &self.new_form.draft;
         let rows = [true, false].map(|worktree| {
             let Checkout { glyph, label, hint } = self.checkout(worktree);
-            access_row(("checkout", usize::from(worktree)), f.worktree == worktree, Some(glyph), &label, hint, TEXT)
+            access_row(("checkout", usize::from(worktree)), f.in_worktree() == worktree, Some(glyph), &label, hint, TEXT)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.new_form.draft.pick_checkout(worktree);
                     cx.notify();
@@ -264,14 +265,16 @@ impl Desktop {
         div().relative().child(agent).children(agent_menu)
     }
 
+    /// Names the open tree as the sidebar does, unless it is the project's own checkout.
     fn checkout(&self, worktree: bool) -> Checkout {
         let main = self.project.as_deref().and_then(|p| self.tree_of(p));
-        checkout_choice(worktree, self.cwd().as_deref(), main.as_deref())
+        let other = self.cwd().filter(|c| Some(c) != main.as_ref()).map(|c| self.worktree_of(&c).map_or_else(|| crate::util::basename(&c), |w| tree_label(w, &self.agents.names).0));
+        checkout_choice(worktree, other)
     }
 
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let Checkout { glyph, label, .. } = self.checkout(f.worktree);
+        let Checkout { glyph, label, .. } = self.checkout(f.in_worktree());
         let checkout = chip("form-checkout", f.picker == Some(Picker::Checkout))
             .child(icon(glyph, 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(label))

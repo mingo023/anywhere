@@ -166,9 +166,10 @@ pub fn remotes(cwd: &str) -> usize {
     lines(git(cwd, &["remote"])).len()
 }
 
-/// Seconds since the epoch of the last commit on `rev`.
-pub fn committed_at(cwd: &str, rev: &str) -> Option<i64> {
-    git(cwd, &["log", "-1", "--format=%ct", rev])?.trim().parse().ok()
+/// Local branches with their last commit's time in seconds since the epoch, most recently committed first.
+pub fn dated_branches(cwd: &str) -> Vec<(String, Option<i64>)> {
+    let refs = lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(committerdate:unix) %(refname:short)", "refs/heads"]));
+    refs.into_iter().filter_map(|l| l.split_once(' ').map(|(at, b)| (b.to_string(), at.parse().ok()))).collect()
 }
 
 /// Tracked and untracked files, relative to `cwd`.
@@ -873,6 +874,21 @@ mod tests {
 
     fn sha(r: &str, rev: &str) -> String {
         git(r, &["rev-parse", rev]).unwrap().trim().to_string()
+    }
+
+    #[test]
+    fn dated_branches_carry_each_branchs_last_commit_time_newest_first() {
+        let dir = scratch_repo("dated");
+        let repo = dir.join("repo");
+        committer(&repo);
+        let commit_at = |when: &str| assert!(Command::new("git").arg("-C").arg(&repo).args(["commit", "-q", "--allow-empty", "-m", when]).env("GIT_COMMITTER_DATE", when).status().unwrap().success());
+        sh(&repo, &["branch", "-M", "main"]);
+        sh(&repo, &["checkout", "-qb", "old"]);
+        commit_at("@978307200 +0000");
+        sh(&repo, &["checkout", "-q", "main"]);
+        commit_at("@1000000000 +0000");
+        let want = [("main".to_string(), Some(1000000000)), ("old".to_string(), Some(978307200))];
+        assert_eq!(dated_branches(repo.to_str().unwrap()), want);
     }
 
     #[test]
