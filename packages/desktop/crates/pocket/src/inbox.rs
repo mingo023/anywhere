@@ -69,9 +69,14 @@ pub fn reselect(notes: &[Note], focused: Option<&str>, i: usize) -> (usize, Opti
     }
 }
 
-/// The agents "Mark all seen" marks seen: asks stay until answered.
+/// Asks stay until answered, so they are never marked seen.
+fn asks(note: &Note) -> bool {
+    note.status == Status::NeedsYou
+}
+
+/// The agents "Mark all seen" marks seen.
 fn readable(notes: Vec<Note>) -> Vec<String> {
-    notes.into_iter().filter(|n| n.status != Status::NeedsYou).map(|n| n.agent).collect()
+    notes.into_iter().filter(|n| !asks(n)).map(|n| n.agent).collect()
 }
 
 /// Note `i`, clamped to the list, and the terminal to focus for it.

@@ -1,4 +1,4 @@
-use super::{Note, heading, notes, readable, step};
+use super::{Note, asks, heading, notes, readable, step};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{LIGHTS, Layout, RAIL, column, drag_area, empty, state};
 use crate::util::{ago, now_ms};
@@ -77,6 +77,7 @@ impl Desktop {
         let mark = ui::indicator(("note-mark", i), Some(state(n.status, 0, 0)));
         let project = self.project_name(&n.agent);
         let provider = self.agents.get(&n.agent).map(|a| provider_name(&a.provider)).unwrap_or("Shell");
+        let (agent, markable) = (n.agent.clone(), !asks(&n));
         div()
             .id(("note", i))
             .px(px(12.))
@@ -123,8 +124,10 @@ impl Desktop {
                     .child(div().truncate().text_size(px(12.)).text_color(TEXT_2).child(n.subtitle)),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.select_note(i, cx);
-                window.focus(&this.inbox.focus, cx);
+                if markable {
+                    this.outbox.seen(std::slice::from_ref(&agent));
+                }
+                this.focus_agent(&agent, window, cx);
             }))
     }
 }
