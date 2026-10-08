@@ -1,4 +1,4 @@
-use super::{Source, checkout_option, listed_branches, parse_pr};
+use super::{Checkout, Source, checkout_choice, listed_branches, parse_pr};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -87,7 +87,8 @@ fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
         .child(div().flex_1().text_size(px(13.)).child(Input::new(input).appearance(false).p_0().text_size(px(13.))))
 }
 
-pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, label: &str, hint: &str, color: Token) -> Stateful<Div> {
+/// A choice titled `label` over its `hint`, after an optional `lead` glyph.
+pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, lead: Option<&str>, label: &str, hint: &str, color: Token) -> Stateful<Div> {
     div()
         .id(id)
         .px(px(8.))
@@ -100,6 +101,7 @@ pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, label: &str, 
         .cursor_pointer()
         .when(selected, |d| d.bg(FILL_2))
         .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
+        .children(lead.map(|glyph| div().self_start().pt(px(1.)).child(icon(glyph, 14., TEXT_2))))
         .child(
             div()
                 .flex_1()
@@ -154,33 +156,10 @@ impl Desktop {
     fn checkout_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
         let rows = [true, false].map(|worktree| {
-            let (glyph, label, hint) = self.checkout_option(worktree);
-            div()
-                .id(("checkout", usize::from(worktree)))
-                .px(px(8.))
-                .py(px(7.))
-                .flex()
-                .flex_none()
-                .items_start()
-                .gap(px(9.))
-                .rounded(px(6.))
-                .cursor_pointer()
-                .when(f.worktree == worktree, |d| d.bg(FILL_2))
-                .when(f.worktree != worktree, |d| d.hover(|s| s.bg(FILL_2)))
-                .child(div().pt(px(1.)).child(icon(glyph, 14., TEXT_2)))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.))
-                        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(label))
-                        .child(div().text_size(px(11.5)).text_color(TEXT_3).child(hint)),
-                )
-                .child(div().w(px(16.)).flex().flex_none().justify_end().when(f.worktree == worktree, |d| d.child(icon("check", 14., TEXT))))
+            let Checkout { glyph, label, hint } = self.checkout(worktree);
+            access_row(("checkout", usize::from(worktree)), f.worktree == worktree, Some(glyph), &label, hint, TEXT)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.new_form.draft.worktree, this.new_form.draft.picker) = (worktree, None);
+                    this.new_form.draft.pick_checkout(worktree);
                     cx.notify();
                 }))
                 .into_any_element()
@@ -197,8 +176,8 @@ impl Desktop {
         let now = crate::util::now_ms();
         let mut rows = Vec::new();
         let mut head = None;
-        for (n, (local, name)) in listed_branches(&f.branches, remote, &search).into_iter().enumerate() {
-            let title = match (search.trim().is_empty(), local) {
+        for (n, (local_ix, name)) in listed_branches(&f.branches, remote, &search).into_iter().enumerate() {
+            let title = match (search.trim().is_empty(), local_ix) {
                 (true, Some(0)) => "Default",
                 (true, _) => "Recent",
                 (false, Some(_)) => "Local",
@@ -208,10 +187,12 @@ impl Desktop {
                 rows.push(pick_head(title).into_any_element());
                 head = Some(title);
             }
-            let label = if local.is_some() { name.to_string() } else { format!("origin/{name}") };
-            let meta = local.and_then(|i| f.branches[i].1).map(|s| crate::util::ago_long(s * 1000, now));
+            let label = if local_ix.is_some() { name.to_string() } else { format!("origin/{name}") };
+            let meta = local_ix.and_then(|i| f.branches[i].1).map(|s| crate::util::ago_long(s * 1000, now));
             let branch = name.to_string();
-            let open = div()
+            let open = opens.then(|| {
+                let branch = branch.clone();
+                div()
                 .id(("branch-open", n))
                 .absolute()
                 .top(px(5.))
@@ -230,21 +211,18 @@ impl Desktop {
                 .invisible()
                 .group_hover(BRANCH_ROW, |s| s.visible())
                 .child("Open worktree")
-                .on_click(cx.listener({
-                    let branch = branch.clone();
-                    move |this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.open_branch(branch.clone(), window, cx);
-                    }
-                }));
-            let row = pick_row(("branch", n), f.source == Source::New && local == Some(f.base), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.open_branch(branch.clone(), window, cx);
+                }))
+            });
+            let row = pick_row(("branch", n), f.source == Source::New && local_ix == Some(f.base), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
                 .group(BRANCH_ROW)
                 .relative()
-                .when(opens, |d| d.child(open))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| match local {
+                .children(open)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| match local_ix {
                     Some(i) => {
-                        let f = &mut this.new_form.draft;
-                        (f.base, f.source, f.picker) = (i, Source::New, None);
+                        this.new_form.draft.pick_base(i);
                         cx.notify();
                     }
                     None => this.open_branch(branch.clone(), window, cx),
@@ -268,9 +246,7 @@ impl Desktop {
             cx.stop_propagation();
             this.toggle_search(Picker::Pr, this.new_form.pr.clone(), window, cx);
         }));
-        let menu = (self.new_form.draft.picker == Some(Picker::Pr)).then(|| {
-            div().absolute().top(px(38.)).right_0().child(deferred(anchored().anchor(Anchor::TopRight).snap_to_window_with_margin(px(8.)).child(ui::menu_in("pr-menu-in", self.pr_picker(cx)))).with_priority(1))
-        });
+        let menu = (self.new_form.draft.picker == Some(Picker::Pr)).then(|| ui::dropdown_right(38., ui::menu_in("pr-menu-in", self.pr_picker(cx))));
         div().relative().child(button).children(menu)
     }
 
@@ -288,19 +264,19 @@ impl Desktop {
         div().relative().child(agent).children(agent_menu)
     }
 
-    fn checkout_option(&self, worktree: bool) -> (&'static str, String, &'static str) {
+    fn checkout(&self, worktree: bool) -> Checkout {
         let main = self.project.as_deref().and_then(|p| self.tree_of(p));
-        checkout_option(worktree, self.cwd().as_deref(), main.as_deref())
+        checkout_choice(worktree, self.cwd().as_deref(), main.as_deref())
     }
 
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let (glyph, label, _) = self.checkout_option(f.worktree);
+        let Checkout { glyph, label, .. } = self.checkout(f.worktree);
         let checkout = chip("form-checkout", f.picker == Some(Picker::Checkout))
             .child(icon(glyph, 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(label))
             .child(icon("chevron-down", 12., TEXT_4));
-        let checkout = if f.source == Source::Pr {
+        let checkout = if f.linked_pr().is_some() {
             checkout.opacity(0.5).cursor_default()
         } else {
             checkout.capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -315,7 +291,10 @@ impl Desktop {
     /// The base to branch from, or the branch to open.
     pub(super) fn branch_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let label = if f.source == Source::Branch { f.target.clone() } else { f.base_branch() };
+        let label = match &f.source {
+            Source::Branch(branch) => branch.clone(),
+            _ => f.base_branch(),
+        };
         let branch = chip("form-branch", f.picker == Some(Picker::Branch))
             .child(icon("branch", 14., TEXT_3))
             .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label))

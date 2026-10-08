@@ -69,13 +69,23 @@ fn setting_up(setups: &HashMap<String, String>, tree: &str) -> bool {
     setups.values().any(|t| t == tree)
 }
 
-/// A worktree row's label and hover tip: its display name over its branch; a detached one names its folder.
+/// A tree's branch; a detached one names its folder.
+fn tree_place(w: &git::Worktree) -> String {
+    if w.branch.is_empty() || w.branch == "detached" { basename(&w.path) } else { w.branch.clone() }
+}
+
+/// A worktree row's label and hover tip: its display name over its `tree_place`.
 fn tree_label(w: &git::Worktree, names: &HashMap<String, String>) -> (String, String) {
-    let place = if w.branch.is_empty() || w.branch == "detached" { basename(&w.path) } else { w.branch.clone() };
+    let place = tree_place(w);
     match names.get(&w.path).filter(|t| !t.is_empty()) {
         Some(title) => (title.clone(), place),
         None => (place.clone(), place),
     }
+}
+
+/// A tree row's label, showing `tip` on hover.
+fn tree_name(tree: &str, label: String, tip: String) -> Stateful<Div> {
+    div().id(id(format!("aside-tree-label:{tree}"))).truncate().child(label).tooltip(move |_, cx| cx.new(|_| TreeTip(tip.clone())).into()).tooltip_show_delay(Duration::from_millis(350))
 }
 
 #[derive(Clone)]
@@ -217,7 +227,12 @@ impl Desktop {
         in_tree(self.cards(project), Some(tree), |cwd| self.tree_of(cwd))
     }
 
-    /// A project's row, then its worktrees' rows while it is open.
+    /// A tree's pull request chip, if it has one.
+    fn pr_chip(&self, tree: &str) -> Option<impl IntoElement> {
+        self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr))
+    }
+
+    /// A project's row, then while it is open its checkout's and worktrees' rows.
     fn project_block(&self, i: usize, p: &str, cx: &mut Context<Self>) -> AnyElement {
         let current = self.cwd().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let kept = self.store.projects.iter().any(|k| k == p);
@@ -262,13 +277,13 @@ impl Desktop {
             .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
         let mut out = vec![row.into_any_element()];
         if open {
-            let tip = trees.iter().flatten().find(|w| w.main).map(|w| tree_label(w, &HashMap::new()).1).unwrap_or_default();
-            let label = div().id(id(format!("aside-tree-label:{main}"))).truncate().child("Local").tooltip(move |_, cx| cx.new(|_| TreeTip(tip.clone())).into()).tooltip_show_delay(Duration::from_millis(350));
+            let tip = trees.iter().flatten().find(|w| w.main).map(tree_place).unwrap_or_default();
+            let label = tree_name(&main, "Local".into(), tip);
             let mark = ui::indicator(id(format!("aside-spin:{main}")), rolled_state(&self.tree_cards(p, &main)));
             let target = p.to_string();
             out.push(
                 ui::worktree_row(id(format!("aside-tree:{main}")), "laptop", label, current.as_ref() == Some(&main), mark)
-                    .children(self.prs.get(&main).map(|pr| pull_requests::chip(id(format!("aside-pr:{main}")), pr)))
+                    .children(self.pr_chip(&main))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), None, cx)))
                     .into_any_element(),
             );
@@ -294,20 +309,11 @@ impl Desktop {
                 let (target, path) = (p.to_string(), tree.clone());
                 let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
                     Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-                    None => {
-                        let tip = tip.clone();
-                        div()
-                            .id(id(format!("aside-tree-label:{tree}")))
-                            .truncate()
-                            .child(label.clone())
-                            .tooltip(move |_, cx| cx.new(|_| TreeTip(tip.clone())).into())
-                            .tooltip_show_delay(Duration::from_millis(350))
-                            .into_any_element()
-                    }
+                    None => tree_name(tree, label.clone(), tip.clone()).into_any_element(),
                 };
                 out.push(
                     ui::worktree_row(id(format!("aside-tree:{tree}")), "worktree", label, current.as_ref() == Some(tree), mark)
-                        .children(self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr)))
+                        .children(self.pr_chip(tree))
                         .child(trail)
                         .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                             // The rename input sits inside the row; its clicks must not restart or leave it.

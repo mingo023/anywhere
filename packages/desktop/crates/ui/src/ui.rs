@@ -42,6 +42,11 @@ pub fn dropdown(top: f32, menu: impl IntoElement) -> Div {
     div().absolute().top(px(top)).left_0().child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
 }
 
+/// A `dropdown` hung from its parent's right edge.
+pub fn dropdown_right(top: f32, menu: impl IntoElement) -> Div {
+    div().absolute().top(px(top)).right_0().child(deferred(anchored().anchor(Anchor::TopRight).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
+}
+
 /// Translucent chrome for floating buttons and groups.
 pub fn glass<E: Styled>(e: E) -> E {
     e.bg(GLASS).shadow(vec![ring(HAIRLINE, 0.5), highlight(HIGHLIGHT), shadow(rgba(0x0000000a), 1., 2.), shadow(rgba(0x0000000f), 6., 20.)])
@@ -999,8 +1004,8 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
 }
 
 /// Nested under its project: the glyph sits right of the project's mark. A status `mark` takes the glyph's place.
-pub fn worktree_row(id: impl Into<ElementId>, glyph: &str, label: impl IntoElement, selected: bool, mark: Option<AnyElement>) -> Stateful<Div> {
-    let glyph = mark.unwrap_or_else(|| icon(glyph, 13., if selected { TEXT_2 } else { TEXT_4 }).into_any_element());
+pub fn worktree_row(id: impl Into<ElementId>, icon_name: &str, label: impl IntoElement, selected: bool, mark: Option<AnyElement>) -> Stateful<Div> {
+    let glyph = mark.unwrap_or_else(|| icon(icon_name, 13., if selected { TEXT_2 } else { TEXT_4 }).into_any_element());
     sidebar_row(id, selected)
         .pl(px(16.))
         .text_color(if selected { TEXT } else { TEXT_BODY })
