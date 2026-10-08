@@ -67,6 +67,21 @@
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/main.rs"],
       "open": ["select a session", "press Cmd+. twice to hide all sidebars"],
       "capture": ["session", "focus", "focus"]
+    },
+    "automations": {
+      "files": ["packages/desktop/crates/pocket/src/automations.rs", "packages/desktop/crates/pocket/src/automations/**"],
+      "open": ["click Automations in the sidebar", "the drawer shows the first automation"],
+      "capture": ["automations"]
+    },
+    "automations-runs": {
+      "files": ["packages/desktop/crates/pocket/src/automations/runs.rs"],
+      "open": ["click Automations in the sidebar", "click the Runs tab"],
+      "capture": ["automations", "automations-runs"]
+    },
+    "automations-editor": {
+      "files": ["packages/desktop/crates/pocket/src/automations/editor.rs"],
+      "open": ["click Automations in the sidebar", "click Edit in the drawer"],
+      "capture": ["automations", "automations-editor"]
     }
   }
 }

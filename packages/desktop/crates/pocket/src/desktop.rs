@@ -8,6 +8,7 @@ pub(crate) mod sounds;
 pub(crate) mod toast;
 
 use crate::add_to_chat::ChatComposer;
+use crate::automations::AutomationsState;
 use crate::browser::Browsers;
 use crate::creating::Creates;
 use crate::desktop::alerts::Alerts;
@@ -83,6 +84,7 @@ pub struct Desktop {
     pub(crate) git_run: u64,
     pub(crate) git_done: u64,
     pub(crate) inbox: InboxState,
+    pub(crate) automations: AutomationsState,
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: PaletteState,
@@ -114,6 +116,7 @@ impl Desktop {
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
+        let (automations, automations_subs) = AutomationsState::new(window, cx);
         let browsers = Browsers::new(window, cx);
         let updates = Updates::new(&mut store, cx);
         let root = cx.focus_handle();
@@ -135,6 +138,7 @@ impl Desktop {
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
         _subs.extend(geometry_subs);
+        _subs.extend(automations_subs);
         let (layout, widths) = (store.layout, [store.widths.projects, store.widths.sessions]);
         Self {
             daemon,
@@ -170,6 +174,7 @@ impl Desktop {
             panels: Panels::default(),
             browsers,
             inbox: InboxState::new(cx),
+            automations,
             palette,
             sidebar,
             settings: SettingsState::default(),
@@ -364,7 +369,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.sidebar.picker.open
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.sidebar.picker.open || self.automations.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -373,6 +378,7 @@ impl Desktop {
         (self.panels.menu, self.panels.actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, false, false);
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;
+        self.automations.menu = None;
         open
     }
 
@@ -390,6 +396,7 @@ impl Desktop {
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
+            None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
             None => self.blank_page(cx),
         };
         ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast())
@@ -495,6 +502,8 @@ impl Render for Desktop {
                     this.close_overlay(window, cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Settings {
                     this.close_settings(window, cx);
+                } else if this.overlay.is_none() && this.screen == Screen::Automations {
+                    this.escape_automations(cx);
                 } else {
                     return;
                 }
@@ -506,6 +515,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))
             .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::open_automations))
             .on_action(cx.listener(Self::check_for_updates))
             .on_action(cx.listener(Self::next_needs_you))
             .on_action(cx.listener(Self::go_to_up_next))

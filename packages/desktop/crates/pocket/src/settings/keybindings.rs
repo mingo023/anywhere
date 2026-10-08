@@ -39,6 +39,7 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "AddToChat" => ("Add selection to chat", Sessions),
         "OpenPalette" => ("Command palette", Navigation),
         "GoToFile" => ("Go to file", Navigation),
+        "OpenAutomations" => ("Go to Automations", Navigation),
         "ToggleSidebar" => ("Toggle sidebar", Navigation),
         "ToggleRail" => ("Toggle rail", Navigation),
         "ToggleFocus" => ("Focus mode", Navigation),

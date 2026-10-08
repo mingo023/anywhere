@@ -1,0 +1,1 @@
+{"type":"automation.save","id":"p2","automation":{"name":"Morning review","prompt":"Review new PRs","provider":"codex","folder":"/Users/me/app","schedule":{"kind":"interval","everyMin":60},"enabled":true}}

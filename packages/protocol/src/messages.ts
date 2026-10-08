@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timeline.js";
+import { Automation, AutomationDraft, Run } from "./automation.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
@@ -73,6 +74,10 @@ export const ClientMessage = Schema.Union(
     path: Schema.NonEmptyString,
     title: Schema.String,
   }),
+  Schema.Struct({ type: Schema.Literal("automation.save"), id: Schema.String, automation: AutomationDraft }),
+  Schema.Struct({ type: Schema.Literal("automation.enable"), id: Schema.String, automationId: Schema.String, enabled: Schema.Boolean }),
+  Schema.Struct({ type: Schema.Literal("automation.delete"), id: Schema.String, automationId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("automation.run"), id: Schema.String, automationId: Schema.String }),
 );
 export type ClientMessage = typeof ClientMessage.Type;
 
@@ -157,6 +162,7 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("host.changed"), host: HostState }),
   Schema.Struct({ type: Schema.Literal("worktree.names"), names: Schema.Record({ key: Schema.String, value: Schema.String }) }),
   Schema.Struct({ type: Schema.Literal("naming.failed"), agentId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("automations"), automations: Schema.Array(Automation), runs: Schema.Array(Run) }),
   ProjectList,
 );
 export type ServerMessage = typeof ServerMessage.Type;

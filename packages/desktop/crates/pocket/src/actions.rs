@@ -2,7 +2,7 @@ use crate::{browser, inbox};
 use gpui_kit::*;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -42,6 +42,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-shift-n", NewWorktree, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
+        KeyBinding::new("cmd-shift-a", OpenAutomations, None),
         // Unscoped, it ties with a text field's own ⌘↵ in depth and, bound later, wins.
         KeyBinding::new("cmd-enter", OpenSession, Some(inbox::CONTEXT)),
         KeyBinding::new("cmd-c", CopySelection, Some(keys::CONTEXT)),
@@ -134,5 +135,10 @@ mod tests {
     #[test]
     fn cmd_comma_opens_settings() {
         assert_eq!(bound("cmd-,"), ["desktop::OpenSettings"]);
+    }
+
+    #[test]
+    fn cmd_shift_a_opens_automations() {
+        assert_eq!(bound("cmd-shift-a"), ["desktop::OpenAutomations"]);
     }
 }

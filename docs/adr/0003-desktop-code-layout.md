@@ -18,7 +18,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `workspace` | the pane tree of a worktree: panes, their tabs, splits |
 | `git` | git reads and writes, diffs, commit graph lanes |
 | `daemon` | the pocketd socket client |
-| `agents` | the phone-socket client, the agent list and worktree display names |
+| `agents` | the phone-socket client, the agent list, worktree display names and automations: the snapshot, the draft's validation and its messages |
 | `term` | the ghostty VT |
 | `store` | the saved projects, settings (sounds, notifications, appearance, worktree root) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
@@ -37,6 +37,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `git_ui` | `changes` panel and commit, `diff` view, `graph` commit graph, `commit` stacked commit diff |
 | `add_to_chat` | quoting a selection into an agent's input: the composer, its agent menu, the selection pill |
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview |
+| `automations` | the Automations screen (⌘⇧A, offered only when pocketd has the capability): `automations/logic` the pure rules, `column` the tabs and lists, `rows`, `runs`, `detail` and `run_detail` the right pane, `editor` with `form` and `trigger` the full-page editor, `glyph`, `parts` |
 | `inbox`, `palette` | their screens |
 | `settings` | the Settings screen (⌘,): nav, `settings/general`, `settings/appearance`, `settings/keybindings`, `settings/worktrees` |
 | `modals` | overlays: new session, add project, confirm, more, pair phone |

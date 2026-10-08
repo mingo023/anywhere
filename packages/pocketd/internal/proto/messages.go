@@ -33,6 +33,9 @@ type ClientMessage struct {
 	Platform        string
 	Path            string
 	Title           string
+	Automation      *Automation
+	AutomationID    string
+	Enabled         bool
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -116,6 +119,12 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("key", &m.Key) && m.Key == "phone.maxAccess" && get("value", &m.Value) && slices.Contains(PhoneAccesses, m.Value)
 	case m.Type == "worktree.rename":
 		ok = get("path", &m.Path) && m.Path != "" && get("title", &m.Title)
+	case m.Type == "automation.save":
+		ok = decodeAutomation(fields["automation"], &m.Automation)
+	case m.Type == "automation.enable":
+		ok = get("automationId", &m.AutomationID) && get("enabled", &m.Enabled)
+	case m.Type == "automation.delete", m.Type == "automation.run":
+		ok = get("automationId", &m.AutomationID)
 	default:
 		ok = false
 	}

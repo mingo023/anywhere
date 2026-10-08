@@ -39,7 +39,7 @@ pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&st
     cards.into_iter().filter(|c| tree_of(&c.cwd).as_deref() == tree).collect()
 }
 
-/// The Sessions, Explorer and Changes column; the inbox lists in it too.
+/// The Sessions, Explorer and Changes column; the inbox and Automations list in it too.
 pub(crate) fn column_shown(layout: Layout, screen: Screen, hidden: bool) -> bool {
     match layout {
         Layout::Sidebars => true,
@@ -137,6 +137,28 @@ impl Desktop {
             .h(px(32.))
             .rounded(px(10.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
+        let automations = {
+            let on = self.screen == Screen::Automations;
+            div()
+                .id("aside-automations")
+                .h(px(30.))
+                .mx(px(4.))
+                .mb(px(2.))
+                .px(px(8.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_size(px(13.5))
+                .font_weight(FontWeight::MEDIUM)
+                .when(on, |d| d.bg(FILL_4).text_color(TEXT))
+                .when(!on, |d| d.text_color(TEXT_2).hover(|s| s.bg(FILL_2)))
+                .child(icon("bolt", 15., if on { TEXT } else { TEXT_3 }))
+                .child("Automations")
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)))
+        };
         let header = div()
             .pt(px(10.))
             .pb(px(4.))
@@ -188,6 +210,7 @@ impl Desktop {
             .flex_col()
             .child(top)
             .child(search)
+            .children(self.agents.automations_offered().then_some(automations))
             .child(header)
             .child(body)
             .children(self.usage_card())
@@ -401,7 +424,9 @@ mod tests {
             column_shown(Layout::Compact, Screen::Sessions, true),
             column_shown(Layout::Compact, Screen::Inbox, true),
             column_shown(Layout::Focus, Screen::Sessions, false),
+            column_shown(Layout::Sidebars, Screen::Automations, false),
+            column_shown(Layout::Compact, Screen::Automations, true),
         ];
-        assert_eq!(got, [true, true, false, true, false]);
+        assert_eq!(got, [true, true, false, true, false, true, false]);
     }
 }

@@ -17,7 +17,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 45] = [
+const STEPS: [(&str, Step); 49] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -68,6 +68,13 @@ const STEPS: [(&str, Step); 45] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("automations", |d, window, cx| d.open_automations(&crate::actions::OpenAutomations, window, cx)),
+    ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
+    ("automations-editor", |d, window, cx| {
+        let first = d.agents.automations.items.first().map(|a| a.id.clone());
+        d.edit_automation(first.as_deref(), window, cx);
+    }),
+    ("automations-new", |d, window, cx| d.edit_automation(None, window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
     ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
     ("settings-keybindings", |d, _, _| d.settings.section = Section::Keybindings),
@@ -218,6 +225,7 @@ impl Capture {
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_chat(window, cx);
     d.close_overlay(window, cx);
+    d.automations.reset();
     (d.screen, d.side, d.settings) = (Screen::Sessions, Side::Sessions, SettingsState::default());
     (d.layout, d.widths, d.sidebar.column_hidden, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
     (d.worktree, d.terminal.focused) = (None, None);

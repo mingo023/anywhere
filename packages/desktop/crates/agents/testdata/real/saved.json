@@ -1,0 +1,1 @@
+{"type":"automations","automations":[{"id":"c93abb34-8506-4597-9238-08b8f1e09a13","name":"Morning review","prompt":"review the diff","provider":"claude","folder":"/private/tmp/pk4014316176/repo","schedule":{"kind":"interval","everyMin":60},"enabled":true,"nextRunAt":1791368439146}],"runs":[]}

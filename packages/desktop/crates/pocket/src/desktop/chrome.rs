@@ -13,6 +13,7 @@ use ui::{self, State, icon_button_sized};
 pub enum Screen {
     Sessions,
     Inbox,
+    Automations,
     Settings,
 }
 
@@ -65,6 +66,7 @@ pub enum Confirm {
     CloseFile(String),
     Quit(usize),
     OpenExternal(String),
+    DeleteAutomation(String),
 }
 
 /// The sidebar row whose `⋯` menu is open.

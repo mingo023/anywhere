@@ -65,7 +65,8 @@ impl Variant {
     pub fn fg(self) -> Token {
         match self {
             Variant::Primary => ON_TEXT,
-            Variant::Accent | Variant::Danger => WHITE,
+            Variant::Accent => ON_TEXT,
+            Variant::Danger => WHITE,
             Variant::Glass | Variant::Secondary => TEXT,
             Variant::Ghost => TEXT_2,
         }
@@ -93,7 +94,7 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
     let d = match v {
         Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD),
         Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM),
-        Variant::Accent => d.bg(ACCENT).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0a84ff59), 2., 6.)]),
+        Variant::Accent => d.bg(ACCENT).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]),
         Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)),
         Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)),
         Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD),
@@ -630,7 +631,11 @@ pub fn switch(on: bool) -> Div {
         .rounded(px(9.))
         .when(on, |d| d.bg(ACCENT).justify_end())
         .when(!on, |d| d.bg(FILL_4))
-        .child(div().size(px(14.)).rounded(px(7.)).bg(WHITE).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
+        .child(div().size(px(14.)).rounded(px(7.)).bg(if on { ON_TEXT } else { WHITE }).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
+}
+
+pub fn toggle(on: bool) -> Div {
+    switch(on).when(on, |d| d.bg(SUCCESS))
 }
 
 pub fn checkbox(on: bool) -> Div {
@@ -949,7 +954,7 @@ pub fn chip(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
 }
 
 pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-    div().id(id).flex_none().cursor_pointer().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ACCENT).whitespace_nowrap().child(label.into())
+    div().id(id).flex_none().cursor_pointer().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ACCENT_LINK).underline().whitespace_nowrap().child(label.into())
 }
 
 /// Rounded search-like field that opens something when clicked.

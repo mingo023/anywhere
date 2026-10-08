@@ -52,6 +52,10 @@ impl Desktop {
                 let list = self.inbox_list(cx).w(px(self.width(Column::Sessions, 348.)));
                 return self.resizable(list, Column::Sessions, cx);
             }
+            (Screen::Automations, _) => {
+                let list = self.automations_column(cx).w(px(self.width(Column::Sessions, 348.)));
+                return self.resizable(list, Column::Sessions, cx);
+            }
             (_, Side::Sessions) => self.session_list(cx).into_any_element(),
             (_, Side::Explorer) => self.explorer(cx).into_any_element(),
             (_, Side::Changes) => self.changes_list(cx).into_any_element(),
@@ -84,6 +88,7 @@ impl Desktop {
                 .id(("column-tab", i))
                 .flex_1()
                 .h(px(30.))
+                .px(px(10.))
                 .flex()
                 .items_center()
                 .justify_center()

@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket"
 
 	"pocketd/internal/agent"
+	"pocketd/internal/automation"
 	"pocketd/internal/broker"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
@@ -69,6 +70,9 @@ type Server struct {
 	Names   *names.Names
 	// Version is the pocketd build, sent in hello.ok.
 	Version string
+	// Automations and Scheduler serve the owner's automation verbs and feed; nil serves none.
+	Automations *automation.Store
+	Scheduler   *automation.Scheduler
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -95,6 +99,10 @@ type conn struct {
 	stopHost  func()
 	stopNames func()
 	caps      []string
+
+	stopAutomations func()
+	// automationMu keeps a verb's ack ahead of the snapshot its change triggers.
+	automationMu sync.Mutex
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +143,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.stopNames != nil {
 			c.stopNames()
+		}
+		if c.stopAutomations != nil {
+			c.stopAutomations()
 		}
 	}()
 	go c.keepalive()
@@ -241,6 +252,7 @@ func (c *conn) handle(raw []byte) {
 		nameMsgs := c.withNames(caps)
 		c.send(ok)
 		c.send(proto.NewAgentList("", c.s.Agents.List()))
+		c.automations(caps)
 		for _, req := range c.s.Broker.Open() {
 			c.send(proto.NewPermissionRequest(req))
 		}
@@ -438,6 +450,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "config.set":
 		c.configSet(m)
 		return nil
+	case "automation.save", "automation.enable", "automation.delete", "automation.run":
+		return c.automation(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")

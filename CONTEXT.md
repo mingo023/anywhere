@@ -67,3 +67,13 @@ _Avoid_: read, acknowledged
 **Up next**:
 The sessions that want a look, in the order to handle them: Needs you, then Failed, then Done, each oldest status change first. Seen sessions drop out because pocketd turns a seen Done into Idle.
 _Avoid_: next up, queue
+
+### Automations
+
+**Automation**:
+A prompt pocketd starts in an agent on a schedule: a name, the prompt, claude or codex, a folder, and either chosen weekdays at a time or every few minutes. It is enabled or paused, and can also be started by hand with Run now. pocketd owns it and keeps firing while the desktop is closed. Each run is a normal session in its folder.
+_Avoid_: job, cron, task, routine
+
+**Run**:
+One firing of an automation, from its start to its end. It shows the status of its session: Starting, Working, Needs you, Done, Failed, or Stopped when its session closed first. A run that never launched is Skipped, because the Mac was asleep past the grace window or the automation was still working from the last run. An automation has one active run at a time.
+_Avoid_: execution, job run, trigger, running (use Working)

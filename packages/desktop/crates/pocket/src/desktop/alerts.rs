@@ -111,6 +111,10 @@ impl Desktop {
             self.error = Some(message);
             return cx.notify();
         }
+        if let Event::AutomationError(message) = ev {
+            self.error = Some(message);
+            return cx.notify();
+        }
         if let Event::NamingFailed(_) = ev {
             self.error = Some("Couldn't name the session from its prompt".into());
             return cx.notify();
@@ -121,6 +125,7 @@ impl Desktop {
             self.error = Some(message);
         }
         let connected = matches!(ev, Event::Connected { .. });
+        let automations = matches!(ev, Event::Automations { .. });
         if let Event::Connected { version, .. } = &ev {
             self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
             if self.terminals.link.stale().is_some() {
@@ -138,10 +143,16 @@ impl Desktop {
             self.outbox.view(ids);
         }
         self.agents.apply(ev);
+        if connected {
+            self.leave_unoffered_automations();
+        }
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
         if self.screen == Screen::Inbox {
             (self.inbox.selected, self.terminal.focused) = inbox::reselect(&inbox::notes(&self.agents), self.terminal.focused.as_deref(), self.inbox.selected);
+        }
+        if automations {
+            self.automations_changed();
         }
         self.sync_alerts(cx);
         if !self.capturing {

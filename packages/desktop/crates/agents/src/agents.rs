@@ -1,3 +1,6 @@
+pub mod automations;
+
+use automations::{Automation, AutomationDraft, Automations, Run};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -151,6 +154,9 @@ struct Frame {
     note: String,
     names: HashMap<String, String>,
     version: String,
+    #[serde(deserialize_with = "automations::known")]
+    automations: Vec<Automation>,
+    runs: Vec<Run>,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -194,6 +200,10 @@ pub enum Event {
     Names(HashMap<String, String>),
     /// pocketd couldn't name the session from its prompt.
     NamingFailed(String),
+    /// Every automation and run, sent whole.
+    Automations { automations: Vec<Automation>, runs: Vec<Run> },
+    /// pocketd refused an automation message.
+    AutomationError(String),
 }
 
 #[derive(Default)]
@@ -211,6 +221,7 @@ pub struct Agents {
     pub names: HashMap<String, String>,
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
+    pub automations: Automations,
 }
 
 impl Agents {
@@ -259,6 +270,8 @@ impl Agents {
             Event::Providers { phone_max } => self.phone_max = phone_max,
             Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::NamingFailed(_) => {}
             Event::Names(names) => self.names = names,
+            Event::Automations { automations, runs } => self.automations.apply(automations, runs),
+            Event::AutomationError(_) => {}
         }
     }
 
@@ -278,6 +291,11 @@ impl Agents {
     /// pocketd names worktrees from their prompt and takes renames.
     pub fn names_offered(&self) -> bool {
         self.caps.iter().any(|c| c == NAMES_CAP)
+    }
+
+    /// pocketd runs automations and takes their messages.
+    pub fn automations_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == AUTOMATIONS_CAP)
     }
 
     /// Shows a rename before pocketd echoes it; a blank title clears the name.
@@ -342,8 +360,13 @@ pub enum Decision {
 const PAIR: &str = "pair";
 const CREATE: &str = "create-";
 const CONFIG: &str = "config";
+const AUTO: &str = "auto-";
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
+
+fn auto_id() -> String {
+    format!("{AUTO}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
 
 fn launch_event(f: &Frame) -> Option<Event> {
     Some(match f.kind.as_str() {
@@ -374,6 +397,15 @@ fn names_event(f: &Frame) -> Option<Event> {
 const PAIR_CAP: &str = "pair.v1";
 const OPEN_CAP: &str = "open.v1";
 const NAMES_CAP: &str = "names.v1";
+const AUTOMATIONS_CAP: &str = "automations.v1";
+
+fn automation_event(f: &Frame) -> Option<Event> {
+    match f.kind.as_str() {
+        "automations" => Some(Event::Automations { automations: f.automations.clone(), runs: f.runs.clone() }),
+        "error" if f.id.starts_with(AUTO) => Some(Event::AutomationError(readable(&f.message))),
+        _ => None,
+    }
+}
 
 /// Client messages for pocketd. They wait in a queue while it is unreachable.
 #[derive(Clone)]
@@ -430,6 +462,23 @@ impl Outbox {
         self.send(json!({"type": "worktree.rename", "id": "rename", "path": path, "title": title}));
     }
 
+    /// Creates the automation, or replaces the one with the draft's `id`.
+    pub fn automation_save(&self, draft: AutomationDraft) {
+        self.send(json!({"type": "automation.save", "id": auto_id(), "automation": draft}));
+    }
+
+    pub fn automation_enable(&self, automation_id: &str, enabled: bool) {
+        self.send(json!({"type": "automation.enable", "id": auto_id(), "automationId": automation_id, "enabled": enabled}));
+    }
+
+    pub fn automation_delete(&self, automation_id: &str) {
+        self.send(json!({"type": "automation.delete", "id": auto_id(), "automationId": automation_id}));
+    }
+
+    pub fn automation_run(&self, automation_id: &str) {
+        self.send(json!({"type": "automation.run", "id": auto_id(), "automationId": automation_id}));
+    }
+
     fn send(&self, m: Value) {
         let _ = self.0.send(m);
     }
@@ -455,7 +504,7 @@ pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 6] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP];
+const CAPS: [&str; 7] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP];
 
 fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
@@ -485,7 +534,7 @@ fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unansw
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = launch_event(&f).or_else(|| names_event(&f)) {
+        if let Some(ev) = launch_event(&f).or_else(|| names_event(&f)).or_else(|| automation_event(&f)) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -669,7 +718,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -925,5 +974,76 @@ mod tests {
         let frame = serde_json::from_str::<Frame>(r#"{"type":"host.changed","host":{"tailnet":true,"keepingAwake":false,"upgradeFailed":"1.2.0"}}"#).unwrap();
         let Some(Event::Host(host)) = host_event(&frame) else { panic!("no host event") };
         assert_eq!(host.upgrade_failed, "1.2.0");
+    }
+
+    #[test]
+    fn automation_messages_carry_a_fresh_auto_request_id() {
+        let (tx, rx) = channel();
+        let out = Outbox(tx);
+        let draft = automations::AutomationDraft {
+            id: None,
+            name: "Morning review".into(),
+            prompt: "Review new PRs".into(),
+            provider: "claude".into(),
+            folder: "/app".into(),
+            schedule: automations::Schedule::Interval { every_min: 60 },
+            enabled: true,
+        };
+        out.automation_save(draft);
+        out.automation_enable("au1", false);
+        out.automation_delete("au1");
+        out.automation_run("au1");
+        let sent: Vec<Value> = rx.try_iter().collect();
+        assert_eq!(sent[0]["automation"], json!({"name": "Morning review", "prompt": "Review new PRs", "provider": "claude", "folder": "/app", "schedule": {"kind": "interval", "everyMin": 60}, "enabled": true}));
+        let ids: Vec<&str> = sent.iter().map(|m| m["id"].as_str().unwrap()).collect();
+        assert!(ids.iter().all(|id| id.starts_with("auto-")) && ids.iter().collect::<std::collections::HashSet<_>>().len() == 4);
+        assert_eq!((&sent[1]["type"], &sent[1]["automationId"], &sent[1]["enabled"]), (&json!("automation.enable"), &json!("au1"), &json!(false)));
+        assert_eq!((&sent[2]["type"], &sent[2]["automationId"]), (&json!("automation.delete"), &json!("au1")));
+        assert_eq!((&sent[3]["type"], &sent[3]["automationId"]), (&json!("automation.run"), &json!("au1")));
+    }
+
+    #[test]
+    fn automation_frames_become_automation_events() {
+        let ev = |raw: &str| automation_event(&serde_json::from_str::<Frame>(raw).unwrap());
+        let snapshot = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/automations.json");
+        assert!(matches!(ev(snapshot), Some(Event::Automations { automations, runs }) if automations.len() == 1 && runs.len() == 2));
+        let busy = r#"{"type":"error","id":"auto-3","code":"automation_busy","message":"Still working"}"#;
+        assert!(matches!(ev(busy), Some(Event::AutomationError(message)) if message == "Still working"));
+        let old = r#"{"type":"error","id":"auto-4","message":"Malformed message"}"#;
+        assert!(matches!(ev(old), Some(Event::AutomationError(message)) if message == OUTDATED));
+        assert!(ev(r#"{"type":"error","id":"pair","message":"x"}"#).is_none());
+    }
+
+    /// Frames recorded from a real `pocketd serve` driving the fake claude (e2e harness).
+    #[test]
+    fn frames_recorded_from_a_real_pocketd_decode_to_the_run_lifecycle() {
+        use automations::RunStatus::*;
+        let frame = |raw: &str| serde_json::from_str::<Frame>(raw).unwrap();
+        let runs = |raw: &str| match automation_event(&frame(raw)) {
+            Some(Event::Automations { automations, runs }) => (automations, runs),
+            _ => panic!("not a snapshot"),
+        };
+        let (saved, none) = runs(include_str!("../testdata/real/saved.json"));
+        assert_eq!((saved.len(), none.len(), saved[0].next_run_at > 0), (1, 0, true));
+        let (_, running) = runs(include_str!("../testdata/real/running.json"));
+        assert_eq!((running[0].status, running[0].trigger.as_str(), running[0].agent_id.is_empty(), running[0].finished_at), (Running, "manual", false, 0));
+        let (_, done) = runs(include_str!("../testdata/real/succeeded.json"));
+        assert_eq!((done[0].status, done[0].summary.as_str(), done[0].finished_at > done[0].started_at), (Succeeded, "echo: review the diff", true));
+        let (two, both) = runs(include_str!("../testdata/real/waiting.json"));
+        let mut a = automations::Automations::default();
+        a.apply(two, both);
+        assert_eq!(a.waiting().count(), 1);
+        let busy = automation_event(&frame(include_str!("../testdata/real/error_busy.json")));
+        assert!(matches!(busy, Some(Event::AutomationError(message)) if message == "This automation is already working"));
+        let invalid = automation_event(&frame(include_str!("../testdata/real/error_invalid.json")));
+        assert!(matches!(invalid, Some(Event::AutomationError(message)) if message == OUTDATED));
+    }
+
+    #[test]
+    fn automations_wait_for_pocketd_to_offer_them() {
+        let mut a = Agents::default();
+        assert!(!a.automations_offered());
+        a.apply(Event::Connected { scopes: vec![], caps: vec!["automations.v1".into()], version: String::new() });
+        assert!(a.automations_offered());
     }
 }

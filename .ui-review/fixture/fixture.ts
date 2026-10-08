@@ -155,6 +155,26 @@ const screen = (id: string) => {
   return `${ESC}?25l` + [...Array(ROWS - body.length).fill(""), ...body].join("\r\n");
 };
 
+const MIN = 60_000;
+const AUTOMATIONS = [
+  { id: "au1", name: "Morning PR review", prompt: "Review the pull requests opened since yesterday and leave comments on anything risky.", provider: "claude", folder: repoPath("app-android"), schedule: { kind: "days", days: [1, 2, 3, 4, 5], time: "09:00" }, enabled: true, nextRunAt: now + 19 * 60 * MIN },
+  { id: "au2", name: "Dependency audit", prompt: "Check for outdated or vulnerable dependencies and open a summary.", provider: "codex", folder: repoPath("app-ios"), schedule: { kind: "days", days: [5], time: "17:00" }, enabled: true, nextRunAt: now + 3 * 24 * 60 * MIN },
+  { id: "au3", name: "Flaky test triage", prompt: "Find tests that failed and passed on the same commit this week.", provider: "codex", folder: repoPath("app-hook"), schedule: { kind: "interval", everyMin: 120 }, enabled: true, nextRunAt: now + 97 * MIN },
+  { id: "au4", name: "Weekly changelog", prompt: "Draft the changelog from merged pull requests.", provider: "claude", folder: repoPath("marketing"), schedule: { kind: "days", days: [1], time: "10:00" }, enabled: false, nextRunAt: 0 },
+];
+const run = (id: string, automationId: string, status: string, ago: number, why: string, summary: string, took = 0, agent = "") =>
+  ({ id, automationId, status, trigger: why === "Run now" ? "manual" : "schedule", why, summary, startedAt: now - ago * MIN, finishedAt: took ? now - (ago - took) * MIN : 0, agentId: agent, terminalId: agent });
+const RUNS = [
+  run("r1", "au1", "waiting", 8, "Asked to run tests", "Wants to run pnpm test --filter app-android before commenting.", 0, "fix"),
+  run("r2", "au3", "running", 3, "Every 2 hours", "Comparing 14 failures against the last 40 runs.", 0, "hook"),
+  run("r3", "au3", "succeeded", 125, "Every 2 hours", "Found 2 flaky tests and filed notes.", 6),
+  run("r4", "au2", "skipped", 150, "Mac asleep", ""),
+  run("r5", "au1", "succeeded", 26 * 60, "Weekdays 09:00", "Reviewed 3 pull requests; 1 needs a second look.", 12),
+  run("r6", "au3", "failed", 26 * 60 + 120, "Every 2 hours", "The test runner exited with status 1.", 2),
+  run("r7", "au2", "succeeded", 50 * 60, "Run now", "No vulnerable dependencies.", 4),
+  run("r8", "au4", "cancelled", 52 * 60, "Weekly, Monday 10:00", "Stopped before it finished.", 1),
+];
+
 const ops = (c: Socket, first: Buffer) => {
   let buf = "";
   const read = (raw: Buffer) => {
@@ -187,8 +207,9 @@ Bun.serve({
     message(ws, raw) {
       const f = JSON.parse(raw.toString());
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
+        ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }

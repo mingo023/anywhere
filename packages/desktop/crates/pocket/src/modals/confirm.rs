@@ -91,6 +91,10 @@ impl ConfirmText {
         Self { title: "Open in another app?".into(), action: "Open", facts: vec![format!("The page asks to open {url}")], dirty: 0, lost: 0, danger: false }
     }
 
+    fn delete_automation(name: &str) -> Self {
+        Self { title: format!("Delete {name}?"), action: "Delete", facts: vec!["Its run history goes too".into()], dirty: 0, lost: 0, danger: true }
+    }
+
     fn detail(&self) -> Option<String> {
         (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
@@ -121,6 +125,7 @@ impl Desktop {
             Some(Confirm::CloseFile(path)) => ConfirmText::close_file(path),
             Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
             Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
+            Some(Confirm::DeleteAutomation(id)) => ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str())),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -193,6 +198,7 @@ impl Desktop {
             Some(Confirm::CloseFile(path)) => self.save_file(path, true, cx),
             Some(Confirm::Quit(_)) => cx.quit(),
             Some(Confirm::OpenExternal(url)) => cx.open_url(&url),
+            Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id),
             None => {}
         }
         self.close_overlay(window, cx);
@@ -212,6 +218,11 @@ mod tests {
     fn close_confirm_mentions_the_turn_only_while_working() {
         assert_eq!(ConfirmText::close_session("Fix login", false), text("Close Fix login?", "Close", &["Closes its terminal"], 0));
         assert_eq!(ConfirmText::close_session("Fix login", true), text("Close Fix login?", "Close", &["Closes its terminal", "Stops its current turn"], 0));
+    }
+
+    #[test]
+    fn deleting_an_automation_warns_that_its_history_goes() {
+        assert_eq!(ConfirmText::delete_automation("Nightly"), text("Delete Nightly?", "Delete", &["Its run history goes too"], 0));
     }
 
     #[test]

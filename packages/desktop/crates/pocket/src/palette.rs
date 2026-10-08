@@ -27,6 +27,7 @@ pub enum Pick {
     Tree { project: String, tree: Option<String> },
     UpNext,
     Browser,
+    Automations,
     PairPhone,
     PhoneAccess,
     Sound(Cue),
@@ -243,6 +244,7 @@ fn action_entries(words: &[String], project: &str, sounds: Sounds, agents: &Agen
         Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Go to next Needs you".into(), detail: String::new(), keys: Some("⌘ J") },
         Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
         Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
+        Entry { pick: Pick::Automations, lead: Lead::Icon("bolt"), title: "Go to Automations".into(), detail: String::new(), keys: Some("⌘ ⇧ A") },
         Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::PhoneAccess, lead: Lead::Icon("shield"), title: "Phone access level…".into(), detail: String::new(), keys: None },
     ]
@@ -252,6 +254,7 @@ fn action_entries(words: &[String], project: &str, sounds: Sounds, agents: &Agen
         Pick::New | Pick::Split => may_open(Overlay::NewSession, agents),
         Pick::PairPhone => may_open(Overlay::PairPhone, agents),
         Pick::PhoneAccess => may_open(Overlay::PhoneAccess, agents),
+        Pick::Automations => agents.automations_offered(),
         _ => true,
     })
     .filter(|e| matches(words, &[&e.title]))
@@ -354,6 +357,7 @@ impl Desktop {
             }
             Pick::UpNext => self.go_to_up_next(&crate::actions::GoToUpNext, window, cx),
             Pick::Browser => self.open_browser(None, window, cx),
+            Pick::Automations => self.open_automations(&crate::actions::OpenAutomations, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
             Pick::PhoneAccess => self.open(Overlay::PhoneAccess, window, cx),
             Pick::Sound(cue) => {
@@ -636,21 +640,35 @@ mod tests {
         assert_eq!(got, want.map(|(t, d)| (t.to_string(), d.to_string())));
     }
 
+    fn offering_automations() -> Agents {
+        let mut a = Agents::default();
+        a.apply(Event::Connected { scopes: vec![], caps: vec!["automations.v1".into()], version: String::new() });
+        a
+    }
+
+    #[test]
+    fn automations_is_listed_only_once_pocketd_offers_it() {
+        let listed = |a: &Agents| action_entries(&[], "app", Sounds::default(), a).iter().any(|e| e.pick == Pick::Automations);
+        assert!(!listed(&Agents::default()));
+        assert!(listed(&offering_automations()));
+    }
+
     #[test]
     fn actions_match_on_their_titles() {
-        let all: Vec<_> = action_entries(&[], "app", Sounds::default(), &Agents::default()).into_iter().map(|e| (e.pick, e.title)).collect();
+        let all: Vec<_> = action_entries(&[], "app", Sounds::default(), &offering_automations()).into_iter().map(|e| (e.pick, e.title)).collect();
         let want = [
             (Pick::New, "New session in app"),
             (Pick::Split, "Open selected in a split"),
             (Pick::Next, "Go to next Needs you"),
             (Pick::UpNext, "Go to Up next"),
             (Pick::Browser, "Open browser"),
+            (Pick::Automations, "Go to Automations"),
             (Pick::Sound(Cue::NeedsYou), "Needs you sound: On"),
             (Pick::Sound(Cue::Done), "Done sound: On"),
             (Pick::Sound(Cue::Failed), "Failed sound: On"),
         ];
         assert_eq!(all, want.map(|(p, t)| (p, t.to_string())));
-        let session: Vec<_> = action_entries(&strings(&["session"]), "app", Sounds::default(), &Agents::default()).into_iter().map(|e| e.pick).collect();
+        let session: Vec<_> = action_entries(&strings(&["session"]), "app", Sounds::default(), &offering_automations()).into_iter().map(|e| e.pick).collect();
         assert_eq!(session, vec![Pick::New]);
     }
 
@@ -658,13 +676,13 @@ mod tests {
     fn pair_phone_is_offered_only_to_the_owner() {
         let picks = |scopes: &[&str]| {
             let mut a = Agents::default();
-            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into()], version: String::new() });
+            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into(), "automations.v1".into()], version: String::new() });
             action_entries(&[], "app", Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
-        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::PairPhone, Pick::PhoneAccess]);
-        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser]);
-        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser]);
+        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::PairPhone, Pick::PhoneAccess]);
+        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations]);
+        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations]);
     }
 
     #[test]

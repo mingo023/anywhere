@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"pocketd/internal/agent"
+	"pocketd/internal/automation"
 	"pocketd/internal/awake"
 	"pocketd/internal/broker"
 	"pocketd/internal/config"
@@ -156,7 +157,12 @@ func serve(sock, handed string) error {
 			watch = &selfWatch{exe: exe, sum: sum, seen: st, now: time.Now}
 		}
 	}
-	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString()}
+	autos := automation.Open(home)
+	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
+		Start: func(runID string, a proto.Automation) launch.Result {
+			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a), func(string, string) {}, func(launch.Creating) {})
+		}}
+	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}
@@ -181,6 +187,11 @@ func serve(sock, handed string) error {
 		d.Restore(saved, cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
 	}
 	go d.Watch(context.Background())
+	if err := autos.Reconcile(time.Now()); err != nil {
+		log.Printf("automations: %v", err)
+	}
+	scheduler.Resume()
+	go scheduler.Run(ctx)
 	phones, err := reach.Listen(cfg.Port, cfg.Listen, ws)
 	if err != nil {
 		return err

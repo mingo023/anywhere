@@ -1,0 +1,1 @@
+{"type":"automation.save","id":"p1","automation":{"id":"au1","name":"Morning review","prompt":"Review new PRs","provider":"claude","folder":"/Users/me/app","schedule":{"kind":"days","days":[1,2,3,4,5],"time":"09:00"},"enabled":true}}

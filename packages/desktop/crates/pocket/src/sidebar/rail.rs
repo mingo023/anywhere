@@ -33,7 +33,7 @@ fn rail_button(id: impl Into<ElementId>, name: &str, active: bool) -> Stateful<D
 
 impl Desktop {
     fn column_on_side(&self) -> bool {
-        self.screen != Screen::Inbox && !self.sidebar.column_hidden
+        !matches!(self.screen, Screen::Inbox | Screen::Automations) && !self.sidebar.column_hidden
     }
 
     fn pick_side(&mut self, side: Side, cx: &mut Context<Self>) {
@@ -49,6 +49,15 @@ impl Desktop {
             cx.notify();
         } else {
             self.open_inbox(window, cx);
+        }
+    }
+
+    fn toggle_automations(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.screen == Screen::Automations {
+            self.screen = Screen::Sessions;
+            cx.notify();
+        } else {
+            self.open_automations(&crate::actions::OpenAutomations, window, cx);
         }
     }
 
@@ -78,6 +87,8 @@ impl Desktop {
         let inbox = rail_button("nav-inbox", "inbox", self.screen == Screen::Inbox)
             .when(unseen > 0, |d| d.child(ui::count_badge(unseen).top(px(-3.)).right(px(-3.))))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_inbox(window, cx)));
+        let automations = rail_button("nav-automations", "bolt", self.screen == Screen::Automations)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_automations(window, cx)));
         let settings = rail_button("nav-settings", "settings", self.screen == Screen::Settings)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
         let bars = self.usage().into_iter().map(|(p, left, level)| {
@@ -104,6 +115,7 @@ impl Desktop {
             .children(sides)
             .child(search)
             .child(inbox)
+            .children(self.agents.automations_offered().then_some(automations))
             .child(
                 div()
                     .mt_auto()

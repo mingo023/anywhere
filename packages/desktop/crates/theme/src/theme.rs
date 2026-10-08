@@ -91,12 +91,18 @@ pub const SELECTION: Token = Token::new(0x11111324, 0xebebeb33);
 /// Translucent so the character under a block cursor stays readable.
 pub const TERM_CURSOR: Token = Token::new(0x3030358c, 0xebebeb66);
 
-pub const ACCENT: Token = Token::fixed(0x5b5bd6ff);
-pub const ACCENT_BG: Token = Token::fixed(0x5b5bd61c);
-pub const ACCENT_RING: Token = Token::fixed(0x5b5bd633);
-pub const ACCENT_TINT: Token = Token::fixed(0x5b5bd612);
-pub const ACCENT_GLOW: Token = Token::fixed(0x5b5bd666);
+/// No hue: the accent is ink, so links, the working spinner and focus read as text weight rather than colour.
+pub const ACCENT: Token = Token::new(0x3f3f46ff, 0xd4d4d4ff);
+pub const ACCENT_BG: Token = Token::new(0x1111131c, 0xebebeb33);
+pub const ACCENT_RING: Token = Token::new(0x11111333, 0xebebeb66);
+pub const ACCENT_TINT: Token = Token::new(0x11111317, 0xebebeb29);
+pub const ACCENT_GLOW: Token = Token::new(0x11111399, 0xebebeb99);
 
+/// The amber of dots and badges, which stays bright in light mode where `WAITING` darkens for text.
+pub const WAITING_DOT: Token = Token::fixed(0xffb224ff);
+pub const ON_WAITING: Token = Token::fixed(0x1a1306ff);
+/// Underlined wherever it is used: colour alone doesn't mark a link.
+pub const ACCENT_LINK: Token = Token::new(0x111113ff, 0xebebebff);
 pub const WAITING: Token = Token::new(0xad5700ff, 0xffb224ff);
 pub const WAITING_TEXT: Token = Token::new(0xad5700ff, 0xffca16ff);
 pub const WAITING_BG: Token = Token::fixed(0xffb2242e);
@@ -265,8 +271,8 @@ macro_rules! embed {
 
 const ICONS: &[(&str, &[u8])] = embed!(
     "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple",
-    "discard", "external", "file", "filter", "folder", "forward", "globe", "inbox", "list-flat", "list-tree", "mic", "minus", "more", "openai", "pin", "plus", "prompt", "reload", "search", "send", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "terminal", "trash", "unfold", "worktree", "x", "x-bold",
+    "discard", "external", "file", "filter", "flow", "folder", "forward", "globe", "inbox", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "pin", "play", "plus", "prompt", "reload", "run-cancelled", "run-skipped", "search", "send", "settings", "shield",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "trash", "unfold", "worktree", "x", "x-bold",
 );
 
 const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));
@@ -311,7 +317,7 @@ pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
     t.caret = TEXT.into();
     t.mono_font_family = MONO.into();
     t.mono_font_size = px(13.);
-    t.link = ACCENT.into();
+    t.link = ACCENT_LINK.into();
     t.highlight_theme = highlight_theme(dark);
 }
 
@@ -325,13 +331,13 @@ pub fn window_background() -> WindowBackgroundAppearance {
 mod tests {
     use super::contrast::{over, ratio};
     use super::{
-        ACCENT, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
-        SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, highlight_theme, material, material_icon,
+        ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
+        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, highlight_theme, material, material_icon,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, rgba};
 
-    const TEXT_ROLES: [(&str, Token); 10] = [
+    const TEXT_ROLES: [(&str, Token); 11] = [
         ("TEXT", TEXT),
         ("TEXT_BODY", TEXT_BODY),
         ("TEXT_2", TEXT_2),
@@ -339,25 +345,15 @@ mod tests {
         ("SUCCESS_TEXT", SUCCESS_TEXT),
         ("FAILED_TEXT", FAILED_TEXT),
         ("ACCENT", ACCENT),
+        ("ACCENT_LINK", ACCENT_LINK),
         ("DIFF_ADD_TEXT", DIFF_ADD_TEXT),
         ("DIFF_DEL_TEXT", DIFF_DEL_TEXT),
         ("MODIFIED", MODIFIED),
     ];
     const GLYPHS: [(&str, Token); 5] = [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("TEXT_3", TEXT_3)];
-    const FILLS: [(&str, Token); 3] = [("ACCENT", ACCENT), ("FAILED", FAILED), ("WAITING", WAITING)];
-    /// ACCENT and WHITE are one value in both schemes (the owner's dark-theme plan), so these dark pairs stay below AA.
-    const DARK_EXEMPT: [&str; 10] = [
-        "text ACCENT on WINDOW",
-        "text ACCENT on SURFACE",
-        "text ACCENT on SURFACE_SUNKEN",
-        "text ACCENT on PAGE",
-        "text ACCENT on POPOVER",
-        "text ACCENT on SIDE",
-        "glyph ACCENT on SURFACE",
-        "glyph ACCENT on POPOVER",
-        "WHITE on FAILED",
-        "WHITE on WAITING",
-    ];
+    const FILLS: [(&str, Token); 2] = [("FAILED", FAILED), ("WAITING", WAITING)];
+    /// FAILED and WAITING keep WHITE in both schemes (the owner's dark-theme plan), so these dark pairs stay below AA.
+    const DARK_EXEMPT: [&str; 2] = ["WHITE on FAILED", "WHITE on WAITING"];
 
     fn surfaces(dark: bool) -> [(&'static str, u32); 6] {
         let window = WINDOW_SOLID.pick(dark);
@@ -384,8 +380,15 @@ mod tests {
     }
 
     #[test]
-    fn white_labels_clear_4_5_on_accent_failed_and_waiting_fills() {
+    fn white_labels_clear_4_5_on_failed_and_waiting_fills() {
         assert_eq!(white_below(false), Vec::<String>::new());
+    }
+
+    #[test]
+    fn labels_on_the_accent_fill_clear_4_5_in_both_schemes() {
+        for dark in [false, true] {
+            assert!(ratio(ON_TEXT.pick(dark), ACCENT.pick(dark)) >= 4.5, "dark: {dark}");
+        }
     }
 
     #[test]
