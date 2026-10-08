@@ -66,6 +66,8 @@ wry = { version = "0.57", default-features = false, features = ["devtools"] }
 gpui-pre = { path = "vendor/gpui-pre" }
 # gpui-pre-apple 0.3.6 compositing alpha "over" instead of adding it, so a translucent layer doesn't make the glass window opaque; drop once upstream does.
 gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
+# gpui-pre-macos 0.3.6 giving prompts the app icon explicitly, since macOS 26 sheet alerts drop the default one; drop once upstream does.
+gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # gpui-base 0.6.6 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass; drop once upstream does.
 gpui-base = { path = "vendor/gpui-base" }
 
