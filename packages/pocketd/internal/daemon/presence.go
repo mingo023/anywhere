@@ -31,6 +31,7 @@ type presence struct {
 	transcript string
 	stopTail   func()
 	enter      time.Time
+	prompted   bool // codex started on a prompt: its first thread is its own
 	thread     string
 	unfollow   context.CancelFunc
 	asks       map[string]int // open permission requests by permissionKey
@@ -42,6 +43,9 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	ctx, cancel := context.WithCancel(context.Background())
 	pr := &presence{t: t, pid: p.Pid, provider: provider, argv: p.Argv, env: p.Env, ctx: ctx, cancel: cancel, asks: map[string]int{},
 		launch: state.Parse(provider, p.Argv)}
+	if provider == "codex" && prompted(p.Argv) {
+		pr.prompted, pr.enter = true, time.Now()
+	}
 	info := t.Info()
 	driver := func(a *agent.Agent) agent.Driver { return termDriver{t: t, a: a, pid: p.Pid} }
 	if h := d.adopt(pr, driver); h != nil {

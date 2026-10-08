@@ -15,6 +15,11 @@ import (
 // taken for the one that codex started.
 var CodexMapWindow = 3 * time.Second
 
+// CodexPromptWindow is how long a codex started with a prompt has for its
+// first thread to turn active: nobody presses Enter, and its TUI takes a
+// while to come up.
+var CodexPromptWindow = 30 * time.Second
+
 func (d *Daemon) attachCodex(pr *presence) {
 	if embedded(pr.argv, pr.env) {
 		pr.a.SetAttached(false)
@@ -129,7 +134,8 @@ func (w *codexSock) bound(thread string) *presence {
 }
 
 // typedIn is the codex on the socket that got Enter last, within
-// CodexMapWindow, unless its thread is running: that Enter went to it.
+// CodexMapWindow, unless its thread is running: that Enter went to it. A codex
+// started with a prompt counts as having got Enter when it started.
 func (w *codexSock) typedIn() *presence {
 	w.d.mu.Lock()
 	defer w.d.mu.Unlock()
@@ -140,11 +146,14 @@ func (w *codexSock) typedIn() *presence {
 			continue
 		}
 		pr.mu.Lock()
-		enter, thread := pr.enter, pr.thread
+		enter, thread, window := pr.enter, pr.thread, CodexMapWindow
+		if pr.prompted {
+			window = CodexPromptWindow
+		}
 		pr.mu.Unlock()
 		status := pr.a.Summary().Status
 		running := thread != "" && (status == "working" || status == "needsYou")
-		if !running && time.Since(enter) < CodexMapWindow && enter.After(at) {
+		if !running && time.Since(enter) < window && enter.After(at) {
 			last, at = pr, enter
 		}
 	}
@@ -165,7 +174,7 @@ func (d *Daemon) bind(pr *presence, thread string) {
 	}
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})
-	pr.thread, pr.enter, pr.unfollow = thread, time.Time{}, func() {
+	pr.thread, pr.enter, pr.prompted, pr.unfollow = thread, time.Time{}, false, func() {
 		cancel()
 		<-done
 	}
@@ -196,4 +205,10 @@ func (s codexSink) Apply(e timeline.Event) {
 	if e.Kind == "compacted" {
 		s.Compacted()
 	}
+}
+
+// prompted is whether argv gives codex a prompt to start on.
+func prompted(argv []string) bool {
+	i := slices.Index(argv, "--")
+	return i > 0 && i+1 < len(argv)
 }

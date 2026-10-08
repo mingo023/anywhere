@@ -64,6 +64,19 @@ func TestACodexThreadBindsToTheCodexThatGotEnter(t *testing.T) {
 	})
 }
 
+func TestACodexStartedOnAPromptBindsItsFirstThreadWithoutEnter(t *testing.T) {
+	d := newDaemon(t)
+	home, srv := codexHome(t)
+	_, pr := codexIn(t, d, home, "--", "'do it'")
+	pr.mu.Lock()
+	pr.enter = time.Now().Add(-CodexMapWindow - time.Second)
+	pr.mu.Unlock()
+	srv.Broadcast("thread/status/changed", active("th1"))
+	eventually(t, "bound", func() bool { return boundTo(pr) == "th1" })
+	srv.Broadcast("thread/status/changed", `{"threadId":"th1","status":{"type":"idle"}}`)
+	eventually(t, "the turn's end", func() bool { return pr.a.Summary().Status == "done" })
+}
+
 func TestACodexThreadNobodyTypedIsIgnored(t *testing.T) {
 	d := newDaemon(t)
 	home, _ := codexHome(t)
