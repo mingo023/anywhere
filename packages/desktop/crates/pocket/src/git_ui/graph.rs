@@ -8,6 +8,7 @@ use git::graph::{GraphRow, Lanes};
 use git::{CommitFile, GraphCommit, Tips};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use theme::*;
@@ -23,8 +24,10 @@ const MIN_GRAPH: f32 = 4. + HEADER + 3. * lanes::H;
 const MIN_CHANGES: f32 = 120.;
 
 /// What the seam above the open graph drags.
-#[derive(Clone, Copy)]
-struct GraphSeam;
+struct GraphSeam {
+    /// The graph's top edge in window pixels when the drag started.
+    edge: Cell<f32>,
+}
 
 /// The graph's share of the `height` it splits with the Changes list when dragged to `graph_height`; `None` when both can't fit.
 fn graph_share(graph_height: f32, height: f32) -> Option<f32> {
@@ -58,6 +61,8 @@ pub struct GraphState {
     pub(crate) open: bool,
     /// The open graph's dragged share of the height it splits with the Changes list; `None` splits it evenly.
     pub(crate) share: Option<f32>,
+    /// Where the last press on the seam landed in window pixels, so a drag keeps the edge that far from the cursor instead of jumping it there.
+    pressed: f32,
     pub(crate) list: ListState,
     cwd: Option<String>,
     tips: Tips,
@@ -78,6 +83,7 @@ impl Default for GraphState {
         Self {
             open: true,
             share: None,
+            pressed: 0.,
             list: ListState::new(0, ListAlignment::Top, px(400.)),
             cwd: None,
             tips: Tips::default(),
@@ -295,10 +301,14 @@ impl Desktop {
 
     /// `changes` above the collapsible graph, splitting the height between them while it's open; drag the seam between to resize.
     pub(crate) fn with_graph(&mut self, changes: Div, cx: &mut Context<Self>) -> Div {
+        // A share dragged in a taller window would squeeze the list below its floor once the window shrinks.
+        let changes = if self.graph.open && self.graph.share.is_some() { changes.min_h(px(MIN_CHANGES)) } else { changes };
         div().flex_1().min_h_0().flex().flex_col().child(changes).child(self.graph_section(cx)).on_drag_move(cx.listener(
             |this, e: &DragMoveEvent<GraphSeam>, _, cx| {
+                let grab = this.graph.pressed - e.drag(cx).edge.get();
+                let graph_height = f32::from(e.bounds.bottom() - e.event.position.y) + grab;
                 // A drag move comes every frame, moved or not; notifying on each would redraw forever.
-                if this.graph.drag(f32::from(e.bounds.bottom() - e.event.position.y), f32::from(e.bounds.size.height)) {
+                if this.graph.drag(graph_height, f32::from(e.bounds.size.height)) {
                     this.save_soon(cx);
                     cx.notify();
                 }
@@ -359,7 +369,10 @@ impl Desktop {
         let handle = self
             .seam("graph-seam", Axis::Column, reset, cx)?
             .top(px(-SEAM / 2.))
-            .on_drag(GraphSeam, |_, _, _, cx| {
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &MouseDownEvent, _, _| this.graph.pressed = f32::from(e.position.y)))
+            .on_drag(GraphSeam { edge: Cell::new(0.) }, |seam, offset, window, cx| {
+                // GPUI starts the drag on a move past the press, with `offset` from the handle's top, half a seam above the edge.
+                seam.edge.set(f32::from(window.mouse_position().y - offset.y) + SEAM / 2.);
                 cx.stop_propagation();
                 cx.new(|_| EmptyView)
             });
