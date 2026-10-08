@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use theme::*;
 use workspace::Doc;
+use workspace::tree::Axis;
 
 const PAGE: usize = 50;
 const ROW_GROUP: &str = "graph-row";
@@ -350,32 +351,14 @@ impl Desktop {
 
     /// The seam on the open graph's top edge: drag it to resize, double-click it to split evenly again.
     fn graph_seam(&self, cx: &mut Context<Self>) -> Option<Deferred> {
-        // The deferred handle paints above overlays, so it would steal their clicks.
-        if self.overlay.is_some() {
-            return None;
-        }
-        let line = div().absolute().left_0().right_0().top(px(SEAM / 2.)).h(px(1.)).group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
-        let handle = div()
-            .id("graph-seam")
-            .group("seam")
-            .absolute()
-            .left_0()
-            .right_0()
+        let reset = |this: &mut Self, cx: &mut Context<Self>| {
+            this.graph.share = None;
+            this.save_soon(cx);
+            cx.notify();
+        };
+        let handle = self
+            .seam("graph-seam", Axis::Column, reset, cx)?
             .top(px(-SEAM / 2.))
-            .h(px(SEAM))
-            .occlude()
-            .cursor_row_resize()
-            .child(line)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                    if e.click_count == 2 {
-                        this.graph.share = None;
-                        this.save_soon(cx);
-                        cx.notify();
-                    }
-                }),
-            )
             .on_drag(GraphSeam, |_, _, _, cx| {
                 cx.stop_propagation();
                 cx.new(|_| EmptyView)

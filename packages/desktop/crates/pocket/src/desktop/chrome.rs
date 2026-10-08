@@ -8,6 +8,7 @@ use gpui_kit::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use theme::*;
 use ui::{self, State, icon_button_sized};
+use workspace::tree::Axis;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Screen {
@@ -183,33 +184,37 @@ impl Desktop {
         self.widths[col as usize].unwrap_or(fallback)
     }
 
-    /// Lets the user drag `d`'s right edge to resize `col`, or double-click it to reset.
-    pub fn resizable(&self, d: Div, col: Column, cx: &mut Context<Self>) -> Div {
+    /// A `SEAM`-thick handle for the caller to place across an edge between cells laid out along `axis`, its line lit on
+    /// hover; double-clicking it calls `reset`. `None` while an overlay is open.
+    pub(crate) fn seam(&self, id: impl Into<ElementId>, axis: Axis, reset: impl Fn(&mut Self, &mut Context<Self>) + 'static, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         // The deferred handle paints above overlays, so it would steal their clicks.
         if self.overlay.is_some() {
-            return d;
+            return None;
         }
-        let line = div().absolute().top_0().bottom_0().left(px(SEAM / 2.)).w(px(1.)).group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
+        let line = div().absolute().group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
         // Occludes so the press starts a resize, not the drag area's window move.
-        let handle = div()
-            .id(("resize-column", col as usize))
-            .group("seam")
-            .absolute()
-            .top_0()
-            .bottom_0()
+        let handle = div().id(id).group("seam").absolute().occlude();
+        let (line, handle) = match axis {
+            Axis::Row => (line.top_0().bottom_0().left(px(SEAM / 2.)).w(px(1.)), handle.top_0().bottom_0().w(px(SEAM)).cursor_col_resize()),
+            Axis::Column => (line.left_0().right_0().top(px(SEAM / 2.)).h(px(1.)), handle.left_0().right_0().h(px(SEAM)).cursor_row_resize()),
+        };
+        Some(handle.child(line).on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                if e.click_count == 2 {
+                    reset(this, cx);
+                }
+            }),
+        ))
+    }
+
+    /// Lets the user drag `d`'s right edge to resize `col`, or double-click it to reset.
+    pub fn resizable(&self, d: Div, col: Column, cx: &mut Context<Self>) -> Div {
+        let Some(handle) = self.seam(("resize-column", col as usize), Axis::Row, move |this, cx| this.reset_width(col, cx), cx) else {
+            return d;
+        };
+        let handle = handle
             .right(px(-SEAM / 2.))
-            .w(px(SEAM))
-            .occlude()
-            .cursor_col_resize()
-            .child(line)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                    if e.click_count == 2 {
-                        this.reset_width(col, cx);
-                    }
-                }),
-            )
             .on_drag(col, |_, _, _, cx| {
                 cx.stop_propagation();
                 cx.new(|_| EmptyView)
