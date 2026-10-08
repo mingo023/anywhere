@@ -43,10 +43,9 @@ pub(crate) fn column_shown(layout: Layout, screen: Screen, hidden: bool) -> bool
     }
 }
 
-/// How a project's row folds its worktrees.
+/// How a project's row folds its checkout and worktrees.
 struct ProjectRow {
     git: bool,
-    branched: bool,
     open: bool,
     setting_up: bool,
 }
@@ -54,15 +53,14 @@ struct ProjectRow {
 impl ProjectRow {
     fn new(worktrees: Option<&[git::Worktree]>, collapsed: bool, setups: &HashMap<String, String>) -> Self {
         let git = worktrees.is_some_and(|w| !w.is_empty());
-        let branched = worktrees.is_some_and(|w| w.iter().any(|w| !w.main));
-        let open = branched && !collapsed;
+        let open = git && !collapsed;
         let setting_up = !open && worktrees.into_iter().flatten().any(|w| setting_up(setups, &w.path));
-        Self { git, branched, open, setting_up }
+        Self { git, open, setting_up }
     }
 
-    /// Folded, the row stands for all its worktrees; open, for its main one.
-    fn selected(&self, current: Option<&str>, main: &str) -> bool {
-        current.is_some_and(|c| !self.open || c == main)
+    /// Folded, the row stands for all its trees; open, their rows do.
+    fn selected(&self, current: Option<&str>) -> bool {
+        current.is_some() && !self.open
     }
 }
 
@@ -227,18 +225,10 @@ impl Desktop {
         let trees = self.listed_trees(p).map(|w| self.removals.hide(self.creates.trees(p, &w)));
         let setups = self.creates.setups(&self.terminals.setups);
         let fold = ProjectRow::new(trees.as_deref(), self.store.collapsed.contains(p), &setups);
-        let selected = fold.selected(current.as_deref(), &main);
-        let ProjectRow { git, branched, open, setting_up } = fold;
-        let cards = if open { self.tree_cards(p, &main) } else { self.cards(p) };
-        let chevron = branched.then(|| {
-            let target = p.to_string();
-            ui::chevron(("aside-chevron", i), open).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.store.toggle(&target);
-                this.store.save();
-                cx.notify();
-            }))
-        });
+        let selected = fold.selected(current.as_deref());
+        let ProjectRow { git, open, setting_up } = fold;
+        let state = if open { None } else { rolled_state(&self.cards(p)).filter(|_| !setting_up) };
+        let chevron = git.then(|| ui::chevron(("aside-chevron", i), open));
         let menu = RowMenu::Project(p.to_string());
         let mut buttons = Vec::new();
         if git {
@@ -257,13 +247,31 @@ impl Desktop {
         let setup = setting_up.then(|| ui::busy(id(format!("aside-setup:{p}")), "Setting up…").into_any_element());
         let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu));
         let target = p.to_string();
-        let row = ui::repo_row(("aside-repo", i), chevron, &self.repo_name(p), selected, kept, rolled_state(&cards).filter(|_| !setting_up))
+        let row = ui::repo_row(("aside-repo", i), chevron, &self.repo_name(p), selected, kept, state)
             .child(trail)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), None, cx)))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                if git {
+                    this.store.toggle(&target);
+                    this.store.save();
+                    cx.notify();
+                } else {
+                    this.select_tree(target.clone(), None, cx);
+                }
+            }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
             .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
         let mut out = vec![row.into_any_element()];
         if open {
+            let tip = trees.iter().flatten().find(|w| w.main).map(|w| tree_label(w, &HashMap::new()).1).unwrap_or_default();
+            let label = div().id(id(format!("aside-tree-label:{main}"))).truncate().child("Local").tooltip(move |_, cx| cx.new(|_| TreeTip(tip.clone())).into()).tooltip_show_delay(Duration::from_millis(350));
+            let mark = ui::indicator(id(format!("aside-spin:{main}")), rolled_state(&self.tree_cards(p, &main)));
+            let target = p.to_string();
+            out.push(
+                ui::worktree_row(id(format!("aside-tree:{main}")), "laptop", label, current.as_ref() == Some(&main), mark)
+                    .children(self.prs.get(&main).map(|pr| pull_requests::chip(id(format!("aside-pr:{main}")), pr)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), None, cx)))
+                    .into_any_element(),
+            );
             let trees: Vec<(String, String, String)> = trees
                 .iter()
                 .flatten()
@@ -298,7 +306,7 @@ impl Desktop {
                     }
                 };
                 out.push(
-                    ui::worktree_row(id(format!("aside-tree:{tree}")), label, current.as_ref() == Some(tree), mark)
+                    ui::worktree_row(id(format!("aside-tree:{tree}")), "worktree", label, current.as_ref() == Some(tree), mark)
                         .children(self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr)))
                         .child(trail)
                         .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
@@ -376,14 +384,14 @@ mod tests {
     }
 
     #[test]
-    fn a_project_folds_only_when_it_has_worktrees_besides_its_main() {
+    fn a_git_project_folds_even_with_only_its_checkout() {
         let none = HashMap::new();
         let fold = |trees: &[git::Worktree], collapsed| {
             let r = ProjectRow::new(Some(trees), collapsed, &none);
-            (r.git, r.branched, r.open)
+            (r.git, r.open)
         };
-        let got = [fold(&[], false), fold(&[tree("/p", true)], false), fold(&[tree("/p", true), tree("/wt", false)], false), fold(&[tree("/p", true), tree("/wt", false)], true)];
-        assert_eq!(got, [(false, false, false), (true, false, false), (true, true, true), (true, true, false)]);
+        let got = [fold(&[], false), fold(&[tree("/p", true)], false), fold(&[tree("/p", true), tree("/wt", false)], true)];
+        assert_eq!(got, [(false, false), (true, true), (true, false)]);
     }
 
     #[test]
@@ -396,11 +404,11 @@ mod tests {
     }
 
     #[test]
-    fn a_folded_row_is_selected_on_any_of_its_trees_and_an_open_one_on_its_main_only() {
+    fn a_folded_row_is_selected_on_any_of_its_trees_and_an_open_one_leaves_it_to_their_rows() {
         let trees = [tree("/p", true), tree("/wt", false)];
-        let selected = |collapsed, current| ProjectRow::new(Some(&trees), collapsed, &HashMap::new()).selected(current, "/p");
+        let selected = |collapsed, current| ProjectRow::new(Some(&trees), collapsed, &HashMap::new()).selected(current);
         let got = [selected(true, Some("/wt")), selected(false, Some("/wt")), selected(false, Some("/p")), selected(true, None)];
-        assert_eq!(got, [true, false, true, false]);
+        assert_eq!(got, [true, false, false, false]);
     }
 
     #[test]

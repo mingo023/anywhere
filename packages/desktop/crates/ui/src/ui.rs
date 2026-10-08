@@ -999,8 +999,8 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
 }
 
 /// Nested under its project: the glyph sits right of the project's mark. A status `mark` takes the glyph's place.
-pub fn worktree_row(id: impl Into<ElementId>, label: impl IntoElement, selected: bool, mark: Option<AnyElement>) -> Stateful<Div> {
-    let glyph = mark.unwrap_or_else(|| icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 }).into_any_element());
+pub fn worktree_row(id: impl Into<ElementId>, glyph: &str, label: impl IntoElement, selected: bool, mark: Option<AnyElement>) -> Stateful<Div> {
+    let glyph = mark.unwrap_or_else(|| icon(glyph, 13., if selected { TEXT_2 } else { TEXT_4 }).into_any_element());
     sidebar_row(id, selected)
         .pl(px(16.))
         .text_color(if selected { TEXT } else { TEXT_BODY })

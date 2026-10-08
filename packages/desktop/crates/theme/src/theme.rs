@@ -272,7 +272,7 @@ macro_rules! embed {
 
 const ICONS: &[(&str, &[u8])] = embed!(
     "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple",
-    "discard", "external", "file", "filter", "flow", "folder", "forward", "globe", "inbox", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "pin", "play", "plus", "prompt", "reload", "run-cancelled", "run-skipped", "search", "send", "settings", "shield",
+    "discard", "external", "file", "filter", "flow", "folder", "forward", "globe", "inbox", "laptop", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "pin", "play", "plus", "prompt", "pull-request", "reload", "run-cancelled", "run-skipped", "search", "send", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "trash", "unfold", "worktree", "x", "x-bold",
 );
 

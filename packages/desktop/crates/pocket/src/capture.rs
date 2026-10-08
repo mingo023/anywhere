@@ -17,7 +17,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 49] = [
+const STEPS: [(&str, Step); 50] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -81,6 +81,7 @@ const STEPS: [(&str, Step); 49] = [
     ("settings-worktrees", |d, _, _| d.settings.section = Section::Worktrees),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
+    ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
     ("phone-access", |d, window, cx| d.open(Overlay::PhoneAccess, window, cx)),

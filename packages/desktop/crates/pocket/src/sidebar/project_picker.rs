@@ -132,7 +132,7 @@ impl Desktop {
         let rows = entries.iter().enumerate().map(|(i, e)| {
             let lead = match &e.tree {
                 _ if e.shown(current, cwd.as_deref(), |p| self.tree_of(p)) => icon("check", 14., TEXT).into_any_element(),
-                Some(_) => icon("branch", 14., TEXT_3).into_any_element(),
+                Some(_) => icon("worktree", 14., TEXT_3).into_any_element(),
                 None => ui::repo_mark(&self.repo_name(&e.project), false, None).size(px(18.)).text_size(px(10.)).into_any_element(),
             };
             let target = e.clone();
