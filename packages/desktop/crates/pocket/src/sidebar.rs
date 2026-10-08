@@ -140,28 +140,9 @@ impl Desktop {
             .h(px(32.))
             .rounded(px(10.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
-        let automations = {
-            let on = self.screen == Screen::Automations;
-            div()
-                .id("aside-automations")
-                .h(px(30.))
-                .mx(px(4.))
-                .mb(px(2.))
-                .px(px(8.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(8.))
-                .cursor_pointer()
-                .text_size(px(13.5))
-                .font_weight(FontWeight::MEDIUM)
-                .when(on, |d| d.bg(FILL_4).text_color(TEXT))
-                .when(!on, |d| d.text_color(TEXT_2).hover(|s| s.bg(FILL_2)))
-                .child(icon("bolt", 15., if on { TEXT } else { TEXT_3 }))
-                .child("Automations")
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)))
-        };
+        let automations = ui::nav_row("aside-automations", "bolt", "Automations", self.screen == Screen::Automations)
+            .mb(px(2.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)));
         let header = div()
             .pt(px(10.))
             .pb(px(4.))

@@ -1003,14 +1003,27 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .child(div().text_size(px(11.5)).text_color(TEXT_2).child(keys.to_string()))
 }
 
+/// Holds a row's glyph in the project mark's column.
+fn mark_slot(glyph: impl IntoElement) -> Div {
+    div().w(px(ROW_MARK_SIZE)).flex().flex_none().justify_center().child(glyph)
+}
+
 /// Nested under its project: the glyph sits right of the project's mark. A status `mark` takes the glyph's place.
 pub fn worktree_row(id: impl Into<ElementId>, icon_name: &str, label: impl IntoElement, selected: bool, mark: Option<AnyElement>) -> Stateful<Div> {
     let glyph = mark.unwrap_or_else(|| icon(icon_name, 13., if selected { TEXT_2 } else { TEXT_4 }).into_any_element());
     sidebar_row(id, selected)
         .pl(px(16.))
         .text_color(if selected { TEXT } else { TEXT_BODY })
-        .child(div().w(px(ROW_MARK_SIZE)).flex().flex_none().justify_center().child(glyph))
+        .child(mark_slot(glyph))
         .child(div().flex_1().min_w_0().truncate().child(label))
+}
+
+/// A top-level sidebar destination: its icon sits in the project mark's column.
+pub fn nav_row(id: impl Into<ElementId>, icon_name: &str, label: &str, selected: bool) -> Stateful<Div> {
+    sidebar_row(id, selected)
+        .text_color(if selected { TEXT } else { TEXT_2 })
+        .child(mark_slot(icon(icon_name, 15., if selected { TEXT } else { TEXT_3 })))
+        .child(div().flex_1().min_w_0().truncate().child(label.to_string()))
 }
 
 #[cfg(test)]
