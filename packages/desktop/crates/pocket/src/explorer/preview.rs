@@ -6,7 +6,7 @@ pub(crate) use header::relative;
 
 use crate::add_to_chat::offers_chat;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, empty};
+use crate::desktop::chrome::empty;
 use crate::explorer::mermaid::Diagrams;
 use crate::syntax::language_for;
 use crate::util::basename;
@@ -361,23 +361,6 @@ impl Desktop {
             .ok();
         })
         .detach();
-    }
-
-    pub fn quit(&mut self, _: &crate::actions::Quit, _: &mut Window, cx: &mut Context<Self>) {
-        if self.may_quit(cx) {
-            cx.quit();
-        }
-    }
-
-    /// Whether no file has unsaved edits; else asks whether to quit without them.
-    pub(crate) fn may_quit(&mut self, cx: &mut Context<Self>) -> bool {
-        let unsaved = self.preview.drafts.len();
-        if unsaved > 0 {
-            self.confirm = Some(Confirm::Quit(unsaved));
-            self.overlay = Some(Overlay::Confirm);
-            cx.notify();
-        }
-        unsaved == 0
     }
 
     pub fn load_file(&mut self, pane: PaneId, cx: &mut Context<Self>) {

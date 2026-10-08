@@ -27,7 +27,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 
 | `pocket` module | Owns |
 |---|---|
-| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast |
+| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/quit` the quit confirm; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast |
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing |
 | `panels` | the main area's pane tree: strips, dividers, drag and drop, saved layouts, shortcuts |
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer |

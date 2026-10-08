@@ -4,6 +4,7 @@ pub(crate) mod geometry;
 pub(crate) mod dock;
 pub(crate) mod jump;
 pub(crate) mod project;
+pub(crate) mod quit;
 pub(crate) mod sounds;
 pub(crate) mod toast;
 
@@ -122,7 +123,8 @@ impl Desktop {
         let root = cx.focus_handle();
         window.focus(&root, cx);
         let this = cx.weak_entity();
-        window.on_window_should_close(cx, move |_, cx| this.update(cx, |d, cx| d.may_quit(cx)).unwrap_or(true));
+        // The window stays open either way: quitting closes it.
+        window.on_window_should_close(cx, move |window, cx| this.update(cx, |d, cx| d.quit(&crate::actions::Quit, window, cx)).is_err());
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
             cx.observe_window_activation(window, |this, _, cx| follow_reduce_motion(this.store.appearance.reduce_motion, cx)),
