@@ -142,6 +142,7 @@ impl Desktop {
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
         let (layout, widths) = (store.layout, [store.widths.projects, store.widths.sessions]);
+        let graph = GraphState::new(store.graph_share);
         Self {
             daemon,
             outbox,
@@ -164,7 +165,7 @@ impl Desktop {
             chat,
             changes,
             prs: PullRequests::default(),
-            graph: GraphState::default(),
+            graph,
             commit: Commits::default(),
             initials: String::new(),
             explorer: ExplorerState::new(),

@@ -8,7 +8,6 @@ use git::FileStat;
 use git::github;
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Range;
@@ -210,11 +209,11 @@ impl Desktop {
         .pt(px(6.))
         .pb(px(8.));
         let list = div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes.scroll);
+        let changes = if repo.files.is_empty() { div().flex_1().child(empty("No changes.")) } else { list };
         panel
             .child(self.changes_header(&repo, cx))
             .child(self.commit_box(&repo, cx))
-            .map(|d| if repo.files.is_empty() { d.child(div().flex_1().child(empty("No changes."))) } else { d.child(list) })
-            .child(self.graph_section(cx))
+            .child(self.with_graph(changes, cx))
     }
 
     /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.

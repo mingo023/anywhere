@@ -2,7 +2,7 @@ mod lanes;
 mod row;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Side, empty};
+use crate::desktop::chrome::{SEAM, Side, empty};
 use crate::git_ui::diff::changed;
 use git::graph::{GraphRow, Lanes};
 use git::{CommitFile, GraphCommit, Tips};
@@ -16,6 +16,20 @@ use workspace::Doc;
 const PAGE: usize = 50;
 const ROW_GROUP: &str = "graph-row";
 const REVEAL: Duration = Duration::from_millis(200);
+const HEADER: f32 = 28.;
+/// The open graph's top padding, header and three rows.
+const MIN_GRAPH: f32 = 4. + HEADER + 3. * lanes::H;
+const MIN_CHANGES: f32 = 120.;
+
+/// What the seam above the open graph drags.
+#[derive(Clone, Copy)]
+struct GraphSeam;
+
+/// The graph's share of the `height` it splits with the Changes list when dragged to `graph_height`; `None` when both can't fit.
+fn graph_share(graph_height: f32, height: f32) -> Option<f32> {
+    let max = height - MIN_CHANGES;
+    (max >= MIN_GRAPH).then(|| graph_height.clamp(MIN_GRAPH, max) / height)
+}
 
 /// A row of the graph list: a commit, a file of an expanded commit, or the row that loads the next page.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,6 +55,8 @@ fn read_page(cwd: String, tips: Tips, skip: usize, n: usize) -> Page {
 
 pub struct GraphState {
     pub(crate) open: bool,
+    /// The open graph's dragged share of the height it splits with the Changes list; `None` splits it evenly.
+    pub(crate) share: Option<f32>,
     pub(crate) list: ListState,
     cwd: Option<String>,
     tips: Tips,
@@ -60,6 +76,7 @@ impl Default for GraphState {
     fn default() -> Self {
         Self {
             open: true,
+            share: None,
             list: ListState::new(0, ListAlignment::Top, px(400.)),
             cwd: None,
             tips: Tips::default(),
@@ -78,6 +95,21 @@ impl Default for GraphState {
 }
 
 impl GraphState {
+    /// Starts with the `share` saved last launch, dropping one outside (0, 1) that would break the split.
+    pub fn new(share: Option<f32>) -> Self {
+        Self { share: share.filter(|s| *s > 0. && *s < 1.), ..Self::default() }
+    }
+
+    /// Drags the graph to `graph_height` of the `height` it splits with the Changes list, returning whether its share changed.
+    pub fn drag(&mut self, graph_height: f32, height: f32) -> bool {
+        let share = graph_share(graph_height, height);
+        let moved = share.is_some() && share != self.share;
+        if moved {
+            self.share = share;
+        }
+        moved
+    }
+
     pub fn busy(&self) -> bool {
         self.refreshing || self.loading
     }
@@ -260,8 +292,20 @@ impl Desktop {
         cx.notify();
     }
 
-    /// The collapsible graph under the Changes list, sharing the sidebar's height with it while open.
-    pub(crate) fn graph_section(&mut self, cx: &mut Context<Self>) -> Div {
+    /// `changes` above the collapsible graph, splitting the height between them while it's open; drag the seam between to resize.
+    pub(crate) fn with_graph(&mut self, changes: Div, cx: &mut Context<Self>) -> Div {
+        div().flex_1().min_h_0().flex().flex_col().child(changes).child(self.graph_section(cx)).on_drag_move(cx.listener(
+            |this, e: &DragMoveEvent<GraphSeam>, _, cx| {
+                // A drag move comes every frame, moved or not; notifying on each would redraw forever.
+                if this.graph.drag(f32::from(e.bounds.bottom() - e.event.position.y), f32::from(e.bounds.size.height)) {
+                    this.save_soon(cx);
+                    cx.notify();
+                }
+            },
+        ))
+    }
+
+    fn graph_section(&mut self, cx: &mut Context<Self>) -> Div {
         let fresh = self.graph.cwd.is_some() && self.graph.cwd == self.cwd();
         if self.graph.open && !fresh {
             self.refresh_graph(cx);
@@ -269,7 +313,7 @@ impl Desktop {
         let open = self.graph.open;
         let header = div()
             .id("graph-header")
-            .h(px(28.))
+            .h(px(HEADER))
             .pl(px(6.))
             .pr(px(6.))
             .flex()
@@ -297,7 +341,47 @@ impl Desktop {
             let rows = list(self.graph.list.clone(), cx.processor(|this, ix, window, cx| this.graph_item(ix, window, cx))).size_full().pb(px(8.));
             div().relative().flex_1().min_h_0().px(px(8.)).child(rows).vertical_scrollbar(&self.graph.list)
         };
-        section.flex_1().min_h_0().child(body)
+        let section = section.flex_1().min_h_0().relative().child(body).children(self.graph_seam(cx));
+        match self.graph.share {
+            Some(share) => section.flex_grow(share / (1. - share)),
+            None => section,
+        }
+    }
+
+    /// The seam on the open graph's top edge: drag it to resize, double-click it to split evenly again.
+    fn graph_seam(&self, cx: &mut Context<Self>) -> Option<Deferred> {
+        // The deferred handle paints above overlays, so it would steal their clicks.
+        if self.overlay.is_some() {
+            return None;
+        }
+        let line = div().absolute().left_0().right_0().top(px(SEAM / 2.)).h(px(1.)).group_hover("seam", |s| s.bg(SEPARATOR_STRONG));
+        let handle = div()
+            .id("graph-seam")
+            .group("seam")
+            .absolute()
+            .left_0()
+            .right_0()
+            .top(px(-SEAM / 2.))
+            .h(px(SEAM))
+            .occlude()
+            .cursor_row_resize()
+            .child(line)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                    if e.click_count == 2 {
+                        this.graph.share = None;
+                        this.save_soon(cx);
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_drag(GraphSeam, |_, _, _, cx| {
+                cx.stop_propagation();
+                cx.new(|_| EmptyView)
+            });
+        // Deferred so the handle straddles the edge above the section.
+        Some(deferred(handle))
     }
 
     fn graph_item(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -324,7 +408,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{GraphState, Item, PAGE, Page, REVEAL};
+    use super::{GraphState, Item, MIN_CHANGES, MIN_GRAPH, PAGE, Page, REVEAL, graph_share};
     use git::graph::Lanes;
     use git::{CommitFile, GraphCommit, Tips};
     use gpui_kit::{ListOffset, px};
@@ -446,5 +530,30 @@ mod tests {
         g.set_files("/r", "b".into(), vec![CommitFile { path: "src/x".into(), old_path: None, status: 'M' }]);
         assert_eq!(g.file_doc(1, 0), Some(Doc::CommitFile { sha: "b".into(), path: "src/x".into() }));
         assert_eq!(g.file_doc(0, 0), None);
+    }
+
+    #[test]
+    fn a_dragged_graph_leaves_room_for_itself_and_the_changes_list() {
+        assert_eq!(graph_share(200., 800.), Some(0.25));
+        assert_eq!(graph_share(0., 800.), Some(MIN_GRAPH / 800.));
+        assert_eq!(graph_share(800., 800.), Some((800. - MIN_CHANGES) / 800.));
+    }
+
+    #[test]
+    fn a_graph_too_short_to_split_ignores_the_drag() {
+        let mut g = GraphState::new(Some(0.3));
+        assert!(!g.drag(100., MIN_GRAPH + MIN_CHANGES - 1.));
+        assert_eq!(g.share, Some(0.3));
+    }
+
+    #[test]
+    fn a_drag_to_where_the_graph_already_is_changes_nothing() {
+        let mut g = GraphState::default();
+        assert_eq!((g.drag(200., 800.), g.drag(200., 800.)), (true, false));
+    }
+
+    #[test]
+    fn a_saved_share_that_would_break_the_split_is_dropped() {
+        assert_eq!([0., 1., -0.2, 0.4].map(|s| GraphState::new(Some(s)).share), [None, None, None, Some(0.4)]);
     }
 }

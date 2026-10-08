@@ -120,6 +120,8 @@ pub struct Store {
     pub window: Option<WindowGeometry>,
     pub layout: Layout,
     pub widths: ColumnWidths,
+    /// The Changes graph's dragged share; `None` splits evenly.
+    pub graph_share: Option<f32>,
     pub sounds: Sounds,
     pub notifications: Notifications,
     pub appearance: Appearance,
@@ -260,6 +262,7 @@ mod tests {
         s.window = Some(WindowGeometry { display: Some("D1".into()), x: 40., y: 60., width: 1200., height: 800. });
         s.layout = Layout::Compact;
         s.widths = ColumnWidths { projects: Some(260.), sessions: None };
+        s.graph_share = Some(0.3);
         s.track("/t/fix");
         s.save();
         let back = Store::load(&dir);
