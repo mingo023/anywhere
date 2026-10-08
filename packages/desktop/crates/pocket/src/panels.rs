@@ -243,6 +243,7 @@ impl Desktop {
             Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc) => self.commit_view(p, cx),
             Some(Tab::Web(id)) => self.browser_view(p, id, window, cx),
             Some(Tab::Doc(_)) => div().flex_1(),
+            None if focused && self.offers_empty_prompt() => self.empty_composer(window, cx),
             None => self.empty_pane(p, cx),
         }
     }
@@ -265,6 +266,7 @@ impl Desktop {
         match t.focused().active().cloned() {
             Some(Tab::Term(id)) => self.focus_pane(id, window, cx),
             Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
+            None if self.offers_empty_prompt() => self.focus_empty_prompt(window, cx),
             Some(Tab::Doc(_)) | None => window.focus(&self.root, cx),
         }
         self.save_soon(cx);

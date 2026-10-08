@@ -26,6 +26,43 @@ pub struct LaunchPick {
     pub effort: String,
 }
 
+impl LaunchPick {
+    /// The agents a session can start.
+    pub const PROVIDERS: [&str; 2] = ["claude", "codex"];
+
+    /// The agent a remembered pick names; anything else starts Claude.
+    pub fn known_provider(provider: &str) -> &'static str {
+        if provider == "codex" { "codex" } else { "claude" }
+    }
+
+    /// This pick with its agent one this app knows.
+    pub fn known(self) -> Self {
+        Self { provider: Self::known_provider(&self.provider).into(), ..self }
+    }
+
+    /// A model or effort remembered for one agent means nothing to another.
+    pub fn switched(&self, provider: &str) -> Self {
+        if self.provider == provider {
+            return Self { provider: provider.into(), ..self.clone() };
+        }
+        Self { provider: provider.into(), ..Self::default() }
+    }
+
+    /// A create's agent, model, effort and `prompt` as given; access is left to the agent's own settings.
+    pub fn spec(&self, project: &str, checkout: serde_json::Value, prompt: &str) -> serde_json::Value {
+        let mut spec = serde_json::json!({"project": project, "checkout": checkout, "provider": self.provider, "access": "settings", "plan": false});
+        for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
+            if !value.is_empty() {
+                spec[key] = value.as_str().into();
+            }
+        }
+        if !prompt.is_empty() {
+            spec["prompt"] = prompt.into();
+        }
+        spec
+    }
+}
+
 /// Which status changes play a sound; a key missing from `desktop.json` reads as on.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(default)]
@@ -249,6 +286,36 @@ fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_last_agent_keeps_its_model_and_effort() {
+        let pick = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into() };
+        assert_eq!(pick.switched("claude"), pick);
+    }
+
+    #[test]
+    fn another_agent_forgets_the_last_ones_model_and_effort() {
+        let pick = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into() };
+        assert_eq!(pick.switched("codex"), LaunchPick { provider: "codex".into(), ..LaunchPick::default() });
+    }
+
+    #[test]
+    fn an_agent_this_app_does_not_know_starts_claude() {
+        let pick = LaunchPick { provider: "gemini".into(), model: "pro".into(), effort: String::new() };
+        assert_eq!(pick.known(), LaunchPick { provider: "claude".into(), model: "pro".into(), effort: String::new() });
+        assert_eq!(LaunchPick::known_provider("codex"), "codex");
+    }
+
+    #[test]
+    fn a_launch_sends_only_the_model_effort_and_prompt_it_has() {
+        let pick = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: String::new() };
+        let spec = pick.spec("/p", serde_json::json!({"worktree": "/p"}), "Fix the failing tests");
+        assert_eq!(
+            spec,
+            serde_json::json!({"project": "/p", "checkout": {"worktree": "/p"}, "provider": "codex", "access": "settings", "plan": false, "model": "gpt-5", "prompt": "Fix the failing tests"})
+        );
+        assert_eq!(pick.spec("/p", serde_json::json!({"worktree": "/p"}), "").get("prompt"), None);
+    }
 
     #[test]
     fn round_trips_through_desktop_json() {

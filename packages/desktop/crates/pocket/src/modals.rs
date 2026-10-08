@@ -42,6 +42,8 @@ impl Desktop {
         self.overlay = None;
         if self.web_tab(self.focused_pane()).is_some() {
             window.focus(&self.browsers.focus, cx);
+        } else if self.empty_pane.drawn.last {
+            self.focus_empty_prompt(window, cx);
         } else if !self.terminal.focus.is_focused(window) {
             window.focus(&self.root, cx);
         }

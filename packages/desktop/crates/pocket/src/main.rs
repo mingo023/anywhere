@@ -5,6 +5,7 @@ mod browser;
 mod capture;
 mod creating;
 mod desktop;
+mod empty_pane;
 mod explorer;
 mod git_ui;
 mod inbox;

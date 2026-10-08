@@ -582,6 +582,32 @@ fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unansw
     }
 }
 
+/// A create sent to pocketd, one at a time, and the failure it answered with until the next send.
+#[derive(Default)]
+pub struct CreateReply {
+    pending: Option<String>,
+    pub error: Option<(String, String)>,
+}
+
+impl CreateReply {
+    pub fn waiting(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub fn sent(&mut self, request: String) {
+        (self.pending, self.error) = (Some(request), None);
+    }
+
+    /// Whether `request` was the one sent.
+    pub fn answer(&mut self, request: &str, error: Option<(String, String)>) -> bool {
+        if self.pending.as_deref() != Some(request) {
+            return false;
+        }
+        (self.pending, self.error) = (None, error);
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

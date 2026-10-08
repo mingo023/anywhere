@@ -18,6 +18,7 @@ use crate::desktop::dock::Badge;
 use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
 use crate::desktop::sounds::Chime;
+use crate::empty_pane::EmptyPane;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::git_ui::changes::ChangesState;
@@ -100,6 +101,7 @@ pub struct Desktop {
     pub(crate) row_menu: Option<RowMenu>,
     pub(crate) preview: PreviewState,
     pub(crate) new_form: new_session::NewForm,
+    pub(crate) empty_pane: EmptyPane,
     pub(crate) repo_form: add_project::RepoForm,
     pub(crate) pair: PairPhone,
     pub(crate) capturing: bool,
@@ -115,6 +117,7 @@ impl Desktop {
         let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
+        let (empty_pane, empty_subs) = EmptyPane::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
@@ -138,6 +141,7 @@ impl Desktop {
         _subs.extend(chat_subs);
         _subs.extend(changes_subs);
         _subs.extend(new_subs);
+        _subs.extend(empty_subs);
         _subs.extend(repo_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
@@ -190,6 +194,7 @@ impl Desktop {
             row_menu: None,
             preview: PreviewState::default(),
             new_form,
+            empty_pane,
             repo_form,
             pair: PairPhone::default(),
             capturing: false,
@@ -469,6 +474,7 @@ impl Desktop {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.empty_pane.drawn.begin_frame();
         self.sync_panels();
         self.sync_code(window, cx);
         self.sync_view(window, cx);

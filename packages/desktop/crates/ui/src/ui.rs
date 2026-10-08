@@ -1026,6 +1026,59 @@ pub fn nav_row(id: impl Into<ElementId>, icon_name: &str, label: &str, selected:
         .child(div().flex_1().min_w_0().truncate().child(label.to_string()))
 }
 
+
+pub fn menu_chip(id: &'static str, open: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(30.))
+        .pl(px(10.))
+        .pr(px(8.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(7.))
+        .rounded(px(8.))
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .bg(if open { FILL_3 } else { FILL_2 })
+        .hover(|s| s.bg(FILL_3))
+}
+
+pub fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElement>, label: Div, meta: Option<String>) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(34.))
+        .px(px(8.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(9.))
+        .rounded(px(6.))
+        .cursor_pointer()
+        .text_size(px(13.))
+        .when(selected, |d| d.bg(FILL_2))
+        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
+        .children(lead)
+        .child(label.min_w_0().truncate().font_weight(FontWeight::MEDIUM))
+        .child(div().ml_auto().pl(px(10.)).flex_none().text_size(px(12.)).text_color(TEXT_4).children(meta))
+        .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
+}
+
+pub fn failure(message: String, detail: String) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .px(px(12.))
+        .py(px(10.))
+        .rounded(px(10.))
+        .bg(FAILED_BG)
+        .text_size(px(13.))
+        .text_color(FAILED_TEXT)
+        .child(message)
+        .when(!detail.is_empty(), |d| d.child(div().font_family(MONO).text_size(px(12.)).text_color(TEXT_2).child(detail)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Glyph, State, Tone, tone, word};

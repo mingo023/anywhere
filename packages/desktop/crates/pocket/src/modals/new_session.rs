@@ -1,6 +1,6 @@
 pub(crate) mod picker;
 
-use agents::Event;
+use agents::{CreateReply, Event};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
@@ -101,8 +101,7 @@ struct Draft {
     provider: &'static str,
     model: String,
     effort: String,
-    pending: Option<String>,
-    error: Option<(String, String)>,
+    reply: CreateReply,
     picker: Option<Picker>,
     images: Vec<Attachment>,
 }
@@ -130,8 +129,7 @@ impl Default for Draft {
             provider: "claude",
             model: String::new(),
             effort: String::new(),
-            pending: None,
-            error: None,
+            reply: CreateReply::default(),
             picker: None,
             images: Vec::new(),
         }
@@ -204,7 +202,7 @@ impl Draft {
             (true, Source::Branch(_)) => self.repo.is_some() && !name.is_empty(),
             (true, Source::Pr(_)) => self.repo.is_some() && parse_pr(name).is_some(),
         };
-        place && self.pending.is_none()
+        place && !self.reply.waiting()
     }
 
     /// The folder pocketd will likely make for `name`; `Creates::started` swaps in the one it made.
@@ -216,11 +214,9 @@ impl Draft {
         }
     }
 
-    /// A model or effort remembered for one agent means nothing to another.
     fn pick_provider(&mut self, provider: &'static str) {
-        if provider != self.provider {
-            (self.model, self.effort) = (String::new(), String::new());
-        }
+        let pick = self.pick().switched(provider);
+        (self.model, self.effort) = (pick.model, pick.effort);
         (self.provider, self.picker) = (provider, None);
     }
 
@@ -231,17 +227,7 @@ impl Draft {
             (true, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
             (true, Source::Pr(_)) => json!({"new": {"pr": name, "copy": self.copy_env, "setup": self.run_setup}}),
         };
-        let mut spec = json!({"project": project, "checkout": checkout, "provider": self.provider, "access": "settings", "plan": false});
-        for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
-            if !value.is_empty() {
-                spec[key] = value.as_str().into();
-            }
-        }
-        let prompt = with_images(prompt.trim(), &self.images);
-        if !prompt.is_empty() {
-            spec["prompt"] = prompt.into();
-        }
-        spec
+        self.pick().spec(project, checkout, &with_images(prompt.trim(), &self.images))
     }
 
     /// What to remember for the Project.
@@ -250,22 +236,14 @@ impl Draft {
     }
 
     fn open(&mut self, last: &LaunchPick) {
-        self.provider = if last.provider == "codex" { "codex" } else { "claude" };
+        self.provider = LaunchPick::known_provider(&last.provider);
         (self.model, self.effort) = (last.model.clone(), last.effort.clone());
-        (self.pending, self.error) = (None, None);
-    }
-
-    fn answer(&mut self, request: &str, error: Option<(String, String)>) -> bool {
-        if self.pending.as_deref() != Some(request) {
-            return false;
-        }
-        (self.pending, self.error) = (None, error);
-        true
+        self.reply = CreateReply::default();
     }
 
     /// Reopening the sheet clears its error row, so a failure that arrives while it is closed goes to the page error line.
     fn failed(&mut self, request: &str, message: String, detail: String, open: bool) -> Option<String> {
-        if open && self.answer(request, Some((message.clone(), detail))) {
+        if open && self.reply.answer(request, Some((message.clone(), detail))) {
             return None;
         }
         Some(message)
@@ -285,7 +263,7 @@ impl Draft {
         let held = self.images.len();
         self.images.retain(|a| a.path != path);
         if self.images.len() < held {
-            self.error = Some(("Couldn't save the pasted image".into(), detail));
+            self.reply.error = Some(("Couldn't save the pasted image".into(), detail));
         }
     }
 }
@@ -474,8 +452,13 @@ impl NewForm {
 }
 
 impl Desktop {
+    /// What the Project last started, with an agent this app knows.
+    pub(crate) fn last_pick(&self) -> LaunchPick {
+        self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default().known()
+    }
+
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let last = self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default();
+        let last = self.last_pick();
         let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
         f.draft.seed = crate::util::now_ms() as usize;
@@ -569,7 +552,7 @@ impl Desktop {
         self.store.save();
         let request = self.outbox.create(spec.clone());
         if !worktree {
-            (self.new_form.draft.pending, self.new_form.draft.error) = (Some(request), None);
+            self.new_form.draft.reply.sent(request);
             return cx.notify();
         }
         let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &home()));
@@ -582,7 +565,7 @@ impl Desktop {
     pub(crate) fn on_launch(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             Event::Creating { request, terminal, cwd, setup } => {
-                self.terminals.created(&request, terminal, cwd.clone(), setup);
+                self.terminals.created(&request, terminal.clone(), cwd.clone(), setup);
                 self.daemon.send(json!({"op": "list"}));
                 if self.creates.get(&request).is_some() {
                     self.store.track(&cwd);
@@ -593,7 +576,9 @@ impl Desktop {
                         self.worktree = Some(cwd);
                     }
                     self.refresh_git(cx);
-                } else if self.new_form.draft.answer(&request, None) && self.overlay == Some(Overlay::NewSession) {
+                } else if self.empty_pane.launch.reply.answer(&request, None) {
+                    self.terminals.aim(&terminal, self.empty_pane.launch.pane);
+                } else if self.new_form.draft.reply.answer(&request, None) && self.overlay == Some(Overlay::NewSession) {
                     self.close_overlay(window, cx);
                 }
             }
@@ -608,7 +593,7 @@ impl Desktop {
             Event::CreateFailed { request, message, detail, .. } => {
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());
-                } else {
+                } else if !self.empty_prompt_failed(&request, &message, &detail, window, cx) {
                     let open = self.overlay == Some(Overlay::NewSession);
                     if let Some(message) = self.new_form.draft.failed(&request, message, detail, open) {
                         self.error = Some(message);
@@ -738,20 +723,7 @@ impl Desktop {
                     .children(link)
                     .child(send),
             );
-        let error = f.error.clone().map(|(message, detail)| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .px(px(12.))
-                .py(px(10.))
-                .rounded(px(10.))
-                .bg(FAILED_BG)
-                .text_size(px(13.))
-                .text_color(FAILED_TEXT)
-                .child(message)
-                .when(!detail.is_empty(), |d| d.child(div().font_family(MONO).text_size(px(12.)).text_color(TEXT_2).child(detail)))
-        });
+        let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail));
         let footer = div().flex().justify_end().px(px(6.)).text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("⌘↵ to start · esc to cancel");
         div().absolute().top(px(110.)).left_0().right_0().flex().justify_center().child(
             // The design's 0.5px border renders 1px wide and insets the sheet's content.
@@ -763,10 +735,17 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Attachment, Draft, Source, attachment_path, checkout_choice, default_first, listed_branches, name_problem, parse_pr, pasted_image, save_image};
+    use agents::CreateReply;
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use serde_json::json;
     use store::LaunchPick;
     use std::collections::HashSet;
+
+    fn sent(request: &str) -> CreateReply {
+        let mut reply = CreateReply::default();
+        reply.sent(request.into());
+        reply
+    }
 
     #[test]
     fn a_session_in_the_open_tree_needs_only_an_open_tree() {
@@ -845,10 +824,10 @@ mod tests {
         assert!(!draft.attach(at("/h/a.png")));
         assert!(draft.attach(at("/h/b.png")));
         draft.unsaved("/h/c.png".as_ref(), "disk full".into());
-        assert_eq!((draft.images.len(), draft.error.is_none()), (2, true));
+        assert_eq!((draft.images.len(), draft.reply.error.is_none()), (2, true));
         draft.unsaved("/h/a.png".as_ref(), "disk full".into());
         assert_eq!(draft.images.iter().map(|a| a.path.to_str().unwrap()).collect::<Vec<_>>(), ["/h/b.png"]);
-        assert_eq!(draft.error, Some(("Couldn't save the pasted image".to_string(), "disk full".to_string())));
+        assert_eq!(draft.reply.error, Some(("Couldn't save the pasted image".to_string(), "disk full".to_string())));
     }
 
     #[test]
@@ -979,21 +958,21 @@ mod tests {
 
     #[test]
     fn a_create_error_keeps_the_draft() {
-        let mut draft = Draft { provider: "codex", pending: Some("r1".into()), ..Draft::default() };
+        let mut draft = Draft { provider: "codex", reply: sent("r1"), ..Draft::default() };
         assert!(!draft.ready("", true));
-        assert!(!draft.answer("r0", None));
-        assert!(draft.answer("r1", Some(("Setup exited 1".into(), "npm ERR!".into()))));
-        assert_eq!((draft.provider, draft.pending.as_deref(), draft.ready("", true)), ("codex", None, true));
-        assert_eq!(draft.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
+        assert!(!draft.reply.answer("r0", None));
+        assert!(draft.reply.answer("r1", Some(("Setup exited 1".into(), "npm ERR!".into()))));
+        assert_eq!((draft.provider, draft.reply.waiting(), draft.ready("", true)), ("codex", false, true));
+        assert_eq!(draft.reply.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
     }
 
     #[test]
     fn a_create_error_after_the_sheet_closed_goes_to_the_page() {
-        let mut draft = Draft { pending: Some("r1".into()), ..Draft::default() };
+        let mut draft = Draft { reply: sent("r1"), ..Draft::default() };
         assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), false), Some("Setup exited 1".to_string()));
-        assert_eq!(draft.error, None);
+        assert_eq!(draft.reply.error, None);
         assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), true), None);
-        assert_eq!(draft.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
+        assert_eq!(draft.reply.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
     }
 
     #[test]

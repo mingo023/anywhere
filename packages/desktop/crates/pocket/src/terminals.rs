@@ -36,13 +36,20 @@ pub struct Terminals {
     settle: Option<Task<()>>,
     /// Terminal → worktree while the terminal runs the worktree's setup before its agent.
     pub(crate) setups: HashMap<String, String>,
-    /// Terminals pocketd made for this window's creates, with their worktree, until pocketd lists them.
-    pub(crate) created: HashMap<String, String>,
+    /// Terminals pocketd made for this window's creates, until pocketd lists them.
+    pub(crate) created: HashMap<String, Created>,
     /// The creates whose Terminal was taken in, so pocketd's replay of one after a reconnect adds nothing.
     requests: HashSet<String>,
     /// Terminals whose screen was dropped on reconnect and must be attached again once pocketd lists them.
     reattach: HashSet<String>,
     pub(crate) link: Link,
+}
+
+/// A created terminal's worktree, and the pane it opens in if one was asked for.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Created {
+    pub(crate) tree: String,
+    pub(crate) pane: Option<PaneId>,
 }
 
 impl Terminals {
@@ -100,11 +107,18 @@ impl Terminals {
         if setup {
             self.setups.insert(id.clone(), tree.clone());
         }
-        self.created.insert(id, tree);
+        self.created.insert(id, Created { tree, pane: None });
     }
 
-    /// Created terminals pocketd now lists, each with its worktree, once.
-    pub(crate) fn arrived(&mut self) -> Vec<(String, String)> {
+    /// Opens a created terminal in `pane` once it arrives.
+    pub(crate) fn aim(&mut self, id: &str, pane: PaneId) {
+        if let Some(c) = self.created.get_mut(id) {
+            c.pane = Some(pane);
+        }
+    }
+
+    /// Created terminals pocketd now lists, once.
+    pub(crate) fn arrived(&mut self) -> Vec<(String, Created)> {
         let sessions = &self.sessions;
         let listed: Vec<String> = self.created.keys().filter(|id| sessions.get(id).is_some()).cloned().collect();
         listed.into_iter().filter_map(|id| self.created.remove_entry(&id)).collect()
@@ -182,8 +196,8 @@ impl Desktop {
                 }
                 let restoring = !self.panels.restored;
                 self.restore_layouts();
-                for (id, tree) in self.terminals.arrived() {
-                    self.adopt(id, tree, Place::Pane(None), window, cx);
+                for (id, c) in self.terminals.arrived() {
+                    self.adopt(id, c.tree, Place::Pane(c.pane), window, cx);
                 }
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
@@ -348,7 +362,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Fit, Intent, Terminals};
+    use super::{Created, Fit, Intent, Terminals};
     use daemon::{Info, Msg};
     use std::collections::HashMap;
     use workspace::Place;
@@ -574,8 +588,17 @@ mod tests {
         assert!(t.arrived().is_empty());
         assert_eq!(t.setups, HashMap::from([("a".to_string(), "/w/fix".to_string())]));
         t.listed(vec![info("x"), info("a")]);
-        assert_eq!(t.arrived(), vec![("a".to_string(), "/w/fix".to_string())]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w/fix".into(), pane: None })]);
         assert!(t.arrived().is_empty());
+    }
+
+    #[test]
+    fn a_terminal_an_empty_pane_started_arrives_in_that_pane() {
+        let mut t = Terminals::new();
+        t.created("r1", "a".into(), "/w".into(), false);
+        t.aim("a", 2);
+        t.listed(vec![info("a")]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into(), pane: Some(2) })]);
     }
 
     #[test]
@@ -583,7 +606,7 @@ mod tests {
         let mut t = Terminals::new();
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
-        assert_eq!(t.arrived(), vec![("a".to_string(), "/w".to_string())]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into(), pane: None })]);
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         assert!(t.arrived().is_empty());

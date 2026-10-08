@@ -30,6 +30,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/quit` the quit confirm; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast |
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing |
 | `panels` | the main area's pane tree: strips, dividers, drag and drop, saved layouts, shortcuts |
+| `empty_pane` | the prompt a focused pane with no tabs offers, starting an agent there |
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer |
 | `browser` | browser tabs: pages, address bar, navigation |
 | `sidebar` | projects aside, compact rail, `sidebar/project_picker` the rail's project switcher, `sidebar/rename` inline worktree rename, `sidebar/column` the inbox and Automations column and the panel's body, `sidebar/panel` the right-hand panel: its rail and edge drag |

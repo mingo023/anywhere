@@ -4,6 +4,7 @@ use crate::sidebar::tree_label;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use store::LaunchPick;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -16,45 +17,8 @@ pub enum Picker {
 
 const BRANCH_ROW: &str = "branch-row";
 
-fn chip(id: &'static str, open: bool) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(30.))
-        .pl(px(10.))
-        .pr(px(8.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(7.))
-        .rounded(px(8.))
-        .whitespace_nowrap()
-        .cursor_pointer()
-        .bg(if open { FILL_3 } else { FILL_2 })
-        .hover(|s| s.bg(FILL_3))
-}
-
 fn pick_head(label: &str) -> Div {
     div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string())
-}
-
-fn pick_row(id: impl Into<ElementId>, selected: bool, lead: Option<impl IntoElement>, label: Div, meta: Option<String>) -> Stateful<Div> {
-    div()
-        .id(id)
-        .h(px(34.))
-        .px(px(8.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(9.))
-        .rounded(px(6.))
-        .cursor_pointer()
-        .text_size(px(13.))
-        .when(selected, |d| d.bg(FILL_2))
-        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
-        .children(lead)
-        .child(label.min_w_0().truncate().font_weight(FontWeight::MEDIUM))
-        .child(div().ml_auto().pl(px(10.)).flex_none().text_size(px(12.)).text_color(TEXT_4).children(meta))
-        .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
 }
 
 fn picker_menu(id: &'static str, width: f32, rows: Vec<AnyElement>, cx: &mut Context<Desktop>) -> Stateful<Div> {
@@ -141,9 +105,9 @@ impl Desktop {
     fn agent_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
         let mut rows = Vec::new();
-        for provider in ["claude", "codex"] {
+        for provider in LaunchPick::PROVIDERS {
             rows.push(
-                pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(provider_name(provider)), None)
+                ui::pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(provider_name(provider)), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.new_form.draft.pick_provider(provider);
                         cx.notify();
@@ -217,7 +181,7 @@ impl Desktop {
                     this.open_branch(branch.clone(), window, cx);
                 }))
             });
-            let row = pick_row(("branch", n), f.source == Source::New && local_ix == Some(f.base), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
+            let row = ui::pick_row(("branch", n), f.source == Source::New && local_ix == Some(f.base), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
                 .group(BRANCH_ROW)
                 .relative()
                 .children(open)
@@ -253,7 +217,7 @@ impl Desktop {
 
     pub(super) fn agent_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let agent = chip("form-agent", f.picker == Some(Picker::Agent))
+        let agent = ui::menu_chip("form-agent", f.picker == Some(Picker::Agent))
             .child(provider_icon(f.provider, 13., TEXT))
             .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(f.provider)))
             .child(icon("chevron-down", 12., TEXT_4))
@@ -275,7 +239,7 @@ impl Desktop {
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
         let Checkout { glyph, label, .. } = self.checkout(f.in_worktree());
-        let checkout = chip("form-checkout", f.picker == Some(Picker::Checkout))
+        let checkout = ui::menu_chip("form-checkout", f.picker == Some(Picker::Checkout))
             .child(icon(glyph, 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(label))
             .child(icon("chevron-down", 12., TEXT_4));
@@ -298,7 +262,7 @@ impl Desktop {
             Source::Branch(branch) => branch.clone(),
             _ => f.base_branch(),
         };
-        let branch = chip("form-branch", f.picker == Some(Picker::Branch))
+        let branch = ui::menu_chip("form-branch", f.picker == Some(Picker::Branch))
             .child(icon("branch", 14., TEXT_3))
             .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label))
             .child(icon("chevron-down", 12., TEXT_4))
