@@ -335,9 +335,28 @@ pub fn alert_color(state: State) -> Option<Token> {
     tone(state).filter(|t| t.glyph != Glyph::Spinner).map(|t| t.mark)
 }
 
-/// A repository's initials on a square tile, dotted top-right when it asks for a look and bottom-right while it works.
-pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>) -> Div {
+/// Marks a tile's corner: a dot top-right when the state asks for a look, a spinner bottom-right while it works.
+fn corner_badges(state: Option<State>) -> Vec<Div> {
     let badge = |d: Div, color: Token| d.absolute().right(px(-2.)).size(px(9.)).rounded(px(5.)).bg(color).shadow(vec![ring(CUTOUT, 2.)]);
+    let alert = state.and_then(alert_color).map(|c| badge(div().top(px(-2.)), c));
+    let working = (state == Some(State::Working)).then(|| {
+        div()
+            .absolute()
+            .right(px(-3.))
+            .bottom(px(-3.))
+            .size(px(12.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(6.))
+            .bg(CUTOUT)
+            .child(dot_spinner("tile-spinner", 10., ACCENT))
+    });
+    alert.into_iter().chain(working).collect()
+}
+
+/// A repository's initials on a square tile, badged by its state.
+pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>) -> Div {
     let scale = if letters.chars().count() > 1 { 0.34 } else { 0.5 };
     div()
         .relative()
@@ -354,8 +373,7 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>)
             d.bg(SURFACE).text_color(TEXT_2).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }])
         })
         .child(letters.to_string())
-        .children(state.and_then(alert_color).map(|c| badge(div().top(px(-2.)), c)))
-        .when(state == Some(State::Working), |d| d.child(badge(div().bottom(px(-2.)), ACCENT)))
+        .children(corner_badges(state))
 }
 
 const ROW_GROUP: &str = "sidebar-row";
@@ -381,12 +399,13 @@ fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
 const ROW_MARK_SIZE: f32 = 20.;
 
 /// `kept` is false for a project Pocket shows only while it has terminals: its mark is dashed and its name dim.
-/// A `chevron` takes the mark's place while the row is hovered.
-pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: &str, selected: bool, kept: bool) -> Stateful<Div> {
+/// A `chevron` takes the mark's place while the row is hovered. A `state` badges the mark.
+pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: &str, selected: bool, kept: bool, state: Option<State>) -> Stateful<Div> {
     let mark = if kept {
-        repo_tile(&mark_letter(name), ROW_MARK_SIZE, false, None)
+        repo_tile(&mark_letter(name), ROW_MARK_SIZE, false, state)
     } else {
         div()
+            .relative()
             .size(px(ROW_MARK_SIZE))
             .flex()
             .flex_none()
@@ -400,6 +419,7 @@ pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: 
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(TEXT_3)
             .child(mark_letter(name))
+            .children(corner_badges(state))
     };
     let lead = match chevron {
         Some(c) => div()
@@ -978,11 +998,13 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .child(div().text_size(px(11.5)).text_color(TEXT_2).child(keys.to_string()))
 }
 
-/// Its glyph sits under the project's mark and its name under the project's.
-pub fn worktree_row(id: impl Into<ElementId>, label: impl IntoElement, selected: bool) -> Stateful<Div> {
+/// Nested under its project: the glyph sits right of the project's mark. A status `mark` takes the glyph's place.
+pub fn worktree_row(id: impl Into<ElementId>, label: impl IntoElement, selected: bool, mark: Option<AnyElement>) -> Stateful<Div> {
+    let glyph = mark.unwrap_or_else(|| icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 }).into_any_element());
     sidebar_row(id, selected)
+        .pl(px(16.))
         .text_color(if selected { TEXT } else { TEXT_BODY })
-        .child(div().w(px(ROW_MARK_SIZE)).flex().flex_none().justify_center().child(icon("worktree", 13., if selected { TEXT_2 } else { TEXT_4 })))
+        .child(div().w(px(ROW_MARK_SIZE)).flex().flex_none().justify_center().child(glyph))
         .child(div().flex_1().min_w_0().truncate().child(label))
 }
 

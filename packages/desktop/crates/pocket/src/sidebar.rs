@@ -25,13 +25,8 @@ use std::time::Duration;
 use theme::*;
 use ui::{self, icon_button_sized};
 
-fn row_mark(key: &str, setting_up: bool, cards: &[Card]) -> Option<AnyElement> {
-    if setting_up {
-        Some(ui::busy(id(format!("aside-setup:{key}")), "Setting up…").into_any_element())
-    } else {
-        let rolled = status::roll_up(cards.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0));
-        ui::indicator(id(format!("aside-spin:{key}")), rolled)
-    }
+fn rolled_state(cards: &[Card]) -> Option<ui::State> {
+    status::roll_up(cards.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0))
 }
 
 /// The cards whose folder lies in `tree`, as `tree_of` places folders.
@@ -259,9 +254,10 @@ impl Desktop {
             );
         }
         buttons.push(self.row_menu_button(p, menu.clone(), cx));
-        let trail = ui::row_trail(row_mark(p, setting_up, &cards), buttons, self.row_menu.as_ref() == Some(&menu));
+        let setup = setting_up.then(|| ui::busy(id(format!("aside-setup:{p}")), "Setting up…").into_any_element());
+        let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu));
         let target = p.to_string();
-        let row = ui::repo_row(("aside-repo", i), chevron, &self.repo_name(p), selected, kept)
+        let row = ui::repo_row(("aside-repo", i), chevron, &self.repo_name(p), selected, kept, rolled_state(&cards).filter(|_| !setting_up))
             .child(trail)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), None, cx)))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
@@ -281,10 +277,12 @@ impl Desktop {
                 let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
                 let mark = if self.creates.failed(tree) {
                     ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
+                } else if self::setting_up(&setups, tree) {
+                    Some(dot_spinner(id(format!("aside-setup:{tree}")), 11., TEXT_4).into_any_element())
                 } else {
-                    row_mark(tree, self::setting_up(&setups, tree), &self.tree_cards(p, tree))
+                    ui::indicator(id(format!("aside-spin:{tree}")), rolled_state(&self.tree_cards(p, tree)))
                 };
-                let trail = ui::row_trail(mark, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
+                let trail = ui::row_trail(None, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
                 let (target, path) = (p.to_string(), tree.clone());
                 let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
                     Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
@@ -300,7 +298,7 @@ impl Desktop {
                     }
                 };
                 out.push(
-                    ui::worktree_row(id(format!("aside-tree:{tree}")), label, current.as_ref() == Some(tree))
+                    ui::worktree_row(id(format!("aside-tree:{tree}")), label, current.as_ref() == Some(tree), mark)
                         .children(self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr)))
                         .child(trail)
                         .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {

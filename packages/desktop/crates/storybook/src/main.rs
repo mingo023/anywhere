@@ -136,9 +136,9 @@ impl Render for Storybook {
                 "Project row",
                 "Sidebar rail",
                 list()
-                    .child(ui::repo_row("repo-android", Some(ui::chevron("chev-android", true)), "app-android", true, true))
-                    .child(ui::repo_row("repo-ios", Some(ui::chevron("chev-ios", false)), "app-ios", false, true).children(ui::indicator("spin-ios", Some(State::NeedsYou))))
-                    .child(ui::repo_row("repo-scratch", None, "scratch", false, false).children(ui::indicator("spin-scratch", Some(State::Working)))),
+                    .child(ui::repo_row("repo-android", Some(ui::chevron("chev-android", true)), "app-android", true, true, None))
+                    .child(ui::repo_row("repo-ios", Some(ui::chevron("chev-ios", false)), "app-ios", false, true, Some(State::NeedsYou)))
+                    .child(ui::repo_row("repo-scratch", None, "scratch", false, false, Some(State::Working))),
             ))
             .child(story(
                 "Session row",
@@ -186,9 +186,9 @@ impl Render for Storybook {
                 "Worktrees",
                 "Nested under the selected project",
                 list()
-                    .child(ui::worktree_row("w1", "fix-login", true))
-                    .child(ui::worktree_row("w2", "brave-otter", false).child(ui::row_trail(ui::indicator("w2-spin", Some(State::NeedsYou)), vec![ui::icon_button_sized("w2-more", "more", 22., TEXT_3).rounded(px(6.)).into_any_element()], false)))
-                    .child(ui::worktree_row("w3", "add-dark-mode", false).children(ui::indicator("w3-spin", Some(State::Working)))),
+                    .child(ui::worktree_row("w1", "fix-login", true, None))
+                    .child(ui::worktree_row("w2", "brave-otter", false, ui::indicator("w2-spin", Some(State::NeedsYou))).child(ui::row_trail(None, vec![ui::icon_button_sized("w2-more", "more", 22., TEXT_3).rounded(px(6.)).into_any_element()], false)))
+                    .child(ui::worktree_row("w3", "add-dark-mode", false, ui::indicator("w3-spin", Some(State::Working)))),
             ))
             .child(story(
                 "Palette and menus",
