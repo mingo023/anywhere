@@ -29,7 +29,7 @@ const STEPS: [(&str, Step); 50] = [
     ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
     ("explore", |d, _, cx| {
-        d.side = Side::Explorer;
+        (d.side, d.sidebar.panel_open) = (Side::Explorer, true);
         d.refresh_git(cx);
     }),
     ("changes", |d, _, cx| {
@@ -228,7 +228,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.close_overlay(window, cx);
     d.automations.reset();
     (d.screen, d.side, d.settings) = (Screen::Sessions, Side::Sessions, SettingsState::default());
-    (d.layout, d.widths, d.sidebar.column_hidden, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
+    (d.layout, d.widths, d.sidebar.panel_open, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
     (d.worktree, d.terminal.focused) = (None, None);
     for p in d.preview.panes.values_mut() {
         p.file = None;

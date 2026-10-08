@@ -50,12 +50,7 @@ impl Desktop {
         self.sessions_matching(&self.sidebar.search.read(cx).value())
     }
 
-    /// How many sessions the Sessions column lists before search narrows it.
-    pub(crate) fn session_count(&self) -> usize {
-        self.sessions_matching("").len()
-    }
-
-    fn sessions_matching(&self, query: &str) -> Vec<Card> {
+    pub(crate) fn sessions_matching(&self, query: &str) -> Vec<Card> {
         let Some(project) = self.project.as_deref() else { return Vec::new() };
         let tree = self.cwd();
         walkable(self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), query)

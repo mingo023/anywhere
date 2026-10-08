@@ -1,16 +1,10 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{HEADER, Overlay, RAIL, Screen, Side, drag_area};
-use crate::sidebar::column::{changes_badge, changes_dot};
+use crate::desktop::chrome::{HEADER, Overlay, RAIL, Screen, drag_area};
 use crate::terminal_view::context;
 use agents::Level;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
-
-/// `clicked`'s icon, with the column `shown` on `side`: the side to show, and whether to hide the column.
-pub(crate) fn rail_pick(side: Side, shown: bool, clicked: Side) -> (Side, bool) {
-    (clicked, shown && side == clicked)
-}
 
 fn rail_slot(id: impl Into<ElementId>, active: bool) -> Stateful<Div> {
     div()
@@ -27,22 +21,11 @@ fn rail_slot(id: impl Into<ElementId>, active: bool) -> Stateful<Div> {
         .when(!active, |d| d.hover(|s| s.bg(FILL_2)))
 }
 
-fn rail_button(id: impl Into<ElementId>, name: &str, active: bool) -> Stateful<Div> {
+pub(super) fn rail_button(id: impl Into<ElementId>, name: &str, active: bool) -> Stateful<Div> {
     rail_slot(id, active).child(icon(name, 17., if active { TEXT } else { TEXT_2 }))
 }
 
 impl Desktop {
-    fn column_on_side(&self) -> bool {
-        !matches!(self.screen, Screen::Inbox | Screen::Automations) && !self.sidebar.column_hidden
-    }
-
-    fn pick_side(&mut self, side: Side, cx: &mut Context<Self>) {
-        (self.side, self.sidebar.column_hidden) = rail_pick(self.side, self.column_on_side(), side);
-        self.screen = Screen::Sessions;
-        self.refresh_graph(cx);
-        cx.notify();
-    }
-
     fn toggle_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.screen == Screen::Inbox {
             self.screen = Screen::Sessions;
@@ -61,7 +44,7 @@ impl Desktop {
         }
     }
 
-    /// The compact layout's rail: sidebar toggle, project switcher, the column's sides, search, inbox and settings.
+    /// The compact layout's rail: sidebar toggle, project switcher, search, inbox and settings.
     pub(crate) fn nav(&self, cx: &mut Context<Self>) -> Div {
         let expand = rail_button("nav-expand", "sidebar-expand", false)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_sidebar(&crate::actions::ToggleSidebar, window, cx)));
@@ -74,13 +57,6 @@ impl Desktop {
                 this.toggle_project_picker(window, cx);
             }));
         let project = div().relative().child(button).when(open, |d| d.child(ui::dropdown(36., ui::menu_in("projects-menu-in", self.project_picker(cx)))));
-        let shown = self.column_on_side();
-        let dirty = changes_badge(self.repo()).is_some();
-        let sides = [(Side::Sessions, "comment"), (Side::Explorer, "file"), (Side::Changes, "branch")].into_iter().enumerate().map(|(i, (side, name))| {
-            rail_button(("nav-side", i), name, shown && self.side == side)
-                .when(side == Side::Changes && dirty, |d| d.child(changes_dot()))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_side(side, cx)))
-        });
         let search = rail_button("nav-search", "search", self.overlay == Some(Overlay::Palette))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
         let unseen = crate::inbox::count(&self.agents);
@@ -112,7 +88,6 @@ impl Desktop {
             .child(divider)
             .child(expand)
             .child(project)
-            .children(sides)
             .child(search)
             .child(inbox)
             .children(self.agents.automations_offered().then_some(automations))
@@ -130,14 +105,3 @@ impl Desktop {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::rail_pick;
-    use crate::desktop::chrome::Side;
-
-    #[test]
-    fn a_side_icon_shows_its_side_and_the_shown_sides_icon_hides_the_column() {
-        let got = [rail_pick(Side::Sessions, true, Side::Explorer), rail_pick(Side::Explorer, true, Side::Explorer), rail_pick(Side::Explorer, false, Side::Explorer)];
-        assert_eq!(got, [(Side::Explorer, false), (Side::Explorer, true), (Side::Explorer, false)]);
-    }
-}

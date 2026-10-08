@@ -1,5 +1,6 @@
 pub(crate) mod column;
 mod host;
+pub(crate) mod panel;
 pub(crate) mod project_picker;
 pub(crate) mod rail;
 mod rename;
@@ -34,13 +35,9 @@ pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&st
     cards.into_iter().filter(|c| tree_of(&c.cwd).as_deref() == tree).collect()
 }
 
-/// The Sessions, Explorer and Changes column; the inbox and Automations list in it too.
-pub(crate) fn column_shown(layout: Layout, screen: Screen, hidden: bool) -> bool {
-    match layout {
-        Layout::Sidebars => true,
-        Layout::Compact => screen == Screen::Inbox || !hidden,
-        Layout::Focus => false,
-    }
+/// The column left of the page, listing the inbox or Automations.
+pub(crate) fn column_shown(layout: Layout, screen: Screen) -> bool {
+    layout != Layout::Focus && matches!(screen, Screen::Inbox | Screen::Automations)
 }
 
 /// How a project's row folds its checkout and worktrees.
@@ -99,8 +96,8 @@ pub struct SidebarState {
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: ProjectPicker,
-    /// Whether the user hid Compact's column.
-    pub(crate) column_hidden: bool,
+    /// The right-hand panel shows; collapsed at launch.
+    pub(crate) panel_open: bool,
     /// The worktree row being renamed.
     pub(crate) rename: Option<Rename>,
 }
@@ -111,7 +108,7 @@ impl SidebarState {
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
-        (Self { search, menu_at: None, picker, column_hidden: false, rename: None }, subs)
+        (Self { search, menu_at: None, picker, panel_open: false, rename: None }, subs)
     }
 }
 
@@ -410,16 +407,13 @@ mod tests {
     }
 
     #[test]
-    fn compact_shows_the_column_unless_hidden_and_always_for_the_inbox() {
+    fn the_left_column_lists_the_inbox_and_automations_outside_focus() {
         let got = [
-            column_shown(Layout::Sidebars, Screen::Sessions, true),
-            column_shown(Layout::Compact, Screen::Sessions, false),
-            column_shown(Layout::Compact, Screen::Sessions, true),
-            column_shown(Layout::Compact, Screen::Inbox, true),
-            column_shown(Layout::Focus, Screen::Sessions, false),
-            column_shown(Layout::Sidebars, Screen::Automations, false),
-            column_shown(Layout::Compact, Screen::Automations, true),
+            column_shown(Layout::Sidebars, Screen::Sessions),
+            column_shown(Layout::Compact, Screen::Inbox),
+            column_shown(Layout::Sidebars, Screen::Automations),
+            column_shown(Layout::Focus, Screen::Inbox),
         ];
-        assert_eq!(got, [true, true, false, true, false, true, false]);
+        assert_eq!(got, [false, true, true, false]);
     }
 }

@@ -3,7 +3,7 @@ use crate::desktop::Desktop;
 use crate::removal::Removal;
 use crate::status::Status;
 use crate::terminals::close::Busy;
-use crate::sidebar::column::{changes_badge, changes_dot};
+use crate::sidebar::column::{changes_dot, has_changes};
 use gpui_kit::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use theme::*;
@@ -146,6 +146,12 @@ pub fn empty(text: impl Into<SharedString>) -> Div {
     div().p(px(16.)).text_size(px(13.5)).text_color(TEXT_2).child(text.into())
 }
 
+/// A top bar's left padding outside Focus: past the traffic lights where they overhang the compact rail.
+fn compact_pad(layout: Layout, screen: Screen, pad: f32) -> f32 {
+    // Only the rail is left of the Sessions page; other screens put a column between.
+    if layout == Layout::Compact && screen == Screen::Sessions { LIGHTS - RAIL } else { pad }
+}
+
 pub fn sidebar_toggled(layout: Layout) -> Layout {
     match layout {
         Layout::Sidebars => Layout::Compact,
@@ -155,8 +161,9 @@ pub fn sidebar_toggled(layout: Layout) -> Layout {
 
 impl Desktop {
     pub(crate) fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
-        if self.layout == Layout::Compact {
-            self.sidebar.column_hidden = !self.sidebar.column_hidden;
+        // The panel shows only on the Sessions screen; flipping it elsewhere would surprise on the way back.
+        if self.layout != Layout::Focus && self.screen == Screen::Sessions {
+            self.sidebar.panel_open = !self.sidebar.panel_open;
             cx.notify();
         }
     }
@@ -237,21 +244,21 @@ impl Desktop {
         cx.notify();
     }
 
-    fn reset_width(&mut self, col: Column, cx: &mut Context<Self>) {
+    pub(crate) fn reset_width(&mut self, col: Column, cx: &mut Context<Self>) {
         self.widths[col as usize] = None;
         self.save_soon(cx);
         cx.notify();
     }
 
-    /// A top bar's left padding, `pad` unless Focus needs room for the traffic lights, and the sidebar toggle it starts with.
+    /// A top bar's left padding, `pad` unless the traffic lights overhang it, and the sidebar toggle it starts with.
     pub(crate) fn bar_start(&self, pad: f32, cx: &mut Context<Self>) -> (f32, Option<Stateful<Div>>) {
         let toggle = |name: &str, cx: &mut Context<Self>| {
             icon_button_sized("focus-toggle", name, 28., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
         };
         match self.layout {
             // Leaves room for the window's traffic lights once the sidebars are hidden.
-            Layout::Focus => (LIGHTS, Some(toggle("sidebar-expand", cx).relative().when(changes_badge(self.repo()).is_some(), |d| d.child(changes_dot())))),
-            Layout::Compact | Layout::Sidebars => (pad, None),
+            Layout::Focus => (LIGHTS, Some(toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())))),
+            Layout::Compact | Layout::Sidebars => (compact_pad(self.layout, self.screen, pad), None),
         }
     }
 
@@ -269,10 +276,16 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Layout, sidebar_toggled};
+    use super::{Layout, Screen, compact_pad, sidebar_toggled};
 
     #[test]
     fn cmd_b_swaps_the_projects_sidebar_for_the_rail_and_brings_it_back() {
         assert_eq!([Layout::Sidebars, Layout::Compact, Layout::Focus].map(sidebar_toggled), [Layout::Compact, Layout::Sidebars, Layout::Sidebars]);
+    }
+
+    #[test]
+    fn compact_bars_clear_the_traffic_lights_only_where_nothing_sits_between_them_and_the_rail() {
+        let got = [(Layout::Compact, Screen::Sessions), (Layout::Compact, Screen::Inbox), (Layout::Sidebars, Screen::Sessions)].map(|(l, s)| compact_pad(l, s, 10.));
+        assert_eq!(got, [35., 10., 10.]);
     }
 }

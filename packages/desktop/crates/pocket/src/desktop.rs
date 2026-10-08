@@ -481,8 +481,9 @@ impl Render for Desktop {
             Layout::Compact => Some(self.nav(cx)),
             Layout::Focus => None,
         };
-        let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen, self.sidebar.column_hidden).then(|| self.column_view(cx)) };
+        let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx)) };
         let page = if settings { self.settings_page(cx) } else { self.main_view(window, cx) };
+        let workspace = (self.screen == Screen::Sessions && self.layout != Layout::Focus).then(|| [self.workspace_panel(cx), self.workspace_rail(cx)]);
         let overlay = self.overlay_view(window, cx);
         div()
             .relative()
@@ -547,6 +548,7 @@ impl Render for Desktop {
             .children(lead)
             .children(column)
             .child(page)
+            .children(workspace.into_iter().flatten())
             .children(overlay)
             .children(self.chat_pill(cx))
             .children(self.chat_popover(cx))
