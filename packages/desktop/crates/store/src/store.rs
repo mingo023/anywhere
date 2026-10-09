@@ -31,6 +31,8 @@ pub struct LaunchPick {
     pub provider: String,
     pub model: String,
     pub effort: String,
+    /// One of `prefs::agents::ACCESSES`; empty uses the app's.
+    pub access: String,
 }
 
 impl LaunchPick {
@@ -47,18 +49,18 @@ impl LaunchPick {
         Self { provider: Self::known_provider(&self.provider).into(), ..self }
     }
 
-    /// A model or effort remembered for one agent means nothing to another.
+    /// A model or effort remembered for one agent means nothing to another; access holds for any.
     pub fn switched(&self, provider: &str) -> Self {
         if self.provider == provider {
             return Self { provider: provider.into(), ..self.clone() };
         }
-        Self { provider: provider.into(), ..Self::default() }
+        Self { provider: provider.into(), access: self.access.clone(), ..Self::default() }
     }
 
-    /// A create's agent, model, effort and `prompt` as given; access is left to the agent's own settings.
+    /// A create's agent, model, effort, access and `prompt` as given.
     pub fn spec(&self, project: &str, checkout: serde_json::Value, prompt: &str) -> serde_json::Value {
-        let mut spec = serde_json::json!({"project": project, "checkout": checkout, "provider": self.provider, "access": "settings", "plan": false});
-        for (key, value) in [("model", &self.model), ("effort", &self.effort)] {
+        let mut spec = serde_json::json!({"project": project, "checkout": checkout, "provider": self.provider, "plan": false});
+        for (key, value) in [("model", &self.model), ("effort", &self.effort), ("access", &self.access)] {
             if !value.is_empty() {
                 spec[key] = value.as_str().into();
             }
@@ -465,30 +467,30 @@ mod tests {
 
     #[test]
     fn the_last_agent_keeps_its_model_and_effort() {
-        let pick = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into() };
+        let pick = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: String::new() };
         assert_eq!(pick.switched("claude"), pick);
     }
 
     #[test]
-    fn another_agent_forgets_the_last_ones_model_and_effort() {
-        let pick = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into() };
-        assert_eq!(pick.switched("codex"), LaunchPick { provider: "codex".into(), ..LaunchPick::default() });
+    fn another_agent_forgets_the_last_ones_model_and_effort_but_keeps_its_access() {
+        let pick = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: "auto".into() };
+        assert_eq!(pick.switched("codex"), LaunchPick { provider: "codex".into(), access: "auto".into(), ..LaunchPick::default() });
     }
 
     #[test]
     fn an_agent_this_app_does_not_know_starts_claude() {
-        let pick = LaunchPick { provider: "gemini".into(), model: "pro".into(), effort: String::new() };
-        assert_eq!(pick.known(), LaunchPick { provider: "claude".into(), model: "pro".into(), effort: String::new() });
+        let pick = LaunchPick { provider: "gemini".into(), model: "pro".into(), effort: String::new(), access: String::new() };
+        assert_eq!(pick.known(), LaunchPick { provider: "claude".into(), model: "pro".into(), effort: String::new(), access: String::new() });
         assert_eq!(LaunchPick::known_provider("codex"), "codex");
     }
 
     #[test]
-    fn a_launch_sends_only_the_model_effort_and_prompt_it_has() {
-        let pick = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: String::new() };
+    fn a_launch_sends_only_the_model_effort_access_and_prompt_it_has() {
+        let pick = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), access: "edits".into(), ..LaunchPick::default() };
         let spec = pick.spec("/p", serde_json::json!({"worktree": "/p"}), "Fix the failing tests");
         assert_eq!(
             spec,
-            serde_json::json!({"project": "/p", "checkout": {"worktree": "/p"}, "provider": "codex", "access": "settings", "plan": false, "model": "gpt-5", "prompt": "Fix the failing tests"})
+            serde_json::json!({"project": "/p", "checkout": {"worktree": "/p"}, "provider": "codex", "access": "edits", "plan": false, "model": "gpt-5", "prompt": "Fix the failing tests"})
         );
         assert_eq!(pick.spec("/p", serde_json::json!({"worktree": "/p"}), "").get("prompt"), None);
     }
@@ -500,7 +502,7 @@ mod tests {
         let mut s = Store::load(&dir);
         s.projects.push("/w".into());
         s.collapsed.insert("/w".into());
-        let launch = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into() };
+        let launch = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: "ask".into() };
         s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], launch, ..Default::default() });
         s.window = Some(WindowGeometry { display: Some("D1".into()), x: 40., y: 60., width: 1200., height: 800. });
         s.layout = Layout::Compact;
@@ -639,13 +641,13 @@ mod tests {
         let old: Store = serde_json::from_str(r#"{"projects":["/w"],"repos":{"/w":{"name":"w","color":0,"base":"main","worktrees":"","setup":"make","copy":[".env"]}}}"#).unwrap();
         assert_eq!((&old.repos["/w"].launch, &old.repos["/w"].agent), (&LaunchPick::default(), &LaunchPick::default()));
         let picked = RepoConfig { launch: LaunchPick { provider: "codex".into(), ..Default::default() }, ..Default::default() };
-        assert!(serde_json::to_string(&picked).unwrap().contains(r#""launch":{"provider":"codex","model":"","effort":""}"#));
+        assert!(serde_json::to_string(&picked).unwrap().contains(r#""launch":{"provider":"codex","model":"","effort":"","access":""}"#));
     }
 
     #[test]
     fn a_launch_pick_saved_before_model_and_effort_loads_with_them_empty() {
         let old: RepoConfig = serde_json::from_str(r#"{"launch":{"provider":"codex","access":"auto"}}"#).unwrap();
-        assert_eq!(old.launch, LaunchPick { provider: "codex".into(), model: String::new(), effort: String::new() });
+        assert_eq!(old.launch, LaunchPick { provider: "codex".into(), access: "auto".into(), ..LaunchPick::default() });
     }
 
     #[test]

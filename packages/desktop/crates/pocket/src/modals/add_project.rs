@@ -720,7 +720,7 @@ mod tests {
             color: 1,
             base: "develop".into(),
             setup: "pnpm install".into(),
-            agent: LaunchPick { provider: "claude".into(), model: "opus".into(), effort: String::new() },
+            agent: LaunchPick { provider: "claude".into(), model: "opus".into(), effort: String::new(), access: String::new() },
             ..RepoConfig::default()
         };
         let changes = project_changes(&cfg, "main");

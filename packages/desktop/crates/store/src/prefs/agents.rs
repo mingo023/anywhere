@@ -117,17 +117,20 @@ impl Agents {
     }
 
     /// The project's own agent where it set one, else what it last started, else the default agent; a provider now off falls back too.
+    /// A project sets no access, so what it last started with holds.
     pub fn pick(&self, project: &LaunchPick, remembered: LaunchPick) -> LaunchPick {
         if !project.provider.is_empty() {
-            return project.switched(self.usable(&project.provider));
+            return LaunchPick { access: remembered.access, ..project.switched(self.usable(&project.provider)) };
         }
         let provider = if remembered.provider.is_empty() { self.default_agent() } else { self.usable(&remembered.provider) };
         remembered.switched(provider)
     }
 
-    /// A create spec with this permission mode, plan mode where its agent has one, and its provider's model and effort where it names none.
+    /// A create spec with plan mode where its agent has one, and this permission mode and its provider's model and effort where it names none.
     pub fn launch(&self, spec: &mut serde_json::Value) {
-        spec["access"] = self.access().into();
+        if spec.get("access").is_none() {
+            spec["access"] = self.access().into();
+        }
         spec["plan"] = (self.plan && spec["provider"] == PLANS).into();
         let provider = spec["provider"].as_str().unwrap_or_default().to_string();
         let own = self.provider(&provider);
@@ -206,18 +209,25 @@ mod tests {
         let a = Agents { default: "codex".into(), ..Agents::default() };
         let none = LaunchPick::default();
         assert_eq!(a.pick(&none, LaunchPick::default()).provider, "codex");
-        let opus = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: String::new() };
+        let opus = LaunchPick { provider: "claude".into(), model: "opus".into(), ..LaunchPick::default() };
         assert_eq!(a.pick(&none, opus.clone()), opus);
     }
 
     #[test]
     fn a_project_s_own_agent_wins_over_what_it_last_started() {
         let a = Agents::default();
-        let own = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: String::new() };
-        let last = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into() };
+        let own = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), ..LaunchPick::default() };
+        let last = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), ..LaunchPick::default() };
         assert_eq!(a.pick(&own, last.clone()), own);
         let off = Agents { disabled: ["codex".to_string()].into(), ..Agents::default() };
         assert_eq!(off.pick(&own, last), LaunchPick { provider: "claude".into(), ..LaunchPick::default() });
+    }
+
+    #[test]
+    fn the_access_a_project_last_started_with_holds_under_its_own_agent() {
+        let own = LaunchPick { provider: "codex".into(), ..LaunchPick::default() };
+        let last = LaunchPick { provider: "claude".into(), access: "auto".into(), ..LaunchPick::default() };
+        assert_eq!(Agents::default().pick(&own, last).access, "auto");
     }
 
     #[test]
@@ -246,6 +256,14 @@ mod tests {
         a.launch(&mut claude);
         a.launch(&mut codex);
         assert_eq!((&claude["access"], &claude["plan"], &codex["access"], &codex["plan"]), (&"auto".into(), &true.into(), &"auto".into(), &false.into()));
+    }
+
+    #[test]
+    fn a_launch_takes_the_app_s_permission_mode_unless_it_names_its_own() {
+        let a = Agents { access: "auto".into(), ..Agents::default() };
+        let mut named = json!({"provider": "claude", "access": "ask"});
+        a.launch(&mut named);
+        assert_eq!(named["access"], "ask");
     }
 
     #[test]

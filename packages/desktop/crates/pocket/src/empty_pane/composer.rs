@@ -1,7 +1,11 @@
+use super::Menu;
 use crate::desktop::Desktop;
+use crate::modals::new_session::launch::{self, Pick};
 use gpui_kit::component::input::Textarea;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::rc::Rc;
+use store::LaunchPick;
 use theme::*;
 use workspace::Place;
 
@@ -27,7 +31,7 @@ impl Desktop {
             .pb(px(56.))
             .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("What should {} work on?", provider_name(&pick.provider))))
             .children(self.empty_branch_line())
-            .child(self.empty_input(&pick.provider, cx))
+            .child(self.empty_input(&pick, cx))
             .children(starting)
             .children(error)
             .child(div().w_full().max_w(px(600.)).mt(px(14.)).flex().flex_wrap().justify_center().gap(px(6.)).children(starters(&self.store.agents.starters, cx)))
@@ -56,7 +60,7 @@ impl Desktop {
         )
     }
 
-    fn empty_input(&self, provider: &str, cx: &mut Context<Self>) -> Div {
+    fn empty_input(&self, pick: &LaunchPick, cx: &mut Context<Self>) -> Div {
         let ready = self.empty_pane.launch.ready(&self.empty_pane.prompt.read(cx).value());
         let send = ui::primary(div().id("empty-start").size(px(30.)).flex().flex_none().items_center().justify_center().rounded(px(15.)))
             .child(icon("arrow-up", 15., ON_PRIMARY))
@@ -82,7 +86,9 @@ impl Desktop {
                     .px(px(10.))
                     .pb(px(10.))
                     .text_size(px(13.))
-                    .child(self.empty_agent(provider, cx))
+                    .child(self.empty_agent(&pick.provider, cx))
+                    .child(self.empty_model(pick, cx))
+                    .child(self.empty_access(&pick.access, cx))
                     .child(div().flex_1())
                     .child(ui::kbd("⌘↵").mr(px(8.)))
                     .child(send),
@@ -90,33 +96,57 @@ impl Desktop {
     }
 
     fn empty_agent(&self, provider: &str, cx: &mut Context<Self>) -> Div {
-        let chip = ui::menu_chip("empty-agent", self.empty_pane.agent_menu)
+        let open = self.empty_pane.menu == Some(Menu::Agent);
+        let chip = ui::menu_chip("empty-agent", open)
             .child(provider_icon(provider, 13., TEXT))
             .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(provider)))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                this.empty_pane.agent_menu = !this.empty_pane.agent_menu;
-                cx.notify();
+                this.toggle_empty_menu(Menu::Agent, cx);
             }));
-        let menu = self.empty_pane.agent_menu.then(|| {
+        let menu = open.then(|| {
             let rows = self.store.agents.enabled().into_iter().map(|p| {
                 ui::pick_row(p, p == provider, Some(provider_icon(p, 13., TEXT)), div().child(provider_name(p)), None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_empty_agent(p, cx)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_empty(|pick| pick.switched(p), cx)))
+                    .into_any_element()
             });
-            ui::dropdown(
-                36.,
-                ui::menu_in(
-                    "empty-agent-menu-in",
-                    ui::pop(div().id("empty-agent-menu")).w(px(220.)).p(px(5.)).flex().flex_col().children(rows).on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        this.empty_pane.agent_menu = false;
-                        cx.notify();
-                    })),
-                ),
-            )
+            empty_menu("empty-agent-menu", 220., rows.collect(), cx)
         });
         div().relative().child(chip).children(menu)
     }
+
+    fn empty_model(&self, pick: &LaunchPick, cx: &mut Context<Self>) -> Div {
+        let app = self.store.agents.provider(&pick.provider).model;
+        let open = self.empty_pane.menu == Some(Menu::Model);
+        let chip = launch::chip("empty-model", open, "sparkle", launch::model_shown(&pick.model, &app), TEXT, |this, cx| {
+            this.load_models(cx);
+            this.toggle_empty_menu(Menu::Model, cx);
+        }, cx);
+        let menu = open.then(|| {
+            let choose: Pick = Rc::new(|this, model, cx| this.pick_empty(|pick| LaunchPick { model, ..pick }, cx));
+            let rows = launch::model_rows("empty-model-row", launch::model_choices(&pick.provider, self.codex_models(), &pick.model, &app), &pick.model, choose, cx);
+            empty_menu("empty-model-menu", 220., rows, cx)
+        });
+        div().relative().child(chip).children(menu)
+    }
+
+    fn empty_access(&self, access: &str, cx: &mut Context<Self>) -> Div {
+        let app = self.store.agents.access();
+        let open = self.empty_pane.menu == Some(Menu::Access);
+        let chip = launch::access_chip("empty-access", open, access, app, |this, cx| this.toggle_empty_menu(Menu::Access, cx), cx);
+        let menu = open.then(|| {
+            let choose: Pick = Rc::new(|this, access, cx| this.pick_empty(|pick| LaunchPick { access, ..pick }, cx));
+            empty_menu("empty-access-menu", 300., launch::access_rows("empty-access-row", launch::access_choices(app), access, choose, cx), cx)
+        });
+        div().relative().child(chip).children(menu)
+    }
+}
+
+/// A chip's menu, closed by a press outside it.
+fn empty_menu(id: &'static str, width: f32, rows: Vec<AnyElement>, cx: &mut Context<Desktop>) -> Div {
+    let menu = ui::pop(div().id(id)).w(px(width)).max_h(px(360.)).overflow_y_scroll().p(px(5.)).flex().flex_col().children(rows).on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| this.close_empty_menu(cx)));
+    ui::dropdown(36., ui::menu_in(SharedString::from(format!("{id}-in")), menu))
 }
 
 fn starters(prompts: &[String], cx: &mut Context<Desktop>) -> Vec<Stateful<Div>> {

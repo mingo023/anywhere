@@ -1,3 +1,4 @@
+pub(crate) mod launch;
 pub(crate) mod picker;
 
 use agents::{CreateReply, Event};
@@ -101,6 +102,7 @@ struct Draft {
     provider: &'static str,
     model: String,
     effort: String,
+    access: String,
     reply: CreateReply,
     picker: Option<Picker>,
     images: Vec<Attachment>,
@@ -129,6 +131,7 @@ impl Default for Draft {
             provider: "claude",
             model: String::new(),
             effort: String::new(),
+            access: String::new(),
             reply: CreateReply::default(),
             picker: None,
             images: Vec::new(),
@@ -216,7 +219,7 @@ impl Draft {
 
     fn pick_provider(&mut self, provider: &'static str) {
         let pick = self.pick().switched(provider);
-        (self.model, self.effort) = (pick.model, pick.effort);
+        (self.model, self.effort, self.access) = (pick.model, pick.effort, pick.access);
         (self.provider, self.picker) = (provider, None);
     }
 
@@ -232,12 +235,12 @@ impl Draft {
 
     /// What to remember for the Project.
     fn pick(&self) -> LaunchPick {
-        LaunchPick { provider: self.provider.to_string(), model: self.model.clone(), effort: self.effort.clone() }
+        LaunchPick { provider: self.provider.to_string(), model: self.model.clone(), effort: self.effort.clone(), access: self.access.clone() }
     }
 
     fn open(&mut self, last: &LaunchPick) {
         self.provider = LaunchPick::known_provider(&last.provider);
-        (self.model, self.effort) = (last.model.clone(), last.effort.clone());
+        (self.model, self.effort, self.access) = (last.model.clone(), last.effort.clone(), last.access.clone());
         self.reply = CreateReply::default();
     }
 
@@ -647,6 +650,8 @@ impl Desktop {
             .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
             .child(div().ml_auto().child(close));
         let agent = self.agent_select(cx);
+        let model = self.model_select(cx);
+        let access = self.access_select(cx);
         let checkout = self.checkout_select(cx);
         let pr = f.linked_pr();
         let branch = match pr {
@@ -727,7 +732,15 @@ impl Desktop {
                     .child(send),
             );
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail));
-        let footer = div().flex().justify_end().px(px(6.)).text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("⌘↵ to start · esc to cancel");
+        let footer = div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .px(px(6.))
+            .text_size(px(13.))
+            .child(model)
+            .child(access)
+            .child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("⌘↵ to start · esc to cancel"));
         div().absolute().top(px(110.)).left_0().right_0().flex().justify_center().child(
             // The design's 0.5px border renders 1px wide and insets the sheet's content.
             ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).rounded(px(R_DIALOG)).occlude().child(header).child(composer).children(error).child(footer),
@@ -856,11 +869,11 @@ mod tests {
     }
 
     #[test]
-    fn a_spec_leaves_access_to_the_agents_settings_without_planning_and_carries_no_argv() {
-        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "access": "settings", "plan": false, "prompt": "Fix CI"});
+    fn a_spec_leaves_access_to_the_app_without_planning_and_carries_no_argv() {
+        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "plan": false, "prompt": "Fix CI"});
         assert_eq!(Draft::default().spec("/p", "/p/w", "", "  Fix CI  "), want);
         let new = Draft { worktree: true, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "access": "settings", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
         assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
     }
 
@@ -875,7 +888,7 @@ mod tests {
     #[test]
     fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
         let draft = Draft { worktree: true, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "access": "settings", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "plan": false});
         assert_eq!(draft.spec("/p", "/p", "fix/login", ""), want);
         assert_eq!(draft.spec("/p", "/p", "origin/fix/login", ""), want);
         assert_eq!(draft.folder("fix/login"), "fix-login");
@@ -901,7 +914,7 @@ mod tests {
     fn a_pr_is_sent_as_typed_and_reopens_as_a_pr() {
         let draft = Draft { worktree: true, source: Source::Pr("#7".into()), repo: Some("/p".into()), copy_env: true, ..Draft::default() };
         assert!(draft.ready("#7", false) && !draft.ready("seven", false));
-        let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "access": "settings", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
         assert_eq!(draft.spec("/p", "/p", "#7", ""), want);
         assert_eq!(draft.folder("#7"), "pr-7");
         assert_eq!(Source::of(&want["checkout"]["new"]), Source::Pr("#7".into()));
@@ -937,14 +950,14 @@ mod tests {
 
     #[test]
     fn picks_are_remembered_per_project() {
-        let draft = Draft { provider: "codex", model: "gpt-5".into(), effort: "high".into(), ..Draft::default() };
+        let draft = Draft { provider: "codex", model: "gpt-5".into(), effort: "high".into(), access: "auto".into(), ..Draft::default() };
         let pick = draft.pick();
-        assert_eq!(pick, LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: "high".into() });
+        assert_eq!(pick, LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: "high".into(), access: "auto".into() });
         let mut next = Draft::default();
         next.open(&pick);
-        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str()), ("codex", "gpt-5", "high"));
+        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access.as_str()), ("codex", "gpt-5", "high", "auto"));
         next.open(&LaunchPick::default());
-        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str()), ("claude", "", ""));
+        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access.as_str()), ("claude", "", "", ""));
     }
 
     #[test]
@@ -957,6 +970,13 @@ mod tests {
         draft.pick_provider("codex");
         let spec = draft.spec("/p", "/p", "", "");
         assert_eq!((spec.get("model"), spec.get("effort")), (None, None));
+    }
+
+    #[test]
+    fn a_picked_access_starts_the_session_whatever_the_agent() {
+        let mut draft = Draft { access: "edits".into(), ..Draft::default() };
+        draft.pick_provider("codex");
+        assert_eq!(draft.spec("/p", "/p", "", "")["access"], "edits");
     }
 
     #[test]

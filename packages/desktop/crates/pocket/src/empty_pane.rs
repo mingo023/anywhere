@@ -15,8 +15,16 @@ pub(crate) struct EmptyPane {
     pub(crate) launch: Launch,
     /// The agent picked here for a Project; like the new session sheet's, it is remembered once a session starts.
     chosen: Option<(String, LaunchPick)>,
-    agent_menu: bool,
+    menu: Option<Menu>,
     pub(crate) drawn: Drawn,
+}
+
+/// The composer chip whose menu is open.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Menu {
+    Agent,
+    Model,
+    Access,
 }
 
 /// Whether the focused pane showed the prompt in the frame last drawn, and in the one before, so the prompt takes the keys only as it appears.
@@ -103,7 +111,7 @@ impl EmptyPane {
             InputEvent::Change => cx.notify(),
             _ => {}
         })];
-        (Self { prompt, launch: Launch::default(), chosen: None, agent_menu: false, drawn: Drawn::default() }, subs)
+        (Self { prompt, launch: Launch::default(), chosen: None, menu: None, drawn: Drawn::default() }, subs)
     }
 }
 
@@ -120,12 +128,22 @@ impl Desktop {
         chosen_for(&self.empty_pane.chosen, self.project.as_deref()).map_or_else(|| self.last_pick(), LaunchPick::clone)
     }
 
-    fn pick_empty_agent(&mut self, provider: &'static str, cx: &mut Context<Self>) {
-        self.empty_pane.agent_menu = false;
-        if let Some(project) = self.project.clone() {
-            self.empty_pane.chosen = Some((project, self.launch_pick().switched(provider)));
-        }
+    pub(crate) fn toggle_empty_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
+        self.empty_pane.menu = (self.empty_pane.menu != Some(menu)).then_some(menu);
         cx.notify();
+    }
+
+    fn close_empty_menu(&mut self, cx: &mut Context<Self>) {
+        self.empty_pane.menu = None;
+        cx.notify();
+    }
+
+    /// Changes the pick for this Project and closes the menu it came from.
+    fn pick_empty(&mut self, change: impl FnOnce(LaunchPick) -> LaunchPick, cx: &mut Context<Self>) {
+        if let Some(project) = self.project.clone() {
+            self.empty_pane.chosen = Some((project, change(self.launch_pick())));
+        }
+        self.close_empty_menu(cx);
     }
 
     /// The prompt clears at once; the terminal opens in this pane once pocketd lists it (`Terminals::arrived`).
@@ -147,7 +165,7 @@ impl Desktop {
         self.save_soon(cx);
         let pane = self.workspace(&tree).tree.focused;
         self.empty_pane.launch.sent(request, tree, pane, prompt);
-        (self.empty_pane.chosen, self.empty_pane.agent_menu) = (None, false);
+        (self.empty_pane.chosen, self.empty_pane.menu) = (None, None);
         self.empty_pane.prompt.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }

@@ -1,14 +1,18 @@
+use super::launch::{self, Pick};
 use super::{Checkout, Source, checkout_choice, listed_branches, parse_pr};
 use crate::desktop::Desktop;
 use crate::sidebar::tree_label;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::rc::Rc;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Picker {
     Agent,
+    Model,
+    Access,
     Checkout,
     Branch,
     Pr,
@@ -84,7 +88,7 @@ impl Desktop {
         self.new_form.draft.picker.take().is_some()
     }
 
-    fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
         let f = &mut self.new_form.draft;
         f.picker = (f.picker != Some(picker)).then_some(picker);
         cx.notify();
@@ -226,6 +230,41 @@ impl Desktop {
             }));
         let agent_menu = (f.picker == Some(Picker::Agent)).then(|| ui::dropdown(36., ui::menu_in("agent-menu-in", self.agent_picker(cx))));
         div().relative().child(agent).children(agent_menu)
+    }
+
+    pub(super) fn model_select(&self, cx: &mut Context<Self>) -> Div {
+        let f = &self.new_form.draft;
+        let app = self.store.agents.provider(f.provider).model;
+        let open = f.picker == Some(Picker::Model);
+        let chip = launch::chip("form-model", open, "sparkle", launch::model_shown(&f.model, &app), TEXT, |this, cx| {
+            this.load_models(cx);
+            this.toggle_picker(Picker::Model, cx);
+        }, cx);
+        let menu = open.then(|| {
+            let pick: Pick = Rc::new(|this, model, cx| {
+                (this.new_form.draft.model, this.new_form.draft.picker) = (model, None);
+                cx.notify();
+            });
+            let rows = launch::model_rows("form-model-row", launch::model_choices(f.provider, self.codex_models(), &f.model, &app), &f.model, pick, cx);
+            ui::dropdown(36., ui::menu_in("model-menu-in", picker_menu("model-menu", 220., rows, cx)))
+        });
+        div().relative().child(chip).children(menu)
+    }
+
+    pub(super) fn access_select(&self, cx: &mut Context<Self>) -> Div {
+        let f = &self.new_form.draft;
+        let app = self.store.agents.access();
+        let open = f.picker == Some(Picker::Access);
+        let chip = launch::access_chip("form-access", open, &f.access, app, |this, cx| this.toggle_picker(Picker::Access, cx), cx);
+        let menu = open.then(|| {
+            let pick: Pick = Rc::new(|this, access, cx| {
+                (this.new_form.draft.access, this.new_form.draft.picker) = (access, None);
+                cx.notify();
+            });
+            let rows = launch::access_rows("form-access-row", launch::access_choices(app), &f.access, pick, cx);
+            ui::dropdown(36., ui::menu_in("access-menu-in", picker_menu("access-menu", 300., rows, cx)))
+        });
+        div().relative().child(chip).children(menu)
     }
 
     /// Names the open tree as the sidebar does, unless it is the project's own checkout.

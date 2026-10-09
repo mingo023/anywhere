@@ -2,6 +2,8 @@ use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
 use crate::add_to_chat::Quote;
 use crate::creating::Create;
 use crate::desktop::Desktop;
+use crate::empty_pane::Menu;
+use crate::modals::new_session::picker::Picker;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::git_ui::graph::GraphState;
 use crate::settings::Section;
@@ -17,7 +19,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 91] = [
+const STEPS: [(&str, Step); 95] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -113,6 +115,10 @@ const STEPS: [(&str, Step); 91] = [
     }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
+    ("form-model", |d, _, cx| d.toggle_picker(Picker::Model, cx)),
+    ("form-access", |d, _, cx| d.toggle_picker(Picker::Access, cx)),
+    ("empty-model", |d, _, cx| d.toggle_empty_menu(Menu::Model, cx)),
+    ("empty-access", |d, _, cx| d.toggle_empty_menu(Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
