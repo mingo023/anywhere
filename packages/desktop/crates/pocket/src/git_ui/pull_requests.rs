@@ -1,11 +1,10 @@
 use crate::desktop::Desktop;
-use git::github::{self, GhProblem, Pr, PrState};
+use git::github::{self, GhProblem, GhStatus, Pr, PrState};
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use theme::*;
 
-const SELECTED_EVERY: Duration = Duration::from_secs(30);
 const OTHERS_EVERY: Duration = Duration::from_secs(5 * 60);
 const GH_TURN: Duration = Duration::from_secs(60);
 
@@ -16,6 +15,8 @@ pub(crate) struct PullRequests {
     /// The tree `gh` is asked about, and since when.
     running: Option<(String, Instant)>,
     problem: Option<(GhProblem, Instant)>,
+    /// What the last Settings check of `gh` found; `Some(None)` while it runs.
+    pub(crate) gh: Option<Option<GhStatus>>,
 }
 
 /// What the Changes menu offers for the tree on screen.
@@ -27,17 +28,25 @@ pub(crate) enum PrItem<'a> {
 }
 
 impl PullRequests {
-    /// The tree to ask `gh` about next: the one on screen every SELECTED_EVERY, the others every OTHERS_EVERY, one at a time.
-    fn due(&self, selected: Option<&str>, trees: &[String], now: Instant) -> Option<String> {
+    /// The tree to ask `gh` about next: the one on screen `every` so often, the others every OTHERS_EVERY, one at a time.
+    fn due(&self, selected: Option<&str>, every: Duration, trees: &[String], now: Instant) -> Option<String> {
         // A gh that hangs gives up its turn after a minute.
         if self.running.as_ref().is_some_and(|(_, at)| now.duration_since(*at) < GH_TURN) || self.problem.is_some_and(|(_, at)| now.duration_since(at) < OTHERS_EVERY) {
             return None;
         }
         let stale = |t: &str, every: Duration| self.by_tree.get(t).is_none_or(|(at, _)| now.duration_since(*at) >= every);
         selected
-            .filter(|s| trees.iter().any(|t| t == s) && stale(s, SELECTED_EVERY))
+            .filter(|s| trees.iter().any(|t| t == s) && stale(s, every))
             .map(str::to_string)
             .or_else(|| trees.iter().find(|t| stale(t, OTHERS_EVERY)).cloned())
+    }
+
+    /// Records a Settings check of `gh`; a ready one lets PR polling resume at once.
+    pub(crate) fn checked(&mut self, status: GhStatus) {
+        if matches!(status, GhStatus::Ready { .. }) {
+            self.problem = None;
+        }
+        self.gh = Some(Some(status));
     }
 
     /// Marks `gh` as asked about `tree` since `started`, the run [`Self::apply`] expects an answer from.
@@ -154,11 +163,31 @@ pub(crate) fn chip(id: impl Into<ElementId>, pr: &Pr) -> Stateful<Div> {
 }
 
 impl Desktop {
+    /// Checks whether `gh` is installed and signed in, off the UI thread.
+    pub(crate) fn check_gh(&mut self, cx: &mut Context<Self>) {
+        if self.prs.gh == Some(None) {
+            return;
+        }
+        self.prs.gh = Some(None);
+        let task = cx.background_executor().spawn(async { github::status(daemon::run_login(github::VERSION, "/", ""), daemon::run_login(github::AUTH, "/", "")) });
+        cx.spawn(async move |this, cx| {
+            let status = task.await;
+            this.update(cx, |d, cx| {
+                d.prs.checked(status);
+                d.poll_prs(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// Asks `gh` about the next due worktree, off the UI thread.
     pub(crate) fn poll_prs(&mut self, cx: &mut Context<Self>) {
         let mut trees: Vec<String> = self.project.as_ref().and_then(|p| self.listed_trees(p)).into_iter().flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path).collect();
         trees.sort();
-        let Some(tree) = self.prs.due(self.cwd().as_deref(), &trees, Instant::now()) else { return };
+        let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
         let started = Instant::now();
         self.prs.start(&tree, started);
         let dir = tree.clone();
@@ -178,7 +207,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Duration, GhProblem, Instant, Pr, PrItem, PullRequests, detail, tone};
+    use super::{Duration, GhProblem, GhStatus, Instant, Pr, PrItem, PullRequests, detail, tone};
     use git::github::{Checks, PrState};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_3, TEXT_4, WAITING_TEXT};
 
@@ -192,6 +221,8 @@ mod tests {
         prs.apply(tree.into(), now, result, now)
     }
 
+    const EVERY: Duration = Duration::from_secs(30);
+
     fn trees() -> Vec<String> {
         vec!["/a".into(), "/b".into(), "/c".into()]
     }
@@ -199,27 +230,27 @@ mod tests {
     #[test]
     fn the_tree_on_screen_is_asked_about_first_then_the_rest_in_order() {
         let (mut prs, now) = (PullRequests::default(), Instant::now());
-        assert_eq!(prs.due(Some("/b"), &trees(), now).as_deref(), Some("/b"));
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), now).as_deref(), Some("/b"));
         answer(&mut prs, "/b", Ok(None), now);
-        assert_eq!(prs.due(Some("/b"), &trees(), now).as_deref(), Some("/a"));
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), now).as_deref(), Some("/a"));
         answer(&mut prs, "/a", Ok(Some(pr(1))), now);
-        assert_eq!(prs.due(Some("/b"), &trees(), now).as_deref(), Some("/c"));
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), now).as_deref(), Some("/c"));
         answer(&mut prs, "/c", Ok(None), now);
-        assert_eq!(prs.due(Some("/b"), &trees(), now), None);
-        assert_eq!(prs.due(Some("/main"), &trees(), now), None);
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), now), None);
+        assert_eq!(prs.due(Some("/main"), EVERY, &trees(), now), None);
     }
 
     #[test]
     fn gh_runs_one_at_a_time_a_hung_one_gives_up_its_turn_and_a_missing_or_logged_out_gh_is_asked_again_after_5_minutes() {
         let (mut prs, now) = (PullRequests::default(), Instant::now());
         prs.running = Some(("/a".into(), now));
-        assert_eq!(prs.due(None, &trees(), now), None);
-        assert_eq!(prs.due(None, &trees(), now + Duration::from_secs(60)).as_deref(), Some("/a"));
+        assert_eq!(prs.due(None, EVERY, &trees(), now), None);
+        assert_eq!(prs.due(None, EVERY, &trees(), now + Duration::from_secs(60)).as_deref(), Some("/a"));
         prs.apply("/a".into(), now, Err(GhProblem::LoggedOut), now);
         assert!(prs.running.is_none());
-        assert_eq!(prs.due(None, &trees(), now + Duration::from_secs(299)), None);
+        assert_eq!(prs.due(None, EVERY, &trees(), now + Duration::from_secs(299)), None);
         let later = now + Duration::from_secs(300);
-        assert_eq!(prs.due(None, &trees(), later).as_deref(), Some("/a"));
+        assert_eq!(prs.due(None, EVERY, &trees(), later).as_deref(), Some("/a"));
         assert!(answer(&mut prs, "/a", Ok(None), later));
         assert_eq!(prs.item("/a", "fix", Some("main")), Some(PrItem::Create));
     }
@@ -231,11 +262,22 @@ mod tests {
             answer(&mut prs, &t, Ok(None), t0);
         }
         let at = |s| t0 + Duration::from_secs(s);
-        assert_eq!(prs.due(Some("/b"), &trees(), at(29)), None);
-        assert_eq!(prs.due(Some("/b"), &trees(), at(30)).as_deref(), Some("/b"));
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), at(29)), None);
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), at(30)).as_deref(), Some("/b"));
         answer(&mut prs, "/b", Ok(None), at(290));
-        assert_eq!(prs.due(Some("/b"), &trees(), at(299)), None);
-        assert_eq!(prs.due(Some("/b"), &trees(), at(300)).as_deref(), Some("/a"));
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), at(299)), None);
+        assert_eq!(prs.due(Some("/b"), EVERY, &trees(), at(300)).as_deref(), Some("/a"));
+    }
+
+    #[test]
+    fn the_tree_on_screen_is_asked_again_as_often_as_chosen() {
+        let (mut prs, t0) = (PullRequests::default(), Instant::now());
+        for t in trees() {
+            answer(&mut prs, &t, Ok(None), t0);
+        }
+        let every = Duration::from_secs(15);
+        assert_eq!(prs.due(Some("/b"), every, &trees(), t0 + Duration::from_secs(14)), None);
+        assert_eq!(prs.due(Some("/b"), every, &trees(), t0 + every).as_deref(), Some("/b"));
     }
 
     #[test]
@@ -276,6 +318,16 @@ mod tests {
     }
 
     #[test]
+    fn a_ready_gh_found_in_settings_lets_pr_polling_resume_at_once() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now());
+        answer(&mut prs, "/a", Err(GhProblem::LoggedOut), now);
+        prs.checked(GhStatus::SignedOut { version: "2.81.0".into() });
+        assert_eq!(prs.due(None, EVERY, &trees(), now), None);
+        prs.checked(GhStatus::Ready { version: "2.81.0".into(), login: "me".into() });
+        assert_eq!(prs.due(None, EVERY, &trees(), now), Some("/a".into()));
+    }
+
+    #[test]
     fn the_changes_menu_opens_the_pr_or_says_what_gh_needs() {
         let (mut prs, now) = (PullRequests::default(), Instant::now());
         assert_eq!(prs.item("/a", "fix", Some("main")), None);
@@ -306,9 +358,9 @@ mod tests {
         let (mut prs, now) = (PullRequests::default(), Instant::now());
         let trees = vec!["/a".to_string()];
         answer(&mut prs, "/a", Ok(None), now);
-        assert_eq!(prs.due(Some("/a"), &trees, now), None);
+        assert_eq!(prs.due(Some("/a"), EVERY, &trees, now), None);
         prs.forget("/a");
-        assert_eq!(prs.due(Some("/a"), &trees, now).as_deref(), Some("/a"));
+        assert_eq!(prs.due(Some("/a"), EVERY, &trees, now).as_deref(), Some("/a"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
-/// What to load for text typed in the address bar: a URL as is, a host with a scheme added (`http` for a local one), anything else as a search.
-pub fn resolve(input: &str) -> String {
+/// What to load for text typed in the address bar: a URL as is, a host with a scheme added (`http` for a local one), anything else put in `search` at `%s`, or after it.
+pub fn resolve(input: &str, search: &str) -> String {
     let input = input.trim();
     if input.contains("://") || input.starts_with("about:") {
         return input.to_string();
@@ -8,7 +8,10 @@ pub fn resolve(input: &str) -> String {
         let scheme = if is_local(authority(input)) { "http" } else { "https" };
         return format!("{scheme}://{input}");
     }
-    format!("https://www.google.com/search?q={}", encode(input))
+    match search.contains("%s") {
+        true => search.replace("%s", &encode(input)),
+        false => format!("{search}{}", encode(input)),
+    }
 }
 
 /// The host and port of `url`, to name a page with no title yet.
@@ -50,26 +53,34 @@ fn encode(query: &str) -> String {
 mod tests {
     use super::*;
 
+    const GOOGLE: &str = "https://www.google.com/search?q=";
+
     #[test]
     fn a_url_with_a_scheme_loads_as_typed() {
-        assert_eq!(resolve(" https://example.com/a?b=c "), "https://example.com/a?b=c");
-        assert_eq!(resolve("about:blank"), "about:blank");
+        assert_eq!(resolve(" https://example.com/a?b=c ", GOOGLE), "https://example.com/a?b=c");
+        assert_eq!(resolve("about:blank", GOOGLE), "about:blank");
     }
 
     #[test]
     fn a_bare_host_gets_https_and_a_local_one_http() {
-        assert_eq!(resolve("example.com/docs"), "https://example.com/docs");
-        assert_eq!(resolve("localhost:3000"), "http://localhost:3000");
-        assert_eq!(resolve("127.0.0.1:8080/api"), "http://127.0.0.1:8080/api");
-        assert_eq!(resolve("app.localhost"), "http://app.localhost");
+        assert_eq!(resolve("example.com/docs", GOOGLE), "https://example.com/docs");
+        assert_eq!(resolve("localhost:3000", GOOGLE), "http://localhost:3000");
+        assert_eq!(resolve("127.0.0.1:8080/api", GOOGLE), "http://127.0.0.1:8080/api");
+        assert_eq!(resolve("app.localhost", GOOGLE), "http://app.localhost");
     }
 
     #[test]
     fn anything_else_is_searched() {
-        assert_eq!(resolve("rust borrow checker"), "https://www.google.com/search?q=rust+borrow+checker");
-        assert_eq!(resolve("gpui"), "https://www.google.com/search?q=gpui");
-        assert_eq!(resolve("c++ & go"), "https://www.google.com/search?q=c%2B%2B+%26+go");
-        assert_eq!(resolve("host.com:abc"), "https://www.google.com/search?q=host.com%3Aabc");
+        assert_eq!(resolve("rust borrow checker", GOOGLE), "https://www.google.com/search?q=rust+borrow+checker");
+        assert_eq!(resolve("gpui", GOOGLE), "https://www.google.com/search?q=gpui");
+        assert_eq!(resolve("c++ & go", GOOGLE), "https://www.google.com/search?q=c%2B%2B+%26+go");
+        assert_eq!(resolve("host.com:abc", GOOGLE), "https://www.google.com/search?q=host.com%3Aabc");
+        assert_eq!(resolve("gpui", "https://kagi.com/search?q="), "https://kagi.com/search?q=gpui");
+    }
+
+    #[test]
+    fn a_search_url_with_a_slot_takes_the_query_there() {
+        assert_eq!(resolve("a b", "https://x.dev/s?q=%s&lang=en"), "https://x.dev/s?q=a+b&lang=en");
     }
 
     #[test]

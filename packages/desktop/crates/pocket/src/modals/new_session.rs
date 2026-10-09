@@ -452,13 +452,15 @@ impl NewForm {
 }
 
 impl Desktop {
-    /// What the Project last started, with an agent this app knows.
+    /// The Project's own agent, else what it last started, with an agent this app knows.
     pub(crate) fn last_pick(&self) -> LaunchPick {
-        self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default().known()
+        let repo = self.project.as_ref().and_then(|p| self.store.repos.get(p));
+        self.store.agents.pick(&repo.map(|r| r.agent.clone()).unwrap_or_default(), repo.map(|r| r.launch.clone()).unwrap_or_default())
     }
 
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let last = self.last_pick();
+        let worktree = worktree || self.store.agents.new_worktree;
         let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
         f.draft.seed = crate::util::now_ms() as usize;
@@ -493,7 +495,7 @@ impl Desktop {
         f.run_setup = !cfg.setup.is_empty();
         let dir = repo.clone();
         let task = cx.background_executor().spawn(async move {
-            let current = git::read(&dir).map(|r| r.branch).unwrap_or_default();
+            let current = git::read(&dir, true).map(|r| r.branch).unwrap_or_default();
             let branches = git::dated_branches(&dir);
             let entries = std::fs::read_dir(&folders).into_iter().flatten().flatten();
             let taken: HashSet<String> = branches.iter().map(|(b, _)| b.clone()).chain(entries.filter_map(|e| e.file_name().into_string().ok())).collect();
@@ -545,6 +547,7 @@ impl Desktop {
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
+        self.store.agents.launch(&mut spec);
         self.store.repos.entry(project.clone()).or_default().launch = f.pick();
         if worktree {
             self.store.collapsed.remove(&project);
@@ -653,7 +656,7 @@ impl Desktop {
         let link = (pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
         let ready = self.session_ready();
         let send = ui::primary(div().id("form-start").size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
-            .child(icon("arrow-up", 16., ON_TEXT))
+            .child(icon("arrow-up", 16., ON_PRIMARY))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let desktop = cx.entity().downgrade();

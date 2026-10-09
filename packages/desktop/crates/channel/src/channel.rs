@@ -41,6 +41,11 @@ pub fn daemon_label() -> &'static str {
     identity(is_release()).daemon_label
 }
 
+/// The phone port pocketd takes until one is set; mirrors `config.DefaultPort`.
+pub fn phone_port() -> u32 {
+    if is_release() { 4517 } else { 4518 }
+}
+
 fn identity(release: bool) -> &'static Identity {
     if release { &RELEASE } else { &DEV }
 }

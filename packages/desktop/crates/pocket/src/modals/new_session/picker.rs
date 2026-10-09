@@ -4,7 +4,6 @@ use crate::sidebar::tree_label;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use store::LaunchPick;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -105,7 +104,7 @@ impl Desktop {
     fn agent_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
         let mut rows = Vec::new();
-        for provider in LaunchPick::PROVIDERS {
+        for provider in self.store.agents.enabled() {
             rows.push(
                 ui::pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(provider_name(provider)), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

@@ -1,9 +1,11 @@
+pub(crate) mod bell;
 pub(crate) mod close;
 pub(crate) mod link;
 pub(crate) mod sessions;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
+use crate::terminals::bell::Bell;
 use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
 use daemon::{Info, Msg};
@@ -43,6 +45,7 @@ pub struct Terminals {
     /// Terminals whose screen was dropped on reconnect and must be attached again once pocketd lists them.
     reattach: HashSet<String>,
     pub(crate) link: Link,
+    pub(crate) bell: Bell,
 }
 
 /// A created terminal's worktree, and the pane it opens in if one was asked for.
@@ -53,8 +56,8 @@ pub(crate) struct Created {
 }
 
 impl Terminals {
-    pub fn new() -> Self {
-        Self { sessions: Sessions::default(), intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default() }
+    pub fn new(config: term::Config) -> Self {
+        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default() }
     }
 
     /// The listed terminals closed here that still run, because their close never reached pocketd.
@@ -243,7 +246,11 @@ impl Desktop {
                 })
                 .detach();
             }
-            _ => self.terminals.sessions.apply(&m),
+            _ => {
+                if self.terminals.sessions.apply(&m) {
+                    self.ring(&m.id, cx);
+                }
+            }
         }
         cx.notify();
     }
@@ -266,9 +273,23 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Opens a login shell in the worktree's folder, its tab at `place`.
+    /// Opens the shell Settings › Terminal names in the worktree's folder, its tab at `place`.
     pub fn new_shell(&mut self, place: Place, cx: &mut Context<Self>) {
-        self.run_in_tree(place, daemon::shell_op, cx);
+        let t = &self.store.terminal;
+        let (shell, args) = t.shell_command(daemon::login_shell(), store::prefs::terminal::runs);
+        let missing = t.skipped(&shell).map(|p| p.trim().to_string());
+        self.run_in_tree(place, |cwd| daemon::shell_op(&shell, args, cwd), cx);
+        if let Some(missing) = missing {
+            self.error = Some(format!("Can't run {missing}, so this terminal opened your login shell"));
+        }
+    }
+
+    /// A shell, or the default agent when Settings › Agents says new tabs open one.
+    pub(crate) fn open_tab(&mut self, place: Place, cx: &mut Context<Self>) {
+        if self.store.agents.tabs_open_agent {
+            return self.new_agent_tab(self.store.agents.default_agent(), place, cx);
+        }
+        self.new_shell(place, cx);
     }
 
     pub fn new_agent_tab(&mut self, provider: &str, place: Place, cx: &mut Context<Self>) {
@@ -276,7 +297,7 @@ impl Desktop {
         self.run_in_tree(place, |cwd| daemon::agent_op(&argv, cwd), cx);
     }
 
-    fn run_in_tree(&mut self, place: Place, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
+    pub(crate) fn run_in_tree(&mut self, place: Place, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
         let op = op(&tree);
         self.send_spawn(op, Intent(tree, place), cx);
@@ -382,14 +403,14 @@ mod tests {
 
     #[test]
     fn spawned_terminals_open_as_the_tab_asked_for() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
         assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Pane(None))));
     }
 
     #[test]
     fn spawned_terminals_take_intents_in_the_order_they_were_sent() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Split(0, Edge::Bottom)));
         t.intents.push_back(Intent("/v".into(), Place::Split(0, Edge::Right)));
         assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Split(0, Edge::Bottom))));
@@ -398,14 +419,14 @@ mod tests {
 
     #[test]
     fn a_terminal_spawned_with_nothing_pending_is_left_alone() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         assert_eq!(t.spawned(), None);
         assert!(t.setups.is_empty());
     }
 
     #[test]
     fn a_failed_spawn_drops_its_intent_but_a_terminal_error_does_not() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
         t.intents.push_back(Intent("/v".into(), Place::Pane(None)));
         t.errored("a");
@@ -415,7 +436,7 @@ mod tests {
 
     #[test]
     fn closed_terminals_stay_closed_when_pocketd_still_lists_them() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.closed.insert("a".into());
         assert_eq!(t.listed(vec![info("a"), info("b")]), vec!["b"]);
         assert!(t.sessions.get("a").is_none());
@@ -423,7 +444,7 @@ mod tests {
 
     #[test]
     fn a_setup_ends_when_its_terminal_leaves_the_list() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w".into(), true);
         t.created("r2", "b".into(), "/v".into(), true);
         t.listed(vec![info("a"), info("b")]);
@@ -434,7 +455,7 @@ mod tests {
 
     #[test]
     fn a_clean_exit_closes_its_pane_and_a_failed_one_stays_to_be_read() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a"), info("b")]);
         assert!(t.exited(&exit("a", 0)));
         assert!(!t.exited(&exit("b", 1)));
@@ -443,7 +464,7 @@ mod tests {
 
     #[test]
     fn the_exit_of_a_terminal_this_window_does_not_hold_closes_nothing() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a")]);
         assert!(!t.exited(&exit("x", 0)));
         assert_eq!(t.sessions.get("a").map(|s| s.exit), Some(None));
@@ -451,7 +472,7 @@ mod tests {
 
     #[test]
     fn a_setup_ends_when_its_terminal_exits() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         t.exited(&exit("a", 1));
@@ -460,7 +481,7 @@ mod tests {
 
     #[test]
     fn closing_asks_pocketd_to_end_only_a_running_terminal() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a"), info("b")]);
         t.exited(&exit("b", 1));
         assert_eq!((t.close("a"), t.close("b"), t.close("x")), (true, false, false));
@@ -468,7 +489,7 @@ mod tests {
 
     #[test]
     fn a_closed_terminal_leaves_the_window_with_its_setup() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         t.close("a");
@@ -479,14 +500,14 @@ mod tests {
 
     #[test]
     fn a_running_terminal_is_resized_once_per_size() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a")]);
         assert_eq!((t.resize("a", 80, 24), t.resize("a", 80, 24), t.resize("a", 100, 24)), (true, false, true));
     }
 
     #[test]
     fn exited_and_unknown_terminals_are_not_resized() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a")]);
         t.exited(&exit("a", 1));
         assert_eq!((t.resize("a", 80, 24), t.resize("x", 80, 24)), (false, false));
@@ -494,7 +515,7 @@ mod tests {
 
     #[test]
     fn a_first_size_goes_at_once_and_later_ones_wait_to_settle() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a")]);
         assert_eq!(t.fit("a", 80, 24), Fit::Now);
         assert_eq!(t.fit("a", 80, 24), Fit::Same);
@@ -505,7 +526,7 @@ mod tests {
 
     #[test]
     fn a_resize_that_returns_to_the_sent_size_sends_nothing() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a")]);
         t.fit("a", 80, 24);
         t.fit("a", 90, 24);
@@ -515,7 +536,7 @@ mod tests {
 
     #[test]
     fn a_closed_terminal_drops_its_pending_size() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a")]);
         t.fit("a", 80, 24);
         t.fit("a", 90, 24);
@@ -525,7 +546,7 @@ mod tests {
 
     #[test]
     fn reconnected_reattaches_every_listed_terminal() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a"), info("b"), info("c")]);
         t.sessions.apply(&snapshot("a"));
         t.exited(&exit("c", 1));
@@ -539,7 +560,7 @@ mod tests {
 
     #[test]
     fn a_terminal_missing_after_reconnect_is_not_running() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a"), info("b")]);
         t.reconnected();
         assert_eq!(t.listed(vec![info("b")]), vec!["b"]);
@@ -548,7 +569,7 @@ mod tests {
 
     #[test]
     fn losing_pocketd_drops_spawns_it_never_answered() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
         t.disconnected(std::time::Instant::now());
         assert_eq!(t.spawned(), None);
@@ -556,7 +577,7 @@ mod tests {
 
     #[test]
     fn a_spawn_sent_just_before_up_is_still_adopted() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.disconnected(std::time::Instant::now());
         t.spawn_sent(true, Intent("/w".into(), Place::Pane(None)));
         t.reconnected();
@@ -565,7 +586,7 @@ mod tests {
 
     #[test]
     fn a_close_that_never_arrived_is_sent_again_when_pocketd_lists_the_terminal() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a"), info("b")]);
         t.close("a");
         assert_eq!(t.unclosed(&[info("a"), info("b")]), vec!["a"]);
@@ -573,7 +594,7 @@ mod tests {
 
     #[test]
     fn failed_spawn_send_records_no_intent() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.spawn_sent(false, Intent("/w".into(), Place::Pane(None)));
         t.spawn_sent(true, Intent("/v".into(), Place::Pane(None)));
         assert_eq!(t.spawned(), Some(Intent("/v".into(), Place::Pane(None))));
@@ -581,7 +602,7 @@ mod tests {
 
     #[test]
     fn a_creating_reply_adopts_its_terminal_and_marks_setup() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w/fix".into(), true);
         t.created("r2", "b".into(), "/w/v".into(), false);
         t.listed(vec![info("x")]);
@@ -594,7 +615,7 @@ mod tests {
 
     #[test]
     fn a_terminal_an_empty_pane_started_arrives_in_that_pane() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w".into(), false);
         t.aim("a", 2);
         t.listed(vec![info("a")]);
@@ -603,7 +624,7 @@ mod tests {
 
     #[test]
     fn a_replayed_creating_adopts_its_terminal_once() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into(), pane: None })]);
@@ -614,7 +635,7 @@ mod tests {
 
     #[test]
     fn an_observer_can_drop_an_exited_terminal_but_not_end_a_running_one() {
-        let mut t = Terminals::new();
+        let mut t = Terminals::new(Default::default());
         t.listed(vec![info("a"), info("b")]);
         t.exited(&exit("b", 1));
         assert_eq!((t.may_close("a", true), t.may_close("b", true), t.may_close("a", false)), (false, true, true));

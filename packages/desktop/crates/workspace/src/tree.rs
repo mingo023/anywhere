@@ -343,6 +343,14 @@ impl<T> Tree<T> {
         Some(p.tabs.len() - 1)
     }
 
+    /// Adds `tab` right after the tab `pane` shows, leaving what the pane shows alone; returns its index.
+    pub fn insert_next(&mut self, pane: PaneId, tab: T) -> Option<usize> {
+        let p = self.pane_mut(pane)?;
+        let i = if p.tabs.is_empty() { 0 } else { p.active + 1 };
+        p.tabs.insert(i, tab);
+        Some(i)
+    }
+
     /// Opens a pane holding `tab` at `edge` of `pane` and focuses it.
     pub fn split(&mut self, pane: PaneId, edge: Edge, tab: T) -> Option<PaneId> {
         let id = self.next;

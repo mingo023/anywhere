@@ -21,7 +21,7 @@ import (
 
 const (
 	Version = 1
-	// history is how many runs an automation keeps.
+	// history is how many runs an automation keeps unless Store.History says otherwise.
 	history = 50
 )
 
@@ -43,6 +43,9 @@ type File struct {
 // on every change. Runs are kept oldest first.
 type Store struct {
 	path string
+	// Grace and History are read on each claim and run, so a changed setting applies to the next one.
+	Grace   func() time.Duration
+	History func() int
 
 	mu      sync.Mutex
 	f       File
@@ -219,7 +222,7 @@ func (s *Store) Delete(id string) error {
 // Claim takes the run that was due at due. It wins only while the stored
 // next run is still due and the automation is on, so of two claims on the same
 // time one fails, also across a restart. It moves the next run to after now
-// and records the run: skipped when more than Grace late or while another run
+// and records the run: skipped when later than the grace allows or while another run
 // is active, else pending.
 func (s *Store) Claim(id string, due, now time.Time) (proto.Run, bool) {
 	var run proto.Run
@@ -231,12 +234,12 @@ func (s *Store) Claim(id string, due, now time.Time) (proto.Run, bool) {
 		f.Automations[i].NextRunAt = nextRunAt(f.Automations[i], now)
 		run = proto.Run{ID: terminal.NewID(), AutomationID: id, Status: "pending", Trigger: "schedule", StartedAt: now.UnixMilli()}
 		switch {
-		case late(due, now):
+		case late(due, now, s.grace()):
 			run.Status, run.Why, run.StartedAt = "skipped", "Mac asleep", due.UnixMilli()
 		case f.active(id):
 			run.Status, run.Why, run.StartedAt = "skipped", "Still working", due.UnixMilli()
 		}
-		f.addRun(run)
+		f.addRun(run, s.history())
 		return nil
 	})
 	return run, err == nil
@@ -253,14 +256,28 @@ func (s *Store) Begin(id string, now time.Time) (proto.Run, error) {
 			return ErrBusy
 		}
 		run = proto.Run{ID: terminal.NewID(), AutomationID: id, Status: "pending", Trigger: "manual", StartedAt: now.UnixMilli()}
-		f.addRun(run)
+		f.addRun(run, s.history())
 		return nil
 	})
 	return run, err
 }
 
-// addRun appends r and drops the automation's oldest runs beyond history.
-func (f *File) addRun(r proto.Run) {
+func (s *Store) grace() time.Duration {
+	if s.Grace == nil {
+		return Grace
+	}
+	return s.Grace()
+}
+
+func (s *Store) history() int {
+	if s.History == nil {
+		return history
+	}
+	return s.History()
+}
+
+// addRun appends r and drops the automation's oldest runs beyond keep.
+func (f *File) addRun(r proto.Run, keep int) {
 	f.Runs = append(f.Runs, r)
 	over := 0
 	for _, x := range f.Runs {
@@ -268,7 +285,7 @@ func (f *File) addRun(r proto.Run) {
 			over++
 		}
 	}
-	over -= history
+	over -= keep
 	f.Runs = slices.DeleteFunc(f.Runs, func(x proto.Run) bool {
 		if x.AutomationID != r.AutomationID || over <= 0 {
 			return false

@@ -76,13 +76,13 @@ fn query(raw: &str) -> Query {
 }
 
 /// Every word is part of at least one field, ignoring case.
-fn matches(words: &[String], fields: &[&str]) -> bool {
+pub(crate) fn matches(words: &[String], fields: &[&str]) -> bool {
     let fields: Vec<String> = fields.iter().map(|f| f.to_lowercase()).collect();
     words.iter().all(|w| fields.iter().any(|f| f.contains(w.as_str())))
 }
 
 /// The byte ranges of `text` the words match, merged. Empty when lowercasing would move byte offsets.
-fn runs(text: &str, words: &[String]) -> Vec<Range<usize>> {
+pub(crate) fn runs(text: &str, words: &[String]) -> Vec<Range<usize>> {
     let keeps_width = |c: char| {
         let lower: Vec<char> = c.to_lowercase().collect();
         lower.len() == 1 && lower[0].len_utf8() == c.len_utf8()

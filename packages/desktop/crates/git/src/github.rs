@@ -40,8 +40,51 @@ pub fn base_branch(base: &str) -> &str {
 }
 
 /// Opens a PR for the checked-out branch into `base`, titled and described from its commits.
-pub fn create_argv(base: &str) -> Vec<&str> {
-    vec!["gh", "pr", "create", "--fill", "--base", base_branch(base)]
+pub fn create_argv(base: &str, draft: bool) -> Vec<&str> {
+    let mut argv = vec!["gh", "pr", "create", "--fill", "--base", base_branch(base)];
+    if draft {
+        argv.push("--draft");
+    }
+    argv
+}
+
+/// Whether `gh` is installed and signed in to github.com.
+#[derive(Clone, Debug, PartialEq)]
+pub enum GhStatus {
+    Missing,
+    SignedOut { version: String },
+    Ready { version: String, login: String },
+}
+
+/// `gh --version`, then `gh auth status` with stderr merged into its output.
+pub const VERSION: &[&str] = &["gh", "--version"];
+pub const AUTH: &[&str] = &["sh", "-c", "gh auth status --hostname github.com 2>&1"];
+
+/// Reads what [`VERSION`] and [`AUTH`] returned through `daemon::run_login`.
+pub fn status(version: Result<String, String>, auth: Result<String, String>) -> GhStatus {
+    let Some(version) = version.ok().and_then(|v| v.split_whitespace().nth(2).map(str::to_string)) else {
+        return GhStatus::Missing;
+    };
+    match auth.ok().and_then(|a| login(&a)) {
+        Some(login) => GhStatus::Ready { version, login },
+        None => GhStatus::SignedOut { version },
+    }
+}
+
+/// The active github.com account: newer gh lists every account and marks one active, older gh says "as <login>".
+fn login(auth: &str) -> Option<String> {
+    let mut found = None;
+    for line in auth.lines().map(str::trim) {
+        if let Some(rest) = line.split("Logged in to github.com account ").nth(1).or_else(|| line.split("Logged in to github.com as ").nth(1)) {
+            found = rest.split_whitespace().next().map(str::to_string);
+            if line.contains(" as ") {
+                return found;
+            }
+        } else if line.contains("Active account: true") && found.is_some() {
+            return found;
+        }
+    }
+    None
 }
 
 /// Reads what [`VIEW`] returned through `daemon::run_login`. No PR, or any other failure, is `Ok(None)`.
@@ -150,7 +193,29 @@ mod tests {
 
     #[test]
     fn create_argv_targets_the_base_without_its_remote() {
-        assert_eq!(create_argv("origin/main"), ["gh", "pr", "create", "--fill", "--base", "main"]);
-        assert_eq!(create_argv("develop"), ["gh", "pr", "create", "--fill", "--base", "develop"]);
+        assert_eq!(create_argv("origin/main", false), ["gh", "pr", "create", "--fill", "--base", "main"]);
+        assert_eq!(create_argv("develop", false), ["gh", "pr", "create", "--fill", "--base", "develop"]);
+    }
+
+    #[test]
+    fn a_draft_pr_is_created_as_a_draft() {
+        assert_eq!(create_argv("main", true), ["gh", "pr", "create", "--fill", "--base", "main", "--draft"]);
+    }
+
+    const VERSION_OUT: &str = "gh version 2.81.0 (2025-10-01)\nhttps://github.com/cli/cli/releases/tag/v2.81.0\n";
+
+    #[test]
+    fn gh_status_reads_the_version_and_the_active_account() {
+        let auth = "github.com\n  ✓ Logged in to github.com account old-me (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account minh-ngo (keyring)\n  - Active account: true\n  - Git operations protocol: https\n";
+        assert_eq!(status(Ok(VERSION_OUT.into()), Ok(auth.into())), GhStatus::Ready { version: "2.81.0".into(), login: "minh-ngo".into() });
+        let old = "github.com\n  ✓ Logged in to github.com as minh-ngo (oauth_token)\n";
+        assert_eq!(status(Ok(VERSION_OUT.into()), Ok(old.into())), GhStatus::Ready { version: "2.81.0".into(), login: "minh-ngo".into() });
+    }
+
+    #[test]
+    fn gh_status_tells_a_missing_gh_from_a_signed_out_one() {
+        assert_eq!(status(Err("zsh:1: command not found: gh".into()), Err(String::new())), GhStatus::Missing);
+        let signed_out = "You are not logged into any GitHub hosts. To log in, run: gh auth login\n";
+        assert_eq!(status(Ok(VERSION_OUT.into()), Err(signed_out.into())), GhStatus::SignedOut { version: "2.81.0".into() });
     }
 }

@@ -1,11 +1,12 @@
 use super::Menu;
 use super::form::{PROVIDERS, TEMPLATES, Values};
 use super::logic::{DEFAULT_EVERY, DEFAULT_TIME, Tab};
-use super::parts::{card, crumbs, pill, section};
+use super::parts::{card, crumbs, details, pill, section, segmented};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use store::prefs::automations::ACCESSES;
 use theme::*;
 use ui::{self, Variant};
 
@@ -61,7 +62,7 @@ impl Desktop {
         let existing = id.and_then(|id| self.agents.automations.items.iter().find(|a| a.id == id));
         let folder = self.project.clone().or_else(|| self.projects().into_iter().next()).unwrap_or_default();
         let f = &mut self.automations.form;
-        f.v = existing.map_or_else(|| Values::new(folder), Values::of);
+        f.v = existing.map_or_else(|| Values::from_defaults(folder, &self.store.automations), Values::of);
         f.open = true;
         f.load(window, cx);
         f.title.update(cx, |s, cx| s.focus(window, cx));
@@ -158,11 +159,12 @@ impl Desktop {
             }))
         });
         let trigger = self.trigger_card(&v, cx);
+        let runs = self.runs_card(&v, cx);
         let instructions = self.instructions_card(&v, cx);
         let body = [title.into_any_element(), meta.into_any_element()]
             .into_iter()
             .chain(templates.map(IntoElement::into_any_element))
-            .chain([section("Trigger", trigger).into_any_element(), section("Instructions", instructions).into_any_element()]);
+            .chain([section("Trigger", trigger).into_any_element(), section("Runs", runs).into_any_element(), section("Instructions", instructions).into_any_element()]);
         div().flex_1().min_w_0().flex().flex_col().child(bar).child(self.detail_body("editor-body", 24., body))
     }
 
@@ -200,6 +202,30 @@ impl Desktop {
         div().relative().child(button).when(open, |d| d.child(ui::dropdown(32., ui::menu_in("editor-project-in", self.popup("editor-project-menu", 240., cx).children(rows).children(none)))))
     }
 
+    /// How each run starts; an automation saved without a mode shows none chosen and keeps the agent's own settings.
+    fn runs_card(&self, v: &Values, cx: &mut Context<Self>) -> Div {
+        let access = ACCESSES.iter().position(|a| *a == v.access).unwrap_or(usize::MAX);
+        let mode = segmented("editor-access", &["Ask", "Edits", "Auto"], access, false, |this, i, cx| {
+            this.automations.form.v.access = ACCESSES[i].into();
+            cx.notify();
+        }, cx);
+        let on = v.new_worktree;
+        let worktree = div()
+            .id("editor-worktree")
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .cursor_pointer()
+            .text_color(TEXT_2)
+            .child(ui::toggle(on))
+            .child("Each run gets its own worktree and branch")
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.automations.form.v.new_worktree = !on;
+                cx.notify();
+            }));
+        details(vec![("Permission mode", div().flex().child(mode).into_any_element()), ("New worktree", worktree.into_any_element())])
+    }
+
     fn instructions_card(&self, v: &Values, cx: &mut Context<Self>) -> Div {
         let f = &self.automations.form;
         let open = self.automations.menu == Some(Menu::Provider);
@@ -224,7 +250,8 @@ impl Desktop {
             Menu::Provider,
             cx,
         );
-        let rows: Vec<_> = PROVIDERS.iter().enumerate().map(|(i, p)| {
+        let enabled = self.store.agents.enabled();
+        let rows: Vec<_> = PROVIDERS.iter().filter(|p| enabled.contains(p) || **p == provider).enumerate().map(|(i, p)| {
             let p = *p;
             ui::menu_row(("editor-provider-row", i), if p == "codex" { "openai" } else { "claude" }, provider_name(p), None)
                 .child(div().w(px(14.)).when(p == provider, |d| d.child(icon("check", 14., TEXT))))

@@ -22,8 +22,11 @@ pub fn busy(summary: Option<&Summary>, session: Option<&Session>) -> Option<Busy
 }
 
 impl Desktop {
-    /// Asks before closing terminals when one of them is busy; returns whether it asked, so the caller closes them itself otherwise.
+    /// Asks before closing terminals when one of them is busy, unless the user turned that off; returns whether it asked, so the caller closes them itself otherwise.
     pub(crate) fn ask_close(&mut self, ids: Vec<String>, cx: &mut Context<Self>) -> bool {
+        if !self.store.terminal.confirm_close {
+            return false;
+        }
         let Some((id, busy)) = ids.iter().find_map(|id| Some((id, busy(self.summary(id), self.terminals.sessions.get(id))?))) else { return false };
         let worktree = self.terminals.sessions.get(id).and_then(|s| self.tree_of(&s.info.cwd)).map(|t| basename(&t)).unwrap_or_default();
         self.confirm = Some(Confirm::CloseTerminals { ids, busy, worktree });

@@ -4,6 +4,8 @@ package launch
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"slices"
 	"sync"
 	"time"
@@ -48,7 +50,9 @@ type Creating struct {
 
 type Result struct {
 	AgentID, TerminalID string
-	Err                 *Failure
+	// Cwd is where the agent runs: a new Worktree's path once it exists.
+	Cwd string
+	Err *Failure
 }
 
 type exit struct {
@@ -58,8 +62,8 @@ type exit struct {
 }
 
 type found struct {
-	path string
-	at   time.Time
+	path, cmd string
+	at        time.Time
 }
 
 type Launcher struct {
@@ -178,6 +182,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	}
 	creating(Creating{Terminal: id, Cwd: cwd, Setup: setup != ""})
 	r := l.wait(t, id, exits, progress)
+	r.Cwd = cwd
 	if r.Err == nil && s.Prompt != "" {
 		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, agent: r.AgentID}
 		if n := s.Checkout.New; n != nil && n.AutoName {
@@ -397,22 +402,58 @@ func (l *Launcher) Providers(w Who) (list []proto.ProviderInfo, maxAccess, phone
 	}, maxAccess, phoneMax
 }
 
+// Paths is where each built-in agent is on the login PATH, empty when it isn't.
+func (l *Launcher) Paths() map[string]string {
+	env := l.d.LoginEnv()
+	paths := map[string]string{}
+	for _, p := range []string{"claude", "codex"} {
+		paths[p], _ = l.find(p, env)
+	}
+	return paths
+}
+
 func (l *Launcher) SetPhoneMaxAccess(v string) error { return l.set.SetPhoneMaxAccess(v) }
 
 func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
-	return resumeCmd(saved, shellenv.LoginShell(), l.d.Exe, l.d.LoginEnv())
+	env := l.d.LoginEnv()
+	return resumeCmd(saved, shellenv.LoginShell(), l.d.Exe, func(p string) (string, bool) { return l.find(p, env) })
 }
 
+// find resolves provider's command from config.json, rechecking once it changes.
 func (l *Launcher) find(provider string, env []string) (string, bool) {
+	cmd := l.set.AgentCommand(provider)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if f, ok := l.found[provider]; ok && time.Since(f.at) < probeTTL {
+	if f, ok := l.found[provider]; ok && f.cmd == cmd && time.Since(f.at) < probeTTL {
 		return f.path, f.path != ""
 	}
-	path, err := terminal.LookPath(provider, env)
+	path, err := resolve(cmd, env)
 	if err != nil {
 		path = ""
 	}
-	l.found[provider] = found{path, time.Now()}
+	l.found[provider] = found{path, cmd, time.Now()}
 	return path, path != ""
+}
+
+// CheckCommand refuses a command for config-set that isn't an executable on the login PATH.
+func (l *Launcher) CheckCommand(cmd string) error {
+	if err := config.ValidCommand(cmd); err != nil || cmd == "" {
+		return err
+	}
+	if _, err := resolve(cmd, l.d.LoginEnv()); err != nil {
+		return fmt.Errorf("%s isn't an executable on your Mac", cmd)
+	}
+	return nil
+}
+
+// resolve is cmd on env's PATH, or cmd itself when it's a path to an executable file.
+func resolve(cmd string, env []string) (string, error) {
+	path, err := terminal.LookPath(cmd, env)
+	if err != nil {
+		return "", err
+	}
+	if st, err := os.Stat(path); err != nil || st.IsDir() || st.Mode()&0o111 == 0 {
+		return "", &exec.Error{Name: cmd, Err: exec.ErrNotFound}
+	}
+	return path, nil
 }

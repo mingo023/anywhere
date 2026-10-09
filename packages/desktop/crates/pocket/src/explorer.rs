@@ -65,11 +65,9 @@ impl ExplorerState {
         rows
     }
 
-    /// Folds `dir` if open, else lists and opens it.
-    pub fn toggle(&mut self, dir: &Path) {
-        if self.tree.remove(dir).is_none() {
-            self.tree.insert(dir.to_path_buf(), list_dir(dir));
-        }
+    /// Folds `dir`, keeping its open subfolders; false when it wasn't open.
+    pub fn fold(&mut self, dir: &Path) -> bool {
+        self.tree.remove(dir).is_some()
     }
 
     fn push_rows(&self, dir: &Path, depth: usize, rows: &mut Vec<Row>) {
@@ -99,6 +97,49 @@ impl Desktop {
         let Some(root) = self.explore_root() else { return Vec::new() };
         let files = self.repos.get(&root).map(|r| r.files.as_slice()).unwrap_or_default();
         touched(files, &root, |p| self.agents.last_edit(p).is_some())
+    }
+
+    /// Lists the open folders again under new Explorer settings, applied only while those settings still hold.
+    pub(crate) fn relist_explorer(&mut self, cx: &mut Context<Self>) {
+        let files = self.store.files.clone();
+        let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
+        dirs.extend(self.explore_root().map(PathBuf::from));
+        cx.spawn(async move |this, cx| {
+            let shown = files.clone();
+            let fresh: HashMap<_, _> = cx.background_executor().spawn(async move { dirs.into_iter().map(|d| { let l = list_dir(&d, &shown); (d, l) }).collect() }).await;
+            this.update(cx, |d, cx| {
+                if d.store.files != files {
+                    return;
+                }
+                d.explorer.tree = merge_tree(fresh, &d.explorer.tree, d.explore_root().as_deref().map(Path::new));
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Folds `dir` if open, else lists it in the background and opens it, unless Explorer settings changed meanwhile.
+    fn toggle_folder(&mut self, dir: PathBuf, cx: &mut Context<Self>) {
+        if self.explorer.fold(&dir) {
+            return cx.notify();
+        }
+        let files = self.store.files.clone();
+        cx.spawn(async move |this, cx| {
+            let listing = cx.background_executor().spawn({
+                let (dir, files) = (dir.clone(), files.clone());
+                async move { list_dir(&dir, &files) }
+            });
+            let listing = listing.await;
+            this.update(cx, |d, cx| {
+                if d.store.files == files {
+                    d.explorer.tree.insert(dir, listing);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn open_file(&mut self, path: String, pin: bool, cx: &mut Context<Self>) {
@@ -133,16 +174,14 @@ impl Desktop {
             return ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
                 .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)));
         }
-        ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.explorer.toggle(&path);
-            cx.notify();
-        }))
+        ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, merge_tree, status_of, touched};
+    use super::{ExplorerState, Row, list_dir, merge_tree, status_of, touched};
+    use store::prefs::files::Files;
     use git::FileStat;
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
@@ -195,15 +234,16 @@ mod tests {
     }
 
     #[test]
-    fn toggling_opens_a_folder_with_its_listing_then_folds_it_keeping_open_subfolders() {
+    fn a_folder_lists_folders_first_then_folds_keeping_open_subfolders() {
         let dir = std::env::temp_dir().join(format!("pocket-explorer-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::write(dir.join("a.rs"), "").unwrap();
         let mut explorer = ExplorerState::new();
         explorer.tree.insert(dir.join("sub"), Vec::new());
-        explorer.toggle(&dir);
+        explorer.tree.insert(dir.clone(), list_dir(&dir, &Files::default()));
         assert_eq!(explorer.tree[&dir], [(true, dir.join("sub")), (false, dir.join("a.rs"))]);
-        explorer.toggle(&dir);
+        assert!(explorer.fold(&dir));
+        assert!(!explorer.fold(&dir));
         assert_eq!(explorer.tree.keys().collect::<Vec<_>>(), [&dir.join("sub")]);
         std::fs::remove_dir_all(&dir).unwrap();
     }

@@ -42,6 +42,9 @@ fn main() {
     let home = path.parent().unwrap_or(&path).to_path_buf();
     let (outbox, mut agent_rx) = agents::connect(&path);
     let store = Store::load(&home);
+    if channel::is_release() && store.general.open_at_login {
+        std::thread::spawn(|| daemon::service::open_at_login(true));
+    }
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
         let capturing = capture.is_some();
@@ -52,9 +55,14 @@ fn main() {
         }
         let appearance = forced.unwrap_or_else(|| cx.window_appearance());
         theme::init(appearance, cx);
+        theme::set_blue_orange(store.appearance.diff_colors == store::DiffColors::BlueOrange);
+        theme::set_diff_colors(store.appearance.added, store.appearance.removed);
+        theme::set_syntax(store.appearance.syntax as usize, cx);
+        theme::set_fonts(store.appearance.ui_font.as_deref(), store.appearance.code_font.as_deref(), cx);
+        theme::set_accent(store.appearance.accent, cx);
         syntax::init();
         follow_reduce_motion(store.appearance.reduce_motion, cx);
-        cx.bind_keys(actions::bindings());
+        cx.bind_keys(actions::keymap(&store.keys));
         cx.bind_keys(keys::bindings());
         cx.on_action(|_: &actions::Quit, cx| cx.quit());
         let check = channel::is_release().then(|| [MenuItem::action("Check for Updates…", actions::CheckForUpdates), MenuItem::separator()]);
@@ -106,11 +114,11 @@ fn main() {
                     for tick in 0u64.. {
                         poll.send(json!({"op": "list"}));
                         let refresh = |d: &mut Desktop, cx: &mut Context<Desktop>| {
-                            if d.git_done == d.git_run {
+                            if tick % d.store.general.git_every() == 0 && d.git_done == d.git_run {
                                 d.refresh_git(cx);
                             }
                         };
-                        if tick % 2 == 0 && this.update(cx, refresh).is_err() {
+                        if this.update(cx, refresh).is_err() {
                             break;
                         }
                         cx.background_executor().timer(Duration::from_secs(1)).await;

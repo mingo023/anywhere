@@ -72,13 +72,18 @@ type Automation struct {
 	Schedule  Schedule `json:"schedule"`
 	Enabled   bool     `json:"enabled"`
 	NextRunAt int64    `json:"nextRunAt,omitempty"` // unix ms; omitted when disabled
+	// Access is what a run may do without asking, one of Accesses; empty is the agent's own settings.
+	Access string `json:"access,omitempty"`
+	// NewWorktree starts each run in a fresh Worktree of Folder, named from the prompt.
+	NewWorktree bool `json:"newWorktree,omitempty"`
 }
 
 // Valid is what a client's automation.save must satisfy.
 func (a Automation) Valid() bool {
 	name := utf8.RuneCountInString(strings.TrimSpace(a.Name))
 	return name >= 1 && name <= MaxName && a.Prompt != "" && len(a.Prompt) <= MaxPrompt &&
-		(a.Provider == "claude" || a.Provider == "codex") && a.Folder != "" && a.Schedule.Valid()
+		(a.Provider == "claude" || a.Provider == "codex") && a.Folder != "" && a.Schedule.Valid() &&
+		(a.Access == "" || slices.Contains(Accesses, a.Access))
 }
 
 type Run struct {
@@ -92,6 +97,10 @@ type Run struct {
 	FinishedAt   int64  `json:"finishedAt,omitempty"`
 	AgentID      string `json:"agentId,omitempty"`
 	TerminalID   string `json:"terminalId,omitempty"`
+	// Access is the permission mode the run started on; Worktree the new
+	// Worktree it ran in, empty when it ran in the folder as it was.
+	Access   string `json:"access,omitempty"`
+	Worktree string `json:"worktree,omitempty"`
 }
 
 // Automations is the full snapshot, runs newest first. It is never a delta.
@@ -112,7 +121,7 @@ func NewAutomations(autos []Automation, runs []Run) Automations {
 }
 
 func decodeAutomation(raw json.RawMessage, dst **Automation) bool {
-	f, ok := strictObject(raw, "id", "name", "prompt", "provider", "folder", "schedule", "enabled")
+	f, ok := strictObject(raw, "id", "name", "prompt", "provider", "folder", "schedule", "enabled", "access", "newWorktree")
 	if !ok {
 		return false
 	}

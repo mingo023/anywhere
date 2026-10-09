@@ -71,7 +71,7 @@ impl Desktop {
             .rounded(px(16.))
             .bg(SURFACE)
             .shadow(vec![ui::ring(ACCENT_RING, 1.), ui::shadow(rgba(0x1111131a), 8., 24.), ui::shadow(rgba(0x1111130f), 1., 2.)])
-            .font_family(SANS)
+            .font_family(ui_font())
             .whitespace_normal()
             .on_action(cx.listener(|this, _: &Escape, window, cx| {
                 if this.chat.menu {

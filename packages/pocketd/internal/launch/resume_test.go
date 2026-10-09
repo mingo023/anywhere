@@ -93,12 +93,24 @@ func TestParseReadsBackTheResumeArgv(t *testing.T) {
 
 func TestAMissingBinaryIsNotAccepted(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), "/bin/zsh", "/pd", []string{"PATH=" + dir}); reason != "resume_not_accepted" {
+	onPath := func(p string) (string, bool) {
+		path, err := resolve(p, []string{"PATH=" + dir})
+		return path, err == nil
+	}
+	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), "/bin/zsh", "/pd", onPath); reason != "resume_not_accepted" {
 		t.Fatalf("reason = %q", reason)
 	}
 	os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755)
-	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), "/bin/zsh", "/pd", []string{"PATH=" + dir})
+	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), "/bin/zsh", "/pd", onPath)
 	if reason != "" || cmd != "/bin/zsh" || !slices.Contains(args, "--resume") {
 		t.Fatalf("resumeCmd = %q %q %q", cmd, args, reason)
+	}
+}
+
+func TestAResumeRunsTheProvidersConfiguredCommand(t *testing.T) {
+	custom := func(string) (string, bool) { return "/opt/tools/my-claude", true }
+	_, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), "/bin/zsh", "/pd", custom)
+	if reason != "" || !slices.Contains(args, "/opt/tools/my-claude") || slices.Contains(args, "claude") {
+		t.Fatalf("resumeCmd = %q %q", args, reason)
 	}
 }

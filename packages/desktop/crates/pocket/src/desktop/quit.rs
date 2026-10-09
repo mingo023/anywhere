@@ -1,6 +1,7 @@
 use crate::actions::Quit;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
+use crate::status::Status;
 use gpui_kit::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -13,21 +14,25 @@ enum Ask {
     DiscardEdits(usize),
     Alert,
     Nothing,
+    Quit,
 }
 
-fn ask(unsaved: usize, alert_up: bool) -> Ask {
+fn ask(unsaved: usize, alert_up: bool, confirm: bool) -> Ask {
     if unsaved > 0 {
         Ask::DiscardEdits(unsaved)
     } else if alert_up {
         Ask::Nothing
-    } else {
+    } else if confirm {
         Ask::Alert
+    } else {
+        Ask::Quit
     }
 }
 
 impl Desktop {
     pub fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
-        match ask(self.preview.drafts.len(), ALERT_UP.load(Ordering::Relaxed)) {
+        let working = self.agents.list.iter().filter(|a| Status::of(a) == Some(Status::Working)).count();
+        match ask(self.preview.drafts.len(), ALERT_UP.load(Ordering::Relaxed), self.store.general.confirm_quit.asks(working)) {
             Ask::DiscardEdits(unsaved) => {
                 self.confirm = Some(Confirm::Quit(unsaved));
                 self.overlay = Some(Overlay::Confirm);
@@ -46,6 +51,7 @@ impl Desktop {
                 .detach();
             }
             Ask::Nothing => {}
+            Ask::Quit => cx.quit(),
         }
     }
 }
@@ -56,8 +62,14 @@ mod tests {
 
     #[test]
     fn quitting_asks_about_unsaved_edits_before_the_alert_and_never_stacks_alerts() {
-        assert_eq!(ask(2, false), Ask::DiscardEdits(2));
-        assert_eq!(ask(0, false), Ask::Alert);
-        assert_eq!(ask(0, true), Ask::Nothing);
+        assert_eq!(ask(2, false, true), Ask::DiscardEdits(2));
+        assert_eq!(ask(0, false, true), Ask::Alert);
+        assert_eq!(ask(0, true, true), Ask::Nothing);
+    }
+
+    #[test]
+    fn with_nothing_to_confirm_quitting_quits_unless_edits_are_unsaved() {
+        assert_eq!(ask(0, false, false), Ask::Quit);
+        assert_eq!(ask(1, false, false), Ask::DiscardEdits(1));
     }
 }

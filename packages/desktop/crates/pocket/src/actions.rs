@@ -1,8 +1,9 @@
-use crate::{browser, inbox};
+use crate::{browser, inbox, settings};
 use gpui_kit::*;
+use std::collections::BTreeMap;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -43,6 +44,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-shift-n", NewWorktree, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-a", OpenAutomations, None),
+        // gpui-base's `Input` binds ⌘F to its own search, so only the Settings page claims it.
+        KeyBinding::new("cmd-f", FocusSearch, Some(settings::CONTEXT)),
         // Unscoped, it ties with a text field's own ⌘↵ in depth and, bound later, wins.
         KeyBinding::new("cmd-enter", OpenSession, Some(inbox::CONTEXT)),
         KeyBinding::new("cmd-c", CopySelection, Some(keys::CONTEXT)),
@@ -80,9 +83,43 @@ pub fn bindings() -> Vec<KeyBinding> {
     out
 }
 
+/// What the Keyboard page and `Store.keys` call `b`: its action, and the context it's bound in.
+pub fn binding_id(b: &KeyBinding) -> String {
+    match b.predicate() {
+        Some(p) => format!("{} in {p}", b.action().name()),
+        None => b.action().name().to_string(),
+    }
+}
+
+/// `bindings`, with each one `custom` names on new keys, or gone when they're empty.
+pub fn keymap(custom: &BTreeMap<String, String>) -> Vec<KeyBinding> {
+    bindings()
+        .into_iter()
+        .filter_map(|b| match custom.get(&binding_id(&b)) {
+            None => Some(b),
+            Some(keys) if keys.is_empty() => None,
+            Some(keys) => Some(KeyBinding::load(keys, b.action().boxed_clone(), b.predicate(), false, None, &DummyKeyboardMapper).unwrap_or(b)),
+        })
+        .collect()
+}
+
+/// Swaps this app's bindings for `keymap(custom)` in place, keeping the ones gpui-base and the terminal bound.
+pub fn rebind(custom: &BTreeMap<String, String>, cx: &mut App) {
+    let ours = |b: &KeyBinding| b.action().name().starts_with("desktop::");
+    let all: Vec<KeyBinding> = cx.key_bindings().borrow().bindings().cloned().collect();
+    // Later bindings win ties, so ours go back where they were: after gpui-base's, before the terminal's.
+    let at = all.iter().position(ours).unwrap_or(all.len());
+    let (before, after): (Vec<_>, Vec<_>) = (all[..at].to_vec(), all[at..].iter().filter(|b| !ours(b)).cloned().collect());
+    cx.clear_key_bindings();
+    cx.bind_keys(before);
+    cx.bind_keys(keymap(custom));
+    cx.bind_keys(after);
+}
+
 #[cfg(test)]
 mod tests {
-    use super::bindings;
+    use super::{binding_id, bindings, keymap};
+    use std::collections::BTreeMap;
     use crate::inbox;
     use gpui_kit::{KeyBinding, KeyContext, Keymap, Keystroke, actions};
     use std::collections::HashSet;
@@ -140,5 +177,14 @@ mod tests {
     #[test]
     fn cmd_shift_a_opens_automations() {
         assert_eq!(bound("cmd-shift-a"), ["desktop::OpenAutomations"]);
+    }
+
+    #[test]
+    fn a_changed_shortcut_moves_to_its_new_keys_and_an_emptied_one_is_gone() {
+        let custom = BTreeMap::from([("desktop::OpenPalette".to_string(), "cmd-shift-p".to_string()), ("desktop::Reload in Browser".to_string(), String::new())]);
+        let keys = |id: &str| keymap(&custom).iter().filter(|b| binding_id(b) == id).map(|b| b.keystrokes()[0].inner().unparse()).collect::<Vec<_>>();
+        assert_eq!(keys("desktop::OpenPalette"), ["cmd-shift-p"]);
+        assert!(keys("desktop::Reload in Browser").is_empty());
+        assert_eq!(keys("desktop::GoToFile"), ["cmd-p"]);
     }
 }

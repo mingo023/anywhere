@@ -55,12 +55,12 @@ pub fn percent(used: u64, window: u64) -> u64 {
     used.saturating_mul(100).checked_div(window).unwrap_or(0).min(100)
 }
 
-/// Judged on the whole percent, so 74.99% is still Low.
-pub fn level(used: u64, window: u64) -> Level {
+/// Judged on the whole percent against `warn` and `critical`, so 74.99% is still Low at 75.
+pub fn level(used: u64, window: u64, warn: u32, critical: u32) -> Level {
     match percent(used, window) {
-        0..75 => Level::Low,
-        75..90 => Level::Warn,
-        _ => Level::Danger,
+        p if p >= u64::from(critical) => Level::Danger,
+        p if p >= u64::from(warn) => Level::Warn,
+        _ => Level::Low,
     }
 }
 
@@ -350,6 +350,24 @@ pub fn model_label(a: &Summary) -> String {
     if version.is_empty() { family } else { format!("{family} {}", version.join(".")) }
 }
 
+/// The models `codex debug models` lists, as (slug, name); hidden ones are left out.
+pub fn codex_models(json: &str) -> Vec<(String, String)> {
+    #[derive(Deserialize)]
+    struct Catalog {
+        models: Vec<Model>,
+    }
+    #[derive(Deserialize)]
+    struct Model {
+        slug: String,
+        #[serde(default)]
+        display_name: String,
+        #[serde(default)]
+        visibility: String,
+    }
+    let Ok(catalog) = serde_json::from_str::<Catalog>(json) else { return Vec::new() };
+    catalog.models.into_iter().filter(|m| m.visibility == "list").map(|m| (m.slug.clone(), if m.display_name.is_empty() { m.slug } else { m.display_name })).collect()
+}
+
 /// A reply to a permission ask. pocketd interrupts the turn on a deny.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Decision {
@@ -619,6 +637,13 @@ mod tests {
     }
 
     #[test]
+    fn codex_lists_its_shown_models_by_name_and_nothing_from_bad_output() {
+        let json = r#"{"models":[{"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list"},{"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
+        assert_eq!(super::codex_models(json), [("gpt-6-sol".to_string(), "GPT-6-Sol".to_string()), ("gpt-5.6-luna".to_string(), "gpt-5.6-luna".to_string())]);
+        assert!(super::codex_models("error: not logged in").is_empty());
+    }
+
+    #[test]
     fn labels_models_like_the_picker() {
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5"))), "Opus 5");
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5-5"))), "Opus 5.5");
@@ -687,13 +712,19 @@ mod tests {
 
     #[test]
     fn level_is_low_at_74_warn_at_75_and_89_danger_at_90() {
-        let at = |used| level(used, 200_000);
+        let at = |used| level(used, 200_000, 75, 90);
         assert_eq!([at(148_000), at(149_998), at(150_000), at(179_998), at(180_000), at(400_000)], [Level::Low, Level::Low, Level::Warn, Level::Warn, Level::Danger, Level::Danger]);
     }
 
     #[test]
+    fn level_follows_the_thresholds_it_is_given() {
+        let at = |used| level(used, 100, 50, 60);
+        assert_eq!([at(49), at(50), at(59), at(60)], [Level::Low, Level::Warn, Level::Warn, Level::Danger]);
+    }
+
+    #[test]
     fn an_empty_window_is_zero_percent_full() {
-        assert_eq!((percent(184_000, 0), level(184_000, 0)), (0, Level::Low));
+        assert_eq!((percent(184_000, 0), level(184_000, 0, 75, 90)), (0, Level::Low));
     }
 
     #[test]
@@ -1014,6 +1045,8 @@ mod tests {
             folder: "/app".into(),
             schedule: automations::Schedule::Interval { every_min: 60 },
             enabled: true,
+            access: String::new(),
+            new_worktree: false,
         };
         out.automation_save(draft);
         out.automation_enable("au1", false);

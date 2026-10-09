@@ -82,6 +82,111 @@
       "files": ["packages/desktop/crates/pocket/src/automations/editor.rs"],
       "open": ["click Automations in the sidebar", "click Edit in the drawer"],
       "capture": ["automations", "automations-editor"]
+    },
+    "settings-general": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,"],
+      "capture": ["dark", "settings"]
+    },
+    "settings-appearance": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Appearance"],
+      "capture": ["dark", "settings", "settings-appearance"]
+    },
+    "settings-notifications": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Notifications & Sounds"],
+      "capture": ["dark", "settings", "settings-notifications"]
+    },
+    "settings-keyboard": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Keyboard"],
+      "capture": ["dark", "settings", "settings-keyboard"]
+    },
+    "settings-keyboard-custom": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**", "packages/desktop/crates/pocket/src/actions.rs"],
+      "open": ["press Cmd+,", "click Keyboard", "click a shortcut", "press Cmd+K"],
+      "capture": ["dark", "settings", "settings-keyboard", "custom-keys", "key-clash"]
+    },
+    "settings-projects": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Projects & Worktrees"],
+      "capture": ["dark", "settings", "settings-projects"]
+    },
+    "settings-agents": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Agents"],
+      "capture": ["dark", "settings", "settings-agents"]
+    },
+    "settings-agent-claude": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Agents", "click Claude Code"],
+      "capture": ["dark", "settings", "settings-claude"]
+    },
+    "settings-agent-codex": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Agents", "click Codex"],
+      "capture": ["dark", "settings", "settings-codex"]
+    },
+    "settings-automations": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Automations"],
+      "capture": ["dark", "settings", "settings-automations"]
+    },
+    "settings-automations-stopped": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Automations", "pocketd is not running"],
+      "capture": ["dark", "settings", "settings-automations", "service-down"]
+    },
+    "settings-phone": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Phone & Remote"],
+      "capture": ["dark", "settings", "settings-phone"]
+    },
+    "settings-phone-empty": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Phone & Remote"],
+      "capture": ["dark", "settings", "settings-phone", "owner", "no-phones"]
+    },
+    "settings-project-edit": {
+      "files": ["packages/desktop/crates/pocket/src/modals/add_project.rs"],
+      "open": ["select a project's session", "open its row menu", "click Project settings"],
+      "capture": ["dark", "session", "project-settings"]
+    },
+    "settings-sidebar": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Sidebar & Inbox"],
+      "capture": ["dark", "settings", "settings-sidebar"]
+    },
+    "settings-terminal": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Terminal"],
+      "capture": ["dark", "settings", "settings-terminal"]
+    },
+    "settings-files": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Files & Editor"],
+      "capture": ["dark", "settings", "settings-files"]
+    },
+    "settings-browser": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Browser"],
+      "capture": ["dark", "settings", "settings-browser"]
+    },
+    "settings-git": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Git & GitHub"],
+      "capture": ["dark", "settings", "settings-git"]
+    },
+    "settings-diff": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "click Diff & Graph"],
+      "capture": ["dark", "settings", "settings-diff"]
+    },
+    "settings-search": {
+      "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
+      "open": ["press Cmd+,", "type worktree in Search"],
+      "capture": ["dark", "settings", "settings-search"]
     }
   }
 }

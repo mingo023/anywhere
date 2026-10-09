@@ -8,9 +8,10 @@ use ui::icon_button_sized;
 
 impl Desktop {
     pub(super) fn changes_header(&self, repo: &Repo, cx: &mut Context<Self>) -> Div {
-        let view = icon_button_sized("changes-view", if self.changes.tree { "list-flat" } else { "list-tree" }, 26., TEXT_3).on_click(cx.listener(
+        let view = icon_button_sized("changes-view", if self.store.diff.tree { "list-flat" } else { "list-tree" }, 26., TEXT_3).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.changes.tree = !this.changes.tree;
+                this.store.diff.tree = !this.store.diff.tree;
+                this.save_soon(cx);
                 cx.notify();
             },
         ));
@@ -27,7 +28,7 @@ impl Desktop {
         let pr = self.cwd().and_then(|tree| {
             let pr = self.prs.get(&tree)?;
             let url = pr.url.clone();
-            Some(pull_requests::chip("changes-pr", pr).cursor_pointer().on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.open_url(&url)))
+            Some(pull_requests::chip("changes-pr", pr).cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(url.clone(), window, cx))))
         });
         div()
             .h(px(40.))
@@ -62,15 +63,15 @@ impl Desktop {
             PrItem::Open(url) => {
                 let url = url.to_string();
                 ui::menu_row("changes-open-pr", "external", "Open pull request", None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.changes.menu = false;
-                        cx.open_url(&url);
+                        this.open_pr(url.clone(), window, cx);
                         cx.notify();
                     }))
                     .into_any_element()
             }
             PrItem::Create => ui::menu_row("changes-create-pr", "plus", "Create pull request", None)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.create_pr(cx)))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_pr(window, cx)))
                 .into_any_element(),
             PrItem::Hint(text) => info(text.to_string()).into_any_element(),
         });

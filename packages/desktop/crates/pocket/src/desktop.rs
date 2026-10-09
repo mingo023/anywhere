@@ -112,7 +112,8 @@ pub struct Desktop {
 impl Desktop {
     pub(crate) fn new(daemon: Daemon, outbox: Outbox, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
-        let (sidebar, sidebar_subs) = SidebarState::new(window, cx);
+        let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
+        let (settings, settings_subs) = SettingsState::new(&store, window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
         let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
@@ -123,6 +124,7 @@ impl Desktop {
         let (automations, automations_subs) = AutomationsState::new(window, cx);
         let browsers = Browsers::new(window, cx);
         let updates = Updates::new(&mut store, cx);
+        let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
         window.focus(&root, cx);
         let this = cx.weak_entity();
@@ -130,13 +132,19 @@ impl Desktop {
         window.on_window_should_close(cx, move |window, cx| this.update(cx, |d, cx| d.quit(&crate::actions::Quit, window, cx)).is_err());
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
-            cx.observe_window_activation(window, |this, _, cx| follow_reduce_motion(this.store.appearance.reduce_motion, cx)),
+            cx.observe_window_activation(window, |this, _, cx| {
+                follow_reduce_motion(this.store.appearance.reduce_motion, cx);
+                if this.screen == Screen::Settings {
+                    this.load_banner_permission(cx);
+                }
+            }),
             cx.observe_window_appearance(window, |this, window, cx| this.set_appearance(window.appearance(), window, cx)),
             // Unfocused, GPUI dispatches keys from the window's root node, above this view's action handlers.
             cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
         ];
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
+        _subs.extend(settings_subs);
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(changes_subs);
@@ -145,15 +153,16 @@ impl Desktop {
         _subs.extend(repo_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
-        let (layout, widths) = (store.layout, [store.widths.projects, store.widths.sessions]);
-        let graph = GraphState::new(store.graph_share);
+        let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
+        let graph = GraphState::new(store.graph_share, &store.diff);
+        let diff = DiffState::new(&store.diff);
         Self {
             daemon,
             outbox,
             alerts: Alerts::new(),
             chime: Chime::new(),
             badge: Badge::default(),
-            terminals: Terminals::new(),
+            terminals,
             creates: Creates::default(),
             removals: Removals::default(),
             agents: Agents::default(),
@@ -165,7 +174,7 @@ impl Desktop {
             widths,
             workspaces: HashMap::new(),
             repos: HashMap::new(),
-            diff: DiffState::default(),
+            diff,
             chat,
             changes,
             prs: PullRequests::default(),
@@ -184,7 +193,7 @@ impl Desktop {
             automations,
             palette,
             sidebar,
-            settings: SettingsState::default(),
+            settings,
             updates,
             chips,
             overlay: None,
@@ -311,9 +320,11 @@ impl Desktop {
         let Some(tree) = self.cwd() else { return };
         self.screen = Screen::Sessions;
         let bounds = self.panels.bounds;
+        let files = &self.store.files;
+        let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
         let w = self.workspace(&tree);
         let pane = w.doc_pane(bounds);
-        let (pane, _) = w.open_doc(doc.clone(), pin, pane);
+        let (pane, _) = w.place_doc(doc.clone(), pin, pane, next);
         self.show_doc(pane, doc, cx);
         self.save_soon(cx);
     }
@@ -334,7 +345,7 @@ impl Desktop {
     fn show_doc(&mut self, pane: PaneId, doc: Doc, cx: &mut Context<Self>) {
         match doc {
             Doc::File(path) => {
-                self.preview.open(pane, path);
+                self.preview.open(pane, path, self.store.files.markdown_source);
                 self.load_file(pane, cx);
             }
             Doc::Diff(path) => {
@@ -429,7 +440,7 @@ impl Desktop {
         div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(body)
     }
 
-    fn restart_service(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn restart_service(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async |this, cx| {
             let result = cx.background_executor().spawn(async { daemon::service::restart() }).await;
             this.update(cx, |d, cx| {
@@ -496,10 +507,11 @@ impl Render for Desktop {
             .size_full()
             .flex()
             .bg(WINDOW)
-            .font_family(SANS)
+            .font_family(ui_font())
             .line_height(relative(1.2))
             .text_color(TEXT)
             .when(self.screen == Screen::Inbox, |d| d.key_context(crate::inbox::CONTEXT))
+            .when(self.screen == Screen::Settings, |d| d.key_context(crate::settings::CONTEXT))
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.hide_chips(cx);
@@ -511,7 +523,7 @@ impl Render for Desktop {
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Settings {
-                    this.close_settings(window, cx);
+                    this.escape_settings(window, cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Automations {
                     this.escape_automations(cx);
                 } else {
@@ -525,6 +537,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))
             .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::focus_settings_search))
             .on_action(cx.listener(Self::open_automations))
             .on_action(cx.listener(Self::check_for_updates))
             .on_action(cx.listener(Self::next_needs_you))

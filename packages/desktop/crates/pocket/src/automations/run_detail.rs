@@ -1,5 +1,5 @@
 use super::glyph::status_pill;
-use super::logic::{duration_text, run_age_text, run_reason, stamp, when_label};
+use super::logic::{access_label, duration_text, run_age_text, run_reason, stamp, when_label};
 use super::parts::{card, crumbs, details, pill, section};
 use crate::desktop::Desktop;
 use crate::util::{now_ms, tilde};
@@ -66,8 +66,14 @@ impl Desktop {
             ("Started", stamp(run.started_at, now, &Local).into_any_element()),
             ("Duration", duration.into_any_element()),
         ];
+        if !access_label(&run.access).is_empty() {
+            rows.push(("Permission mode", access_label(&run.access).into_any_element()));
+        }
         if let Some(a) = &auto {
             rows.push(("Folder", div().truncate().child(tilde(&a.folder)).into_any_element()));
+        }
+        if !run.worktree.is_empty() {
+            rows.push(("Worktree", div().truncate().child(tilde(&run.worktree)).into_any_element()));
         }
         let body = [header.into_any_element()]
             .into_iter()

@@ -49,15 +49,18 @@ impl Desktop {
             Kind::NotAttached => State::NotAttached,
             _ => state(c.status, added, removed),
         };
-        let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone());
+        let details = self.store.sidebar.details;
+        let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone()).filter(|_| details.branch);
         let menu = RowMenu::Session(c.id.clone());
         let open = self.row_menu.as_ref() == Some(&menu);
         let when = if open {
             String::new().into_any_element()
         } else if chips && i < 9 {
             ui::jump_chip(i + 1).into_any_element()
-        } else {
+        } else if details.time {
             ago(c.at, now_ms()).into_any_element()
+        } else {
+            String::new().into_any_element()
         };
         let more = div()
             .absolute()
@@ -66,9 +69,10 @@ impl Desktop {
             .when(!open, |d| d.invisible().group_hover(ui::SESSION_ROW, |s| s.visible()))
             .child(self.row_menu_button(&c.id, menu.clone(), cx));
         let row = if c.pinned {
-            ui::pinned_row(("card", i), selected, when, c.title, c.notice, branch, Some(pill))
+            ui::pinned_row(("card", i), selected, when, c.title, c.notice, branch, Some(pill), details.diff)
         } else {
-            ui::session_row(("card", i), selected, ui::agent_label(&c.provider, c.model), when, c.title, c.notice, branch, Some(pill))
+            let model = if details.model { c.model } else { String::new() };
+            ui::session_row(("card", i), selected, ui::agent_label(&c.provider, model), when, c.title, c.notice, branch, Some(pill), details.diff)
         };
         row.relative()
             .child(more)

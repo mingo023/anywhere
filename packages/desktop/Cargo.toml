@@ -44,6 +44,7 @@ gpui-kit = { version = "0.6.6", features = [
     "tree-sitter-typescript",
     "tree-sitter-yaml",
 ] }
+ignore = "0.4"
 image = { version = "0.25", default-features = false }
 imara-diff = "0.2"
 libc = "0.2"

@@ -95,6 +95,10 @@ impl ConfirmText {
         Self { title: format!("Delete {name}?"), action: "Delete", facts: vec!["Its run history goes too".into()], dirty: 0, lost: 0, danger: true }
     }
 
+    fn revoke_device(name: &str) -> Self {
+        Self { title: format!("Revoke {name}?"), action: "Revoke", facts: vec!["It disconnects now and has to pair again".into()], dirty: 0, lost: 0, danger: true }
+    }
+
     fn detail(&self) -> Option<String> {
         (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
@@ -111,6 +115,7 @@ impl ConfirmText {
 impl Desktop {
     pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
         let text = match &self.confirm {
+            Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
             Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), self.project_terminals(p).len()),
             Some(Confirm::DeleteWorktree { removal, dirty, lost }) => ConfirmText::delete_worktree(removal, *dirty, *lost, self.tree_terminals(&removal.tree).len()),
             Some(Confirm::TeardownFailed { removal, .. }) => ConfirmText::teardown_failed(&removal.tree),
@@ -126,6 +131,7 @@ impl Desktop {
             Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
             Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
             Some(Confirm::DeleteAutomation(id)) => ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str())),
+            Some(Confirm::RevokeDevice { name, .. }) => ConfirmText::revoke_device(name),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -182,7 +188,7 @@ impl Desktop {
         self.close_overlay(window, cx);
     }
 
-    fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.confirm.take() {
             Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
             Some(Confirm::DeleteWorktree { removal, .. }) => self.delete_worktree(removal, cx),
@@ -199,6 +205,8 @@ impl Desktop {
             Some(Confirm::Quit(_)) => cx.quit(),
             Some(Confirm::OpenExternal(url)) => cx.open_url(&url),
             Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id),
+            Some(Confirm::ResetSection(section)) => self.reset_section(section, window, cx),
+            Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),
             None => {}
         }
         self.close_overlay(window, cx);

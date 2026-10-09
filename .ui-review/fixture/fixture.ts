@@ -169,7 +169,7 @@ const RUNS = [
   run("r2", "au3", "running", 3, "Every 2 hours", "Comparing 14 failures against the last 40 runs.", 0, "hook"),
   run("r3", "au3", "succeeded", 125, "Every 2 hours", "Found 2 flaky tests and filed notes.", 6),
   run("r4", "au2", "skipped", 150, "Mac asleep", ""),
-  run("r5", "au1", "succeeded", 26 * 60, "Weekdays 09:00", "Reviewed 3 pull requests; 1 needs a second look.", 12),
+  { ...run("r5", "au1", "succeeded", 26 * 60, "Weekdays 09:00", "Reviewed 3 pull requests; 1 needs a second look.", 12), access: "edits", worktree: repoPath("app-android") + "-wt/review-prs" },
   run("r6", "au3", "failed", 26 * 60 + 120, "Every 2 hours", "The test runner exited with status 1.", 2),
   run("r7", "au2", "succeeded", 50 * 60, "Run now", "No vulnerable dependencies.", 4),
   run("r8", "au4", "cancelled", 52 * 60, "Weekly, Monday 10:00", "Stopped before it finished.", 1),

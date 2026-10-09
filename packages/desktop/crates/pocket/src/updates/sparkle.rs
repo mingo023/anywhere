@@ -69,6 +69,16 @@ impl Sparkle {
         let _: () = unsafe { msg_send![&*self.controller, checkForUpdates: None::<&AnyObject>] };
     }
 
+    /// Whether Sparkle downloads and installs by itself, and how often it looks.
+    pub fn configure(&self, automatic: bool, interval_secs: f64) {
+        // SAFETY: SPUStandardUpdaterController.updater is a non-null SPUUpdater; both setters take plain values (SPUUpdater.h:227, :250).
+        unsafe {
+            let updater: Retained<AnyObject> = msg_send![&*self.controller, updater];
+            let _: () = msg_send![&*updater, setAutomaticallyDownloadsUpdates: Bool::new(automatic)];
+            let _: () = msg_send![&*updater, setUpdateCheckInterval: interval_secs];
+        }
+    }
+
     /// Installs the ready update and relaunches; `None` until one is ready.
     pub fn installer(&self) -> Option<Box<dyn FnOnce()>> {
         let install = self.delegate.ivars().install.borrow().clone()?;

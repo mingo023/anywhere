@@ -1,4 +1,3 @@
-use super::notes;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::drag_area;
 use crate::status::Status;
@@ -11,7 +10,7 @@ use ui::{self, State, Variant, kbd};
 
 impl Desktop {
     pub fn inbox_detail(&mut self, cx: &mut Context<Self>) -> Div {
-        let Some(n) = notes(&self.agents).into_iter().nth(self.inbox.selected) else {
+        let Some(n) = self.shown_notes().into_iter().nth(self.inbox.selected) else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("You're all caught up.");
         };
         let project = self.project_name(&n.agent);
@@ -38,7 +37,7 @@ impl Desktop {
             .child(ui::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.focus_agent(&agent, window, cx)
             })));
-        let pane = self.pane(&n.terminal, &surface::MAIN, cx);
+        let pane = self.pane(&n.terminal, &surface::Metrics::of(&self.store.terminal), cx);
         let hints = div()
             .h(px(36.))
             .flex_none()

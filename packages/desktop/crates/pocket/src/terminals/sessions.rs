@@ -1,5 +1,6 @@
 use daemon::{Info, Msg};
-use term::Term;
+use store::prefs::terminal::{self as prefs, Cursor};
+use term::{CURSOR_BAR, CURSOR_BLOCK, CURSOR_UNDERLINE, Config, Term};
 
 pub struct Session {
     pub info: Info,
@@ -22,6 +23,7 @@ impl Session {
 #[derive(Default)]
 pub struct Sessions {
     pub items: Vec<Session>,
+    pub config: Config,
 }
 
 impl Sessions {
@@ -41,20 +43,34 @@ impl Sessions {
         added
     }
 
-    pub fn apply(&mut self, m: &Msg) {
-        let Some(s) = self.items.iter_mut().find(|s| s.info.id == m.id) else { return };
+    /// Applies a daemon message; true when the output rang the bell.
+    pub fn apply(&mut self, m: &Msg) -> bool {
+        let Some(s) = self.items.iter_mut().find(|s| s.info.id == m.id) else { return false };
         match m.ev.as_str() {
             "snapshot" => {
                 let mut t = Term::new(m.cols.max(1), m.rows.max(1));
+                t.configure(&self.config);
                 t.write(&m.bytes());
+                t.take_bell();
                 s.term = Some(t);
             }
-            "output" => s.term.iter_mut().for_each(|t| t.write(&m.bytes())),
+            "output" => {
+                return s.term.as_mut().is_some_and(|t| {
+                    t.write(&m.bytes());
+                    t.take_bell()
+                });
+            }
             "resize" => s.term.iter_mut().for_each(|t| t.resize(m.cols.max(1), m.rows.max(1))),
             "exit" => s.exit = Some(m.code),
             "foreground" => s.info.foreground = m.text.clone(),
             _ => {}
         }
+        false
+    }
+
+    pub fn configure(&mut self, c: Config) {
+        self.items.iter_mut().filter_map(|s| s.term.as_mut()).for_each(|t| t.configure(&c));
+        self.config = c;
     }
 
     pub fn get(&self, id: &str) -> Option<&Session> {
@@ -72,6 +88,17 @@ impl Sessions {
     pub fn remove(&mut self, id: &str) {
         self.items.retain(|s| s.info.id != id);
     }
+}
+
+/// What every terminal takes from the user's settings.
+pub fn config(t: &prefs::Terminal) -> Config {
+    let palette = t.colors().map(|c| [(c >> 16) as u8, (c >> 8) as u8, c as u8]);
+    let cursor = match t.cursor {
+        Cursor::Block => CURSOR_BLOCK,
+        Cursor::Bar => CURSOR_BAR,
+        Cursor::Underline => CURSOR_UNDERLINE,
+    };
+    Config { scrollback: t.scrollback.max(0) as usize, palette, cursor, blink: t.blink }
 }
 
 #[cfg(test)]
@@ -148,5 +175,36 @@ mod tests {
         s.apply(&Msg { code: 0, ..msg("exit", "a", "") });
         s.apply(&Msg { code: 2, ..msg("exit", "b", "") });
         assert_eq!(["a", "b", "c"].map(|id| s.get(id).unwrap().failed()), [false, true, false]);
+    }
+
+    #[test]
+    fn default_settings_keep_libghosttys_own_terminal() {
+        assert_eq!(config(&prefs::Terminal::default()), Config::default());
+    }
+
+    #[test]
+    fn a_scheme_maps_to_its_ansi_colours() {
+        let c = config(&prefs::Terminal { scheme: prefs::Scheme::Graphite, cursor: Cursor::Bar, ..Default::default() });
+        assert_eq!((c.palette[1], c.palette[15], c.cursor), ([0xe5, 0x48, 0x4d], [0xff, 0xff, 0xff], CURSOR_BAR));
+    }
+
+    #[test]
+    fn new_terminals_and_open_ones_take_the_configured_cursor() {
+        let mut s = Sessions::default();
+        s.sync(vec![info("a"), info("b")]);
+        s.apply(&msg("snapshot", "a", ""));
+        s.configure(Config { cursor: CURSOR_BAR, ..Config::default() });
+        s.apply(&msg("snapshot", "b", ""));
+        let style = |s: &mut Sessions, id| s.term(id).unwrap().frame().0.cursor_style;
+        assert_eq!((style(&mut s, "a"), style(&mut s, "b")), (CURSOR_BAR, CURSOR_BAR));
+    }
+
+    #[test]
+    fn output_reports_the_bell_but_a_snapshot_replays_silently() {
+        let mut s = Sessions::default();
+        s.sync(vec![info("a")]);
+        assert!(!s.apply(&msg("snapshot", "a", "\x07")));
+        assert!(!s.apply(&msg("output", "a", "hi")));
+        assert!(s.apply(&msg("output", "a", "\x07")));
     }
 }

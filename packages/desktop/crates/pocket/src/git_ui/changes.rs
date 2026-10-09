@@ -12,8 +12,6 @@ use gpui_kit::*;
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Range;
 
-const PROMPT: &str = "Write a git commit message for the diff on stdin, in the style of the recent subjects. Reply with the message only.";
-
 #[derive(Clone, Copy, PartialEq)]
 pub enum CommitKind {
     Commit,
@@ -25,33 +23,39 @@ pub enum CommitKind {
 enum CommitStep {
     Skip,
     AskMessage,
+    /// Nothing is staged and the settings say to commit only what is.
+    StageFirst,
     /// `stage` holds every changed path when none is staged, so the commit takes them all.
     Run { stage: Vec<String>, busy: &'static str },
 }
 
-/// Commits the staged files, or every change when none is staged. Amending keeps the last message unless a new one is typed.
-fn commit_step(files: &[FileStat], kind: CommitKind, message: &str, busy: bool) -> CommitStep {
+/// Commits the staged files, or with `commit_all` every change when none is staged. Amending keeps the last message unless a new one is typed.
+fn commit_step(files: &[FileStat], kind: CommitKind, message: &str, busy: bool, commit_all: bool) -> CommitStep {
     let amend = kind == CommitKind::Amend;
     if busy || (!amend && files.is_empty()) {
         return CommitStep::Skip;
     }
+    let none_staged = !files.iter().any(|f| f.staged);
+    if !amend && none_staged && !commit_all {
+        return CommitStep::StageFirst;
+    }
     if !amend && message.is_empty() {
         return CommitStep::AskMessage;
     }
-    let stage = if amend || files.iter().any(|f| f.staged) { Vec::new() } else { files.iter().map(|f| f.path.clone()).collect() };
+    let stage = if amend || !none_staged { Vec::new() } else { files.iter().map(|f| f.path.clone()).collect() };
     CommitStep::Run { stage, busy: if amend { "Amending…" } else { "Committing…" } }
 }
 
-fn commit_label(files: &[FileStat], busy: Option<&'static str>) -> &'static str {
+fn commit_label(files: &[FileStat], busy: Option<&'static str>, commit_all: bool) -> &'static str {
     match busy {
         Some(busy) => busy,
-        None if !files.is_empty() && !files.iter().any(|f| f.staged) => "Commit All",
+        None if commit_all && !files.is_empty() && !files.iter().any(|f| f.staged) => "Commit All",
         None => "Commit",
     }
 }
 
-fn commit_ready(files: &[FileStat], message: &str, busy: bool) -> bool {
-    !files.is_empty() && !message.trim().is_empty() && !busy
+fn commit_ready(files: &[FileStat], message: &str, busy: bool, commit_all: bool) -> bool {
+    !files.is_empty() && !message.trim().is_empty() && !busy && (commit_all || files.iter().any(|f| f.staged))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -155,7 +159,6 @@ pub struct ChangesState {
     pub(crate) error: Option<String>,
     pub(crate) commit_menu: bool,
     pub(crate) menu: bool,
-    pub(crate) tree: bool,
     pub(crate) folded: HashSet<String>,
     pub(crate) scroll: UniformListScrollHandle,
 }
@@ -175,7 +178,6 @@ impl ChangesState {
             error: None,
             commit_menu: false,
             menu: false,
-            tree: false,
             folded: HashSet::new(),
             scroll: UniformListScrollHandle::new(),
         };
@@ -189,7 +191,7 @@ impl Desktop {
         let Some(repo) = self.repo().cloned() else {
             return panel.child(empty("Not a git repository."));
         };
-        let rows = change_rows(&repo.files, self.changes.tree, &self.changes.folded);
+        let rows = change_rows(&repo.files, self.store.diff.tree, &self.changes.folded);
         let list = uniform_list(
             "changes",
             rows.len(),
@@ -253,8 +255,12 @@ impl Desktop {
         self.changes.commit_menu = false;
         let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
         let message = self.changes.input.read(cx).value().trim().to_string();
-        let (all, busy) = match commit_step(&repo.files, kind, &message, self.changes.busy.is_some()) {
+        let (all, busy) = match commit_step(&repo.files, kind, &message, self.changes.busy.is_some(), self.store.git.commit_all) {
             CommitStep::Skip => return cx.notify(),
+            CommitStep::StageFirst => {
+                self.changes.error = Some("Stage the changes to commit first.".into());
+                return cx.notify();
+            }
             CommitStep::AskMessage => {
                 self.changes.input.update(cx, |s, cx| s.focus(window, cx));
                 return cx.notify();
@@ -262,6 +268,7 @@ impl Desktop {
             CommitStep::Run { stage, busy } => (stage, busy),
         };
         let amend = kind == CommitKind::Amend;
+        let push_argv = self.push_argv();
         self.changes.busy = Some(busy);
         self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
@@ -269,7 +276,7 @@ impl Desktop {
                 git::set_staged(&cwd, &all, true);
             }
             let committed = daemon::run_login(&git::commit_argv(amend, &message), &cwd, &message).map(drop);
-            let pushed = if committed.is_ok() && kind == CommitKind::Push { push(&cwd) } else { Ok(()) };
+            let pushed = if committed.is_ok() && kind == CommitKind::Push { push(&cwd, &push_argv) } else { Ok(()) };
             (committed, pushed)
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -292,9 +299,10 @@ impl Desktop {
     fn push(&mut self, cx: &mut Context<Self>) {
         self.changes.menu = false;
         let Some(cwd) = self.cwd().filter(|_| self.changes.busy.is_none()) else { return cx.notify() };
+        let argv = self.push_argv();
         self.changes.busy = Some("Pushing…");
         self.changes.error = None;
-        let task = cx.background_executor().spawn(async move { push(&cwd) });
+        let task = cx.background_executor().spawn(async move { push(&cwd, &argv) });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {
@@ -309,7 +317,22 @@ impl Desktop {
         cx.notify();
     }
 
-    fn create_pr(&mut self, cx: &mut Context<Self>) {
+    /// Pushes to the remote picked in Settings when this repo has it.
+    fn push_argv(&self) -> Vec<String> {
+        let remote = &self.store.git.remote;
+        git::push_argv(self.repo().filter(|r| r.remotes.contains(remote)).map(|_| remote.as_str()), self.store.git.force_with_lease)
+    }
+
+    /// Opens a pull request where Settings say: a browser tab, or the system browser.
+    pub(crate) fn open_pr(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.store.git.in_app && self.cwd().is_some() {
+            self.open_browser(Some(url), window, cx);
+        } else {
+            cx.open_url(&url);
+        }
+    }
+
+    fn create_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.changes.menu = false;
         let (Some(tree), Some(base)) = (self.cwd(), self.repo().and_then(|r| r.base.clone())) else { return cx.notify() };
         if self.changes.busy.is_some() {
@@ -317,19 +340,19 @@ impl Desktop {
         }
         self.changes.busy = Some("Creating PR…");
         self.changes.error = None;
-        let dir = tree.clone();
+        let (dir, push_argv, draft) = (tree.clone(), self.push_argv(), self.store.git.draft);
         let task = cx.background_executor().spawn(async move {
-            daemon::run_login(git::PUSH, &dir, "")?;
-            daemon::run_login(&github::create_argv(&base), &dir, "")
+            push(&dir, &push_argv)?;
+            daemon::run_login(&github::create_argv(&base, draft), &dir, "")
         });
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
-            this.update(cx, |d, cx| {
+            this.update_in(cx, |d, window, cx| {
                 d.changes.busy = None;
                 match res {
                     Ok(out) => {
                         if let Some(url) = out.lines().last() {
-                            cx.open_url(url);
+                            d.open_pr(url.to_string(), window, cx);
                         }
                         d.prs.forget(&tree);
                     }
@@ -344,18 +367,19 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Asks Claude Code for a message from what the commit would hold.
+    /// Asks the agent picked in Settings for a message from what the commit would hold.
     fn write_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(cwd), Some(repo)) = (self.cwd(), self.repo()) else { return };
         if self.changes.writing || repo.files.is_empty() {
             return;
         }
         let staged = repo.files.iter().any(|f| f.staged);
+        let (argv, untracked) = (self.store.git.message_argv(&self.store.agents.command(&self.store.git.agent)), self.store.git.untracked);
         self.changes.writing = true;
         self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
-            let context = git::commit_context(&cwd, staged);
-            daemon::run_login(&["claude", "-p", "--model", "haiku", PROMPT], &cwd, &context)
+            let context = git::commit_context(&cwd, staged, untracked);
+            daemon::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &cwd, &context)
         });
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
@@ -374,8 +398,8 @@ impl Desktop {
     }
 }
 
-fn push(cwd: &str) -> Result<(), String> {
-    daemon::run_login(git::PUSH, cwd, "").map(drop)
+fn push(cwd: &str, argv: &[String]) -> Result<(), String> {
+    daemon::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), cwd, "").map(drop)
 }
 
 #[cfg(test)]
@@ -440,50 +464,61 @@ mod tests {
     #[test]
     fn nothing_commits_while_git_works() {
         for kind in [CommitKind::Commit, CommitKind::Push, CommitKind::Amend] {
-            assert_eq!(commit_step(&[staged("a.rs")], kind, "Edit a", true), CommitStep::Skip);
+            assert_eq!(commit_step(&[staged("a.rs")], kind, "Edit a", true, true), CommitStep::Skip);
         }
     }
 
     #[test]
     fn with_nothing_changed_only_amend_runs() {
-        assert_eq!(commit_step(&[], CommitKind::Commit, "Edit a", false), CommitStep::Skip);
-        assert_eq!(commit_step(&[], CommitKind::Push, "Edit a", false), CommitStep::Skip);
-        assert_eq!(commit_step(&[], CommitKind::Amend, "", false), CommitStep::Run { stage: vec![], busy: "Amending…" });
+        assert_eq!(commit_step(&[], CommitKind::Commit, "Edit a", false, true), CommitStep::Skip);
+        assert_eq!(commit_step(&[], CommitKind::Push, "Edit a", false, true), CommitStep::Skip);
+        assert_eq!(commit_step(&[], CommitKind::Amend, "", false, true), CommitStep::Run { stage: vec![], busy: "Amending…" });
     }
 
     #[test]
     fn a_commit_without_a_message_asks_for_one_but_amend_keeps_the_last() {
         let files = [staged("a.rs")];
-        assert_eq!(commit_step(&files, CommitKind::Commit, "", false), CommitStep::AskMessage);
-        assert_eq!(commit_step(&files, CommitKind::Push, "", false), CommitStep::AskMessage);
-        assert_eq!(commit_step(&files, CommitKind::Amend, "", false), CommitStep::Run { stage: vec![], busy: "Amending…" });
+        assert_eq!(commit_step(&files, CommitKind::Commit, "", false, true), CommitStep::AskMessage);
+        assert_eq!(commit_step(&files, CommitKind::Push, "", false, true), CommitStep::AskMessage);
+        assert_eq!(commit_step(&files, CommitKind::Amend, "", false, true), CommitStep::Run { stage: vec![], busy: "Amending…" });
     }
 
     #[test]
     fn a_commit_takes_every_change_when_none_is_staged_and_only_the_staged_otherwise() {
         let loose = [file("a.rs"), FileStat { status: 'A', ..file("new.rs") }];
-        assert_eq!(commit_step(&loose, CommitKind::Commit, "Edit", false), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
-        assert_eq!(commit_step(&loose, CommitKind::Push, "Edit", false), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
-        assert_eq!(commit_step(&loose, CommitKind::Amend, "Edit", false), CommitStep::Run { stage: vec![], busy: "Amending…" });
+        assert_eq!(commit_step(&loose, CommitKind::Commit, "Edit", false, true), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
+        assert_eq!(commit_step(&loose, CommitKind::Push, "Edit", false, true), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
+        assert_eq!(commit_step(&loose, CommitKind::Amend, "Edit", false, true), CommitStep::Run { stage: vec![], busy: "Amending…" });
         let mixed = [file("a.rs"), staged("b.rs")];
-        assert_eq!(commit_step(&mixed, CommitKind::Commit, "Edit", false), CommitStep::Run { stage: vec![], busy: "Committing…" });
+        assert_eq!(commit_step(&mixed, CommitKind::Commit, "Edit", false, true), CommitStep::Run { stage: vec![], busy: "Committing…" });
     }
 
     #[test]
     fn the_commit_button_says_commit_all_when_nothing_is_staged_and_what_git_does_while_busy() {
-        assert_eq!(commit_label(&[file("a.rs")], None), "Commit All");
-        assert_eq!(commit_label(&[file("a.rs"), staged("b.rs")], None), "Commit");
-        assert_eq!(commit_label(&[], None), "Commit");
-        assert_eq!(commit_label(&[file("a.rs")], Some("Pushing…")), "Pushing…");
+        assert_eq!(commit_label(&[file("a.rs")], None, true), "Commit All");
+        assert_eq!(commit_label(&[file("a.rs"), staged("b.rs")], None, true), "Commit");
+        assert_eq!(commit_label(&[], None, true), "Commit");
+        assert_eq!(commit_label(&[file("a.rs")], Some("Pushing…"), true), "Pushing…");
     }
 
     #[test]
     fn commit_is_ready_with_changes_a_message_and_git_idle() {
         let files = [file("a.rs")];
-        assert!(commit_ready(&files, "Edit a", false));
-        assert!(!commit_ready(&files, " \n", false));
-        assert!(!commit_ready(&[], "Edit a", false));
-        assert!(!commit_ready(&files, "Edit a", true));
+        assert!(commit_ready(&files, "Edit a", false, true));
+        assert!(!commit_ready(&files, " \n", false, true));
+        assert!(!commit_ready(&[], "Edit a", false, true));
+        assert!(!commit_ready(&files, "Edit a", true, true));
+    }
+
+    #[test]
+    fn staged_only_asks_to_stage_first_instead_of_committing_everything() {
+        let loose = [file("a.rs")];
+        assert_eq!(commit_step(&loose, CommitKind::Commit, "Edit", false, false), CommitStep::StageFirst);
+        assert_eq!(commit_step(&loose, CommitKind::Amend, "", false, false), CommitStep::Run { stage: vec![], busy: "Amending…" });
+        assert_eq!(commit_step(&[staged("a.rs")], CommitKind::Commit, "Edit", false, false), CommitStep::Run { stage: vec![], busy: "Committing…" });
+        assert_eq!(commit_label(&loose, None, false), "Commit");
+        assert!(!commit_ready(&loose, "Edit", false, false));
+        assert!(commit_ready(&[staged("a.rs")], "Edit", false, false));
     }
 
     #[test]

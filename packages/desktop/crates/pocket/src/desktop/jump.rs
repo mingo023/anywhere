@@ -7,11 +7,9 @@ use crate::status::{self, Card};
 use gpui_kit::*;
 use std::time::Duration;
 
-pub const CHIP_DELAY_MS: u64 = 280;
-
-/// Whether ⌃ alone is down with nothing over the window, which starts the chip timer.
-pub fn arms_chips(m: &Modifiers, overlay_open: bool) -> bool {
-    *m == Modifiers::control() && !overlay_open
+/// Whether ⌃ alone is down with hints on and nothing over the window, which starts the chip timer.
+pub fn arms_chips(m: &Modifiers, overlay_open: bool, hints: bool) -> bool {
+    hints && *m == Modifiers::control() && !overlay_open
 }
 
 /// The sessions ⌃n and ⌃Tab walk, in the order the Sessions column shows them: pinned first.
@@ -21,7 +19,7 @@ pub(crate) fn walkable(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&s
     cards
 }
 
-/// The ⌃1–⌃9 chips on session rows, shown once ⌃ has been held alone for `CHIP_DELAY_MS`.
+/// The ⌃1–⌃9 chips on session rows, shown once ⌃ has been held alone for the hint delay.
 #[derive(Default)]
 pub struct Chips {
     pub(crate) shown: bool,
@@ -99,7 +97,7 @@ impl Desktop {
         self.step_session(false, window, cx);
     }
 
-    /// Also on any key: a ⌃ combo held past `CHIP_DELAY_MS`, like ⌃R in a terminal, isn't a jump.
+    /// Also on any key: a ⌃ combo held past the hint delay, like ⌃R in a terminal, isn't a jump.
     pub(crate) fn hide_chips(&mut self, cx: &mut Context<Self>) {
         if self.chips.hide() {
             cx.notify();
@@ -108,11 +106,12 @@ impl Desktop {
 
     pub(crate) fn on_modifiers(&mut self, ev: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.hide_chips(cx);
-        if !arms_chips(&ev.modifiers, self.overlay.is_some()) {
+        if !arms_chips(&ev.modifiers, self.overlay.is_some(), self.store.sidebar.jump_hints) {
             return;
         }
+        let delay = Duration::from_millis(self.store.sidebar.hint_delay_ms.into());
         self.chips.timer = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(CHIP_DELAY_MS)).await;
+            cx.background_executor().timer(delay).await;
             this.update(cx, |d, cx| {
                 d.chips.shown = true;
                 cx.notify();
@@ -155,10 +154,11 @@ mod tests {
     #[test]
     fn chips_arm_on_ctrl_alone_and_never_over_an_overlay() {
         let ctrl_shift = Modifiers { shift: true, ..Modifiers::control() };
-        assert!(arms_chips(&Modifiers::control(), false));
-        assert!(!arms_chips(&Modifiers::control(), true));
-        assert!(!arms_chips(&ctrl_shift, false));
-        assert!(!arms_chips(&Modifiers::command(), false));
-        assert!(!arms_chips(&Modifiers::default(), false));
+        assert!(arms_chips(&Modifiers::control(), false, true));
+        assert!(!arms_chips(&Modifiers::control(), true, true));
+        assert!(!arms_chips(&Modifiers::control(), false, false));
+        assert!(!arms_chips(&ctrl_shift, false, true));
+        assert!(!arms_chips(&Modifiers::command(), false, true));
+        assert!(!arms_chips(&Modifiers::default(), false, true));
     }
 }

@@ -171,7 +171,7 @@ impl Desktop {
         let (top, left) = edges(layout, p);
         let (pad, toggle) = if top && left { self.bar_start(10., cx) } else { (10., None) };
         let ring = match pane.active() {
-            Some(Tab::Term(t)) => self.summary(t).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window)),
+            Some(Tab::Term(t)) => self.summary(t).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window, agents::level(used, window, self.store.sidebar.warn_at, self.store.sidebar.critical_at))),
             _ => None,
         };
         let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().children(ring);

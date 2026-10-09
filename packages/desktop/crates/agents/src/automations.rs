@@ -3,6 +3,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 const MAX_NAME: usize = 80;
 const MAX_PROMPT: usize = 64 << 10;
 const EVERY_MIN: std::ops::RangeInclusive<u32> = 5..=10080;
+/// The accesses pocketd takes for a run; empty is the agent's own settings.
+const ACCESSES: [&str; 6] = ["", "settings", "ask", "edits", "auto", "full"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -25,6 +27,12 @@ pub struct Automation {
     pub folder: String,
     pub schedule: Schedule,
     pub enabled: bool,
+    /// What a run may do without asking; empty leaves it to the agent's own settings.
+    #[serde(default)]
+    pub access: String,
+    /// Each run starts in a fresh worktree of `folder`.
+    #[serde(default)]
+    pub new_worktree: bool,
     /// Unix ms; 0 while disabled.
     #[serde(default)]
     pub next_run_at: i64,
@@ -73,6 +81,12 @@ pub struct Run {
     pub agent_id: String,
     #[serde(default)]
     pub terminal_id: String,
+    /// The permission mode the run started on, from `ACCESSES`; "settings" is the agent's own.
+    #[serde(default)]
+    pub access: String,
+    /// The new worktree the run went to; empty when it ran in the folder.
+    #[serde(default)]
+    pub worktree: String,
 }
 
 /// What `automation.save` carries; no `id` creates.
@@ -86,6 +100,10 @@ pub struct AutomationDraft {
     pub folder: String,
     pub schedule: Schedule,
     pub enabled: bool,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub access: String,
+    #[serde(rename = "newWorktree", skip_serializing_if = "std::ops::Not::not")]
+    pub new_worktree: bool,
 }
 
 impl AutomationDraft {
@@ -106,6 +124,9 @@ impl AutomationDraft {
         }
         if self.folder.is_empty() {
             return Some("Pick a folder");
+        }
+        if !ACCESSES.contains(&self.access.as_str()) {
+            return Some("Pick a permission mode");
         }
         match &self.schedule {
             Schedule::Days { days, time } => {
@@ -173,6 +194,8 @@ mod tests {
             folder: "/Users/me/app".into(),
             schedule: Schedule::Days { days: vec![1, 2, 3, 4, 5], time: "09:00".into() },
             enabled: true,
+            access: String::new(),
+            new_worktree: false,
         }
     }
 
@@ -188,6 +211,8 @@ mod tests {
             finished_at: 0,
             agent_id: String::new(),
             terminal_id: String::new(),
+            access: String::new(),
+            worktree: String::new(),
         }
     }
 
@@ -211,6 +236,7 @@ mod tests {
         assert_eq!((au.provider.as_str(), au.enabled, au.next_run_at), ("claude", true, 1791450000000));
         let [waiting, done] = &f.runs[..] else { panic!("want two runs") };
         assert_eq!((waiting.status, waiting.trigger.as_str(), waiting.agent_id.as_str(), waiting.finished_at), (RunStatus::Waiting, "manual", "a1", 0));
+        assert_eq!((waiting.access.as_str(), waiting.worktree.as_str(), done.access.as_str()), ("edits", "/Users/me/app-wt/review-prs", ""));
         assert_eq!((done.status, done.summary.as_str(), done.finished_at), (RunStatus::Succeeded, "Reviewed 3 PRs.", 1791277500000));
     }
 
@@ -221,6 +247,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((au.schedule, au.next_run_at), (Schedule::Interval { every_min: 60 }, 0));
+        assert_eq!((au.access.as_str(), au.new_worktree), ("", false));
     }
 
     #[test]
@@ -283,6 +310,7 @@ mod tests {
         assert!(with(|d| d.prompt = "x".repeat(MAX_PROMPT + 1)));
         assert!(with(|d| d.provider = "gemini".into()));
         assert!(with(|d| d.folder.clear()));
+        assert!(with(|d| d.access = "plan".into()));
         assert!(with(|d| d.schedule = Schedule::Days { days: vec![], time: "09:00".into() }));
         assert!(with(|d| d.schedule = Schedule::Days { days: vec![7], time: "09:00".into() }));
         assert!(with(|d| d.schedule = Schedule::Days { days: vec![1, 1], time: "09:00".into() }));
@@ -303,5 +331,14 @@ mod tests {
         let want = include_str!("../../../../pocketd/internal/proto/testdata/golden/client/automation_save_interval.json");
         let want: serde_json::Value = serde_json::from_str(want).unwrap();
         assert_eq!(serde_json::to_value(&every).unwrap(), want["automation"]);
+    }
+
+    #[test]
+    fn a_draft_sends_its_access_and_worktree_only_once_set() {
+        let d = AutomationDraft { access: "edits".into(), new_worktree: true, ..draft() };
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!((v["access"].as_str(), v["newWorktree"].as_bool()), (Some("edits"), Some(true)));
+        let v = serde_json::to_value(draft()).unwrap();
+        assert!(v.get("access").is_none() && v.get("newWorktree").is_none());
     }
 }

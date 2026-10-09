@@ -4,7 +4,7 @@ use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::git_ui::graph::GraphState;
-use crate::settings::{Section, SettingsState};
+use crate::settings::Section;
 use crate::status::Status;
 use crate::updates::Update;
 use git::Kind;
@@ -17,7 +17,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 50] = [
+const STEPS: [(&str, Step); 91] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -70,6 +70,7 @@ const STEPS: [(&str, Step); 50] = [
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
     ("automations", |d, window, cx| d.open_automations(&crate::actions::OpenAutomations, window, cx)),
     ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
+    ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
     ("automations-editor", |d, window, cx| {
         let first = d.agents.automations.items.first().map(|a| a.id.clone());
         d.edit_automation(first.as_deref(), window, cx);
@@ -77,16 +78,108 @@ const STEPS: [(&str, Step); 50] = [
     ("automations-new", |d, window, cx| d.edit_automation(None, window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
     ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
-    ("settings-keybindings", |d, _, _| d.settings.section = Section::Keybindings),
-    ("settings-worktrees", |d, _, _| d.settings.section = Section::Worktrees),
+    ("settings-notifications", |d, _, _| d.settings.section = Section::Notifications),
+    ("settings-keyboard", |d, _, _| d.settings.section = Section::Keyboard),
+    ("settings-projects", |d, _, _| d.settings.section = Section::Projects),
+    ("settings-agents", |d, _, _| d.settings.section = Section::Agents),
+    ("settings-automations", |d, _, _| d.settings.section = Section::Automations),
+    ("settings-phone", |d, _, _| d.settings.section = Section::Phone),
+    ("settings-sidebar", |d, _, _| d.settings.section = Section::Sidebar),
+    ("settings-terminal", |d, _, _| d.settings.section = Section::Terminal),
+    ("settings-files", |d, _, _| d.settings.section = Section::Files),
+    ("settings-browser", |d, _, _| d.settings.section = Section::Browser),
+    ("settings-git", |d, _, _| d.settings.section = Section::Git),
+    ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
+    ("settings-claude", |d, _, _| d.settings.section = Section::Claude),
+    ("settings-codex", |d, _, _| d.settings.section = Section::Codex),
+    ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
+        (Some(Overlay::AddRepo), _) => "project-model",
+        (_, Section::Git) => "ai-model",
+        (_, Section::Codex) => "codex-model",
+        _ => "claude-model",
+    })),
+    ("service-down", |d, _, _| d.terminals.link.down(Instant::now())),
+    ("service-starting", |d, _, _| d.settings.starting = Some(Instant::now())),
+    ("settings-search", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("sound", window, cx))),
+    ("settings-search-chat", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("chat", window, cx))),
+    ("settings-search-shell", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("shell", window, cx))),
+    ("settings-advanced", |d, _, _| {
+        let id = d.settings.section.id();
+        d.store.advanced.insert(id.into());
+    }),
+    ("settings-reset", |d, _, _| {
+        (d.store.sounds.all, d.store.notifications.banners) = (false, false);
+        (d.confirm, d.overlay) = (Some(crate::desktop::chrome::Confirm::ResetSection(d.settings.section)), Some(Overlay::Confirm));
+    }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
+    ("project-settings", |d, window, cx| d.project_settings(&crate::actions::ProjectSettings, window, cx)),
     ("phone-access", |d, window, cx| d.open(Overlay::PhoneAccess, window, cx)),
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
+    ("owner", |d, _, _| {
+        let strings = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
+        d.agents.apply(agents::Event::Connected { scopes: strings(&["observe", "drive", "approve", "spawn", "owner"]), caps: strings(&["pair.v1", "scopes.v1"]), version: String::new() });
+    }),
+    ("phones", |d, _, _| {
+        let hour = 3_600_000;
+        let phone = |id: &str, name: &str, platform: &str, ago: i64| daemon::Device { id: id.into(), name: name.into(), platform: platform.into(), last_seen_at: crate::util::now_ms() - ago, legacy: false };
+        d.settings.host.devices = Some(vec![phone("p1", "Minh's iPhone 16 Pro", "iOS 26.1", 0), phone("p2", "iPad Air", "iPadOS 26.0", 72 * hour)]);
+    }),
+    ("no-phones", |d, _, _| d.settings.host.devices = Some(Vec::new())),
+    ("custom-shell", |d, window, cx| {
+        (d.store.terminal.shell, d.store.terminal.shell_path) = (store::prefs::terminal::Shell::Custom, "/opt/homebrew/bin/fish".into());
+        if let Some(field) = d.settings.fields.get("shell-args").cloned() {
+            field.update(cx, |f, cx| f.set_value("--login --private", window, cx));
+        }
+        d.edit_terminal_color(9, window, cx);
+    }),
+    ("custom-search", |d, window, cx| {
+        d.store.browser.engine = store::prefs::browser::Engine::Custom;
+        if let Some(field) = d.settings.fields.get("custom-search").cloned() {
+            field.update(cx, |f, cx| f.set_value("search.brave.com/search?q=", window, cx));
+        }
+    }),
+    ("rename-phone", |d, window, cx| d.start_phone_rename("p1".into(), "Minh's iPhone 16 Pro", window, cx)),
+    ("tailnet", |d, _, _| {
+        d.agents.host = Some(agents::Host { tailnet: true, ..Default::default() });
+        d.settings.host.status = Some(daemon::Status { listen: vec!["127.0.0.1:4517".into(), "100.88.12.4:4517".into()], ..Default::default() });
+    }),
+    ("advanced", |d, _, _| {
+        d.store.advanced.insert(d.settings.section.id().to_string());
+    }),
+    ("custom-keys", |d, _, _| {
+        d.store.keys.insert("desktop::NextNeedsYou".into(), "cmd-shift-u".into());
+    }),
+    ("key-clash", |d, _, _| d.settings.keyboard.recording = Some(("desktop::NewWorktree".into(), Some("cmd-k".into())))),
     ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
+    ("syntax-github", |d, _, cx| syntax(d, store::SyntaxTheme::Github, cx)),
+    ("syntax-one", |d, _, cx| syntax(d, store::SyntaxTheme::One, cx)),
+    ("syntax-solarized", |d, _, cx| syntax(d, store::SyntaxTheme::Solarized, cx)),
+    ("custom-diff", |d, _, _| {
+        (d.store.appearance.added, d.store.appearance.removed) = (Some(theme::DIFF_SWATCHES[3]), Some(theme::DIFF_SWATCHES[5]));
+        theme::set_diff_colors(d.store.appearance.added, d.store.appearance.removed);
+    }),
+    ("accent-blue", |d, _, cx| {
+        d.store.appearance.accent = Some(theme::ACCENT_SWATCHES[0]);
+        theme::set_accent(d.store.appearance.accent, cx);
+    }),
+    ("ui-font-geist", |d, _, cx| {
+        d.store.appearance.ui_font = Some("Geist".into());
+        theme::set_fonts(Some("Geist"), d.store.appearance.code_font.as_deref(), cx);
+    }),
+    ("code-font-menlo", |d, _, cx| {
+        d.store.appearance.code_font = Some("Menlo".into());
+        theme::set_fonts(d.store.appearance.ui_font.as_deref(), Some("Menlo"), cx);
+        d.diff.relayout(true);
+    }),
+    ("code-size-14", |d, _, _| {
+        d.store.appearance.code_size = Some(14);
+        d.diff.relayout(true);
+    }),
+    ("code-font-menu", |d, _, _| d.settings.menu = Some("code-font")),
     ("creating", |d, _, _| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
@@ -227,7 +320,9 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_chat(window, cx);
     d.close_overlay(window, cx);
     d.automations.reset();
-    (d.screen, d.side, d.settings) = (Screen::Sessions, Side::Sessions, SettingsState::default());
+    (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
+    d.settings.reset(window, cx);
+    d.settings.menu = None;
     (d.layout, d.widths, d.sidebar.panel_open, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
     (d.worktree, d.terminal.focused) = (None, None);
     for p in d.preview.panes.values_mut() {
@@ -248,6 +343,12 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.terminals.link.up();
     d.terminals.link.service = None;
     d.set_appearance(WindowAppearance::Light, window, cx);
+    syntax(d, store::SyntaxTheme::Graphite, cx);
+    (d.store.appearance.added, d.store.appearance.removed) = (None, None);
+    theme::set_diff_colors(None, None);
+    (d.store.appearance.accent, d.store.appearance.ui_font, d.store.appearance.code_font, d.store.appearance.code_size) = (None, None, None, None);
+    theme::set_fonts(None, None, cx);
+    theme::set_accent(None, cx);
 }
 
 /// Waits for the latest git refresh to land, then lays out a frame: nothing else draws a hidden window.
@@ -281,4 +382,9 @@ fn save(window: &Window, path: &Path) -> Result<(), String> {
 #[cfg(not(feature = "capture"))]
 fn save(_: &Window, _: &Path) -> Result<(), String> {
     Err("rebuild with --features capture".into())
+}
+
+fn syntax(d: &mut Desktop, palette: store::SyntaxTheme, cx: &mut Context<Desktop>) {
+    d.store.appearance.syntax = palette;
+    theme::set_syntax(palette as usize, cx);
 }

@@ -140,7 +140,9 @@ impl Desktop {
             return cx.notify();
         }
         let pick = self.launch_pick();
-        let request = self.outbox.create(pick.spec(&project, json!({"worktree": tree}), &prompt));
+        let mut spec = pick.spec(&project, json!({"worktree": tree}), &prompt);
+        self.store.agents.launch(&mut spec);
+        let request = self.outbox.create(spec);
         self.store.repos.entry(project).or_default().launch = pick;
         self.save_soon(cx);
         let pane = self.workspace(&tree).tree.focused;
@@ -166,7 +168,7 @@ impl Desktop {
         true
     }
 
-    fn fill_empty_prompt(&mut self, text: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+    fn fill_empty_prompt(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
         self.empty_pane.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);

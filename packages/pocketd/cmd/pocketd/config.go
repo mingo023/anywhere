@@ -6,11 +6,14 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"pocketd/internal/config"
 	"pocketd/internal/launch"
 	"pocketd/internal/ops"
+	"pocketd/internal/reach"
 )
 
 // hookExit reports a create wrapper's setup or agent exit. Like hook, it
@@ -61,18 +64,68 @@ func configSet(sock, key, value string, out io.Writer) error {
 	return nil
 }
 
-func configSetter(l *launch.Launcher, settings *config.Settings) func(key, value string) error {
+// networkSetter applies listen and port to the phone listener before saving
+// them, so a port that won't bind is refused and the old listener goes on
+// serving. Other keys go to rest.
+func networkSetter(phones *atomic.Pointer[reach.Listener], settings *config.Settings, moved func(), rest func(key, value string) error) func(key, value string) error {
+	var mu sync.Mutex
 	return func(key, value string) error {
 		switch key {
-		case "phone.maxAccess":
-			return l.SetPhoneMaxAccess(value)
-		case "restore.resumeAgents":
-			on, err := strconv.ParseBool(value)
+		case "listen":
+			if err := config.ParseListen(value); err != nil {
+				return err
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if err := settings.SetListen(value); err != nil {
+				return err
+			}
+			phones.Load().SetMode(value)
+		case "port":
+			n, err := config.ParsePort(value)
 			if err != nil {
 				return err
 			}
-			return settings.SetResumeAgents(on)
+			mu.Lock()
+			defer mu.Unlock()
+			old := phones.Load().Port()
+			if n != old {
+				next, err := phones.Load().Move(n)
+				if err != nil {
+					return fmt.Errorf("port %d can't be used: %w", n, err)
+				}
+				phones.Store(next)
+			}
+			if err := settings.SetPort(n); err != nil {
+				// Unsaved, the new port would last only until pocketd restarts, so go back to the one config.json names.
+				if back, moveErr := phones.Load().Move(old); moveErr == nil {
+					phones.Store(back)
+				}
+				return err
+			}
+		default:
+			return rest(key, value)
 		}
-		return fmt.Errorf("unknown key %q", key)
+		moved()
+		return nil
+	}
+}
+
+// configSetter calls changed after each write, so the keep-awake keeper rereads its settings.
+func configSetter(l *launch.Launcher, settings *config.Settings, changed func()) func(key, value string) error {
+	return func(key, value string) error {
+		if key == "phone.maxAccess" {
+			return l.SetPhoneMaxAccess(value)
+		}
+		if key == "claude.command" || key == "codex.command" {
+			if err := l.CheckCommand(value); err != nil {
+				return err
+			}
+		}
+		if err := settings.Set(key, value); err != nil {
+			return err
+		}
+		changed()
+		return nil
 	}
 }

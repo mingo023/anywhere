@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { Access } from "./launch.js";
 
 export const Schedule = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("days"), days: Schema.Array(Schema.Int), time: Schema.String }),
@@ -14,6 +15,8 @@ export const AutomationDraft = Schema.Struct({
   folder: Schema.String,
   schedule: Schedule,
   enabled: Schema.Boolean,
+  access: Schema.optional(Access),
+  newWorktree: Schema.optional(Schema.Boolean),
 });
 
 export const Automation = Schema.Struct({
@@ -24,6 +27,8 @@ export const Automation = Schema.Struct({
   folder: Schema.String,
   schedule: Schedule,
   enabled: Schema.Boolean,
+  access: Schema.optional(Access),
+  newWorktree: Schema.optional(Schema.Boolean),
   nextRunAt: Schema.optional(Schema.Number),
 });
 export type Automation = typeof Automation.Type;
@@ -41,5 +46,7 @@ export const Run = Schema.Struct({
   finishedAt: Schema.optional(Schema.Number),
   agentId: Schema.optional(Schema.String),
   terminalId: Schema.optional(Schema.String),
+  access: Schema.optional(Schema.String),
+  worktree: Schema.optional(Schema.String),
 });
 export type Run = typeof Run.Type;

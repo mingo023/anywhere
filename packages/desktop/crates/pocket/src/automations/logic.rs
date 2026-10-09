@@ -299,6 +299,18 @@ pub fn fallback_name(prompt: &str) -> String {
     first_line(prompt).chars().take(NAME_CHARS).collect()
 }
 
+/// How a run's permission mode reads; empty for a run from before runs kept it.
+pub fn access_label(access: &str) -> &'static str {
+    match access {
+        "ask" => "Ask",
+        "edits" => "Edits",
+        "auto" => "Auto",
+        "full" => "Full",
+        "settings" => "Agent's settings",
+        _ => "",
+    }
+}
+
 /// Keeps `selected` while it is listed; if it is gone or unset, the first automation, or none.
 pub fn reselect(selected: Option<&str>, autos: &[Automation]) -> Option<String> {
     let kept = selected.and_then(|id| autos.iter().find(|a| a.id == id)).or(autos.first());
@@ -354,6 +366,8 @@ mod tests {
             folder: "/code/app".into(),
             schedule: Schedule::Interval { every_min: 60 },
             enabled,
+            access: String::new(),
+            new_worktree: false,
             next_run_at: next,
         }
     }
@@ -370,6 +384,8 @@ mod tests {
             finished_at: 0,
             agent_id: String::new(),
             terminal_id: String::new(),
+            access: String::new(),
+            worktree: String::new(),
         }
     }
 
@@ -607,5 +623,10 @@ mod tests {
     fn duration_reads_in_seconds_minutes_or_hours_and_is_empty_until_finished() {
         let got = [duration_text(0, 0), duration_text(1000, 43_000), duration_text(0, 7 * 60_000 + 59_000), duration_text(0, HOUR + 5 * 60_000)];
         assert_eq!(got, ["", "42s", "7m", "1h 5m"]);
+    }
+
+    #[test]
+    fn a_run_names_its_mode_and_an_older_run_names_none() {
+        assert_eq!([access_label("edits"), access_label("settings"), access_label("")], ["Edits", "Agent's settings", ""]);
     }
 }

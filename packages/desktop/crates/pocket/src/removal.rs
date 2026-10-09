@@ -6,8 +6,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const TEARDOWN_LIMIT: Duration = Duration::from_secs(120);
-
 /// Worktrees being deleted: their rows leave at once, a toast stays until they're gone, and a second delete of one is ignored.
 #[derive(Default)]
 pub(crate) struct Removals {
@@ -81,19 +79,37 @@ pub(crate) fn branch_deletable(branch: &str, base: &str) -> bool {
     !["", "detached", "main", "master", base].contains(&branch)
 }
 
-/// Moves `tree` into the temp folder, an instant rename where deleting a `target/` takes seconds.
-/// `None` when it can't, e.g. across volumes: git then deletes it in place.
+/// Moves `tree` into a folder of its own in the temp folder, an instant rename where deleting a `target/` takes seconds.
+/// It keeps its name there, so it reaches the Trash under it. `None` when it can't, e.g. across volumes: git then deletes it in place.
 fn set_aside(tree: &str) -> Option<PathBuf> {
-    let name = Path::new(tree).file_name()?.to_string_lossy();
+    let name = Path::new(tree).file_name()?;
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_nanos();
-    let aside = std::env::temp_dir().join(format!("pocket-deleted-{name}-{nanos}"));
-    std::fs::rename(tree, &aside).ok().map(|_| aside)
+    let holder = std::env::temp_dir().join(format!("pocket-deleted-{nanos}"));
+    std::fs::create_dir(&holder).ok()?;
+    let aside = holder.join(name);
+    match std::fs::rename(tree, &aside) {
+        Ok(()) => Some(aside),
+        Err(_) => {
+            std::fs::remove_dir(&holder).ok();
+            None
+        }
+    }
+}
+
+/// Purges a set-aside tree, or moves it to the Trash, then drops the folder that held it.
+fn dispose(aside: &Path, trash: bool) {
+    if !(trash && crate::util::trash(aside)) {
+        std::fs::remove_dir_all(aside).ok();
+    }
+    if let Some(holder) = aside.parent() {
+        std::fs::remove_dir(holder).ok();
+    }
 }
 
 /// Teardown goes first: scripts like `docker compose down` need the folder.
-fn run(r: &Removal, teardown: &str) -> Result<Removed, Failure> {
+fn run(r: &Removal, teardown: &str, limit: Duration) -> Result<Removed, Failure> {
     if r.teardown && !teardown.is_empty() && Path::new(&r.tree).is_dir() {
-        daemon::run_script(teardown, &r.tree, TEARDOWN_LIMIT).map_err(Failure::Teardown)?;
+        daemon::run_script(teardown, &r.tree, limit).map_err(Failure::Teardown)?;
     }
     let aside = set_aside(&r.tree);
     if let Err(e) = git::remove_worktree(&r.project, &r.tree) {
@@ -114,9 +130,9 @@ impl Desktop {
         }
         let base = self.store.repos.get(&project).map_or("", |r| r.base.as_str());
         let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b, base));
-        let removal = Removal { project, tree, delete_branch: branch.is_some(), branch, teardown: true };
+        let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
         let job = removal.clone();
-        let task = cx.background_executor().spawn(async move { (git::read(&job.tree).map_or(0, |r| r.files.len()), job.lost()) });
+        let task = cx.background_executor().spawn(async move { (git::read(&job.tree, true).map_or(0, |r| r.files.len()), job.lost()) });
         cx.spawn(async move |this, cx| {
             let (dirty, lost) = task.await;
             this.update(cx, |d, cx| {
@@ -137,8 +153,9 @@ impl Desktop {
             self.select_tree(removal.project.clone(), None, cx);
         }
         let teardown = self.store.repos.get(&removal.project).map(|r| r.teardown.clone()).unwrap_or_default();
+        let (limit, trash) = (Duration::from_secs(self.store.worktree.teardown_secs.into()), self.store.worktree.trash);
         let job = removal.clone();
-        let task = cx.background_executor().spawn(async move { run(&job, &teardown) });
+        let task = cx.background_executor().spawn(async move { run(&job, &teardown, limit) });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {
@@ -151,7 +168,7 @@ impl Desktop {
                     Err(Failure::Remove(e)) => d.error = Some(e),
                     Ok(Removed { aside, kept }) => {
                         if let Some(aside) = aside {
-                            cx.background_executor().spawn(async move { std::fs::remove_dir_all(aside) }).detach();
+                            cx.background_executor().spawn(async move { dispose(&aside, trash) }).detach();
                         }
                         if let Some((branch, e)) = kept {
                             d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
@@ -189,9 +206,12 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Removal, Removals, Removed, branch_deletable, run};
+    use super::{Failure, Removal, Removals, Removed, branch_deletable, dispose, run};
+    use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+
+    const LIMIT: Duration = Duration::from_secs(120);
 
     fn sh(dir: &Path, args: &[&str]) {
         let out = Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
@@ -251,8 +271,8 @@ mod tests {
     #[test]
     fn deletes_the_worktree_then_its_branch() {
         let (dir, r) = scratch("both");
-        let removed = run(&r, "").unwrap();
-        std::fs::remove_dir_all(removed.aside.unwrap()).unwrap();
+        let removed = run(&r, "", LIMIT).unwrap();
+        dispose(&removed.aside.unwrap(), false);
         assert!(!Path::new(&r.tree).exists());
         assert!(!git::branches(&r.project).contains(&"feat".to_string()));
         std::fs::remove_dir_all(&dir).unwrap();
@@ -262,11 +282,14 @@ mod tests {
     fn the_folder_is_set_aside_so_its_files_are_purged_after_the_worktree_is_gone() {
         let (dir, r) = scratch("aside");
         std::fs::write(Path::new(&r.tree).join("big"), "x").unwrap();
-        let aside = run(&r, "").unwrap().aside.unwrap();
+        let aside = run(&r, "", LIMIT).unwrap().aside.unwrap();
         assert!(!Path::new(&r.tree).exists());
         assert_eq!(git::worktrees(&r.project).len(), 1);
         assert!(aside.join("big").exists());
-        std::fs::remove_dir_all(&aside).unwrap();
+        assert!(aside.ends_with("feat"));
+        let holder = aside.parent().unwrap().to_path_buf();
+        dispose(&aside, false);
+        assert!(!holder.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -275,7 +298,7 @@ mod tests {
         let (dir, r) = scratch("refused");
         std::fs::write(Path::new(&r.tree).join("work"), "x").unwrap();
         let elsewhere = dir.join("elsewhere").to_string_lossy().into_owned();
-        assert!(matches!(run(&Removal { project: elsewhere, ..r.clone() }, ""), Err(Failure::Remove(_))));
+        assert!(matches!(run(&Removal { project: elsewhere, ..r.clone() }, "", LIMIT), Err(Failure::Remove(_))));
         assert!(Path::new(&r.tree).join("work").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -284,9 +307,9 @@ mod tests {
     fn a_branch_that_cannot_be_deleted_leaves_the_worktree_deleted() {
         let (dir, r) = scratch("kept");
         let r = Removal { branch: Some("gone".into()), ..r };
-        let removed = run(&r, "").unwrap();
+        let removed = run(&r, "", LIMIT).unwrap();
         assert_eq!(removed.kept.map(|(b, _)| b).as_deref(), Some("gone"));
-        std::fs::remove_dir_all(removed.aside.unwrap()).unwrap();
+        dispose(&removed.aside.unwrap(), false);
         assert!(!Path::new(&r.tree).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -294,7 +317,7 @@ mod tests {
     #[test]
     fn a_failed_teardown_deletes_nothing() {
         let (dir, r) = scratch("teardown");
-        assert!(matches!(run(&r, "echo nope; exit 3"), Err(Failure::Teardown(tail)) if tail.ends_with("nope")));
+        assert!(matches!(run(&r, "echo nope; exit 3", LIMIT), Err(Failure::Teardown(tail)) if tail.ends_with("nope")));
         assert!(Path::new(&r.tree).exists());
         assert!(git::branches(&r.project).contains(&"feat".to_string()));
         std::fs::remove_dir_all(&dir).unwrap();
@@ -304,7 +327,7 @@ mod tests {
     fn teardown_is_skipped_once_the_folder_is_gone() {
         let (dir, r) = scratch("gone");
         std::fs::remove_dir_all(&r.tree).unwrap();
-        assert_eq!(run(&Removal { delete_branch: false, ..r.clone() }, "exit 1"), Ok(Removed { aside: None, kept: None }));
+        assert_eq!(run(&Removal { delete_branch: false, ..r.clone() }, "exit 1", LIMIT), Ok(Removed { aside: None, kept: None }));
         assert_eq!(git::worktrees(&r.project).len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }

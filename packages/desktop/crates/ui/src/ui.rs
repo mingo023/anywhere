@@ -69,8 +69,8 @@ pub enum Variant {
 impl Variant {
     pub fn fg(self) -> Token {
         match self {
-            Variant::Primary => ON_TEXT,
-            Variant::Accent => ON_TEXT,
+            Variant::Primary => ON_PRIMARY,
+            Variant::Accent => ON_PRIMARY,
             Variant::Danger => WHITE,
             Variant::Glass | Variant::Secondary => TEXT,
             Variant::Ghost => TEXT_2,
@@ -79,7 +79,7 @@ impl Variant {
 }
 
 pub fn primary<E: Styled>(e: E) -> E {
-    e.bg(TEXT).shadow(vec![highlight(rgba(0xffffff2e)), shadow(rgba(0x0000002e), 4., 12.)])
+    e.bg(PRIMARY).shadow(vec![highlight(rgba(0xffffff2e)), shadow(rgba(0x0000002e), 4., 12.)])
 }
 
 pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, label: impl IntoElement) -> Stateful<Div> {
@@ -99,7 +99,7 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
     let d = match v {
         Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD),
         Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM),
-        Variant::Accent => d.bg(ACCENT).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]),
+        Variant::Accent => d.bg(ACCENT_FILL).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]),
         Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)),
         Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)),
         Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD),
@@ -512,24 +512,25 @@ pub fn agent_label(provider: &str, label: String) -> Div {
 /// The group of a session row; its time hides while the row is hovered, making room for a caller's hover controls.
 pub const SESSION_ROW: &str = "session-row";
 
-/// A session's card. Needs you fills the whole row; hover and selection tint over that fill.
+/// A session's card. Needs you fills the whole row; hover and selection tint over that fill. `stats` shows a finished session's diff stats.
 #[allow(clippy::too_many_arguments)]
-pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
+pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
     let id = id.into();
     session_card(id.clone(), selected, state)
         .child(session_line().child(div().flex_1().min_w_0().flex().child(lead)).child(session_when(when)))
         .child(session_title(title))
         .children(session_notice(notice))
-        .child(session_foot(id, branch, state))
+        .child(session_foot(id, branch, state, stats))
 }
 
 /// A pinned session's card: a pin before its title in place of the agent line.
-pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>) -> Stateful<Div> {
+#[allow(clippy::too_many_arguments)]
+pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
     let id = id.into();
     session_card(id.clone(), selected, state)
         .child(div().flex().items_center().gap(px(8.)).child(icon("pin", 13., TEXT_2)).child(session_title(title).flex_1().min_w_0()).child(session_when(when).text_size(px(12.)).text_color(TEXT_2)))
         .children(session_notice(notice))
-        .child(session_foot(id, branch, state))
+        .child(session_foot(id, branch, state, stats))
 }
 
 /// The box holding the pinned sessions, headed by a pin and their count.
@@ -565,10 +566,10 @@ fn session_notice(notice: Option<&'static str>) -> Option<Div> {
     notice.map(|n| div().truncate().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_2).child(n))
 }
 
-fn session_foot(id: ElementId, branch: Option<String>, state: Option<State>) -> Div {
+fn session_foot(id: ElementId, branch: Option<String>, state: Option<State>, stats: bool) -> Div {
     session_line()
         .child(div().flex_1().min_w_0().flex().items_center().gap(px(6.)).when_some(branch, |d, b| d.child(icon("branch", 12., TEXT_2)).child(div().truncate().child(b))))
-        .children(state.map(|s| status_label(id, s)))
+        .children(state.map(|s| status_label(id, s, stats)))
 }
 
 fn session_card(id: ElementId, selected: bool, state: Option<State>) -> Stateful<Div> {
@@ -594,12 +595,13 @@ pub fn jump_chip(n: usize) -> Div {
 }
 
 /// A card's status as coloured text: the pill's glyph and label without its background.
-pub fn status_label(id: impl Into<ElementId>, state: State) -> Div {
+pub fn status_label(id: impl Into<ElementId>, state: State, stats: bool) -> Div {
     let label = |color: Token| div().flex().flex_none().items_center().gap(px(5.)).font_weight(FontWeight::MEDIUM).text_color(color);
     match (state, tone(state)) {
-        (State::Done(added, removed), Some(t)) => label(t.text).child(glyph(id, t)).child(word(state)).child(diffstat(added, removed)),
+        (State::Done(added, removed), Some(t)) => label(t.text).child(glyph(id, t)).child(word(state)).when(stats, |d| d.child(diffstat(added, removed))),
         (_, Some(t)) => label(t.text).child(glyph(id, t)).child(word(state)),
         (State::NotAttached, _) => label(TEXT_2).child(word(state)),
+        (State::Idle(..), _) if !stats => div(),
         _ => status(id, state),
     }
 }
@@ -645,8 +647,8 @@ pub fn tree_row(
         .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
 }
 
-/// An on/off control for a setting that applies at once.
-pub fn switch(on: bool) -> Div {
+/// An on/off control that turns green when on.
+pub fn toggle(on: bool) -> Div {
     div()
         .w(px(30.))
         .h(px(18.))
@@ -654,13 +656,9 @@ pub fn switch(on: bool) -> Div {
         .flex()
         .flex_none()
         .rounded(px(9.))
-        .when(on, |d| d.bg(ACCENT).justify_end())
+        .when(on, |d| d.bg(SUCCESS).justify_end())
         .when(!on, |d| d.bg(FILL_4))
-        .child(div().size(px(14.)).rounded(px(7.)).bg(if on { ON_TEXT } else { WHITE }).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
-}
-
-pub fn toggle(on: bool) -> Div {
-    switch(on).when(on, |d| d.bg(SUCCESS))
+        .child(div().size(px(14.)).rounded(px(7.)).bg(WHITE).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
 }
 
 pub fn checkbox(on: bool) -> Div {

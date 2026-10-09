@@ -25,7 +25,7 @@ impl Desktop {
         let pane = t.focused;
         if t.can_split(pane, edge, bounds) {
             self.release_page();
-            self.new_shell(Place::Split(pane, edge), cx);
+            self.open_tab(Place::Split(pane, edge), cx);
         }
     }
 

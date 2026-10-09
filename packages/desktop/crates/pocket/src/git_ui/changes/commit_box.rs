@@ -32,9 +32,10 @@ impl Desktop {
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
             .text_size(px(13.))
             .child(div().flex_1().min_w_0().child(Textarea::new(&self.changes.input).appearance(false)))
-            .child(write);
-        let label = commit_label(&repo.files, self.changes.busy);
-        let ready = commit_ready(&repo.files, &self.changes.input.read(cx).value(), self.changes.busy.is_some());
+            .when(self.store.git.ai, |d| d.child(write));
+        let commit_all = self.store.git.commit_all;
+        let label = commit_label(&repo.files, self.changes.busy, commit_all);
+        let ready = commit_ready(&repo.files, &self.changes.input.read(cx).value(), self.changes.busy.is_some(), commit_all);
         let wash = Token::new(0xffffff1a, 0x1717171a);
         let commit = div()
             .id("commit")
@@ -45,7 +46,7 @@ impl Desktop {
             .justify_center()
             .gap(px(6.))
             .rounded_l(px(9.))
-            .map(|d| if self.changes.busy.is_some() { d.child(spinner("commit-busy", 13., ON_TEXT)) } else { d.child(icon("check", 14., ON_TEXT)) })
+            .map(|d| if self.changes.busy.is_some() { d.child(spinner("commit-busy", 13., ON_PRIMARY)) } else { d.child(icon("check", 14., ON_PRIMARY)) })
             .child(label)
             .when(ready, |d| d.cursor_pointer().hover(|s| s.bg(wash)))
             .when(!ready, |d| d.text_color(Token::new(0xffffff8c, 0x1717178c)))
@@ -65,7 +66,7 @@ impl Desktop {
             .cursor_pointer()
             .hover(|s| s.bg(wash))
             .when(menu_open, |d| d.bg(wash))
-            .child(icon("chevron-down", 12., ON_TEXT))
+            .child(icon("chevron-down", 12., ON_PRIMARY))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.changes.commit_menu = !this.changes.commit_menu;
@@ -87,7 +88,7 @@ impl Desktop {
         let button = ui::primary(div().h(px(30.)).flex().rounded(px(9.)))
             .text_size(px(13.))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(ON_TEXT)
+            .text_color(ON_PRIMARY)
             .child(commit)
             .child(chevron);
         let button = div().relative().child(button).when(menu_open, |d| d.child(ui::dropdown(34., ui::menu_in("commit-menu-in", menu))));

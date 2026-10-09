@@ -57,6 +57,43 @@ pub const CURSOR_UNDERLINE: u8 = 2;
 /// Most lines of history kept above the screen. libghostty prunes a whole page at a time, so past the cap it keeps a few hundred fewer.
 pub const SCROLLBACK: usize = 10_000;
 
+/// What the user set for every terminal; changing it applies to running terminals too.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Config {
+    pub scrollback: usize,
+    /// ANSI colours 0–15.
+    pub palette: [[u8; 3]; 16],
+    /// The cursor a program gets until it asks for another, as `CURSOR_*`.
+    pub cursor: u8,
+    pub blink: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { scrollback: SCROLLBACK, palette: PALETTE, cursor: CURSOR_BLOCK, blink: true }
+    }
+}
+
+/// libghostty's own ANSI colours.
+pub const PALETTE: [[u8; 3]; 16] = [
+    [0x1d, 0x1f, 0x21],
+    [0xcc, 0x66, 0x66],
+    [0xb5, 0xbd, 0x68],
+    [0xf0, 0xc6, 0x74],
+    [0x81, 0xa2, 0xbe],
+    [0xb2, 0x94, 0xbb],
+    [0x8a, 0xbe, 0xb7],
+    [0xc5, 0xc8, 0xc6],
+    [0x66, 0x66, 0x66],
+    [0xd5, 0x4e, 0x53],
+    [0xb9, 0xca, 0x4a],
+    [0xe7, 0xc5, 0x47],
+    [0x7a, 0xa6, 0xda],
+    [0xc3, 0x97, 0xd8],
+    [0x70, 0xc0, 0xb1],
+    [0xea, 0xea, 0xea],
+];
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Scroll {
     Bottom,
@@ -67,6 +104,9 @@ pub enum Scroll {
 unsafe extern "C" {
     fn pt_new(cols: u16, rows: u16, scrollback: usize) -> *mut c_void;
     fn pt_write(p: *mut c_void, data: *const u8, len: usize);
+    fn pt_take_bell(p: *mut c_void) -> u8;
+    fn pt_configure(p: *mut c_void, scrollback: usize, palette: *const [u8; 3], cursor: u8, blink: u8);
+    fn pt_palette(p: *mut c_void, out: *mut [u8; 3]);
     fn pt_mode(p: *mut c_void, dec: u16) -> u8;
     fn pt_alt_screen(p: *mut c_void) -> u8;
     fn pt_scroll(p: *mut c_void, tag: i32, delta: isize);
@@ -90,6 +130,22 @@ impl Term {
 
     pub fn write(&mut self, data: &[u8]) {
         unsafe { pt_write(self.ptr, data.as_ptr(), data.len()) }
+    }
+
+    pub fn configure(&mut self, c: &Config) {
+        unsafe { pt_configure(self.ptr, c.scrollback, c.palette.as_ptr(), c.cursor, c.blink as u8) }
+    }
+
+    /// Whether a BEL arrived since the last call.
+    pub fn take_bell(&mut self) -> bool {
+        unsafe { pt_take_bell(self.ptr) == 1 }
+    }
+
+    /// ANSI colours 0–15 as a program would see them now.
+    pub fn palette(&self) -> [[u8; 3]; 16] {
+        let mut out = [[0; 3]; 16];
+        unsafe { pt_palette(self.ptr, out.as_mut_ptr()) };
+        out
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) {
@@ -246,6 +302,54 @@ mod tests {
         assert!(!t.mode(2004));
         t.write(b"\x1b[?2004h");
         assert!(t.mode(2004));
+    }
+
+    #[test]
+    fn the_default_palette_is_libghosttys_own() {
+        assert_eq!(Term::new(10, 2).palette(), PALETTE);
+    }
+
+    #[test]
+    fn a_palette_recolours_ansi_text_already_on_screen() {
+        let mut t = Term::new(10, 2);
+        t.write(b"\x1b[31mX");
+        let mut palette = PALETTE;
+        palette[1] = [1, 2, 3];
+        t.configure(&Config { palette, ..Config::default() });
+        assert_eq!(t.frame().1[0].fg, [1, 2, 3]);
+        assert_eq!(t.palette()[1], [1, 2, 3]);
+    }
+
+    #[test]
+    fn the_configured_cursor_is_what_a_program_resets_to() {
+        let mut t = Term::new(10, 2);
+        t.configure(&Config { cursor: CURSOR_BAR, blink: false, ..Config::default() });
+        let cursor = |t: &mut Term| {
+            let (f, _) = t.frame();
+            (f.cursor_style, f.cursor_blink)
+        };
+        assert_eq!(cursor(&mut t), (CURSOR_BAR, 0));
+        t.write(b"\x1b[4 q");
+        assert_eq!(cursor(&mut t), (CURSOR_UNDERLINE, 0));
+        t.write(b"\x1b[0 q");
+        assert_eq!(cursor(&mut t), (CURSOR_BAR, 0));
+    }
+
+    #[test]
+    fn a_lower_scrollback_cap_drops_older_history() {
+        let mut t = Term::new(80, 5);
+        lines(&mut t, 0..30_000);
+        t.configure(&Config { scrollback: 2_000, ..Config::default() });
+        assert!(t.scrollback_rows() < 4_000, "{}", t.scrollback_rows());
+    }
+
+    #[test]
+    fn a_bell_is_reported_once() {
+        let mut t = Term::new(10, 2);
+        assert!(!t.take_bell());
+        t.write(b"a\x07b");
+        assert!(t.take_bell());
+        assert!(!t.take_bell());
     }
 
     #[test]

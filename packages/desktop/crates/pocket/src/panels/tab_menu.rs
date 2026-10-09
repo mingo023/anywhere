@@ -72,8 +72,7 @@ impl Desktop {
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx))),
             )
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))
-            .child(agent("tab-menu-claude", "claude", cx))
-            .child(agent("tab-menu-codex", "codex", cx))
+            .children(self.store.agents.enabled().into_iter().map(|p| agent(if p == "codex" { "tab-menu-codex" } else { "tab-menu-claude" }, p, cx)))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.panels.menu = None;
                 cx.notify();

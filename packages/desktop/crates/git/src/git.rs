@@ -33,6 +33,7 @@ pub struct Repo {
     pub behind: usize,
     pub files: Vec<FileStat>,
     pub commits: Vec<Commit>,
+    pub remotes: Vec<String>,
 }
 
 impl Repo {
@@ -61,7 +62,8 @@ fn numstat(out: &str) -> Vec<(String, usize, usize)> {
         .collect()
 }
 
-pub fn read(cwd: &str) -> Option<Repo> {
+/// The worktree's branch and changes; untracked files only with `untracked`.
+pub fn read(cwd: &str, untracked: bool) -> Option<Repo> {
     let branch = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).or_else(|| git(cwd, &["symbolic-ref", "--short", "HEAD"]))?.trim().to_string();
     let staged = lines(git(cwd, &["diff", "--cached", "--name-only"]));
     let unstaged = lines(git(cwd, &["diff", "--name-only"]));
@@ -73,7 +75,8 @@ pub fn read(cwd: &str) -> Option<Repo> {
             FileStat { staged: staged.contains(&path), unstaged: unstaged.contains(&path), path, added, removed, status }
         })
         .collect();
-    for path in lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) {
+    let new = if untracked { lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) } else { Vec::new() };
+    for path in new {
         let added = std::fs::read_to_string(std::path::Path::new(cwd).join(&path)).map(|s| s.lines().count()).unwrap_or(0);
         files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A' });
     }
@@ -94,7 +97,7 @@ pub fn read(cwd: &str) -> Option<Repo> {
         }
         None => (0, 0, Vec::new()),
     };
-    Some(Repo { branch, base, ahead, behind, files, commits })
+    Some(Repo { branch, base, ahead, behind, files, commits, remotes: remote_names(cwd) })
 }
 
 fn name_status(out: &str) -> Vec<(String, char)> {
@@ -239,13 +242,30 @@ pub fn commit_argv(amend: bool, message: &str) -> Vec<&'static str> {
 /// Pushes the branch, setting its upstream on the first push.
 pub const PUSH: &[&str] = &["git", "-c", "push.autoSetupRemote=true", "push"];
 
+/// [`PUSH`] to `remote` when given; with `lease`, a rewritten branch replaces the remote one unless it holds commits not yet fetched.
+pub fn push_argv(remote: Option<&str>, lease: bool) -> Vec<String> {
+    let pick = remote.map(|r| format!("remote.pushDefault={r}"));
+    let (push, setup) = PUSH.split_last().unwrap();
+    let mut argv: Vec<String> = setup.iter().map(|a| a.to_string()).collect();
+    argv.extend(pick.into_iter().flat_map(|p| ["-c".to_string(), p]));
+    argv.push(push.to_string());
+    // `--force-if-includes` also refuses when a background fetch moved the remote-tracking ref past what we've seen.
+    argv.extend(lease.then(|| ["--force-with-lease".to_string(), "--force-if-includes".to_string()]).into_iter().flatten());
+    argv
+}
+
+/// The repository's remotes by name.
+fn remote_names(cwd: &str) -> Vec<String> {
+    lines(git(cwd, &["remote"]))
+}
+
 const MAX_CONTEXT: usize = 60_000;
 
-/// What a commit message is written from: recent subjects for style, then the diff to commit (only the staged part when `staged`).
-pub fn commit_context(cwd: &str, staged: bool) -> String {
+/// What a commit message is written from: recent subjects for style, then the diff to commit (only the staged part when `staged`, new files only with `untracked`).
+pub fn commit_context(cwd: &str, staged: bool, untracked: bool) -> String {
     let subjects = lines(git(cwd, &["log", "-n", "10", "--format=%s"])).join("\n");
     let diff = git(cwd, if staged { &["diff", "--cached"] } else { &["diff", "HEAD"] }).unwrap_or_default();
-    let new = if staged { Vec::new() } else { lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) };
+    let new = if staged || !untracked { Vec::new() } else { lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) };
     let mut out = format!("Recent commit subjects:\n{subjects}\n\nDiff:\n{diff}");
     out.extend(new.iter().map(|p| format!("\nNew file: {p}")));
     if out.len() > MAX_CONTEXT {
@@ -262,10 +282,21 @@ pub fn user_initials(cwd: &str) -> String {
 
 pub fn file_diff(cwd: &str, path: &str) -> Vec<Line> {
     let (old, new) = texts(cwd, path);
-    diff_texts(&old, &new, &HashSet::new())
+    diff_texts(&old, &new, &HashSet::new(), Options::default())
 }
 
-const CONTEXT: usize = 3;
+/// How a diff is drawn: unchanged lines kept around each change, and whether changes only in whitespace count.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Options {
+    pub context: usize,
+    pub ignore_whitespace: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self { context: 3, ignore_whitespace: false }
+    }
+}
 
 /// The file at HEAD (empty when untracked) and in the working tree (empty when deleted); `path` is relative to `cwd` or absolute.
 pub fn texts(cwd: &str, path: &str) -> (String, String) {
@@ -276,13 +307,17 @@ pub fn texts(cwd: &str, path: &str) -> (String, String) {
     (old, new)
 }
 
-/// A unified diff of two texts with three lines of context around each change. A gap whose first new-side line is in `open` shows in full instead of folding.
-pub fn diff_texts(old: &str, new: &str, open: &HashSet<usize>) -> Vec<Line> {
+/// A unified diff of two texts with `options.context` lines of context around each change. A gap whose first new-side line is in `open` shows in full instead of folding.
+pub fn diff_texts(old: &str, new: &str, open: &HashSet<usize>, options: Options) -> Vec<Line> {
     if old.contains('\0') || new.contains('\0') {
         return Vec::new();
     }
     let (ol, nl): (Vec<&str>, Vec<&str>) = (old.lines().collect(), new.lines().collect());
-    let input = InternedInput::new(old, new);
+    // With whitespace ignored, lines are compared without it but shown as written.
+    let key = |l: &str| if options.ignore_whitespace { l.split_whitespace().collect() } else { l.to_string() };
+    let mut input = InternedInput::default();
+    input.update_before(imara_diff::sources::lines(old).map(key));
+    input.update_after(imara_diff::sources::lines(new).map(key));
     let mut diff = Diff::compute(Algorithm::Histogram, &input);
     diff.postprocess_lines(&input);
     let hunks: Vec<_> = diff.hunks().collect();
@@ -297,10 +332,10 @@ pub fn diff_texts(old: &str, new: &str, open: &HashSet<usize>) -> Vec<Line> {
             (h.before.start as usize, h.before.end as usize, h.after.start as usize, h.after.end as usize)
         });
         let gap = bs - o;
-        let lead = if k == 0 { 0 } else { gap.min(CONTEXT) };
-        let trail = if last { 0 } else { (gap - lead).min(CONTEXT) };
+        let lead = if k == 0 { 0 } else { gap.min(options.context) };
+        let trail = if last { 0 } else { (gap - lead).min(options.context) };
         let fold = if last || open.contains(&(n + lead + 1)) { 0 } else { gap - lead - trail };
-        let same = |i: usize| Line { kind: Kind::Context, old: Some(o + i + 1), new: Some(n + i + 1), text: ol[o + i].into() };
+        let same = |i: usize| Line { kind: Kind::Context, old: Some(o + i + 1), new: Some(n + i + 1), text: nl[n + i].into() };
         out.extend((0..lead).map(same));
         if k == 0 || fold > 0 {
             let (a, b) = (o + lead + fold + 1, n + lead + fold + 1);
@@ -475,15 +510,18 @@ pub struct Tips {
     pub branch: Option<Tip>,
     pub upstream: Option<Tip>,
     pub base: Option<Tip>,
+    /// Every other branch's commit, when the graph follows them all.
+    pub others: Vec<String>,
 }
 
 impl Tips {
     /// The commits the graph's history starts from, each once.
     pub fn revs(&self) -> Vec<String> {
         let mut revs = vec![self.head.clone()];
-        for t in [&self.upstream, &self.base].into_iter().flatten() {
-            if !revs.contains(&t.sha) {
-                revs.push(t.sha.clone());
+        let shas = [&self.upstream, &self.base].into_iter().flatten().map(|t| &t.sha).chain(&self.others);
+        for sha in shas {
+            if !revs.contains(sha) {
+                revs.push(sha.clone());
             }
         }
         revs
@@ -502,8 +540,8 @@ impl Tips {
     }
 }
 
-/// The worktree's tips; `None` before its first commit.
-pub fn tips(cwd: &str) -> Option<Tips> {
+/// The worktree's tips, with every branch and remote branch when `all`; `None` before its first commit.
+pub fn tips(cwd: &str, all: bool) -> Option<Tips> {
     let head = git(cwd, &["rev-parse", "--verify", "-q", "HEAD"])?.trim().to_string();
     let refs: Vec<(String, String, String)> = lines(git(cwd, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads", "refs/remotes"]))
         .into_iter()
@@ -525,7 +563,8 @@ pub fn tips(cwd: &str) -> Option<Tips> {
         Some("refs/heads/main" | "refs/heads/master") => None,
         _ => tip("refs/heads/main").or_else(|| tip("refs/heads/master")),
     };
-    Some(Tips { head, branch, upstream, base })
+    let others = if all { refs.into_iter().map(|(_, sha, _)| sha).collect() } else { Vec::new() };
+    Some(Tips { head, branch, upstream, base, others })
 }
 
 /// A file a commit changed; `old_path` is set for renames and copies.
@@ -681,7 +720,7 @@ mod tests {
         let r = repo.to_str().unwrap();
         std::fs::write(repo.join("a"), "edited\n").unwrap();
         std::fs::write(repo.join("new"), "fresh\n").unwrap();
-        let flags = |path: &str| read(r).unwrap().files.iter().find(|f| f.path == path).map(|f| (f.staged, f.unstaged));
+        let flags = |path: &str| read(r, true).unwrap().files.iter().find(|f| f.path == path).map(|f| (f.staged, f.unstaged));
         assert_eq!((flags("a"), flags("new")), (Some((false, true)), Some((false, true))));
         set_staged(r, &["a".into(), "new".into()], true);
         assert_eq!((flags("a"), flags("new")), (Some((true, false)), Some((true, false))));
@@ -692,7 +731,7 @@ mod tests {
         set_staged(r, &["a".into(), "new".into()], false);
         assert_eq!(flags("a"), Some((false, true)));
         discard(r, &["a".into(), "new".into()]);
-        assert!(read(r).unwrap().files.is_empty());
+        assert!(read(r, true).unwrap().files.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -704,10 +743,11 @@ mod tests {
         std::fs::write(repo.join("a"), "staged\n").unwrap();
         set_staged(r, &["a".into()], true);
         std::fs::write(repo.join("b"), "loose\n").unwrap();
-        let staged = commit_context(r, true);
+        let staged = commit_context(r, true, true);
         assert!(staged.starts_with("Recent commit subjects:\ninit\n"));
         assert!(staged.contains("+staged") && !staged.contains("New file: b"));
-        assert!(commit_context(r, false).contains("New file: b"));
+        assert!(commit_context(r, false, true).contains("New file: b"));
+        assert!(!commit_context(r, false, false).contains("New file: b"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -734,7 +774,7 @@ mod tests {
         set_staged(r, &["a".into()], true);
         assert!(run_argv(&repo, &commit_argv(false, "Edit a"), "Edit a"));
         assert_eq!(lines(git(r, &["log", "--format=%s"])), ["Edit a", "init"]);
-        assert!(read(r).unwrap().files.is_empty());
+        assert!(read(r, true).unwrap().files.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -748,7 +788,7 @@ mod tests {
         set_staged(r, &["a".into()], true);
         assert!(run_argv(&repo, &commit_argv(true, ""), ""));
         assert_eq!(lines(git(r, &["log", "--format=%s"])), ["init"]);
-        assert!(read(r).unwrap().files.is_empty());
+        assert!(read(r, true).unwrap().files.is_empty());
         assert!(run_argv(&repo, &commit_argv(true, "Start"), "Start"));
         assert_eq!(lines(git(r, &["log", "--format=%s"])), ["Start"]);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -794,10 +834,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pocket-git-unborn-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let d = dir.to_str().unwrap();
-        assert!(read(d).is_none());
+        assert!(read(d, true).is_none());
         assert!(Command::new("git").arg("-C").arg(d).args(["init", "-q", "-b", "trunk"]).output().unwrap().status.success());
         std::fs::write(dir.join("a.txt"), "x\n").unwrap();
-        let r = read(d).unwrap();
+        let r = read(d, true).unwrap();
         assert_eq!(r.branch, "trunk");
         assert_eq!(r.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["a.txt"]);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -826,7 +866,7 @@ mod tests {
     #[test]
     fn diffs_texts_with_three_lines_of_context() {
         let old = numbered(20);
-        let lines = diff_texts(&old, &old.replace("l10\n", "L10\n"), &HashSet::new());
+        let lines = diff_texts(&old, &old.replace("l10\n", "L10\n"), &HashSet::new(), Options::default());
         let got: Vec<_> = lines.iter().map(|l| (l.kind, l.old, l.new, l.text.as_str())).collect();
         assert_eq!(
             got,
@@ -848,10 +888,10 @@ mod tests {
     fn folds_long_gaps_and_opens_them_on_request() {
         let old = numbered(30);
         let new = old.replace("l5\n", "L5\n").replace("l25\n", "L25\n");
-        let folded = diff_texts(&old, &new, &HashSet::new());
+        let folded = diff_texts(&old, &new, &HashSet::new(), Options::default());
         let headers: Vec<&str> = folded.iter().filter(|l| l.kind == Kind::Hunk).map(|l| l.text.as_str()).collect();
         assert_eq!(headers, ["@@ -2 +2 @@", "@@ -22 +22 @@"]);
-        let open = diff_texts(&old, &new, &HashSet::from([9]));
+        let open = diff_texts(&old, &new, &HashSet::from([9]), Options::default());
         assert_eq!(open.iter().filter(|l| l.kind == Kind::Hunk).count(), 1);
         assert_eq!(open.len(), folded.len() - 1 + 13);
     }
@@ -859,13 +899,91 @@ mod tests {
     #[test]
     fn merges_nearby_changes_and_handles_edges() {
         let old = numbered(10);
-        let near = diff_texts(&old, &old.replace("l1\n", "L1\n").replace("l6\n", "L6\n"), &HashSet::new());
+        let near = diff_texts(&old, &old.replace("l1\n", "L1\n").replace("l6\n", "L6\n"), &HashSet::new(), Options::default());
         assert_eq!(near[0].text, "@@ -1 +1 @@");
         assert_eq!(near.iter().filter(|l| l.kind == Kind::Hunk).count(), 1);
-        assert!(diff_texts(&old, &old, &HashSet::new()).is_empty());
-        assert!(diff_texts("a\0", "b", &HashSet::new()).is_empty());
-        let added = diff_texts("", "x\ny\n", &HashSet::new());
+        assert!(diff_texts(&old, &old, &HashSet::new(), Options::default()).is_empty());
+        assert!(diff_texts("a\0", "b", &HashSet::new(), Options::default()).is_empty());
+        let added = diff_texts("", "x\ny\n", &HashSet::new(), Options::default());
         assert_eq!(added.iter().map(|l| l.kind).collect::<Vec<_>>(), [Kind::Hunk, Kind::Add, Kind::Add]);
+    }
+
+    #[test]
+    fn context_lines_widen_or_narrow_each_hunk() {
+        let old = numbered(20);
+        let new = old.replace("l10\n", "L10\n");
+        let around = |context| diff_texts(&old, &new, &HashSet::new(), Options { context, ..Options::default() }).iter().filter(|l| l.kind == Kind::Context).count();
+        assert_eq!((around(0), around(3), around(5)), (0, 6, 10));
+    }
+
+    #[test]
+    fn ignoring_whitespace_hides_reindented_lines_but_shows_them_as_written() {
+        let old = "fn a() {\n    x();\n}\n";
+        let new = "fn a() {\n        x();\n}\ny();\n";
+        let ignore = Options { ignore_whitespace: true, ..Options::default() };
+        let kinds = |o| diff_texts(old, new, &HashSet::new(), o).into_iter().filter(|l| l.kind != Kind::Hunk).map(|l| (l.kind, l.text)).collect::<Vec<_>>();
+        assert!(kinds(Options::default()).contains(&(Kind::Del, "    x();".into())));
+        let ignored = kinds(ignore);
+        assert!(ignored.contains(&(Kind::Context, "        x();".into())));
+        assert_eq!(ignored.iter().filter(|(k, _)| *k != Kind::Context).collect::<Vec<_>>(), [&(Kind::Add, "y();".to_string())]);
+    }
+
+    #[test]
+    fn untracked_files_stay_out_when_asked() {
+        let dir = scratch_repo("untracked");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        std::fs::write(repo.join("a"), "edited\n").unwrap();
+        std::fs::write(repo.join("new"), "fresh\n").unwrap();
+        let paths = |untracked| read(r, untracked).unwrap().files.into_iter().map(|f| f.path).collect::<Vec<_>>();
+        assert_eq!((paths(true), paths(false)), (vec!["a".to_string(), "new".into()], vec!["a".to_string()]));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn pushing_with_a_remote_sends_the_branch_there() {
+        let dir = scratch_repo("push-remote");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        for name in ["origin", "fork"] {
+            let bare = dir.join(format!("{name}.git"));
+            assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&bare).status().unwrap().success());
+            assert!(git(r, &["remote", "add", name, bare.to_str().unwrap()]).is_some());
+        }
+        assert!(git(r, &["switch", "-qc", "feature"]).is_some());
+        let argv = push_argv(Some("fork"), false);
+        assert!(run_argv(&repo, &argv.iter().map(String::as_str).collect::<Vec<_>>(), ""));
+        assert_eq!(git(r, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap().trim(), "fork/feature");
+        assert_eq!(read(r, true).unwrap().remotes, ["fork", "origin"]);
+        assert_eq!(push_argv(None, false), PUSH);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_rewritten_branch_pushes_with_lease_but_never_over_commits_not_yet_fetched() {
+        let dir = scratch_repo("push-lease");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        let bare = dir.join("origin.git");
+        assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&bare).status().unwrap().success());
+        assert!(git(r, &["remote", "add", "origin", bare.to_str().unwrap()]).is_some());
+        let push = |lease| run_argv(&repo, &push_argv(None, lease).iter().map(String::as_str).collect::<Vec<_>>(), "");
+        assert!(push(true));
+        assert!(git(r, &["commit", "-q", "--amend", "-m", "amended"]).is_some());
+        assert!(!push(false));
+        assert!(push(true));
+        let other = dir.join("other");
+        assert!(Command::new("git").args(["clone", "-q"]).arg(&bare).arg(&other).status().unwrap().success());
+        committer(&other);
+        let o = other.to_str().unwrap();
+        assert!(git(o, &["commit", "-q", "--allow-empty", "-m", "theirs"]).is_some());
+        assert!(git(o, &["push", "-q"]).is_some());
+        assert!(git(r, &["commit", "-q", "--amend", "-m", "again"]).is_some());
+        assert!(!push(true));
+        assert!(git(r, &["fetch", "-q"]).is_some());
+        assert!(!push(true), "fetched but not integrated");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn sh(repo: &Path, args: &[&str]) {
@@ -907,7 +1025,7 @@ mod tests {
         sh(&repo, &["add", "."]);
         sh(&repo, &["commit", "-qm", "b"]);
         let (head, main) = (sha(r, "HEAD"), sha(r, "main"));
-        let t = tips(r).unwrap();
+        let t = tips(r, false).unwrap();
         assert_eq!(t.head, head);
         assert_eq!(t.branch, Some(Tip { name: "feature".into(), sha: head.clone(), remote: false }));
         assert_eq!(t.upstream, Some(Tip { name: "origin/feature".into(), sha: main.clone(), remote: true }));
@@ -923,10 +1041,26 @@ mod tests {
         let repo = dir.join("repo");
         let r = repo.to_str().unwrap();
         sh(&repo, &["branch", "-M", "main"]);
-        let t = tips(r).unwrap();
+        let t = tips(r, false).unwrap();
         assert_eq!(t.revs(), vec![sha(r, "HEAD")]);
         assert_eq!(t.branch.map(|b| b.name).as_deref(), Some("main"));
         assert_eq!((t.upstream, t.base), (None, None));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn following_every_branch_starts_the_graph_from_side_branches_too() {
+        let dir = scratch_repo("tips-all");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "main"]);
+        sh(&repo, &["checkout", "-qb", "side"]);
+        sh(&repo, &["commit", "-q", "--allow-empty", "-m", "side"]);
+        sh(&repo, &["checkout", "-q", "main"]);
+        let side = sha(r, "side");
+        assert_eq!(tips(r, false).unwrap().revs(), vec![sha(r, "HEAD")]);
+        assert_eq!(tips(r, true).unwrap().revs(), vec![sha(r, "HEAD"), side]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -113,7 +113,7 @@ func TestARunLaunchesThroughTheSpecAndFollowsItsAgentToTheEnd(t *testing.T) {
 	var mu sync.Mutex
 	start := func(id string, a proto.Automation) launch.Result {
 		mu.Lock()
-		specs = append(specs, Spec(a))
+		specs = append(specs, Spec(a, id))
 		mu.Unlock()
 		return launch.Result{AgentID: "ag1", TerminalID: "t1"}
 	}
@@ -229,4 +229,32 @@ func TestARunNowOnABusyAutomationIsRefused(t *testing.T) {
 	}
 	close(block)
 	eventually(t, "the run to end", func() bool { return runOf(t, s, run.ID).Status == "failed" })
+}
+
+func TestARunRecordsItsModeAndTheWorktreeItRanIn(t *testing.T) {
+	s := Open(t.TempDir())
+	inTree := morning
+	inTree.Access, inTree.NewWorktree = "edits", true
+	a, err := s.Save(inTree, at(9, 8, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := saved(t, s, at(9, 8, 0))
+	start := func(string, proto.Automation) launch.Result {
+		return launch.Result{AgentID: "ag1", TerminalID: "t1", Cwd: "/wt/automation-1"}
+	}
+	watch := func(string) (Seen, bool) { return Seen{Status: "working"}, true }
+	sc := scheduler(s, at(9, 8, 30), start, watch)
+	tree, _ := sc.RunNow(a.ID)
+	folder, _ := sc.RunNow(b.ID)
+	eventually(t, "both running", func() bool {
+		return runOf(t, s, tree.ID).Status == "running" && runOf(t, s, folder.ID).Status == "running"
+	})
+	if r := runOf(t, s, tree.ID); r.Access != "edits" || r.Worktree != "/wt/automation-1" {
+		t.Fatalf("in a worktree: %q %q", r.Access, r.Worktree)
+	}
+	if r := runOf(t, s, folder.ID); r.Access != "settings" || r.Worktree != "" {
+		t.Fatalf("in the folder: %q %q", r.Access, r.Worktree)
+	}
+	sc.stopped.Store(true)
 }

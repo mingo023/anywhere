@@ -5,7 +5,7 @@ use agents::Summary;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::time::Duration;
-use store::Sounds;
+use store::{Sounds, Tone};
 
 /// A sound, ordered by priority: when several land in one window, the first wins.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -36,6 +36,14 @@ impl Cue {
             Cue::NeedsYou => s.needs_you,
             Cue::Done => s.done,
             Cue::Failed => s.failed,
+        }
+    }
+
+    pub fn tone(self, s: Sounds) -> Tone {
+        match self {
+            Cue::NeedsYou => s.needs_you_tone,
+            Cue::Done => s.done_tone,
+            Cue::Failed => s.failed_tone,
         }
     }
 
@@ -116,37 +124,47 @@ impl Desktop {
             self.chime.rebase();
             return;
         }
-        let seen = self.alerts.viewing.clone().unwrap_or_default();
+        let seen = if self.store.notifications.on_screen { Vec::new() } else { self.alerts.viewing.clone().unwrap_or_default() };
         if !self.chime.heard(&self.agents.list, &seen, self.store.sounds, now_ms()) {
             return;
         }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(COALESCE_MS)).await;
-            this.update(cx, |d, cx| d.chime.flush().map(|cue| play(cue, cx))).ok();
+            this.update(cx, |d, cx| d.chime.flush().map(|cue| play(cue, d.store.sounds, cx))).ok();
         })
         .detach();
     }
 }
 
-/// Plays `cue` with `afplay`, writing its WAV to the temp dir the first time.
-fn play(cue: Cue, cx: &App) {
+/// `afplay -v`'s gain for a volume in percent.
+fn gain(volume: u32) -> String {
+    format!("{}", f64::from(volume.min(100)) / 100.)
+}
+
+/// Plays `cue` with `afplay` in its chosen tone, writing the app's own WAV to the temp dir the first time.
+fn play(cue: Cue, sounds: Sounds, cx: &App) {
     let (name, bytes) = cue.wav();
+    let system = cue.tone(sounds).system_path();
+    let gain = gain(sounds.volume);
     cx.background_executor()
         .spawn(async move {
-            let dir = std::env::temp_dir().join("pocket-sounds");
-            let path = dir.join(name);
-            if std::fs::metadata(&path).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
-                std::fs::create_dir_all(&dir).ok();
-                std::fs::write(&path, bytes).ok();
-            }
-            std::process::Command::new("afplay").arg(&path).status().ok();
+            let path = system.map(std::path::PathBuf::from).unwrap_or_else(|| {
+                let dir = std::env::temp_dir().join("pocket-sounds");
+                let path = dir.join(name);
+                if std::fs::metadata(&path).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
+                    std::fs::create_dir_all(&dir).ok();
+                    std::fs::write(&path, bytes).ok();
+                }
+                path
+            });
+            std::process::Command::new("afplay").arg("-v").arg(gain).arg(&path).status().ok();
         })
         .detach();
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Chime, Cue, FRESH_MS};
+    use super::{Chime, Cue, FRESH_MS, gain};
     use agents::Summary;
     use store::Sounds;
 
@@ -206,6 +224,17 @@ mod tests {
         assert!(!c.heard(&[agent("a", "needsYou"), agent("b", "working")], &[], on, NOW));
         assert!(c.heard(&[agent("a", "needsYou"), agent("b", "done")], &[], on, NOW));
         assert_eq!(c.flush(), Some(Cue::Done));
+    }
+
+    #[test]
+    fn full_volume_plays_at_afplays_normal_gain() {
+        assert_eq!([100, 70, 0, 250].map(gain), ["1", "0.7", "0", "1"]);
+    }
+
+    #[test]
+    fn each_cue_plays_its_own_tone() {
+        let s = Sounds { failed_tone: store::Tone::Basso, ..Sounds::default() };
+        assert_eq!(Cue::ALL.map(|c| c.tone(s)), [store::Tone::Anywhere, store::Tone::Anywhere, store::Tone::Basso]);
     }
 
     #[test]

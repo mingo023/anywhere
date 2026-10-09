@@ -21,6 +21,15 @@ const NUM: f32 = 44.;
 const SIGN: f32 = 18.;
 pub(crate) const ROW: f32 = 22.;
 
+/// Styles `d` as code in the chosen code font at `size` points, its lines never shorter than a row.
+pub(crate) fn code_text(d: Div, size: u32) -> Div {
+    d.font_family(code_font()).text_size(px(size as f32)).line_height(px(code_line(size)))
+}
+
+fn code_line(size: u32) -> f32 {
+    (size as f32 * ROW / 12.5).round().max(ROW)
+}
+
 const MAX_COLORED: usize = 512 * 1024;
 const MAX_WORD_LINES: usize = 5;
 
@@ -30,6 +39,7 @@ pub struct DiffLoad {
     path: String,
     at: Option<String>,
     open: HashSet<usize>,
+    options: git::Options,
     lines: Vec<Line>,
     source: (String, String),
     colors: Option<(Sides, Vec<Spans>)>,
@@ -37,19 +47,24 @@ pub struct DiffLoad {
 }
 
 /// Reads and diffs `path` in the working tree, or with `at` in that commit, colouring it only when the lines differ from `shown`. Run off the UI thread.
-pub fn read_diff(cwd: &str, path: String, at: Option<String>, open: HashSet<usize>, shown: &[Line]) -> DiffLoad {
+pub fn read_diff(cwd: &str, path: String, at: Option<String>, open: HashSet<usize>, options: git::Options, shown: &[Line]) -> DiffLoad {
     let dark = theme::is_dark();
     let (old, new) = match &at {
         Some(sha) => git::texts_at(cwd, sha, &path),
         None => git::texts(cwd, &path),
     };
-    let lines = git::diff_texts(&old, &new, &open);
+    let lines = git::diff_texts(&old, &new, &open, options);
     let colors = (lines != shown).then(|| {
         let syntax = syntax(&path, &old, &new);
         let hl = highlights(&lines, &syntax.0, &syntax.1);
         (syntax, hl)
     });
-    DiffLoad { path, at, open, lines, source: (old, new), colors, dark }
+    DiffLoad { path, at, open, options, lines, source: (old, new), colors, dark }
+}
+
+/// How the diff settings read the diff.
+pub fn options(prefs: &store::prefs::Diff) -> git::Options {
+    git::Options { context: prefs.context, ignore_whitespace: prefs.ignore_whitespace }
 }
 
 /// Syntax colours for every line of the old and new file; none when either is too big to parse quickly. Run off the UI thread.
@@ -314,12 +329,17 @@ impl DiffView {
 pub struct DiffState {
     pub(crate) panes: HashMap<PaneId, DiffView>,
     pub(crate) split: bool,
+    pub(crate) options: git::Options,
     /// The pane whose pick the composer is about; `MAIN` is 0, so it's the default.
     pub(crate) drafting: PaneId,
     pub(crate) viewed: HashSet<String>,
 }
 
 impl DiffState {
+    pub fn new(prefs: &store::prefs::Diff) -> Self {
+        Self { split: prefs.split, options: options(prefs), ..Self::default() }
+    }
+
     pub fn view(&self, pane: PaneId) -> Option<&DiffView> {
         self.panes.get(&pane)
     }
@@ -334,10 +354,10 @@ impl DiffState {
         v.pick.quote(&v.lines, v.working_file()?)
     }
 
-    /// Shows `load` in `pane` unless another file, fold state or appearance was picked there while it ran.
+    /// Shows `load` in `pane` unless another file, fold state, diff option or appearance was picked while it ran.
     pub fn apply(&mut self, pane: PaneId, load: DiffLoad) -> bool {
         let Some(v) = self.panes.get_mut(&pane) else { return false };
-        if v.file.as_ref() != Some(&load.path) || v.at != load.at || load.open != v.open || load.colors.is_some() && load.dark != theme::is_dark() {
+        if v.file.as_ref() != Some(&load.path) || v.at != load.at || load.open != v.open || load.options != self.options || load.colors.is_some() && load.dark != theme::is_dark() {
             return false;
         }
         v.source = load.source;
@@ -367,7 +387,7 @@ impl DiffState {
     fn expand(&mut self, pane: PaneId, start: usize) {
         let Some(v) = self.panes.get_mut(&pane) else { return };
         v.open.insert(start);
-        let lines = git::diff_texts(&v.source.0, &v.source.1, &v.open);
+        let lines = git::diff_texts(&v.source.0, &v.source.1, &v.open, self.options);
         v.hl = highlights(&lines, &v.syntax.0, &v.syntax.1);
         if v.set_lines(lines) {
             v.layout(false, self.split);
@@ -425,8 +445,9 @@ impl Desktop {
                 true,
                 false,
                 |this, v, cx| {
-                    this.diff.split = v;
-                    this.diff.relayout(true);
+                    this.store.diff.split = v;
+                    this.apply_diff_style();
+                    this.save_soon(cx);
                     cx.notify();
                 },
                 cx,
@@ -484,16 +505,13 @@ impl Desktop {
     pub fn diff_box(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
         let Some(state) = self.diff.view(pane).map(|v| v.list.clone()) else { return div().flex_1() };
         let rows = list(state, cx.processor(move |this, ix, _, cx| this.diff_row(pane, ix, cx))).pb(px(8.));
-        div()
+        code_text(div(), self.store.appearance.code_size())
             .flex_1()
             .min_h_0()
             .bg(PAGE)
             .border_t(px(0.5))
             .border_color(SEPARATOR)
             .overflow_hidden()
-            .font_family(MONO)
-            .text_size(px(12.5))
-            .line_height(px(ROW))
             .child(rows.size_full())
             .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, window, cx| this.end_drag(pane, window, cx)))
             .on_mouse_up_out(MouseButton::Left, cx.listener(move |this, _, window, cx| this.end_drag(pane, window, cx)))
@@ -519,7 +537,12 @@ impl Desktop {
         self.read_diff_in_background(pane, shown, cx);
     }
 
-    /// Colours every pane's diff again, for a new appearance.
+    pub(crate) fn apply_diff_style(&mut self) {
+        self.diff.split = self.store.diff.split;
+        self.diff.relayout(true);
+    }
+
+    /// Reads every pane's diff again, for a new appearance or diff option.
     pub(crate) fn recolor_diff(&mut self, cx: &mut Context<Self>) {
         for pane in self.diff.panes.keys().copied().collect::<Vec<_>>() {
             self.read_diff_in_background(pane, Vec::new(), cx);
@@ -528,7 +551,8 @@ impl Desktop {
 
     fn read_diff_in_background(&mut self, pane: PaneId, shown: Vec<Line>, cx: &mut Context<Self>) {
         let Some((cwd, (path, at, open))) = self.cwd().zip(self.diff.view(pane).and_then(|v| Some((v.file.clone()?, v.at.clone(), v.open.clone())))) else { return };
-        let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, at, open, &shown) });
+        let options = self.diff.options;
+        let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, at, open, options, &shown) });
         cx.spawn(async move |this, cx| {
             let load = task.await;
             this.update(cx, |d, cx| {
@@ -589,7 +613,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{DiffLoad, DiffState, Pick, Row, changed, highlights, remap, rows};
+    use super::{DiffLoad, DiffState, Pick, ROW, Row, changed, code_line, highlights, remap, rows};
     use crate::add_to_chat::{Body, Quote};
     use crate::desktop::MAIN;
     use git::parse;
@@ -792,7 +816,7 @@ mod tests {
     }
 
     fn load(path: &str, text: &str) -> DiffLoad {
-        DiffLoad { path: path.into(), at: None, open: HashSet::new(), lines: parse(text), source: Default::default(), colors: None, dark: false }
+        DiffLoad { path: path.into(), at: None, open: HashSet::new(), options: git::Options::default(), lines: parse(text), source: Default::default(), colors: None, dark: false }
     }
 
     fn showing(panes: &[(PaneId, &str)]) -> DiffState {
@@ -812,6 +836,14 @@ mod tests {
         assert!(state.apply(OTHER, load("b.rs", DIFF)));
         assert_eq!(state.view(MAIN).unwrap().lines, parse(DIFF));
         assert!(state.view(OTHER).unwrap().shows("b.rs", None));
+    }
+
+    #[test]
+    fn a_diff_read_before_the_options_changed_is_dropped() {
+        let mut state = showing(&[(MAIN, "a.rs")]);
+        state.options.context = 5;
+        assert!(!state.apply(MAIN, DiffLoad { lines: Vec::new(), ..load("a.rs", DIFF) }));
+        assert_eq!(state.view(MAIN).unwrap().lines, parse(DIFF));
     }
 
     #[test]
@@ -864,5 +896,10 @@ mod tests {
         assert_eq!(state.draft_quote(), None);
         state.panes.get_mut(&MAIN).unwrap().pick.composing = true;
         assert_eq!(state.draft_quote().map(|q| q.path), Some("a.rs".to_string()));
+    }
+
+    #[test]
+    fn code_lines_grow_with_the_code_size_but_never_below_a_row() {
+        assert_eq!([10, 12, 14, 20].map(code_line), [ROW, ROW, 25., 35.]);
     }
 }

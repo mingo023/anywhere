@@ -49,10 +49,10 @@ impl Desktop {
                     .on_action(cx.listener(Self::select_all))
                     .on_action(cx.listener(Self::paste))
             })
-            .child(self.pane(id, &surface::MAIN, cx))
+            .child(self.pane(id, &Metrics::of(&self.store.terminal), cx))
     }
 
-    pub fn pane(&mut self, id: &str, m: &'static Metrics, cx: &mut Context<Self>) -> Div {
+    pub fn pane(&mut self, id: &str, m: &Metrics, cx: &mut Context<Self>) -> Div {
         let focused = self.terminal.focused.as_deref() == Some(id);
         let exit = self.terminals.sessions.get(id).and_then(|s| s.exit);
         let known = self.terminals.sessions.get(id).is_some();
@@ -86,7 +86,8 @@ impl Desktop {
             .child(surface::surface(cx.entity(), id.to_string(), m, grid, focused.then(|| self.terminal.focus.clone())))
             .child(body)
             .children(caret)
-            .children(scrolled.then(|| scroll::jump_pill(id, cx)));
+            .children(scrolled.then(|| scroll::jump_pill(id, cx)))
+            .when(self.terminals.bell.flashing.as_deref() == Some(id), |d| d.child(div().absolute().inset_0().bg(FILL_4)));
         div()
             .flex_1()
             .min_w_0()
@@ -103,9 +104,9 @@ impl Desktop {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .py(px(2.))
-                    .px(px(4.))
-                    .font_family(MONO)
+                    .py(px(m.pad / 2.))
+                    .px(px(m.pad))
+                    .font_family(m.font.family.clone())
                     .text_size(px(m.size))
                     .line_height(px(m.line))
                     .text_color(TEXT)

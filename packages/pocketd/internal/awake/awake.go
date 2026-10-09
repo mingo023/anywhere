@@ -13,13 +13,15 @@ type Sleeper interface {
 }
 
 type Keeper struct {
-	S      Sleeper
-	Linger time.Duration
-	After  func(time.Duration) <-chan time.Time
-	OnHeld func(bool)
+	S       Sleeper
+	Enabled func() bool
+	Linger  func() time.Duration
+	After   func(time.Duration) <-chan time.Time
+	OnHeld  func(bool)
 }
 
-// Run holds S while busy() and releases it Linger after busy() goes false.
+// Run holds S while Enabled() and busy(), and releases it Linger() after busy() goes false.
+// Enabled and Linger are read on each kick, so a changed setting applies at the next one.
 // busy is checked on each kick, so Run costs nothing between status changes.
 func (k *Keeper) Run(ctx context.Context, kick <-chan struct{}, busy func() bool) {
 	held := false
@@ -49,11 +51,14 @@ func (k *Keeper) Run(ctx context.Context, kick <-chan struct{}, busy func() bool
 			set(false)
 			return
 		case <-kick:
-			if busy() {
+			if !k.Enabled() {
+				linger = nil
+				set(false)
+			} else if busy() {
 				linger = nil
 				set(true)
 			} else if held && linger == nil {
-				linger = k.After(k.Linger)
+				linger = k.After(k.Linger())
 			}
 		case <-linger:
 			linger = nil

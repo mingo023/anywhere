@@ -64,6 +64,9 @@ pub struct GraphState {
     /// Where the last press on the seam landed in window pixels, so a drag keeps the edge that far from the cursor instead of jumping it there.
     pressed: f32,
     pub(crate) list: ListState,
+    /// Commits read per page.
+    pub(crate) page: usize,
+    pub(crate) all_branches: bool,
     cwd: Option<String>,
     tips: Tips,
     pub(crate) commits: Vec<GraphCommit>,
@@ -85,6 +88,8 @@ impl Default for GraphState {
             share: None,
             pressed: 0.,
             list: ListState::new(0, ListAlignment::Top, px(400.)),
+            page: PAGE,
+            all_branches: false,
             cwd: None,
             tips: Tips::default(),
             commits: Vec::new(),
@@ -103,8 +108,8 @@ impl Default for GraphState {
 
 impl GraphState {
     /// Starts with the `share` saved last launch, dropping one outside (0, 1) that would break the split.
-    pub fn new(share: Option<f32>) -> Self {
-        Self { share: share.filter(|s| *s > 0. && *s < 1.), ..Self::default() }
+    pub fn new(share: Option<f32>, diff: &store::prefs::diff::Diff) -> Self {
+        Self { share: share.filter(|s| *s > 0. && *s < 1.), page: diff.page, all_branches: diff.all_branches, ..Self::default() }
     }
 
     /// Drags the graph to `graph_height` of the `height` it splits with the Changes list, returning whether its share changed.
@@ -124,9 +129,9 @@ impl GraphState {
     /// What a refresh for worktree `cwd` reads: the tips already shown, which skip the read when unchanged, and how many commits.
     pub fn reread(&self, cwd: &str) -> (Option<Tips>, usize) {
         if self.cwd.as_deref() == Some(cwd) {
-            (Some(self.tips.clone()), self.commits.len().max(PAGE))
+            (Some(self.tips.clone()), self.commits.len().max(self.page))
         } else {
-            (None, PAGE)
+            (None, self.page)
         }
     }
 
@@ -231,11 +236,12 @@ impl Desktop {
         }
         let Some(cwd) = self.cwd() else { return };
         let (shown, n) = self.graph.reread(&cwd);
+        let all = self.graph.all_branches;
         self.graph.refreshing = true;
         let task = cx.background_executor().spawn({
             let cwd = cwd.clone();
             async move {
-                let tips = git::tips(&cwd).unwrap_or_default();
+                let tips = git::tips(&cwd, all).unwrap_or_default();
                 (shown.as_ref() != Some(&tips)).then(|| read_page(cwd, tips, 0, n))
             }
         });
@@ -259,9 +265,9 @@ impl Desktop {
             return;
         }
         let Some(cwd) = self.graph.cwd.clone() else { return };
-        let (tips, skip) = (self.graph.tips.clone(), self.graph.commits.len());
+        let (tips, skip, n) = (self.graph.tips.clone(), self.graph.commits.len(), self.graph.page);
         self.graph.loading = true;
-        let task = cx.background_executor().spawn(async move { read_page(cwd, tips, skip, PAGE) });
+        let task = cx.background_executor().spawn(async move { read_page(cwd, tips, skip, n) });
         cx.spawn(async move |this, cx| {
             let page = task.await;
             this.update(cx, |d, cx| {
@@ -487,6 +493,8 @@ mod tests {
         g.apply(page(0, PAGE + 1, &long));
         assert_eq!(g.reread("/r").1, PAGE + 1);
         assert_eq!(g.reread("/other"), (None, PAGE));
+        g.page = 200;
+        assert_eq!((g.reread("/r").1, g.reread("/other").1), (200, 200));
     }
 
     #[test]
@@ -537,7 +545,7 @@ mod tests {
 
     #[test]
     fn a_graph_too_short_to_split_ignores_the_drag() {
-        let mut g = GraphState::new(Some(0.3));
+        let mut g = GraphState::new(Some(0.3), &Default::default());
         assert!(!g.drag(100., MIN_GRAPH + MIN_CHANGES - 1.));
         assert_eq!(g.share, Some(0.3));
     }
@@ -550,6 +558,6 @@ mod tests {
 
     #[test]
     fn a_saved_share_that_would_break_the_split_is_dropped() {
-        assert_eq!([0., 1., -0.2, 0.4].map(|s| GraphState::new(Some(s)).share), [None, None, None, Some(0.4)]);
+        assert_eq!([0., 1., -0.2, 0.4].map(|s| GraphState::new(Some(s), &Default::default()).share), [None, None, None, Some(0.4)]);
     }
 }

@@ -1,26 +1,35 @@
 use crate::desktop::Desktop;
 use term::{Cell, Frame, Pointer, WIDE_SPACER_TAIL};
-use theme::{MONO, ON_TEXT, SELECTION, SYMBOLS, TEXT};
+use theme::{ON_TEXT, SELECTION, SYMBOLS, TEXT};
 use gpui_kit::*;
 use std::sync::Arc;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Metrics {
+    pub font: Font,
     pub size: f32,
     pub line: f32,
+    /// Beside the text; above and below get half.
+    pub pad: f32,
 }
 
-pub const MAIN: Metrics = Metrics { size: 13., line: 17. };
-
-/// Geist Mono with ligatures off: a merged `--` would collapse two cells into one.
-pub(crate) fn term_font() -> Font {
-    let off = ["liga", "calt", "dlig"].map(|tag| (tag.to_string(), 0)).to_vec();
-    Font { features: FontFeatures(Arc::new(off)), ..font(MONO) }
+impl Metrics {
+    pub fn of(t: &store::prefs::Terminal) -> Self {
+        let family = t.font.clone().unwrap_or_else(|| theme::code_font().to_string());
+        Self { font: term_font(&family, t.ligatures), size: t.size as f32, line: t.line(), pad: t.padding as f32 }
+    }
 }
 
-/// The advance of one terminal cell at `size`.
-pub fn cell_width(window: &Window, size: f32) -> Option<f32> {
+/// `family` with ligatures off unless asked: in some fonts a merged `--` collapses two cells into one.
+pub(crate) fn term_font(family: &str, ligatures: bool) -> Font {
+    let off = if ligatures { Vec::new() } else { ["liga", "calt", "dlig"].map(|tag| (tag.to_string(), 0)).to_vec() };
+    Font { features: FontFeatures(Arc::new(off)), ..font(family.to_string()) }
+}
+
+/// The advance of one terminal cell in `f` at `size`.
+pub fn cell_width(window: &Window, f: &Font, size: f32) -> Option<f32> {
     let ts = window.text_system();
-    Some(f32::from(ts.advance(ts.resolve_font(&term_font()), px(size), 'm').ok()?.width))
+    Some(f32::from(ts.advance(ts.resolve_font(f), px(size), 'm').ok()?.width))
 }
 
 /// Where the grid's first row sits: whatever `bounds` has left under a whole row is split above and below it.
@@ -33,11 +42,11 @@ pub fn grid_top(bounds: Bounds<Pixels>, rows: u16, line: f32) -> Pixels {
 pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16, u16)>, focus: Option<FocusHandle>) -> impl IntoElement {
     let fit_view = view.clone();
     let pane = id.clone();
-    let (size, line) = (m.size, m.line);
+    let (fnt, size, line) = (m.font.clone(), m.size, m.line);
     canvas(
         move |bounds, window, cx| {
             let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-            let cell = cell_width(window, size)?;
+            let cell = cell_width(window, &fnt, size)?;
             let cols = (f32::from(bounds.size.width) / cell).max(1.) as u16;
             let rows = (f32::from(bounds.size.height) / line).max(1.) as u16;
             fit_view.update(cx, |d, cx| d.fit(&id, cols, rows, cx));
@@ -80,14 +89,14 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                     });
                 }
             });
-            window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
+            window.on_mouse_event(move |e: &MouseUpEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble {
-                    up.update(cx, |d, _| {
+                    up.update(cx, |d, cx| {
                         if let Some(b) = term_button(e.button) {
                             d.mouse_release(&up_pane, at(e.position), b, e.modifiers);
                         }
                         if e.button == MouseButton::Left {
-                            d.select_release();
+                            d.select_release(window, cx);
                         }
                     });
                 }
@@ -125,7 +134,7 @@ fn color([r, g, b]: [u8; 3]) -> Hsla {
 pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
     let ink: Hsla = TEXT.into();
     let paper: Hsla = ON_TEXT.into();
-    let base = term_font();
+    let base = m.font.clone();
     let mut rows = Vec::new();
     for row in cells.chunks(f.cols.max(1) as usize) {
         let mut text = String::new();
@@ -178,7 +187,7 @@ pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{grid_top, is_icon, term_font};
+    use super::{Metrics, grid_top, is_icon, term_font};
     use gpui_kit::{Bounds, point, px, size};
 
     #[test]
@@ -194,11 +203,24 @@ mod tests {
     }
 
     #[test]
-    fn terminal_font_turns_off_every_ligature_feature() {
-        let font = term_font();
+    fn terminal_font_turns_off_every_ligature_feature_unless_ligatures_are_on() {
+        let font = term_font("Geist Mono", false);
         let features = font.features.tag_value_list();
         for tag in ["liga", "calt", "dlig"] {
             assert!(features.contains(&(tag.to_string(), 0)), "{tag}");
         }
+        assert!(term_font("Geist Mono", true).features.tag_value_list().is_empty());
+    }
+
+    #[test]
+    fn default_settings_keep_todays_terminal_text() {
+        let m = Metrics::of(&store::prefs::Terminal::default());
+        assert_eq!((m.font.family.as_ref(), m.size, m.line, m.pad), ("Geist Mono", 13., 17., 4.));
+    }
+
+    #[test]
+    fn a_terminal_without_its_own_font_follows_the_code_font() {
+        let m = Metrics::of(&store::prefs::Terminal { font: None, ..Default::default() });
+        assert_eq!(m.font.family, theme::code_font());
     }
 }

@@ -23,6 +23,10 @@ type Status struct {
 	Tailnet      bool           `json:"tailnet"`
 	ShellEnv     string         `json:"shellEnv"`
 	Service      string         `json:"service"` // "loaded", "installed" or "none"
+	// Config is every config-set key with its value; a desktop writes only once it has seen it.
+	Config map[string]any `json:"config,omitempty"`
+	// Providers is each built-in agent's path on the login PATH, empty when it isn't found.
+	Providers map[string]string `json:"providers,omitempty"`
 }
 
 func (s Status) Text() string {

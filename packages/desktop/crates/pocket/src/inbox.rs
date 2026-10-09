@@ -8,6 +8,8 @@ use crate::status::Status;
 use crate::util::basename;
 use agents::{Agents, Summary};
 use gpui_kit::*;
+use std::cmp::Reverse;
+use store::prefs::sidebar::{InboxFilter, InboxSort};
 
 pub(crate) const CONTEXT: &str = "Inbox";
 
@@ -45,6 +47,24 @@ pub fn notes(agents: &Agents) -> Vec<Note> {
         .collect();
     out.sort_by_key(|n| (n.status, n.at));
     out
+}
+
+pub(crate) const FILTERS: [(InboxFilter, &str); 4] = [(InboxFilter::All, "All"), (InboxFilter::NeedsYou, "Needs you"), (InboxFilter::Failed, "Failed"), (InboxFilter::Done, "Done")];
+
+/// The notes `filter` keeps, in `sort`'s order; Most urgent first is the order `notes` gives.
+pub fn arrange(mut notes: Vec<Note>, sort: InboxSort, filter: InboxFilter) -> Vec<Note> {
+    notes.retain(|n| match filter {
+        InboxFilter::All => true,
+        InboxFilter::NeedsYou => n.status == Status::NeedsYou,
+        InboxFilter::Failed => n.status == Status::Failed,
+        InboxFilter::Done => n.status == Status::Done,
+    });
+    match sort {
+        InboxSort::Urgent => {}
+        InboxSort::Newest => notes.sort_by_key(|n| Reverse(n.at)),
+        InboxSort::Oldest => notes.sort_by_key(|n| n.at),
+    }
+    notes
 }
 
 /// The heading above note `i` when it opens its status's section: "NEEDS YOU", "FAILED" or "DONE", and the section's size.
@@ -97,24 +117,32 @@ fn step(key: &str, selected: usize) -> Option<usize> {
 pub struct InboxState {
     pub(crate) selected: usize,
     pub(crate) focus: FocusHandle,
+    pub(crate) filter: InboxFilter,
+    pub(crate) filter_open: bool,
 }
 
 impl InboxState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { selected: 0, focus: cx.focus_handle() }
+        Self { selected: 0, focus: cx.focus_handle(), filter: InboxFilter::All, filter_open: false }
     }
 }
 
 impl Desktop {
     pub fn open_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.screen = Screen::Inbox;
+        (self.inbox.filter, self.inbox.filter_open) = (self.store.sidebar.inbox_filter, false);
         self.select_note(0, cx);
         window.focus(&self.inbox.focus, cx);
     }
 
     fn select_note(&mut self, i: usize, cx: &mut Context<Self>) {
-        (self.inbox.selected, self.terminal.focused) = select(&notes(&self.agents), i);
+        (self.inbox.selected, self.terminal.focused) = select(&self.shown_notes(), i);
         cx.notify();
+    }
+
+    /// The notes the inbox lists, as the filter and Sort inbox by say.
+    pub(crate) fn shown_notes(&self) -> Vec<Note> {
+        arrange(notes(&self.agents), self.store.sidebar.inbox_sort, self.inbox.filter)
     }
 
     fn project_name(&self, agent: &str) -> String {
@@ -127,7 +155,7 @@ impl Desktop {
         if self.screen != Screen::Inbox {
             return;
         }
-        if let Some(n) = notes(&self.agents).into_iter().nth(self.inbox.selected) {
+        if let Some(n) = self.shown_notes().into_iter().nth(self.inbox.selected) {
             self.focus_agent(&n.agent, window, cx);
         }
     }
@@ -135,7 +163,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Note, count, first_line, heading, notes, readable, reselect, select, step};
+    use super::{Note, arrange, count, first_line, heading, notes, readable, reselect, select, step};
+    use store::prefs::sidebar::{InboxFilter, InboxSort};
     use crate::status::Status;
     use agents::{Agents, Item, Permission, Summary};
 
@@ -215,6 +244,17 @@ mod tests {
     fn mark_all_seen_marks_every_agent_but_those_that_need_you() {
         let notes = vec![note("a", Status::NeedsYou), note("b", Status::Failed), note("c", Status::Done)];
         assert_eq!(readable(notes), vec!["B", "C"]);
+    }
+
+    #[test]
+    fn the_inbox_shows_one_status_or_all_newest_or_oldest_first() {
+        let at = |t: &str, status, at| Note { at, ..note(t, status) };
+        let all = || vec![at("a", Status::NeedsYou, 3), at("b", Status::Failed, 1), at("c", Status::Done, 2)];
+        let terminals = |notes: Vec<Note>| notes.into_iter().map(|n| n.terminal).collect::<Vec<_>>();
+        assert_eq!(terminals(arrange(all(), InboxSort::Urgent, InboxFilter::All)), ["a", "b", "c"]);
+        assert_eq!(terminals(arrange(all(), InboxSort::Newest, InboxFilter::All)), ["a", "c", "b"]);
+        assert_eq!(terminals(arrange(all(), InboxSort::Oldest, InboxFilter::All)), ["b", "c", "a"]);
+        assert_eq!(terminals(arrange(all(), InboxSort::Urgent, InboxFilter::Failed)), ["b"]);
     }
 
     #[test]

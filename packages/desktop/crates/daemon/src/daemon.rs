@@ -35,6 +35,51 @@ pub struct Msg {
     pub items: Vec<Info>,
     pub error: String,
     pub text: String,
+    pub status: Option<Status>,
+    pub devices: Vec<Device>,
+}
+
+/// The part of pocketd's `status` reply Settings reads.
+#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct Status {
+    /// Every `config-set` key with its value; absent from a pocketd too old to take them.
+    pub config: Option<serde_json::Map<String, Value>>,
+    pub version: String,
+    /// Seconds.
+    pub uptime: u64,
+    /// The phone listener's addresses, "100.64.0.1:4517".
+    pub listen: Vec<String>,
+    /// Each built-in agent's path, empty when it isn't on the login PATH.
+    pub providers: std::collections::BTreeMap<String, String>,
+}
+
+/// A paired phone, as pocketd's `devices` op lists it.
+#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Device {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    /// Milliseconds since the epoch; 0 before it first connects.
+    pub last_seen_at: i64,
+    /// The shared token from before per-device pairing; it can't be renamed or revoked.
+    pub legacy: bool,
+}
+
+/// Sends one op on its own connection and returns pocketd's reply, so it never reaches the terminal stream.
+/// Blocks for up to five seconds; call it off the UI thread.
+pub fn request(msg: &Value) -> Result<Msg, String> {
+    let stream = UnixStream::connect(sock_path()).map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+    writeln!(&stream, "{msg}").map_err(|e| e.to_string())?;
+    let mut line = String::new();
+    BufReader::new(&stream).read_line(&mut line).map_err(|e| e.to_string())?;
+    let reply: Msg = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+    if reply.ev == "error" {
+        return Err(reply.error);
+    }
+    Ok(reply)
 }
 
 impl Msg {
@@ -79,7 +124,11 @@ pub fn login_shell() -> &'static str {
 /// A new terminal's env, as Terminal.app gives it: the account's basics, nothing from the terminal that launched the app.
 /// The login shell builds the rest.
 pub fn terminal_env() -> Vec<(String, String)> {
-    terminal_env_in(|k| std::env::var(k).ok().filter(|v| !v.is_empty()), login_shell())
+    shell_env(login_shell())
+}
+
+fn shell_env(shell: &str) -> Vec<(String, String)> {
+    terminal_env_in(|k| std::env::var(k).ok().filter(|v| !v.is_empty()), shell)
 }
 
 fn terminal_env_in(env: impl Fn(&str) -> Option<String>, shell: &str) -> Vec<(String, String)> {
@@ -95,13 +144,14 @@ fn terminal_env_in(env: impl Fn(&str) -> Option<String>, shell: &str) -> Vec<(St
     kept.chain(set.map(|(k, v)| (k.to_string(), v))).collect()
 }
 
-pub fn shell_op(cwd: &str) -> Value {
-    spawn_op(login_shell(), vec!["-l".into()], cwd)
+/// Opens `shell` with `args`, which a new terminal's `$SHELL` names.
+pub fn shell_op(shell: &str, args: Vec<String>, cwd: &str) -> Value {
+    spawn_op(shell, args, shell_env(shell), cwd)
 }
 
 /// Runs an agent inside the login shell, which takes over once the agent exits, so the user lands at their prompt.
 pub fn agent_op(argv: &[String], cwd: &str) -> Value {
-    spawn_op(login_shell(), agent_args(login_shell(), argv), cwd)
+    spawn_op(login_shell(), agent_args(login_shell(), argv), terminal_env(), cwd)
 }
 
 /// The agent's argv goes to the shell as arguments rather than inside the script, so no shell's quoting rules can garble a prompt.
@@ -196,8 +246,8 @@ fn run_script_in(shell: &str, env: Vec<(String, String)>, script: &str, cwd: &st
     Err(if tail.is_empty() { status.to_string() } else { tail })
 }
 
-fn spawn_op(cmd: &str, args: Vec<String>, cwd: &str) -> Value {
-    let env: Vec<String> = terminal_env().into_iter().map(|(k, v)| format!("{k}={v}")).collect();
+fn spawn_op(cmd: &str, args: Vec<String>, env: Vec<(String, String)>, cwd: &str) -> Value {
+    let env: Vec<String> = env.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
     let cwd = resolve_cwd(cwd, &std::env::var("HOME").unwrap_or_default());
     json!({"op": "spawn", "cmd": cmd, "args": args, "cwd": cwd, "env": env, "cols": 120, "rows": 36})
 }
@@ -268,6 +318,16 @@ mod tests {
     use std::os::unix::net::UnixListener;
 
     #[test]
+    fn a_status_from_an_older_pocketd_has_no_config() {
+        let m: Msg = serde_json::from_str(r#"{"ev":"status","status":{"pid":1,"version":"0.4.0","uptime":90}}"#).unwrap();
+        let s = m.status.unwrap();
+        assert_eq!((s.config, s.version.as_str(), s.uptime), (None, "0.4.0", 90));
+        let m: Msg = serde_json::from_str(r#"{"ev":"status","status":{"config":{"awake.enabled":false},"providers":{"claude":"/bin/claude"}}}"#).unwrap();
+        let s = m.status.unwrap();
+        assert_eq!((s.config.unwrap()["awake.enabled"].as_bool(), s.providers["claude"].as_str()), (Some(false), "/bin/claude"));
+    }
+
+    #[test]
     fn decodes_output_bytes() {
         let m: Msg = serde_json::from_str(r#"{"ev":"output","id":"s1","data":"aGk="}"#).unwrap();
         assert_eq!((m.ev.as_str(), m.id.as_str(), m.bytes()), ("output", "s1", b"hi".to_vec()));
@@ -309,11 +369,12 @@ mod tests {
     }
 
     #[test]
-    fn shells_run_in_the_login_shell() {
-        let op = shell_op("/w");
-        assert_eq!(op["cmd"], login_shell());
-        assert_eq!(op["args"], json!(["-l"]));
+    fn a_shell_runs_with_its_arguments_and_names_itself_in_shell() {
+        let op = shell_op("/opt/homebrew/bin/fish", vec!["--login".into()], "/w");
+        assert_eq!(op["cmd"], "/opt/homebrew/bin/fish");
+        assert_eq!(op["args"], json!(["--login"]));
         assert_eq!(op["cwd"], "/w");
+        assert!(op["env"].as_array().unwrap().contains(&json!("SHELL=/opt/homebrew/bin/fish")));
     }
 
     #[test]

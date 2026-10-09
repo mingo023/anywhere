@@ -1,4 +1,4 @@
-use agents::{Level, level, percent};
+use agents::{Level, percent};
 use gpui_kit::*;
 use std::f32::consts::{FRAC_PI_2, TAU};
 use std::time::Duration;
@@ -52,9 +52,9 @@ impl Render for ContextCard {
     }
 }
 
-pub(crate) fn ring(used: u64, window: u64) -> Stateful<Div> {
+pub(crate) fn ring(used: u64, window: u64, level: Level) -> Stateful<Div> {
     let share = percent(used, window) as f32 / 100.;
-    let color = Hsla::from(glyph(level(used, window)));
+    let color = Hsla::from(glyph(level));
     let arc = canvas(
         |_, _, _| {},
         move |bounds, _, win, _| {

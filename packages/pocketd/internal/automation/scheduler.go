@@ -95,6 +95,10 @@ func (s *Scheduler) Resume() {
 func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 	res := s.Start(run.ID, a)
 	err := s.Store.Update(run.ID, func(r *proto.Run) {
+		r.Access = cmp.Or(a.Access, "settings")
+		if a.NewWorktree {
+			r.Worktree = res.Cwd
+		}
 		if res.Err != nil {
 			r.Status, r.Why, r.FinishedAt = "failed", plain(res.Err.Message, maxWhy), s.Now().UnixMilli()
 			return

@@ -37,6 +37,12 @@ pub fn key_bytes(k: &Keystroke, term: &mut Term) -> Option<Vec<u8>> {
     (!bytes.is_empty()).then_some(bytes)
 }
 
+/// Whether Option and this key types the keyboard layout's character (@, €, …), as it does when Option isn't Meta.
+pub fn option_types(k: &Keystroke) -> bool {
+    let m = &k.modifiers;
+    m.alt && !m.control && !m.platform && k.key.chars().count() == 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,6 +50,13 @@ mod tests {
 
     fn bytes(s: &str) -> Option<Vec<u8>> {
         key_bytes(&Keystroke::parse(s).unwrap(), &mut Term::new(80, 24))
+    }
+
+    #[test]
+    fn option_types_only_with_a_character_key() {
+        let types = |s| option_types(&Keystroke::parse(s).unwrap());
+        assert!(types("alt-2") && types("alt-shift-e"));
+        assert!(!types("alt-left") && !types("alt-backspace") && !types("ctrl-alt-a") && !types("a"));
     }
 
     #[test]

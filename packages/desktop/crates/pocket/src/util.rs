@@ -19,12 +19,32 @@ pub fn initials(name: &str) -> String {
     word.chars().filter(|c| c.is_alphanumeric()).take(2).collect::<String>().to_uppercase()
 }
 
-pub fn list_dir(dir: &Path) -> Vec<(bool, PathBuf)> {
-    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut entries: Vec<(bool, PathBuf)> =
-        read.flatten().filter(|e| e.file_name() != ".git").map(|e| (e.file_type().is_ok_and(|t| t.is_dir()), e.path())).collect();
-    entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+/// Reads `.gitignore`s up to the repository root, so call it off the UI thread.
+pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, PathBuf)> {
+    let git = files.hide_ignored;
+    let walk = ignore::WalkBuilder::new(dir).standard_filters(false).max_depth(Some(1)).parents(git).git_ignore(git).git_exclude(git).git_global(git).build();
+    let mut entries: Vec<(bool, PathBuf)> = walk
+        .flatten()
+        .filter(|e| e.depth() == 1 && files.shows(&e.file_name().to_string_lossy()))
+        .map(|e| (e.file_type().is_some_and(|t| t.is_dir()), e.into_path()))
+        .collect();
+    files.sort(&mut entries);
     entries
+}
+
+/// Moves `path` to the Trash; false when it couldn't.
+pub fn trash(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_foundation::{NSFileManager, NSString, NSURL};
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+        NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).is_ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 pub fn now_ms() -> i64 {
@@ -54,7 +74,8 @@ pub fn ago_long(ms: i64, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, initials, tilde};
+    use super::{ago, ago_long, initials, list_dir, tilde};
+    use store::prefs::files::Files;
 
     #[test]
     fn formats_times_like_the_design() {
@@ -81,5 +102,24 @@ mod tests {
         let home = std::env::var("HOME").unwrap();
         assert_eq!(tilde(&format!("{home}/code/app")), "~/code/app");
         assert_eq!(tilde(&format!("{home}x/app")), format!("{home}x/app"));
+    }
+
+    #[test]
+    fn the_explorer_leaves_out_what_git_ignores_unless_asked_not_to() {
+        let dir = std::env::temp_dir().join(format!("pocket-ignored-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("target")).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        assert!(std::process::Command::new("git").arg("init").arg("-q").arg(&dir).status().unwrap().success());
+        std::fs::write(dir.join(".gitignore"), "target\n*.log\n").unwrap();
+        for f in ["a.log", "main.rs", "src/b.log", "src/lib.rs"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let names = |d: &str, files: &Files| list_dir(&dir.join(d), files).into_iter().map(|(_, p)| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let shown = Files { hide_ignored: false, ..Files::default() };
+        assert_eq!(names("", &Files::default()), ["src", ".gitignore", "main.rs"]);
+        assert_eq!(names("src", &Files::default()), ["lib.rs"]);
+        assert_eq!(names("", &shown), ["src", "target", ".gitignore", "a.log", "main.rs"]);
+        assert_eq!(names("src", &shown), ["b.log", "lib.rs"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -7,6 +7,10 @@ impl Desktop {
         if std::mem::replace(&mut self.panels.restored, true) || self.capturing {
             return;
         }
+        if !self.store.general.restore_layouts {
+            self.store.layouts.clear();
+            return;
+        }
         let live: Vec<String> = self.terminals.sessions.items.iter().map(|s| s.info.id.clone()).collect();
         for (tree, saved) in std::mem::take(&mut self.store.layouts) {
             if self.workspaces.get(&tree).is_none_or(Workspace::is_empty) {

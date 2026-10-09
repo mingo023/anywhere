@@ -38,6 +38,7 @@ typedef struct {
   GhosttyKeyEvent key_event;
   bool reported;
   uint16_t reported_col, reported_row;
+  bool bell;
 } PTerm;
 
 typedef struct {
@@ -47,6 +48,13 @@ typedef struct {
 } PPointer;
 
 void pt_free(PTerm* p);
+
+static void rgb(uint8_t out[3], GhosttyColorRgb c) { out[0] = c.r; out[1] = c.g; out[2] = c.b; }
+
+static void on_bell(GhosttyTerminal t, void* userdata) {
+  (void)t;
+  ((PTerm*)userdata)->bell = true;
+}
 
 PTerm* pt_new(uint16_t cols, uint16_t rows, size_t scrollback) {
   PTerm* p = calloc(1, sizeof(PTerm));
@@ -74,6 +82,8 @@ PTerm* pt_new(uint16_t cols, uint16_t rows, size_t scrollback) {
   double distance = INFINITY;
   bool blink = true;
   ghostty_terminal_set(p->term, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, &blink);
+  ghostty_terminal_set(p->term, GHOSTTY_TERMINAL_OPT_USERDATA, p);
+  ghostty_terminal_set(p->term, GHOSTTY_TERMINAL_OPT_BELL, (const void*)on_bell);
   ghostty_selection_gesture_event_set(p->press, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_TIME_NS, &time);
   ghostty_selection_gesture_event_set(p->press, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_INTERVAL_NS, &interval);
   ghostty_selection_gesture_event_set(p->press, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_DISTANCE, &distance);
@@ -81,6 +91,31 @@ PTerm* pt_new(uint16_t cols, uint16_t rows, size_t scrollback) {
 }
 
 void pt_write(PTerm* p, const uint8_t* data, size_t len) { ghostty_terminal_vt_write(p->term, data, len); }
+
+uint8_t pt_take_bell(PTerm* p) {
+  bool rang = p->bell;
+  p->bell = false;
+  return rang;
+}
+
+// Only ANSI 0–15 change; 16–255 stay libghostty's, and colours a program set by OSC stay too.
+void pt_configure(PTerm* p, size_t scrollback, const uint8_t palette[16][3], uint8_t cursor, uint8_t blink) {
+  bool b = blink;
+  GhosttyTerminalCursorStyle style = (GhosttyTerminalCursorStyle)cursor;
+  GhosttyColorRgb colors[256];
+  ghostty_terminal_get(p->term, GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT, colors);
+  for (int i = 0; i < 16; i++) colors[i] = (GhosttyColorRgb){palette[i][0], palette[i][1], palette[i][2]};
+  ghostty_terminal_set(p->term, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, &scrollback);
+  ghostty_terminal_set(p->term, GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, colors);
+  ghostty_terminal_set(p->term, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE, &style);
+  ghostty_terminal_set(p->term, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, &b);
+}
+
+void pt_palette(PTerm* p, uint8_t out[16][3]) {
+  GhosttyColorRgb colors[256];
+  ghostty_terminal_get(p->term, GHOSTTY_TERMINAL_DATA_COLOR_PALETTE, colors);
+  for (int i = 0; i < 16; i++) rgb(out[i], colors[i]);
+}
 
 uint8_t pt_mode(PTerm* p, uint16_t dec) {
   GhosttyTerminalModeConfig m = {.mode = ghostty_mode_new(dec, false)};
@@ -277,8 +312,6 @@ uint8_t* pt_selection_text(PTerm* p, size_t* len) {
 void pt_text_free(uint8_t* buf, size_t len) { ghostty_free(NULL, buf, len); }
 
 void pt_resize(PTerm* p, uint16_t cols, uint16_t rows) { ghostty_terminal_resize(p->term, cols, rows, 0, 0); }
-
-static void rgb(uint8_t out[3], GhosttyColorRgb c) { out[0] = c.r; out[1] = c.g; out[2] = c.b; }
 
 size_t pt_frame(PTerm* p, PFrame* f, PCell* out, size_t cap) {
   ghostty_render_state_update(p->rs, p->term);

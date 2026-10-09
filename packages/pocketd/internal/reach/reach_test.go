@@ -149,3 +149,43 @@ func TestOnlyLocalAndTailnetHostsGetThrough(t *testing.T) {
 		}
 	}
 }
+
+func TestLoopbackModeClosesTheTailnetAndAutoBindsItAgain(t *testing.T) {
+	f := &fakeNet{ifaces: []Iface{{"utun4", addrs("100.77.122.82")}}}
+	l := start(t, f, "auto")
+	l.SetMode("loopback")
+	if got := addrStrings(l); !reflect.DeepEqual(got, []string{"127.0.0.1:4517"}) || l.Tailnet() || l.Mode() != "loopback" {
+		t.Fatalf("%v", got)
+	}
+	l.Refresh()
+	if l.Tailnet() {
+		t.Fatal("a recheck bound the tailnet in loopback mode")
+	}
+	l.SetMode("auto")
+	if got := addrStrings(l); !reflect.DeepEqual(got, []string{"100.77.122.82:4517", "127.0.0.1:4517"}) {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestMovingToAPortThatWontBindKeepsTheOldListener(t *testing.T) {
+	f := &fakeNet{ifaces: []Iface{{"utun4", addrs("100.77.122.82")}}, refuse: map[string]bool{"127.0.0.1:4600": true}}
+	l := start(t, f, "auto")
+	if _, err := l.Move(4600); err == nil {
+		t.Fatal("moved to a port that won't bind")
+	}
+	if got := addrStrings(l); !reflect.DeepEqual(got, []string{"100.77.122.82:4517", "127.0.0.1:4517"}) {
+		t.Fatalf("%v", got)
+	}
+	next, err := l.Move(4601)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { next.Close() })
+	if got := addrStrings(next); !reflect.DeepEqual(got, []string{"100.77.122.82:4601", "127.0.0.1:4601"}) || next.Port() != 4601 {
+		t.Fatalf("%v", got)
+	}
+	if c, err := net.Dial("tcp", f.opened["127.0.0.1:4517"].Addr().String()); err == nil {
+		c.Close()
+		t.Fatal("the old loopback listener is still open")
+	}
+}

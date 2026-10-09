@@ -20,7 +20,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `daemon` | the pocketd socket client |
 | `agents` | the phone-socket client, the agent list, worktree display names and automations: the snapshot, the draft's validation and its messages |
 | `term` | the ghostty VT |
-| `store` | the saved projects, settings (sounds, notifications, appearance, worktree root) and each worktree's panels |
+| `store` | the saved projects, settings (sounds, notifications, appearance, worktree root; `store/prefs` one struct per Settings section) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `web` | the WKWebView page of a browser tab, address and link parsing |
 | `ui`, `theme` | widgets, colours, icons |
@@ -28,7 +28,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `pocket` module | Owns |
 |---|---|
 | `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/quit` the quit confirm; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast |
-| `terminals` | terminals mirrored from pocketd, spawn intents, closing |
+| `terminals` | terminals mirrored from pocketd, spawn intents, closing; `terminals/bell`, `terminals/link` |
 | `panels` | the main area's pane tree: strips, dividers, drag and drop, saved layouts, shortcuts |
 | `empty_pane` | the prompt a focused pane with no tabs offers, starting an agent there |
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer |
@@ -40,5 +40,5 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview |
 | `automations` | the Automations screen (⌘⇧A, offered only when pocketd has the capability): `automations/logic` the pure rules, `column` the tabs and lists, `rows`, `runs`, `detail` and `run_detail` the right pane, `editor` with `form` and `trigger` the full-page editor, `glyph`, `parts` |
 | `inbox`, `palette` | their screens |
-| `settings` | the Settings screen (⌘,): nav, `settings/general`, `settings/appearance`, `settings/keybindings`, `settings/worktrees` |
+| `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers and the project editor share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission`, `keybindings`, `agents`, `provider` (each agent's own page), `automations`, `phone`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |
 | `modals` | overlays: new session, add project, confirm, more, pair phone |

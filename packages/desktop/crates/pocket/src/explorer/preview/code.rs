@@ -85,11 +85,11 @@ fn hunks(code: Entity<EditorState>, marks: Rc<[(usize, Mark)]>) -> impl IntoElem
 }
 
 /// The editor a text file shows and is edited in.
-pub fn code_pane(code: &Entity<EditorState>, marks: Rc<[(usize, Mark)]>) -> Div {
+pub fn code_pane(code: &Entity<EditorState>, marks: Rc<[(usize, Mark)]>, size: f32) -> Div {
     frame()
         .relative()
         .bg(SURFACE_SUNKEN)
-        .child(Editor::new(code).bordered(false).size_full().font_family(MONO).text_size(px(13.)).line_height(px(22.)))
+        .child(Editor::new(code).bordered(false).size_full().font_family(code_font()).text_size(px(size)).line_height(px((size * 22. / 13.).round())))
         .child(hunks(code.clone(), marks))
 }
 

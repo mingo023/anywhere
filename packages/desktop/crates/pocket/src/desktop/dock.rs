@@ -1,9 +1,15 @@
 use crate::inbox;
+use crate::status::Status;
 use agents::Summary;
+use store::DockBadge;
 
-/// The Dock badge: the bell's count, so every session in the inbox; none at zero.
-pub fn badge_label(agents: &[Summary]) -> Option<String> {
-    let n = agents.iter().filter(|a| inbox::noted(a).is_some()).count();
+/// The Dock badge: by default the bell's count, so every session in the inbox; none at zero.
+pub fn badge_label(agents: &[Summary], counts: DockBadge) -> Option<String> {
+    let n = match counts {
+        DockBadge::Off => 0,
+        DockBadge::NeedsYou => agents.iter().filter(|a| inbox::noted(a) == Some(Status::NeedsYou)).count(),
+        DockBadge::Inbox => agents.iter().filter(|a| inbox::noted(a).is_some()).count(),
+    };
     (n > 0).then(|| n.to_string())
 }
 
@@ -12,8 +18,8 @@ pub fn badge_label(agents: &[Summary]) -> Option<String> {
 pub struct Badge(Option<String>);
 
 impl Badge {
-    pub fn show(&mut self, agents: &[Summary]) {
-        let label = badge_label(agents);
+    pub fn show(&mut self, agents: &[Summary], counts: DockBadge) {
+        let label = badge_label(agents, counts);
         if label != self.0 {
             set_badge(label.as_deref());
             self.0 = label;
@@ -40,6 +46,7 @@ fn set_badge(label: Option<&str>) {
 mod tests {
     use super::badge_label;
     use agents::Summary;
+    use store::DockBadge;
 
     fn agent(id: &str, status: &str) -> Summary {
         Summary { id: id.into(), status: status.into(), attached: true, ..Default::default() }
@@ -48,7 +55,14 @@ mod tests {
     #[test]
     fn the_badge_counts_what_the_bell_counts_and_clears_at_zero() {
         let noted = [agent("a", "needsYou"), agent("b", "done"), Summary { failed: true, ..agent("c", "done") }, agent("w", "working"), Summary { attached: false, ..agent("d", "needsYou") }];
-        assert_eq!(badge_label(&noted).as_deref(), Some("3"));
-        assert_eq!(badge_label(&[agent("a", "working")]), None);
+        assert_eq!(badge_label(&noted, DockBadge::Inbox).as_deref(), Some("3"));
+        assert_eq!(badge_label(&[agent("a", "working")], DockBadge::Inbox), None);
+    }
+
+    #[test]
+    fn the_badge_can_count_only_sessions_that_need_you_or_nothing() {
+        let list = [agent("a", "needsYou"), agent("b", "done"), agent("c", "needsYou")];
+        assert_eq!(badge_label(&list, DockBadge::NeedsYou).as_deref(), Some("2"));
+        assert_eq!(badge_label(&list, DockBadge::Off), None);
     }
 }

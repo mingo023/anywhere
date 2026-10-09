@@ -94,7 +94,7 @@ impl Desktop {
 
     pub(super) fn tree_item(&self, s: Section, item: &Item, cx: &mut Context<Self>) -> AnyElement {
         match item {
-            Item::File { file, depth } => self.change_row(s, file, *depth, self.changes.tree, cx).into_any_element(),
+            Item::File { file, depth } => self.change_row(s, file, *depth, self.store.diff.tree, cx).into_any_element(),
             Item::Dir { key, label, depth, open } => {
                 let (key, open) = (key.clone(), *open);
                 row(ElementId::Name(key.clone().into()), *depth)

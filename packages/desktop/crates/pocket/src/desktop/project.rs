@@ -23,16 +23,16 @@ impl Desktop {
     }
 
     pub fn worktree_of(&self, cwd: &str) -> Option<&git::Worktree> {
-        project::worktree_of(cwd, &self.worktrees, |t| self.store.is_tracked(t))
+        project::worktree_of(cwd, &self.worktrees, |t| self.store.lists(t))
     }
 
     /// The worktrees `p` lists; `None` until git has listed them.
     pub fn listed_trees(&self, p: &str) -> Option<Vec<git::Worktree>> {
-        self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.is_tracked(t)))
+        self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.lists(t)))
     }
 
     pub(crate) fn untracked_trees(&self, p: &str) -> Vec<git::Worktree> {
-        self.worktrees.get(p).map(|w| project::untracked(w, |t| self.store.is_tracked(t))).unwrap_or_default()
+        self.worktrees.get(p).map(|w| project::untracked(w, |t| self.store.lists(t))).unwrap_or_default()
     }
 
     pub(crate) fn import_worktrees(&mut self, p: &str, cx: &mut Context<Self>) {
@@ -45,7 +45,7 @@ impl Desktop {
     }
 
     pub fn tree_of(&self, cwd: &str) -> Option<String> {
-        project::tree_of(cwd, &self.worktrees, |t| self.store.is_tracked(t), || self.projects())
+        project::tree_of(cwd, &self.worktrees, |t| self.store.lists(t), || self.projects())
     }
 
     pub fn cards(&self, project: &str) -> Vec<Card> {
@@ -58,7 +58,7 @@ impl Desktop {
             .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
             .map(|(a, s)| status::card(a, &s.info.cwd))
             .collect();
-        out.sort_by_key(|c| std::cmp::Reverse(c.created));
+        status::sort(&mut out, self.store.sidebar.sort);
         out
     }
 
@@ -117,12 +117,14 @@ impl Desktop {
     pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
         let cwds = self.git_cwds();
         let projects = self.store.projects.clone();
+        let shown = self.store.files.clone();
         let files: Vec<_> = self.preview.panes.iter().filter_map(|(p, f)| {
             let f = f.file.clone()?;
             let changed = self.file_status(&f).is_some();
             Some((*p, f, changed))
         }).collect();
         let root = self.cwd();
+        let (untracked, options) = (self.store.git.untracked, self.diff.options);
         let diffs: Vec<_> = self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.working_file()?.to_string(), v.open.clone(), v.lines.clone()))).collect();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
         dirs.extend(self.explore_root().map(PathBuf::from));
@@ -130,13 +132,13 @@ impl Desktop {
         let run = self.git_run;
         let task = cx.background_executor().spawn(async move {
             let repos: Vec<(String, Option<Repo>)> = cwds.into_iter().map(|c| {
-                let r = git::read(&c);
+                let r = git::read(&c, untracked);
                 (c, r)
             }).collect();
-            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, open, shown)| (p, diff::read_diff(&cwd, path, None, open, &shown))).collect()).unwrap_or_default();
+            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, open, shown)| (p, diff::read_diff(&cwd, path, None, open, options, &shown))).collect()).unwrap_or_default();
             let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
             let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
-                let listing = util::list_dir(&d);
+                let listing = util::list_dir(&d, &shown);
                 (d, listing)
             }).collect();
             let worktrees: HashMap<String, Vec<git::Worktree>> = projects.into_iter().map(|p| {

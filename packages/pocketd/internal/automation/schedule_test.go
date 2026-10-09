@@ -71,7 +71,7 @@ func TestInvalidSchedulesAreRefused(t *testing.T) {
 
 func TestARunIsLateOnlyBeyondTheGraceWindow(t *testing.T) {
 	due := at(9, 9, 0)
-	if late(due, due.Add(Grace)) || !late(due, due.Add(Grace+time.Second)) {
+	if late(due, due.Add(Grace), Grace) || !late(due, due.Add(Grace+time.Second), Grace) {
 		t.Fatal("grace boundary")
 	}
 }

@@ -1,6 +1,8 @@
 #!/bin/sh
 # Usage: capture.sh <dir> <name>=<steps> … — builds, then captures each screen against the design scenario it depicts.
 set -e
+# Run from a Pocket terminal, this points at the live pocketd and would win over the fixture's POCKET_HOME.
+unset POCKETD_SOCK
 root=$(cd "$(dirname "$0")/../.." && pwd)
 ~/.cargo/bin/cargo build -q --release -p pocket --features capture --manifest-path "$root/packages/desktop/Cargo.toml"
 # The design renders with -webkit-font-smoothing: antialiased; CoreGraphics' stroke dilation would thicken every glyph.

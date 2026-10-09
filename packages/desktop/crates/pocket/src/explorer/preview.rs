@@ -13,12 +13,14 @@ use crate::util::basename;
 use code::{Mark, code_pane, gutter};
 use markdown::markdown_pane;
 use git::Line;
-use gpui_kit::component::input::{EditorState, InputEvent};
+use gpui_kit::component::input::{EditorState, InputEvent, TabSize};
 use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
+use store::prefs::files::{Autosave, Files};
 use theme::*;
 use workspace::Doc;
 use workspace::tree::PaneId;
@@ -102,17 +104,28 @@ fn frame() -> Div {
     div().flex_1().min_h_0().border_t(px(0.5)).border_color(SEPARATOR)
 }
 
+/// Soft wrap, line numbers and tab width, as the Files settings ask of the code editor.
+type Look = (bool, bool, usize);
+
+fn look(files: &Files) -> Look {
+    (files.soft_wrap, files.line_numbers, files.tab_width as usize)
+}
+
 /// The editors a file previews in.
 pub struct Views {
     pub(crate) code: Entity<EditorState>,
     pub(crate) md: Entity<TextViewState>,
     pub(crate) diagrams: Entity<Diagrams>,
+    look: Look,
     _edits: Subscription,
+    _blur: Subscription,
 }
 
 impl Views {
-    fn new(pane: PaneId, window: &mut Window, cx: &mut Context<Desktop>) -> Self {
-        let code = cx.new(|cx| EditorState::new(window, cx).line_number(true).searchable(true).soft_wrap(false));
+    fn new(pane: PaneId, look @ (wrap, numbers, tab): Look, window: &mut Window, cx: &mut Context<Desktop>) -> Self {
+        let code = cx.new(|cx| {
+            EditorState::new(window, cx).line_number(numbers).searchable(true).soft_wrap(wrap).tab_size(TabSize { tab_size: tab, hard_tabs: false })
+        });
         let md = cx.new(|cx| TextViewState::markdown("", cx));
         let diagrams = cx.new(|_| Diagrams::new(&md));
         let _edits = cx.subscribe(&code, move |this, code, ev: &InputEvent, cx| {
@@ -124,7 +137,13 @@ impl Views {
                 }
             }
         });
-        Self { code, md, diagrams, _edits }
+        let focus = code.focus_handle(cx);
+        let _blur = cx.on_blur(&focus, window, move |this, _, cx| {
+            if let (Autosave::OnBlur, Some(file)) = (this.store.files.autosave, this.preview.unsaved(pane)) {
+                this.save_file(file, false, cx);
+            }
+        });
+        Self { code, md, diagrams, look, _edits, _blur }
     }
 }
 
@@ -179,13 +198,13 @@ impl<V> Default for FilePane<V> {
 
 impl<V> FilePane<V> {
     /// Shows `path`, clearing what another file left behind until it loads.
-    pub fn open(&mut self, path: String) {
+    pub fn open(&mut self, path: String, source: bool) {
         if self.file.as_ref() != Some(&path) {
             self.file = Some(path);
             self.preview = None;
             self.diff.clear();
             self.stale = true;
-            self.md_source = false;
+            self.md_source = source;
         }
     }
 
@@ -219,13 +238,15 @@ pub struct PreviewState<V = Views> {
     pub(crate) panes: HashMap<PaneId, FilePane<V>>,
     /// The copied path and the timer that turns its check back; a new copy replaces, and so cancels, the old one.
     pub(crate) path_copied: Option<(String, Task<()>)>,
+    /// Saves every draft once typing pauses; a new edit replaces, and so restarts, it.
+    autosave: Option<Task<()>>,
     /// Unsaved text by file path. Panes showing one file share its draft, so edits live here, not in an editor.
     pub(crate) drafts: HashMap<String, SharedString>,
 }
 
 impl<V> Default for PreviewState<V> {
     fn default() -> Self {
-        Self { panes: HashMap::new(), path_copied: None, drafts: HashMap::new() }
+        Self { panes: HashMap::new(), path_copied: None, autosave: None, drafts: HashMap::new() }
     }
 }
 
@@ -238,8 +259,8 @@ impl<V> PreviewState<V> {
         self.pane(pane)?.file.as_deref()
     }
 
-    pub fn open(&mut self, pane: PaneId, path: String) {
-        self.panes.entry(pane).or_default().open(path);
+    pub fn open(&mut self, pane: PaneId, path: String, source: bool) {
+        self.panes.entry(pane).or_default().open(path, source);
     }
 
     pub fn apply(&mut self, pane: PaneId, file: (String, Preview, Vec<Line>)) -> bool {
@@ -294,6 +315,11 @@ impl<V> PreviewState<V> {
         self.drafts.contains_key(path)
     }
 
+    /// The file `pane`'s editor holds, when it has edits not yet saved.
+    pub fn unsaved(&self, pane: PaneId) -> Option<String> {
+        self.pane(pane)?.code_file.clone().filter(|f| self.dirty(f))
+    }
+
     /// Takes `text` as what `path` now holds on disk; its draft goes unless edited since.
     pub fn saved(&mut self, path: &str, text: &SharedString) {
         if self.drafts.get(path) == Some(text) {
@@ -323,6 +349,18 @@ impl Desktop {
         if let Some(file) = self.preview.edit(pane, text) {
             self.pin_doc(&Doc::File(file), cx);
             cx.notify();
+        }
+        if self.store.files.autosave == Autosave::AfterDelay && self.preview.unsaved(pane).is_some() {
+            self.preview.autosave = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                this.update(cx, |d, cx| {
+                    let files: Vec<String> = d.preview.drafts.keys().cloned().collect();
+                    for file in files {
+                        d.save_file(file, false, cx);
+                    }
+                })
+                .ok();
+            }));
         }
     }
 
@@ -385,7 +423,7 @@ impl Desktop {
         let Some(FilePane { views: Some(views), marks, .. }) = self.preview.pane(pane) else { return div() };
         let body = match self.preview.body(pane) {
             Body::Markdown => offers_chat(pane, markdown_pane(views, cx), cx).into_any_element(),
-            Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone()), cx).into_any_element(),
+            Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone(), self.store.files.font_size as f32), cx).into_any_element(),
             Body::Image => frame()
                 .p(px(24.))
                 .flex()
@@ -409,10 +447,21 @@ impl Desktop {
     /// Loads each pane's file into its code editor after it changed, keeping the scroll position when the same file refreshes.
     pub fn sync_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let panes: Vec<PaneId> = self.preview.panes.keys().copied().collect();
+        let look @ (wrap, numbers, tab) = look(&self.store.files);
         for pane in panes {
             if self.preview.panes.get(&pane).is_some_and(|f| f.views.is_none()) {
-                let views = Views::new(pane, window, cx);
+                let views = Views::new(pane, look, window, cx);
                 self.preview.panes.entry(pane).or_default().views = Some(views);
+            }
+            if let Some(FilePane { views: Some(views), .. }) = self.preview.panes.get_mut(&pane)
+                && views.look != look
+            {
+                views.look = look;
+                views.code.update(cx, |s, cx| {
+                    s.set_soft_wrap(wrap, window, cx);
+                    s.set_line_number(numbers, window, cx);
+                    s.set_tab_size(TabSize { tab_size: tab, hard_tabs: false }, cx);
+                });
             }
             let Some(CodeSync { text, language, same, reload }) = self.preview.take_sync(pane) else { continue };
             let Some(FilePane { views: Some(views), code_text, .. }) = self.preview.pane(pane) else { continue };
@@ -490,7 +539,7 @@ mod tests {
 
     fn opened(path: &str) -> PreviewState<()> {
         let mut state = PreviewState::default();
-        state.open(MAIN, path.into());
+        state.open(MAIN, path.into(), false);
         state
     }
 
@@ -528,10 +577,17 @@ mod tests {
         state.apply(MAIN, ("/r/a.md".into(), text("# a"), Vec::new()));
         let f = main(&mut state);
         (f.md_source, f.stale) = (true, false);
-        f.open("/r/a.md".into());
+        f.open("/r/a.md".into(), false);
         assert_eq!((f.preview.clone(), f.md_source, f.stale), (Some(text("# a")), true, false));
-        f.open("/r/b.md".into());
+        f.open("/r/b.md".into(), false);
         assert_eq!((f.file.as_deref(), f.preview.clone(), f.md_source, f.stale), (Some("/r/b.md"), None, false, true));
+    }
+
+    #[test]
+    fn markdown_opens_as_source_when_the_settings_ask() {
+        let mut f = FilePane::<()>::default();
+        f.open("/r/a.md".into(), true);
+        assert!(f.md_source);
     }
 
     fn body_of(path: &str, preview: Preview) -> Body {
@@ -584,7 +640,7 @@ mod tests {
     }
 
     fn show(state: &mut PreviewState<()>, pane: PaneId, path: &str, disk: &str) {
-        state.open(pane, path.into());
+        state.open(pane, path.into(), false);
         state.apply(pane, (path.into(), text(disk), Vec::new()));
         state.take_sync(pane);
     }
@@ -612,10 +668,10 @@ mod tests {
         state.apply(MAIN, ("/r/a.rs".into(), text("changed on disk\n"), Vec::new()));
         let sync = state.take_sync(MAIN).unwrap();
         assert_eq!((sync.text.as_ref(), sync.reload), ("ab\n", false));
-        state.open(MAIN, "/r/b.rs".into());
+        state.open(MAIN, "/r/b.rs".into(), false);
         state.apply(MAIN, ("/r/b.rs".into(), text("b\n"), Vec::new()));
         assert_eq!(state.take_sync(MAIN).unwrap().text.as_ref(), "b\n");
-        state.open(MAIN, "/r/a.rs".into());
+        state.open(MAIN, "/r/a.rs".into(), false);
         let sync = state.take_sync(MAIN).unwrap();
         assert_eq!((sync.text.as_ref(), sync.reload), ("ab\n", true));
         assert!(state.dirty("/r/a.rs") && !state.dirty("/r/b.rs"));
@@ -644,6 +700,16 @@ mod tests {
     }
 
     #[test]
+    fn autosave_finds_a_pane_unsaved_only_while_its_file_differs_from_disk() {
+        let mut state = shown("/r/a.rs", "a\n");
+        assert_eq!(state.unsaved(MAIN), None);
+        state.edit(MAIN, "ab\n".into());
+        assert_eq!(state.unsaved(MAIN).as_deref(), Some("/r/a.rs"));
+        state.edit(MAIN, "a\n".into());
+        assert_eq!(state.unsaved(MAIN), None);
+    }
+
+    #[test]
     fn discarding_shows_the_file_on_disk_again() {
         let mut state = shown("/r/a.rs", "a\n");
         state.edit(MAIN, "ab\n".into());
@@ -659,7 +725,7 @@ mod tests {
         show(&mut state, OTHER, "/r/b.rs", "b\n");
         state.edit(MAIN, "ab\n".into());
         assert_eq!((state.file(MAIN), state.file(OTHER)), (Some("/r/a.rs"), Some("/r/b.rs")));
-        state.open(OTHER, "/r/a.rs".into());
+        state.open(OTHER, "/r/a.rs".into(), false);
         state.apply(OTHER, ("/r/a.rs".into(), text("a\n"), Vec::new()));
         assert_eq!(state.take_sync(OTHER).unwrap().text.as_ref(), "ab\n");
     }
@@ -667,7 +733,7 @@ mod tests {
     #[test]
     fn a_load_lands_only_in_the_pane_showing_its_file() {
         let mut state = opened("/r/a.rs");
-        state.open(OTHER, "/r/b.rs".into());
+        state.open(OTHER, "/r/b.rs".into(), false);
         assert!(!state.apply(OTHER, ("/r/a.rs".into(), text("a"), Vec::new())));
         assert!(state.apply(MAIN, ("/r/a.rs".into(), text("a"), Vec::new())));
         assert_eq!(state.pane(OTHER).unwrap().preview, None);

@@ -81,6 +81,11 @@ impl Workspace {
 
     /// Shows `doc` and returns its tab. A doc shown in any pane is selected there. Otherwise it takes over the preview tab if that is in `pane` and `pin` is off, else gets a tab in `pane`, else, with no `pane`, a new pane right of the focused one.
     pub fn open_doc(&mut self, doc: Doc, pin: bool, pane: Option<PaneId>) -> (PaneId, usize) {
+        self.place_doc(doc, pin, pane, false)
+    }
+
+    /// As `open_doc`, with a new tab going right after the shown one when `next`, else at the end.
+    pub fn place_doc(&mut self, doc: Doc, pin: bool, pane: Option<PaneId>, next: bool) -> (PaneId, usize) {
         let shown = self.doc_tab(&doc);
         let pane = pane.filter(|p| self.tree.pane(*p).is_some());
         let preview = self.preview.as_ref().and_then(|p| self.doc_tab(p)).filter(|(p, _)| !pin && Some(*p) == pane);
@@ -91,6 +96,7 @@ impl Workspace {
                 self.tree.pane_mut(p).expect("the preview's pane").tabs[i] = tab;
                 (p, i)
             }
+            (None, None, Some(p)) if next => (p, self.tree.insert_next(p, tab).expect("checked above")),
             (None, None, Some(p)) => (p, self.tree.push(p, tab).expect("checked above")),
             (None, None, None) => (self.tree.split(self.tree.focused, Edge::Right, tab).expect("the focused pane is in the tree"), 0),
         };
@@ -320,6 +326,16 @@ mod tests {
         w.open_doc(diff("y"), false, Some(d));
         w.open_doc(file("x"), false, Some(d));
         assert_eq!((tabs(&w)[1].len(), shown(&w), w.preview.clone()), (2, Some(&Tab::Doc(file("x"))), Some(diff("y"))));
+    }
+
+    #[test]
+    fn a_new_tab_can_open_right_after_the_shown_one() {
+        let mut w = with(&["a"]);
+        let (d, _) = w.open_doc(file("x"), true, None);
+        w.open_doc(file("y"), true, Some(d));
+        w.tree.select(d, 0);
+        assert_eq!(w.place_doc(file("z"), true, Some(d), true), (d, 1));
+        assert_eq!(tabs(&w)[1], vec![Tab::Doc(file("x")), Tab::Doc(file("z")), Tab::Doc(file("y"))]);
     }
 
     #[test]

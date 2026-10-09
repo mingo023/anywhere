@@ -9,7 +9,7 @@ import (
 	"pocketd/internal/proto"
 )
 
-// Grace is how late a due run may still start; a later one is skipped.
+// Grace is how late a due run may still start unless Store.Grace says otherwise; a later one is skipped.
 const Grace = 12 * time.Hour
 
 // nextAfter is the first time s matches strictly after from, in from's zone;
@@ -46,5 +46,5 @@ func clockTime(y int, m time.Month, d, hour, minute int, loc *time.Location) tim
 	return at
 }
 
-// late is whether due is further past than Grace allows.
-func late(due, now time.Time) bool { return now.Sub(due) > Grace }
+// late is whether due is further past than grace allows.
+func late(due, now time.Time, grace time.Duration) bool { return now.Sub(due) > grace }

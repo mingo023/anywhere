@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::terminal_view::surface::{self, Metrics, term_font};
+use crate::terminal_view::surface::{self, Metrics};
 use gpui_kit::*;
 use term::{CURSOR_BAR, CURSOR_UNDERLINE, Frame};
 use theme::{ON_TEXT, TERM_CURSOR, TEXT};
@@ -34,9 +34,10 @@ pub fn blinks(frame_blink: bool, reduce_motion: bool, window_active: bool) -> bo
 /// Draws the caret, or the IME's uncommitted text in its place even while the program hides the caret, at cell `at` of a grid of `rows` rows.
 /// The focused pane also records the caret's cell so the IME can place its candidate window there.
 pub fn overlay(view: Option<Entity<Desktop>>, at: (u16, u16), rows: u16, c: Option<Cursor>, preedit: Option<String>, m: &Metrics) -> impl IntoElement {
-    let (font_size, line) = (m.size, m.line);
+    let (fnt, font_size, line) = (m.font.clone(), m.size, m.line);
+    let cell_font = fnt.clone();
     canvas(
-        move |_, window, _| surface::cell_width(window, font_size),
+        move |_, window, _| surface::cell_width(window, &cell_font, font_size),
         move |bounds, cell, window, cx| {
             let Some(cell) = cell else { return };
             let origin = point(bounds.origin.x + px(at.0 as f32 * cell), surface::grid_top(bounds, rows, line) + px(at.1 as f32 * line));
@@ -46,7 +47,7 @@ pub fn overlay(view: Option<Entity<Desktop>>, at: (u16, u16), rows: u16, c: Opti
             if let Some(text) = preedit {
                 let run = TextRun {
                     len: text.len(),
-                    font: term_font(),
+                    font: fnt,
                     color: TEXT.into(),
                     background_color: Some(ON_TEXT.into()),
                     underline: Some(UnderlineStyle { thickness: px(1.), color: None, wavy: false }),

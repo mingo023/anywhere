@@ -21,6 +21,8 @@ use workspace::tree::PaneId;
 use workspace::{Doc, Tab};
 
 const ADDED_TOAST: Duration = Duration::from_millis(2600);
+/// A return in the same write as the paste reads as part of the paste to some agents.
+const SEND_AFTER: Duration = Duration::from_millis(80);
 
 /// Text from a file, quoted into an agent's input.
 #[derive(Clone, Debug, PartialEq)]
@@ -179,6 +181,15 @@ pub fn default_target(picked: Option<&str>, open: Option<&str>, choices: &[Choic
     picked.filter(ready).or(open.filter(ready)).map(str::to_string).or_else(|| choices.iter().find(|c| c.ready).map(|c| c.id.clone()))
 }
 
+/// The agent picked while it can take a quote; else, unless `to` is "ask", `focused` or `recent` as `to` says, then the first.
+pub fn target_for(to: &str, picked: Option<&str>, focused: Option<&str>, recent: Option<&str>, choices: &[Choice]) -> Option<String> {
+    match to {
+        "ask" => picked.filter(|id| choices.iter().any(|c| c.id == *id && c.ready)).map(str::to_string),
+        "recent" => default_target(picked, recent, choices),
+        _ => default_target(picked, focused, choices),
+    }
+}
+
 pub struct ChatComposer {
     pub(crate) input: Entity<TextareaState>,
     /// The agent picked in the menu; the default applies while it can't take a quote.
@@ -226,7 +237,8 @@ impl Desktop {
     }
 
     fn chat_target(&self, choices: &[Choice]) -> Option<String> {
-        default_target(self.chat.target.as_deref(), self.session(), choices)
+        let recent = choices.iter().filter(|c| c.ready).filter_map(|c| self.agents.get(&c.id)).max_by_key(|a| a.updated_at).map(|a| a.id.as_str());
+        target_for(self.store.agents.chat_to(), self.chat.target.as_deref(), self.session(), recent, choices)
     }
 
     fn chat_quote(&self) -> Option<Quote> {
@@ -244,6 +256,13 @@ impl Desktop {
         match input_bytes(&quote.payload(), &question, bracketed) {
             Some(bytes) => {
                 self.send_input(&terminal, &bytes, cx);
+                if self.store.agents.send_now {
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(SEND_AFTER).await;
+                        this.update(cx, |d, cx| d.send_input(&terminal, b"\r", cx))
+                    })
+                    .detach();
+                }
                 self.cancel_chat(window, cx);
                 self.flash_added(provider, cx);
             }
@@ -271,6 +290,9 @@ impl Desktop {
         self.diff.cancel_draft();
         self.chat.menu = false;
         (self.chat.file, self.chat.pill) = (None, None);
+        if self.store.agents.chat_to() == "ask" {
+            self.chat.target = None;
+        }
         self.chat.input.update(cx, |s, cx| s.set_value("", window, cx));
         window.focus(&self.root, cx);
         cx.notify();
@@ -289,7 +311,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Body, Choice, Quote, choices, default_target, input_bytes};
+    use super::{Body, Choice, Quote, choices, default_target, input_bytes, target_for};
     use crate::status::{Card, Kind, Status};
 
     fn diff(lines: (usize, usize), removed: bool, text: &str) -> Quote {
@@ -368,6 +390,16 @@ mod tests {
         assert_eq!(default_target(Some("busy"), Some("b"), &list).as_deref(), Some("b"));
         assert_eq!(default_target(Some("gone"), Some("busy"), &list).as_deref(), Some("a"));
         assert_eq!(default_target(None, None, &[choice("busy", "", false)]), None);
+    }
+
+    #[test]
+    fn a_quote_goes_to_the_focused_or_most_recent_agent_or_waits_for_a_pick() {
+        let list = [choice("a", "", true), choice("b", "", true), choice("busy", "", false)];
+        assert_eq!(target_for("focused", None, Some("a"), Some("b"), &list).as_deref(), Some("a"));
+        assert_eq!(target_for("recent", None, Some("a"), Some("b"), &list).as_deref(), Some("b"));
+        assert_eq!(target_for("ask", None, Some("a"), Some("b"), &list), None);
+        assert_eq!(target_for("ask", Some("b"), Some("a"), None, &list).as_deref(), Some("b"));
+        assert_eq!(target_for("ask", Some("busy"), None, None, &list), None);
     }
 
     #[test]

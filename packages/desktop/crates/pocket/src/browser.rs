@@ -89,7 +89,7 @@ impl Browsers {
                     && !text.trim().is_empty()
                     && let Some(id) = this.web_tab(pane)
                 {
-                    this.browse(id, web::resolve(&text), window, cx);
+                    this.browse(id, web::resolve(&text, this.store.browser.search_url()), window, cx);
                 }
             });
             (address, sub)
@@ -183,6 +183,8 @@ impl Desktop {
     /// Opens a browser tab in the worktree on screen, at `url` or with the address bar focused.
     pub(crate) fn open_browser(&mut self, url: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.cwd() else { return };
+        let dev_url = self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.dev_url.as_str()).unwrap_or_default();
+        let url = url.or_else(|| self.store.browser.home_page(dev_url).map(|u| web::resolve(&u, self.store.browser.search_url())));
         let id = self.browsers.open();
         self.workspace(&tree).open_web(id);
         self.screen = Screen::Sessions;

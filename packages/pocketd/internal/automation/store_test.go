@@ -238,6 +238,29 @@ func TestHistoryKeepsTheNewestFiftyRunsPerAutomation(t *testing.T) {
 	}
 }
 
+func TestAShorterGraceSkipsARunTheDefaultWouldStart(t *testing.T) {
+	s := Open(t.TempDir())
+	s.Grace = func() time.Duration { return time.Hour }
+	a := saved(t, s, at(9, 8, 0))
+	due := time.UnixMilli(a.NextRunAt)
+	if run, ok := s.Claim(a.ID, due, due.Add(2*time.Hour)); !ok || run.Status != "skipped" {
+		t.Fatalf("%v %+v", ok, run)
+	}
+}
+
+func TestHistoryKeepsAsManyRunsAsTheSettingSays(t *testing.T) {
+	s := Open(t.TempDir())
+	s.History = func() int { return 10 }
+	a := saved(t, s, at(9, 8, 0))
+	for i := range 12 {
+		run, _ := s.Begin(a.ID, at(9, 8, 0).Add(time.Duration(i)*time.Second))
+		s.Update(run.ID, func(r *proto.Run) { r.Status = "succeeded" })
+	}
+	if _, runs := s.Snapshot(); len(runs) != 10 {
+		t.Fatalf("kept %d", len(runs))
+	}
+}
+
 func TestSnapshotListsRunsNewestFirstAcrossAutomations(t *testing.T) {
 	s := Open(t.TempDir())
 	a, b := saved(t, s, at(9, 8, 0)), saved(t, s, at(9, 8, 0))

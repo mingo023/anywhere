@@ -82,7 +82,7 @@ impl Desktop {
             self.popup("trigger-menu", 260., cx)
                 .rounded(px(12.))
                 .child(ui::menu_row("trigger-schedule", "clock", "Schedule", None).h(px(30.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.automations.form.v.add_schedule();
+                    this.automations.form.v.add_schedule(&this.store.automations);
                     this.close_menus();
                     cx.notify();
                 })))

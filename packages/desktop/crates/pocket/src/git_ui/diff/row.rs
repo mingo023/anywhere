@@ -48,7 +48,7 @@ pub(crate) fn hunk(lines: &[Line], i: usize) -> Div {
         .whitespace_nowrap()
         .overflow_hidden()
         .child(icon("unfold", 11., TEXT_4))
-        .when(hidden > 0, |d| d.child(div().flex_none().font_family(SANS).text_size(px(12.5)).child(format!("{hidden} unchanged lines"))))
+        .when(hidden > 0, |d| d.child(div().flex_none().font_family(ui_font()).text_size(px(12.5)).child(format!("{hidden} unchanged lines"))))
         .child(div().truncate().child(context))
 }
 
@@ -67,7 +67,7 @@ pub(crate) fn code(l: &Line, hl: Option<&Spans>, numbers: Vec<Option<usize>>, pi
         .flex()
         .items_start()
         .when_some(bg, |d, bg| d.bg(bg))
-        .when(picked, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(ACCENT)))
+        .when(picked, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(ACCENT_FILL)))
         .children(numbers.into_iter().map(|n| number(n, picked)))
         .child(div().w(px(SIGN)).flex_none().flex().justify_center().text_color(fg).child(sign))
         .child(

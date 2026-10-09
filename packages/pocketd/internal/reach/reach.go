@@ -89,7 +89,6 @@ func cliAddrs() []netip.Addr {
 
 type Listener struct {
 	port    int
-	auto    bool
 	handler http.Handler
 	ifaces  func() []Iface
 	cli     func() []netip.Addr
@@ -97,6 +96,7 @@ type Listener struct {
 	done    chan struct{}
 
 	mu       sync.Mutex
+	auto     bool
 	loopback net.Listener
 	tailnet  map[netip.Addr]net.Listener
 	closed   bool
@@ -117,11 +117,47 @@ func listen(port int, mode string, h http.Handler, ifaces func() []Iface, cli fu
 	}
 	l.loopback = ln
 	go http.Serve(ln, l.gate())
-	if l.auto {
-		l.Refresh()
-		go l.poll()
-	}
+	l.Refresh()
+	go l.poll()
 	return l, nil
+}
+
+// Mode is "auto" or "loopback", as Listen took it.
+func (l *Listener) Mode() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.auto {
+		return "auto"
+	}
+	return "loopback"
+}
+
+func (l *Listener) Port() int { return l.port }
+
+// SetMode switches between "auto" and "loopback" in place. Loopback closes the
+// tailnet listeners; connections they accepted live until they drop.
+func (l *Listener) SetMode(mode string) {
+	l.mu.Lock()
+	l.auto = mode == "auto"
+	if !l.auto {
+		for a, ln := range l.tailnet {
+			ln.Close()
+			delete(l.tailnet, a)
+		}
+	}
+	l.mu.Unlock()
+	l.Refresh()
+}
+
+// Move listens on port in l's mode, then closes l. When port won't bind, l
+// goes on serving and the error says why.
+func (l *Listener) Move(port int) (*Listener, error) {
+	next, err := listen(port, l.Mode(), l.handler, l.ifaces, l.cli, l.listen)
+	if err != nil {
+		return nil, err
+	}
+	l.Close()
+	return next, nil
 }
 
 func (l *Listener) poll() {
@@ -150,7 +186,7 @@ func (l *Listener) gate() http.Handler {
 // Refresh binds tailnet addresses that appeared and closes those that went.
 // Connections already accepted on a closed address live until they drop.
 func (l *Listener) Refresh() {
-	if !l.auto {
+	if l.Mode() != "auto" {
 		return
 	}
 	want := TailnetAddrs(l.ifaces())
@@ -164,7 +200,7 @@ func (l *Listener) Refresh() {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.closed {
+	if l.closed || !l.auto {
 		return
 	}
 	for a, ln := range l.tailnet {

@@ -8,11 +8,23 @@ use agents::{Agents, Decision, Event, Host, Permission, Summary};
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::time::Instant;
+use store::Notifications;
 use workspace::Tab;
 
 pub const ALLOW: &str = "allow";
 pub const DENY: &str = "deny";
 const LINE_MAX: usize = 240;
+
+/// Whether `n` lets a banner show for an agent entering `status`.
+pub fn wants_banner(n: Notifications, status: Status) -> bool {
+    n.banners
+        && match status {
+            Status::NeedsYou => n.needs_you,
+            Status::Failed => n.failed,
+            Status::Done => n.done,
+            Status::Working | Status::Idle => false,
+        }
+}
 
 pub struct Alerts {
     pub(crate) viewing: Option<Vec<String>>,
@@ -45,15 +57,17 @@ impl Alerts {
         Self { viewing: None, statuses: HashMap::new(), asks: HashMap::new() }
     }
 
-    /// Takes the agents' new statuses and asks; returns the notifications to show. A `quiet` sync shows none.
+    /// Takes the agents' new statuses and asks; returns the notifications to show, for the statuses `wanted` lets through.
+    /// Sessions on screen get none unless `on_screen`.
     /// Shown ones stay until the user clears them or the agent's next one replaces them, as in Superset.
-    pub fn sync(&mut self, agents: &Agents, place: impl Fn(&Summary) -> String, quiet: bool) -> Vec<Notice> {
+    pub fn sync(&mut self, agents: &Agents, place: impl Fn(&Summary) -> String, wanted: impl Fn(Status) -> bool, on_screen: bool) -> Vec<Notice> {
         let ask = |id: &str| agents.pending.iter().find(|p| p.agent_id == id).map(|p| p.request_id.clone());
         let now: HashMap<String, Alert> = agents.list.iter().filter_map(|a| Some((a.id.clone(), Alert { status: Status::of(a)?, ask: ask(&a.id) }))).collect();
-        let show = status::alerts(&self.statuses, &now, self.viewing.as_deref().unwrap_or_default());
+        let viewing = if on_screen { &[] } else { self.viewing.as_deref().unwrap_or_default() };
+        let show = status::alerts(&self.statuses, &now, viewing);
         let mut notices = Vec::new();
         let fresh: Vec<String> = show.into_iter().filter(|id| now[id].ask.is_none() || self.asks.get(id) != now[id].ask.as_ref()).collect();
-        for id in fresh.into_iter().filter(|_| !quiet) {
+        for id in fresh.into_iter().filter(|id| wanted(now[id].status)) {
             let Some(a) = agents.get(&id) else { continue };
             let title = if a.title.is_empty() { theme::provider_name(&a.provider).to_string() } else { a.title.clone() };
             let Alert { status, ask } = now[&id].clone();
@@ -142,21 +156,25 @@ impl Desktop {
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
         }
+        let exited = exited_terminal(&self.agents.list, &ev).filter(|_| self.store.agents.close_on_exit && !self.capturing);
         self.agents.apply(ev);
+        if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.tab_of(t).is_some())) {
+            self.close_pane(&term, cx);
+        }
         if connected {
             self.leave_unoffered_automations();
         }
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
         if self.screen == Screen::Inbox {
-            (self.inbox.selected, self.terminal.focused) = inbox::reselect(&inbox::notes(&self.agents), self.terminal.focused.as_deref(), self.inbox.selected);
+            (self.inbox.selected, self.terminal.focused) = inbox::reselect(&self.shown_notes(), self.terminal.focused.as_deref(), self.inbox.selected);
         }
         if automations {
             self.automations_changed();
         }
         self.sync_alerts(cx);
         if !self.capturing {
-            self.badge.show(&self.agents.list);
+            self.badge.show(&self.agents.list, self.store.notifications.badge);
             self.chime(connected, cx);
         }
         cx.notify();
@@ -174,7 +192,8 @@ impl Desktop {
 
     fn sync_alerts(&mut self, cx: &mut App) {
         let mut alerts = std::mem::replace(&mut self.alerts, Alerts::new());
-        let show = alerts.sync(&self.agents, |a| self.place(a), self.capturing || !self.store.notifications.banners);
+        let n = self.store.notifications;
+        let show = alerts.sync(&self.agents, |a| self.place(a), |s| !self.capturing && wants_banner(n, s), n.on_screen);
         self.alerts = alerts;
         for n in show {
             let actions = n.actions();
@@ -210,6 +229,13 @@ impl Desktop {
     }
 }
 
+/// The terminal whose agent `ev` says exited, if this window knew it; not one whose restore failed, so its error stays readable.
+pub(crate) fn exited_terminal(list: &[Summary], ev: &Event) -> Option<String> {
+    let Event::Agent(a) = ev else { return None };
+    let known = list.iter().find(|x| x.id == a.id)?;
+    (a.status == "closed" && known.restore != "failed").then(|| known.terminal_id.clone())
+}
+
 /// The toast for a failed pocketd upgrade, once per version it failed on.
 pub(crate) fn upgrade_toast(prev: Option<&Host>, next: &Host) -> Option<String> {
     let failed = &next.upgrade_failed;
@@ -219,11 +245,23 @@ pub(crate) fn upgrade_toast(prev: Option<&Host>, next: &Host) -> Option<String> 
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOW, Alerts, DENY, Notice, body, upgrade_toast};
-    use agents::{Agents, Host, Permission, Summary};
+    use super::{ALLOW, Alerts, DENY, Notice, body, exited_terminal, upgrade_toast, wants_banner};
+    use crate::status::Status;
+    use store::Notifications;
+    use agents::{Agents, Event, Host, Permission, Summary};
 
     fn agent(id: &str, status: &str) -> Summary {
         Summary { id: id.into(), terminal_id: format!("t-{id}"), title: id.to_uppercase(), status: status.into(), attached: true, ..Default::default() }
+    }
+
+    #[test]
+    fn an_agent_that_exits_names_its_terminal_unless_its_restore_failed() {
+        let failed = Summary { restore: "failed".into(), ..agent("b", "idle") };
+        let list = [agent("a", "working"), failed];
+        assert_eq!(exited_terminal(&list, &Event::Agent(agent("a", "closed"))).as_deref(), Some("t-a"));
+        assert_eq!(exited_terminal(&list, &Event::Agent(agent("b", "closed"))), None);
+        assert_eq!(exited_terminal(&list, &Event::Agent(agent("c", "closed"))), None);
+        assert_eq!(exited_terminal(&list, &Event::Agent(agent("a", "done"))), None);
     }
 
     fn sync(alerts: &mut Alerts, list: &[Summary], quiet: bool) -> Vec<Notice> {
@@ -232,7 +270,7 @@ mod tests {
 
     fn asking(alerts: &mut Alerts, list: &[Summary], asks: &[(&str, &str)], quiet: bool) -> Vec<Notice> {
         let pending = asks.iter().map(|(agent, q)| Permission { request_id: q.to_string(), agent_id: agent.to_string(), tool_name: "Bash".into(), ..Default::default() }).collect();
-        alerts.sync(&Agents { list: list.to_vec(), pending, ..Default::default() }, |a| format!("app · {}", a.id), quiet)
+        alerts.sync(&Agents { list: list.to_vec(), pending, ..Default::default() }, |a| format!("app · {}", a.id), |_| !quiet, false)
     }
 
     fn notice(id: &str, line: &str, ask: Option<&str>) -> Notice {
@@ -256,6 +294,24 @@ mod tests {
         let viewed = alerts.view(&["t-a".into()], &list);
         let show = sync(&mut alerts, &list, false);
         assert_eq!((viewed, show), (Some(vec!["a".to_string()]), vec![]));
+    }
+
+    #[test]
+    fn with_on_screen_alerts_on_a_session_in_view_notifies_too() {
+        let mut alerts = Alerts::new();
+        let list = [agent("a", "working")];
+        alerts.view(&["t-a".into()], &list);
+        alerts.sync(&Agents { list: list.to_vec(), ..Default::default() }, |a| format!("app · {}", a.id), |_| true, true);
+        let show = alerts.sync(&Agents { list: vec![agent("a", "done")], ..Default::default() }, |a| format!("app · {}", a.id), |_| true, true);
+        assert_eq!(show, vec![notice("a", "Done", None)]);
+    }
+
+    #[test]
+    fn each_status_banner_follows_its_own_switch_and_the_master_one() {
+        let n = Notifications { failed: false, ..Notifications::default() };
+        assert_eq!([Status::NeedsYou, Status::Failed, Status::Done, Status::Working].map(|s| wants_banner(n, s)), [true, false, true, false]);
+        let off = Notifications { banners: false, ..Notifications::default() };
+        assert!(!wants_banner(off, Status::NeedsYou));
     }
 
     #[test]

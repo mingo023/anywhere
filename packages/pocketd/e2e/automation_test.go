@@ -95,6 +95,24 @@ func TestRunNowLaunchesASessionAndRecordsItDone(t *testing.T) {
 	h.WaitScreen(done.TerminalID, "echo: review the diff")
 }
 
+func TestARunInANewWorktreeRecordsItsModeAndWorktree(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner(proto.CapAutomations)
+	d := draft(h, "review the diff")
+	d["access"], d["newWorktree"] = "edits", true
+	o.Automation("save", "s1", map[string]any{"automation": d})
+	id := o.WaitFor("the saved automation", func(m Message) bool { return m.Type == "automations" && len(m.Automations) == 1 }).Automations[0].ID
+	o.Automation("run", "r1", map[string]any{"automationId": id})
+	done := o.WaitRun("a succeeded run", func(r proto.Run) bool { return r.Status == "succeeded" })
+	home, _ := filepath.EvalSymlinks(h.Home)
+	if done.Access != "edits" || filepath.Dir(done.Worktree) != filepath.Join(home, "wt") {
+		t.Fatalf("got %+v", done)
+	}
+	if _, err := os.Stat(filepath.Join(done.Worktree, ".git")); err != nil {
+		t.Fatalf("no worktree at %s: %v", done.Worktree, err)
+	}
+}
+
 func TestARunNowOnABusyAutomationIsRefused(t *testing.T) {
 	h := Start(t, launchReady(""))
 	o := h.Owner(proto.CapAutomations)

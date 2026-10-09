@@ -1,5 +1,7 @@
 use agents::Summary;
+use std::cmp::Reverse;
 use std::collections::HashMap;
+use store::prefs::sidebar::SessionSort;
 
 /// Variants run from most to least urgent; cards and roll-ups sort on that order.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -89,6 +91,16 @@ fn model(a: &Summary) -> String {
     match a.effort.as_deref() {
         Some(e) if !e.is_empty() => format!("{name} · {e}"),
         _ => name,
+    }
+}
+
+/// Orders a project's sessions as Sort sessions by says.
+pub fn sort(cards: &mut [Card], by: SessionSort) {
+    match by {
+        SessionSort::Newest => cards.sort_by_key(|c| Reverse(c.created)),
+        SessionSort::Status => cards.sort_by_key(|c| (c.status, Reverse(c.created))),
+        SessionSort::Activity => cards.sort_by_key(|c| Reverse(c.at)),
+        SessionSort::Name => cards.sort_by_cached_key(|c| (c.title.to_lowercase(), Reverse(c.created))),
     }
 }
 
@@ -208,6 +220,21 @@ mod tests {
     #[test]
     fn ignores_the_status_of_an_agent_that_is_not_attached() {
         assert_eq!(Status::of(&Summary { attached: false, ..agent("t", "needsYou") }), None);
+    }
+
+    #[test]
+    fn sessions_sort_newest_first_by_status_by_activity_or_by_name() {
+        let at = |title: &str, status: &str, created: i64, updated: i64| card(&Summary { title: title.into(), created_at: created, updated_at: updated, ..agent(title, status) }, "/w");
+        let cards = vec![at("b", "idle", 1, 9), at("C", "needsYou", 2, 5), at("a", "working", 3, 1)];
+        let order = |by| {
+            let mut c = cards.clone();
+            sort(&mut c, by);
+            c.into_iter().map(|c| c.title).collect::<Vec<_>>()
+        };
+        assert_eq!(order(SessionSort::Newest), ["a", "C", "b"]);
+        assert_eq!(order(SessionSort::Status), ["C", "a", "b"]);
+        assert_eq!(order(SessionSort::Activity), ["b", "C", "a"]);
+        assert_eq!(order(SessionSort::Name), ["a", "b", "C"]);
     }
 
     #[test]

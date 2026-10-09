@@ -35,10 +35,10 @@ impl Update {
     }
 }
 
-/// What a launch on `version` has to say, recording it as seen. A first install has nothing new.
-pub fn launch(version: &str, seen: &mut Option<String>) -> Update {
+/// What a launch on `version` has to say, recording it as seen. A first install has nothing new, nor does one told not to `announce`.
+pub fn launch(version: &str, seen: &mut Option<String>, announce: bool) -> Update {
     match seen.replace(version.to_string()) {
-        Some(was) if was != version => Update::WhatsNew { version: version.into() },
+        Some(was) if was != version && announce => Update::WhatsNew { version: version.into() },
         _ => Update::Idle,
     }
 }
@@ -62,7 +62,7 @@ impl Updates {
             return updates;
         }
         let before = store.seen_version.clone();
-        updates.update = launch(channel::version(), &mut store.seen_version);
+        updates.update = launch(channel::version(), &mut store.seen_version, store.general.whats_new);
         if store.seen_version != before
             && let Some((path, raw)) = store.encode()
         {
@@ -70,6 +70,7 @@ impl Updates {
         }
         let (tx, mut rx) = mpsc::unbounded();
         updates.sparkle = sparkle::Sparkle::start(tx);
+        updates.follow(&store.general);
         cx.spawn(async move |this, cx| {
             while let Some(event) = rx.next().await {
                 if this.update(cx, |d, cx| d.on_update(event, cx)).is_err() {
@@ -83,6 +84,13 @@ impl Updates {
 
     pub fn available(&self) -> bool {
         self.sparkle.is_some()
+    }
+
+    /// Hands Sparkle the update settings, which it keeps in its own defaults.
+    pub fn follow(&self, general: &store::prefs::General) {
+        if let Some(s) = &self.sparkle {
+            s.configure(general.auto_install, f64::from(general.check_hours) * 3600.);
+        }
     }
 
     /// Sparkle's own "Check for Updates…" dialogs.
@@ -108,6 +116,8 @@ mod sparkle {
         }
 
         pub fn check(&self) {}
+
+        pub fn configure(&self, _: bool, _: f64) {}
 
         pub fn installer(&self) -> Option<Box<dyn FnOnce()>> {
             None
@@ -150,15 +160,22 @@ mod tests {
     #[test]
     fn a_first_launch_has_nothing_new() {
         let mut seen = None;
-        assert_eq!(launch("0.1.0", &mut seen), Update::Idle);
+        assert_eq!(launch("0.1.0", &mut seen, true), Update::Idle);
         assert_eq!(seen.as_deref(), Some("0.1.0"));
     }
 
     #[test]
     fn a_relaunch_on_a_new_version_says_whats_new_once() {
         let mut seen = Some("0.1.0".to_string());
-        assert_eq!(launch("0.2.0", &mut seen), whats_new("0.2.0"));
-        assert_eq!(launch("0.2.0", &mut seen), Update::Idle);
+        assert_eq!(launch("0.2.0", &mut seen, true), whats_new("0.2.0"));
+        assert_eq!(launch("0.2.0", &mut seen, true), Update::Idle);
+    }
+
+    #[test]
+    fn with_whats_new_off_a_new_version_is_recorded_but_not_announced() {
+        let mut seen = Some("0.1.0".to_string());
+        assert_eq!(launch("0.2.0", &mut seen, false), Update::Idle);
+        assert_eq!(seen.as_deref(), Some("0.2.0"));
     }
 
     #[test]

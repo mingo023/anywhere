@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{doc_bar, empty};
-use crate::git_ui::diff::{self, ROW, changed, code, hunk};
+use crate::git_ui::diff::{self, changed, code, code_text, hunk};
 use crate::syntax::Spans;
 use git::{CommitFile, Kind, Line};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -25,9 +25,9 @@ pub struct FileDiff {
     hl: Vec<Spans>,
 }
 
-fn read_file(cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile) -> FileDiff {
+fn read_file(cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile, options: git::Options) -> FileDiff {
     let (old, new) = git::commit_texts(cwd, sha, parent, file);
-    let lines = git::diff_texts(&old, &new, &HashSet::new());
+    let lines = git::diff_texts(&old, &new, &HashSet::new(), options);
     let syntax = diff::syntax(&file.path, &old, &new);
     let hl = diff::highlights(&lines, &syntax.0, &syntax.1);
     FileDiff { lines, hl }
@@ -130,7 +130,7 @@ impl Desktop {
         }
     }
 
-    /// Colours every pane's commit again, for a new appearance.
+    /// Reads every pane's commit again, for a new appearance or diff option.
     pub(crate) fn recolor_commit(&mut self, cx: &mut Context<Self>) {
         let shown: Vec<(PaneId, u64)> = self.commit.panes.iter_mut().filter(|(_, c)| c.sha.is_some()).map(|(p, c)| (*p, c.restart())).collect();
         for (pane, run) in shown {
@@ -140,6 +140,7 @@ impl Desktop {
 
     fn load_commit(&mut self, pane: PaneId, run: u64, cx: &mut Context<Self>) {
         let Some((cwd, sha)) = self.cwd().zip(self.commit.get(pane).and_then(|c| c.sha.clone())) else { return };
+        let options = self.diff.options;
         cx.spawn(async move |this, cx| {
             let (parent, files) = cx
                 .background_executor()
@@ -165,7 +166,7 @@ impl Desktop {
             for start in (0..files.len()).step_by(CHUNK) {
                 let chunk = files[start..(start + CHUNK).min(files.len())].to_vec();
                 let (cwd, sha, parent) = (cwd.clone(), sha.clone(), parent.clone());
-                let diffs = cx.background_executor().spawn(async move { chunk.iter().map(|f| read_file(&cwd, &sha, parent.as_deref(), f)).collect::<Vec<_>>() }).await;
+                let diffs = cx.background_executor().spawn(async move { chunk.iter().map(|f| read_file(&cwd, &sha, parent.as_deref(), f, options)).collect::<Vec<_>>() }).await;
                 let shown = this.update(cx, |d, cx| {
                     let ok = d.commit.panes.get_mut(&pane).is_some_and(|c| c.set_diffs(run, start, diffs));
                     if ok {
@@ -187,16 +188,13 @@ impl Desktop {
         let crumbs = std::iter::once(git::short_sha(&sha).to_string()).chain(self.graph.commit(&sha).map(|c| c.subject.clone())).collect();
         let rows = list(state, cx.processor(move |this, ix, _, cx| this.commit_diff_row(pane, ix, cx))).pb(px(8.));
         div().flex_1().min_h_0().flex().flex_col().child(doc_bar(crumbs, meta, div())).child(
-            div()
+            code_text(div(), self.store.appearance.code_size())
                 .flex_1()
                 .min_h_0()
                 .bg(PAGE)
                 .border_t(px(0.5))
                 .border_color(SEPARATOR)
                 .overflow_hidden()
-                .font_family(MONO)
-                .text_size(px(12.5))
-                .line_height(px(ROW))
                 .child(rows.size_full()),
         )
     }
@@ -232,7 +230,7 @@ impl Desktop {
             .border_t(px(0.5))
             .border_b(px(0.5))
             .border_color(SEPARATOR)
-            .font_family(SANS)
+            .font_family(ui_font())
             .cursor_pointer()
             .hover(|s| s.bg(FILL_2))
             .child(file_icon(name, false, false, 14.))

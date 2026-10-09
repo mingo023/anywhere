@@ -1,5 +1,5 @@
 pub(crate) mod column;
-mod host;
+pub(crate) mod host;
 pub(crate) mod panel;
 pub(crate) mod project_picker;
 pub(crate) mod rail;
@@ -103,12 +103,12 @@ pub struct SidebarState {
 }
 
 impl SidebarState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(panel_open: bool, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
-        (Self { search, menu_at: None, picker, panel_open: false, rename: None }, subs)
+        (Self { search, menu_at: None, picker, panel_open, rename: None }, subs)
     }
 }
 

@@ -2,11 +2,8 @@ use crate::desktop::Desktop;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use store::LaunchPick;
 use theme::*;
 use workspace::Place;
-
-const STARTERS: [&str; 4] = ["Review my uncommitted changes", "Fix the failing tests", "Summarise what this branch changes", "Write the commit message"];
 
 impl Desktop {
     /// Draws the prompt, taking the keys if it wasn't drawn last frame: its pane's last tab closed, or the pane, worktree or screen changed.
@@ -33,7 +30,7 @@ impl Desktop {
             .child(self.empty_input(&pick.provider, cx))
             .children(starting)
             .children(error)
-            .child(div().w_full().max_w(px(600.)).mt(px(14.)).flex().flex_wrap().justify_center().gap(px(6.)).children(starters(cx)))
+            .child(div().w_full().max_w(px(600.)).mt(px(14.)).flex().flex_wrap().justify_center().gap(px(6.)).children(starters(&self.store.agents.starters, cx)))
             .child(div().mt(px(22.)).flex().items_center().gap(px(2.)).text_size(px(12.5)).text_color(TEXT_3).child(div().mr(px(4.)).child("or open")).child(terminal_link(cx)))
     }
 
@@ -62,7 +59,7 @@ impl Desktop {
     fn empty_input(&self, provider: &str, cx: &mut Context<Self>) -> Div {
         let ready = self.empty_pane.launch.ready(&self.empty_pane.prompt.read(cx).value());
         let send = ui::primary(div().id("empty-start").size(px(30.)).flex().flex_none().items_center().justify_center().rounded(px(15.)))
-            .child(icon("arrow-up", 15., ON_TEXT))
+            .child(icon("arrow-up", 15., ON_PRIMARY))
             .when(ready, |d| d.cursor_pointer().on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_from_empty_pane(window, cx))))
             .when(!ready, |d| d.opacity(0.25));
         div()
@@ -103,7 +100,7 @@ impl Desktop {
                 cx.notify();
             }));
         let menu = self.empty_pane.agent_menu.then(|| {
-            let rows = LaunchPick::PROVIDERS.map(|p| {
+            let rows = self.store.agents.enabled().into_iter().map(|p| {
                 ui::pick_row(p, p == provider, Some(provider_icon(p, 13., TEXT)), div().child(provider_name(p)), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_empty_agent(p, cx)))
             });
@@ -122,8 +119,9 @@ impl Desktop {
     }
 }
 
-fn starters(cx: &mut Context<Desktop>) -> impl Iterator<Item = Stateful<Div>> {
-    STARTERS.into_iter().enumerate().map(|(i, text)| {
+fn starters(prompts: &[String], cx: &mut Context<Desktop>) -> Vec<Stateful<Div>> {
+    prompts.iter().enumerate().map(|(i, text)| {
+        let text: SharedString = text.clone().into();
         div()
             .id(("empty-starter", i))
             .h(px(30.))
@@ -138,9 +136,9 @@ fn starters(cx: &mut Context<Desktop>) -> impl Iterator<Item = Stateful<Div>> {
             .whitespace_nowrap()
             .cursor_pointer()
             .hover(|s| s.bg(SURFACE).text_color(TEXT))
-            .child(text)
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.fill_empty_prompt(text, window, cx)))
-    })
+            .child(text.clone())
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.fill_empty_prompt(text.clone(), window, cx)))
+    }).collect()
 }
 
 fn terminal_link(cx: &mut Context<Desktop>) -> Stateful<Div> {

@@ -122,7 +122,8 @@ func serve(sock, handed string) error {
 		default:
 		}
 	}
-	keeper := &awake.Keeper{S: &awake.IOKit{}, Linger: 2 * time.Minute, After: time.After,
+	settings := config.NewSettings(home)
+	keeper := &awake.Keeper{S: &awake.IOKit{}, Enabled: settings.KeepAwake, Linger: settings.AwakeLinger, After: time.After,
 		OnHeld: func(on bool) { mon.Set(func(s *proto.HostState) { s.KeepingAwake = on }) }}
 	go keeper.Run(ctx, kick, func() bool { return agent.Busy(d.Agents.List()) })
 	go tick(ctx, mon, evs)
@@ -139,7 +140,6 @@ func serve(sock, handed string) error {
 		}
 		return "", false
 	}
-	settings := config.NewSettings(home)
 	worktreeNames := names.Open(home)
 	l := launch.New(d, reg, settings, evs)
 	l.Names = worktreeNames
@@ -158,9 +158,10 @@ func serve(sock, handed string) error {
 		}
 	}
 	autos := automation.Open(home)
+	autos.Grace, autos.History = settings.AutomationGrace, settings.AutomationHistory
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
 		Start: func(runID string, a proto.Automation) launch.Result {
-			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a), func(string, string) {}, func(launch.Creating) {})
+			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		}}
 	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
@@ -197,7 +198,7 @@ func serve(sock, handed string) error {
 		return err
 	}
 	live.Store(phones)
-	go watchTailnet(ctx, phones, mon)
+	go watchTailnet(ctx, live.Load, mon)
 
 	ln, err := ops.Listen(sock)
 	if err != nil {
@@ -233,8 +234,9 @@ func serve(sock, handed string) error {
 		}
 		h := mon.State()
 		return ops.Status{PID: os.Getpid(), Version: versionString(), Home: home, Sock: sock, Log: logPath,
-			Uptime: int64(time.Since(started).Seconds()), Listen: addrs(phones.Addrs()), Terminals: len(d.Terminals.List()),
-			Agents: agents, KeepingAwake: h.KeepingAwake, Tailnet: h.Tailnet, ShellEnv: d.ShellEnv(), Service: service}
+			Uptime: int64(time.Since(started).Seconds()), Listen: addrs(live.Load().Addrs()), Terminals: len(d.Terminals.List()),
+			Agents: agents, KeepingAwake: h.KeepingAwake, Tailnet: h.Tailnet, ShellEnv: d.ShellEnv(), Service: service,
+			Config: settings.Values(), Providers: l.Paths()}
 	}
 	err = (&ops.Server{
 		Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook,
@@ -243,8 +245,15 @@ func serve(sock, handed string) error {
 		WS: ws, AskOpen: d.AskOpen,
 		Status:     status,
 		LaunchExit: l.Exited,
-		ConfigSet:  configSetter(l, settings),
-		Upgrade:    up.run,
+		ConfigSet: networkSetter(&live, settings, func() {
+			mon.Set(func(s *proto.HostState) { s.Tailnet = live.Load().Tailnet() })
+		}, configSetter(l, settings, func() {
+			select {
+			case kick <- struct{}{}:
+			default:
+			}
+		})),
+		Upgrade: up.run,
 	}).Serve(ln)
 	if ctx.Err() != nil {
 		writer.Freeze()
@@ -267,9 +276,10 @@ func reap() {
 	}
 }
 
-func watchTailnet(ctx context.Context, ln *reach.Listener, mon *host.Monitor) {
+// watchTailnet follows phones, which a port change replaces.
+func watchTailnet(ctx context.Context, phones func() *reach.Listener, mon *host.Monitor) {
 	for {
-		mon.Set(func(s *proto.HostState) { s.Tailnet = ln.Tailnet() })
+		mon.Set(func(s *proto.HostState) { s.Tailnet = phones().Tailnet() })
 		select {
 		case <-ctx.Done():
 			return

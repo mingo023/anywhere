@@ -1,6 +1,7 @@
 use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
 use crate::desktop::Desktop;
 use crate::removal::Removal;
+use crate::settings::Section;
 use crate::status::Status;
 use crate::terminals::close::Busy;
 use crate::sidebar::column::{changes_dot, has_changes};
@@ -68,6 +69,8 @@ pub enum Confirm {
     Quit(usize),
     OpenExternal(String),
     DeleteAutomation(String),
+    ResetSection(Section),
+    RevokeDevice { id: String, name: String },
 }
 
 /// The sidebar row whose `⋯` menu is open.

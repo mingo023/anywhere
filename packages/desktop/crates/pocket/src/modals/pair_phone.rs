@@ -118,7 +118,10 @@ impl Desktop {
         let now = Instant::now();
         match ev {
             Event::PairCode { url, code, expires_at } => self.pair.offered(&url, code, expires_at, now_ms(), now),
-            Event::Paired(_) => self.pair.paired(now),
+            Event::Paired(_) => {
+                self.pair.paired(now);
+                self.load_host(cx);
+            }
             Event::PairFailed(message) => self.pair.failed(message),
             _ => return,
         }

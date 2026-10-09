@@ -3,7 +3,7 @@ use agents::Host;
 use gpui_kit::*;
 use theme::*;
 
-const TAILSCALE: &str = "https://tailscale.com/download/mac";
+pub(crate) const TAILSCALE: &str = "https://tailscale.com/download/mac";
 
 #[derive(Debug, PartialEq)]
 enum HostLine {

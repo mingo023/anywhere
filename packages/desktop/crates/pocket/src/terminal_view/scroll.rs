@@ -1,7 +1,7 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use gpui_kit::*;
-use theme::SANS;
+use theme::ui_font;
 use ui::Variant;
 
 /// Turns wheel and trackpad deltas into whole rows, carrying the fraction over within one gesture on one pane.
@@ -59,7 +59,7 @@ pub fn jump_pill(pane: &str, cx: &mut Context<Desktop>) -> Div {
         .h(px(28.))
         .rounded(px(14.))
         .text_size(px(12.))
-        .font_family(SANS)
+        .font_family(ui_font())
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.scroll_to_bottom(&pane, cx)));
     div().absolute().right(px(12.)).bottom(px(12.)).occlude().child(button)
 }

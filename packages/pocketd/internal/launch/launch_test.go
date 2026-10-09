@@ -52,6 +52,26 @@ func TestProvidersShowWhatIsInstalledAndTheCeiling(t *testing.T) {
 	}
 }
 
+func TestAProviderStartsFromTheCommandConfigSetNamed(t *testing.T) {
+	onPath(t, "claude")
+	l := launcher(t, `[]`)
+	dir := t.TempDir()
+	custom, plain := filepath.Join(dir, "claude-dev"), filepath.Join(dir, "notes")
+	os.WriteFile(custom, []byte("#!/bin/sh\n"), 0o755)
+	os.WriteFile(plain, []byte("x"), 0o644)
+	if err := l.CheckCommand(plain); err == nil {
+		t.Fatal("a file that isn't executable was accepted")
+	}
+	if err := l.CheckCommand(custom); err != nil {
+		t.Fatal(err)
+	}
+	l.set.Set("claude.command", custom)
+	l.set.Set("codex.command", plain)
+	if paths := l.Paths(); paths["claude"] != custom || paths["codex"] != "" {
+		t.Fatalf("got %v", paths)
+	}
+}
+
 func TestThePhoneIsHeldToItsCeiling(t *testing.T) {
 	project := t.TempDir()
 	l := launcher(t, `["`+project+`"]`)

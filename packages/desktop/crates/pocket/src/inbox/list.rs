@@ -1,11 +1,12 @@
-use super::{Note, asks, heading, notes, readable, step};
+use super::{FILTERS, Note, asks, heading, readable, step};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{LIGHTS, Layout, RAIL, column, drag_area, empty, state};
 use crate::util::{ago, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
-use ui::{self, Variant, icon_button};
+use store::prefs::sidebar::{InboxFilter, InboxSort};
+use ui::{self, Variant};
 
 impl Desktop {
     fn on_inbox_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -15,9 +16,10 @@ impl Desktop {
     }
 
     pub fn inbox_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let notes = notes(&self.agents);
+        let notes = self.shown_notes();
         let total = notes.len();
-        let headings: Vec<_> = (0..total).map(|i| heading(&notes, i)).collect();
+        let urgent = self.store.sidebar.inbox_sort == InboxSort::Urgent;
+        let headings: Vec<_> = (0..total).map(|i| heading(&notes, i).filter(|_| urgent)).collect();
         let now = now_ms();
         let header = drag_area(div())
             .h(px(52.))
@@ -28,7 +30,7 @@ impl Desktop {
             .items_center()
             .gap(px(4.))
             .child(div().flex_1().text_size(px(17.)).font_weight(FontWeight::BOLD).child("Inbox"))
-            .child(icon_button("inbox-filter", "filter"))
+            .child(self.inbox_filter(cx))
             .child(
                 ui::button("mark-seen", Variant::Ghost, None, "Mark all seen").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         let ids = readable(crate::inbox::notes(&this.agents));
@@ -70,6 +72,36 @@ impl Desktop {
             list = list.child(empty("Nothing needs you."));
         }
         column().child(header).child(list)
+    }
+
+    fn inbox_filter(&mut self, cx: &mut Context<Self>) -> Div {
+        let (chosen, open) = (self.inbox.filter, self.inbox.filter_open);
+        let button = ui::icon_button_sized("inbox-filter", "filter", 28., if chosen == InboxFilter::All { TEXT_2 } else { ACCENT }).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.inbox.filter_open = !open;
+            cx.notify();
+        }));
+        let rows = FILTERS.into_iter().map(|(filter, label)| {
+            div()
+                .id(label)
+                .h(px(26.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(5.))
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_2))
+                .text_size(px(13.))
+                .text_color(TEXT)
+                .child(div().w(px(14.)).flex_none().when(filter == chosen, |d| d.child(icon("check", 13., TEXT))))
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    (this.inbox.filter, this.inbox.filter_open) = (filter, false);
+                    this.select_note(0, cx);
+                }))
+        });
+        let menu = ui::menu_in("inbox-filter-in", ui::pop(div()).min_w(px(140.)).p(px(4.)).flex().flex_col().children(rows));
+        div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(32., menu)))
     }
 
     fn note_row(&self, i: usize, n: Note, now: i64, cx: &mut Context<Self>) -> Stateful<Div> {

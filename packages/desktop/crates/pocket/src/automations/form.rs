@@ -1,5 +1,6 @@
-use super::logic::{DEFAULT_EVERY, DEFAULT_TIME, fallback_name, when_label};
+use super::logic::{fallback_name, when_label};
 use agents::automations::{Automation, AutomationDraft, Schedule, valid_every, valid_time};
+use store::prefs::Automations as Defaults;
 
 pub const PROVIDERS: [&str; 2] = ["claude", "codex"];
 pub const WEEKDAYS: [u8; 5] = [1, 2, 3, 4, 5];
@@ -24,23 +25,32 @@ pub struct Values {
     pub time: String,
     pub every: String,
     pub enabled: bool,
+    /// Empty, as on automations saved before it, leaves it to the agent's own settings.
+    pub access: String,
+    pub new_worktree: bool,
 }
 
 impl Values {
     pub fn new(folder: String) -> Self {
-        let mut days = [false; 7];
-        WEEKDAYS.iter().for_each(|&d| days[d as usize] = true);
-        Self { id: None, title: String::new(), prompt: String::new(), provider: PROVIDERS[0], folder, scheduled: false, repeat: false, days, time: DEFAULT_TIME.into(), every: DEFAULT_EVERY.into(), enabled: true }
+        Self::from_defaults(folder, &Defaults::default())
     }
 
-    pub fn add_schedule(&mut self) {
-        let fresh = Self::new(String::new());
+    /// A new automation as Settings › Automations sets them up.
+    pub fn from_defaults(folder: String, d: &Defaults) -> Self {
+        let mut days = [false; 7];
+        d.days.iter().filter(|&&d| d < 7).for_each(|&d| days[d as usize] = true);
+        let provider = PROVIDERS.into_iter().find(|p| *p == d.agent).unwrap_or(PROVIDERS[0]);
+        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree }
+    }
+
+    pub fn add_schedule(&mut self, d: &Defaults) {
+        let fresh = Self::from_defaults(String::new(), d);
         (self.scheduled, self.repeat, self.days, self.time, self.every) = (true, false, fresh.days, fresh.time, fresh.every);
     }
 
     pub fn of(a: &Automation) -> Self {
         let provider = PROVIDERS.into_iter().find(|p| *p == a.provider).unwrap_or(PROVIDERS[0]);
-        let base = Self { id: Some(a.id.clone()), title: a.name.clone(), prompt: a.prompt.clone(), provider, folder: a.folder.clone(), scheduled: true, enabled: a.enabled, ..Self::new(String::new()) };
+        let base = Self { id: Some(a.id.clone()), title: a.name.clone(), prompt: a.prompt.clone(), provider, folder: a.folder.clone(), scheduled: true, enabled: a.enabled, access: a.access.clone(), new_worktree: a.new_worktree, ..Self::new(String::new()) };
         match &a.schedule {
             Schedule::Days { days, time } => {
                 let mut on = [false; 7];
@@ -85,7 +95,7 @@ impl Values {
         let schedule = self.schedule().ok_or("Add a trigger")?;
         let title = self.title.trim();
         let name = if title.is_empty() { fallback_name(prompt) } else { title.to_string() };
-        let draft = AutomationDraft { id: self.id.clone(), name, prompt: prompt.into(), provider: self.provider.into(), folder: self.folder.clone(), schedule, enabled: self.enabled };
+        let draft = AutomationDraft { id: self.id.clone(), name, prompt: prompt.into(), provider: self.provider.into(), folder: self.folder.clone(), schedule, enabled: self.enabled, access: self.access.clone(), new_worktree: self.new_worktree };
         draft.problem().map_or(Ok(draft), Err)
     }
 
@@ -178,7 +188,7 @@ mod tests {
     }
 
     fn automation(schedule: Schedule) -> Automation {
-        Automation { id: "a1".into(), name: "Review".into(), prompt: "Look".into(), provider: "codex".into(), folder: "/code/app".into(), schedule, enabled: false, next_run_at: 0 }
+        Automation { id: "a1".into(), name: "Review".into(), prompt: "Look".into(), provider: "codex".into(), folder: "/code/app".into(), schedule, enabled: false, access: String::new(), new_worktree: false, next_run_at: 0 }
     }
 
     #[test]
@@ -190,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn a_ready_form_runs_weekdays_with_claude_and_is_named_by_its_first_prompt_line() {
+    fn a_ready_form_runs_weekdays_with_claude_in_a_new_worktree_and_is_named_by_its_first_prompt_line() {
         let d = ready().draft().unwrap();
         assert_eq!(
             d,
@@ -202,6 +212,8 @@ mod tests {
                 folder: "/code/app".into(),
                 schedule: Schedule::Days { days: vec![1, 2, 3, 4, 5], time: "09:00".into() },
                 enabled: true,
+                access: "edits".into(),
+                new_worktree: true,
             }
         );
         assert_eq!(Values { title: " Mine ".into(), ..ready() }.draft().unwrap().name, "Mine");
@@ -229,6 +241,15 @@ mod tests {
         let d = v.draft().unwrap();
         assert_eq!((d.id.as_deref(), d.enabled, d.provider.as_str(), d.name.as_str()), (Some("a1"), false, "codex", "Review"));
         assert_eq!(d.schedule, Schedule::Days { days: vec![5], time: "17:30".into() });
+    }
+
+    #[test]
+    fn an_edit_keeps_the_access_and_worktree_and_one_saved_without_them_stays_on_the_agents_settings() {
+        let set = Automation { access: "auto".into(), new_worktree: true, ..automation(Schedule::Interval { every_min: 60 }) };
+        let d = Values::of(&set).draft().unwrap();
+        assert_eq!((d.access.as_str(), d.new_worktree), ("auto", true));
+        let d = Values::of(&automation(Schedule::Interval { every_min: 60 })).draft().unwrap();
+        assert_eq!((d.access.as_str(), d.new_worktree), ("", false));
     }
 
     #[test]
@@ -269,9 +290,19 @@ mod tests {
     #[test]
     fn adding_a_schedule_starts_from_the_weekday_morning_default() {
         let mut v = Values { repeat: true, time: "17:30".into(), every: "30".into(), ..Values::new("/code/app".into()) };
-        v.add_schedule();
+        v.add_schedule(&Defaults::default());
         let fresh = Values::new(String::new());
-        assert_eq!((v.scheduled, v.repeat, v.days, v.time, v.every), (true, false, fresh.days, fresh.time, fresh.every));
+        assert_eq!((v.scheduled, v.repeat, v.days, v.time, v.every), (true, false, fresh.days, fresh.time.clone(), fresh.every.clone()));
+        assert!(fresh.has_days(&WEEKDAYS) && fresh.time == "09:00" && fresh.every == "60");
+    }
+
+    #[test]
+    fn a_new_automation_starts_from_the_settings_defaults() {
+        let d = Defaults { agent: "codex".into(), time: "07:15".into(), days: vec![0, 6], every: 30, access: "ask".into(), new_worktree: true, ..Defaults::default() };
+        let mut v = Values::from_defaults("/f".into(), &d);
+        v.add_schedule(&d);
+        assert_eq!((v.provider, v.time.as_str(), v.every.as_str(), v.has_days(&WEEKENDS), v.has_days(&[1])), ("codex", "07:15", "30", true, false));
+        assert_eq!((v.access.as_str(), v.new_worktree), ("ask", true));
     }
 
     #[test]

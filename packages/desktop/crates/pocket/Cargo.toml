@@ -20,6 +20,7 @@ daemon.workspace = true
 futures.workspace = true
 git.workspace = true
 gpui-kit.workspace = true
+ignore.workspace = true
 image = { workspace = true, features = ["tiff"] }
 keys.workspace = true
 merman.workspace = true
@@ -37,6 +38,7 @@ workspace.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
-objc2-app-kit.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSEvent", "NSGraphics"] }
 block2.workspace = true
-objc2-foundation = { workspace = true, features = ["NSBundle"] }
+objc2-foundation = { workspace = true, features = ["NSBundle", "NSError", "NSFileManager", "NSURL"] }
+objc2-user-notifications = "0.3"

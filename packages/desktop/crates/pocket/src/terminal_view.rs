@@ -62,6 +62,28 @@ impl Drag {
     }
 }
 
+/// What letting go of a selecting press does besides ending the selection.
+#[derive(Debug, PartialEq)]
+pub enum Release {
+    Copy(String),
+    /// A click that selected nothing: opens the link under it, if any.
+    OpenLink,
+    Nothing,
+}
+
+pub fn release(selected: Option<String>, t: &store::prefs::Terminal) -> Release {
+    match selected {
+        Some(text) if t.copy_on_select => Release::Copy(text),
+        None if t.click_opens_links => Release::OpenLink,
+        _ => Release::Nothing,
+    }
+}
+
+/// Text that could run commands asks first, unless the program brackets pastes or the user turned the question off.
+pub fn asks_before_paste(confirm: bool, bracketed: bool, text: &str) -> bool {
+    confirm && !bracketed && !term::paste_is_safe(text)
+}
+
 /// Rows per autoscroll tick: one, two or three as the mouse gets further past the edge.
 pub fn tick_rows(at: &Pointer, line: f32) -> usize {
     let past = if at.y < 0. { -at.y } else { at.y - at.height as f64 };
@@ -145,7 +167,11 @@ impl Desktop {
         let Some(t) = self.terminals.sessions.term(pane) else { return false };
         let (f, cells) = t.frame();
         let Some(url) = link::link_at(cells, f.cols, at.row, at.col) else { return false };
-        self.open_browser(Some(url), window, cx);
+        if self.store.terminal.system_browser {
+            cx.open_url(&url);
+        } else {
+            self.open_browser(Some(url), window, cx);
+        }
         true
     }
 
@@ -191,12 +217,15 @@ impl Desktop {
         going
     }
 
-    pub(crate) fn select_release(&mut self) {
+    pub(crate) fn select_release(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.terminal.autoscroll = None;
-        if let Some(d) = self.terminal.selection.take()
-            && let Some(t) = self.terminals.sessions.term(&d.pane)
-        {
-            t.release();
+        let Some(d) = self.terminal.selection.take() else { return };
+        let Some(t) = self.terminals.sessions.term(&d.pane) else { return };
+        t.release();
+        match release(t.selection_text(), &self.store.terminal) {
+            Release::Copy(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+            Release::OpenLink => _ = self.open_link(&d.pane, d.at, window, cx),
+            Release::Nothing => {}
         }
     }
 
@@ -231,10 +260,9 @@ impl Desktop {
         self.offer_paste(pane, term::dropped_paths(paths.paths()), cx);
     }
 
-    /// Pastes at once when the pane brackets pastes or the text can't run anything; otherwise asks first.
     fn offer_paste(&mut self, pane: String, text: String, cx: &mut Context<Self>) {
         let Some(t) = self.terminals.sessions.term(&pane) else { return };
-        if t.mode(2004) || term::paste_is_safe(&text) {
+        if !asks_before_paste(self.store.terminal.confirm_paste, t.mode(2004), &text) {
             self.paste_into(&pane, &text, cx);
         } else {
             self.confirm = Some(Confirm::Paste { pane, text });
@@ -316,7 +344,7 @@ impl Desktop {
 
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
         self.panels.menu = None;
-        self.new_shell(Place::Pane(None), cx);
+        self.open_tab(Place::Pane(None), cx);
     }
 
     pub fn close_active_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
@@ -331,12 +359,28 @@ impl Desktop {
 
     pub(crate) fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.terminal.focused.clone().filter(|_| self.overlay.is_none()) else { return };
+        if keys::option_types(&ev.keystroke) && !self.store.terminal.option_as_meta.takes(option_held(true), option_held(false)) {
+            return;
+        }
         let Some(t) = self.terminals.sessions.term(&id) else { return };
         if let Some(bytes) = keys::key_bytes(&ev.keystroke, t) {
             self.send_input(&id, &bytes, cx);
             cx.stop_propagation();
         }
     }
+}
+
+/// Whether the left or right Option key is down in the event being handled; GPUI's modifiers don't say which.
+fn option_held(left: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // NX_DEVICELALTKEYMASK and NX_DEVICERALTKEYMASK, from IOKit's IOLLEvent.h.
+        let mask = if left { 0x20 } else { 0x40 };
+        let Some(mtm) = objc2::MainThreadMarker::new() else { return false };
+        objc2_app_kit::NSApplication::sharedApplication(mtm).currentEvent().is_some_and(|e| e.modifierFlags().0 & mask != 0)
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
 }
 
 /// Typed text arrives here rather than as key-downs so IMEs (Telex, dead keys, CJK) can compose it.
@@ -387,7 +431,8 @@ impl EntityInputHandler for Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drag, Pasted, pasted, tick_rows};
+    use super::{Drag, Pasted, Release, asks_before_paste, pasted, release, tick_rows};
+    use store::prefs::Terminal;
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use term::Pointer;
 
@@ -421,5 +466,29 @@ mod tests {
     fn text_pastes_as_text_and_an_empty_clipboard_pastes_nothing() {
         assert_eq!(pasted(&ClipboardItem::new_string("ls".into())), Some(Pasted::Text("ls".into())));
         assert_eq!(pasted(&ClipboardItem::new_string(String::new())), None);
+    }
+
+    #[test]
+    fn letting_go_of_a_selection_copies_it_only_when_asked() {
+        let copying = Terminal { copy_on_select: true, ..Terminal::default() };
+        assert_eq!(release(Some("ls".into()), &copying), Release::Copy("ls".into()));
+        assert_eq!(release(Some("ls".into()), &Terminal::default()), Release::Nothing);
+    }
+
+    #[test]
+    fn a_plain_click_opens_a_link_only_when_asked() {
+        let clicking = Terminal { click_opens_links: true, ..Terminal::default() };
+        assert_eq!(release(None, &clicking), Release::OpenLink);
+        assert_eq!(release(Some("x".into()), &clicking), Release::Nothing);
+        assert_eq!(release(None, &Terminal::default()), Release::Nothing);
+    }
+
+    #[test]
+    fn a_paste_that_could_run_commands_asks_unless_turned_off_or_bracketed() {
+        let lines = "rm -rf build\nmake\n";
+        assert!(asks_before_paste(true, false, lines));
+        assert!(!asks_before_paste(false, false, lines));
+        assert!(!asks_before_paste(true, true, lines));
+        assert!(!asks_before_paste(true, false, "hello"));
     }
 }

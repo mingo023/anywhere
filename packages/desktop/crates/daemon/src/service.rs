@@ -80,6 +80,32 @@ pub fn restart() -> Result<(), String> {
     Err(format!("{} needs macOS", plist()))
 }
 
+/// Whether opening at login must register (`Some(true)`) or unregister the app, given what macOS reports. One the user switched off in Login Items stays off.
+pub fn login_step(want: bool, s: Service) -> Option<bool> {
+    if want {
+        should_register(s).then_some(true)
+    } else {
+        (s == Service::Enabled).then_some(false)
+    }
+}
+
+/// Makes the app itself open at login, or not. Blocks on launchd; keep it off the UI thread.
+#[cfg(target_os = "macos")]
+pub fn open_at_login(on: bool) -> Result<(), String> {
+    let app = unsafe { objc2_service_management::SMAppService::mainAppService() };
+    let result = match login_step(on, Service::from_raw(unsafe { app.status() }.0)) {
+        Some(true) => unsafe { app.registerAndReturnError() },
+        Some(false) => unsafe { app.unregisterAndReturnError() },
+        None => Ok(()),
+    };
+    result.map_err(|e| e.localizedDescription().to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn open_at_login(_: bool) -> Result<(), String> {
+    Err("Opening at login needs macOS".into())
+}
+
 #[cfg(target_os = "macos")]
 pub fn open_login_items() {
     unsafe { objc2_service_management::SMAppService::openSystemSettingsLoginItems() }
@@ -102,6 +128,15 @@ mod tests {
     fn a_never_registered_agent_gets_registered() {
         assert!(should_register(Service::NotRegistered));
         assert!(should_register(Service::NotFound));
+    }
+
+    #[test]
+    fn opening_at_login_changes_only_what_macos_does_not_already_have() {
+        assert_eq!(login_step(true, Service::NotRegistered), Some(true));
+        assert_eq!(login_step(true, Service::RequiresApproval), None);
+        assert_eq!(login_step(true, Service::Enabled), None);
+        assert_eq!(login_step(false, Service::Enabled), Some(false));
+        assert_eq!(login_step(false, Service::NotFound), None);
     }
 
     #[test]

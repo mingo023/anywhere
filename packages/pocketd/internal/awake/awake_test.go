@@ -17,11 +17,12 @@ type rig struct {
 	kick   chan struct{}
 	linger chan time.Time
 	busy   atomic.Bool
+	off    atomic.Bool
 }
 
 func start(t *testing.T) *rig {
 	r := &rig{calls: make(chan string, 8), kick: make(chan struct{}), linger: make(chan time.Time, 1)}
-	k := &Keeper{S: fakeSleeper{r.calls}, Linger: 2 * time.Minute, After: func(time.Duration) <-chan time.Time { return r.linger }}
+	k := &Keeper{S: fakeSleeper{r.calls}, Enabled: func() bool { return !r.off.Load() }, Linger: func() time.Duration { return 2 * time.Minute }, After: func(time.Duration) <-chan time.Time { return r.linger }}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go k.Run(ctx, r.kick, r.busy.Load)
@@ -95,4 +96,15 @@ func TestIOKitHoldsThenReleases(t *testing.T) {
 	if err := s.Release(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestKeeperLetsTheMacSleepOnceKeepingAwakeIsTurnedOff(t *testing.T) {
+	r := start(t)
+	r.set(true)
+	r.expect(t, "hold")
+	r.off.Store(true)
+	r.set(true)
+	r.expect(t, "release")
+	r.set(true)
+	r.none(t)
 }

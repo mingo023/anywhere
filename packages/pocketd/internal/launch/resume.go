@@ -6,7 +6,6 @@ import (
 	"unicode"
 
 	"pocketd/internal/state"
-	"pocketd/internal/terminal"
 )
 
 var resumeID = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
@@ -86,14 +85,17 @@ func invalidResume(detail string) *Failure {
 }
 
 // resumeCmd is how Daemon.Resume runs saved's resume argv in a login shell,
-// or the reason it can't.
-func resumeCmd(saved state.Terminal, shell, exe string, env []string) (string, []string, string) {
+// or the reason it can't. find is where the provider's command is, which
+// config.json may point away from the bare name the argv starts with.
+func resumeCmd(saved state.Terminal, shell, exe string, find func(provider string) (string, bool)) (string, []string, string) {
 	argv, f := Resume(saved)
 	if f != nil {
 		return "", nil, f.Code
 	}
-	if _, err := terminal.LookPath(argv[0], env); err != nil {
+	path, ok := find(saved.Provider)
+	if !ok {
 		return "", nil, "resume_not_accepted"
 	}
+	argv[0] = path
 	return shell, Wrap(shell, exe, "", argv), ""
 }

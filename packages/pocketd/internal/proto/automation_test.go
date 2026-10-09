@@ -98,6 +98,8 @@ func TestAnAutomationSaveWithAnythingOffTheContractIsMalformed(t *testing.T) {
 		save(withSchedule(`{"kind":"interval","everyMin":60,"days":[1]}`)),
 		save(withSchedule(`{"kind":"interval","everyMin":60,"time":"09:00"}`)),
 		save(withSchedule(`{"kind":"weekly"}`)),
+		save(good(`,"access":"plan"`)),
+		save(good(`,"newWorktree":"yes"`)),
 		save(`null`),
 		`{"type":"automation.save","id":"1"}`,
 		`{"type":"automation.enable","id":"1","automationId":"a"}`,
@@ -108,6 +110,18 @@ func TestAnAutomationSaveWithAnythingOffTheContractIsMalformed(t *testing.T) {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
 			t.Errorf("%s: got %v, want ErrMalformed", raw, err)
 		}
+	}
+}
+
+func TestAnAutomationSaveCarriesItsAccessAndWorktreeAndOlderOnesGoWithout(t *testing.T) {
+	const old = `{"type":"automation.save","id":"1","automation":{"name":"n","prompt":"p","provider":"claude","folder":"/f","schedule":{"kind":"interval","everyMin":60},"enabled":true}}`
+	m, err := DecodeClient([]byte(strings.Replace(old, `"enabled":true`, `"enabled":true,"access":"edits","newWorktree":true`, 1)))
+	if err != nil || m.Automation.Access != "edits" || !m.Automation.NewWorktree {
+		t.Fatalf("%+v %v", m, err)
+	}
+	m, err = DecodeClient([]byte(old))
+	if err != nil || m.Automation.Access != "" || m.Automation.NewWorktree {
+		t.Fatalf("%+v %v", m, err)
 	}
 }
 
