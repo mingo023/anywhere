@@ -81,11 +81,15 @@ func Listen(path string) (net.Listener, error) {
 		return nil, err
 	}
 	os.Remove(path)
-	ln, err := net.Listen("unix", path)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		return nil, err
 	}
-	return ln, os.Chmod(path, 0o600)
+	if err := os.Chmod(path, 0o600); err != nil {
+		ln.Close()
+		return nil, err
+	}
+	return keep(path, ln), nil
 }
 
 type Server struct {

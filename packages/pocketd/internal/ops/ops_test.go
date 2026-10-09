@@ -168,6 +168,30 @@ func TestSocketIsPrivate(t *testing.T) {
 	}
 }
 
+func TestARemovedSocketIsListenedOnAgain(t *testing.T) {
+	keepEvery = 10 * time.Millisecond
+	t.Cleanup(func() { keepEvery = 2 * time.Second })
+	path := serve(t, &Server{Terminals: terminal.NewManager()})
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		c, err := Dial(path)
+		if err == nil {
+			c.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("socket never came back: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("%v %v", st, err)
+	}
+}
+
 func TestSnapshotPrecedesLiveOutput(t *testing.T) {
 	path := serve(t, &Server{Terminals: terminal.NewManager()})
 	c := dial(t, path)

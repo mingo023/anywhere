@@ -9,8 +9,10 @@ import (
 )
 
 // hookRetry is how long a hook keeps redialing. An upgrading pocketd drops
-// the socket for a moment, and its successor asks the user again.
-var hookRetry = 10 * time.Second
+// the socket for a moment, and its successor asks the user again. It must stay
+// under the 5 s timeout of the plugin's status hooks, or a pocketd that is
+// down shows up as a timeout error in Claude instead of a silent no-op.
+var hookRetry = 3 * time.Second
 
 // hook runs for every Claude Code hook in pocketd's plugin. Printing nothing
 // lets Claude go on as if there were no hook, so every failure falls back to
