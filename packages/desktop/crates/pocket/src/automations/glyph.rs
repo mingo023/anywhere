@@ -19,7 +19,7 @@ pub fn label(status: RunStatus) -> &'static str {
 pub fn tone(status: RunStatus) -> Token {
     match status {
         RunStatus::Waiting => WAITING,
-        RunStatus::Running | RunStatus::Pending => ACCENT,
+        RunStatus::Running | RunStatus::Pending => WORKING,
         RunStatus::Succeeded => SUCCESS_TEXT,
         RunStatus::Failed => FAILED,
         RunStatus::Skipped | RunStatus::Cancelled | RunStatus::Unknown => TEXT_4,

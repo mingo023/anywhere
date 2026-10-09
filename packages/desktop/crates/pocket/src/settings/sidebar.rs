@@ -29,10 +29,10 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::switch("external-worktrees", "Session list", "Show worktrees not created by Anywhere", |s| s.sidebar.external_worktrees, |s, on| s.sidebar.external_worktrees = on)
         .hint("Worktrees you made with git worktree add")
         .advanced(),
-    Setting::switch("usage-card", "Usage card", "Show usage and context card", |s| s.sidebar.usage_card, |s, on| s.sidebar.usage_card = on).hint("Context left in each agent's newest session"),
-    Setting::stepper("usage-warn", "Usage card", "Warn at", (50, 95, 5), "%", |s| s.sidebar.warn_at as i32, |s, n| s.sidebar.set_warn(n as u32)).hint("The card turns amber").under(|s| s.sidebar.usage_card),
-    Setting::stepper("usage-critical", "Usage card", "Critical at", (60, 99, 1), "%", |s| s.sidebar.critical_at as i32, |s, n| s.sidebar.set_critical(n as u32))
-        .hint("The card turns red")
+    Setting::switch("usage-card", "Context bars", "Show context bars on the rail", |s| s.sidebar.usage_card, |s, on| s.sidebar.usage_card = on).hint("Context left in each agent's newest session"),
+    Setting::stepper("usage-warn", "Context bars", "Warn at", (50, 95, 5), "%", |s| s.sidebar.warn_at as i32, |s, n| s.sidebar.set_warn(n as u32)).hint("The bars turn amber").under(|s| s.sidebar.usage_card),
+    Setting::stepper("usage-critical", "Context bars", "Critical at", (60, 99, 1), "%", |s| s.sidebar.critical_at as i32, |s, n| s.sidebar.set_critical(n as u32))
+        .hint("The bars turn red")
         .under(|s| s.sidebar.usage_card),
     Setting::switch("jump-hints", "Jump hints", "Show jump hints while holding Control", |s| s.sidebar.jump_hints, |s, on| s.sidebar.jump_hints = on).hint("Numbers appear on sessions; press one with ⌃ to jump"),
     Setting::stepper("jump-delay", "Jump hints", "Delay before hints appear", (0, 1000, 20), " ms", |s| s.sidebar.hint_delay_ms as i32, |s, n| s.sidebar.hint_delay_ms = n as u32)

@@ -255,7 +255,7 @@ pub struct Tone {
 pub fn tone(state: State) -> Option<Tone> {
     let (glyph, mark, text, bg) = match state {
         State::NeedsYou => (Glyph::Dot, WAITING, WAITING_TEXT, WAITING_BG),
-        State::Working => (Glyph::Spinner, ACCENT, ACCENT, ACCENT_TINT),
+        State::Working => (Glyph::Spinner, WORKING, ACCENT, ACCENT_TINT),
         State::Done(..) => (Glyph::Check, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
         State::Failed => (Glyph::Cross, FAILED, FAILED_TEXT, FAILED_BG),
         _ => return None,
@@ -364,7 +364,7 @@ fn corner_badges(state: Option<State>) -> Vec<Div> {
             .justify_center()
             .rounded(px(6.))
             .bg(CUTOUT)
-            .child(dot_spinner("tile-spinner", 10., ACCENT))
+            .child(dot_spinner("tile-spinner", 10., WORKING))
     });
     alert.into_iter().chain(working).collect()
 }
@@ -1087,7 +1087,7 @@ pub fn failure(message: String, detail: String) -> Div {
 #[cfg(test)]
 mod tests {
     use super::{Glyph, State, Tone, tone, word};
-    use theme::{ACCENT, ACCENT_TINT};
+    use theme::{ACCENT, ACCENT_TINT, WORKING};
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];
 
@@ -1105,8 +1105,8 @@ mod tests {
     }
 
     #[test]
-    fn working_reads_working_in_accent() {
-        assert_eq!(tone(State::Working), Some(Tone { glyph: Glyph::Spinner, mark: ACCENT, text: ACCENT, bg: ACCENT_TINT }));
+    fn working_spins_orange_and_reads_working_in_accent() {
+        assert_eq!(tone(State::Working), Some(Tone { glyph: Glyph::Spinner, mark: WORKING, text: ACCENT, bg: ACCENT_TINT }));
         assert_eq!(word(State::Working), "Working");
     }
 }

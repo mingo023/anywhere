@@ -1,9 +1,6 @@
 use crate::desktop::Desktop;
-use crate::terminal_view::context;
 use agents::{Agents, Level, level, percent};
 use store::prefs::Sidebar;
-use gpui_kit::*;
-use theme::*;
 
 /// Context left in each provider's newest session, and how full it is against the sidebar's thresholds.
 fn usage(agents: &Agents, s: &Sidebar) -> Vec<(&'static str, u64, Level)> {
@@ -17,31 +14,6 @@ impl Desktop {
             return Vec::new();
         }
         usage(&self.agents, &self.store.sidebar)
-    }
-
-    pub(super) fn usage_card(&self) -> Option<Div> {
-        let parts: Vec<Div> = self
-            .usage()
-            .into_iter()
-            .map(|(p, left, level)| div().flex().items_center().gap(px(6.)).child(provider_icon(p, 12., TEXT_2)).child(div().text_color(context::text(level)).child(format!("{left}%"))))
-            .collect();
-        (!parts.is_empty()).then(|| {
-            div()
-                .mt(px(8.))
-                .mx(px(2.))
-                .py(px(8.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .rounded(px(12.))
-                .bg(Token::new(0xffffff8c, 0xebebeb0d))
-                .shadow(vec![ui::ring(FILL_3, 0.5)])
-                .text_size(px(12.))
-                .text_color(TEXT_2)
-                .children(parts)
-                .child(div().ml_auto().text_color(TEXT_2).child("context left"))
-        })
     }
 }
 

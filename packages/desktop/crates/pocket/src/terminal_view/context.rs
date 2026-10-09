@@ -12,14 +12,6 @@ pub(crate) fn glyph(level: Level) -> Token {
     }
 }
 
-pub(crate) fn text(level: Level) -> Token {
-    match level {
-        Level::Low => TEXT_2,
-        Level::Warn => WAITING_TEXT,
-        Level::Danger => FAILED_TEXT,
-    }
-}
-
 fn thousands(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
@@ -94,9 +86,9 @@ pub(crate) fn ring(used: u64, window: u64, level: Level) -> Stateful<Div> {
 
 #[cfg(test)]
 mod tests {
-    use super::{glyph, text, thousands};
+    use super::{glyph, thousands};
     use agents::Level;
-    use theme::{FAILED, FAILED_TEXT, TEXT_2, TEXT_3, WAITING, WAITING_TEXT};
+    use theme::{FAILED, TEXT_3, WAITING};
 
     #[test]
     fn thousands_groups_digits() {
@@ -106,6 +98,5 @@ mod tests {
     #[test]
     fn context_colours_follow_the_level() {
         assert_eq!([Level::Low, Level::Warn, Level::Danger].map(glyph), [TEXT_3, WAITING, FAILED]);
-        assert_eq!([Level::Low, Level::Warn, Level::Danger].map(text), [TEXT_2, WAITING_TEXT, FAILED_TEXT]);
     }
 }

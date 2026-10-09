@@ -207,7 +207,7 @@ pub const SELECTION: Token = Token::new(0x11111324, 0xebebeb33).accent(Accent::F
 /// Translucent so the character under a block cursor stays readable.
 pub const TERM_CURSOR: Token = Token::new(0x3030358c, 0xebebeb66);
 
-/// No hue: the accent is ink, so links, the working spinner and focus read as text weight rather than colour.
+/// No hue: the accent is ink, so links and focus read as text weight rather than colour.
 pub const ACCENT: Token = Token::new(0x3f3f46ff, 0xd4d4d4ff);
 pub const ACCENT_BG: Token = Token::new(0x1111131c, 0xebebeb33).accent(Accent::Fill(0x33));
 pub const ACCENT_RING: Token = Token::new(0x11111333, 0xebebeb66).accent(Accent::Fill(0x80));
@@ -232,6 +232,7 @@ pub const FAILED_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff);
 pub const SUCCESS: Token = Token::new(0x2b9a66ff, 0x30a46cff);
 pub const SUCCESS_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff);
 pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
+pub const WORKING: Token = Token::new(0xcc4e00ff, 0xf76b15ff);
 pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
 
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
@@ -492,7 +493,7 @@ mod tests {
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, highlight_theme_with, material, material_icon,
-        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, accent_rgba,
+        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, WORKING, accent_rgba,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, rgba};
@@ -510,7 +511,7 @@ mod tests {
         ("DIFF_DEL_TEXT", DIFF_DEL_TEXT),
         ("MODIFIED", MODIFIED),
     ];
-    const GLYPHS: [(&str, Token); 5] = [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("TEXT_3", TEXT_3)];
+    const GLYPHS: [(&str, Token); 6] = [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("WORKING", WORKING), ("TEXT_3", TEXT_3)];
     const FILLS: [(&str, Token); 2] = [("FAILED", FAILED), ("WAITING", WAITING)];
     /// FAILED and WAITING keep WHITE in both schemes (the owner's dark-theme plan), so these dark pairs stay below AA.
     const DARK_EXEMPT: [&str; 2] = ["WHITE on FAILED", "WHITE on WAITING"];

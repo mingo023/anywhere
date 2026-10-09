@@ -150,37 +150,12 @@ impl Desktop {
             .text_size(px(11.))
             .font_weight(FontWeight::BOLD)
             .text_color(TEXT_3)
-            .child(div().flex_1().child("Projects"))
-            .child(
-                icon_button_sized("aside-add", "plus", 22., TEXT_3)
-                    .rounded(px(6.))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx))),
-            );
+            .child("Projects");
         let mut repos = Vec::new();
         for (i, p) in self.projects().into_iter().enumerate() {
             repos.push(self.project_block(i, &p, cx));
         }
         let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(1.)).children(repos);
-        let foot = div()
-            .pt(px(8.))
-            .px(px(2.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .child(
-                ui::button("aside-add-repo", ui::Variant::Glass, Some("plus"), "Add project")
-                    .flex_1()
-                    .h(px(36.))
-                    .rounded(px(17.))
-                    .justify_center()
-                    .text_size(px(13.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx))),
-            )
-            .child(
-                ui::glass(icon_button_sized("aside-settings", "settings", 34., TEXT).rounded(px(17.)))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx))),
-            );
         let aside = ui::side(div())
             .w(px(self.width(Column::Projects, 272.)))
             .flex_none()
@@ -194,10 +169,7 @@ impl Desktop {
             .children(self.agents.automations_offered().then_some(automations))
             .child(header)
             .child(body)
-            .children(self.usage_card())
-            .children(self.host_lines(cx))
-            .children(self.update_card(cx))
-            .child(foot);
+            .children(self.update_card(cx));
         self.resizable(aside, Column::Projects, cx)
     }
 
