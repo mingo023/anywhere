@@ -1,7 +1,26 @@
 # Changelog
 
-## 0.1.1
+## 0.1.2
 
+- Pick a session's model and permission mode beside its agent; a project remembers the permission it last used
+- Empty the project sidebar down to projects, and spin working agents and running automations in orange
+- Move Sessions, Explorer and Changes to a right-hand panel behind an icon rail, toggled by `⌘\`
+- Start an agent from an empty pane, with the agent picker, starter tasks and a Terminal link
+- Rebuild Settings on the dark design, with every section wired up
+- Add automations: scheduled agent runs with a list, runs feed and editor
+- Rework the new-session sheet around a checkout picker, branch search and PR link
+- Resize the Changes graph by dragging its top edge, remembered across launches
+- Confirm quitting with the native alert
+- Show sidebar status on the left of each project and worktree
+- Open the session when an inbox row is clicked
+- Count failed and done sessions in the Dock badge
+- Read Claude's status from its own reports, more reliably than hooks
+- Wait for an outdated service to update, then offer a restart
+- Stop opening then closing a panel from the rail from zooming the window
+- Recover pocketd's socket when its file is removed
+- Show the app icon in prompts on macOS 26
+- Bind a prompt-launched Codex session to its own thread
+- Redraw less: cap the working spinner at 10 fps
 - Make the file preview glass like the other panes
 - Switch tabs with ⌘1–9; jump to sessions with ⌃1–9
 - Let ⌘↵ submit text fields; open the inbox's session only from the inbox
