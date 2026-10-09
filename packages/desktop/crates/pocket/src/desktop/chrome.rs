@@ -90,21 +90,39 @@ struct WindowMove(bool);
 
 impl Global for WindowMove {}
 
+#[derive(Debug, PartialEq)]
+enum BarPress {
+    Arm,
+    Zoom,
+}
+
+/// What a press on a drag area does; one on a control in it is the control's, so a quick second click doesn't zoom the window.
+fn bar_press(click_count: usize, on_control: bool) -> Option<BarPress> {
+    match click_count {
+        _ if on_control => None,
+        1 => Some(BarPress::Arm),
+        2 => Some(BarPress::Zoom),
+        _ => None,
+    }
+}
+
 pub fn drag_area(d: Div) -> Div {
     let disarm = |_: &MouseUpEvent, _: &mut Window, cx: &mut App| cx.set_global(WindowMove(false));
-    d.on_mouse_down(MouseButton::Left, |ev, window, cx| match ev.click_count {
-        1 => cx.set_global(WindowMove(true)),
-        2 => window.titlebar_double_click(),
-        _ => {}
-    })
-    .on_mouse_up(MouseButton::Left, disarm)
-    .on_mouse_up_out(MouseButton::Left, disarm)
-    .on_mouse_move(|_, window, cx| {
-        if cx.try_global::<WindowMove>().is_some_and(|m| m.0) {
-            cx.set_global(WindowMove(false));
-            window.start_window_move();
-        }
-    })
+    // Cleared on the way down, so only a control under this press, whose handler runs before ours on the way up, sets it.
+    d.capture_any_mouse_down(|_, _, cx| cx.set_global(ui::ControlPress(false)))
+        .on_mouse_down(MouseButton::Left, |ev, window, cx| match bar_press(ev.click_count, cx.global::<ui::ControlPress>().0) {
+            Some(BarPress::Arm) => cx.set_global(WindowMove(true)),
+            Some(BarPress::Zoom) => window.titlebar_double_click(),
+            None => {}
+        })
+        .on_mouse_up(MouseButton::Left, disarm)
+        .on_mouse_up_out(MouseButton::Left, disarm)
+        .on_mouse_move(|_, window, cx| {
+            if cx.try_global::<WindowMove>().is_some_and(|m| m.0) {
+                cx.set_global(WindowMove(false));
+                window.start_window_move();
+            }
+        })
 }
 
 pub fn state(status: Status, added: usize, removed: usize) -> State {
@@ -279,7 +297,13 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Layout, Screen, compact_pad, sidebar_toggled};
+    use super::{BarPress, Layout, Screen, bar_press, compact_pad, sidebar_toggled};
+
+    #[test]
+    fn a_double_click_on_a_bar_zooms_the_window_but_not_on_a_control_in_it() {
+        assert_eq!([bar_press(1, false), bar_press(2, false), bar_press(3, false)], [Some(BarPress::Arm), Some(BarPress::Zoom), None]);
+        assert_eq!([bar_press(1, true), bar_press(2, true)], [None, None]);
+    }
 
     #[test]
     fn cmd_b_swaps_the_projects_sidebar_for_the_rail_and_brings_it_back() {

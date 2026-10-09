@@ -18,6 +18,16 @@ pub fn row_shadow() -> Vec<BoxShadow> {
     vec![shadow(rgba(0x1111130f), 1., 2.), ring(rgba(0x1111130f), 0.5)]
 }
 
+/// Whether the press being dispatched landed on a control. A flag the window's drag areas read, as `stop_propagation` or `prevent_default` would also keep the press from moving focus.
+pub struct ControlPress(pub bool);
+
+impl Global for ControlPress {}
+
+/// Keeps a press on `e` from moving or zooming the window when `e` sits in a drag area.
+pub fn control<E: InteractiveElement>(e: E) -> E {
+    e.on_mouse_down(MouseButton::Left, |_, _, cx| cx.set_global(ControlPress(true)))
+}
+
 /// Flat surface that holds content.
 pub fn page<E: Styled>(e: E) -> E {
     e.bg(PAGE)
@@ -83,8 +93,7 @@ pub fn primary<E: Styled>(e: E) -> E {
 }
 
 pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, label: impl IntoElement) -> Stateful<Div> {
-    let d = div()
-        .id(id)
+    let d = control(div().id(id))
         .h(px(32.))
         .px(px(12.))
         .flex()
@@ -117,7 +126,7 @@ pub fn button_kbd(keys: &str) -> Div {
 }
 
 fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
-    div().id(id).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3))
+    control(div().id(id)).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3))
 }
 
 fn glyph_button(id: impl Into<ElementId>, name: &str, w: f32, h: f32, radius: f32, color: Token) -> Stateful<Div> {
@@ -384,8 +393,7 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>)
 const ROW_GROUP: &str = "sidebar-row";
 
 fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
-    div()
-        .id(id)
+    control(div().id(id))
         .group(ROW_GROUP)
         .h(px(28.))
         .px(px(6.))
@@ -982,8 +990,7 @@ pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Statefu
 
 /// Rounded search-like field that opens something when clicked.
 pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, keys: &str) -> Stateful<Div> {
-    div()
-        .id(id)
+    control(div().id(id))
         .h(px(36.))
         .px(px(12.))
         .flex()

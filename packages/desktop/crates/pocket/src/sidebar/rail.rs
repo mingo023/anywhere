@@ -7,8 +7,7 @@ use gpui_kit::*;
 use theme::*;
 
 fn rail_slot(id: impl Into<ElementId>, active: bool) -> Stateful<Div> {
-    div()
-        .id(id)
+    ui::control(div().id(id))
         .relative()
         .size(px(32.))
         .flex()

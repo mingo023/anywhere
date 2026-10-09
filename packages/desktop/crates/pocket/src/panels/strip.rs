@@ -194,8 +194,7 @@ impl Desktop {
 
     fn new_tab_controls(&self, pane: PaneId, cx: &mut Context<Self>) -> Div {
         let open = self.panels.menu == Some(pane);
-        let plus = div()
-            .id("new-tab")
+        let plus = ui::control(div().id("new-tab"))
             .size(px(28.))
             .ml(px(2.))
             .flex()
@@ -263,8 +262,7 @@ impl Desktop {
                     Tab::Term(id) => self.terminals.may_close(id, observe),
                     Tab::Doc(_) | Tab::Web(_) => true,
                 };
-                let close = div()
-                    .id(("close-tab", i))
+                let close = ui::control(div().id(("close-tab", i)))
                     .size(px(20.))
                     .mr(px(4.))
                     .flex()
@@ -285,8 +283,7 @@ impl Desktop {
                     Tab::Doc(d) => Some(d.clone()),
                     Tab::Term(_) | Tab::Web(_) => None,
                 };
-                let tab = div()
-                    .id(("tab", i))
+                let tab = ui::control(div().id(("tab", i)))
                     .h(px(28.))
                     .pl(px(10.))
                     .pr(px(6.))
