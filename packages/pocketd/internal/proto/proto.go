@@ -202,6 +202,7 @@ type AgentSummary struct {
 	TokensUsed        int64  `json:"tokensUsed,omitempty"`
 	ContextWindow     int64  `json:"contextWindow,omitempty"`
 	Origin            string `json:"origin"`
+	Activity          string `json:"activity,omitempty"`
 }
 
 type PermissionRequest struct {

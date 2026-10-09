@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -337,5 +338,212 @@ func TestAHookWhoseNearestClaudeIsNotInThatTerminalIsRefusedAsHookForged(t *test
 	}
 	if s := pr.a.Summary().Status; s == "needsYou" {
 		t.Fatal("a refused hook changed the agent")
+	}
+}
+
+func reportState(d *Daemon, pr *presence, state string) {
+	d.Report(pr.t.Info().ID, terminal.Report{State: state, App: "claude-code"})
+}
+
+func statusOf(d *Daemon, term *terminal.Terminal) string { a, _ := agentIn(d, term); return a.Status }
+
+func TestEachReportReplacesTheActivity(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	d.Report(pr.t.Info().ID, terminal.Report{State: "working", Msg: "Removing marker file"})
+	if a, _ := agentIn(d, term); a.Activity != "Removing marker file" {
+		t.Fatalf("activity = %q", a.Activity)
+	}
+	reportState(d, pr, "done")
+	if a, _ := agentIn(d, term); a.Activity != "" {
+		t.Fatalf("activity = %q, want cleared: a report replaces its record", a.Activity)
+	}
+}
+
+func TestAClearReportEmptiesTheActivity(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	d.Report(pr.t.Info().ID, terminal.Report{State: "working", Msg: "Removing marker file"})
+	d.Report(pr.t.Info().ID, terminal.Report{State: "clear", Msg: "stale"})
+	if a, _ := agentIn(d, term); a.Activity != "" {
+		t.Fatalf("activity = %q", a.Activity)
+	}
+}
+
+func TestReportsDriveTheClaudeStatus(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	for _, c := range []struct{ state, want string }{{"working", "working"}, {"blocked", "needsYou"}, {"working", "working"}, {"done", "done"}, {"working", "working"}, {"idle", "idle"}} {
+		reportState(d, pr, c.state)
+		if got := statusOf(d, term); got != c.want {
+			t.Fatalf("after %s: %s, want %s", c.state, got, c.want)
+		}
+	}
+}
+
+func TestAnErrorReportEndsFailed(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "working")
+	reportState(d, pr, "error")
+	if a, _ := agentIn(d, term); a.Status != "done" || !a.Failed {
+		t.Fatalf("agent = %+v", a)
+	}
+}
+
+func TestAWorkingReportDoesNotHideAnOpenPhoneAsk(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	pr.mu.Lock()
+	pr.asks["k"] = 1
+	pr.mu.Unlock()
+	pr.a.NeedsYou()
+	reportState(d, pr, "working")
+	if got := statusOf(d, term); got != "needsYou" {
+		t.Fatalf("status = %s", got)
+	}
+}
+
+func TestAReportInAnyOtherProcessIsIgnored(t *testing.T) {
+	d := newDaemon(t)
+	term := shell(t, d)
+	d.Report(term.Info().ID, terminal.Report{State: "working"})
+	if _, ok := agentIn(d, term); ok {
+		t.Fatal("a shell got an agent")
+	}
+}
+
+func TestHooksStopDrivingStatusOnceTheClaudeReports(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit"}`)
+	if got := statusOf(d, term); got != "working" {
+		t.Fatalf("before a report: %s", got)
+	}
+	reportState(d, pr, "idle")
+	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit"}`)
+	hookFrom(d, pr, `{"hook_event_name":"Stop"}`)
+	if got := statusOf(d, term); got != "idle" {
+		t.Fatalf("after a report: %s (a Stop hook must not make it Done)", got)
+	}
+}
+
+func TestEscDoesNotClearAReportingClaude(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "working")
+	d.Input(term.Info().ID, []byte("\x1b"))
+	if got := statusOf(d, term); got != "working" {
+		t.Fatalf("status = %s; the idle report clears it, not the key", got)
+	}
+}
+
+func TestAReportKeepsAClaudeAttachedWithoutAHook(t *testing.T) {
+	defer func(w time.Duration) { ClaudeAttachWait = w }(ClaudeAttachWait)
+	ClaudeAttachWait = 100 * time.Millisecond
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	reportState(d, pr, "idle")
+	time.Sleep(2 * ClaudeAttachWait)
+	if a, _ := agentIn(d, term); !a.Attached {
+		t.Fatal("a reporting claude was marked not attached")
+	}
+}
+
+func TestAClaudeStartsInTheStateItAlreadyReported(t *testing.T) {
+	d := newDaemon(t)
+	term, applied := reportingClaude(t, d, "working")
+	waitApplied(t, applied, "working")
+	if _, ok := agentIn(d, term); ok {
+		t.Fatal("the agent was found before the poll")
+	}
+	waitAgent(t, d, term)
+	if got := statusOf(d, term); got != "working" {
+		t.Fatalf("status = %s", got)
+	}
+}
+
+func printReport(term *terminal.Terminal, fields string) {
+	term.Write([]byte(`printf '\033]7501;` + fields + `\033\\'` + "\r"))
+}
+
+func TestANewClaudeDoesNotInheritTheReportOfOneThatEnded(t *testing.T) {
+	d := newDaemon(t)
+	term := shell(t, d)
+	claude := fakeAgent(t, "claude")
+	printReport(term, "state=working:app=claude-code")
+	eventually(t, "the report", func() bool { return term.Program() != nil })
+	term.Write([]byte(claude + "\r"))
+	first := waitAgent(t, d, term)
+	if first.Status != "working" {
+		t.Fatalf("the first claude: %s, want working from the report that beat the poll", first.Status)
+	}
+	term.Write([]byte{0x03})
+	waitGone(t, d, first.ID)
+	term.Write([]byte(claude + "\r"))
+	second := waitAgent(t, d, term)
+	if second.Status != "idle" || d.presentIn(term.Info().ID).isReported() {
+		t.Fatalf("the second claude started from the first's report: %+v", second)
+	}
+}
+
+func TestOnlyAClaudeCodeReportIsReplayedIntoANewClaude(t *testing.T) {
+	d := newDaemon(t)
+	term := shell(t, d)
+	printReport(term, "state=working:app=other")
+	eventually(t, "the report", func() bool { return term.Program() != nil })
+	term.Write([]byte(fakeAgent(t, "claude") + "\r"))
+	if a := waitAgent(t, d, term); a.Status != "idle" {
+		t.Fatalf("status = %s, want a report from another app left unreplayed", a.Status)
+	}
+}
+
+func reportingClaude(t *testing.T, d *Daemon, states string) (*terminal.Terminal, <-chan string) {
+	t.Helper()
+	applied := make(chan string, 8)
+	d.Terminals.OnReport = func(id string, r terminal.Report) {
+		d.Report(id, r)
+		applied <- r.State
+	}
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin", "FAKE_AGENT_REPORT=" + states}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	return term, applied
+}
+
+func waitApplied(t *testing.T, applied <-chan string, state string) {
+	t.Helper()
+	select {
+	case got := <-applied:
+		if got != state {
+			t.Fatalf("report %q, want %q", got, state)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no %q report", state)
+	}
+}
+
+func TestAPhoneAskAnsweredAtTheDeskFollowsTheClaudesLastReport(t *testing.T) {
+	d := newDaemon(t)
+	term, applied := reportingClaude(t, d, "blocked working")
+	waitApplied(t, applied, "blocked")
+	waitAgent(t, d, term)
+	pr := d.presentIn(term.Info().ID)
+	out := make(chan []byte, 1)
+	go func() {
+		out <- hookFrom(d, pr, `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}`)
+	}()
+	eventually(t, "open request", func() bool { return len(d.Broker.Open()) == 1 })
+	term.Write([]byte("go\n"))
+	waitApplied(t, applied, "working")
+	if got := statusOf(d, term); got != "needsYou" {
+		t.Fatalf("with the ask open: %s", got)
+	}
+	d.Broker.Dismiss(permissionKey(pr.a.ID(), "Bash", json.RawMessage(`{"command":"ls"}`)), "allow")
+	<-out
+	if got := statusOf(d, term); got != "working" {
+		t.Fatalf("after the desk answered: %s, want the claude's last report", got)
 	}
 }

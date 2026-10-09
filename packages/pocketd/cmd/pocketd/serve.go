@@ -131,6 +131,7 @@ func serve(sock, handed string) error {
 		return err
 	}
 	d.Terminals.OnInput = d.Input
+	d.Terminals.OnReport = d.Report
 	hostname, _ := os.Hostname()
 	pairs := pairing.New(time.Now)
 	var live atomic.Pointer[reach.Listener]

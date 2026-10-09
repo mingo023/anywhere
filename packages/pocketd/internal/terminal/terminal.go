@@ -74,12 +74,16 @@ type Terminal struct {
 	origin string
 	resume chan struct{} // closed by Resume; nil unless paused
 	parked chan struct{} // closed once the pump stops reading for this pause
+	osc    scanner
+	last   *Report
+	report func(id string, r Report)
 }
 
 type Manager struct {
 	mu        sync.Mutex
 	terminals map[string]*Terminal
 	OnInput   func(id string, b []byte) // sees each Write, before the process does
+	OnReport  func(id string, r Report) // each root OSC 7501 report, in order, outside the terminal's lock
 }
 
 func NewManager() *Manager {
@@ -152,6 +156,7 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		subs:   map[*subscriber]bool{},
 		done:   make(chan struct{}),
 		input:  m.OnInput,
+		report: m.OnReport,
 		origin: spec.Origin,
 	}
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
@@ -191,12 +196,13 @@ func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
 	f := os.NewFile(uintptr(a.FD), "/dev/ptmx")
 	p, _ := os.FindProcess(a.Pid) // never fails on unix
 	s := &Terminal{
-		info:  Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows},
-		pty:   f,
-		proc:  p,
-		subs:  map[*subscriber]bool{},
-		done:  make(chan struct{}),
-		input: m.OnInput,
+		info:   Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows},
+		pty:    f,
+		proc:   p,
+		subs:   map[*subscriber]bool{},
+		done:   make(chan struct{}),
+		input:  m.OnInput,
+		report: m.OnReport,
 	}
 	var err error
 	if s.vt, err = vt.New(a.Cols, a.Rows, s.replyToQuery); err != nil {
@@ -286,9 +292,25 @@ func (s *Terminal) pump(onExit func()) {
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
 			s.mu.Lock()
+			reports, query := s.osc.feed(chunk)
+			for _, r := range reports {
+				if r.State == "clear" {
+					s.last = nil
+				} else {
+					s.last = &r
+				}
+			}
+			if query {
+				s.replyToQuery([]byte(queryReply))
+			}
 			s.vt.Write(chunk)
 			s.broadcast(Event{Kind: "output", Data: chunk})
 			s.mu.Unlock()
+			if s.report != nil {
+				for _, r := range reports {
+					s.report(s.info.ID, r)
+				}
+			}
 		}
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			s.park()
@@ -413,6 +435,20 @@ func (s *Terminal) broadcast(e Event) {
 	for sub := range s.subs {
 		sub.fn(e)
 	}
+}
+
+// Program is the latest OSC 7501 report, nil before one or after a clear.
+func (s *Terminal) Program() *Report {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
+}
+
+// ClearProgram forgets the latest report, once its program has ended.
+func (s *Terminal) ClearProgram() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.last = nil
 }
 
 func (s *Terminal) Info() Info {

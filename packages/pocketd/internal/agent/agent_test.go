@@ -203,6 +203,52 @@ func TestSettersShowInTheSummary(t *testing.T) {
 	}
 }
 
+func TestActivityShowsOnTheSummaryAndClearsWithAnEmptyOne(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetActivity("Removing file")
+	if got := a.Summary().Activity; got != "Removing file" {
+		t.Fatalf("activity = %q", got)
+	}
+	a.SetActivity("")
+	if got := a.Summary().Activity; got != "" {
+		t.Fatalf("activity = %q, want cleared", got)
+	}
+}
+
+func TestActivityEndsWithTheStatusItBelongedTo(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		from, move func(*Agent)
+	}{
+		{"a phone allow", (*Agent).NeedsYou, (*Agent).Working},
+		{"a phone deny", (*Agent).NeedsYou, (*Agent).Clear},
+		{"a turn end", (*Agent).Working, func(a *Agent) { a.TurnEnded(false) }},
+		{"a question", (*Agent).Working, (*Agent).NeedsYou},
+		{"a compaction", func(*Agent) {}, (*Agent).SetCompacting},
+	} {
+		a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+		c.from(a)
+		a.SetActivity("approve Bash")
+		c.move(a)
+		if got := a.Summary().Activity; got != "" {
+			t.Errorf("after %s: activity = %q", c.name, got)
+		}
+	}
+}
+
+func TestActivityStaysWhileTheStatusDoesNotMove(t *testing.T) {
+	h := hub.New()
+	a := NewRegistry(h).Add("a1", "/w", "claude", fakeDriver{})
+	a.Working()
+	a.SetActivity("Running tests")
+	ch, _ := h.Subscribe()
+	a.Working()
+	a.Working()
+	if got := drain(ch); len(got) != 0 || a.Summary().Activity != "Running tests" {
+		t.Fatalf("published %d, activity = %q", len(got), a.Summary().Activity)
+	}
+}
+
 func TestConversationSwitchStartsOver(t *testing.T) {
 	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
 	a.SetConversation("c1")

@@ -32,6 +32,7 @@ pub struct Summary {
     pub provider_session_id: Option<String>,
     pub tokens_used: u64,
     pub context_window: Option<u64>,
+    pub activity: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -649,6 +650,18 @@ mod tests {
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5-5"))), "Opus 5.5");
         assert_eq!(model_label(&summary("claude", Some("claude-haiku-4-5-20251001"))), "Haiku 4.5");
         assert_eq!(model_label(&summary("codex", None)), "Codex");
+    }
+
+    #[test]
+    fn an_agent_summary_without_activity_reads_it_as_empty() {
+        let s: Summary = serde_json::from_value(json!({ "id": "a", "status": "working" })).unwrap();
+        assert_eq!(s.activity, "");
+    }
+
+    #[test]
+    fn an_agent_summary_carries_its_activity() {
+        let s: Summary = serde_json::from_value(json!({ "id": "a", "activity": "Running tests" })).unwrap();
+        assert_eq!(s.activity, "Running tests");
     }
 
     #[test]

@@ -180,24 +180,30 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 	if in.PermissionMode != "" {
 		pr.setMode(in.PermissionMode)
 	}
+	reported := pr.isReported()
 	switch in.Event {
 	case "SessionStart":
 		d.sessionStart(pr, in)
 		d.resumed(pr, in.SessionID)
+	case "PermissionRequest":
+		return d.permission(ctx, pr, in), nil
+	case "PreCompact":
+		pr.a.SetCompacting()
+	}
+	if reported {
+		return nil, nil
+	}
+	switch in.Event {
 	case "UserPromptSubmit":
 		pr.working("")
 	case "PostToolUse", "PostToolUseFailure", "PermissionDenied":
 		pr.working(permissionKey(pr.a.ID(), in.ToolName, in.ToolInput))
 	case "PreToolUse", "Notification":
 		pr.a.NeedsYou()
-	case "PermissionRequest":
-		return d.permission(ctx, pr, in), nil
 	case "Stop":
 		d.turnEnded(pr, false)
 	case "StopFailure":
 		d.turnEnded(pr, true)
-	case "PreCompact":
-		pr.a.SetCompacting()
 	}
 	return nil, nil
 }
@@ -223,6 +229,10 @@ func (d *Daemon) permission(ctx context.Context, pr *presence, in hookInput) []b
 	var decision hookDecision
 	switch a.Decision {
 	case "":
+		// A reporting claude's hooks no longer move the status, so nothing else ends the Needs you.
+		if pr.isReported() {
+			d.catchUp(pr)
+		}
 		return nil
 	case "allow":
 		decision = hookDecision{Behavior: "allow", UpdatedPermissions: in.updates(a.Option)}

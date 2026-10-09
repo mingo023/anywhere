@@ -57,6 +57,7 @@ type Agent struct {
 	tokensUsed      int64
 	contextWindow   int64
 	origin          string
+	activity        string // the provider's live line; each report replaces it
 }
 
 type Registry struct {
@@ -229,7 +230,7 @@ func (a *Agent) summary() proto.AgentSummary {
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned,
 		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
-		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin,
+		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity,
 	}
 }
 
@@ -280,11 +281,21 @@ func Busy(agents []proto.AgentSummary) bool {
 }
 
 func (a *Agent) Working() {
-	a.update(true, func() { a.phase, a.unseenEnd, a.failed, a.restore = "working", false, false, "" })
+	a.update(true, func() {
+		a.enter("working")
+		a.unseenEnd, a.failed, a.restore = false, false, ""
+	})
+}
+
+// enter moves to phase. The activity belonged to the phase left, so it goes too.
+func (a *Agent) enter(phase string) {
+	if a.phase != phase {
+		a.phase, a.activity = phase, ""
+	}
 }
 
 func (a *Agent) NeedsYou() {
-	a.update(true, func() { a.phase = "needsYou" })
+	a.update(true, func() { a.enter("needsYou") })
 }
 
 // TurnEnded is Done unless a phone or the desktop shows the agent right now.
@@ -294,7 +305,8 @@ func (a *Agent) TurnEnded(failed bool) {
 
 func (a *Agent) turnEnded(failed bool) {
 	if a.phase != "idle" {
-		a.phase, a.unseenEnd, a.failed = "idle", !a.seen, failed
+		a.enter("idle")
+		a.unseenEnd, a.failed = !a.seen, failed
 		a.endCompactFromIdle()
 	}
 }
@@ -303,7 +315,8 @@ func (a *Agent) turnEnded(failed bool) {
 func (a *Agent) Clear() {
 	a.update(true, func() {
 		if a.phase != "idle" {
-			a.phase, a.unseenEnd = "idle", false
+			a.enter("idle")
+			a.unseenEnd = false
 			a.endCompactFromIdle()
 		}
 	})
@@ -319,7 +332,8 @@ func (a *Agent) SetCompacting() {
 	a.update(true, func() {
 		a.compacting = true
 		if a.phase == "idle" {
-			a.phase, a.compactFromIdle = "working", true
+			a.enter("working")
+			a.compactFromIdle = true
 		}
 	})
 }
@@ -415,6 +429,8 @@ func (a *Agent) SetTokens(used, window int64) {
 func (a *Agent) SetOrigin(origin string) {
 	a.update(false, func() { a.origin = origin })
 }
+
+func (a *Agent) SetActivity(text string) { a.update(false, func() { a.activity = text }) }
 
 func firstLine(text string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")

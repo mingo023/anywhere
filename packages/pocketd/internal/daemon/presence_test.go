@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"os"
@@ -22,10 +23,18 @@ import (
 )
 
 // TestMain is also the fake agent that fakeAgent links: a #!/bin/sh script
-// would not do, the kernel shows its argv as /bin/sh <script>.
+// would not do, the kernel shows its argv as /bin/sh <script>. It reports each
+// state in FAKE_AGENT_REPORT: the first at start, the rest after a line of input.
 func TestMain(m *testing.M) {
 	switch filepath.Base(os.Args[0]) {
 	case "claude", "codex":
+		lines := bufio.NewScanner(os.Stdin)
+		for i, state := range strings.Fields(os.Getenv("FAKE_AGENT_REPORT")) {
+			if i > 0 {
+				lines.Scan()
+			}
+			os.Stdout.WriteString("\x1b]7501;state=" + state + ":app=claude-code\x1b\\")
+		}
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}

@@ -37,6 +37,11 @@ type presence struct {
 	asks       map[string]int // open permission requests by permissionKey
 	launch     state.Launch
 	hooked     bool // a SessionStart came; a restored Agent has its Conversation before that
+	reported   bool // an OSC 7501 report came: status is theirs, not the hooks'
+
+	// report makes applying a report atomic with reading the terminal's latest
+	// one, so a catch-up can't overwrite a live report that arrived meanwhile.
+	report sync.Mutex
 }
 
 func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) *presence {
@@ -65,6 +70,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	}
 	d.present[info.ID] = pr
 	d.mu.Unlock()
+	d.catchUp(pr)
 	return pr
 }
 
@@ -111,11 +117,17 @@ func (d *Daemon) attach(pr *presence) {
 		case <-expired:
 			pr.mu.Lock()
 			defer pr.mu.Unlock()
-			if !pr.hooked {
+			if !pr.hooked && !pr.reported {
 				pr.a.SetAttached(false)
 			}
 		}
 	}()
+}
+
+func (pr *presence) isReported() bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	return pr.reported
 }
 
 // working is Working unless a permission request other than key's is open:
@@ -167,6 +179,7 @@ func (d *Daemon) endAgent(pr *presence) {
 	}
 	d.mu.Unlock()
 	pr.cancel()
+	pr.t.ClearProgram()
 	pr.mu.Lock()
 	if pr.stopTail != nil {
 		pr.stopTail()

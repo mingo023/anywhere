@@ -29,7 +29,7 @@ A `claude` or `codex` process running in a terminal, from launch to exit. A term
 _Avoid_: provider session, thread
 
 **Attached**:
-An agent is attached when Pocket hears its status from the agent itself. An agent that is not attached is still listed, but shows only terminal activity and never Needs you or Done.
+An agent is attached when Pocket hears its status from the agent itself. An agent that is not attached is still listed, but shows only terminal activity and never Needs you or Done. A claude is also attached when it reports through OSC 7501 (Program Status Protocol).
 _Avoid_: hooked, bound, connected
 
 **Conversation**:
@@ -59,6 +59,9 @@ A Done turn that errored. It asks for a look before plain Done. A user interrupt
 **Idle**:
 At the prompt, with nothing unseen.
 _Avoid_: waiting, ready
+
+**Program status**:
+What an agent says about itself on its terminal: idle, working, blocked, done, error. Claude 2.1.295 and later send it once pocketd answers its query; it drives that claude's status instead of the hooks. Its `blocked` is Needs you.
 
 **Seen**:
 An agent is seen while its pane is visible in a focused desktop window, or its timeline is open on the phone. One flag for all clients; a turn that ends while seen never becomes Done.

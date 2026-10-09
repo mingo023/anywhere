@@ -92,6 +92,70 @@ func TestAttachGetsSnapshotThenOutput(t *testing.T) {
 	}
 }
 
+func TestAnswersTheSupportQueryOnThePty(t *testing.T) {
+	const query = "\x1b]7501;?\x1b\\"
+	s := spawn(t, NewManager(), `stty raw -echo; printf ready; head -c 1 >/dev/null; printf '\033]7501;?\033\\'; head -c 10`)
+	waitScreen(t, s, "ready")
+	events := make(chan Event, 16)
+	_, detach, err := s.Attach(false, func(e Event) { events <- e })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach()
+	s.Write([]byte("g"))
+	// head echoes the reply back after the query the shell printed itself.
+	var out strings.Builder
+	timeout := time.After(5 * time.Second)
+	for strings.Count(out.String(), query) < 2 {
+		select {
+		case e := <-events:
+			out.Write(e.Data)
+		case <-timeout:
+			t.Fatalf("output = %q", out.String())
+		}
+	}
+}
+
+func waitReport(t *testing.T, got <-chan Report, what string) Report {
+	t.Helper()
+	select {
+	case r := <-got:
+		return r
+	case <-time.After(3 * time.Second):
+		t.Fatalf("no %s report", what)
+		return Report{}
+	}
+}
+
+func TestDeliversRootReportsInOrder(t *testing.T) {
+	m := NewManager()
+	got := make(chan Report, 4)
+	m.OnReport = func(id string, r Report) { got <- r }
+	spawn(t, m, `printf '\033]7501;state=working\033\\\033]7501;state=done\033\\'; sleep 1`)
+	for _, want := range []string{"working", "done"} {
+		if r := waitReport(t, got, want); r.State != want {
+			t.Fatalf("got %q, want %q", r.State, want)
+		}
+	}
+}
+
+func TestRemembersTheLatestReport(t *testing.T) {
+	m := NewManager()
+	got := make(chan Report, 4)
+	m.OnReport = func(id string, r Report) { got <- r }
+	s := spawn(t, m, `stty raw -echo; printf '\033]7501;state=working\033\\\033]7501;state=done\033\\'; head -c 1 >/dev/null; printf '\033]7501;state=clear\033\\'; sleep 5`)
+	waitReport(t, got, "working")
+	waitReport(t, got, "done")
+	if r := s.Program(); r == nil || r.State != "done" {
+		t.Fatalf("Program() = %+v, want done", r)
+	}
+	s.Write([]byte("x"))
+	waitReport(t, got, "clear")
+	if r := s.Program(); r != nil {
+		t.Fatalf("Program() = %+v after clear", r)
+	}
+}
+
 func TestExitRemovesTerminalAndKeepsCode(t *testing.T) {
 	m := NewManager()
 	s := spawn(t, m, "exit 3")

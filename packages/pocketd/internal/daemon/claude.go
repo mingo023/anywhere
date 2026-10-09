@@ -7,7 +7,10 @@ import (
 
 	"pocketd/internal/claude"
 	"pocketd/internal/proc"
+	"pocketd/internal/terminal"
 )
+
+const claudeApp = "claude-code"
 
 // claudeAt is the claude agent that pid is in terminal id, or nil for any
 // other process, like a claude -p run by the agent's Bash tool. A hook can
@@ -55,7 +58,7 @@ func (d *Daemon) AskOpen(id string) bool {
 func (d *Daemon) Input(id string, b []byte) {
 	switch string(b) {
 	case "\x1b", "\x1b[27u", "\x03", "\x1b[99;5u":
-		if pr := d.presentIn(id); pr != nil && pr.provider == "claude" {
+		if pr := d.presentIn(id); pr != nil && pr.provider == "claude" && !pr.isReported() {
 			pr.a.Clear()
 		}
 	case "\r", "\x1b[13u":
@@ -65,6 +68,56 @@ func (d *Daemon) Input(id string, b []byte) {
 			pr.mu.Unlock()
 		}
 	}
+}
+
+// Report takes one OSC 7501 report from terminal id. The first one makes the
+// claude there report-driven: its status no longer comes from hooks.
+func (d *Daemon) Report(id string, r terminal.Report) {
+	if pr := d.presentIn(id); pr != nil {
+		d.apply(pr, r)
+	}
+}
+
+// catchUp applies the terminal's latest report to pr, for a report that came
+// before pr existed or whose effect on the status was lost since.
+func (d *Daemon) catchUp(pr *presence) {
+	pr.report.Lock()
+	defer pr.report.Unlock()
+	if r := pr.t.Program(); r != nil && r.App == claudeApp {
+		d.applyLocked(pr, *r)
+	}
+}
+
+func (d *Daemon) apply(pr *presence, r terminal.Report) {
+	pr.report.Lock()
+	defer pr.report.Unlock()
+	d.applyLocked(pr, r)
+}
+
+func (d *Daemon) applyLocked(pr *presence, r terminal.Report) {
+	if pr.provider != "claude" {
+		return
+	}
+	pr.mu.Lock()
+	pr.reported = true
+	pr.mu.Unlock()
+	pr.a.SetAttached(true)
+	switch r.State {
+	case "working":
+		pr.working("")
+	case "blocked":
+		pr.a.NeedsYou()
+	case "done":
+		d.turnEnded(pr, false)
+	case "error":
+		d.turnEnded(pr, true)
+	case "idle", "clear":
+		pr.a.Clear()
+	}
+	if r.State == "clear" {
+		r.Msg = ""
+	}
+	pr.a.SetActivity(r.Msg)
 }
 
 func (d *Daemon) presentIn(id string) *presence {
