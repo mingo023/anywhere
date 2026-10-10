@@ -197,9 +197,9 @@ fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)
     trees
         .into_iter()
         .filter_map(|(project, name, w)| {
-            let given = given(&w.path);
-            let folder = given.map(|_| basename(&w.path)).unwrap_or_default();
-            let title = given.map_or_else(|| if w.main { name.clone() } else { basename(&w.path) }, str::to_string);
+            let named = given(&w.path);
+            let folder = named.map(|_| basename(&w.path)).unwrap_or_default();
+            let title = named.map_or_else(|| if w.main { name.clone() } else { basename(&w.path) }, str::to_string);
             matches(words, &[&title, &name, &w.branch, &folder]).then(|| Entry {
                 detail: format!("{name} · {}", w.branch),
                 pick: Pick::Tree { project, tree: (!w.main).then_some(w.path) },
@@ -636,6 +636,8 @@ mod tests {
         let given = |t: &str| Some(if t == "/w/app" { "Hotfix" } else { "Sign in" });
         let titles = |q| tree_entries(&strings(&[q]), trees.clone(), given).into_iter().map(|e| e.title).collect::<Vec<_>>();
         assert_eq!((titles("hot"), titles("sign"), titles("app-login")), (vec!["Hotfix".to_string()], vec!["Sign in".to_string()], vec!["Sign in".to_string()]));
+        let unnamed = vec![("/w/app".into(), "app".into(), tree("/w/app-x", "main", true))];
+        assert!(tree_entries(&strings(&["x"]), unnamed, |_| None).is_empty());
     }
 
     #[test]

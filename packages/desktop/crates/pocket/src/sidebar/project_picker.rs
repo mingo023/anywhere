@@ -93,8 +93,8 @@ fn tree_text(key: &str, given: Option<&str>) -> String {
 }
 
 /// What a project is found by besides its path: its `name`, and the name its own Local was given.
-fn project_text(name: String, own: Option<&str>) -> String {
-    own.map_or_else(|| name.clone(), |own| format!("{name}\n{own}"))
+fn project_text(name: &str, own: Option<&str>) -> String {
+    own.map_or_else(|| name.to_string(), |own| format!("{name}\n{own}"))
 }
 
 impl Desktop {
@@ -104,7 +104,7 @@ impl Desktop {
             let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
             locals.chain(worktrees).map(|t| (t.clone(), tree_text(&t, self.agents.given_name(&t)))).collect()
         };
-        let search_text = |p: &str| project_text(self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
+        let search_text = |p: &str| project_text(&self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
         listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_text, trees)
     }
 
@@ -284,9 +284,9 @@ mod tests {
 
     #[test]
     fn a_project_is_found_by_the_name_its_own_local_was_given() {
-        let text = |p: &str| project_text(basename(p), (p == "/w/app").then_some("Hotfix"));
+        let text = |p: &str| project_text(&basename(p), (p == "/w/app").then_some("Hotfix"));
         assert_eq!(projects(listed(strings(&["/w/api", "/w/app"]), None, "hot", text, no_trees)), strings(&["/w/app"]));
-        assert_eq!(project_text("api".into(), None), "api");
+        assert_eq!(project_text("api", None), "api");
     }
 
     #[test]
