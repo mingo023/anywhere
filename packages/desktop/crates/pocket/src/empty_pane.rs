@@ -172,8 +172,8 @@ impl Desktop {
     /// Whether the failed create was this prompt's.
     pub(crate) fn empty_prompt_failed(&mut self, request: &str, message: &str, detail: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let typed = self.empty_pane.prompt.read(cx).value();
-        let cwd = self.place();
-        let Some(failed) = self.empty_pane.launch.failed(request, (message.into(), detail.into()), &typed, self.empty_pane.drawn.last, cwd.as_deref()) else {
+        let tree = self.place();
+        let Some(failed) = self.empty_pane.launch.failed(request, (message.into(), detail.into()), &typed, self.empty_pane.drawn.last, tree.as_deref()) else {
             return false;
         };
         if let Some(words) = failed.words {

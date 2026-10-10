@@ -128,10 +128,10 @@ impl Desktop {
     pub(crate) fn project_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let entries = self.picked_entries(cx);
         let ix = self.sidebar.picker.highlighted_row(entries.len());
-        let (current, cwd) = (self.project.as_deref().filter(|_| self.screen == Screen::Sessions), self.place());
+        let (current, tree) = (self.project.as_deref().filter(|_| self.screen == Screen::Sessions), self.place());
         let rows = entries.iter().enumerate().map(|(i, e)| {
             let lead = match &e.tree {
-                _ if e.shown(current, cwd.as_deref(), |p| self.tree_of(p)) => icon("check", 14., TEXT).into_any_element(),
+                _ if e.shown(current, tree.as_deref(), |p| self.tree_of(p)) => icon("check", 14., TEXT).into_any_element(),
                 Some(_) => icon("worktree", 14., TEXT_3).into_any_element(),
                 None => ui::repo_mark(&self.repo_name(&e.project), false, None).size(px(18.)).text_size(px(10.)).into_any_element(),
             };

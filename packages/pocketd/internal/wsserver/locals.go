@@ -24,33 +24,41 @@ func (c *conn) local(m proto.ClientMessage) error {
 	if c.s.Locals == nil || !slices.Contains(c.caps, proto.CapLocals) {
 		return proto.ErrMalformed
 	}
-	var err error
+	err := c.changeLocal(m)
+	switch {
+	case err == nil:
+		c.send(proto.NewAck(m.ID))
+		return nil
+	case errors.Is(err, errUnknownProject):
+		c.send(proto.NewErrorCode(m.ID, proto.CodeUnknownProject, err.Error()))
+	case errors.Is(err, locals.ErrUnknown):
+		c.send(proto.NewErrorCode(m.ID, proto.CodeUnknownLocal, err.Error()))
+	default:
+		c.send(proto.NewError(m.ID, err.Error()))
+	}
+	// The client shows its change before asking; the list as it stands takes a refused one back.
+	c.send(proto.NewLocalList(c.s.Locals.List()))
+	return nil
+}
+
+func (c *conn) changeLocal(m proto.ClientMessage) error {
 	switch m.Type {
 	case "local.create":
 		if !slices.Contains(c.s.Registry.Load().Projects, m.Project) {
-			c.send(proto.NewErrorCode(m.ID, proto.CodeUnknownProject, errUnknownProject.Error()))
-			return nil
+			return errUnknownProject
 		}
-		err = c.s.Locals.Create(m.LocalID, m.Project, m.Name)
+		return c.s.Locals.Create(m.LocalID, m.Project, m.Name)
 	case "local.rename":
-		err = c.s.Locals.Rename(m.LocalID, m.Title)
-	case "local.delete":
-		// Removed first, so a create can't start in it while its terminals close.
-		if err = c.s.Locals.Delete(m.LocalID); err == nil {
-			for _, t := range c.s.Terminals.All() {
-				if t.Info().Local == m.LocalID {
-					t.Close()
-				}
-			}
-		}
+		return c.s.Locals.Rename(m.LocalID, m.Title)
 	}
-	if errors.Is(err, locals.ErrUnknown) {
-		c.send(proto.NewErrorCode(m.ID, proto.CodeUnknownLocal, err.Error()))
-		return nil
-	}
-	if err != nil {
+	// Removed first, so a create can't start in it while its terminals close.
+	if err := c.s.Locals.Delete(m.LocalID); err != nil {
 		return err
 	}
-	c.send(proto.NewAck(m.ID))
+	for _, t := range c.s.Terminals.All() {
+		if t.Info().Local == m.LocalID {
+			t.Close()
+		}
+	}
 	return nil
 }

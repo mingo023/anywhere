@@ -167,7 +167,7 @@ impl Desktop {
             }
             RowMenu::Local(local) => {
                 let mut rows = vec![];
-                if if is_local(&local) { self.agents.locals_offered() } else { self.agents.names_offered() } {
+                if self.agents.renames_offered(&local) {
                     let rename = local.clone();
                     rows.push(
                         ui::menu_row("aside-menu-rename", "compose", "Rename…", None)

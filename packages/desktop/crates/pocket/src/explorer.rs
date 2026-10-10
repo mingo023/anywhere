@@ -82,9 +82,9 @@ impl ExplorerState {
 }
 
 impl Desktop {
-    /// The folder Explore browses: the chosen worktree, else the project.
+    /// The folder Explore browses: the chosen tree's folder, else the project.
     pub fn explore_root(&self) -> Option<String> {
-        self.worktree.clone().or_else(|| self.project.clone())
+        self.worktree.as_deref().and_then(|t| self.folder_of(t)).or_else(|| self.project.clone())
     }
 
     /// Git's letter for a file under the explore root, if it has changed.

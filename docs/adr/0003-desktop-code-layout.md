@@ -18,7 +18,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `workspace` | the pane tree of a worktree: panes, their tabs, splits |
 | `git` | git reads and writes, diffs, commit graph lanes |
 | `daemon` | the pocketd socket client |
-| `agents` | the phone-socket client, the agent list, worktree display names and automations: the snapshot, the draft's validation and its messages |
+| `agents` | the phone-socket client, the agent list, worktree display names, Locals and automations: the snapshot, the draft's validation and its messages |
 | `term` | the ghostty VT |
 | `store` | the saved projects, settings (sounds, notifications, appearance, worktree root; `store/prefs` one struct per Settings section) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
@@ -27,7 +27,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 
 | `pocket` module | Owns |
 |---|---|
-| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/quit` the quit confirm; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast |
+| `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/quit` the quit confirm; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast; `desktop/locals` adding, naming and deleting Locals |
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing; `terminals/bell`, `terminals/link` |
 | `panels` | the main area's pane tree: strips, dividers, drag and drop, saved layouts, shortcuts |
 | `empty_pane` | the prompt a focused pane with no tabs offers, starting an agent there |

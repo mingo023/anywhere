@@ -181,13 +181,14 @@ impl Desktop {
     /// A Local's row, by its key: the main worktree's path for the project's own, whose `selects` is `None`, else its id. `tip` is the checkout's branch.
     fn local_row(&self, p: &str, key: &str, selects: Option<&String>, tip: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
         let menu = RowMenu::Local(key.to_string());
-        let renames = if is_local(key) { self.agents.locals_offered() } else { self.agents.names_offered() };
+        let renames = self.agents.renames_offered(key);
         let mark = ui::indicator(id(format!("aside-spin:{key}")), rolled_state(&self.tree_cards(p, key)));
         let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => tree_name(key, self.local_name(key), tip.to_string()).into_any_element(),
         };
-        let trail = (renames || is_local(key)).then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
+        let has_menu = renames || is_local(key);
+        let trail = has_menu.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
         let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
         ui::worktree_row(id(format!("aside-tree:{key}")), "laptop", label, current == Some(key), mark)
             .when(selects.is_none(), |row| row.children(self.pr_chip(key)))
@@ -201,7 +202,7 @@ impl Desktop {
                 }
                 this.select_tree(target.clone(), selects.clone(), cx);
             }))
-            .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
+            .when(has_menu, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)))
             .into_any_element()
     }
 

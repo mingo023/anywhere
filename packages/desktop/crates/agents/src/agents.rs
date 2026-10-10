@@ -308,6 +308,11 @@ impl Agents {
         self.caps.iter().any(|c| c == LOCALS_CAP)
     }
 
+    /// Whether pocketd can rename the tree `key`, a Local's id or a worktree's path.
+    pub fn renames_offered(&self, key: &str) -> bool {
+        if locals::is_local(key) { self.locals_offered() } else { self.names_offered() }
+    }
+
     pub fn local(&self, id: &str) -> Option<&Local> {
         self.locals.iter().find(|l| l.id == id)
     }

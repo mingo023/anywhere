@@ -22,7 +22,6 @@ impl Desktop {
         local.id
     }
 
-    /// Adds a Local and shows it.
     pub(crate) fn add_local(&mut self, project: String, cx: &mut Context<Self>) {
         let id = self.new_local(&project);
         self.store.collapsed.remove(&project);
@@ -36,17 +35,25 @@ impl Desktop {
         cx.notify();
     }
 
-    /// pocketd closes its terminals; their files belong to the project and stay.
+    /// Closes its terminals; their files belong to the project and stay.
     pub(crate) fn delete_local(&mut self, id: &str, cx: &mut Context<Self>) {
+        for term in self.tree_terminals(id) {
+            self.close_pane(&term, cx);
+        }
         self.outbox.local_delete(id);
         self.agents.remove_local(id);
         self.workspaces.remove(id);
         self.store.layouts.remove(id);
-        if self.worktree.as_deref() == Some(id) {
+        self.leave_gone_local(cx);
+        self.save_soon(cx);
+        cx.notify();
+    }
+
+    /// Leaves the Local on screen once pocketd no longer has it, as when another client deleted it.
+    pub(crate) fn leave_gone_local(&mut self, cx: &mut Context<Self>) {
+        if self.worktree.as_deref().is_some_and(|t| locals::is_local(t) && self.agents.local(t).is_none()) {
             self.worktree = None;
             self.load_active(cx);
         }
-        self.save_soon(cx);
-        cx.notify();
     }
 }

@@ -82,7 +82,6 @@ impl Desktop {
         self.worktree.clone().or_else(|| self.tree_of(self.project.as_deref()?))
     }
 
-    /// The folder of the tree on screen.
     pub fn cwd(&self) -> Option<String> {
         self.folder_of(&self.place()?)
     }

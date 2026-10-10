@@ -51,8 +51,14 @@ func TestALocalsClientGetsEveryLocalThenEachChange(t *testing.T) {
 	if m := p.recv(); m["type"] != "error" || m["code"] != "unknown_project" {
 		t.Fatalf("%v", m)
 	}
+	if m := p.recv(); m["type"] != "local.list" || !reflect.DeepEqual(m["locals"], want) {
+		t.Fatalf("a refused create isn't taken back: %v", m)
+	}
 	p.send(`{"type":"local.rename","id":"r","localId":"gone","title":"x"}`)
 	if m := p.recv(); m["type"] != "error" || m["code"] != "unknown_local" {
+		t.Fatalf("%v", m)
+	}
+	if m := p.recv(); m["type"] != "local.list" {
 		t.Fatalf("%v", m)
 	}
 }

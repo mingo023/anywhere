@@ -139,6 +139,7 @@ impl Desktop {
         }
         let connected = matches!(ev, Event::Connected { .. });
         let automations = matches!(ev, Event::Automations { .. });
+        let locals = matches!(ev, Event::Locals(_));
         if let Event::Connected { version, .. } = &ev {
             self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
             if self.terminals.link.stale().is_some() {
@@ -162,6 +163,9 @@ impl Desktop {
         }
         if connected {
             self.leave_unoffered_automations();
+        }
+        if locals {
+            self.leave_gone_local(cx);
         }
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));

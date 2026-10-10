@@ -26,7 +26,7 @@ impl SidebarState {
 impl Desktop {
     /// Edits `tree`'s display name in its row, starting from the current one, all selected. `tree` is a worktree's path or a Local's id.
     pub(crate) fn start_rename(&mut self, tree: String, window: &mut Window, cx: &mut Context<Self>) {
-        let current = self.agents.local(&tree).map(|l| &l.name).or_else(|| self.agents.names.get(&tree)).cloned().unwrap_or_default();
+        let current = self.given_name(&tree);
         let input = cx.new(|cx| InputState::new(window, cx));
         input.update(cx, |s, cx| {
             s.set_value(current, window, cx);
@@ -42,9 +42,18 @@ impl Desktop {
         cx.notify();
     }
 
+    /// The name the user or naming gave `tree`; empty when it shows its default.
+    fn given_name(&self, tree: &str) -> String {
+        self.agents.local(tree).map(|l| &l.name).or_else(|| self.agents.names.get(tree)).cloned().unwrap_or_default()
+    }
+
     fn save_rename(&mut self, cx: &mut Context<Self>) {
         let Some(r) = self.sidebar.rename.take() else { return };
         let title = r.input.read(cx).value().trim().to_string();
+        // Leaving an untouched name mustn't pin naming's title as the user's.
+        if title == self.given_name(&r.tree) {
+            return cx.notify();
+        }
         if is_local(&r.tree) && !title.is_empty() {
             self.outbox.local_rename(&r.tree, &title);
             self.agents.rename_local(&r.tree, &title);
