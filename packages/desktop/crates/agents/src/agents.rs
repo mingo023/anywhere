@@ -326,12 +326,10 @@ impl Agents {
         self.locals.iter().filter(move |l| l.project == project)
     }
 
-    /// The Locals removing `project` deletes: none when pocketd won't take this client's deletes.
-    pub fn locals_removed_with(&self, project: &str) -> Vec<String> {
-        if !self.locals_offered() {
-            return Vec::new();
-        }
-        self.locals_in(project).map(|l| l.id.clone()).collect()
+    /// The ids of the Locals removing `project` deletes: none when pocketd won't take this client's deletes.
+    pub fn locals_removed_with<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a str> {
+        let offered = self.locals_offered();
+        self.locals_in(project).filter(move |_| offered).map(|l| l.id.as_str())
     }
 
     /// Shows a new Local before pocketd lists it.
@@ -926,10 +924,10 @@ mod tests {
         let caps = vec![LOCALS_CAP.to_string()];
         a.apply(Event::Connected { scopes: vec!["owner".into()], caps: caps.clone(), version: String::new() });
         a.apply(Event::Locals(locals.clone()));
-        assert_eq!(a.locals_removed_with("/p"), vec!["l1".to_string()]);
+        assert_eq!(a.locals_removed_with("/p").collect::<Vec<_>>(), ["l1"]);
         a.apply(Event::Connected { scopes: vec!["observe".into()], caps, version: String::new() });
         a.apply(Event::Locals(locals));
-        assert!(a.locals_removed_with("/p").is_empty());
+        assert_eq!(a.locals_removed_with("/p").count(), 0);
     }
 
     #[test]

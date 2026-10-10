@@ -229,7 +229,8 @@ impl Desktop {
         for id in self.project_terminals(p) {
             self.close_pane(&id, cx);
         }
-        for id in self.agents.locals_removed_with(p) {
+        let locals: Vec<String> = self.agents.locals_removed_with(p).map(str::to_string).collect();
+        for id in locals {
             self.delete_local(&id, cx);
         }
         self.store.remove(p);
@@ -245,7 +246,7 @@ impl Desktop {
     }
 
     pub(crate) fn ask_remove_project(&mut self, p: String, cx: &mut Context<Self>) {
-        if self.project_terminals(&p).is_empty() && self.agents.locals_removed_with(&p).is_empty() {
+        if self.project_terminals(&p).is_empty() && self.agents.locals_removed_with(&p).next().is_none() {
             self.remove_project(&p, cx);
         } else {
             self.confirm = Some(Confirm::RemoveProject(p));

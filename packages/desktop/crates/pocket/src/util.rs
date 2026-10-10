@@ -1,7 +1,20 @@
+use agents::locals::is_local;
 use std::path::{Path, PathBuf};
 
+pub const LOCAL_ICON: &str = "laptop";
+
+/// The icon a tree's row shows, by its key: a Local's id, else a worktree's path.
+pub fn tree_icon(key: &str) -> &'static str {
+    if is_local(key) { LOCAL_ICON } else { "worktree" }
+}
+
 pub fn basename(path: &str) -> String {
-    path.trim_end_matches('/').rsplit('/').next().unwrap_or_default().to_string()
+    folder(path).to_string()
+}
+
+/// `path`'s last part, borrowed.
+pub fn folder(path: &str) -> &str {
+    path.trim_end_matches('/').rsplit('/').next().unwrap_or_default()
 }
 
 /// "/Users/me/code/app" reads as "~/code/app".

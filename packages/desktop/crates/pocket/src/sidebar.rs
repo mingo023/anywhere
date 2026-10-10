@@ -17,7 +17,7 @@ use crate::sidebar::rename::Rename;
 use crate::sidebar::tree_tip::TreeTip;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
-use crate::util::basename;
+use crate::util::{LOCAL_ICON, basename};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -188,7 +188,7 @@ impl Desktop {
         };
         let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
         let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
-        ui::worktree_row(id(format!("aside-tree:{key}")), "laptop", label, current == Some(key), mark)
+        ui::worktree_row(id(format!("aside-tree:{key}")), LOCAL_ICON, label, current == Some(key), mark)
             .when(selects.is_none(), |row| row.children(self.pr_chip(key)))
             .children(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {

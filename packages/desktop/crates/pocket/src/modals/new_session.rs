@@ -7,6 +7,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{default_base, home};
 use crate::terminals::link;
+use crate::util::LOCAL_ICON;
 use git::github;
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -303,7 +304,7 @@ fn checkout_choice(target: Target, open: OpenTree) -> Checkout {
         (Target::Worktree, _) => Checkout { glyph: "worktree", label: "Worktree".into(), hint: "Its own branch and copy of the files" },
         (Target::NewLocal, _) => Checkout { glyph: "plus", label: "New Local".into(), hint: "A new place over the project's checkout: files and branch are shared" },
         (Target::Open, OpenTree::Worktree(label)) => Checkout { glyph: "worktree", label, hint: "This worktree as it is: files and branch are shared" },
-        (Target::Open, OpenTree::Local(label)) => Checkout { glyph: "laptop", label, hint: "The project's checkout as it is: files and branch are shared" },
+        (Target::Open, OpenTree::Local(label)) => Checkout { glyph: LOCAL_ICON, label, hint: "The project's checkout as it is: files and branch are shared" },
     }
 }
 

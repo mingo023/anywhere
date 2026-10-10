@@ -3,7 +3,7 @@ use crate::desktop::chrome::{Overlay, Screen, state};
 use crate::desktop::sounds::Cue;
 use crate::modals::may_open;
 use crate::status::{self, Card, Status};
-use crate::util::basename;
+use crate::util::{LOCAL_ICON, basename, folder};
 use agents::locals::Local;
 use agents::Agents;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -198,9 +198,13 @@ fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)
         .into_iter()
         .filter_map(|(project, name, w)| {
             let named = given(&w.path);
-            let folder = named.map(|_| basename(&w.path)).unwrap_or_default();
-            let title = named.map_or_else(|| if w.main { name.clone() } else { basename(&w.path) }, str::to_string);
-            matches(words, &[&title, &name, &w.branch, &folder]).then(|| Entry {
+            let title = match named {
+                Some(n) => n.to_string(),
+                None if w.main => name.clone(),
+                None => basename(&w.path),
+            };
+            let found_by_folder = if named.is_some() { folder(&w.path) } else { "" };
+            matches(words, &[&title, &name, &w.branch, found_by_folder]).then(|| Entry {
                 detail: format!("{name} · {}", w.branch),
                 pick: Pick::Tree { project, tree: (!w.main).then_some(w.path) },
                 lead: Lead::Icon("worktree"),
@@ -220,7 +224,7 @@ fn local_entries(words: &[String], locals: Vec<(String, Local)>) -> Vec<Entry> {
     locals
         .into_iter()
         .filter(|(project_name, l)| matches(words, &[&l.name, project_name]))
-        .map(|(project_name, l)| Entry { pick: Pick::Tree { project: l.project, tree: Some(l.id) }, lead: Lead::Icon("laptop"), title: l.name, detail: project_name, keys: None })
+        .map(|(project_name, l)| Entry { pick: Pick::Tree { project: l.project, tree: Some(l.id) }, lead: Lead::Icon(LOCAL_ICON), title: l.name, detail: project_name, keys: None })
         .take(5)
         .collect()
 }

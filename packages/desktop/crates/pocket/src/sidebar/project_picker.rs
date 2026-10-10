@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Screen, id};
-use crate::util::{basename, tilde};
+use crate::util::{basename, tilde, tree_icon};
 use agents::locals::is_local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -152,7 +152,7 @@ impl Desktop {
         let rows = entries.iter().enumerate().map(|(i, e)| {
             let lead = match &e.tree {
                 _ if e.shown(current, tree.as_deref(), |p| self.tree_of(p)) => icon("check", 14., TEXT).into_any_element(),
-                Some(tree) => icon(if is_local(tree) { "laptop" } else { "worktree" }, 14., TEXT_3).into_any_element(),
+                Some(tree) => icon(tree_icon(tree), 14., TEXT_3).into_any_element(),
                 None => ui::repo_mark(&self.repo_name(&e.project), false, None).size(px(18.)).text_size(px(10.)).into_any_element(),
             };
             let target = e.clone();
