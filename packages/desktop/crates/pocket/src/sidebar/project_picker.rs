@@ -94,7 +94,7 @@ fn tree_texts(key: &str, given: Option<&str>) -> Vec<String> {
 
 /// What a project is found by besides its path: its `name`, and the name its own Local was given.
 fn project_texts(name: &str, own: Option<&str>) -> Vec<String> {
-    [Some(name), own].into_iter().flatten().map(str::to_string).collect()
+    std::iter::once(name).chain(own).map(str::to_string).collect()
 }
 
 impl Desktop {
