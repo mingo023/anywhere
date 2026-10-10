@@ -1,7 +1,7 @@
 use super::logic::{Filter, Tab, counts_text, visible};
 use super::parts::segmented;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{HEADER, LIGHTS, Layout, RAIL, column, drag_area, empty};
+use crate::desktop::chrome::{HEADER, Layout, column, drag_area, empty, past_lights};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -31,7 +31,7 @@ impl Desktop {
     fn automations_header(&self, cx: &mut Context<Self>) -> Div {
         let add = icon_button_sized("automation-add", "plus", 28., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_automation(None, window, cx)));
         div()
-            .pl(px(if self.layout == Layout::Compact { LIGHTS - RAIL } else { 18. }))
+            .pl(px(if self.layout == Layout::Compact { past_lights(self.store.appearance.zoom_factor(), 18.) } else { 18. }))
             .pr(px(12.))
             .flex()
             .items_center()

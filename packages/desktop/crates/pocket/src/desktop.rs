@@ -127,6 +127,7 @@ impl Desktop {
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
         window.focus(&root, cx);
+        crate::desktop::chrome::apply_zoom(store.appearance.zoom_factor(), window);
         let this = cx.weak_entity();
         // The window stays open either way: quitting closes it.
         window.on_window_should_close(cx, move |window, cx| this.update(cx, |d, cx| d.quit(&crate::actions::Quit, window, cx)).is_err());
@@ -554,6 +555,9 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::toggle_rail))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::toggle_focus))
+            .on_action(cx.listener(Self::zoom_in))
+            .on_action(cx.listener(Self::zoom_out))
+            .on_action(cx.listener(Self::reset_zoom))
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::new_browser))
             .on_action(cx.listener(Self::close_active_tab))

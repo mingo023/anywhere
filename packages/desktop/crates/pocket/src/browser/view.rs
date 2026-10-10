@@ -58,6 +58,7 @@ impl Desktop {
         let place = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
+                let bounds = window.unzoomed(bounds);
                 let rect = web::Rect { x: bounds.origin.x.into(), y: bounds.origin.y.into(), width: bounds.size.width.into(), height: bounds.size.height.into() };
                 if let Some(page) = &page
                     && page.place(rect)

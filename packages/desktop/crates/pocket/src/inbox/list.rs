@@ -1,6 +1,6 @@
 use super::{FILTERS, Note, asks, heading, readable, step};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{LIGHTS, Layout, RAIL, column, drag_area, empty, state};
+use crate::desktop::chrome::{Layout, column, drag_area, empty, past_lights, state};
 use crate::util::{ago, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -23,7 +23,7 @@ impl Desktop {
         let now = now_ms();
         let header = drag_area(div())
             .h(px(52.))
-            .pl(px(if self.layout == Layout::Compact { LIGHTS - RAIL } else { 16. }))
+            .pl(px(if self.layout == Layout::Compact { past_lights(self.store.appearance.zoom_factor(), 16.) } else { 16. }))
             .pr(px(10.))
             .flex()
             .flex_none()
