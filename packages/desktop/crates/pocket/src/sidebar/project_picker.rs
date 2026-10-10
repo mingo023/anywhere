@@ -83,21 +83,28 @@ fn parent(path: &str) -> String {
     tilde(&Path::new(path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
 }
 
+/// What tree `key` is found by: its `given` name, else its folder's, and a renamed worktree's folder as well.
+fn tree_text(key: &str, given: Option<&str>) -> String {
+    match given {
+        Some(n) if is_local(key) => n.to_string(),
+        Some(n) => format!("{n}\n{}", basename(key)),
+        None => basename(key),
+    }
+}
+
+/// What a project is found by besides its path: its `name`, and the name its own Local was given.
+fn project_text(name: String, own: Option<&str>) -> String {
+    own.map_or_else(|| name.clone(), |own| format!("{name}\n{own}"))
+}
+
 impl Desktop {
     fn picked_entries(&self, cx: &App) -> Vec<Entry> {
         let trees = |p: &str| {
             let locals = self.agents.locals_in(p).map(|l| l.id.clone());
             let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
-            let found_by = |t: &str| match self.agents.given_name(t) {
-                Some(n) if !is_local(t) => format!("{n}\n{}", basename(t)),
-                _ => self.place_name(t),
-            };
-            locals.chain(worktrees).map(|t| (t.clone(), found_by(&t))).collect()
+            locals.chain(worktrees).map(|t| (t.clone(), tree_text(&t, self.agents.given_name(&t)))).collect()
         };
-        let search_text = |p: &str| {
-            let own = self.tree_of(p).and_then(|t| self.agents.given_name(&t).map(str::to_string));
-            format!("{}\n{}", self.repo_name(p), own.unwrap_or_default())
-        };
+        let search_text = |p: &str| project_text(self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
         listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_text, trees)
     }
 
@@ -215,7 +222,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, first_hit, listed, parent, step};
+    use super::{Entry, first_hit, listed, parent, project_text, step, tree_text};
     use crate::util::basename;
 
     fn strings(s: &[&str]) -> Vec<String> {
@@ -266,6 +273,20 @@ mod tests {
     fn a_matching_worktree_keeps_its_project_and_a_matching_project_keeps_all_its_worktrees() {
         assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "dark", basename, trees)), strings(&["/w/app", "/t/dark-mode"]));
         assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "app", basename, trees)), strings(&["/w/app", "/t/fix-login", "/t/dark-mode"]));
+    }
+
+    #[test]
+    fn a_renamed_worktree_is_found_by_its_name_or_folder_and_a_local_by_its_name_alone() {
+        assert_eq!(tree_text("/t/calm-otter", Some("Sign in")), "Sign in\ncalm-otter");
+        assert_eq!(tree_text("/t/calm-otter", None), "calm-otter");
+        assert_eq!(tree_text("local-1", Some("Review")), "Review");
+    }
+
+    #[test]
+    fn a_project_is_found_by_the_name_its_own_local_was_given() {
+        let text = |p: &str| project_text(basename(p), (p == "/w/app").then_some("Hotfix"));
+        assert_eq!(projects(listed(strings(&["/w/api", "/w/app"]), None, "hot", text, no_trees)), strings(&["/w/app"]));
+        assert_eq!(project_text("api".into(), None), "api");
     }
 
     #[test]

@@ -18,6 +18,14 @@ fn closes(n: usize) -> Option<String> {
     }
 }
 
+fn deletes(locals: usize) -> Option<String> {
+    match locals {
+        0 => None,
+        1 => Some("Deletes its added Local".into()),
+        n => Some(format!("Deletes its {n} added Locals")),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 struct ConfirmText {
     title: String,
@@ -30,12 +38,7 @@ struct ConfirmText {
 
 impl ConfirmText {
     fn remove_project(name: &str, terminals: usize, locals: usize) -> Self {
-        let deletes = match locals {
-            0 => None,
-            1 => Some("Deletes its added Local".to_string()),
-            n => Some(format!("Deletes its {n} added Locals")),
-        };
-        let facts = closes(terminals).into_iter().chain(deletes).chain(["Its files stay on disk".to_string()]).collect();
+        let facts = closes(terminals).into_iter().chain(deletes(locals)).chain(["Its files stay on disk".to_string()]).collect();
         Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, lost: 0, danger: true }
     }
 

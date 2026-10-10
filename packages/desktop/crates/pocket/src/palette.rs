@@ -197,8 +197,10 @@ fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)
     trees
         .into_iter()
         .filter_map(|(project, name, w)| {
-            let title = given(&w.path).map_or_else(|| if w.main { name.clone() } else { basename(&w.path) }, str::to_string);
-            matches(words, &[&title, &name, &w.branch, &basename(&w.path)]).then(|| Entry {
+            let given = given(&w.path);
+            let folder = given.map(|_| basename(&w.path)).unwrap_or_default();
+            let title = given.map_or_else(|| if w.main { name.clone() } else { basename(&w.path) }, str::to_string);
+            matches(words, &[&title, &name, &w.branch, &folder]).then(|| Entry {
                 detail: format!("{name} · {}", w.branch),
                 pick: Pick::Tree { project, tree: (!w.main).then_some(w.path) },
                 lead: Lead::Icon("worktree"),
