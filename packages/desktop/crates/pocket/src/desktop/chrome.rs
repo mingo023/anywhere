@@ -1,4 +1,4 @@
-use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
+use crate::actions::{ResetZoom, ToggleFocus, ToggleRail, ToggleSidebar, ZoomIn, ZoomOut};
 use crate::desktop::Desktop;
 use crate::removal::Removal;
 use crate::settings::Section;
@@ -30,8 +30,11 @@ pub use store::Layout;
 
 pub(crate) const SEAM: f32 = 20.;
 
-/// Where content starts to clear the window's traffic lights.
+/// Where content starts to clear the window's traffic lights, at 100%.
 pub(crate) const LIGHTS: f32 = 91.;
+
+/// The traffic lights' offset from the window's corner, at 100%.
+pub(crate) const LIGHTS_AT: f32 = 14.;
 
 pub(crate) const RAIL: f32 = 56.;
 
@@ -170,10 +173,26 @@ pub fn empty(text: impl Into<SharedString>) -> Div {
     div().p(px(16.)).text_size(px(13.5)).text_color(TEXT_2).child(text.into())
 }
 
+/// Where content starts to clear the traffic lights at `zoom`: their offset zooms, but AppKit keeps the buttons their own size.
+pub(crate) fn lights(zoom: f32) -> f32 {
+    LIGHTS_AT + (LIGHTS - LIGHTS_AT) / zoom
+}
+
+/// The left padding of a bar beside the compact rail: `pad`, or past the traffic lights where they overhang the rail.
+pub(crate) fn past_lights(zoom: f32, pad: f32) -> f32 {
+    (lights(zoom) - RAIL).max(pad)
+}
+
 /// A top bar's left padding outside Focus: past the traffic lights where they overhang the compact rail.
-fn compact_pad(layout: Layout, screen: Screen, pad: f32) -> f32 {
+fn compact_pad(layout: Layout, screen: Screen, pad: f32, zoom: f32) -> f32 {
     // Only the rail is left of the Sessions page; other screens put a column between.
-    if layout == Layout::Compact && screen == Screen::Sessions { LIGHTS - RAIL } else { pad }
+    if layout == Layout::Compact && screen == Screen::Sessions { past_lights(zoom, pad) } else { pad }
+}
+
+/// Zooms the window, moving the traffic lights so they stay in the zoomed title bar.
+pub(crate) fn apply_zoom(zoom: f32, window: &mut Window) {
+    window.set_zoom(zoom);
+    window.set_traffic_light_position(point(px(LIGHTS_AT * zoom), px(LIGHTS_AT * zoom)));
 }
 
 pub fn sidebar_toggled(layout: Layout) -> Layout {
@@ -195,6 +214,25 @@ impl Desktop {
     pub(crate) fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
         self.close_menus();
         self.layout = sidebar_toggled(self.layout);
+        self.save_soon(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn zoom_in(&mut self, _: &ZoomIn, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_zoom(self.store.appearance.zoomed_in(), window, cx);
+    }
+
+    pub(crate) fn zoom_out(&mut self, _: &ZoomOut, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_zoom(self.store.appearance.zoomed_out(), window, cx);
+    }
+
+    pub(crate) fn reset_zoom(&mut self, _: &ResetZoom, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_zoom(100, window, cx);
+    }
+
+    fn set_zoom(&mut self, percent: u32, window: &mut Window, cx: &mut Context<Self>) {
+        self.store.appearance.zoom = Some(percent);
+        apply_zoom(self.store.appearance.zoom_factor(), window);
         self.save_soon(cx);
         cx.notify();
     }
@@ -281,8 +319,8 @@ impl Desktop {
         };
         match self.layout {
             // Leaves room for the window's traffic lights once the sidebars are hidden.
-            Layout::Focus => (LIGHTS, Some(toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())))),
-            Layout::Compact | Layout::Sidebars => (compact_pad(self.layout, self.screen, pad), None),
+            Layout::Focus => (lights(self.store.appearance.zoom_factor()), Some(toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())))),
+            Layout::Compact | Layout::Sidebars => (compact_pad(self.layout, self.screen, pad, self.store.appearance.zoom_factor()), None),
         }
     }
 
@@ -300,7 +338,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{BarPress, Layout, Screen, bar_press, compact_pad, sidebar_toggled};
+    use super::{BarPress, Layout, Screen, bar_press, compact_pad, lights, past_lights, sidebar_toggled};
 
     #[test]
     fn a_double_click_on_a_bar_zooms_the_window_but_not_on_a_control_in_it() {
@@ -315,7 +353,13 @@ mod tests {
 
     #[test]
     fn compact_bars_clear_the_traffic_lights_only_where_nothing_sits_between_them_and_the_rail() {
-        let got = [(Layout::Compact, Screen::Sessions), (Layout::Compact, Screen::Inbox), (Layout::Sidebars, Screen::Sessions)].map(|(l, s)| compact_pad(l, s, 10.));
+        let got = [(Layout::Compact, Screen::Sessions), (Layout::Compact, Screen::Inbox), (Layout::Sidebars, Screen::Sessions)].map(|(l, s)| compact_pad(l, s, 10., 1.));
         assert_eq!(got, [35., 10., 10.]);
+    }
+
+    #[test]
+    fn the_traffic_lights_take_less_of_a_zoomed_in_window_and_more_of_a_zoomed_out_one() {
+        assert_eq!([lights(1.), lights(2.), lights(0.5)], [91., 52.5, 168.]);
+        assert_eq!([past_lights(1., 10.), past_lights(2., 10.), past_lights(0.5, 10.)], [35., 10., 112.]);
     }
 }

@@ -81,7 +81,7 @@ fn main() {
             titlebar: Some(TitlebarOptions {
                 title: Some("Anywhere".into()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(14.), px(14.))),
+                traffic_light_position: Some(point(px(desktop::chrome::LIGHTS_AT), px(desktop::chrome::LIGHTS_AT))),
             }),
             window_background: theme::window_background(),
             // Else AppKit drags the window from the titlebar band before a tab there sees the press; drag_area moves it instead.

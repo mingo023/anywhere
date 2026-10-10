@@ -24,8 +24,9 @@ use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::git_ui::changes::ChangesState;
 use crate::git_ui::commit::Commits;
-use crate::git_ui::diff::DiffState;
+use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::graph::GraphState;
+use crate::git_ui::pull_request::PullRequest;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
@@ -77,6 +78,7 @@ pub struct Desktop {
     pub(crate) chat: ChatComposer,
     pub(crate) changes: ChangesState,
     pub(crate) prs: PullRequests,
+    pub(crate) pr: PullRequest,
     pub(crate) graph: GraphState,
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
@@ -118,6 +120,7 @@ impl Desktop {
         let (chips, chips_subs) = Chips::new(window, cx);
         let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
+        let (pr, pr_subs) = PullRequest::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (empty_pane, empty_subs) = EmptyPane::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
@@ -128,6 +131,7 @@ impl Desktop {
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
         window.focus(&root, cx);
+        crate::desktop::chrome::apply_zoom(store.appearance.zoom_factor(), window);
         let this = cx.weak_entity();
         // The window stays open either way: quitting closes it.
         window.on_window_should_close(cx, move |window, cx| this.update(cx, |d, cx| d.quit(&crate::actions::Quit, window, cx)).is_err());
@@ -149,6 +153,7 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(changes_subs);
+        _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(empty_subs);
         _subs.extend(repo_subs);
@@ -179,6 +184,7 @@ impl Desktop {
             chat,
             changes,
             prs: PullRequests::default(),
+            pr,
             graph,
             commit: Commits::default(),
             initials: String::new(),
@@ -349,11 +355,16 @@ impl Desktop {
                 self.load_file(pane, cx);
             }
             Doc::Diff(path) => {
-                self.diff.select(pane, path, None);
+                self.diff.select(pane, path, At::Working);
                 self.load_diff(pane, cx);
             }
             Doc::CommitFile { sha, path } => {
-                self.diff.select(pane, path, Some(sha));
+                self.diff.select(pane, path, At::Commit(sha));
+                self.load_diff(pane, cx);
+            }
+            Doc::PrFile { base, path } => {
+                self.diff.select(pane, path, At::Base(base));
+                self.pin_threads();
                 self.load_diff(pane, cx);
             }
             Doc::Commit(sha) => self.show_commit(pane, sha, cx),
@@ -365,8 +376,9 @@ impl Desktop {
         let diff = self.diff.view(pane);
         match doc {
             Doc::File(p) => self.preview.file(pane) == Some(p.as_str()),
-            Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, None)),
-            Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, Some(sha.as_str()))),
+            Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, &At::Working)),
+            Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, &At::Commit(sha.clone()))),
+            Doc::PrFile { base, path } => diff.is_some_and(|v| v.shows(path, &At::Base(base.clone()))),
             Doc::Commit(sha) => self.commit.get(pane).is_some_and(|c| c.sha.as_ref() == Some(sha)),
         }
     }
@@ -388,13 +400,14 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.sidebar.picker.open || self.automations.menu.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.automations.menu.is_some()
     }
 
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self) -> bool {
         let open = self.menu_open();
         (self.panels.menu, self.panels.actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, false, false);
+        (self.pr.ship_menu, self.pr.merge_menu) = (false, false);
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;
         self.automations.menu = None;
@@ -409,6 +422,11 @@ impl Desktop {
         self.place()
     }
 
+    /// The provider's Label from Settings, else its own name.
+    pub(crate) fn agent_name(&self, provider: &str) -> String {
+        self.store.agents.label(provider).unwrap_or_else(|| theme::provider_name(provider).into())
+    }
+
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
             _ if self.shown_create().is_some() => self.creating_page(cx),
@@ -418,7 +436,7 @@ impl Desktop {
             None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
             None => self.blank_page(cx),
         };
-        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast())
+        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast()).children(self.pr_notice(cx))
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
@@ -549,6 +567,9 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::toggle_rail))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::toggle_focus))
+            .on_action(cx.listener(Self::zoom_in))
+            .on_action(cx.listener(Self::zoom_out))
+            .on_action(cx.listener(Self::reset_zoom))
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::new_browser))
             .on_action(cx.listener(Self::close_active_tab))

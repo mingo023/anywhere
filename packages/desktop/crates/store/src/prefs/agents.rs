@@ -27,6 +27,57 @@ pub struct Provider {
     pub effort: String,
     /// pocketd's, mirrored: it launches the agent. Empty is the provider's name on the login PATH.
     pub command: String,
+    /// Shown instead of the provider's own name; empty keeps that.
+    pub label: String,
+    /// pocketd's, mirrored, as typed; `None` is `Args::default_text`.
+    pub prompt_args: Option<String>,
+    pub resume_args: Option<String>,
+    pub fork_args: Option<String>,
+}
+
+/// Where fork args take the source session's id.
+pub const SESSION_ID: &str = "{sessionId}";
+
+/// The words pocketd puts around a provider's command; empty leaves them out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Args {
+    Prompt,
+    Resume,
+    Fork,
+}
+
+impl Args {
+    pub const ALL: [Self; 3] = [Self::Prompt, Self::Resume, Self::Fork];
+
+    /// pocketd's config key under the provider.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Prompt => "promptArgs",
+            Self::Resume => "resumeArgs",
+            Self::Fork => "forkArgs",
+        }
+    }
+
+    /// pocketd's default when config.json sets none; pocketd's config/args.go holds the same.
+    pub fn default_text(self, provider: &str) -> &'static str {
+        match (self, provider) {
+            (Self::Prompt, _) => "--",
+            (Self::Resume, "codex") => "resume",
+            (Self::Resume, _) => "--resume",
+            (Self::Fork, "codex") => "fork {sessionId}",
+            (Self::Fork, _) => "--resume {sessionId} --fork-session",
+        }
+    }
+}
+
+impl Provider {
+    pub fn args_mut(&mut self, which: Args) -> &mut Option<String> {
+        match which {
+            Args::Prompt => &mut self.prompt_args,
+            Args::Resume => &mut self.resume_args,
+            Args::Fork => &mut self.fork_args,
+        }
+    }
 }
 
 /// Providers, launch defaults and sessions.
@@ -109,6 +160,16 @@ impl Agents {
 
     pub fn provider_mut(&mut self, provider: &str) -> &mut Provider {
         self.providers.entry(provider.into()).or_default()
+    }
+
+    /// `provider`'s args as typed, else pocketd's default.
+    pub fn args(&self, provider: &str, which: Args) -> String {
+        self.provider(provider).args_mut(which).clone().unwrap_or_else(|| which.default_text(provider).into())
+    }
+
+    /// The name `provider` shows under, when its label sets one.
+    pub fn label(&self, provider: &str) -> Option<String> {
+        Some(self.provider(provider).label.trim().to_string()).filter(|l| !l.is_empty())
     }
 
     /// What runs `provider`: its command, else its name.
@@ -233,8 +294,8 @@ mod tests {
     #[test]
     fn a_launch_takes_its_provider_s_model_and_effort_unless_it_names_its_own() {
         let mut a = Agents::default();
-        *a.provider_mut("claude") = Provider { model: "opus".into(), effort: "high".into(), command: String::new() };
-        *a.provider_mut("codex") = Provider { model: "gpt-5".into(), effort: "high".into(), command: String::new() };
+        *a.provider_mut("claude") = Provider { model: "opus".into(), effort: "high".into(), ..Provider::default() };
+        *a.provider_mut("codex") = Provider { model: "gpt-5".into(), effort: "high".into(), ..Provider::default() };
         let (mut claude, mut named, mut codex) = (json!({"provider": "claude"}), json!({"provider": "claude", "model": "haiku"}), json!({"provider": "codex"}));
         [&mut claude, &mut named, &mut codex].into_iter().for_each(|s| a.launch(s));
         assert_eq!((&claude["model"], &claude["effort"]), (&json!("opus"), &json!("high")));
@@ -247,6 +308,24 @@ mod tests {
         let mut a = Agents::default();
         a.provider_mut("codex").command = "/opt/codex-dev".into();
         assert_eq!((a.command("claude"), a.command("codex")), ("claude".to_string(), "/opt/codex-dev".to_string()));
+    }
+
+    #[test]
+    fn args_are_pocketd_s_default_until_typed_and_empty_turns_them_off() {
+        let mut a = Agents::default();
+        assert_eq!((a.args("claude", Args::Resume), a.args("codex", Args::Resume)), ("--resume".to_string(), "resume".to_string()));
+        assert_eq!(a.args("codex", Args::Fork), "fork {sessionId}");
+        a.provider_mut("claude").resume_args = Some(String::new());
+        assert_eq!(a.args("claude", Args::Resume), "");
+    }
+
+    #[test]
+    fn a_blank_label_keeps_the_provider_s_own_name() {
+        let mut a = Agents::default();
+        a.provider_mut("claude").label = "  ".into();
+        assert_eq!(a.label("claude"), None);
+        a.provider_mut("claude").label = " Claude ".into();
+        assert_eq!(a.label("claude").as_deref(), Some("Claude"));
     }
 
     #[test]

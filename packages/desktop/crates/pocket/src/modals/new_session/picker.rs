@@ -111,7 +111,7 @@ impl Desktop {
         let mut rows = Vec::new();
         for provider in self.store.agents.enabled() {
             rows.push(
-                ui::pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(provider_name(provider)), None)
+                ui::pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(self.agent_name(provider)), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.new_form.draft.pick_provider(provider);
                         cx.notify();
@@ -225,7 +225,7 @@ impl Desktop {
         let f = &self.new_form.draft;
         let agent = ui::menu_chip("form-agent", f.picker == Some(Picker::Agent))
             .child(provider_icon(f.provider, 13., TEXT))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(f.provider)))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(self.agent_name(f.provider)))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();

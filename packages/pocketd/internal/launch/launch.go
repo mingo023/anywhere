@@ -142,7 +142,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	if s.Checkout.New != nil {
 		name = s.Checkout.New.Name
 	}
-	argv, fl := Argv(s, name)
+	argv, fl := Argv(s, name, l.set.AgentArgs(s.Provider))
 	if fl != nil {
 		return Result{Err: fl}
 	}
@@ -431,7 +431,7 @@ func (l *Launcher) SetPhoneMaxAccess(v string) error { return l.set.SetPhoneMaxA
 
 func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 	env := l.d.LoginEnv()
-	return resumeCmd(saved, shellenv.LoginShell(), l.d.Exe, func(p string) (string, bool) { return l.find(p, env) })
+	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, func(p string) (string, bool) { return l.find(p, env) })
 }
 
 // find resolves provider's command from config.json, rechecking once it changes.

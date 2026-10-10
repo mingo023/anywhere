@@ -208,10 +208,35 @@ pub struct Appearance {
     /// Points; read it through `code_size()`.
     #[serde(deserialize_with = "lenient")]
     pub code_size: Option<u32>,
+    /// Percent the whole window is drawn at; read it through `zoom()`.
+    #[serde(deserialize_with = "lenient")]
+    pub zoom: Option<u32>,
 }
 
 impl Appearance {
     pub const CODE_SIZES: (u32, u32) = (10, 20);
+    /// Safari's steps, in percent.
+    pub const ZOOMS: [u32; 11] = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
+
+    /// The window's zoom: 100% unless set, kept to the steps' range.
+    pub fn zoom(&self) -> u32 {
+        self.zoom.unwrap_or(100).clamp(Self::ZOOMS[0], Self::ZOOMS[Self::ZOOMS.len() - 1])
+    }
+
+    /// `zoom()` as a scale, 1 at 100%.
+    pub fn zoom_factor(&self) -> f32 {
+        self.zoom() as f32 / 100.
+    }
+
+    /// The step after the current zoom, or the last.
+    pub fn zoomed_in(&self) -> u32 {
+        Self::ZOOMS.into_iter().find(|&z| z > self.zoom()).unwrap_or(self.zoom())
+    }
+
+    /// The step before the current zoom, or the first.
+    pub fn zoomed_out(&self) -> u32 {
+        Self::ZOOMS.into_iter().rev().find(|&z| z < self.zoom()).unwrap_or(self.zoom())
+    }
 
     /// The diff and preview text size: 12pt unless set, kept in range.
     pub fn code_size(&self) -> u32 {
@@ -697,6 +722,7 @@ mod tests {
             ui_font: Some("Inter".into()),
             code_font: None,
             code_size: Some(14),
+            zoom: Some(125),
         };
         s.sounds.all = false;
         s.worktree.root = "/wt".into();
@@ -706,6 +732,15 @@ mod tests {
         s.save();
         assert_eq!(Store::load(&dir), s);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn zoom_steps_through_the_list_and_stops_at_its_ends() {
+        let at = |zoom| Appearance { zoom: Some(zoom), ..Appearance::default() };
+        assert_eq!((Appearance::default().zoom(), Appearance::default().zoomed_in(), Appearance::default().zoomed_out()), (100, 110, 90));
+        assert_eq!((at(200).zoomed_in(), at(50).zoomed_out()), (200, 50));
+        assert_eq!((at(130).zoomed_in(), at(130).zoomed_out()), (150, 125));
+        assert_eq!((at(999).zoom(), at(1).zoom()), (200, 50));
     }
 
     #[test]

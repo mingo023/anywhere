@@ -5,12 +5,13 @@ use crate::desktop::Desktop;
 use crate::empty_pane::Menu;
 use crate::modals::new_session::picker::Picker;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
+use crate::git_ui::diff::At;
 use crate::git_ui::graph::GraphState;
 use crate::settings::Section;
 use crate::status::Status;
 use crate::updates::Update;
 use git::Kind;
-use git::github::{Checks, Pr, PrState};
+use git::github::{Check, Checks, Comment, Mergeable, Outcome, Pr, PrState, Review, Thread};
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 100] = [
+const STEPS: [(&str, Step); 103] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -224,9 +225,45 @@ const STEPS: [(&str, Step); 100] = [
         for (i, tree) in trees.into_iter().enumerate() {
             let number = 120 + i as u32;
             let state = if i == 3 { PrState::Merged } else { PrState::Open };
-            let pr = Pr { number, title: format!("Capture PR {number}"), url: format!("https://github.com/acme/app/pull/{number}"), state, draft: false, checks: checks[i % 4] };
+            let pr = Pr { number, title: format!("Capture PR {number}"), url: format!("https://github.com/acme/app/pull/{number}"), state, checks: checks[i % 4], ..Pr::default() };
             d.prs.start(&tree, now);
             d.prs.apply(tree, now, Ok(Some(pr)), now);
+        }
+    }),
+    ("pr-loop", |d, _, _| {
+        let Some(tree) = d.cwd() else { return };
+        let at = crate::util::now_ms() as u64;
+        let said = |author: &str, body: &str, mins: u64| Comment { author: author.into(), body: body.into(), at: at - mins * 60_000, hunk: String::new() };
+        let thread = |id: &str, line: u32, resolved: bool, comments: Vec<Comment>| Thread { id: id.into(), path: "hooks/use-restore-preview.ts".into(), line: Some(line), resolved, comments, ..Thread::default() };
+        let run = |name: &str, outcome: Outcome, secs: u64| Check { name: name.into(), outcome, url: "https://github.com/acme/app/actions/runs/1".into(), secs: Some(secs) };
+        let pr = Pr {
+            number: 128,
+            title: "Fix stale terminal reveal".into(),
+            url: "https://github.com/acme/app/pull/128".into(),
+            checks: Checks { passed: 3, failed: 1, pending: 0 },
+            runs: vec![run("lint", Outcome::Passed, 42), run("typecheck", Outcome::Passed, 61), run("test", Outcome::Failed, 134), run("build", Outcome::Passed, 98)],
+            review: Review::ChangesRequested,
+            reviews: vec![("hoang".into(), Review::ChangesRequested)],
+            requested: vec!["linh".into()],
+            mergeable: Mergeable::Clean,
+            base: "main".into(),
+            head: "fix/restore-handoff".into(),
+            threads: vec![
+                thread("t1", 4, false, vec![said("hoang", "This reads the preview before the session restores, so the first frame is stale.", 40)]),
+                thread("t2", 12, false, vec![said("hoang", "Can we drop the timeout here?", 35), said("Minh Ngo", "Dropped it in the next push.", 10)]),
+                thread("t3", 18, true, vec![said("linh", "Nit: name it restorePreview.", 90)]),
+            ],
+            ..Pr::default()
+        };
+        let now = Instant::now();
+        d.prs.start(&tree, now);
+        d.prs.apply(tree, now, Ok(Some(pr)), now);
+    }),
+    ("pr-comments", |d, _, _| d.pr.track.comments = true),
+    ("pr-diff", |d, _, cx| {
+        let first = d.shown_pr().and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
+        if let Some(id) = first {
+            d.view_thread(&id, cx);
         }
     }),
     ("names", |d, _, _| {
@@ -346,7 +383,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
         p.file = None;
     }
     for v in d.diff.panes.values_mut() {
-        (v.file, v.at) = (None, None);
+        (v.file, v.at) = (None, At::Working);
     }
     for c in d.commit.panes.values_mut() {
         c.sha = None;
@@ -354,6 +391,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.workspaces.clear();
     d.creates.list.clear();
     d.graph = GraphState::default();
+    d.pr.track.comments = false;
     d.agents.names.clear();
     d.agents.locals.clear();
     d.sidebar.rename = None;

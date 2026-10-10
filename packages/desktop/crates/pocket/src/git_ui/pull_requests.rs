@@ -93,13 +93,39 @@ impl PullRequests {
     /// Forgets `tree`'s PR, and drops the answer of any run in flight for it, so the next poll asks `gh` again.
     pub(crate) fn forget(&mut self, tree: &str) {
         self.by_tree.remove(tree);
+        self.drop_run(tree);
+    }
+
+    /// Shows `pr` for `tree` at once, as when it was just opened, until the next poll asks `gh`.
+    pub(crate) fn put(&mut self, tree: &str, pr: Pr, now: Instant) {
+        self.by_tree.insert(tree.to_string(), (now, Some(pr)));
+        self.expire(tree, now);
+    }
+
+    /// Changes what's shown for `tree`'s PR after acting on it, so an answer asked for before can't undo it.
+    pub(crate) fn edit(&mut self, tree: &str, f: impl FnOnce(&mut Pr)) {
+        if let Some((_, Some(pr))) = self.by_tree.get_mut(tree) {
+            f(pr);
+        }
+        self.drop_run(tree);
+    }
+
+    /// Keeps showing `tree`'s PR but asks `gh` about it at the next poll.
+    pub(crate) fn expire(&mut self, tree: &str, now: Instant) {
+        if let Some((at, _)) = self.by_tree.get_mut(tree) {
+            *at = now.checked_sub(OTHERS_EVERY).unwrap_or(*at);
+        }
+        self.drop_run(tree);
+    }
+
+    fn drop_run(&mut self, tree: &str) {
         if self.running.as_ref().is_some_and(|(t, _)| t == tree) {
             self.running = None;
         }
     }
 }
 
-fn tone(pr: &Pr) -> Token {
+pub(crate) fn tone(pr: &Pr) -> Token {
     let c = pr.checks;
     match pr.state {
         PrState::Merged => MERGED,
@@ -112,7 +138,7 @@ fn tone(pr: &Pr) -> Token {
     }
 }
 
-fn detail(pr: &Pr) -> String {
+pub(crate) fn detail(pr: &Pr) -> String {
     let state = match pr.state {
         PrState::Merged => Some("Merged"),
         PrState::Closed => Some("Closed"),
@@ -191,11 +217,28 @@ impl Desktop {
         let started = Instant::now();
         self.prs.start(&tree, started);
         let dir = tree.clone();
-        let task = cx.background_executor().spawn(async move { github::view_result(daemon::run_login(github::VIEW, &dir, "")) });
+        let task = cx.background_executor().spawn(async move {
+            let mut result = github::view_result(daemon::run_login(github::VIEW, &dir, ""));
+            let mut lost = false;
+            if let Ok(Some(pr)) = &mut result
+                && pr.state == PrState::Open
+            {
+                let argv = github::threads_argv(pr.number);
+                let threads = super::pull_request::run(&argv, &dir, "").ok().and_then(|json| github::threads_result(&json));
+                lost = threads.is_none();
+                pr.threads = threads.unwrap_or_default();
+            }
+            (result, lost)
+        });
         cx.spawn(async move |this, cx| {
-            let result = task.await;
+            let (mut result, lost) = task.await;
             this.update(cx, |d, cx| {
+                // A failed threads query keeps the threads already shown rather than emptying the list.
+                if let (true, Ok(Some(pr))) = (lost, &mut result) {
+                    pr.threads = d.prs.get(&tree).map(|p| p.threads.clone()).unwrap_or_default();
+                }
                 if d.prs.apply(tree, started, result, Instant::now()) {
+                    d.refresh_pr_diffs(cx);
                     cx.notify();
                 }
             })
@@ -212,7 +255,7 @@ mod tests {
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_3, TEXT_4, WAITING_TEXT};
 
     fn pr(n: u32) -> Pr {
-        Pr { number: n, title: format!("PR {n}"), url: format!("https://github.com/acme/app/pull/{n}"), state: PrState::Open, draft: false, checks: Checks::default() }
+        Pr { number: n, title: format!("PR {n}"), url: format!("https://github.com/acme/app/pull/{n}"), ..Pr::default() }
     }
 
     /// Starts a `gh` run for `tree` at `now` and applies its answer.
@@ -375,5 +418,33 @@ mod tests {
         assert!(!prs.apply("/a".into(), t0, Ok(Some(pr(1))), t1));
         assert!(prs.apply("/a".into(), t1, Ok(None), t1));
         assert_eq!(prs.item("/a", "fix", Some("main")), Some(PrItem::Create));
+    }
+
+    #[test]
+    fn a_pr_just_opened_shows_at_once_and_is_asked_about_at_the_next_poll() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now());
+        prs.put("/a", pr(7), now);
+        assert_eq!(prs.get("/a").map(|p| p.number), Some(7));
+        assert_eq!(prs.due(Some("/a"), EVERY, &trees(), now).as_deref(), Some("/a"));
+    }
+
+    #[test]
+    fn an_edit_outlives_the_answer_of_a_run_asked_for_before_it() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now());
+        answer(&mut prs, "/a", Ok(Some(pr(1))), now);
+        prs.start("/a", now);
+        prs.edit("/a", |p| p.state = PrState::Merged);
+        assert!(!prs.apply("/a".into(), now, Ok(Some(pr(1))), now));
+        assert_eq!(prs.get("/a").map(|p| p.state), Some(PrState::Merged));
+    }
+
+    #[test]
+    fn an_expired_pr_stays_shown_until_gh_answers_again() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now() + Duration::from_secs(600));
+        answer(&mut prs, "/a", Ok(Some(pr(1))), now);
+        assert_eq!(prs.due(Some("/a"), EVERY, &trees(), now).as_deref(), Some("/b"));
+        prs.expire("/a", now);
+        assert_eq!(prs.get("/a").map(|p| p.number), Some(1));
+        assert_eq!(prs.due(Some("/a"), EVERY, &trees(), now).as_deref(), Some("/a"));
     }
 }

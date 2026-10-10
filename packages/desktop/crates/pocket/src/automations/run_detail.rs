@@ -44,7 +44,7 @@ impl Desktop {
                     .text_size(px(13.))
                     .text_color(TEXT_2)
                     .child(provider_icon(provider, 14., TEXT_2))
-                    .child(format!("{} ran", provider_name(provider)))
+                    .child(format!("{} ran", self.agent_name(provider)))
                     .child(who)
                     .children(project.map(|p| format!("in {p}"))),
             );
@@ -144,7 +144,7 @@ impl Desktop {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(ui::dot(8., WAITING).shadow(vec![ui::ring(WAITING_BG, 3.)]))
                     .child(if command.is_some() { "Allow command?" } else { "Needs your answer" })
-                    .child(div().text_size(px(12.5)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(format!("{} paused until you answer", provider_name(provider)))),
+                    .child(div().text_size(px(12.5)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(format!("{} paused until you answer", self.agent_name(provider)))),
             )
             .children(command)
             .child(div().h(px(30.)).flex().items_center().gap(px(8.)).children(answers.into_iter().flatten()).children(reply))

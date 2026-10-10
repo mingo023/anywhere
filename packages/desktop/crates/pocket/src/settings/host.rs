@@ -5,6 +5,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use serde_json::{Map, Value, json};
 use store::Store;
+use store::prefs::agents::Args;
 
 /// What Settings reads from pocketd, and the fields its own rows type into.
 pub(crate) struct Host {
@@ -88,6 +89,11 @@ pub(crate) fn mirror(store: &mut Store, config: &Map<String, Value>) -> bool {
         {
             store.agents.provider_mut(p).command = command.into();
         }
+        for which in Args::ALL {
+            if let Some(text) = config.get(&format!("{p}.{}", which.key())).and_then(Value::as_str) {
+                *store.agents.provider_mut(p).args_mut(which) = (text != which.default_text(p)).then(|| text.into());
+            }
+        }
     }
     before != (store.general.clone(), store.automations.grace_hours, store.automations.history, store.phone.clone(), store.agents.providers.clone())
 }
@@ -165,10 +171,11 @@ impl Desktop {
     }
 
     /// When pocketd refuses, as an older one does for keys it doesn't know, the row goes back to the value it keeps.
-    pub(crate) fn set_host(&mut self, key: &'static str, text: String, cx: &mut Context<Self>) {
+    pub(crate) fn set_host(&mut self, key: impl Into<String>, text: String, cx: &mut Context<Self>) {
         if self.capturing {
             return;
         }
+        let key = key.into();
         cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "config-set", "key": key, "text": text})) }).await;
             if let Err(e) = result {
@@ -323,6 +330,16 @@ mod tests {
         assert!(mirror(&mut store, json!({"claude.command": "/opt/claude", "codex.command": ""}).as_object().unwrap()));
         assert_eq!((store.agents.command("claude"), store.agents.command("codex")), ("/opt/claude".to_string(), "codex".to_string()));
         assert!(!mirror(&mut store, json!({"claude.command": "/opt/claude", "codex.command": ""}).as_object().unwrap()));
+    }
+
+    #[test]
+    fn pocketd_s_provider_args_land_in_the_store_with_its_defaults_as_none() {
+        let mut store = Store::default();
+        let config = json!({"claude.resumeArgs": "", "claude.forkArgs": "--resume {sessionId} --fork-session", "codex.promptArgs": "--prompt"});
+        assert!(mirror(&mut store, config.as_object().unwrap()));
+        let (claude, codex) = (store.agents.provider("claude"), store.agents.provider("codex"));
+        assert_eq!((claude.resume_args, claude.fork_args, codex.prompt_args), (Some(String::new()), None, Some("--prompt".into())));
+        assert!(!mirror(&mut store, config.as_object().unwrap()));
     }
 
     #[test]

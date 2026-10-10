@@ -124,7 +124,7 @@ func (s *Settings) AgentCommand(provider string) string {
 
 // Values is every setting by its config-set key, for the owner's settings screen.
 func (s *Settings) Values() map[string]any {
-	return map[string]any{
+	v := map[string]any{
 		"phone.maxAccess":        s.PhoneMaxAccess(),
 		"restore.resumeAgents":   s.ResumeAgents(),
 		"awake.enabled":          s.KeepAwake(),
@@ -136,6 +136,12 @@ func (s *Settings) Values() map[string]any {
 		"claude.command":         s.command("claude"),
 		"codex.command":          s.command("codex"),
 	}
+	for _, p := range []string{"claude", "codex"} {
+		for _, key := range ArgKeys {
+			v[p+"."+key] = s.argText(p, key)
+		}
+	}
+	return v
 }
 
 // Listen is where phones reach pocketd: "auto" (loopback and the tailnet) unless config.json says "loopback".
@@ -196,6 +202,12 @@ func (s *Settings) Set(key, value string) error {
 		}
 		provider, _, _ := strings.Cut(key, ".")
 		return s.set(provider, "command", value)
+	}
+	if provider, name, _ := strings.Cut(key, "."); (provider == "claude" || provider == "codex") && slices.Contains(ArgKeys, name) {
+		if err := ValidArgs(name, value); err != nil {
+			return err
+		}
+		return s.set(provider, name, value)
 	}
 	return fmt.Errorf("unknown key %q", key)
 }

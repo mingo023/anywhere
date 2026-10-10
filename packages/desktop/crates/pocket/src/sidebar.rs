@@ -151,7 +151,12 @@ impl Desktop {
             .text_size(px(11.))
             .font_weight(FontWeight::BOLD)
             .text_color(TEXT_3)
-            .child("Projects");
+            .child(div().flex_1().child("PROJECTS"))
+            .child(
+                icon_button_sized("aside-add", "plus", 22., TEXT_3)
+                    .rounded(px(6.))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx))),
+            );
         let mut repos = Vec::new();
         for (i, p) in self.projects().into_iter().enumerate() {
             repos.push(self.project_block(i, &p, cx));

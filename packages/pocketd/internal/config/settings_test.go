@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -166,5 +167,42 @@ func TestAProviderCommandIsANameOnPathOrAFullPath(t *testing.T) {
 	}
 	if err := s.Set("claude.command", ""); err != nil || s.AgentCommand("claude") != "claude" {
 		t.Fatalf("empty: err %v, got %q", err, s.AgentCommand("claude"))
+	}
+}
+
+func TestAgentArgsSplitLikeAShellAndFallBackToTheirDefaults(t *testing.T) {
+	s := NewSettings(t.TempDir())
+	if got := s.AgentArgs("claude"); !slices.Equal(got.Fork, []string{"--resume", SessionID, "--fork-session"}) || !slices.Equal(got.Prompt, []string{"--"}) {
+		t.Fatalf("defaults: %q", got)
+	}
+	if s.Values()["codex.resumeArgs"] != "resume" || s.Values()["codex.forkArgs"] != "fork "+SessionID {
+		t.Fatalf("values: %v", s.Values())
+	}
+	if err := s.Set("claude.forkArgs", `--resume "{sessionId}" --fork-session --name 'my fork'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.AgentArgs("claude").Fork; !slices.Equal(got, []string{"--resume", SessionID, "--fork-session", "--name", "my fork"}) {
+		t.Fatalf("fork = %q", got)
+	}
+	if err := s.Set("codex.resumeArgs", ""); err != nil || len(s.AgentArgs("codex").Resume) != 0 || s.Values()["codex.resumeArgs"] != "" {
+		t.Fatalf("empty resume: %v %q", err, s.AgentArgs("codex").Resume)
+	}
+}
+
+func TestBadAgentArgsAreRefused(t *testing.T) {
+	s := NewSettings(t.TempDir())
+	for key, bad := range map[string]string{
+		"claude.forkArgs":   "--fork-session",
+		"claude.promptArgs": `"--prompt`,
+		"codex.resumeArgs":  `"it's"`,
+		"claude.resumeArgs": "--resume\x07",
+		"gemini.promptArgs": "--",
+	} {
+		if err := s.Set(key, bad); err == nil {
+			t.Errorf("%s %q accepted", key, bad)
+		}
+	}
+	if got := s.Values()["claude.forkArgs"]; got != "--resume "+SessionID+" --fork-session" {
+		t.Fatalf("fork args = %q", got)
 	}
 }

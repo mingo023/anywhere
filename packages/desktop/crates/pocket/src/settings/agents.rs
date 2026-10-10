@@ -93,7 +93,7 @@ impl Desktop {
                 .gap(px(12.))
                 .border_t(px(0.5))
                 .border_color(SEPARATOR)
-                .child(div().w(px(96.)).flex_none().text_size(px(13.)).text_color(TEXT).child(provider_name(p)))
+                .child(div().w(px(96.)).flex_none().text_size(px(13.)).text_color(TEXT).child(self.agent_name(p)))
                 .child(div().flex_1().min_w_0().text_size(px(12.)).text_color(TEXT_3).child(status_source(p)))
         });
         let caption = div().px(px(14.)).pt(px(9.)).pb(px(7.)).text_size(px(12.)).text_color(TEXT_3).child("Status \u{b7} how Anywhere reads it");
@@ -112,7 +112,7 @@ impl Desktop {
                 .text_size(px(13.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(TEXT)
-                .child(provider_name(p))
+                .child(self.agent_name(p))
                 .when(p == default, |d| d.child(div().px(px(5.)).rounded(px(4.)).bg(FILL_3).text_size(px(10.5)).text_color(TEXT_2).child("Default")));
             let line = provider_line(self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).map(String::as_str));
             let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(div().truncate().font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(line));

@@ -32,6 +32,7 @@ export const LaunchSpec = Schema.Struct({
   access: Access,
   plan: Schema.Boolean,
   prompt: Schema.optional(Schema.String),
+  fork: Schema.optional(Schema.String),
 });
 export type LaunchSpec = typeof LaunchSpec.Type;
 

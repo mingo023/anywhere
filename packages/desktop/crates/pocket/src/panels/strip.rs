@@ -147,6 +147,7 @@ impl Desktop {
                 let (path, text) = match doc {
                     Doc::File(p) | Doc::Diff(p) => (p, basename(p)),
                     Doc::CommitFile { sha, path } => (path, format!("{} ({})", basename(path), git::short_sha(sha))),
+                    Doc::PrFile { path, .. } => (path, format!("{} (PR)", basename(path))),
                     Doc::Commit(sha) => return row.child(icon("diff-multiple", 14., ink)).child(label(git::short_sha(sha).to_string()).when(preview, |d| d.italic())),
                 };
                 let totals = match doc {
@@ -159,7 +160,7 @@ impl Desktop {
         };
         if let Some(a) = self.summary(term) {
             let mark = ui::indicator(id(format!("tab-mark:{}", a.id)), Status::of(a).map(|s| state(s, 0, 0)));
-            return row.child(provider_icon(&a.provider, 13., ink)).child(label(provider_name(&a.provider).into())).children(mark);
+            return row.child(provider_icon(&a.provider, 13., ink)).child(label(self.agent_name(&a.provider))).children(mark);
         }
         let s = self.terminals.sessions.get(term);
         let busy = s.and_then(|s| s.busy());

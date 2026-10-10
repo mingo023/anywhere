@@ -1,6 +1,7 @@
 mod row;
 pub(crate) use row::{code, hunk};
 
+use git::github::Thread;
 use git::{self, Kind, Line};
 use theme::*;
 use ui::{self, Segment, Variant, checkbox, dot};
@@ -35,9 +36,18 @@ const MAX_WORD_LINES: usize = 5;
 
 type Sides = (Vec<Spans>, Vec<Spans>);
 
+/// What a diff compares: the working tree with HEAD, a commit with its parent, or HEAD with where it left a base branch.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum At {
+    #[default]
+    Working,
+    Commit(String),
+    Base(String),
+}
+
 pub struct DiffLoad {
     path: String,
-    at: Option<String>,
+    at: At,
     open: HashSet<usize>,
     options: git::Options,
     lines: Vec<Line>,
@@ -46,12 +56,13 @@ pub struct DiffLoad {
     dark: bool,
 }
 
-/// Reads and diffs `path` in the working tree, or with `at` in that commit, colouring it only when the lines differ from `shown`. Run off the UI thread.
-pub fn read_diff(cwd: &str, path: String, at: Option<String>, open: HashSet<usize>, options: git::Options, shown: &[Line]) -> DiffLoad {
+/// Reads and diffs `path` as `at` compares it, colouring it only when the lines differ from `shown`. Run off the UI thread.
+pub fn read_diff(cwd: &str, path: String, at: At, open: HashSet<usize>, options: git::Options, shown: &[Line]) -> DiffLoad {
     let dark = theme::is_dark();
     let (old, new) = match &at {
-        Some(sha) => git::texts_at(cwd, sha, &path),
-        None => git::texts(cwd, &path),
+        At::Working => git::texts(cwd, &path),
+        At::Commit(sha) => git::texts_at(cwd, sha, &path),
+        At::Base(base) => git::texts_between(cwd, base, &path),
     };
     let lines = git::diff_texts(&old, &new, &open, options);
     let colors = (lines != shown).then(|| {
@@ -119,23 +130,49 @@ pub enum Row {
     Unified(usize),
     Split(Option<usize>, Option<usize>),
     Composer,
+    /// The review thread pinned at this index.
+    Thread(usize),
 }
 
-/// Lays out the diff, with the composer under the row holding its line.
-fn rows(lines: &[Line], split: bool, composer: Option<usize>) -> Vec<Row> {
+/// A review thread left on line `line` of the PR's head, or of its base when `left`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pin {
+    pub(crate) id: String,
+    pub(crate) line: usize,
+    pub(crate) left: bool,
+}
+
+/// The threads on `path` that still point at a line; an outdated one's line is in code the branch has since changed.
+pub fn pins(path: &str, threads: &[Thread]) -> Vec<Pin> {
+    threads.iter().filter(|t| t.path == path && !t.outdated).filter_map(|t| Some(Pin { id: t.id.clone(), line: t.line? as usize, left: t.left })).collect()
+}
+
+fn pinned(lines: &[Line], pin: &Pin) -> Option<usize> {
+    lines.iter().position(|l| match l.kind {
+        Kind::Hunk => false,
+        Kind::Del => pin.left && l.old == Some(pin.line),
+        Kind::Add => !pin.left && l.new == Some(pin.line),
+        Kind::Context => (if pin.left { l.old } else { l.new }) == Some(pin.line),
+    })
+}
+
+/// Lays out the diff, with the composer and then the pinned threads under the row holding their line.
+fn rows(lines: &[Line], split: bool, composer: Option<usize>, pins: &[Pin]) -> Vec<Row> {
     let base: Vec<Row> =
         if split { git::split(lines).into_iter().map(|(l, r)| Row::Split(l, r)).collect() } else { (0..lines.len()).map(Row::Unified).collect() };
-    let mut out = Vec::with_capacity(base.len() + 1);
+    let at: Vec<Option<usize>> = pins.iter().map(|p| pinned(lines, p)).collect();
+    let mut out = Vec::with_capacity(base.len() + 1 + pins.len());
     for row in base {
         out.push(row);
         let holds = |i: usize| match row {
             Row::Unified(j) => j == i,
             Row::Split(l, r) => l == Some(i) || r == Some(i),
-            Row::Composer => false,
+            Row::Composer | Row::Thread(_) => false,
         };
         if composer.is_some_and(holds) {
             out.push(Row::Composer);
         }
+        out.extend(at.iter().enumerate().filter(|(_, i)| i.is_some_and(holds)).map(|(k, _)| Row::Thread(k)));
     }
     out
 }
@@ -264,7 +301,7 @@ impl Pick {
 /// One pane's diff: the file it shows, its lines, and the lines picked there to ask about.
 pub struct DiffView {
     pub(crate) file: Option<String>,
-    pub(crate) at: Option<String>,
+    pub(crate) at: At,
     pub(crate) lines: Vec<git::Line>,
     pub(crate) rows: Vec<Row>,
     pub(crate) list: ListState,
@@ -273,13 +310,14 @@ pub struct DiffView {
     pub(crate) source: (String, String),
     pub(crate) syntax: (Vec<Spans>, Vec<Spans>),
     pub(crate) pick: Pick,
+    pub(crate) pins: Vec<Pin>,
 }
 
 impl Default for DiffView {
     fn default() -> Self {
         Self {
             file: None,
-            at: None,
+            at: At::Working,
             lines: Vec::new(),
             rows: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(400.)),
@@ -288,18 +326,19 @@ impl Default for DiffView {
             source: Default::default(),
             syntax: Default::default(),
             pick: Pick::default(),
+            pins: Vec::new(),
         }
     }
 }
 
 impl DiffView {
-    /// Whether this shows `path` in the working tree, or with `at` in that commit.
-    pub fn shows(&self, path: &str, at: Option<&str>) -> bool {
-        self.file.as_deref() == Some(path) && self.at.as_deref() == at
+    /// Whether this shows `path` as `at` compares it.
+    pub fn shows(&self, path: &str, at: &At) -> bool {
+        self.file.as_deref() == Some(path) && self.at == *at
     }
 
     pub fn working_file(&self) -> Option<&str> {
-        self.file.as_deref().filter(|_| self.at.is_none())
+        self.file.as_deref().filter(|_| self.at == At::Working)
     }
 
     fn set_lines(&mut self, lines: Vec<Line>) -> bool {
@@ -313,7 +352,7 @@ impl DiffView {
 
     /// Rebuilds the rows; without `reset` only the rows that changed are remeasured and the scroll position stays.
     fn layout(&mut self, reset: bool, split: bool) {
-        let rows = rows(&self.lines, split, self.pick.composer_line());
+        let rows = rows(&self.lines, split, self.pick.composer_line(), &self.pins);
         if reset {
             self.list.reset(rows.len());
         } else {
@@ -333,6 +372,8 @@ pub struct DiffState {
     /// The pane whose pick the composer is about; `MAIN` is 0, so it's the default.
     pub(crate) drafting: PaneId,
     pub(crate) viewed: HashSet<String>,
+    /// The thread to scroll to once a pane lays it out.
+    pub(crate) reveal: Option<String>,
 }
 
 impl DiffState {
@@ -366,17 +407,41 @@ impl DiffState {
         if changed {
             v.layout(true, self.split);
         }
+        self.reveal_thread();
         changed | recolored
     }
 
-    /// Shows `path` in `pane`, in the working tree or with `at` in that commit, dropping the pick, folds and lines of another file.
-    pub fn select(&mut self, pane: PaneId, path: String, at: Option<String>) {
+    /// Pins `threads` to the PR diffs on show, keeping their scroll position, then scrolls to the thread asked for.
+    pub fn pin(&mut self, threads: &[Thread]) {
+        for v in self.panes.values_mut().filter(|v| matches!(v.at, At::Base(_))) {
+            let pins = v.file.as_deref().map(|f| pins(f, threads)).unwrap_or_default();
+            if pins != v.pins {
+                v.pins = pins;
+                v.layout(false, self.split);
+            }
+        }
+        self.reveal_thread();
+    }
+
+    /// Scrolls to the thread asked for, with a few lines of the code above it, once a pane shows it.
+    fn reveal_thread(&mut self) {
+        let Some(id) = self.reveal.as_deref() else { return };
+        let found = self.panes.values().find_map(|v| Some((v, v.rows.iter().position(|r| matches!(r, Row::Thread(k) if v.pins[*k].id == id))?)));
+        if let Some((v, ix)) = found {
+            v.list.scroll_to(ListOffset { item_ix: ix.saturating_sub(3), offset_in_item: px(0.) });
+            self.reveal = None;
+        }
+    }
+
+    /// Shows `path` in `pane` as `at` compares it, dropping the pick, folds and lines of another file.
+    pub fn select(&mut self, pane: PaneId, path: String, at: At) {
         let v = self.panes.entry(pane).or_default();
-        if v.shows(&path, at.as_deref()) {
+        if v.shows(&path, &at) {
             return;
         }
         v.pick.range = None;
         v.open.clear();
+        v.pins.clear();
         if v.set_lines(Vec::new()) {
             v.layout(true, self.split);
         }
@@ -432,7 +497,7 @@ impl Desktop {
         let Some((path, at)) = self.diff.view(pane).and_then(|v| Some((v.file.clone()?, v.at.clone()))) else {
             return empty("No changes.");
         };
-        let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at.is_none());
+        let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at == At::Working);
         let viewed = self.diff.viewed.contains(&path);
         let toggle = path.clone();
         let right = div()
@@ -452,7 +517,7 @@ impl Desktop {
                 },
                 cx,
             )))
-            .when(at.is_none(), |d| {
+            .when(at == At::Working, |d| {
                 d.child(ui::button("viewed", Variant::Glass, None, div().flex().items_center().gap(px(7.)).child(checkbox(viewed)).child("Viewed")).on_click(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
                         if !this.diff.viewed.remove(&toggle) {
@@ -466,32 +531,40 @@ impl Desktop {
                 ui::group_button("diff-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx))),
             ]));
         let status = match &at {
-            Some(sha) => self.graph.file(sha, &path).map(|f| Some(f.status)),
-            None => Some(file.as_ref().map(|f| f.status)),
+            At::Working => Some(file.as_ref().map(|f| f.status)),
+            At::Commit(sha) => self.graph.file(sha, &path).map(|f| Some(f.status)),
+            At::Base(_) => None,
         };
         let mut meta = Vec::new();
         if let Some(status) = status {
             let (color, state) = status_word(status);
             meta.push(ui::meta_item().child(dot(7., color)).child(ui::meta_value(state)).into_any_element());
         }
-        if let Some(sha) = &at {
+        if let At::Commit(sha) = &at {
             meta.push(ui::meta_item().child(ui::meta_value(git::short_sha(sha).to_string())).into_any_element());
             if let Some(c) = self.graph.commit(sha) {
                 meta.push(ui::meta_item().child(div().max_w(px(320.)).truncate().child(c.subject.clone())).into_any_element());
             }
         }
+        if let At::Base(base) = &at {
+            meta.push(ui::meta_item().child("against").child(ui::meta_value(base.clone())).into_any_element());
+        }
         if let Some(f) = &file {
             meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
         }
-        if at.is_none() {
+        if at == At::Working {
             let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
             if let Some((a, ts)) = self.agents.last_edit(&abs) {
-                let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
+                let by = format!("{} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms()));
                 meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
             }
         }
         let (dir, name) = path.rsplit_once('/').map_or((None, path.clone()), |(d, n)| (Some(d.to_string()), n.to_string()));
-        let first = at.as_deref().map_or_else(|| "Changes".to_string(), |sha| git::short_sha(sha).to_string());
+        let first = match &at {
+            At::Working => "Changes".to_string(),
+            At::Commit(sha) => git::short_sha(sha).to_string(),
+            At::Base(_) => "Pull request".to_string(),
+        };
         let crumbs = std::iter::once(first).chain(dir).chain([name]).collect();
         div()
             .flex_1()
@@ -613,7 +686,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{DiffLoad, DiffState, Pick, ROW, Row, changed, code_line, highlights, remap, rows};
+    use super::{At, DiffLoad, DiffState, Pick, Pin, ROW, Row, changed, code_line, highlights, pins, remap, rows};
+    use git::github::Thread;
     use crate::add_to_chat::{Body, Quote};
     use crate::desktop::MAIN;
     use git::parse;
@@ -762,9 +836,65 @@ mod tests {
     #[test]
     fn places_the_composer_under_its_line() {
         let l = parse(DIFF);
-        assert_eq!(rows(&l, false, Some(3)), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
-        assert_eq!(rows(&l, true, Some(2)), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
-        assert_eq!(rows(&l, false, None).len(), 5);
+        assert_eq!(rows(&l, false, Some(3), &[]), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
+        assert_eq!(rows(&l, true, Some(2), &[]), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
+        assert_eq!(rows(&l, false, None, &[]).len(), 5);
+    }
+
+    fn pin(id: &str, line: usize, left: bool) -> Pin {
+        Pin { id: id.into(), line, left }
+    }
+
+    #[test]
+    fn a_thread_sits_under_the_line_it_was_left_on_in_either_layout() {
+        let l = parse(DIFF);
+        let pins = [pin("on-d", 3, false), pin("on-b", 2, true)];
+        assert_eq!(rows(&l, false, None, &pins), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Thread(1), Row::Unified(3), Row::Unified(4), Row::Thread(0)]);
+        assert_eq!(
+            rows(&l, true, None, &pins),
+            vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Thread(1), Row::Split(None, Some(4)), Row::Thread(0)]
+        );
+    }
+
+    #[test]
+    fn threads_on_one_line_follow_the_composer_in_the_order_they_came() {
+        let l = parse(DIFF);
+        let pins = [pin("first", 1, false), pin("second", 1, true)];
+        assert_eq!(rows(&l, false, Some(1), &pins)[1..5], [Row::Unified(1), Row::Composer, Row::Thread(0), Row::Thread(1)]);
+    }
+
+    #[test]
+    fn a_thread_on_a_line_the_diff_leaves_out_gets_no_row() {
+        let l = parse(DIFF);
+        assert_eq!(rows(&l, false, None, &[pin("folded", 40, false), pin("added-side", 3, true)]).len(), 5);
+    }
+
+    #[test]
+    fn only_the_files_threads_on_lines_of_the_head_are_pinned() {
+        let t = |id: &str, path: &str, line: Option<u32>, outdated: bool| Thread { id: id.into(), path: path.into(), line, outdated, ..Thread::default() };
+        let threads = [t("here", "a.rs", Some(3), false), t("elsewhere", "b.rs", Some(3), false), t("gone", "a.rs", Some(7), true), t("unplaced", "a.rs", None, false)];
+        assert_eq!(pins("a.rs", &threads), vec![pin("here", 3, false)]);
+    }
+
+    #[test]
+    fn a_thread_asked_for_is_scrolled_to_once_its_file_is_laid_out() {
+        let base = At::Base("origin/main".into());
+        let mut state = DiffState::default();
+        state.select(MAIN, "a.rs".into(), base.clone());
+        state.reveal = Some("on-d".into());
+        state.pin(&[Thread { id: "on-d".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }]);
+        assert_eq!(state.reveal.as_deref(), Some("on-d"));
+        assert!(state.apply(MAIN, DiffLoad { at: base, ..load("a.rs", DIFF) }));
+        assert_eq!(state.reveal, None);
+        assert_eq!(state.view(MAIN).unwrap().rows[5], Row::Thread(0));
+        assert_eq!(state.view(MAIN).unwrap().list.logical_scroll_top().item_ix, 2);
+    }
+
+    #[test]
+    fn threads_pin_only_to_diffs_of_the_pr() {
+        let mut state = showing(&[(MAIN, "a.rs")]);
+        state.pin(&[Thread { id: "t".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }]);
+        assert!(state.view(MAIN).unwrap().pins.is_empty());
     }
 
     #[test]
@@ -816,13 +946,13 @@ mod tests {
     }
 
     fn load(path: &str, text: &str) -> DiffLoad {
-        DiffLoad { path: path.into(), at: None, open: HashSet::new(), options: git::Options::default(), lines: parse(text), source: Default::default(), colors: None, dark: false }
+        DiffLoad { path: path.into(), at: At::Working, open: HashSet::new(), options: git::Options::default(), lines: parse(text), source: Default::default(), colors: None, dark: false }
     }
 
     fn showing(panes: &[(PaneId, &str)]) -> DiffState {
         let mut state = DiffState::default();
         for &(pane, path) in panes {
-            state.select(pane, path.into(), None);
+            state.select(pane, path.into(), At::Working);
             state.apply(pane, load(path, DIFF));
         }
         state
@@ -831,11 +961,11 @@ mod tests {
     #[test]
     fn a_diff_load_lands_only_in_a_pane_still_showing_its_file() {
         let mut state = showing(&[(MAIN, "a.rs")]);
-        state.select(OTHER, "b.rs".into(), None);
+        state.select(OTHER, "b.rs".into(), At::Working);
         assert!(!state.apply(OTHER, load("a.rs", DIFF)));
         assert!(state.apply(OTHER, load("b.rs", DIFF)));
         assert_eq!(state.view(MAIN).unwrap().lines, parse(DIFF));
-        assert!(state.view(OTHER).unwrap().shows("b.rs", None));
+        assert!(state.view(OTHER).unwrap().shows("b.rs", &At::Working));
     }
 
     #[test]

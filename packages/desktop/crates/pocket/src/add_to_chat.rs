@@ -8,7 +8,7 @@ pub(crate) use selection::offers_chat;
 use crate::actions::AddToChat;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
-use crate::git_ui::diff::{DiffView, ordered, span};
+use crate::git_ui::diff::{At, DiffView, ordered, span};
 use crate::sidebar::in_tree;
 use crate::status::{Card, Kind, Status};
 use crate::syntax::language_for;
@@ -22,7 +22,7 @@ use workspace::{Doc, Tab};
 
 const ADDED_TOAST: Duration = Duration::from_millis(2600);
 /// A return in the same write as the paste reads as part of the paste to some agents.
-const SEND_AFTER: Duration = Duration::from_millis(80);
+pub(crate) const SEND_AFTER: Duration = Duration::from_millis(80);
 
 /// Text from a file, quoted into an agent's input.
 #[derive(Clone, Debug, PartialEq)]
@@ -220,7 +220,7 @@ impl Desktop {
         let pane = self.focused_pane();
         match self.pane_tab(pane) {
             Some(Tab::Doc(Doc::Diff(_))) => {
-                let quotable = |v: &&DiffView| v.at.is_none() && v.pick.range.is_some_and(|r| span(&v.lines, ordered(r)).is_some());
+                let quotable = |v: &&DiffView| v.at == At::Working && v.pick.range.is_some_and(|r| span(&v.lines, ordered(r)).is_some());
                 if let Some(i) = self.diff.view(pane).filter(quotable).and_then(|v| v.pick.last()) {
                     self.open_composer(pane, i, window, cx);
                 }
@@ -230,13 +230,13 @@ impl Desktop {
         }
     }
 
-    fn chat_choices(&self) -> Vec<Choice> {
+    pub(crate) fn chat_choices(&self) -> Vec<Choice> {
         let (Some(project), Some(tree)) = (self.project.as_deref(), self.place()) else { return Vec::new() };
         let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
         choices(in_tree(self.cards(project), Some(&tree), |c| self.tree_of(c)), &branch)
     }
 
-    fn chat_target(&self, choices: &[Choice]) -> Option<String> {
+    pub(crate) fn chat_target(&self, choices: &[Choice]) -> Option<String> {
         let recent = choices.iter().filter(|c| c.ready).filter_map(|c| self.agents.get(&c.id)).max_by_key(|a| a.updated_at).map(|a| a.id.as_str());
         target_for(self.store.agents.chat_to(), self.chat.target.as_deref(), self.session(), recent, choices)
     }

@@ -29,7 +29,7 @@ impl Desktop {
             .pt(px(72.))
             .px(px(24.))
             .pb(px(56.))
-            .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("What should {} work on?", provider_name(&pick.provider))))
+            .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("What should {} work on?", self.agent_name(&pick.provider))))
             .children(self.empty_branch_line())
             .child(self.empty_input(&pick, cx))
             .children(starting)
@@ -99,7 +99,7 @@ impl Desktop {
         let open = self.empty_pane.menu == Some(Menu::Agent);
         let chip = ui::menu_chip("empty-agent", open)
             .child(provider_icon(provider, 13., TEXT))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(provider)))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(self.agent_name(provider)))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
@@ -107,7 +107,7 @@ impl Desktop {
             }));
         let menu = open.then(|| {
             let rows = self.store.agents.enabled().into_iter().map(|p| {
-                ui::pick_row(p, p == provider, Some(provider_icon(p, 13., TEXT)), div().child(provider_name(p)), None)
+                ui::pick_row(p, p == provider, Some(provider_icon(p, 13., TEXT)), div().child(self.agent_name(p)), None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_empty(|pick| pick.switched(p), cx)))
                     .into_any_element()
             });

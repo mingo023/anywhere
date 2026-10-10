@@ -352,6 +352,11 @@ impl Agents {
         self.caps.iter().any(|c| c == AUTOMATIONS_CAP)
     }
 
+    /// pocketd starts a session as a copy of a provider session.
+    pub fn fork_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == FORK_CAP)
+    }
+
     /// Shows a rename before pocketd echoes it; a blank title clears the name.
     pub fn set_name(&mut self, path: &str, title: &str) {
         match title.trim() {
@@ -472,6 +477,7 @@ const OPEN_CAP: &str = "open.v1";
 const NAMES_CAP: &str = "names.v1";
 const AUTOMATIONS_CAP: &str = "automations.v1";
 const LOCALS_CAP: &str = "locals.v1";
+const FORK_CAP: &str = "fork.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
@@ -591,7 +597,7 @@ pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 8] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP];
+const CAPS: [&str; 9] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP];
 
 fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
@@ -856,7 +862,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
