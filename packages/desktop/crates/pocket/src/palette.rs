@@ -3,7 +3,7 @@ use crate::desktop::chrome::{Overlay, Screen, state};
 use crate::desktop::sounds::Cue;
 use crate::modals::may_open;
 use crate::status::{self, Card, Status};
-use crate::util::{LOCAL_ICON, basename, folder};
+use crate::util::{LOCAL_ICON, WORKTREE_ICON, basename, folder};
 use agents::locals::Local;
 use agents::Agents;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -197,17 +197,16 @@ fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)
     trees
         .into_iter()
         .filter_map(|(project, name, w)| {
-            let named = given(&w.path);
-            let title = match named {
-                Some(n) => n.to_string(),
-                None if w.main => name.clone(),
-                None => basename(&w.path),
+            // A named tree is still found by its folder; an unnamed one's title already is it, or is the project for the main one.
+            let (title, renamed_folder) = match given(&w.path) {
+                Some(n) => (n.to_string(), folder(&w.path)),
+                None if w.main => (name.clone(), ""),
+                None => (basename(&w.path), ""),
             };
-            let found_by_folder = if named.is_some() { folder(&w.path) } else { "" };
-            matches(words, &[&title, &name, &w.branch, found_by_folder]).then(|| Entry {
+            matches(words, &[&title, &name, &w.branch, renamed_folder]).then(|| Entry {
                 detail: format!("{name} · {}", w.branch),
                 pick: Pick::Tree { project, tree: (!w.main).then_some(w.path) },
-                lead: Lead::Icon("worktree"),
+                lead: Lead::Icon(WORKTREE_ICON),
                 title,
                 keys: None,
             })

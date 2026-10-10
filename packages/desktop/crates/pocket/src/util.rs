@@ -2,17 +2,17 @@ use agents::locals::is_local;
 use std::path::{Path, PathBuf};
 
 pub const LOCAL_ICON: &str = "laptop";
+pub const WORKTREE_ICON: &str = "worktree";
 
 /// The icon a tree's row shows, by its key: a Local's id, else a worktree's path.
 pub fn tree_icon(key: &str) -> &'static str {
-    if is_local(key) { LOCAL_ICON } else { "worktree" }
+    if is_local(key) { LOCAL_ICON } else { WORKTREE_ICON }
 }
 
 pub fn basename(path: &str) -> String {
     folder(path).to_string()
 }
 
-/// `path`'s last part, borrowed.
 pub fn folder(path: &str) -> &str {
     path.trim_end_matches('/').rsplit('/').next().unwrap_or_default()
 }
@@ -87,7 +87,7 @@ pub fn ago_long(ms: i64, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, initials, list_dir, tilde};
+    use super::{LOCAL_ICON, WORKTREE_ICON, ago, ago_long, folder, initials, list_dir, tilde, tree_icon};
     use store::prefs::files::Files;
 
     #[test]
@@ -134,5 +134,15 @@ mod tests {
         assert_eq!(names("", &shown), ["src", "target", ".gitignore", "a.log", "main.rs"]);
         assert_eq!(names("src", &shown), ["b.log", "lib.rs"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_folder_is_the_paths_last_part_even_with_a_trailing_slash() {
+        assert_eq!((folder("/w/app-login"), folder("/w/app/"), folder("app")), ("app-login", "app", "app"));
+    }
+
+    #[test]
+    fn a_local_shows_a_laptop_and_a_worktree_its_own_icon() {
+        assert_eq!((tree_icon("local-1"), tree_icon("/w/app-login")), (LOCAL_ICON, WORKTREE_ICON));
     }
 }

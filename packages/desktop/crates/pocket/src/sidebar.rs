@@ -17,7 +17,7 @@ use crate::sidebar::rename::Rename;
 use crate::sidebar::tree_tip::TreeTip;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
-use crate::util::{LOCAL_ICON, basename};
+use crate::util::{LOCAL_ICON, WORKTREE_ICON, basename};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -285,7 +285,7 @@ impl Desktop {
                     None => tree_name(tree, label.clone(), tip.clone()).into_any_element(),
                 };
                 out.push(
-                    ui::worktree_row(id(format!("aside-tree:{tree}")), "worktree", label, current.as_ref() == Some(tree), mark)
+                    ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, label, current.as_ref() == Some(tree), mark)
                         .children(self.pr_chip(tree))
                         .child(trail)
                         .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
