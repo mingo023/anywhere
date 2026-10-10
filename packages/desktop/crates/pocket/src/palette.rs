@@ -636,8 +636,13 @@ mod tests {
         let given = |t: &str| Some(if t == "/w/app" { "Hotfix" } else { "Sign in" });
         let titles = |q| tree_entries(&strings(&[q]), trees.clone(), given).into_iter().map(|e| e.title).collect::<Vec<_>>();
         assert_eq!((titles("hot"), titles("sign"), titles("app-login")), (vec!["Hotfix".to_string()], vec!["Sign in".to_string()], vec!["Sign in".to_string()]));
-        let unnamed = vec![("/w/app".into(), "app".into(), tree("/w/app-x", "main", true))];
-        assert!(tree_entries(&strings(&["x"]), unnamed, |_| None).is_empty());
+    }
+
+    #[test]
+    fn an_unnamed_main_worktree_is_found_by_its_project_not_its_folder() {
+        let trees = vec![("/w/app".into(), "app".into(), tree("/w/app-x", "main", true))];
+        let found = |q| !tree_entries(&strings(&[q]), trees.clone(), |_| None).is_empty();
+        assert_eq!((found("app"), found("x")), (true, false));
     }
 
     #[test]
