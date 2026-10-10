@@ -246,7 +246,7 @@ impl Desktop {
     }
 
     pub(crate) fn ask_remove_project(&mut self, p: String, cx: &mut Context<Self>) {
-        if self.project_terminals(&p).is_empty() {
+        if self.project_terminals(&p).is_empty() && self.agents.locals_in(&p).next().is_none() {
             self.remove_project(&p, cx);
         } else {
             self.confirm = Some(Confirm::RemoveProject(p));
