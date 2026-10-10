@@ -47,17 +47,17 @@ impl Entry {
     }
 }
 
-/// `current` first, then the rest in sidebar order, each followed by its trees: `(key, text it's found by)`, the key a worktree's path or a Local's id.
-/// A project stays while `query` is in its `search_text`, its path or a tree's name; its trees all stay when the project matches, else only those that match.
-pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, search_text: impl Fn(&str) -> String, trees: impl Fn(&str) -> Vec<(String, String)>) -> Vec<Entry> {
+/// `current` first, then the rest in sidebar order, each followed by its trees: `(key, texts it's found by)`, the key a worktree's path or a Local's id.
+/// A project stays while `query` is in one of its `search_texts`, its path or a tree's texts; its trees all stay when the project matches, else only those that match.
+pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, search_texts: impl Fn(&str) -> Vec<String>, trees: impl Fn(&str) -> Vec<(String, Vec<String>)>) -> Vec<Entry> {
     let query = query.trim().to_lowercase();
     let hit = |text: &str| text.to_lowercase().contains(&query);
     let (mut first, rest): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| Some(p.as_str()) == current);
     first.extend(rest);
     let mut out = Vec::new();
     for p in first {
-        let whole = hit(&format!("{}\n{p}", search_text(&p)));
-        let trees: Vec<String> = trees(&p).into_iter().filter(|(_, n)| whole || hit(n)).map(|(t, _)| t).collect();
+        let whole = hit(&p) || search_texts(&p).iter().any(|t| hit(t));
+        let trees: Vec<String> = trees(&p).into_iter().filter(|(_, texts)| whole || texts.iter().any(|t| hit(t))).map(|(t, _)| t).collect();
         if whole || !trees.is_empty() {
             out.push(Entry { project: p.clone(), tree: None, hit: whole });
             out.extend(trees.into_iter().map(|t| Entry { project: p.clone(), tree: Some(t), hit: true }));
@@ -84,17 +84,17 @@ fn parent(path: &str) -> String {
 }
 
 /// What tree `key` is found by: its `given` name, else its folder's, and a renamed worktree's folder as well.
-fn tree_text(key: &str, given: Option<&str>) -> String {
+fn tree_texts(key: &str, given: Option<&str>) -> Vec<String> {
     match given {
-        Some(n) if is_local(key) => n.to_string(),
-        Some(n) => format!("{n}\n{}", basename(key)),
-        None => basename(key),
+        Some(n) if is_local(key) => vec![n.to_string()],
+        Some(n) => vec![n.to_string(), basename(key)],
+        None => vec![basename(key)],
     }
 }
 
 /// What a project is found by besides its path: its `name`, and the name its own Local was given.
-fn project_text(name: &str, own: Option<&str>) -> String {
-    own.map_or_else(|| name.to_string(), |own| format!("{name}\n{own}"))
+fn project_texts(name: &str, own: Option<&str>) -> Vec<String> {
+    [Some(name), own].into_iter().flatten().map(str::to_string).collect()
 }
 
 impl Desktop {
@@ -102,10 +102,10 @@ impl Desktop {
         let trees = |p: &str| {
             let locals = self.agents.locals_in(p).map(|l| l.id.clone());
             let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
-            locals.chain(worktrees).map(|t| (t.clone(), tree_text(&t, self.agents.given_name(&t)))).collect()
+            locals.chain(worktrees).map(|t| (t.clone(), tree_texts(&t, self.agents.given_name(&t)))).collect()
         };
-        let search_text = |p: &str| project_text(&self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
-        listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_text, trees)
+        let search_texts = |p: &str| project_texts(&self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
+        listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_texts, trees)
     }
 
     pub(crate) fn toggle_project_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -222,21 +222,25 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, first_hit, listed, parent, project_text, step, tree_text};
+    use super::{Entry, first_hit, listed, parent, project_texts, step, tree_texts};
     use crate::util::basename;
 
     fn strings(s: &[&str]) -> Vec<String> {
         s.iter().map(|s| s.to_string()).collect()
     }
 
-    fn no_trees(_: &str) -> Vec<(String, String)> {
+    fn folder_name(p: &str) -> Vec<String> {
+        vec![basename(p)]
+    }
+
+    fn no_trees(_: &str) -> Vec<(String, Vec<String>)> {
         Vec::new()
     }
 
     /// `/w/app`'s worktrees, named by folder.
-    fn trees(p: &str) -> Vec<(String, String)> {
+    fn trees(p: &str) -> Vec<(String, Vec<String>)> {
         let paths = if p == "/w/app" { strings(&["/t/fix-login", "/t/dark-mode"]) } else { Vec::new() };
-        paths.into_iter().map(|t| (t.clone(), basename(&t))).collect()
+        paths.into_iter().map(|t| (t.clone(), folder_name(&t))).collect()
     }
 
     fn projects(entries: Vec<Entry>) -> Vec<String> {
@@ -249,14 +253,14 @@ mod tests {
 
     #[test]
     fn the_current_project_leads_and_the_rest_keep_the_sidebar_order() {
-        let got = listed(strings(&["/w/api", "/w/app", "/w/docs"]), Some("/w/docs"), "", basename, no_trees);
+        let got = listed(strings(&["/w/api", "/w/app", "/w/docs"]), Some("/w/docs"), "", folder_name, no_trees);
         assert_eq!(projects(got), strings(&["/w/docs", "/w/api", "/w/app"]));
     }
 
     #[test]
     fn the_search_matches_a_name_or_a_path_ignoring_case() {
         let all = strings(&["/work/api", "/self/app"]);
-        let named = |p: &str| if p == "/self/app" { "Pocket".to_string() } else { basename(p) };
+        let named = |p: &str| if p == "/self/app" { vec!["Pocket".to_string()] } else { folder_name(p) };
         assert_eq!(projects(listed(all.clone(), None, " API ", named, no_trees)), strings(&["/work/api"]));
         assert_eq!(projects(listed(all.clone(), None, "pock", named, no_trees)), strings(&["/self/app"]));
         assert_eq!(projects(listed(all.clone(), None, "self/", named, no_trees)), strings(&["/self/app"]));
@@ -265,40 +269,40 @@ mod tests {
 
     #[test]
     fn each_project_is_followed_by_its_worktrees() {
-        let got = listed(strings(&["/w/api", "/w/app"]), None, "", basename, trees);
+        let got = listed(strings(&["/w/api", "/w/app"]), None, "", folder_name, trees);
         assert_eq!(rows(got), strings(&["/w/api", "/w/app", "/t/fix-login", "/t/dark-mode"]));
     }
 
     #[test]
     fn a_matching_worktree_keeps_its_project_and_a_matching_project_keeps_all_its_worktrees() {
-        assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "dark", basename, trees)), strings(&["/w/app", "/t/dark-mode"]));
-        assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "app", basename, trees)), strings(&["/w/app", "/t/fix-login", "/t/dark-mode"]));
+        assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "dark", folder_name, trees)), strings(&["/w/app", "/t/dark-mode"]));
+        assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "app", folder_name, trees)), strings(&["/w/app", "/t/fix-login", "/t/dark-mode"]));
     }
 
     #[test]
     fn a_renamed_worktree_is_found_by_its_name_or_folder_and_a_local_by_its_name_alone() {
-        assert_eq!(tree_text("/t/calm-otter", Some("Sign in")), "Sign in\ncalm-otter");
-        assert_eq!(tree_text("/t/calm-otter", None), "calm-otter");
-        assert_eq!(tree_text("local-1", Some("Review")), "Review");
+        assert_eq!(tree_texts("/t/calm-otter", Some("Sign in")), ["Sign in", "calm-otter"]);
+        assert_eq!(tree_texts("/t/calm-otter", None), ["calm-otter"]);
+        assert_eq!(tree_texts("local-1", Some("Review")), ["Review"]);
     }
 
     #[test]
     fn a_project_is_found_by_the_name_its_own_local_was_given() {
-        let text = |p: &str| project_text(&basename(p), (p == "/w/app").then_some("Hotfix"));
-        assert_eq!(projects(listed(strings(&["/w/api", "/w/app"]), None, "hot", text, no_trees)), strings(&["/w/app"]));
-        assert_eq!(project_text("api", None), "api");
+        let texts = |p: &str| project_texts(&basename(p), (p == "/w/app").then_some("Hotfix"));
+        assert_eq!(projects(listed(strings(&["/w/api", "/w/app"]), None, "hot", texts, no_trees)), strings(&["/w/app"]));
+        assert_eq!(project_texts("api", None), ["api"]);
     }
 
     #[test]
     fn a_local_is_found_by_its_name() {
-        let trees = |_: &str| vec![("local-1".to_string(), "Review".to_string()), ("/t/fix".to_string(), "fix".to_string())];
-        assert_eq!(rows(listed(strings(&["/w/app"]), None, "review", basename, trees)), strings(&["/w/app", "local-1"]));
+        let trees = |_: &str| vec![("local-1".to_string(), strings(&["Review"])), ("/t/fix".to_string(), strings(&["fix"]))];
+        assert_eq!(rows(listed(strings(&["/w/app"]), None, "review", folder_name, trees)), strings(&["/w/app", "local-1"]));
     }
 
     #[test]
     fn the_highlight_starts_on_the_worktree_the_search_found_not_its_project() {
-        assert_eq!(first_hit(&listed(strings(&["/w/api", "/w/app"]), None, "dark", basename, trees)), 1);
-        assert_eq!(first_hit(&listed(strings(&["/w/api", "/w/app"]), None, "", basename, trees)), 0);
+        assert_eq!(first_hit(&listed(strings(&["/w/api", "/w/app"]), None, "dark", folder_name, trees)), 1);
+        assert_eq!(first_hit(&listed(strings(&["/w/api", "/w/app"]), None, "", folder_name, trees)), 0);
     }
 
     #[test]

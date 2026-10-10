@@ -22,6 +22,12 @@ fn deletes(locals: usize) -> Option<String> {
     counted(locals, "Deletes its added Local", |n| format!("Deletes its {n} added Locals"))
 }
 
+/// What removing a project takes with it.
+struct Takes {
+    terminals: usize,
+    locals: usize,
+}
+
 #[derive(Debug, PartialEq)]
 struct ConfirmText {
     title: String,
@@ -33,8 +39,8 @@ struct ConfirmText {
 }
 
 impl ConfirmText {
-    fn remove_project(name: &str, terminals: usize, locals: usize) -> Self {
-        let facts = closes(terminals).into_iter().chain(deletes(locals)).chain(["Its files stay on disk".to_string()]).collect();
+    fn remove_project(name: &str, takes: Takes) -> Self {
+        let facts = closes(takes.terminals).into_iter().chain(deletes(takes.locals)).chain(["Its files stay on disk".to_string()]).collect();
         Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, lost: 0, danger: true }
     }
 
@@ -125,7 +131,7 @@ impl Desktop {
     pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
         let text = match &self.confirm {
             Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
-            Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), self.project_terminals(p).len(), self.agents.locals_removed_with(p).count()),
+            Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() }),
             Some(Confirm::DeleteWorktree { removal, dirty, lost }) => ConfirmText::delete_worktree(removal, *dirty, *lost, self.tree_terminals(&removal.tree).len()),
             Some(Confirm::DeleteLocal(id)) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),
             Some(Confirm::TeardownFailed { removal, .. }) => ConfirmText::teardown_failed(&removal.tree),
@@ -226,7 +232,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Busy, ConfirmText, FileStat};
+    use super::{Busy, ConfirmText, FileStat, Takes};
     use crate::removal::Removal;
 
     fn text(title: &str, action: &'static str, facts: &[&str], dirty: usize) -> ConfirmText {
@@ -246,18 +252,18 @@ mod tests {
 
     #[test]
     fn facts_read_as_one_sentence_each() {
-        assert_eq!(ConfirmText::remove_project("app", 1, 0).detail(), Some("Closes 1 terminal. Its files stay on disk.".into()));
+        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 1, locals: 0 }).detail(), Some("Closes 1 terminal. Its files stay on disk.".into()));
         assert_eq!(ConfirmText::paste("ls", "zsh").detail(), None);
     }
 
     #[test]
     fn removing_a_project_keeps_its_files() {
         let keeps = "Its files stay on disk";
-        assert_eq!(ConfirmText::remove_project("app", 0, 0), text("Remove app?", "Remove", &[keeps], 0));
-        assert_eq!(ConfirmText::remove_project("app", 1, 0), text("Remove app?", "Remove", &["Closes 1 terminal", keeps], 0));
-        assert_eq!(ConfirmText::remove_project("app", 3, 0), text("Remove app?", "Remove", &["Closes 3 terminals", keeps], 0));
-        assert_eq!(ConfirmText::remove_project("app", 0, 1), text("Remove app?", "Remove", &["Deletes its added Local", keeps], 0));
-        assert_eq!(ConfirmText::remove_project("app", 0, 2), text("Remove app?", "Remove", &["Deletes its 2 added Locals", keeps], 0));
+        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 0, locals: 0 }), text("Remove app?", "Remove", &[keeps], 0));
+        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 1, locals: 0 }), text("Remove app?", "Remove", &["Closes 1 terminal", keeps], 0));
+        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 3, locals: 0 }), text("Remove app?", "Remove", &["Closes 3 terminals", keeps], 0));
+        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 0, locals: 1 }), text("Remove app?", "Remove", &["Deletes its added Local", keeps], 0));
+        assert_eq!(ConfirmText::remove_project("app", Takes { terminals: 0, locals: 2 }), text("Remove app?", "Remove", &["Deletes its 2 added Locals", keeps], 0));
     }
 
     #[test]

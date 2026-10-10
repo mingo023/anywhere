@@ -18,6 +18,7 @@ use crate::sidebar::tree_tip::TreeTip;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, basename};
+use agents::Agents;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -71,10 +72,10 @@ fn tree_place(w: &git::Worktree) -> String {
     if w.branch.is_empty() || w.branch == "detached" { basename(&w.path) } else { w.branch.clone() }
 }
 
-/// A worktree row's label and hover tip: its `given` name over its `tree_place`.
-pub(crate) fn tree_label(w: &git::Worktree, given: Option<&str>) -> (String, String) {
+/// A worktree row's label and hover tip: its given name over its `tree_place`.
+pub(crate) fn tree_label(w: &git::Worktree, agents: &Agents) -> (String, String) {
     let place = tree_place(w);
-    match given {
+    match agents.given_name(&w.path) {
         Some(title) => (title.to_string(), place),
         None => (place.clone(), place),
     }
@@ -265,7 +266,7 @@ impl Desktop {
                 .flatten()
                 .filter(|w| !w.main)
                 .map(|w| {
-                    let (label, tip) = tree_label(w, self.agents.given_name(&w.path));
+                    let (label, tip) = tree_label(w, &self.agents);
                     (w.path.clone(), label, tip)
                 })
                 .collect();
@@ -327,7 +328,7 @@ mod tests {
     use super::{ProjectRow, column_shown, in_tree, setting_up, tree_label};
     use crate::desktop::chrome::{Layout, Screen};
     use crate::status::{self, Card};
-    use agents::Summary;
+    use agents::{Agents, Summary};
     use std::collections::HashMap;
 
     fn card(id: &str, cwd: &str) -> Card {
@@ -401,12 +402,13 @@ mod tests {
     #[test]
     fn a_worktree_shows_its_name_over_its_branch_and_a_detached_one_its_folder() {
         let named = git::Worktree { path: "/wt/calm-otter".into(), branch: "fix-login".into(), main: false };
-        let name = Some("Fix the login form");
-        assert_eq!(tree_label(&named, name), ("Fix the login form".into(), "fix-login".into()));
-        assert_eq!(tree_label(&named, None), ("fix-login".into(), "fix-login".into()));
+        let (mut name, none) = (Agents::default(), Agents::default());
+        name.set_name("/wt/calm-otter", "Fix the login form");
+        assert_eq!(tree_label(&named, &name), ("Fix the login form".into(), "fix-login".into()));
+        assert_eq!(tree_label(&named, &none), ("fix-login".into(), "fix-login".into()));
         let detached = git::Worktree { branch: "detached".into(), ..named };
-        assert_eq!(tree_label(&detached, None), ("calm-otter".into(), "calm-otter".into()));
-        assert_eq!(tree_label(&detached, name), ("Fix the login form".into(), "calm-otter".into()));
+        assert_eq!(tree_label(&detached, &none), ("calm-otter".into(), "calm-otter".into()));
+        assert_eq!(tree_label(&detached, &name), ("Fix the login form".into(), "calm-otter".into()));
     }
 
     #[test]

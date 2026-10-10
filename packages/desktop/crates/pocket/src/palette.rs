@@ -189,8 +189,8 @@ fn up_next_entries(words: &[String], cards: &[SessionCard]) -> Vec<Entry> {
         .collect()
 }
 
-/// `trees` holds each worktree with its project's path and name; `given` gives a worktree's name, if it has one. Only a query lists worktrees.
-fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)>, given: impl Fn(&str) -> Option<&'a str>) -> Vec<Entry> {
+/// `trees` holds each worktree with its project's path and name. Only a query lists worktrees.
+fn tree_entries(words: &[String], trees: Vec<(String, String, git::Worktree)>, agents: &Agents) -> Vec<Entry> {
     if words.is_empty() {
         return Vec::new();
     }
@@ -198,7 +198,7 @@ fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)
         .into_iter()
         .filter_map(|(project, name, w)| {
             // Only a renamed tree needs its folder matchable.
-            let (title, renamed_folder) = match given(&w.path) {
+            let (title, renamed_folder) = match agents.given_name(&w.path) {
                 Some(n) => (n.to_string(), folder(&w.path)),
                 None if w.main => (name.clone(), ""),
                 None => (basename(&w.path), ""),
@@ -351,7 +351,7 @@ impl Desktop {
                     ("Up next", up_next_entries(words, &cards)),
                     ("Sessions", session_entries(words, cards)),
                     ("Locals", local_entries(words, locals)),
-                    ("Worktrees", tree_entries(words, trees, |t| self.agents.given_name(t))),
+                    ("Worktrees", tree_entries(words, trees, &self.agents)),
                     ("Files", file_entries(words, &root, &changed, &self.palette.files)),
                     ("Actions", actions),
                 ]
@@ -559,7 +559,7 @@ mod tests {
         assert_eq!(session_entries(&[], cards).len(), 5);
         let changed = strings(&["a.rs", "b.rs", "c.rs", "d.rs"]);
         assert_eq!(file_entries(&[], "/w", &changed, &changed).len(), 3);
-        assert!(tree_entries(&[], vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true))], |_| None).is_empty());
+        assert!(tree_entries(&[], vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true))], &Agents::default()).is_empty());
     }
 
     #[test]
@@ -568,7 +568,7 @@ mod tests {
         let cards = (0..10).map(|i| card(&format!("s{i}"), &format!("Fix {i}"), Status::Idle, i)).collect();
         assert_eq!(session_entries(&q, cards).len(), 8);
         let trees = (0..7).map(|i| ("/w/app".into(), "app".into(), tree(&format!("/w/fix-{i}"), &format!("fix-{i}"), false))).collect();
-        assert_eq!(tree_entries(&q, trees, |_| None).len(), 5);
+        assert_eq!(tree_entries(&q, trees, &Agents::default()).len(), 5);
         let files: Vec<String> = (0..10).map(|i| format!("src/fix_{i}.rs")).collect();
         assert_eq!(file_entries(&q, "/w", &[], &files).len(), 8);
     }
@@ -636,22 +636,24 @@ mod tests {
     #[test]
     fn a_renamed_worktree_is_shown_by_its_given_name_and_found_by_it_or_its_folder() {
         let trees = vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true)), ("/w/app".into(), "app".into(), tree("/w/app-login", "login", false))];
-        let given = |t: &str| Some(if t == "/w/app" { "Hotfix" } else { "Sign in" });
-        let titles = |q| tree_entries(&strings(&[q]), trees.clone(), given).into_iter().map(|e| e.title).collect::<Vec<_>>();
+        let mut agents = Agents::default();
+        agents.set_name("/w/app", "Hotfix");
+        agents.set_name("/w/app-login", "Sign in");
+        let titles = |q| tree_entries(&strings(&[q]), trees.clone(), &agents).into_iter().map(|e| e.title).collect::<Vec<_>>();
         assert_eq!((titles("hot"), titles("sign"), titles("app-login")), (vec!["Hotfix".to_string()], vec!["Sign in".to_string()], vec!["Sign in".to_string()]));
     }
 
     #[test]
     fn an_unnamed_main_worktree_is_found_by_its_project_not_its_folder() {
         let trees = vec![("/w/app".into(), "app".into(), tree("/w/app-x", "main", true))];
-        let found = |q| !tree_entries(&strings(&[q]), trees.clone(), |_| None).is_empty();
+        let found = |q| !tree_entries(&strings(&[q]), trees.clone(), &Agents::default()).is_empty();
         assert_eq!((found("app"), found("x")), (true, false));
     }
 
     #[test]
     fn a_worktree_opens_in_its_project_and_the_main_one_reads_as_the_project() {
         let trees = vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true)), ("/w/app".into(), "app".into(), tree("/w/app-login", "login", false))];
-        let got: Vec<_> = tree_entries(&strings(&["app"]), trees, |_| None).into_iter().map(|e| (e.pick, e.title, e.detail)).collect();
+        let got: Vec<_> = tree_entries(&strings(&["app"]), trees, &Agents::default()).into_iter().map(|e| (e.pick, e.title, e.detail)).collect();
         assert_eq!(
             got,
             vec![
