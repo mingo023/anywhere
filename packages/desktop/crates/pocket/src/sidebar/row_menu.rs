@@ -178,7 +178,7 @@ impl Desktop {
                             .into_any_element(),
                     );
                 }
-                if is_local(&local) {
+                if is_local(&local) && self.agents.locals_offered() {
                     if !rows.is_empty() {
                         rows.push(ui::menu_divider().into_any_element());
                     }

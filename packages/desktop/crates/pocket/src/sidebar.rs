@@ -18,7 +18,6 @@ use crate::sidebar::tree_tip::TreeTip;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
 use crate::util::basename;
-use agents::locals::is_local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -187,8 +186,7 @@ impl Desktop {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => tree_name(key, self.local_name(key), tip.to_string()).into_any_element(),
         };
-        let has_menu = renames || is_local(key);
-        let trail = has_menu.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
+        let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
         let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
         ui::worktree_row(id(format!("aside-tree:{key}")), "laptop", label, current == Some(key), mark)
             .when(selects.is_none(), |row| row.children(self.pr_chip(key)))
@@ -202,7 +200,7 @@ impl Desktop {
                 }
                 this.select_tree(target.clone(), selects.clone(), cx);
             }))
-            .when(has_menu, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)))
+            .when(renames, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)))
             .into_any_element()
     }
 

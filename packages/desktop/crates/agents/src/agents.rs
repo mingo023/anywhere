@@ -298,14 +298,14 @@ impl Agents {
         self.caps.iter().any(|c| c == OPEN_CAP)
     }
 
-    /// pocketd names worktrees from their prompt and takes renames.
+    /// pocketd names worktrees from their prompt and takes this client's renames.
     pub fn names_offered(&self) -> bool {
-        self.caps.iter().any(|c| c == NAMES_CAP)
+        self.caps.iter().any(|c| c == NAMES_CAP) && !self.observe_only()
     }
 
-    /// pocketd keeps Locals and runs terminals in them.
+    /// pocketd keeps Locals and takes this client's changes to them.
     pub fn locals_offered(&self) -> bool {
-        self.caps.iter().any(|c| c == LOCALS_CAP)
+        self.caps.iter().any(|c| c == LOCALS_CAP) && !self.observe_only()
     }
 
     /// Whether pocketd can rename the tree `key`, a Local's id or a worktree's path.
@@ -883,6 +883,16 @@ mod tests {
         let ev = futures::executor::block_on(futures::StreamExt::into_future(events)).0.unwrap();
         assert!(matches!(ev, Event::Connected { version, .. } if version == "0.1.0"));
         std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn an_observer_is_offered_no_renames_or_locals_pocketd_would_refuse() {
+        let mut a = Agents::default();
+        let caps = vec![NAMES_CAP.to_string(), LOCALS_CAP.to_string()];
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: caps.clone(), version: String::new() });
+        assert!(a.names_offered() && a.locals_offered());
+        a.apply(Event::Connected { scopes: vec!["observe".into()], caps, version: String::new() });
+        assert!(!a.names_offered() && !a.locals_offered());
     }
 
     #[test]
