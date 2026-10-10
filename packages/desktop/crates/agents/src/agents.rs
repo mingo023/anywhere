@@ -317,6 +317,11 @@ impl Agents {
         self.locals.iter().find(|l| l.id == id)
     }
 
+    /// The name a Local or the user or naming gave the tree `key`, a Local's id or a worktree's path.
+    pub fn given_name(&self, key: &str) -> Option<&String> {
+        self.local(key).map(|l| &l.name).or_else(|| self.names.get(key).filter(|n| !n.is_empty()))
+    }
+
     pub fn locals_in<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a Local> {
         self.locals.iter().filter(move |l| l.project == project)
     }
@@ -901,6 +906,14 @@ mod tests {
         assert!(a.names_offered() && a.locals_offered());
         a.apply(Event::Connected { scopes: vec!["observe".into()], caps, version: String::new() });
         assert!(!a.names_offered() && !a.locals_offered());
+    }
+
+    #[test]
+    fn a_tree_is_given_its_locals_name_else_its_rename() {
+        let mut a = Agents::default();
+        a.add_local(Local { id: "l1".into(), project: "/p".into(), name: "Review".into() });
+        a.set_name("/p", "Hotfix");
+        assert_eq!((a.given_name("l1"), a.given_name("/p"), a.given_name("/p-login")), (Some(&"Review".to_string()), Some(&"Hotfix".to_string()), None));
     }
 
     #[test]

@@ -48,7 +48,7 @@ impl Entry {
 }
 
 /// `current` first, then the rest in sidebar order, each followed by its trees: `(key, name)`, a worktree's path or a Local's id.
-/// A project stays while `query` is in its name, its path or a tree's name; its trees all stay when the project matches, else only those that match.
+/// A project stays while `query` is in its `name` (the text it's found by), its path or a tree's name; its trees all stay when the project matches, else only those that match.
 pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, name: impl Fn(&str) -> String, trees: impl Fn(&str) -> Vec<(String, String)>) -> Vec<Entry> {
     let query = query.trim().to_lowercase();
     let hit = |text: &str| text.to_lowercase().contains(&query);
@@ -90,7 +90,11 @@ impl Desktop {
             let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
             locals.chain(worktrees).map(|t| (t.clone(), self.place_name(&t))).collect()
         };
-        listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), |p| self.repo_name(p), trees)
+        let name = |p: &str| {
+            let own = self.tree_of(p).and_then(|t| self.agents.given_name(&t).cloned());
+            format!("{}\n{}", self.repo_name(p), own.unwrap_or_default())
+        };
+        listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), name, trees)
     }
 
     pub(crate) fn toggle_project_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
