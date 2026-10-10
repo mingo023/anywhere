@@ -128,14 +128,6 @@ impl Desktop {
         self.terminals.sessions.items.iter().filter(|s| self.project_of(&s.info.cwd, &projects).is_some_and(|o| o == p)).map(|s| s.info.id.clone()).collect()
     }
 
-    /// The added Locals removing project `p` deletes: none when pocketd won't take this client's deletes.
-    pub(crate) fn removed_locals(&self, p: &str) -> Vec<String> {
-        if !self.agents.locals_offered() {
-            return Vec::new();
-        }
-        self.agents.locals_in(p).map(|l| l.id.clone()).collect()
-    }
-
     pub(crate) fn tree_terminals(&self, tree: &str) -> Vec<String> {
         self.terminals.sessions.items.iter().filter(|s| self.place_of(&s.info).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
     }
@@ -237,7 +229,7 @@ impl Desktop {
         for id in self.project_terminals(p) {
             self.close_pane(&id, cx);
         }
-        for id in self.removed_locals(p) {
+        for id in self.agents.locals_removed_with(p) {
             self.delete_local(&id, cx);
         }
         self.store.remove(p);
@@ -253,7 +245,7 @@ impl Desktop {
     }
 
     pub(crate) fn ask_remove_project(&mut self, p: String, cx: &mut Context<Self>) {
-        if self.project_terminals(&p).is_empty() && self.removed_locals(&p).is_empty() {
+        if self.project_terminals(&p).is_empty() && self.agents.locals_removed_with(&p).is_empty() {
             self.remove_project(&p, cx);
         } else {
             self.confirm = Some(Confirm::RemoveProject(p));
