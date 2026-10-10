@@ -630,11 +630,6 @@ impl Desktop {
         self.new_form.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
     }
 
-    pub fn new_worktree_in(&mut self, p: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_project(p, cx);
-        self.new_worktree(&crate::actions::NewWorktree, window, cx);
-    }
-
     pub fn new_session_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
