@@ -29,9 +29,11 @@ type LaunchSpec struct {
 	Prompt   string   `json:"prompt,omitempty"`
 }
 
+// Checkout is exactly one of Worktree, New and Local.
 type Checkout struct {
 	Worktree string       `json:"worktree,omitempty"`
 	New      *NewWorktree `json:"new,omitempty"`
+	Local    string       `json:"local,omitempty"`
 }
 
 type NewWorktree struct {
@@ -154,7 +156,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 			return false
 		}
 	}
-	checkout, ok := strictObject(spec["checkout"], "worktree", "new")
+	checkout, ok := strictObject(spec["checkout"], "worktree", "new", "local")
 	if !ok {
 		return false
 	}
@@ -168,7 +170,13 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 		return false
 	}
 	c := s.Checkout
-	if (c.Worktree == "") == (c.New == nil) || c.New != nil && !c.New.valid() {
+	set := 0
+	for _, has := range []bool{c.Worktree != "", c.New != nil, c.Local != ""} {
+		if has {
+			set++
+		}
+	}
+	if set != 1 || c.New != nil && !c.New.valid() || c.Local != "" && !ValidLocalID(c.Local) {
 		return false
 	}
 	if s.Provider != "claude" && s.Provider != "codex" || !slices.Contains(Accesses, s.Access) || len(s.Prompt) > MaxPrompt {

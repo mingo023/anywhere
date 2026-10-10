@@ -255,7 +255,7 @@ impl Desktop {
 
     /// Moves the focus to pane `p`, and the keys with it.
     fn focus_panel(&mut self, p: PaneId, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         let t = &mut self.workspace(&tree).tree;
         if t.focused == p {
             return;
@@ -275,7 +275,7 @@ impl Desktop {
 
     /// Follows a held tab over the panes; off its own strip, its siblings slide home and the drop lights up.
     fn aim_tab(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         if self.panels.at == Some(at) {
             return;
         }
@@ -296,7 +296,7 @@ impl Desktop {
 
     /// Moves tab `i` of `pane` to `to`, then shows what the focused pane shows and loads what the moved tab needs.
     pub(crate) fn move_tab_to(&mut self, pane: PaneId, i: usize, to: Target, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         let t = &mut self.workspace(&tree).tree;
         t.move_tab(pane, i, to);
         let (focused, active) = (t.focused, t.focused().active);

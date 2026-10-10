@@ -89,6 +89,8 @@ struct Draft {
     taken: HashSet<String>,
     seed: usize,
     worktree: bool,
+    /// Not a worktree: the session starts in a new Local rather than the open tree.
+    new_local: bool,
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,
     /// Branches on origin with no local twin.
@@ -120,6 +122,7 @@ impl Default for Draft {
             taken: HashSet::new(),
             seed: 0,
             worktree: false,
+            new_local: false,
             repo: None,
             branches: Vec::new(),
             remote_branches: Vec::new(),
@@ -189,8 +192,16 @@ impl Draft {
         (self.base, self.source, self.picker) = (i, Source::New, None);
     }
 
-    fn pick_checkout(&mut self, worktree: bool) {
-        (self.worktree, self.picker) = (worktree, None);
+    fn target(&self) -> Target {
+        match (self.in_worktree(), self.new_local) {
+            (true, _) => Target::Worktree,
+            (false, true) => Target::NewLocal,
+            (false, false) => Target::Open,
+        }
+    }
+
+    fn pick_checkout(&mut self, target: Target) {
+        (self.worktree, self.new_local, self.picker) = (target == Target::Worktree, target == Target::NewLocal, None);
     }
 
     fn open_branch(&mut self, branch: String) {
@@ -200,7 +211,7 @@ impl Draft {
     /// `in_tree`: a worktree is open to start the session in.
     fn ready(&self, name: &str, in_tree: bool) -> bool {
         let place = match (self.in_worktree(), &self.source) {
-            (false, _) => in_tree,
+            (false, _) => in_tree || self.new_local && self.repo.is_some(),
             (true, Source::New) => self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none(),
             (true, Source::Branch(_)) => self.repo.is_some() && !name.is_empty(),
             (true, Source::Pr(_)) => self.repo.is_some() && parse_pr(name).is_some(),
@@ -223,9 +234,10 @@ impl Draft {
         (self.provider, self.picker) = (provider, None);
     }
 
+    /// `tree` is the worktree's path or the Local's id the session starts in when it isn't a new worktree.
     fn spec(&self, project: &str, tree: &str, name: &str, prompt: &str) -> Value {
         let checkout = match (self.in_worktree(), &self.source) {
-            (false, _) => json!({"worktree": tree}),
+            (false, _) => agents::locals::checkout(tree),
             (true, Source::New) => json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}}),
             (true, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
             (true, Source::Pr(_)) => json!({"new": {"pr": name, "copy": self.copy_env, "setup": self.run_setup}}),
@@ -278,14 +290,27 @@ struct Checkout {
     hint: &'static str,
 }
 
-/// Not a worktree means the open tree: the project's own checkout, or the worktree named `other`.
-fn checkout_choice(worktree: bool, other: Option<String>) -> Checkout {
-    if worktree {
-        return Checkout { glyph: "worktree", label: "Worktree".into(), hint: "Its own branch and copy of the files" };
-    }
-    match other {
-        Some(label) => Checkout { glyph: "worktree", label, hint: "This worktree as it is: files and branch are shared" },
-        None => Checkout { glyph: "laptop", label: "Local".into(), hint: "The project's checkout as it is: files and branch are shared" },
+/// Where a session starts.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Target {
+    Worktree,
+    /// The tree on screen.
+    Open,
+    NewLocal,
+}
+
+/// The tree on screen, by the name its sidebar row shows.
+enum OpenTree {
+    Local(String),
+    Worktree(String),
+}
+
+fn checkout_choice(target: Target, open: OpenTree) -> Checkout {
+    match (target, open) {
+        (Target::Worktree, _) => Checkout { glyph: "worktree", label: "Worktree".into(), hint: "Its own branch and copy of the files" },
+        (Target::NewLocal, _) => Checkout { glyph: "plus", label: "New Local".into(), hint: "A new place over the project's checkout: files and branch are shared" },
+        (Target::Open, OpenTree::Worktree(label)) => Checkout { glyph: "worktree", label, hint: "This worktree as it is: files and branch are shared" },
+        (Target::Open, OpenTree::Local(label)) => Checkout { glyph: "laptop", label, hint: "The project's checkout as it is: files and branch are shared" },
     }
 }
 
@@ -474,6 +499,7 @@ impl Desktop {
             s.focus(window, cx);
         });
         f.draft.worktree = worktree;
+        f.draft.new_local = false;
         f.draft.images.clear();
         f.draft.open(&last);
         (f.draft.picker, f.draft.want_base) = (None, None);
@@ -543,9 +569,12 @@ impl Desktop {
         }
         let name = self.new_form.draft.name();
         let prompt = self.new_form.prompt.read(cx).value().to_string();
-        let tree = self.cwd().unwrap_or_default();
+        let Some(project) = self.new_form.draft.repo.clone() else { return };
+        let tree = match self.new_form.draft.target() {
+            Target::NewLocal => self.new_local(&project),
+            _ => self.place().unwrap_or_default(),
+        };
         let f = &self.new_form.draft;
-        let Some(project) = f.repo.clone() else { return };
         let (mut spec, worktree, folder) = (f.spec(&project, &tree, &name, &prompt), f.in_worktree(), f.folder(&name));
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
@@ -656,7 +685,7 @@ impl Desktop {
         let pr = f.linked_pr();
         let branch = match pr {
             Some(n) => Some(div().h(px(30.)).px(px(6.)).flex().flex_none().items_center().gap(px(7.)).text_color(TEXT_3).child(icon("pull-request", 14., TEXT_3)).child(format!("based off PR #{n}"))),
-            None => f.worktree.then(|| self.branch_select(cx)),
+            None => (f.target() == Target::Worktree).then(|| self.branch_select(cx)),
         };
         let link = (pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
         let ready = self.session_ready();
@@ -750,7 +779,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Attachment, Draft, Source, attachment_path, checkout_choice, default_first, listed_branches, name_problem, parse_pr, pasted_image, save_image};
+    use super::{Attachment, Draft, OpenTree, Source, Target, attachment_path, checkout_choice, default_first, listed_branches, name_problem, parse_pr, pasted_image, save_image};
     use agents::CreateReply;
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use serde_json::json;
@@ -770,14 +799,27 @@ mod tests {
     }
 
     #[test]
-    fn local_is_the_projects_checkout_or_names_the_open_worktree() {
-        let choice = |worktree, other: Option<&str>| {
-            let c = checkout_choice(worktree, other.map(String::from));
+    fn the_open_tree_shows_as_its_sidebar_row_does() {
+        let choice = |target, open| {
+            let c = checkout_choice(target, open);
             (c.glyph, c.label)
         };
-        assert_eq!(choice(false, None), ("laptop", "Local".to_string()));
-        assert_eq!(choice(false, Some("Fix login")), ("worktree", "Fix login".to_string()));
-        assert_eq!(choice(true, Some("Fix login")), ("worktree", "Worktree".to_string()));
+        assert_eq!(choice(Target::Open, OpenTree::Local("Local 2".into())), ("laptop", "Local 2".to_string()));
+        assert_eq!(choice(Target::Open, OpenTree::Worktree("Fix login".into())), ("worktree", "Fix login".to_string()));
+        assert_eq!(choice(Target::Worktree, OpenTree::Worktree("Fix login".into())), ("worktree", "Worktree".to_string()));
+        assert_eq!(choice(Target::NewLocal, OpenTree::Local("Local".into())).1, "New Local");
+    }
+
+    #[test]
+    fn a_session_in_a_local_names_it_and_a_new_local_needs_only_a_project() {
+        let mut draft = Draft::default();
+        assert_eq!(draft.spec("/p", "local-1", "", "")["checkout"], json!({"local": "local-1"}));
+        draft.pick_checkout(Target::NewLocal);
+        assert!(!draft.ready("", false));
+        draft.repo = Some("/p".into());
+        assert_eq!((draft.target(), draft.ready("", false)), (Target::NewLocal, true));
+        draft.pick_checkout(Target::Worktree);
+        assert_eq!((draft.worktree, draft.new_local), (true, false));
     }
 
     #[test]

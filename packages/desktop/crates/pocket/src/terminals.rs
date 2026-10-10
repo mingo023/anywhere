@@ -8,6 +8,7 @@ use crate::desktop::chrome::{Confirm, Overlay};
 use crate::terminals::bell::Bell;
 use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
+use agents::locals::is_local;
 use daemon::{Info, Msg};
 use gpui_kit::*;
 use serde_json::json;
@@ -200,7 +201,8 @@ impl Desktop {
                 let restoring = !self.panels.restored;
                 self.restore_layouts();
                 for (id, c) in self.terminals.arrived() {
-                    self.adopt(id, c.tree, Place::Pane(c.pane), window, cx);
+                    let local = self.terminals.sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
+                    self.adopt(id, local.unwrap_or(c.tree), Place::Pane(c.pane), window, cx);
                 }
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
@@ -257,7 +259,7 @@ impl Desktop {
 
     fn adopt(&mut self, id: String, tree: String, place: Place, window: &mut Window, cx: &mut Context<Self>) {
         self.workspace(&tree).open_term(id.clone(), place);
-        self.show_tree(&tree, &tree);
+        self.show_tree(&tree);
         self.load_active(cx);
         self.focus_pane(id, window, cx);
         self.save_soon(cx);
@@ -298,8 +300,12 @@ impl Desktop {
     }
 
     pub(crate) fn run_in_tree(&mut self, place: Place, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
-        let op = op(&tree);
+        let Some(tree) = self.place() else { return };
+        let Some(cwd) = self.folder_of(&tree) else { return };
+        let mut op = op(&cwd);
+        if is_local(&tree) {
+            op["local"] = tree.clone().into();
+        }
         self.send_spawn(op, Intent(tree, place), cx);
     }
 
@@ -332,7 +338,7 @@ impl Desktop {
     }
 
     pub fn close_tab(&mut self, pane: PaneId, i: usize, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         let ids = match self.workspace(&tree).tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned() {
             Some(Tab::Term(id)) => vec![id],
             Some(Tab::Doc(Doc::File(path))) if self.preview.dirty(&path) => {

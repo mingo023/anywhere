@@ -19,7 +19,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 95] = [
+const STEPS: [(&str, Step); 100] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -241,6 +241,17 @@ const STEPS: [(&str, Step); 95] = [
             d.import_worktrees(&p, cx);
         }
     }),
+    ("locals", |d, _, cx| {
+        let Some(project) = d.project.clone() else { return };
+        for (id, name) in [("local-review", "Review"), ("local-3", "Local 3")] {
+            d.agents.add_local(agents::locals::Local { id: id.into(), project: project.clone(), name: name.into() });
+        }
+        d.select_tree(project, Some("local-review".into()), cx);
+    }),
+    ("local-menu", |d, _, _| d.row_menu = Some(RowMenu::Local("local-review".into()))),
+    ("rename-local", |d, window, cx| d.start_rename("local-review".into(), window, cx)),
+    ("delete-local", |d, _, cx| d.ask_delete_local("local-review".into(), cx)),
+    ("form-checkout", |d, _, cx| d.toggle_picker(Picker::Checkout, cx)),
     ("rename", |d, window, cx| {
         if let Some(tree) = d.agents.names.keys().next().cloned() {
             d.start_rename(tree, window, cx);
@@ -344,6 +355,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.creates.list.clear();
     d.graph = GraphState::default();
     d.agents.names.clear();
+    d.agents.locals.clear();
     d.sidebar.rename = None;
     d.updates.update = Update::Idle;
     d.terminals.link.up();

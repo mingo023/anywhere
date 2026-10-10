@@ -3,6 +3,7 @@ pub(crate) mod chrome;
 pub(crate) mod geometry;
 pub(crate) mod dock;
 pub(crate) mod jump;
+pub(crate) mod locals;
 pub(crate) mod project;
 pub(crate) mod quit;
 pub(crate) mod sounds;
@@ -215,9 +216,8 @@ impl Desktop {
     /// Shows an agent's session: its worktree, the tab holding its terminal, and that pane focused.
     pub fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
-        let Some(cwd) = self.terminals.sessions.get(&term).map(|s| s.info.cwd.clone()) else { return };
-        let Some(tree) = self.tree_of(&cwd) else { return };
-        self.show_tree(&cwd, &tree);
+        let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
+        self.show_tree(&tree);
         self.side = Side::Sessions;
         let w = self.workspace(&tree);
         if let Some((pane, i)) = w.tab_of(&term) {
@@ -237,8 +237,8 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn show_tree(&mut self, cwd: &str, tree: &str) {
-        if let Some(p) = self.project_of(cwd, &self.projects()).cloned() {
+    pub(crate) fn show_tree(&mut self, tree: &str) {
+        if let Some(p) = self.folder_of(tree).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
             self.project = Some(p);
         }
         self.screen = Screen::Sessions;
@@ -280,7 +280,7 @@ impl Desktop {
 
     /// Shows tab `i` of `pane` and focuses the pane.
     pub fn select_tab(&mut self, pane: PaneId, i: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         self.workspace(&tree).tree.select(pane, i);
         match self.pane_tab(pane) {
             Some(Tab::Term(id)) => self.focus_pane(id, window, cx),
@@ -294,16 +294,16 @@ impl Desktop {
 
     /// The pane keys and actions go to.
     pub(crate) fn focused_pane(&self) -> PaneId {
-        self.cwd().and_then(|t| self.workspaces.get(&t)).map_or(MAIN, |w| w.tree.focused)
+        self.place().and_then(|t| self.workspaces.get(&t)).map_or(MAIN, |w| w.tree.focused)
     }
 
     pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
-        self.cwd().and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tree.panes().iter().map(|p| p.id).collect())
+        self.place().and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tree.panes().iter().map(|p| p.id).collect())
     }
 
     /// The tab `pane` shows in the worktree on screen.
     pub(crate) fn pane_tab(&self, pane: PaneId) -> Option<Tab> {
-        self.workspaces.get(&self.cwd()?)?.tree.pane(pane)?.active().cloned()
+        self.workspaces.get(&self.place()?)?.tree.pane(pane)?.active().cloned()
     }
 
     /// The file or changes the focused pane shows.
@@ -317,7 +317,7 @@ impl Desktop {
     /// Opens `doc` in its tab of the worktree on screen; unless `pin`, in the preview tab the next open takes over.
     /// With no pane holding docs it opens in a new pane right of the focused one, or in the focused one when that has no room to split.
     pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         self.screen = Screen::Sessions;
         let bounds = self.panels.bounds;
         let files = &self.store.files;
@@ -330,14 +330,14 @@ impl Desktop {
     }
 
     pub(crate) fn pin_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some(tree) = self.cwd() {
+        if let Some(tree) = self.place() {
             self.workspace(&tree).pin(doc);
             self.save_soon(cx);
         }
     }
 
     pub(crate) fn close_doc(&mut self, doc: &Doc, cx: &mut Context<Self>) {
-        if let Some((pane, i)) = self.cwd().and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
+        if let Some((pane, i)) = self.place().and_then(|t| self.workspaces.get(&t)?.doc_tab(doc)) {
             self.close_tab(pane, i, cx);
         }
     }
@@ -406,7 +406,7 @@ impl Desktop {
         if self.terminals.link.is_down() || self.screen != Screen::Sessions {
             return None;
         }
-        self.cwd()
+        self.place()
     }
 
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {

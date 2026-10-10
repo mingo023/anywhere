@@ -231,7 +231,7 @@ impl Desktop {
     }
 
     fn chat_choices(&self) -> Vec<Choice> {
-        let (Some(project), Some(tree)) = (self.project.as_deref(), self.cwd()) else { return Vec::new() };
+        let (Some(project), Some(tree)) = (self.project.as_deref(), self.place()) else { return Vec::new() };
         let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
         choices(in_tree(self.cards(project), Some(&tree), |c| self.tree_of(c)), &branch)
     }
@@ -357,7 +357,7 @@ mod tests {
     }
 
     fn card(id: &str, status: Status, kind: Kind) -> Card {
-        Card { id: id.into(), provider: "claude".into(), model: String::new(), title: format!("{id} title"), cwd: "/p".into(), at: 0, created: 0, status, kind, notice: None, pinned: false }
+        Card { id: id.into(), provider: "claude".into(), model: String::new(), title: format!("{id} title"), cwd: "/p".into(), local: String::new(), at: 0, created: 0, status, kind, notice: None, pinned: false }
     }
 
     fn choice(id: &str, note: &str, ready: bool) -> Choice {

@@ -174,7 +174,7 @@ impl Desktop {
 
     /// Moves tab `from` of `pane` to `to` in the same strip.
     pub(crate) fn move_tab(&mut self, pane: PaneId, from: usize, to: usize, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         self.workspace(&tree).tree.move_tab(pane, from, Target::Into { pane, index: to });
         self.save_soon(cx);
         cx.notify();

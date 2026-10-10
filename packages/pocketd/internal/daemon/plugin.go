@@ -62,10 +62,11 @@ func shellQuote(s string) string {
 }
 
 // Env is env for terminal id: a claude in it loads the plugin, and its hooks
-// tell pocketd which terminal they come from. Without CLAUDECODE and
+// tell pocketd which terminal they come from. POCKETD_LOCAL names its Local,
+// so a `pocketd run` in it stays in it. Without CLAUDECODE and
 // CLAUDE_CODE_CHILD_SESSION, a pocketd started from a Claude session still
 // gets transcripts from the claudes it runs.
-func (d *Daemon) Env(env []string, terminalID string) []string {
+func (d *Daemon) Env(env []string, terminalID, local string) []string {
 	var out, plugins []string
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")
@@ -76,11 +77,15 @@ func (d *Daemon) Env(env []string, terminalID string) []string {
 					plugins = append(plugins, dir)
 				}
 			}
-		case "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "POCKETD_SOCK", "POCKETD_PTY", proc.Marker:
+		case "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "POCKETD_SOCK", "POCKETD_PTY", "POCKETD_LOCAL", proc.Marker:
 		default:
 			out = append(out, kv)
 		}
 	}
-	return append(out, "CLAUDE_CODE_PLUGIN_DIRS="+strings.Join(append(plugins, d.Plugin), ":"), "POCKETD_SOCK="+d.Sock, "POCKETD_PTY="+terminalID,
+	out = append(out, "CLAUDE_CODE_PLUGIN_DIRS="+strings.Join(append(plugins, d.Plugin), ":"), "POCKETD_SOCK="+d.Sock, "POCKETD_PTY="+terminalID,
 		proc.Marker+"="+strconv.Itoa(os.Getpid()))
+	if local != "" {
+		out = append(out, "POCKETD_LOCAL="+local)
+	}
+	return out
 }

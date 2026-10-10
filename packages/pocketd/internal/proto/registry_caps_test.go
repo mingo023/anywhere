@@ -25,3 +25,10 @@ func TestTheServerOffersTheOpenCap(t *testing.T) {
 		t.Fatalf("caps %v, code %q", caps, code)
 	}
 }
+
+func TestTheServerOffersTheLocalsCap(t *testing.T) {
+	_, caps, code := Negotiate(Range{Min: 3, Max: 3}, []string{CapLocals}, ServerCaps)
+	if code != "" || !slices.Equal(caps, []string{CapLocals}) {
+		t.Fatalf("caps %v, code %q", caps, code)
+	}
+}

@@ -40,7 +40,7 @@ func (d *Daemon) Handoff() ([]handoff.Terminal, error) {
 		}
 		e, ok := saved[info.ID]
 		if !ok {
-			e = state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows}
+			e = state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows, Local: info.Local}
 		}
 		out = append(out, handoff.Terminal{Saved: e, Cmd: info.Cmd, Args: info.Args, Cwd: info.Cwd,
 			FD: h.FD, Pid: h.Pid, Screen: h.Screen, Agent: d.carried(e.AgentID)})
@@ -79,7 +79,7 @@ func (d *Daemon) Adopt(f handoff.File) {
 	}
 	for _, e := range f.Terminals {
 		t, err := d.Terminals.Adopt(terminal.Adopted{ID: e.Saved.TerminalID, Cmd: e.Cmd, Args: e.Args, Cwd: e.Cwd,
-			Cols: e.Saved.Cols, Rows: e.Saved.Rows, FD: e.FD, Pid: e.Pid, Screen: e.Screen})
+			Cols: e.Saved.Cols, Rows: e.Saved.Rows, FD: e.FD, Pid: e.Pid, Screen: e.Screen, Local: e.Saved.Local})
 		if err != nil {
 			log.Printf("adopt %s: %v", e.Saved.TerminalID, err)
 			continue

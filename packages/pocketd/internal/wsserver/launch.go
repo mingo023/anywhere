@@ -28,6 +28,10 @@ func (c *conn) create(m proto.ClientMessage) {
 		c.send(proto.NewCodedError(m.ID, "access_not_allowed", "Update Pocket on your Mac.", ""))
 		return
 	}
+	if m.Spec.Checkout.Local != "" && !slices.Contains(c.caps, proto.CapLocals) {
+		c.send(proto.NewError(m.ID, proto.ErrMalformed.Error()))
+		return
+	}
 	go func() {
 		r := c.s.Launch.Create(w, m.RequestID, *m.Spec, func(step, note string) {
 			c.send(proto.NewAgentProgress(m.ID, m.RequestID, step, note))

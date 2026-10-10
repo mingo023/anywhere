@@ -20,7 +20,7 @@ func run(sock, id, cmd string, args []string) (int, error) {
 	cols, rows, _ := term.GetSize(int(os.Stdout.Fd()))
 	if id == "" {
 		cwd, _ := os.Getwd()
-		if err := c.Send(ops.Msg{Op: "spawn", Cmd: cmd, Args: args, Cwd: cwd, Env: os.Environ(), Cols: cols, Rows: rows}); err != nil {
+		if err := c.Send(ops.Msg{Op: "spawn", Cmd: cmd, Args: args, Cwd: cwd, Env: os.Environ(), Cols: cols, Rows: rows, Local: os.Getenv("POCKETD_LOCAL")}); err != nil {
 			return 1, err
 		}
 		m, err := c.Recv()

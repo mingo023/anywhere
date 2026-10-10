@@ -1,0 +1,10 @@
+{
+  "type": "local.list",
+  "locals": [
+    {
+      "id": "l1",
+      "project": "/Users/me/dev/pocket",
+      "name": "Local 2"
+    }
+  ]
+}

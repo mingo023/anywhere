@@ -18,6 +18,7 @@ use crate::sidebar::tree_tip::TreeTip;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
 use crate::util::basename;
+use agents::locals::is_local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -30,9 +31,9 @@ fn rolled_state(cards: &[Card]) -> Option<ui::State> {
     status::roll_up(cards.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0))
 }
 
-/// The cards whose folder lies in `tree`, as `tree_of` places folders.
+/// The cards in `tree`: those opened in it as a Local, else those whose folder it holds, as `tree_of` places folders.
 pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>) -> Vec<Card> {
-    cards.into_iter().filter(|c| tree_of(&c.cwd).as_deref() == tree).collect()
+    cards.into_iter().filter(|c| if c.local.is_empty() { tree_of(&c.cwd).as_deref() == tree } else { Some(c.local.as_str()) == tree }).collect()
 }
 
 /// The column left of the page, listing the inbox or Automations.
@@ -177,6 +178,33 @@ impl Desktop {
         in_tree(self.cards(project), Some(tree), |cwd| self.tree_of(cwd))
     }
 
+    /// A Local's row, by its key: the main worktree's path for the project's own, whose `selects` is `None`, else its id. `tip` is the checkout's branch.
+    fn local_row(&self, p: &str, key: &str, selects: Option<&String>, tip: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
+        let menu = RowMenu::Local(key.to_string());
+        let renames = if is_local(key) { self.agents.locals_offered() } else { self.agents.names_offered() };
+        let mark = ui::indicator(id(format!("aside-spin:{key}")), rolled_state(&self.tree_cards(p, key)));
+        let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
+            Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
+            None => tree_name(key, self.local_name(key), tip.to_string()).into_any_element(),
+        };
+        let trail = (renames || is_local(key)).then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
+        let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
+        ui::worktree_row(id(format!("aside-tree:{key}")), "laptop", label, current == Some(key), mark)
+            .when(selects.is_none(), |row| row.children(self.pr_chip(key)))
+            .children(trail)
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                if this.sidebar.renaming(&path) {
+                    return;
+                }
+                if ev.click_count() > 1 && renames {
+                    return this.start_rename(path.clone(), window, cx);
+                }
+                this.select_tree(target.clone(), selects.clone(), cx);
+            }))
+            .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
+            .into_any_element()
+    }
+
     /// A tree's pull request chip, if it has one.
     fn pr_chip(&self, tree: &str) -> Option<impl IntoElement> {
         self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr))
@@ -184,7 +212,7 @@ impl Desktop {
 
     /// A project's row, then while it is open its checkout's and worktrees' rows.
     fn project_block(&self, i: usize, p: &str, cx: &mut Context<Self>) -> AnyElement {
-        let current = self.cwd().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
+        let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let kept = self.store.projects.iter().any(|k| k == p);
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
         let trees = self.listed_trees(p).map(|w| self.removals.hide(self.creates.trees(p, &w)));
@@ -228,15 +256,11 @@ impl Desktop {
         let mut out = vec![row.into_any_element()];
         if open {
             let tip = trees.iter().flatten().find(|w| w.main).map(tree_place).unwrap_or_default();
-            let label = tree_name(&main, "Local".into(), tip);
-            let mark = ui::indicator(id(format!("aside-spin:{main}")), rolled_state(&self.tree_cards(p, &main)));
-            let target = p.to_string();
-            out.push(
-                ui::worktree_row(id(format!("aside-tree:{main}")), "laptop", label, current.as_ref() == Some(&main), mark)
-                    .children(self.pr_chip(&main))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(target.clone(), None, cx)))
-                    .into_any_element(),
-            );
+            out.push(self.local_row(p, &main, None, &tip, current.as_deref(), cx));
+            let locals: Vec<String> = self.agents.locals_in(p).map(|l| l.id.clone()).collect();
+            for local in &locals {
+                out.push(self.local_row(p, local, Some(local), &tip, current.as_deref(), cx));
+            }
             let trees: Vec<(String, String, String)> = trees
                 .iter()
                 .flatten()
@@ -327,6 +351,14 @@ mod tests {
     fn a_trees_cards_are_those_whose_folder_it_holds() {
         let cards = vec![card("a", "/p"), card("b", "/wt"), card("c", "/p/src"), card("d", "/lost")];
         assert_eq!(ids(in_tree(cards, Some("/p"), tree_of)), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn a_locals_cards_are_those_opened_in_it_whatever_their_folder() {
+        let local = |id: &str, local: &str| Card { local: local.into(), ..card(id, "/p") };
+        let cards = vec![card("a", "/p"), local("b", "l1"), local("c", "l2")];
+        assert_eq!(ids(in_tree(cards.clone(), Some("l1"), tree_of)), vec!["b"]);
+        assert_eq!(ids(in_tree(cards, Some("/p"), tree_of)), vec!["a"]);
     }
 
     #[test]

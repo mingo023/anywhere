@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"c1","requestId":"r1","spec":{"project":"/Users/me/dev/pocket","checkout":{"local":"l1"},"provider":"claude","access":"edits","plan":false,"prompt":"review the diff"}}

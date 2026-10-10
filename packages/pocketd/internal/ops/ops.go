@@ -41,6 +41,8 @@ type Msg struct {
 	Devices   []devices.Device `json:"devices,omitempty"`
 	Pair      *pairing.Offer   `json:"pair,omitempty"`
 	Status    *Status          `json:"status,omitempty"`
+	// Local is the Local a spawned Terminal belongs to.
+	Local string `json:"local,omitempty"`
 }
 
 type Conn struct {
@@ -176,7 +178,7 @@ func (s *Server) spawn(m Msg) (*terminal.Terminal, error) {
 	if s.Spawn != nil {
 		return s.Spawn(m)
 	}
-	return s.Terminals.Spawn(terminal.Spec{Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows})
+	return s.Terminals.Spawn(terminal.Spec{Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows, Local: m.Local})
 }
 
 func (s *Server) handle(c *Conn, who peer.Principal) {

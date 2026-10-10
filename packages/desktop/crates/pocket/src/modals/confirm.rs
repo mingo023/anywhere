@@ -41,6 +41,11 @@ impl ConfirmText {
         Self { title: format!("Delete {}?", basename(&r.tree)), action: "Delete", facts, dirty, lost, danger: true }
     }
 
+    fn delete_local(name: &str, terminals: usize) -> Self {
+        let facts = closes(terminals).into_iter().chain(["The project's files, branches and other Locals stay as they are".to_string()]).collect();
+        Self { title: format!("Delete {name}?"), action: "Delete", facts, dirty: 0, lost: 0, danger: true }
+    }
+
     fn teardown_failed(tree: &str) -> Self {
         let facts = vec!["Its teardown script failed".into(), "Deleting anyway skips it".into()];
         Self { title: format!("Couldn't tear down {}", basename(tree)), action: "Delete anyway", facts, dirty: 0, lost: 0, danger: true }
@@ -118,6 +123,7 @@ impl Desktop {
             Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
             Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), self.project_terminals(p).len()),
             Some(Confirm::DeleteWorktree { removal, dirty, lost }) => ConfirmText::delete_worktree(removal, *dirty, *lost, self.tree_terminals(&removal.tree).len()),
+            Some(Confirm::DeleteLocal(id)) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),
             Some(Confirm::TeardownFailed { removal, .. }) => ConfirmText::teardown_failed(&removal.tree),
             Some(Confirm::Discard(paths)) => ConfirmText::discard(paths, self.repo().map_or(&[], |r| r.files.as_slice())),
             Some(Confirm::CloseSession(id)) => {
@@ -192,6 +198,7 @@ impl Desktop {
         match self.confirm.take() {
             Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
             Some(Confirm::DeleteWorktree { removal, .. }) => self.delete_worktree(removal, cx),
+            Some(Confirm::DeleteLocal(id)) => self.delete_local(&id, cx),
             Some(Confirm::TeardownFailed { removal, .. }) => self.delete_worktree(Removal { teardown: false, ..removal }, cx),
             Some(Confirm::Discard(paths)) => self.discard(paths, cx),
             Some(Confirm::CloseSession(id)) => {
@@ -245,6 +252,13 @@ mod tests {
         assert_eq!(ConfirmText::remove_project("app", 0), text("Remove app?", "Remove", &[keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", 1), text("Remove app?", "Remove", &["Closes 1 terminal", keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", 3), text("Remove app?", "Remove", &["Closes 3 terminals", keeps], 0));
+    }
+
+    #[test]
+    fn deleting_a_local_closes_its_terminals_and_keeps_the_files() {
+        let keeps = "The project's files, branches and other Locals stay as they are";
+        assert_eq!(ConfirmText::delete_local("Local 2", 0), text("Delete Local 2?", "Delete", &[keeps], 0));
+        assert_eq!(ConfirmText::delete_local("Local 2", 2), text("Delete Local 2?", "Delete", &["Closes 2 terminals", keeps], 0));
     }
 
     fn removal(branch: Option<&str>, delete_branch: bool) -> Removal {

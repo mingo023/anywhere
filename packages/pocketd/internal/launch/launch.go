@@ -13,6 +13,7 @@ import (
 	"pocketd/internal/config"
 	"pocketd/internal/daemon"
 	"pocketd/internal/events"
+	"pocketd/internal/locals"
 	"pocketd/internal/names"
 	"pocketd/internal/naming"
 	"pocketd/internal/proto"
@@ -72,7 +73,9 @@ type Launcher struct {
 	set *config.Settings
 	ev  *events.Log
 	// Names takes the display names naming gives new Worktrees; nil names none.
-	Names    *names.Names
+	Names *names.Names
+	// Locals are the Locals a create may start in; nil has none.
+	Locals   *locals.Locals
 	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
 	receipts *receipts
 
@@ -175,8 +178,9 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	} else {
 		progress(proto.StepAgent, "")
 	}
+	local := s.Checkout.Local
 	t, err := l.d.Terminals.Spawn(terminal.Spec{ID: id, Cmd: shell, Args: Wrap(shell, l.d.Exe, setup, argv), Cwd: cwd,
-		Env: l.d.Env(env, id), Cols: 100, Rows: 30, Origin: origin})
+		Env: l.d.Env(env, id, local), Cols: 100, Rows: 30, Origin: origin, Local: local})
 	if err != nil {
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
 	}
@@ -194,8 +198,19 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 }
 
 // checkout is the Session's folder and the setup to run there. A new
-// Worktree copies and runs setup unless the owner turned them off.
+// Worktree copies and runs setup unless the owner turned them off. A Local
+// runs in its project's own checkout.
 func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []string, progress func(step, note string)) (string, string, *Failure) {
+	if id := s.Checkout.Local; id != "" {
+		lc, ok := proto.Local{}, false
+		if l.Locals != nil {
+			lc, ok = l.Locals.Get(id)
+		}
+		if !ok || lc.Project != s.Project {
+			return "", "", fail(proto.CodeUnknownLocal, locals.ErrUnknown.Error())
+		}
+		return s.Project, "", trust(w, s, s.Project, env)
+	}
 	if s.Checkout.Worktree != "" {
 		trees, err := worktree.List(s.Project)
 		if err != nil {

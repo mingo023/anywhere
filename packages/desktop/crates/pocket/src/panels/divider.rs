@@ -19,7 +19,7 @@ impl Desktop {
     }
 
     pub(super) fn resize_split(&mut self, d: &Divider, at: f32, len: f32, cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         let t = &mut self.workspace(&tree).tree;
         let before = t.layout(UNIT);
         t.resize(d, at, len);
@@ -31,7 +31,7 @@ impl Desktop {
     }
 
     fn equalize_split(&mut self, path: &[usize], cx: &mut Context<Self>) {
-        let Some(tree) = self.cwd() else { return };
+        let Some(tree) = self.place() else { return };
         self.workspace(&tree).tree.equalize(path);
         self.save_soon(cx);
         cx.notify();

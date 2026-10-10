@@ -5,7 +5,7 @@ Watch and drive coding agents running on a Mac, from the desktop app and the pho
 ## Language
 
 **Terminal**:
-One PTY that pocketd owns. A terminal the desktop opens runs the user's login shell, which starts any agent inside it, and ends only when that shell exits. One started with `pocketd run` runs its command directly. It belongs to the worktree holding its launch directory, for life.
+One PTY that pocketd owns. A terminal the desktop opens runs the user's login shell, which starts any agent inside it, and ends only when that shell exits. One started with `pocketd run` runs its command directly. It belongs to the Local it was opened in, else to the worktree holding its launch directory, for life.
 _Avoid_: pane, PTY session, pocketd session
 
 **Project**:
@@ -16,12 +16,16 @@ _Avoid_: repository, repo, folder
 A git worktree of a project, listed under it on the sidebar by its name: the name of its folder, which stays when its branch changes. A project lists its main worktree and the ones Pocket created or the user imported; a folder in any other worktree belongs to the main one. One Pocket creates starts on a new branch of the same name. Deleting a worktree closes its terminals and removes its folder but keeps its branch; the main worktree can't be deleted. Its terminals are laid out in tabs and splits; the sessions in them are its session list.
 _Avoid_: workspace, branch
 
+**Local**:
+A named place over a project's own checkout, listed under the project with its worktrees. Its Locals share files, index and branch; each has its own terminals, tabs and sessions. Every project has one, the main worktree's row, which can't be deleted; deleting another closes its terminals and leaves the files alone.
+_Avoid_: workspace, branch workspace
+
 **Login shell**:
 The shell set on the user's macOS account with `chsh`, such as fish. It stays the same no matter how the app was launched.
 _Avoid_: TERM, $SHELL, default shell
 
 **Session**:
-What the session list shows as one card: one agent, from launch to exit. Running `claude` then `codex` in one terminal makes two sessions; `/clear` keeps the session. It ends, and leaves the list, when its agent exits. Closing a session closes its terminal. It belongs to its terminal's worktree, wherever the agent `cd`s.
+What the session list shows as one card: one agent, from launch to exit. Running `claude` then `codex` in one terminal makes two sessions; `/clear` keeps the session. It ends, and leaves the list, when its agent exits. Closing a session closes its terminal. It belongs to its terminal's Local or worktree, wherever the agent `cd`s.
 _Avoid_: card, workspace, tab
 
 **Agent**:

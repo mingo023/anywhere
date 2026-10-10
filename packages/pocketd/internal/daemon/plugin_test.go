@@ -80,12 +80,12 @@ func TestWritePluginHooksEveryStatusEvent(t *testing.T) {
 
 func TestEnvLoadsThePluginAndNamesTheTerminal(t *testing.T) {
 	d := &Daemon{Plugin: "/h/plugin", Sock: "/h/pocketd.sock"}
-	got := d.Env([]string{"PATH=/bin", "CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "POCKETD_PTY=outer", "POCKETD_SOCK=/old", "CLAUDE_CODE_PLUGIN_DIRS=/mine:/h/plugin"}, "t1")
+	got := d.Env([]string{"PATH=/bin", "CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "POCKETD_PTY=outer", "POCKETD_SOCK=/old", "CLAUDE_CODE_PLUGIN_DIRS=/mine:/h/plugin"}, "t1", "")
 	parent := proc.Marker + "=" + strconv.Itoa(os.Getpid())
 	if want := []string{"PATH=/bin", "CLAUDE_CODE_PLUGIN_DIRS=/mine:/h/plugin", "POCKETD_SOCK=/h/pocketd.sock", "POCKETD_PTY=t1", parent}; !slices.Equal(got, want) {
 		t.Errorf("env = %q", got)
 	}
-	if got, want := d.Env(nil, "t2"), []string{"CLAUDE_CODE_PLUGIN_DIRS=/h/plugin", "POCKETD_SOCK=/h/pocketd.sock", "POCKETD_PTY=t2", parent}; !slices.Equal(got, want) {
+	if got, want := d.Env(nil, "t2", ""), []string{"CLAUDE_CODE_PLUGIN_DIRS=/h/plugin", "POCKETD_SOCK=/h/pocketd.sock", "POCKETD_PTY=t2", parent}; !slices.Equal(got, want) {
 		t.Errorf("empty env = %q", got)
 	}
 }
@@ -93,7 +93,7 @@ func TestEnvLoadsThePluginAndNamesTheTerminal(t *testing.T) {
 func TestTerminalEnvCarriesOnePocketdParent(t *testing.T) {
 	d := &Daemon{Plugin: "/h/plugin", Sock: "/h/pocketd.sock"}
 	var got []string
-	for _, kv := range d.Env([]string{"PATH=/bin", proc.Marker + "=1"}, "t1") {
+	for _, kv := range d.Env([]string{"PATH=/bin", proc.Marker + "=1"}, "t1", "") {
 		if strings.HasPrefix(kv, proc.Marker+"=") {
 			got = append(got, kv)
 		}
@@ -111,4 +111,25 @@ func TestEveryPocketTerminalGetsTheEnv(t *testing.T) {
 	}
 	defer term.Close()
 	eventually(t, "the env", func() bool { return strings.Contains(term.Screen(), "pty="+term.Info().ID+". claudecode=.") })
+}
+
+func TestATerminalOpenedInALocalNamesItInItsEnvAndInfo(t *testing.T) {
+	d := newDaemon(t)
+	env := []string{"PATH=/bin:/usr/bin", "POCKETD_LOCAL=stale"}
+	in, err := d.Spawn(ops.Msg{Cmd: "sh", Args: []string{"-c", "echo local=$POCKETD_LOCAL.; sleep 30"}, Env: env, Local: "l1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := d.Spawn(ops.Msg{Cmd: "sh", Args: []string{"-c", "echo local=$POCKETD_LOCAL.; sleep 30"}, Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	eventually(t, "the env", func() bool {
+		return strings.Contains(in.Screen(), "local=l1.") && strings.Contains(out.Screen(), "local=.")
+	})
+	if in.Info().Local != "l1" || out.Info().Local != "" {
+		t.Fatalf("locals %q %q", in.Info().Local, out.Info().Local)
+	}
 }

@@ -50,7 +50,7 @@ impl Desktop {
 
     pub(crate) fn sessions_matching(&self, query: &str) -> Vec<Card> {
         let Some(project) = self.project.as_deref() else { return Vec::new() };
-        let tree = self.cwd();
+        let tree = self.place();
         walkable(self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), query)
     }
 

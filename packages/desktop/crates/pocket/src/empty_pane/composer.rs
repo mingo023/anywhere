@@ -16,7 +16,7 @@ impl Desktop {
             self.focus_empty_prompt(window, cx);
         }
         let pick = self.launch_pick();
-        let tree = self.cwd().unwrap_or_default();
+        let tree = self.place().unwrap_or_default();
         let launch = &self.empty_pane.launch;
         let starting = launch.starting_in(&tree).then(|| div().mt(px(12.)).child(ui::busy("empty-starting", "Starting…")));
         let error = launch.error_in(&tree).cloned().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));

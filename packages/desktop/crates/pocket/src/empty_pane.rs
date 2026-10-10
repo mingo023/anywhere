@@ -5,7 +5,6 @@ use crate::terminals::link;
 use agents::CreateReply;
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::*;
-use serde_json::json;
 use store::LaunchPick;
 use workspace::tree::PaneId;
 
@@ -149,7 +148,7 @@ impl Desktop {
     /// The prompt clears at once; the terminal opens in this pane once pocketd lists it (`Terminals::arrived`).
     fn start_from_empty_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = self.empty_pane.prompt.read(cx).value().trim().to_string();
-        let (Some(project), Some(tree)) = (self.project.clone(), self.cwd()) else { return };
+        let (Some(project), Some(tree)) = (self.project.clone(), self.place()) else { return };
         if !self.offers_empty_prompt() || !self.empty_pane.launch.ready(&prompt) {
             return;
         }
@@ -158,7 +157,7 @@ impl Desktop {
             return cx.notify();
         }
         let pick = self.launch_pick();
-        let mut spec = pick.spec(&project, json!({"worktree": tree}), &prompt);
+        let mut spec = pick.spec(&project, agents::locals::checkout(&tree), &prompt);
         self.store.agents.launch(&mut spec);
         let request = self.outbox.create(spec);
         self.store.repos.entry(project).or_default().launch = pick;
@@ -173,7 +172,7 @@ impl Desktop {
     /// Whether the failed create was this prompt's.
     pub(crate) fn empty_prompt_failed(&mut self, request: &str, message: &str, detail: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let typed = self.empty_pane.prompt.read(cx).value();
-        let cwd = self.cwd();
+        let cwd = self.place();
         let Some(failed) = self.empty_pane.launch.failed(request, (message.into(), detail.into()), &typed, self.empty_pane.drawn.last, cwd.as_deref()) else {
             return false;
         };

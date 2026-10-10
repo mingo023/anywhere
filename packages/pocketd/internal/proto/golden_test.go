@@ -97,8 +97,10 @@ var serverGolden = map[string]any{
 		{Name: "pocket", Path: "/Users/me/dev/pocket", Branch: "main", IsMain: true},
 		{Name: "calm-otter", Path: "/Users/me/.worktrees/pocket/calm-otter", Branch: ""},
 	}}}),
-	"worktree_names": NewWorktreeNames(map[string]string{"/Users/me/wt/calm-otter": "Fix login"}),
-	"naming_failed":  NewNamingFailed("a1"),
+	"worktree_names":   NewWorktreeNames(map[string]string{"/Users/me/wt/calm-otter": "Fix login"}),
+	"naming_failed":    NewNamingFailed("a1"),
+	"local_list":       NewLocalList([]Local{{ID: "l1", Project: "/Users/me/dev/pocket", Name: "Local 2"}}),
+	"local_list_empty": NewLocalList(nil),
 }
 
 func helloOKHost() HelloOK {
@@ -198,6 +200,19 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"worktree.rename","id":"1","path":"/p","title":null}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","branch":"b","autoName":true}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"1","autoName":true}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"local.create","id":"1","localId":"/x","project":"/p","name":"n"}`,
+		`{"type":"local.create","id":"1","localId":"","project":"/p","name":"n"}`,
+		`{"type":"local.create","id":"1","localId":"a b","project":"/p","name":"n"}`,
+		`{"type":"local.create","id":"1","localId":"` + strings.Repeat("a", 65) + `","project":"/p","name":"n"}`,
+		`{"type":"local.create","id":"1","localId":"l1","project":"/p"}`,
+		`{"type":"local.create","id":"1","localId":"l1","project":"","name":"n"}`,
+		`{"type":"local.create","id":"1","localId":"l1","name":"n"}`,
+		`{"type":"local.rename","id":"1","localId":"l1","title":null}`,
+		`{"type":"local.rename","id":"1","title":"x"}`,
+		`{"type":"local.delete","id":"1"}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","local":"l1"},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":"/x"},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":""},"provider":"claude","access":"ask","plan":false}}`,
 		`null`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
@@ -222,6 +237,9 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"#7"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"worktree.rename","id":"1","path":"/p","title":""}`,
+		`{"type":"local.rename","id":"1","localId":"l1","title":""}`,
+		`{"type":"local.create","id":"1","localId":"` + strings.Repeat("a", 64) + `","project":"/p","name":""}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":"Az09_-"},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","base":"main","autoName":true}},"provider":"claude","access":"ask","plan":false,"prompt":"x"}}`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != nil {

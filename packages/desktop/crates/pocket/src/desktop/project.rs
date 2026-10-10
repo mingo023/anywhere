@@ -5,6 +5,7 @@ use crate::git_ui::diff;
 use crate::status::{self, Card, Status};
 use crate::util;
 use agents::Summary;
+use agents::locals::is_local;
 use git::Repo;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -56,7 +57,7 @@ impl Desktop {
             .iter()
             .filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?)))
             .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
-            .map(|(a, s)| status::card(a, &s.info.cwd))
+            .map(|(a, s)| status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })
             .collect();
         status::sort(&mut out, self.store.sidebar.sort);
         out
@@ -76,9 +77,33 @@ impl Desktop {
         self.agents.get(id).map(|a| a.cwd.clone()).or_else(|| self.terminals.sessions.get(id).map(|s| s.info.cwd.clone()))
     }
 
-    /// The worktree on screen: the one picked, else the project's main one.
-    pub fn cwd(&self) -> Option<String> {
+    /// The tree on screen, by its worktree's path or its Local's id: the one picked, else the project's main worktree.
+    pub fn place(&self) -> Option<String> {
         self.worktree.clone().or_else(|| self.tree_of(self.project.as_deref()?))
+    }
+
+    /// The folder of the tree on screen.
+    pub fn cwd(&self) -> Option<String> {
+        self.folder_of(&self.place()?)
+    }
+
+    /// A tree's folder; a Local's is its project's main worktree.
+    pub(crate) fn folder_of(&self, key: &str) -> Option<String> {
+        if !is_local(key) {
+            return Some(key.to_string());
+        }
+        let project = self.agents.local(key).map(|l| l.project.clone()).or_else(|| self.project.clone())?;
+        self.tree_of(&project)
+    }
+
+    /// A tree's short name: a Local's own, else its folder's.
+    pub(crate) fn place_name(&self, key: &str) -> String {
+        self.agents.local(key).map_or_else(|| util::basename(key), |l| l.name.clone())
+    }
+
+    /// The tree a terminal belongs to: the Local it was opened in, else the worktree holding its folder.
+    pub(crate) fn place_of(&self, info: &daemon::Info) -> Option<String> {
+        if info.local.is_empty() { self.tree_of(&info.cwd) } else { Some(info.local.clone()) }
     }
 
     pub fn repo(&self) -> Option<&Repo> {
@@ -88,7 +113,7 @@ impl Desktop {
     pub(crate) fn workspace(&mut self, tree: &str) -> &mut Workspace {
         let (mut mine, mut theirs) = (Vec::new(), Vec::new());
         for s in &self.terminals.sessions.items {
-            match self.tree_of(&s.info.cwd) {
+            match self.place_of(&s.info) {
                 Some(t) if t == tree => mine.push(s.info.id.clone()),
                 Some(_) => theirs.push(s.info.id.clone()),
                 None => {}
@@ -105,7 +130,7 @@ impl Desktop {
     }
 
     pub(crate) fn tree_terminals(&self, tree: &str) -> Vec<String> {
-        self.terminals.sessions.items.iter().filter(|s| self.tree_of(&s.info.cwd).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
+        self.terminals.sessions.items.iter().filter(|s| self.place_of(&s.info).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
     }
 
     fn git_cwds(&self) -> Vec<String> {
