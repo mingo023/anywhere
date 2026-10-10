@@ -88,7 +88,8 @@ struct Draft {
     /// Branches and worktree folders a new worktree's name must not reuse.
     taken: HashSet<String>,
     seed: usize,
-    checkout: Target,
+    /// The checkout chosen; `target` is what a create gets, a pull request forcing a worktree.
+    picked: Target,
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,
     /// Branches on origin with no local twin.
@@ -119,7 +120,7 @@ impl Default for Draft {
         Self {
             taken: HashSet::new(),
             seed: 0,
-            checkout: Target::Open,
+            picked: Target::Open,
             repo: None,
             branches: Vec::new(),
             remote_branches: Vec::new(),
@@ -171,7 +172,7 @@ impl Draft {
 
     /// A pull request always gets its own worktree; the checkout picked returns once it is unlinked.
     fn in_worktree(&self) -> bool {
-        self.checkout == Target::Worktree || matches!(self.source, Source::Pr(_))
+        self.picked == Target::Worktree || matches!(self.source, Source::Pr(_))
     }
 
     fn link_pr(&mut self, typed: &str) {
@@ -190,11 +191,11 @@ impl Draft {
     }
 
     fn target(&self) -> Target {
-        if self.in_worktree() { Target::Worktree } else { self.checkout }
+        if self.in_worktree() { Target::Worktree } else { self.picked }
     }
 
     fn pick_checkout(&mut self, target: Target) {
-        (self.checkout, self.picker) = (target, None);
+        (self.picked, self.picker) = (target, None);
     }
 
     fn open_branch(&mut self, branch: String) {
@@ -204,7 +205,7 @@ impl Draft {
     /// `in_tree`: a worktree is open to start the session in.
     fn ready(&self, name: &str, in_tree: bool) -> bool {
         let place = match (self.in_worktree(), &self.source) {
-            (false, _) => in_tree || self.checkout == Target::NewLocal && self.repo.is_some(),
+            (false, _) => in_tree || self.picked == Target::NewLocal && self.repo.is_some(),
             (true, Source::New) => self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none(),
             (true, Source::Branch(_)) => self.repo.is_some() && !name.is_empty(),
             (true, Source::Pr(_)) => self.repo.is_some() && parse_pr(name).is_some(),
@@ -491,7 +492,7 @@ impl Desktop {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
-        f.draft.checkout = if worktree { Target::Worktree } else { Target::Open };
+        f.draft.picked = if worktree { Target::Worktree } else { Target::Open };
         f.draft.images.clear();
         f.draft.open(&last);
         (f.draft.picker, f.draft.want_base) = (None, None);
@@ -815,7 +816,7 @@ mod tests {
 
     #[test]
     fn a_local_session_sends_only_the_open_tree_whatever_the_worktree_choices_were() {
-        let draft = Draft { checkout: Target::Open, source: Source::Branch("fix/login".into()), repo: Some("/p".into()), branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
+        let draft = Draft { picked: Target::Open, source: Source::Branch("fix/login".into()), repo: Some("/p".into()), branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         assert!(draft.ready("", true));
         assert_eq!(draft.spec("/p", "/wt/calm-cedar", "", "")["checkout"], json!({"worktree": "/wt/calm-cedar"}));
     }
@@ -823,12 +824,12 @@ mod tests {
     #[test]
     fn a_new_worktree_needs_a_repository_its_branches_and_a_usable_name() {
         let taken: HashSet<String> = ["main".to_string()].into();
-        let draft = Draft { checkout: Target::Worktree, repo: Some("/src/app".into()), branches: vec![("main".into(), None)], taken, ..Draft::default() };
+        let draft = Draft { picked: Target::Worktree, repo: Some("/src/app".into()), branches: vec![("main".into(), None)], taken, ..Draft::default() };
         assert!(draft.ready("fix-ci", false));
         assert!(!draft.ready("main", true));
         assert!(!draft.ready("fix ci", true));
         assert!(!Draft { repo: None, ..draft }.ready("fix-ci", true));
-        let draft = Draft { checkout: Target::Worktree, repo: Some("/src/app".into()), ..Draft::default() };
+        let draft = Draft { picked: Target::Worktree, repo: Some("/src/app".into()), ..Draft::default() };
         assert!(!draft.ready("fix-ci", true));
     }
 
@@ -845,7 +846,7 @@ mod tests {
     #[test]
     fn an_empty_name_falls_back_to_a_free_one() {
         let taken: HashSet<String> = ["brave-otter", "Brave-Heron", "release/1.0"].map(String::from).into();
-        let draft = Draft { checkout: Target::Worktree, taken, ..Draft::default() };
+        let draft = Draft { picked: Target::Worktree, taken, ..Draft::default() };
         assert_eq!((draft.auto_name(), draft.name()), ("brave-maple".to_string(), "brave-maple".to_string()));
         let fresh = |seed| Draft { seed, ..Draft::default() }.auto_name();
         assert_eq!((fresh(63), fresh(64)), ("swift-lynx".to_string(), "brave-otter".to_string()));
@@ -905,14 +906,14 @@ mod tests {
     fn a_spec_leaves_access_to_the_app_without_planning_and_carries_no_argv() {
         let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "plan": false, "prompt": "Fix CI"});
         assert_eq!(Draft::default().spec("/p", "/p/w", "", "  Fix CI  "), want);
-        let new = Draft { checkout: Target::Worktree, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
+        let new = Draft { picked: Target::Worktree, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
         assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
     }
 
     #[test]
     fn an_existing_branch_needs_only_a_repository_and_a_branch() {
-        let draft = Draft { checkout: Target::Worktree, source: Source::Branch("fix/login".into()), repo: Some("/src/app".into()), taken: ["main".to_string()].into(), ..Draft::default() };
+        let draft = Draft { picked: Target::Worktree, source: Source::Branch("fix/login".into()), repo: Some("/src/app".into()), taken: ["main".to_string()].into(), ..Draft::default() };
         assert!(draft.ready("main", false));
         assert!(!draft.ready("", true));
         assert!(!Draft { repo: None, ..draft }.ready("main", true));
@@ -920,7 +921,7 @@ mod tests {
 
     #[test]
     fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
-        let draft = Draft { checkout: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
+        let draft = Draft { picked: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "plan": false});
         assert_eq!(draft.spec("/p", "/p", "fix/login", ""), want);
         assert_eq!(draft.spec("/p", "/p", "origin/fix/login", ""), want);
@@ -945,7 +946,7 @@ mod tests {
 
     #[test]
     fn a_pr_is_sent_as_typed_and_reopens_as_a_pr() {
-        let draft = Draft { checkout: Target::Worktree, source: Source::Pr("#7".into()), repo: Some("/p".into()), copy_env: true, ..Draft::default() };
+        let draft = Draft { picked: Target::Worktree, source: Source::Pr("#7".into()), repo: Some("/p".into()), copy_env: true, ..Draft::default() };
         assert!(draft.ready("#7", false) && !draft.ready("seven", false));
         let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
         assert_eq!(draft.spec("/p", "/p", "#7", ""), want);
@@ -1033,11 +1034,11 @@ mod tests {
 
     #[test]
     fn pocketd_names_only_a_new_branch_that_has_a_prompt() {
-        let new = Draft { checkout: Target::Worktree, source: Source::New, ..Draft::default() };
+        let new = Draft { picked: Target::Worktree, source: Source::New, ..Draft::default() };
         assert!(new.auto_names("fix the login", true));
         assert!(!new.auto_names("  ", true));
         assert!(!new.auto_names("fix the login", false));
-        assert!(!Draft { checkout: Target::Worktree, source: Source::Branch("fix".into()), ..Draft::default() }.auto_names("fix", true));
+        assert!(!Draft { picked: Target::Worktree, source: Source::Branch("fix".into()), ..Draft::default() }.auto_names("fix", true));
         assert!(!Draft::default().auto_names("fix the login", true));
     }
 }

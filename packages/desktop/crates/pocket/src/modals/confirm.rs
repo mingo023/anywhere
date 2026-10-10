@@ -10,20 +10,17 @@ use theme::*;
 use ui::{self, Variant};
 use workspace::Doc;
 
+/// Nothing for none, `one` for one, else `many(n)`.
+fn counted(n: usize, one: &str, many: impl FnOnce(usize) -> String) -> Option<String> {
+    (n > 0).then(|| if n == 1 { one.to_string() } else { many(n) })
+}
+
 fn closes(n: usize) -> Option<String> {
-    match n {
-        0 => None,
-        1 => Some("Closes 1 terminal".into()),
-        n => Some(format!("Closes {n} terminals")),
-    }
+    counted(n, "Closes 1 terminal", |n| format!("Closes {n} terminals"))
 }
 
 fn deletes(locals: usize) -> Option<String> {
-    match locals {
-        0 => None,
-        1 => Some("Deletes its added Local".into()),
-        n => Some(format!("Deletes its {n} added Locals")),
-    }
+    counted(locals, "Deletes its added Local", |n| format!("Deletes its {n} added Locals"))
 }
 
 #[derive(Debug, PartialEq)]
@@ -260,6 +257,7 @@ mod tests {
         assert_eq!(ConfirmText::remove_project("app", 0, 0), text("Remove app?", "Remove", &[keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", 1, 0), text("Remove app?", "Remove", &["Closes 1 terminal", keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", 3, 0), text("Remove app?", "Remove", &["Closes 3 terminals", keeps], 0));
+        assert_eq!(ConfirmText::remove_project("app", 0, 1), text("Remove app?", "Remove", &["Deletes its added Local", keeps], 0));
         assert_eq!(ConfirmText::remove_project("app", 0, 2), text("Remove app?", "Remove", &["Deletes its 2 added Locals", keeps], 0));
     }
 
