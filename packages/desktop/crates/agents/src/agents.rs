@@ -317,9 +317,9 @@ impl Agents {
         self.locals.iter().find(|l| l.id == id)
     }
 
-    /// The name a Local or the user or naming gave the tree `key`, a Local's id or a worktree's path.
-    pub fn given_name(&self, key: &str) -> Option<&String> {
-        self.local(key).map(|l| &l.name).or_else(|| self.names.get(key).filter(|n| !n.is_empty()))
+    /// The tree `key`'s name, if it has one: a Local's own, else a worktree's from renaming or naming.
+    pub fn given_name(&self, key: &str) -> Option<&str> {
+        self.local(key).map(|l| l.name.as_str()).or_else(|| self.names.get(key).map(String::as_str).filter(|n| !n.is_empty()))
     }
 
     pub fn locals_in<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a Local> {
@@ -913,7 +913,7 @@ mod tests {
         let mut a = Agents::default();
         a.add_local(Local { id: "l1".into(), project: "/p".into(), name: "Review".into() });
         a.set_name("/p", "Hotfix");
-        assert_eq!((a.given_name("l1"), a.given_name("/p"), a.given_name("/p-login")), (Some(&"Review".to_string()), Some(&"Hotfix".to_string()), None));
+        assert_eq!((a.given_name("l1"), a.given_name("/p"), a.given_name("/p-login")), (Some("Review"), Some("Hotfix"), None));
     }
 
     #[test]

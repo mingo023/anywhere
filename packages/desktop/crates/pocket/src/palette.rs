@@ -9,7 +9,6 @@ use agents::Agents;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 use std::cmp::Reverse;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ops::Range;
 use store::Sounds;
@@ -190,17 +189,16 @@ fn up_next_entries(words: &[String], cards: &[SessionCard]) -> Vec<Entry> {
         .collect()
 }
 
-/// `trees` holds each worktree with its project's path and name; `names` the names worktrees were given. Only a query lists worktrees.
-fn tree_entries(words: &[String], trees: Vec<(String, String, git::Worktree)>, names: &HashMap<String, String>) -> Vec<Entry> {
+/// `trees` holds each worktree with its project's path and name; `given` gives a worktree's name, if it has one. Only a query lists worktrees.
+fn tree_entries(words: &[String], trees: Vec<(String, String, git::Worktree)>, given: impl Fn(&str) -> Option<String>) -> Vec<Entry> {
     if words.is_empty() {
         return Vec::new();
     }
     trees
         .into_iter()
         .filter_map(|(project, name, w)| {
-            let given = names.get(&w.path).filter(|n| !n.is_empty()).cloned();
-            let title = given.unwrap_or_else(|| if w.main { name.clone() } else { basename(&w.path) });
-            matches(words, &[&title, &name, &w.branch]).then(|| Entry {
+            let title = given(&w.path).unwrap_or_else(|| if w.main { name.clone() } else { basename(&w.path) });
+            matches(words, &[&title, &name, &w.branch, &basename(&w.path)]).then(|| Entry {
                 detail: format!("{name} · {}", w.branch),
                 pick: Pick::Tree { project, tree: (!w.main).then_some(w.path) },
                 lead: Lead::Icon("worktree"),
@@ -348,7 +346,7 @@ impl Desktop {
                     ("Up next", up_next_entries(words, &cards)),
                     ("Sessions", session_entries(words, cards)),
                     ("Locals", local_entries(words, locals)),
-                    ("Worktrees", tree_entries(words, trees, &self.agents.names)),
+                    ("Worktrees", tree_entries(words, trees, |t| self.agents.given_name(t).map(str::to_string))),
                     ("Files", file_entries(words, &root, &changed, &self.palette.files)),
                     ("Actions", actions),
                 ]
@@ -502,7 +500,6 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Entry, Lead, Local, Nav, Pick, Query, action_entries, file_entries, local_entries, matches, nav, query, row_child, runs, session_entries, tree_entries, up_next_entries};
-    use std::collections::HashMap;
     use crate::desktop::sounds::Cue;
     use crate::status::{Card, Kind, Status};
     use agents::{Agents, Event};
@@ -557,7 +554,7 @@ mod tests {
         assert_eq!(session_entries(&[], cards).len(), 5);
         let changed = strings(&["a.rs", "b.rs", "c.rs", "d.rs"]);
         assert_eq!(file_entries(&[], "/w", &changed, &changed).len(), 3);
-        assert!(tree_entries(&[], vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true))], &HashMap::new()).is_empty());
+        assert!(tree_entries(&[], vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true))], |_| None).is_empty());
     }
 
     #[test]
@@ -566,7 +563,7 @@ mod tests {
         let cards = (0..10).map(|i| card(&format!("s{i}"), &format!("Fix {i}"), Status::Idle, i)).collect();
         assert_eq!(session_entries(&q, cards).len(), 8);
         let trees = (0..7).map(|i| ("/w/app".into(), "app".into(), tree(&format!("/w/fix-{i}"), &format!("fix-{i}"), false))).collect();
-        assert_eq!(tree_entries(&q, trees, &HashMap::new()).len(), 5);
+        assert_eq!(tree_entries(&q, trees, |_| None).len(), 5);
         let files: Vec<String> = (0..10).map(|i| format!("src/fix_{i}.rs")).collect();
         assert_eq!(file_entries(&q, "/w", &[], &files).len(), 8);
     }
@@ -632,17 +629,17 @@ mod tests {
     }
 
     #[test]
-    fn a_renamed_worktree_is_found_and_shown_by_its_given_name() {
+    fn a_renamed_worktree_is_shown_by_its_given_name_and_found_by_it_or_its_folder() {
         let trees = vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true)), ("/w/app".into(), "app".into(), tree("/w/app-login", "login", false))];
-        let names = HashMap::from([("/w/app".to_string(), "Hotfix".to_string()), ("/w/app-login".to_string(), "Sign in".to_string())]);
-        let titles = |q| tree_entries(&strings(&[q]), trees.clone(), &names).into_iter().map(|e| e.title).collect::<Vec<_>>();
-        assert_eq!((titles("hot"), titles("sign")), (vec!["Hotfix".to_string()], vec!["Sign in".to_string()]));
+        let given = |t: &str| Some(if t == "/w/app" { "Hotfix" } else { "Sign in" }.to_string());
+        let titles = |q| tree_entries(&strings(&[q]), trees.clone(), given).into_iter().map(|e| e.title).collect::<Vec<_>>();
+        assert_eq!((titles("hot"), titles("sign"), titles("app-login")), (vec!["Hotfix".to_string()], vec!["Sign in".to_string()], vec!["Sign in".to_string()]));
     }
 
     #[test]
     fn a_worktree_opens_in_its_project_and_the_main_one_reads_as_the_project() {
         let trees = vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true)), ("/w/app".into(), "app".into(), tree("/w/app-login", "login", false))];
-        let got: Vec<_> = tree_entries(&strings(&["app"]), trees, &HashMap::new()).into_iter().map(|e| (e.pick, e.title, e.detail)).collect();
+        let got: Vec<_> = tree_entries(&strings(&["app"]), trees, |_| None).into_iter().map(|e| (e.pick, e.title, e.detail)).collect();
         assert_eq!(
             got,
             vec![

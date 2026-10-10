@@ -97,7 +97,7 @@ impl Desktop {
 
     /// A tree's short name: the one it was given, else its folder's.
     pub(crate) fn place_name(&self, key: &str) -> String {
-        self.agents.given_name(key).cloned().unwrap_or_else(|| util::basename(key))
+        self.agents.given_name(key).map_or_else(|| util::basename(key), str::to_string)
     }
 
     /// The tree a terminal belongs to: the Local it was opened in, else the worktree holding its folder.

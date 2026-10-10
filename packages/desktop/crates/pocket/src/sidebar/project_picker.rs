@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Screen, id};
-use crate::util::tilde;
+use crate::util::{basename, tilde};
 use agents::locals::is_local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -47,16 +47,16 @@ impl Entry {
     }
 }
 
-/// `current` first, then the rest in sidebar order, each followed by its trees: `(key, name)`, a worktree's path or a Local's id.
-/// A project stays while `query` is in its `name` (the text it's found by), its path or a tree's name; its trees all stay when the project matches, else only those that match.
-pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, name: impl Fn(&str) -> String, trees: impl Fn(&str) -> Vec<(String, String)>) -> Vec<Entry> {
+/// `current` first, then the rest in sidebar order, each followed by its trees: `(key, text it's found by)`, the key a worktree's path or a Local's id.
+/// A project stays while `query` is in its `search_text`, its path or a tree's name; its trees all stay when the project matches, else only those that match.
+pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, search_text: impl Fn(&str) -> String, trees: impl Fn(&str) -> Vec<(String, String)>) -> Vec<Entry> {
     let query = query.trim().to_lowercase();
     let hit = |text: &str| text.to_lowercase().contains(&query);
     let (mut first, rest): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| Some(p.as_str()) == current);
     first.extend(rest);
     let mut out = Vec::new();
     for p in first {
-        let whole = hit(&format!("{}\n{p}", name(&p)));
+        let whole = hit(&format!("{}\n{p}", search_text(&p)));
         let trees: Vec<String> = trees(&p).into_iter().filter(|(_, n)| whole || hit(n)).map(|(t, _)| t).collect();
         if whole || !trees.is_empty() {
             out.push(Entry { project: p.clone(), tree: None, hit: whole });
@@ -88,13 +88,14 @@ impl Desktop {
         let trees = |p: &str| {
             let locals = self.agents.locals_in(p).map(|l| l.id.clone());
             let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
-            locals.chain(worktrees).map(|t| (t.clone(), self.place_name(&t))).collect()
+            let found_by = |t: &str| if is_local(t) { self.place_name(t) } else { format!("{}\n{}", self.place_name(t), basename(t)) };
+            locals.chain(worktrees).map(|t| (t.clone(), found_by(&t))).collect()
         };
-        let name = |p: &str| {
-            let own = self.tree_of(p).and_then(|t| self.agents.given_name(&t).cloned());
+        let search_text = |p: &str| {
+            let own = self.tree_of(p).and_then(|t| self.agents.given_name(&t).map(str::to_string));
             format!("{}\n{}", self.repo_name(p), own.unwrap_or_default())
         };
-        listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), name, trees)
+        listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_text, trees)
     }
 
     pub(crate) fn toggle_project_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {

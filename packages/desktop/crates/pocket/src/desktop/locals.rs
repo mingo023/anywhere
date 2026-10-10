@@ -6,7 +6,7 @@ use gpui_kit::*;
 impl Desktop {
     /// A tree's name as its Local row shows it: a Local's own, else the project checkout's given name, else "Local".
     pub(crate) fn local_name(&self, key: &str) -> String {
-        self.agents.given_name(key).cloned().unwrap_or_else(|| "Local".into())
+        self.agents.given_name(key).unwrap_or("Local").to_string()
     }
 
     /// Adds a Local to `project`, named after the first free number, and returns its id.
