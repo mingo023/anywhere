@@ -9,3 +9,4 @@ export const CAP_SUMMARY_V2 = "summary.v2";
 export const CAP_LAUNCH = "launch.v1";
 export const CAP_NAMES = "names.v1";
 export const CAP_AUTOMATIONS = "automations.v1";
+export const CAP_FORK = "fork.v1";

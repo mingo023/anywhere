@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"pocketd/internal/config"
 	"pocketd/internal/proto"
 	"pocketd/internal/terminal"
 )
@@ -30,8 +31,9 @@ var codexAccess = map[string][]string{
 }
 
 // Argv is a Session's command line. name is a new Worktree's name; without
-// one, claude's session is named after the prompt.
-func Argv(s proto.LaunchSpec, name string) ([]string, *Failure) {
+// one, claude's session is named after the prompt. A fork's args come first,
+// since codex forks with a subcommand.
+func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Failure) {
 	if s.Model != "" && !model.MatchString(s.Model) {
 		return nil, fail("invalid_spec", "Model names use letters, digits and . _ : [ ] -, and don't start with -")
 	}
@@ -40,6 +42,15 @@ func Argv(s proto.LaunchSpec, name string) ([]string, *Failure) {
 		return nil, fail("invalid_spec", err.Error())
 	}
 	argv := []string{s.Provider}
+	if s.Fork != "" {
+		if len(args.Fork) == 0 {
+			return nil, fail("fork_unsupported", "This agent has no fork args in Settings")
+		}
+		if !resumeID.MatchString(s.Fork) {
+			return nil, fail("invalid_spec", "That session id can't be forked")
+		}
+		argv = append(argv, config.Fill(args.Fork, s.Fork)...)
+	}
 	switch s.Provider {
 	case "claude":
 		if s.Effort != "" && !slices.Contains(ClaudeEfforts, s.Effort) {
@@ -75,7 +86,7 @@ func Argv(s proto.LaunchSpec, name string) ([]string, *Failure) {
 		}
 	}
 	if prompt != "" {
-		argv = append(argv, "--", prompt)
+		argv = append(append(argv, args.Prompt...), prompt)
 	}
 	return argv, nil
 }

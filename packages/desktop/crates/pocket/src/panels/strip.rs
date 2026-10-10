@@ -159,7 +159,7 @@ impl Desktop {
         };
         if let Some(a) = self.summary(term) {
             let mark = ui::indicator(id(format!("tab-mark:{}", a.id)), Status::of(a).map(|s| state(s, 0, 0)));
-            return row.child(provider_icon(&a.provider, 13., ink)).child(label(provider_name(&a.provider).into())).children(mark);
+            return row.child(provider_icon(&a.provider, 13., ink)).child(label(self.agent_name(&a.provider))).children(mark);
         }
         let s = self.terminals.sessions.get(term);
         let busy = s.and_then(|s| s.busy());

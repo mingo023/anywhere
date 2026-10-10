@@ -89,7 +89,7 @@ impl Desktop {
         meta.push(match self.agents.last_edit(path) {
             Some((a, ts)) => status
                 .cursor_pointer()
-                .child(format!("by {} · {}", provider_name(&a.provider), ago_long(ts, now_ms())))
+                .child(format!("by {} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms())))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_changes(None, false, cx)))
                 .into_any_element(),
             None => status.into_any_element(),

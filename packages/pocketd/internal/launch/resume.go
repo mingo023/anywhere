@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"pocketd/internal/config"
 	"pocketd/internal/state"
 )
 
@@ -12,8 +13,8 @@ var resumeID = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 // Resume is the argv that brings t's Conversation back with the access it
 // had. Full comes back as ask, so a restart never re-arms an unattended
-// bypass; state.Outcome reports that.
-func Resume(t state.Terminal) ([]string, *Failure) {
+// bypass; state.Outcome reports that. The id follows args.Resume.
+func Resume(t state.Terminal, args config.AgentArgs) ([]string, *Failure) {
 	l := state.Launch{Access: "ask"}
 	if t.Launch != nil {
 		l = *t.Launch
@@ -21,7 +22,7 @@ func Resume(t state.Terminal) ([]string, *Failure) {
 	if !resumeID.MatchString(t.ConversationID) {
 		return nil, invalidResume("conversation id")
 	}
-	var argv []string
+	argv := append(append([]string{t.Provider}, args.Resume...), t.ConversationID)
 	switch t.Provider {
 	case "claude":
 		mode := map[string]string{"edits": "acceptEdits", "auto": "auto"}[l.Access]
@@ -31,7 +32,6 @@ func Resume(t state.Terminal) ([]string, *Failure) {
 		if mode == "" && l.Access != "settings" {
 			mode = "default"
 		}
-		argv = []string{"claude", "--resume", t.ConversationID}
 		if mode != "" {
 			argv = append(argv, "--permission-mode", mode)
 		}
@@ -42,7 +42,6 @@ func Resume(t state.Terminal) ([]string, *Failure) {
 			argv = append(argv, "--effort", l.Effort)
 		}
 	case "codex":
-		argv = []string{"codex", "resume", t.ConversationID}
 		switch l.Access {
 		case "settings":
 		case "edits":
@@ -57,6 +56,9 @@ func Resume(t state.Terminal) ([]string, *Failure) {
 		}
 	default:
 		return nil, invalidResume("provider " + t.Provider)
+	}
+	if len(args.Resume) == 0 {
+		return nil, &Failure{Code: "resume_not_accepted", Message: "This agent has no resume args in Settings"}
 	}
 	return argv, ValidResume(argv)
 }
@@ -87,8 +89,8 @@ func invalidResume(detail string) *Failure {
 // resumeCmd is how Daemon.Resume runs saved's resume argv in a login shell,
 // or the reason it can't. find is where the provider's command is, which
 // config.json may point away from the bare name the argv starts with.
-func resumeCmd(saved state.Terminal, shell, exe string, find func(provider string) (string, bool)) (string, []string, string) {
-	argv, f := Resume(saved)
+func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, find func(provider string) (string, bool)) (string, []string, string) {
+	argv, f := Resume(saved, args)
 	if f != nil {
 		return "", nil, f.Code
 	}

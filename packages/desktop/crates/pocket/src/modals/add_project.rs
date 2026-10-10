@@ -355,8 +355,8 @@ impl Desktop {
         let trigger = |id: &'static str, label: String| {
             ui::field_box().id(id).cursor_pointer().child(div().flex_1().min_w_0().truncate().text_size(px(13.)).child(label)).child(icon("chevron-down", 12., TEXT_4))
         };
-        let app_label = format!("App default ({})", theme::provider_name(app));
-        let agents: Vec<(String, String)> = std::iter::once((String::new(), app_label.clone())).chain(LaunchPick::PROVIDERS.map(|p| (p.to_string(), theme::provider_name(p).to_string()))).collect();
+        let app_label = format!("App default ({})", self.agent_name(app));
+        let agents: Vec<(String, String)> = std::iter::once((String::new(), app_label.clone())).chain(LaunchPick::PROVIDERS.map(|p| (p.to_string(), self.agent_name(p).to_string()))).collect();
         let shown = agents.iter().find(|(v, _)| *v == agent.provider).map_or(app_label, |(_, l)| l.clone());
         let pick_agent = dropdown("project-agent", trigger("project-agent", shown), agents, &agent.provider, self, |d, v, _| {
             let draft = &mut d.repo_form.draft;

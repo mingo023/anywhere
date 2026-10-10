@@ -486,7 +486,7 @@ impl Desktop {
         if at.is_none() {
             let abs = self.cwd().map(|c| format!("{c}/{path}")).unwrap_or_default();
             if let Some((a, ts)) = self.agents.last_edit(&abs) {
-                let by = format!("{} · {}", provider_name(&a.provider), ago_long(ts, now_ms()));
+                let by = format!("{} · {}", self.agent_name(&a.provider), ago_long(ts, now_ms()));
                 meta.push(ui::meta_item().child(provider_icon(&a.provider, 13., TEXT_2)).child("by").child(ui::meta_value(by)).into_any_element());
             }
         }

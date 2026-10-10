@@ -5,8 +5,13 @@ import (
 	"strings"
 	"testing"
 
+	"pocketd/internal/config"
 	"pocketd/internal/proto"
 )
+
+func argvOf(s proto.LaunchSpec, name string) ([]string, *Failure) {
+	return Argv(s, name, config.DefaultArgs(s.Provider))
+}
 
 func spec(provider, access string, plan bool) proto.LaunchSpec {
 	return proto.LaunchSpec{Project: "/p", Checkout: proto.Checkout{Worktree: "/w"}, Provider: provider, Access: access, Plan: plan}
@@ -30,7 +35,7 @@ func TestArgvMatchesTheF14TableForEveryProviderAccessAndPlan(t *testing.T) {
 		{"codex", "auto", false, "codex --approve-for-me"},
 		{"codex", "full", false, "codex -s danger-full-access -a never"},
 	} {
-		argv, f := Argv(spec(c.provider, c.access, c.plan), "")
+		argv, f := argvOf(spec(c.provider, c.access, c.plan), "")
 		if f != nil || strings.Join(argv, " ") != c.want {
 			t.Errorf("%s %s plan=%v: got %q %v, want %q", c.provider, c.access, c.plan, argv, f, c.want)
 		}
@@ -38,7 +43,7 @@ func TestArgvMatchesTheF14TableForEveryProviderAccessAndPlan(t *testing.T) {
 }
 
 func TestCodexPlanIsNotAllowed(t *testing.T) {
-	_, f := Argv(spec("codex", "ask", true), "")
+	_, f := argvOf(spec("codex", "ask", true), "")
 	if f == nil || f.Code != "access_not_allowed" || f.Message != "Codex can't plan first in a terminal session" {
 		t.Fatalf("got %+v", f)
 	}
@@ -47,7 +52,7 @@ func TestCodexPlanIsNotAllowed(t *testing.T) {
 func TestPromptGoesLastAfterDoubleDash(t *testing.T) {
 	s := spec("claude", "ask", false)
 	s.Model, s.Effort, s.Prompt = "opus", "high", "-rf fix the flaky tests now please"
-	argv, _ := Argv(s, "")
+	argv, _ := argvOf(s, "")
 	want := []string{"claude", "--permission-mode", "default", "--model", "opus", "--effort", "high", "-n", "rf-fix-the-flaky", "--", "-rf fix the flaky tests now please"}
 	if !slices.Equal(argv, want) {
 		t.Fatalf("got %q", argv)
@@ -57,7 +62,7 @@ func TestPromptGoesLastAfterDoubleDash(t *testing.T) {
 func TestANewWorktreeNamesTheSession(t *testing.T) {
 	s := spec("claude", "ask", false)
 	s.Prompt = "fix it"
-	argv, _ := Argv(s, "calm-otter")
+	argv, _ := argvOf(s, "calm-otter")
 	if !slices.Contains(argv, "calm-otter") || slices.Contains(argv, "fix-it") {
 		t.Fatalf("got %q", argv)
 	}
@@ -69,7 +74,7 @@ func TestABadModelOrEffortIsAnInvalidSpec(t *testing.T) {
 		{Provider: "claude", Access: "ask", Effort: "extreme"},
 		{Provider: "codex", Access: "ask", Effort: "high"},
 	} {
-		if _, f := Argv(s, ""); f == nil || f.Code != "invalid_spec" {
+		if _, f := argvOf(s, ""); f == nil || f.Code != "invalid_spec" {
 			t.Errorf("%+v: got %+v", s, f)
 		}
 	}
@@ -79,7 +84,7 @@ func TestNoAccessEverPassesFullAuto(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		for _, access := range proto.Accesses {
 			for _, plan := range []bool{false, true} {
-				if argv, _ := Argv(spec(provider, access, plan), ""); slices.Contains(argv, "--full-auto") {
+				if argv, _ := argvOf(spec(provider, access, plan), ""); slices.Contains(argv, "--full-auto") {
 					t.Errorf("%s %s plan=%v: got %q", provider, access, plan, argv)
 				}
 			}
@@ -90,7 +95,7 @@ func TestNoAccessEverPassesFullAuto(t *testing.T) {
 func TestControlBytesAreStrippedFromThePrompt(t *testing.T) {
 	s := spec("codex", "ask", false)
 	s.Prompt = "fix\x1b[2J it\x03\x7f\n\tnow"
-	argv, _ := Argv(s, "")
+	argv, _ := argvOf(s, "")
 	if got := argv[len(argv)-1]; got != "fix[2J it\n\tnow" {
 		t.Fatalf("prompt = %q", got)
 	}
@@ -98,8 +103,46 @@ func TestControlBytesAreStrippedFromThePrompt(t *testing.T) {
 
 func TestAModelThatLooksLikeAFlagIsAnInvalidSpec(t *testing.T) {
 	for _, m := range []string{"-c", "--dangerously-bypass-approvals-and-sandbox"} {
-		if _, f := Argv(proto.LaunchSpec{Provider: "codex", Access: "ask", Model: m}, ""); f == nil || f.Code != "invalid_spec" {
+		if _, f := argvOf(proto.LaunchSpec{Provider: "codex", Access: "ask", Model: m}, ""); f == nil || f.Code != "invalid_spec" {
 			t.Errorf("%q: got %+v", m, f)
 		}
+	}
+}
+
+func TestPromptOnlyArgsComeBeforeThePrompt(t *testing.T) {
+	s := spec("codex", "settings", false)
+	s.Prompt = "fix it"
+	argv, _ := Argv(s, "", config.AgentArgs{Prompt: []string{"--prompt"}})
+	if !slices.Equal(argv, []string{"codex", "--prompt", "fix it"}) {
+		t.Fatalf("got %q", argv)
+	}
+	if argv, _ := Argv(spec("codex", "settings", false), "", config.AgentArgs{Prompt: []string{"--prompt"}}); slices.Contains(argv, "--prompt") {
+		t.Fatalf("no prompt, got %q", argv)
+	}
+}
+
+func TestAForkPutsTheSessionIdInItsArgsBeforeTheFlags(t *testing.T) {
+	for _, c := range []struct{ provider, want string }{
+		{"claude", "claude --resume c-1 --fork-session --permission-mode default"},
+		{"codex", "codex fork c-1 -s read-only -a on-request"},
+	} {
+		s := spec(c.provider, "ask", false)
+		s.Fork = "c-1"
+		argv, f := argvOf(s, "")
+		if f != nil || strings.Join(argv, " ") != c.want {
+			t.Errorf("%s: got %q %v, want %q", c.provider, argv, f, c.want)
+		}
+	}
+}
+
+func TestAForkNeedsForkArgsAndAPlainId(t *testing.T) {
+	s := spec("claude", "ask", false)
+	s.Fork = "c-1"
+	if _, f := Argv(s, "", config.AgentArgs{}); f == nil || f.Code != "fork_unsupported" {
+		t.Fatalf("no fork args: %v", f)
+	}
+	s.Fork = "c 1;rm"
+	if _, f := argvOf(s, ""); f == nil || f.Code != "invalid_spec" {
+		t.Fatalf("bad id: %v", f)
 	}
 }

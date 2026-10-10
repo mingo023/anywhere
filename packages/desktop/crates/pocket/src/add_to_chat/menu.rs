@@ -26,7 +26,7 @@ impl Desktop {
         let pill = match chosen {
             Some(c) => pill
                 .child(provider_icon(&c.provider, 13., TEXT))
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(provider_name(&c.provider)))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(self.agent_name(&c.provider)))
                 .child(div().text_color(TEXT_6).child("·"))
                 .child(div().max_w(px(160.)).truncate().text_color(TEXT_2).child(c.title.clone())),
             None => pill.text_color(TEXT_2).child("No agent"),
@@ -35,7 +35,7 @@ impl Desktop {
             let picked = chosen.map(|c| c.id.clone());
             let items = choices.iter().enumerate().map(|(i, c)| {
                 let id = c.id.clone();
-                let sub = if c.note.is_empty() { provider_name(&c.provider).to_string() } else { format!("{} · {}", provider_name(&c.provider), c.note) };
+                let sub = if c.note.is_empty() { self.agent_name(&c.provider).to_string() } else { format!("{} · {}", self.agent_name(&c.provider), c.note) };
                 div()
                     .id(("chat-choice", i))
                     .px(px(10.))

@@ -237,7 +237,7 @@ pub struct SettingsState {
     /// The terminal colour being edited.
     swatch: Option<terminal::Swatch>,
     pub(crate) models: models::Models,
-    commands: provider::Commands,
+    launch: provider::LaunchFields,
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
 }
@@ -251,7 +251,8 @@ impl SettingsState {
             _ => {}
         })];
         let mut fields = HashMap::new();
-        for setting in Section::ALL.iter().flat_map(|s| s.rows()) {
+        // The provider pages are reached from Agents, so ALL leaves them out.
+        for setting in Section::ALL.iter().chain(&[Section::Claude, Section::Codex]).flat_map(|s| s.rows()) {
             let Control::Text { placeholder, get, set } = setting.control else { continue };
             let value = get(store);
             let field = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(value));
@@ -267,10 +268,10 @@ impl SettingsState {
         subs.extend(host_subs);
         let (keyboard, keyboard_subs) = keybindings::Keyboard::new(window, cx);
         subs.extend(keyboard_subs);
-        let (commands, command_subs) = provider::Commands::new(store, window, cx);
-        subs.extend(command_subs);
+        let (launch, launch_subs) = provider::LaunchFields::new(store, window, cx);
+        subs.extend(launch_subs);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), commands, starting: None };
+        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), launch, starting: None };
         (state, subs)
     }
 
@@ -556,7 +557,7 @@ impl Desktop {
         if self.settings.host.time.read(cx).value() != time {
             self.settings.host.time.update(cx, |f, cx| f.set_value(time, window, cx));
         }
-        self.settings.commands.sync(&self.store, window, cx);
+        self.settings.launch.sync(&self.store, window, cx);
         let port = host::port_field(self.store.phone.port);
         if self.settings.host.port.read(cx).value() != port {
             self.settings.host.port.update(cx, |f, cx| f.set_value(port, window, cx));

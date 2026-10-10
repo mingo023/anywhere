@@ -10,6 +10,9 @@ const CapLaunch = "launch.v1"
 // CapOpen: a NewWorktree may open an existing branch instead of naming a new one.
 const CapOpen = "open.v1"
 
+// CapFork: a LaunchSpec may fork a provider session.
+const CapFork = "fork.v1"
+
 const MaxPrompt = 64 << 10
 
 var (
@@ -27,6 +30,8 @@ type LaunchSpec struct {
 	Access   string   `json:"access"`
 	Plan     bool     `json:"plan"`
 	Prompt   string   `json:"prompt,omitempty"`
+	// Fork is the provider session id this one starts as a copy of.
+	Fork string `json:"fork,omitempty"`
 }
 
 type Checkout struct {
@@ -145,7 +150,7 @@ func strictObject(raw json.RawMessage, allowed ...string) (map[string]json.RawMe
 }
 
 func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
-	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt")
+	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork")
 	if !ok {
 		return false
 	}
