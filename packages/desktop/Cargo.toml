@@ -63,6 +63,7 @@ tungstenite = "0.26"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
 
 # gpui-pre 0.3.6 with `List` keeping item heights as hints on a width change instead of re-measuring every item; drop once upstream does.
+# It also adds `Window::set_zoom`, drawing the whole window larger as a browser zooms; upstream has no equivalent.
 [patch.crates-io]
 gpui-pre = { path = "vendor/gpui-pre" }
 # gpui-pre-apple 0.3.6 compositing alpha "over" instead of adding it, so a translucent layer doesn't make the glass window opaque; drop once upstream does.

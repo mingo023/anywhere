@@ -1203,6 +1203,7 @@ pub struct Window {
     modifiers: Modifiers,
     capslock: Capslock,
     scale_factor: f32,
+    zoom: f32,
     pub(crate) bounds_observers: SubscriberSet<(), AnyObserver>,
     appearance: WindowAppearance,
     pub(crate) appearance_observers: SubscriberSet<(), AnyObserver>,
@@ -1443,6 +1444,42 @@ pub(crate) struct ElementStateBox {
     pub(crate) inner: Box<dyn Any>,
     #[cfg(debug_assertions)]
     pub(crate) type_name: &'static str,
+}
+
+/// Moves an event's platform pixels into the zoomed window's. Only for platform input: GPUI's own events are already zoomed.
+fn unzoom(mut event: PlatformInput, zoom: f32) -> PlatformInput {
+    if zoom == 1. {
+        return event;
+    }
+    let at = |p: &mut Point<Pixels>| *p = p.map(|v| v / zoom);
+    match &mut event {
+        PlatformInput::MouseDown(e) => at(&mut e.position),
+        PlatformInput::MouseUp(e) => at(&mut e.position),
+        PlatformInput::MousePressure(e) => at(&mut e.position),
+        PlatformInput::MouseMove(e) => at(&mut e.position),
+        PlatformInput::MouseExited(e) => at(&mut e.position),
+        PlatformInput::ScrollWheel(e) => {
+            at(&mut e.position);
+            // So content keeps pace with the fingers on the trackpad.
+            if let crate::ScrollDelta::Pixels(d) = &mut e.delta {
+                at(d);
+            }
+        }
+        PlatformInput::Pinch(e) => at(&mut e.position),
+        PlatformInput::LongPress(e) => (at(&mut e.start_position), at(&mut e.position)).1,
+        PlatformInput::TouchDrag(e) => (at(&mut e.start_position), at(&mut e.position)).1,
+        PlatformInput::Touch(e) => at(&mut e.position),
+        PlatformInput::FileDrop(
+            FileDropEvent::Entered { position, .. }
+            | FileDropEvent::Pending { position }
+            | FileDropEvent::Submit { position },
+        ) => at(position),
+        PlatformInput::FileDrop(FileDropEvent::Exited | FileDropEvent::Ended)
+        | PlatformInput::KeyDown(_)
+        | PlatformInput::KeyUp(_)
+        | PlatformInput::ModifiersChanged(_) => {}
+    }
+    event
 }
 
 fn default_bounds(display_id: Option<DisplayId>, cx: &mut App) -> WindowBounds {
@@ -1939,7 +1976,7 @@ impl Window {
             let mut cx = cx.to_async();
             Box::new(move |event| {
                 handle
-                    .update(&mut cx, |_, window, cx| window.dispatch_event(event, cx))
+                    .update(&mut cx, |_, window, cx| window.dispatch_event(unzoom(event, window.zoom), cx))
                     .log_err()
                     .unwrap_or(DispatchEventResult::default())
             })
@@ -2059,6 +2096,7 @@ impl Window {
             modifiers,
             capslock,
             scale_factor,
+            zoom: 1.,
             bounds_observers: SubscriberSet::new(),
             appearance,
             appearance_observers: SubscriberSet::new(),
@@ -2690,9 +2728,9 @@ impl Window {
     /// by the platform's resize callback, but exposed publicly for test infrastructure.
     pub fn bounds_changed(&mut self, cx: &mut App) {
         self.scale_factor = self.platform_window.scale_factor();
-        self.viewport_size = self.platform_window.content_size();
+        self.viewport_size = self.platform_window.content_size().map(|v| v / self.zoom);
         self.display_id = self.platform_window.display().map(|display| display.id());
-        self.mouse_position = self.platform_window.mouse_position();
+        self.mouse_position = self.platform_window.mouse_position().map(|v| v / self.zoom);
 
         self.refresh();
 
@@ -2931,7 +2969,29 @@ impl Window {
     /// return 2.0 for a "retina" display, indicating that each logical pixel should actually
     /// be rendered as two pixels on screen.
     pub fn scale_factor(&self) -> f32 {
-        self.scale_factor
+        self.scale_factor * self.zoom
+    }
+
+    /// How much larger than the platform's size everything is drawn, like zooming a web page.
+    pub fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    /// `bounds` in the platform's pixels, for handing to native views.
+    pub fn unzoomed(&self, mut bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+        bounds *= self.zoom;
+        bounds
+    }
+
+    /// Zooms the whole window, rescaling its viewport and pointer to match.
+    /// Leaves bounds observers alone: the platform window didn't move, and they may be mid-update.
+    pub fn set_zoom(&mut self, zoom: f32) {
+        if zoom != self.zoom {
+            self.zoom = zoom;
+            self.viewport_size = self.platform_window.content_size().map(|v| v / zoom);
+            self.mouse_position = self.platform_window.mouse_position().map(|v| v / zoom);
+            self.refresh();
+        }
     }
 
     /// Overrides the display scale factor for tests.
@@ -6435,7 +6495,7 @@ impl Window {
         self.on_next_frame(|window, cx| {
             if let Some(mut input_handler) = window.platform_window.take_input_handler() {
                 if let Some(bounds) = input_handler.selected_bounds(window, cx) {
-                    window.platform_window.update_ime_position(bounds);
+                    window.platform_window.update_ime_position(window.unzoomed(bounds));
                 }
                 window.platform_window.set_input_handler(input_handler);
             }

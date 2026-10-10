@@ -3,7 +3,7 @@ use gpui_kit::*;
 use std::collections::BTreeMap;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, ZoomIn, ZoomOut, ResetZoom]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -44,6 +44,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-shift-n", NewWorktree, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-a", OpenAutomations, None),
+        KeyBinding::new("cmd-=", ZoomIn, None),
+        KeyBinding::new("cmd--", ZoomOut, None),
+        KeyBinding::new("cmd-0", ResetZoom, None),
         // gpui-base's `Input` binds ⌘F to its own search, so only the Settings page claims it.
         KeyBinding::new("cmd-f", FocusSearch, Some(settings::CONTEXT)),
         // Unscoped, it ties with a text field's own ⌘↵ in depth and, bound later, wins.
