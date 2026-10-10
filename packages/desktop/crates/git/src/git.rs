@@ -31,6 +31,8 @@ pub struct Repo {
     pub base: Option<String>,
     pub ahead: usize,
     pub behind: usize,
+    /// Commits not on the branch's upstream yet; `None` before its first push.
+    pub unpushed: Option<usize>,
     pub files: Vec<FileStat>,
     pub commits: Vec<Commit>,
     pub remotes: Vec<String>,
@@ -97,7 +99,8 @@ pub fn read(cwd: &str, untracked: bool) -> Option<Repo> {
         }
         None => (0, 0, Vec::new()),
     };
-    Some(Repo { branch, base, ahead, behind, files, commits, remotes: remote_names(cwd) })
+    let unpushed = git(cwd, &["rev-list", "--count", "@{u}..HEAD"]).and_then(|n| n.trim().parse().ok());
+    Some(Repo { branch, base, ahead, behind, unpushed, files, commits, remotes: remote_names(cwd) })
 }
 
 fn name_status(out: &str) -> Vec<(String, char)> {
@@ -272,6 +275,24 @@ pub fn commit_context(cwd: &str, staged: bool, untracked: bool) -> String {
         out.truncate(out.floor_char_boundary(MAX_CONTEXT));
     }
     out
+}
+
+/// What a PR's title and description are written from: the commits on top of `base`, then their diff.
+pub fn pr_context(cwd: &str, base: &str) -> String {
+    let log = git(cwd, &["log", "--format=- %s%n%b", &format!("{base}..HEAD")]).unwrap_or_default();
+    let diff = git(cwd, &["diff", &format!("{base}...HEAD")]).unwrap_or_default();
+    let mut out = format!("Commits:\n{}\n\nDiff:\n{diff}", log.trim());
+    if out.len() > MAX_CONTEXT {
+        out.truncate(out.floor_char_boundary(MAX_CONTEXT));
+    }
+    out
+}
+
+/// `path` where the branch left `base`, and at HEAD: what a PR shows for it.
+pub fn texts_between(cwd: &str, base: &str, path: &str) -> (String, String) {
+    let at = |rev: &str| git(cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
+    let fork = git(cwd, &["merge-base", base, "HEAD"]).map(|s| s.trim().to_string()).unwrap_or_default();
+    (if fork.is_empty() { String::new() } else { at(&fork) }, at("HEAD"))
 }
 
 pub fn user_initials(cwd: &str) -> String {
@@ -762,6 +783,50 @@ mod tests {
         for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false")] {
             assert!(Command::new("git").arg("-C").arg(repo).args(["config", k, v]).status().unwrap().success());
         }
+    }
+
+    /// A repo on a branch off its first one, with one commit and an uncommitted edit; returns it with the base's name.
+    fn branched(tag: &str) -> (std::path::PathBuf, String) {
+        let dir = scratch_repo(tag);
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        let base = git(r, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap().trim().to_string();
+        git(r, &["checkout", "-qb", "cap-retries"]).unwrap();
+        std::fs::write(repo.join("a"), "capped\n").unwrap();
+        git(r, &["commit", "-qam", "Cap retries"]).unwrap();
+        std::fs::write(repo.join("a"), "uncommitted\n").unwrap();
+        (dir, base)
+    }
+
+    #[test]
+    fn a_pr_is_written_from_the_branch_s_commits_and_their_diff() {
+        let (dir, base) = branched("pr-context");
+        let r = dir.join("repo");
+        let context = pr_context(r.to_str().unwrap(), &base);
+        assert!(context.starts_with("Commits:\n- Cap retries"), "{context}");
+        assert!(context.contains("+capped") && !context.contains("uncommitted") && !context.contains("init"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_pr_shows_a_file_from_where_the_branch_left_its_base_to_head() {
+        let (dir, base) = branched("between");
+        let r = dir.join("repo");
+        assert_eq!(texts_between(r.to_str().unwrap(), &base, "a"), ("a\n".into(), "capped\n".into()));
+        assert_eq!(texts_between(r.to_str().unwrap(), &base, "missing"), (String::new(), String::new()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unpushed_counts_commits_past_the_upstream_and_is_none_before_the_first_push() {
+        let (dir, base) = branched("unpushed");
+        let r = dir.join("repo");
+        let r = r.to_str().unwrap();
+        assert_eq!(read(r, false).unwrap().unpushed, None);
+        git(r, &["branch", "--set-upstream-to", &base]).unwrap();
+        assert_eq!(read(r, false).unwrap().unpushed, Some(1));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

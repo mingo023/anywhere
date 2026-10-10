@@ -71,7 +71,7 @@ impl Desktop {
                     .into_any_element()
             }
             PrItem::Create => ui::menu_row("changes-create-pr", "plus", "Create pull request", None)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_pr(window, cx)))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx)))
                 .into_any_element(),
             PrItem::Hint(text) => info(text.to_string()).into_any_element(),
         });

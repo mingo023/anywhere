@@ -1,5 +1,6 @@
 use super::{Item, Section, toggle_fold};
 use crate::desktop::Desktop;
+use crate::git_ui::diff::At;
 use git::FileStat;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -115,7 +116,7 @@ impl Desktop {
 
     /// In the tree a file sits under its folder, so only its name shows, indented past the folders' chevrons.
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, None));
+        let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &At::Working));
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
         let id = |kind: &str| ElementId::Name(format!("{kind}:{}:{}", s.key(), f.path).into());
         let path = f.path.clone();

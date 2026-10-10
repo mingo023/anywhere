@@ -12,7 +12,7 @@ impl Desktop {
         let menu = ui::pop(div().absolute().left(at.x - px(216.)).top(at.y + px(18.)).w(px(230.)).p(px(6.)).flex().flex_col()).occlude();
         let path = match self.active_doc() {
             Some(Doc::File(p)) => Some(p),
-            Some(Doc::Diff(p) | Doc::CommitFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
+            Some(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
             Some(Doc::Commit(_)) | None => None,
         };
         let Some(path) = path.filter(|_| self.screen == Screen::Sessions) else {

@@ -135,7 +135,7 @@ impl Desktop {
                 let r = git::read(&c, untracked);
                 (c, r)
             }).collect();
-            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, open, shown)| (p, diff::read_diff(&cwd, path, None, open, options, &shown))).collect()).unwrap_or_default();
+            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, open, shown)| (p, diff::read_diff(&cwd, path, diff::At::Working, open, options, &shown))).collect()).unwrap_or_default();
             let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
             let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
                 let listing = util::list_dir(&d, &shown);
