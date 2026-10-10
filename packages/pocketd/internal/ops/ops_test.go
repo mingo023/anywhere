@@ -93,6 +93,16 @@ func TestListShowsLiveTerminals(t *testing.T) {
 	}
 }
 
+func TestATerminalSpawnedInALocalIsListedInIt(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager()})
+	c.Send(Msg{Op: "spawn", Cmd: "sleep", Args: []string{"5"}, Local: "l1"})
+	recv(t, c, "spawned")
+	c.Send(Msg{Op: "list"})
+	if items := recv(t, c, "terminals").Items; len(items) != 1 || items[0].Local != "l1" {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
 func TestUnknownTerminalIsAnError(t *testing.T) {
 	c := start(t, &Server{Terminals: terminal.NewManager()})
 	c.Send(Msg{Op: "input", ID: "nope"})

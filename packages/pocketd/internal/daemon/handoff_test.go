@@ -40,6 +40,23 @@ func TestHandoffDescribesEachTerminalAndItsAgent(t *testing.T) {
 	}
 }
 
+func TestAHandedOverTerminalKeepsItsLocal(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Local: "l1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	terms, err := d.Handoff()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.CancelHandoff()
+	if len(terms) != 1 || terms[0].Saved.Local != "l1" {
+		t.Fatalf("handed = %+v", terms)
+	}
+}
+
 func TestAHandedOverAgentKeepsItsIDAndShowsNoRestoreNotice(t *testing.T) {
 	defer func(w time.Duration) { ClaudeAttachWait = w }(ClaudeAttachWait)
 	ClaudeAttachWait = 100 * time.Millisecond

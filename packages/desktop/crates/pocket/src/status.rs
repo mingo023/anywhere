@@ -56,6 +56,8 @@ pub struct Card {
     pub model: String,
     pub title: String,
     pub cwd: String,
+    /// The Local its terminal was opened in; empty in a worktree's.
+    pub local: String,
     pub at: i64,
     pub created: i64,
     pub status: Status,
@@ -73,6 +75,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         model: model(a),
         title: if a.title.is_empty() { "New session".into() } else { a.title.clone() },
         cwd: cwd.to_string(),
+        local: String::new(),
         at: a.updated_at,
         created: a.created_at,
         status: Status::of(a).unwrap_or(Status::Idle),

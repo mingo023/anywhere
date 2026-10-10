@@ -2,7 +2,6 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use crate::status::Status;
 use crate::terminals::sessions::Session;
-use crate::util::basename;
 use agents::Summary;
 use gpui_kit::*;
 
@@ -28,7 +27,7 @@ impl Desktop {
             return false;
         }
         let Some((id, busy)) = ids.iter().find_map(|id| Some((id, busy(self.summary(id), self.terminals.sessions.get(id))?))) else { return false };
-        let worktree = self.terminals.sessions.get(id).and_then(|s| self.tree_of(&s.info.cwd)).map(|t| basename(&t)).unwrap_or_default();
+        let worktree = self.terminals.sessions.get(id).and_then(|s| self.place_of(&s.info)).map(|t| self.place_name(&t)).unwrap_or_default();
         self.confirm = Some(Confirm::CloseTerminals { ids, busy, worktree });
         self.overlay = Some(Overlay::Confirm);
         cx.notify();

@@ -2,9 +2,10 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
 use crate::desktop::Desktop;
+use agents::locals::is_local;
 use crate::sidebar::SidebarState;
 
-/// A worktree row's display name, edited in place.
+/// A worktree's or Local's row name, edited in place; leaving it saves, as Enter does.
 pub(crate) struct Rename {
     pub(crate) tree: String,
     pub(crate) input: Entity<InputState>,
@@ -23,9 +24,9 @@ impl SidebarState {
 }
 
 impl Desktop {
-    /// Edits `tree`'s display name in its row, starting from the current one, all selected.
+    /// Edits `tree`'s display name in its row, starting from the current one, all selected. `tree` is a worktree's path or a Local's id.
     pub(crate) fn start_rename(&mut self, tree: String, window: &mut Window, cx: &mut Context<Self>) {
-        let current = self.agents.names.get(&tree).cloned().unwrap_or_default();
+        let current = self.agents.given_name(&tree).unwrap_or_default().to_string();
         let input = cx.new(|cx| InputState::new(window, cx));
         input.update(cx, |s, cx| {
             s.set_value(current, window, cx);
@@ -33,8 +34,7 @@ impl Desktop {
             s.select_all(window, cx);
         });
         let sub = cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, _, cx| match ev {
-            InputEvent::PressEnter { .. } => this.save_rename(cx),
-            InputEvent::Blur if this.sidebar.cancel_rename() => cx.notify(),
+            InputEvent::PressEnter { .. } | InputEvent::Blur => this.save_rename(cx),
             _ => {}
         });
         self.row_menu = None;
@@ -45,8 +45,17 @@ impl Desktop {
     fn save_rename(&mut self, cx: &mut Context<Self>) {
         let Some(r) = self.sidebar.rename.take() else { return };
         let title = r.input.read(cx).value().trim().to_string();
-        self.outbox.rename(&r.tree, &title);
-        self.agents.set_name(&r.tree, &title);
+        // Leaving an untouched name mustn't pin naming's title as the user's.
+        if title == self.agents.given_name(&r.tree).unwrap_or_default() {
+            return cx.notify();
+        }
+        if is_local(&r.tree) && !title.is_empty() {
+            self.outbox.local_rename(&r.tree, &title);
+            self.agents.rename_local(&r.tree, &title);
+        } else if !is_local(&r.tree) {
+            self.outbox.rename(&r.tree, &title);
+            self.agents.set_name(&r.tree, &title);
+        }
         cx.notify();
     }
 }

@@ -29,6 +29,7 @@ import (
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
 	"pocketd/internal/launchagent"
+	"pocketd/internal/locals"
 	"pocketd/internal/lock"
 	"pocketd/internal/logfile"
 	"pocketd/internal/names"
@@ -144,6 +145,8 @@ func serve(sock, handed string) error {
 	worktreeNames := names.Open(home)
 	l := launch.New(d, reg, settings, evs)
 	l.Names = worktreeNames
+	localStore := locals.Open(home)
+	l.Locals = localStore
 	if settings.ResumeAgents() {
 		d.Resume = l.ResumeCmd
 	}
@@ -164,7 +167,7 @@ func serve(sock, handed string) error {
 		Start: func(runID string, a proto.Automation) launch.Result {
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		}}
-	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler}
+	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}

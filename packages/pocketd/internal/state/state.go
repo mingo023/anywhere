@@ -37,6 +37,7 @@ type Terminal struct {
 	Failed         bool    `json:"failed,omitempty"`
 	Pinned         bool    `json:"pinned,omitempty"`
 	Origin         string  `json:"origin,omitempty"`
+	Local          string  `json:"local,omitempty"`
 }
 
 type File struct {

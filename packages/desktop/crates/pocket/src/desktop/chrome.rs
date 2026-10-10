@@ -63,6 +63,7 @@ pub enum Overlay {
 pub enum Confirm {
     RemoveProject(String),
     DeleteWorktree { removal: Removal, dirty: usize, lost: usize },
+    DeleteLocal(String),
     TeardownFailed { removal: Removal, tail: String },
     Discard(Vec<String>),
     CloseSession(String),
@@ -81,6 +82,8 @@ pub enum Confirm {
 pub enum RowMenu {
     Project(String),
     Tree { project: String, tree: String },
+    /// The project's own Local, by its main worktree's path, or one the user added, by its id.
+    Local(String),
     Session(String),
 }
 

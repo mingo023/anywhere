@@ -24,10 +24,13 @@ import (
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
+	"pocketd/internal/locals"
 	"pocketd/internal/names"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
+	"pocketd/internal/terminal"
 )
 
 const (
@@ -73,6 +76,11 @@ type Server struct {
 	// Automations and Scheduler serve the owner's automation verbs and feed; nil serves none.
 	Automations *automation.Store
 	Scheduler   *automation.Scheduler
+	// Locals serve the locals.v1 verbs and feed; nil serves none. Registry
+	// says which projects a Local may join, and Terminals are closed with it.
+	Locals    *locals.Locals
+	Registry  *registry.Registry
+	Terminals *terminal.Manager
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -99,6 +107,8 @@ type conn struct {
 	stopHost  func()
 	stopNames func()
 	caps      []string
+
+	stopLocals func()
 
 	stopAutomations func()
 	// automationMu keeps a verb's ack ahead of the snapshot its change triggers.
@@ -146,6 +156,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.stopAutomations != nil {
 			c.stopAutomations()
+		}
+		if c.stopLocals != nil {
+			c.stopLocals()
 		}
 	}()
 	go c.keepalive()
@@ -250,6 +263,7 @@ func (c *conn) handle(raw []byte) {
 		}
 		hostMsgs := c.withHost(&ok)
 		nameMsgs := c.withNames(caps)
+		localMsgs := c.withLocals(caps)
 		c.send(ok)
 		c.send(proto.NewAgentList("", c.s.Agents.List()))
 		c.automations(caps)
@@ -259,6 +273,9 @@ func (c *conn) handle(raw []byte) {
 		if c.stopNames != nil && slices.Contains(caps, proto.CapNames) {
 			c.send(proto.NewWorktreeNames(c.s.Names.Titles()))
 		}
+		if c.stopLocals != nil && slices.Contains(caps, proto.CapLocals) {
+			c.send(proto.NewLocalList(c.s.Locals.List()))
+		}
 		if msgs != nil {
 			go c.forward(msgs)
 		}
@@ -267,6 +284,9 @@ func (c *conn) handle(raw []byte) {
 		}
 		if nameMsgs != nil {
 			go c.forward(nameMsgs)
+		}
+		if localMsgs != nil {
+			go c.forward(localMsgs)
 		}
 		return
 	}
@@ -452,6 +472,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return nil
 	case "automation.save", "automation.enable", "automation.delete", "automation.run":
 		return c.automation(m)
+	case "local.create", "local.rename", "local.delete":
+		return c.local(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")

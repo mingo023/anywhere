@@ -30,6 +30,7 @@ type Info struct {
 	Cols       int      `json:"cols"`
 	Rows       int      `json:"rows"`
 	Foreground string   `json:"foreground,omitempty"`
+	Local      string   `json:"local,omitempty"`
 }
 
 type Spec struct {
@@ -42,6 +43,9 @@ type Spec struct {
 	Rows int
 	// Origin is who asked for the Terminal; its first agent takes it.
 	Origin string
+	// Local is the Local the Terminal was opened in, fixed for life; empty
+	// means it belongs to the Worktree holding Cwd.
+	Local string
 }
 
 type Event struct {
@@ -150,7 +154,7 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		return nil, err
 	}
 	s := &Terminal{
-		info:   Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows},
+		info:   Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local},
 		pty:    f,
 		proc:   cmd.Process,
 		subs:   map[*subscriber]bool{},
@@ -187,6 +191,7 @@ type Adopted struct {
 	Cwd                 string
 	Cols, Rows, FD, Pid int
 	Screen              []byte
+	Local               string
 }
 
 // Adopt takes over a handed-down Terminal. Its fd is still non-blocking,
@@ -196,7 +201,7 @@ func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
 	f := os.NewFile(uintptr(a.FD), "/dev/ptmx")
 	p, _ := os.FindProcess(a.Pid) // never fails on unix
 	s := &Terminal{
-		info:   Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows},
+		info:   Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows, Local: a.Local},
 		pty:    f,
 		proc:   p,
 		subs:   map[*subscriber]bool{},

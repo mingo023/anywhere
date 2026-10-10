@@ -65,14 +65,14 @@ func (n *Names) Auto(path, title string) bool {
 	if e, ok := n.entries[path]; ok && !e.Auto {
 		return false
 	}
-	return n.set(path, &Entry{clip(title), true}) == nil
+	return n.set(path, &Entry{Clip(title), true}) == nil
 }
 
 // Rename is the user's name for path; "" clears it. Naming never changes it again.
 func (n *Names) Rename(path, title string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return n.set(path, &Entry{clip(title), false})
+	return n.set(path, &Entry{Clip(title), false})
 }
 
 // Failed tells clients naming gave up on agentID's session.
@@ -112,7 +112,8 @@ func (n *Names) set(path string, e *Entry) error {
 	return nil
 }
 
-func clip(title string) string {
+// Clip trims title and cuts it to MaxTitle runes.
+func Clip(title string) string {
 	title = strings.TrimSpace(title)
 	if r := []rune(title); len(r) > MaxTitle {
 		title = strings.TrimSpace(string(r[:MaxTitle]))

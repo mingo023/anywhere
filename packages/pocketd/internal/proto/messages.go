@@ -36,6 +36,8 @@ type ClientMessage struct {
 	Automation      *Automation
 	AutomationID    string
 	Enabled         bool
+	LocalID         string
+	Project         string
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -119,6 +121,12 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("key", &m.Key) && m.Key == "phone.maxAccess" && get("value", &m.Value) && slices.Contains(PhoneAccesses, m.Value)
 	case m.Type == "worktree.rename":
 		ok = get("path", &m.Path) && m.Path != "" && get("title", &m.Title)
+	case m.Type == "local.create":
+		ok = get("localId", &m.LocalID) && ValidLocalID(m.LocalID) && get("project", &m.Project) && m.Project != "" && get("name", &m.Name)
+	case m.Type == "local.rename":
+		ok = get("localId", &m.LocalID) && ValidLocalID(m.LocalID) && get("title", &m.Title)
+	case m.Type == "local.delete":
+		ok = get("localId", &m.LocalID) && ValidLocalID(m.LocalID)
 	case m.Type == "automation.save":
 		ok = decodeAutomation(fields["automation"], &m.Automation)
 	case m.Type == "automation.enable":

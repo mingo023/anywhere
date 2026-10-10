@@ -1,6 +1,8 @@
 pub mod automations;
+pub mod locals;
 
 use automations::{Automation, AutomationDraft, Automations, Run};
+use locals::Local;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -154,6 +156,7 @@ struct Frame {
     step: String,
     note: String,
     names: HashMap<String, String>,
+    locals: Vec<Local>,
     version: String,
     #[serde(deserialize_with = "automations::known")]
     automations: Vec<Automation>,
@@ -201,6 +204,8 @@ pub enum Event {
     Names(HashMap<String, String>),
     /// pocketd couldn't name the session from its prompt.
     NamingFailed(String),
+    /// Every Local the user added, sent whole.
+    Locals(Vec<Local>),
     /// Every automation and run, sent whole.
     Automations { automations: Vec<Automation>, runs: Vec<Run> },
     /// pocketd refused an automation message.
@@ -220,6 +225,8 @@ pub struct Agents {
     pub caps: Vec<String>,
     /// Worktree display names by path, from `worktree.names`.
     pub names: HashMap<String, String>,
+    /// The Locals the user added, in the order they were made, from `local.list`.
+    pub locals: Vec<Local>,
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
     pub automations: Automations,
@@ -265,12 +272,14 @@ impl Agents {
                 self.caps = caps;
                 self.version = version;
                 self.names.clear();
+                self.locals.clear();
             }
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
             Event::Providers { phone_max } => self.phone_max = phone_max,
             Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::NamingFailed(_) => {}
             Event::Names(names) => self.names = names,
+            Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
             Event::AutomationError(_) => {}
         }
@@ -289,9 +298,53 @@ impl Agents {
         self.caps.iter().any(|c| c == OPEN_CAP)
     }
 
-    /// pocketd names worktrees from their prompt and takes renames.
+    /// pocketd names worktrees from their prompt and takes this client's renames.
     pub fn names_offered(&self) -> bool {
-        self.caps.iter().any(|c| c == NAMES_CAP)
+        self.caps.iter().any(|c| c == NAMES_CAP) && !self.observe_only()
+    }
+
+    /// pocketd keeps Locals and takes this client's changes to them.
+    pub fn locals_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == LOCALS_CAP) && !self.observe_only()
+    }
+
+    /// Whether pocketd can rename the tree `key`, a Local's id or a worktree's path.
+    pub fn renames_offered(&self, key: &str) -> bool {
+        if locals::is_local(key) { self.locals_offered() } else { self.names_offered() }
+    }
+
+    pub fn local(&self, id: &str) -> Option<&Local> {
+        self.locals.iter().find(|l| l.id == id)
+    }
+
+    /// The tree `key`'s name, if it has one: a Local's own, else a worktree's from renaming or naming.
+    pub fn given_name(&self, key: &str) -> Option<&str> {
+        self.local(key).map(|l| l.name.as_str()).or_else(|| self.names.get(key).map(String::as_str).filter(|n| !n.is_empty()))
+    }
+
+    pub fn locals_in<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a Local> {
+        self.locals.iter().filter(move |l| l.project == project)
+    }
+
+    /// The ids of the Locals removing `project` deletes: none when pocketd won't take this client's deletes.
+    pub fn locals_removed_with<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a str> {
+        self.locals_offered().then(|| self.locals_in(project)).into_iter().flatten().map(|l| l.id.as_str())
+    }
+
+    /// Shows a new Local before pocketd lists it.
+    pub fn add_local(&mut self, local: Local) {
+        self.locals.push(local);
+    }
+
+    /// Shows a Local's new name before pocketd lists it; a blank one changes nothing.
+    pub fn rename_local(&mut self, id: &str, title: &str) {
+        if let Some(l) = self.locals.iter_mut().find(|l| l.id == id).filter(|_| !title.trim().is_empty()) {
+            l.name = title.trim().to_string();
+        }
+    }
+
+    pub fn remove_local(&mut self, id: &str) {
+        self.locals.retain(|l| l.id != id);
     }
 
     /// pocketd runs automations and takes their messages.
@@ -415,6 +468,7 @@ fn names_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
         "worktree.names" => Some(Event::Names(f.names.clone())),
         "naming.failed" => Some(Event::NamingFailed(f.agent_id.clone())),
+        "local.list" => Some(Event::Locals(f.locals.clone())),
         _ => None,
     }
 }
@@ -422,6 +476,7 @@ const PAIR_CAP: &str = "pair.v1";
 const OPEN_CAP: &str = "open.v1";
 const NAMES_CAP: &str = "names.v1";
 const AUTOMATIONS_CAP: &str = "automations.v1";
+const LOCALS_CAP: &str = "locals.v1";
 const FORK_CAP: &str = "fork.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
@@ -487,6 +542,19 @@ impl Outbox {
         self.send(json!({"type": "worktree.rename", "id": "rename", "path": path, "title": title}));
     }
 
+    pub fn local_create(&self, local: &Local) {
+        self.send(json!({"type": "local.create", "id": "local", "localId": local.id, "project": local.project, "name": local.name}));
+    }
+
+    pub fn local_rename(&self, id: &str, title: &str) {
+        self.send(json!({"type": "local.rename", "id": "local", "localId": id, "title": title}));
+    }
+
+    /// Deletes the Local and closes its terminals; its files stay.
+    pub fn local_delete(&self, id: &str) {
+        self.send(json!({"type": "local.delete", "id": "local", "localId": id}));
+    }
+
     /// Creates the automation, or replaces the one with the draft's `id`.
     pub fn automation_save(&self, draft: AutomationDraft) {
         self.send(json!({"type": "automation.save", "id": auto_id(), "automation": draft}));
@@ -529,7 +597,7 @@ pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 8] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, FORK_CAP];
+const CAPS: [&str; 9] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP];
 
 fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
@@ -794,7 +862,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "fork.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -831,6 +899,40 @@ mod tests {
         let ev = futures::executor::block_on(futures::StreamExt::into_future(events)).0.unwrap();
         assert!(matches!(ev, Event::Connected { version, .. } if version == "0.1.0"));
         std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn an_observer_is_offered_no_renames_or_locals_pocketd_would_refuse() {
+        let mut a = Agents::default();
+        let caps = vec![NAMES_CAP.to_string(), LOCALS_CAP.to_string()];
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: caps.clone(), version: String::new() });
+        assert!(a.names_offered() && a.locals_offered());
+        a.apply(Event::Connected { scopes: vec!["observe".into()], caps, version: String::new() });
+        assert!(!a.names_offered() && !a.locals_offered());
+    }
+
+    #[test]
+    fn a_tree_is_given_its_locals_name_else_its_rename() {
+        let mut a = Agents::default();
+        a.add_local(Local { id: "l1".into(), project: "/p".into(), name: "Review".into() });
+        a.set_name("/p", "Hotfix");
+        assert_eq!((a.given_name("l1"), a.given_name("/p"), a.given_name("/p-login")), (Some("Review"), Some("Hotfix"), None));
+    }
+
+    #[test]
+    fn removing_a_project_deletes_its_locals_only_when_pocketd_takes_the_deletes() {
+        let mut a = Agents::default();
+        let locals = vec![
+            Local { id: "l1".into(), project: "/p".into(), name: "Local 2".into() },
+            Local { id: "l2".into(), project: "/q".into(), name: "Local 2".into() },
+        ];
+        let caps = vec![LOCALS_CAP.to_string()];
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: caps.clone(), version: String::new() });
+        a.apply(Event::Locals(locals.clone()));
+        assert_eq!(a.locals_removed_with("/p").collect::<Vec<_>>(), ["l1"]);
+        a.apply(Event::Connected { scopes: vec!["observe".into()], caps, version: String::new() });
+        a.apply(Event::Locals(locals));
+        assert_eq!(a.locals_removed_with("/p").count(), 0);
     }
 
     #[test]
@@ -1042,6 +1144,34 @@ mod tests {
         read(&mut ws);
         out.rename("/w/calm-otter", "Fix login");
         assert_eq!(read(&mut ws), json!({"type": "worktree.rename", "id": "rename", "path": "/w/calm-otter", "title": "Fix login"}));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn locals_start_over_on_each_connect_and_show_a_rename_at_once() {
+        let mut a = Agents::default();
+        let frame = serde_json::from_str::<Frame>(r#"{"type":"local.list","locals":[{"id":"l1","project":"/p","name":"Local 2"},{"id":"l2","project":"/q","name":"Local 2"}]}"#).unwrap();
+        a.apply(names_event(&frame).unwrap());
+        assert_eq!(a.locals_in("/p").map(|l| l.id.as_str()).collect::<Vec<_>>(), ["l1"]);
+        a.rename_local("l1", " Fix ");
+        a.rename_local("l2", "  ");
+        assert_eq!((a.local("l1").unwrap().name.as_str(), a.local("l2").unwrap().name.as_str()), ("Fix", "Local 2"));
+        a.apply(Event::Connected { scopes: vec![], caps: vec!["locals.v1".into()], version: String::new() });
+        assert!(a.locals.is_empty() && a.locals_offered());
+    }
+
+    #[test]
+    fn local_messages_carry_the_local_id() {
+        let (server, sock) = pocketd("locals");
+        let (out, _events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        out.local_create(&Local { id: "l1".into(), project: "/p".into(), name: "Local 2".into() });
+        out.local_rename("l1", "Fix");
+        out.local_delete("l1");
+        assert_eq!(read(&mut ws), json!({"type": "local.create", "id": "local", "localId": "l1", "project": "/p", "name": "Local 2"}));
+        assert_eq!(read(&mut ws), json!({"type": "local.rename", "id": "local", "localId": "l1", "title": "Fix"}));
+        assert_eq!(read(&mut ws), json!({"type": "local.delete", "id": "local", "localId": "l1"}));
         std::fs::remove_file(&sock).unwrap();
     }
 

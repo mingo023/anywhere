@@ -255,7 +255,7 @@ impl Desktop {
         if self.terminals.link.is_down() || self.screen != Screen::Sessions {
             return None;
         }
-        self.creates.shown(&self.cwd()?)
+        self.creates.shown(&self.place()?)
     }
 
     fn tick_create(&mut self, cx: &mut Context<Self>) {

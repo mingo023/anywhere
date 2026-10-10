@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { LocalId } from "./locals.js";
 
 export const Access = Schema.Literal("settings", "ask", "edits", "auto", "full");
 export type Access = typeof Access.Type;
@@ -16,7 +17,11 @@ export const NewWorktree = Schema.Struct({
   autoName: Schema.optional(Schema.Boolean),
 });
 
-export const Checkout = Schema.Union(Schema.Struct({ worktree: Schema.String }), Schema.Struct({ new: NewWorktree }));
+export const Checkout = Schema.Union(
+  Schema.Struct({ worktree: Schema.String }),
+  Schema.Struct({ new: NewWorktree }),
+  Schema.Struct({ local: LocalId }),
+);
 
 export const LaunchSpec = Schema.Struct({
   project: Schema.String,
@@ -51,5 +56,6 @@ export const ErrorCode = Schema.Literal(
   "spawn_failed",
   "duplicate",
   "invalid_config",
+  "unknown_local",
 );
 export type ErrorCode = typeof ErrorCode.Type;

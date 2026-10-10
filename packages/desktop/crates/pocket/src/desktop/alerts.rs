@@ -3,7 +3,6 @@ use crate::desktop::chrome::Screen;
 use crate::inbox;
 use crate::status::{self, Alert, Status};
 use crate::terminals::link;
-use crate::util::basename;
 use agents::{Agents, Decision, Event, Host, Permission, Summary};
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -140,6 +139,7 @@ impl Desktop {
         }
         let connected = matches!(ev, Event::Connected { .. });
         let automations = matches!(ev, Event::Automations { .. });
+        let locals = matches!(ev, Event::Locals(_));
         if let Event::Connected { version, .. } = &ev {
             self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
             if self.terminals.link.stale().is_some() {
@@ -164,6 +164,9 @@ impl Desktop {
         if connected {
             self.leave_unoffered_automations();
         }
+        if locals {
+            self.leave_gone_local(cx);
+        }
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
         if self.screen == Screen::Inbox {
@@ -180,12 +183,12 @@ impl Desktop {
         cx.notify();
     }
 
-    /// "{project} · {worktree}" for the folder the agent's terminal started in; empty outside every project.
-    fn place(&self, a: &Summary) -> String {
+    /// "{project} · {worktree}" for the Local or worktree the agent's terminal belongs to; empty outside every project.
+    fn alert_place(&self, a: &Summary) -> String {
         let projects = self.projects();
-        let Some(cwd) = self.terminals.sessions.get(&a.terminal_id).map(|s| s.info.cwd.as_str()) else { return String::new() };
-        match (self.project_of(cwd, &projects), self.tree_of(cwd)) {
-            (Some(project), Some(tree)) => format!("{} · {}", self.repo_name(project), basename(&tree)),
+        let Some(info) = self.terminals.sessions.get(&a.terminal_id).map(|s| &s.info) else { return String::new() };
+        match (self.project_of(&info.cwd, &projects), self.place_of(info)) {
+            (Some(project), Some(tree)) => format!("{} · {}", self.repo_name(project), self.place_name(&tree)),
             _ => String::new(),
         }
     }
@@ -193,7 +196,7 @@ impl Desktop {
     fn sync_alerts(&mut self, cx: &mut App) {
         let mut alerts = std::mem::replace(&mut self.alerts, Alerts::new());
         let n = self.store.notifications;
-        let show = alerts.sync(&self.agents, |a| self.place(a), |s| !self.capturing && wants_banner(n, s), n.on_screen);
+        let show = alerts.sync(&self.agents, |a| self.alert_place(a), |s| !self.capturing && wants_banner(n, s), n.on_screen);
         self.alerts = alerts;
         for n in show {
             let actions = n.actions();
@@ -216,7 +219,7 @@ impl Desktop {
 
     /// The terminals on screen: those of the tabs the drawn panes show.
     fn visible_panes(&mut self) -> Vec<String> {
-        let Some(tree) = self.cwd().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
+        let Some(tree) = self.place().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
         self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect()
     }
 

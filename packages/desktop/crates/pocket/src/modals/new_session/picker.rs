@@ -1,6 +1,7 @@
 use super::launch::{self, Pick};
-use super::{Checkout, Source, checkout_choice, listed_branches, parse_pr};
+use super::{Checkout, OpenTree, Source, Target, checkout_choice, listed_branches, parse_pr};
 use crate::desktop::Desktop;
+use agents::locals::is_local;
 use crate::sidebar::tree_label;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -123,16 +124,18 @@ impl Desktop {
 
     fn checkout_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
-        let rows = [true, false].map(|worktree| {
-            let Checkout { glyph, label, hint } = self.checkout(worktree);
-            access_row(("checkout", usize::from(worktree)), f.in_worktree() == worktree, Some(glyph), &label, hint, TEXT)
+        let targets = [Target::Worktree, Target::Open, Target::NewLocal];
+        let offered = if self.agents.locals_offered() { &targets[..] } else { &targets[..2] };
+        let rows: Vec<AnyElement> = offered.iter().enumerate().map(|(i, &target)| {
+            let Checkout { glyph, label, hint } = self.checkout(target);
+            access_row(("checkout", i), f.target() == target, Some(glyph), &label, hint, TEXT)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.new_form.draft.pick_checkout(worktree);
+                    this.new_form.draft.pick_checkout(target);
                     cx.notify();
                 }))
                 .into_any_element()
-        });
-        picker_menu("checkout-menu", 300., rows.into(), cx).gap(px(2.))
+        }).collect();
+        picker_menu("checkout-menu", 300., rows, cx).gap(px(2.))
     }
 
     /// Picking a local branch makes it the base; Open starts a worktree on it at once, the only use of a branch only origin has.
@@ -267,16 +270,19 @@ impl Desktop {
         div().relative().child(chip).children(menu)
     }
 
-    /// Names the open tree as the sidebar does, unless it is the project's own checkout.
-    fn checkout(&self, worktree: bool) -> Checkout {
+    /// Names the open tree as the sidebar does.
+    fn checkout(&self, target: Target) -> Checkout {
         let main = self.project.as_deref().and_then(|p| self.tree_of(p));
-        let other = self.cwd().filter(|c| Some(c) != main.as_ref()).map(|c| self.worktree_of(&c).map_or_else(|| crate::util::basename(&c), |w| tree_label(w, &self.agents.names).0));
-        checkout_choice(worktree, other)
+        let open = match self.place() {
+            Some(t) if Some(&t) != main.as_ref() && !is_local(&t) => OpenTree::Worktree(self.worktree_of(&t).map_or_else(|| crate::util::basename(&t), |w| tree_label(w, &self.agents).0)),
+            t => OpenTree::Local(self.local_name(t.as_deref().unwrap_or_default())),
+        };
+        checkout_choice(target, open)
     }
 
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let Checkout { glyph, label, .. } = self.checkout(f.in_worktree());
+        let Checkout { glyph, label, .. } = self.checkout(f.target());
         let checkout = ui::menu_chip("form-checkout", f.picker == Some(Picker::Checkout))
             .child(icon(glyph, 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(label))

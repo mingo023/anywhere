@@ -14,6 +14,7 @@ import (
 	"pocketd/internal/config"
 	"pocketd/internal/daemon"
 	"pocketd/internal/hub"
+	"pocketd/internal/locals"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/state"
@@ -175,6 +176,45 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 	}
 	if again := l.Create(owner, "r1", s, quiet, func(Creating) {}); again.Err == nil || again.Err.Code != "spawn_failed" {
 		t.Fatalf("retry got %+v", again)
+	}
+}
+
+func TestACreateInALocalRunsInTheProjectAndCarriesTheLocal(t *testing.T) {
+	defer func(w time.Duration) { createWait = w }(createWait)
+	createWait = 500 * time.Millisecond
+	onPath(t, "claude")
+	t.Setenv("SHELL", "/bin/sh")
+	project, _ := filepath.EvalSymlinks(t.TempDir())
+	git(t, project, "init", "-q", "-b", "main")
+	l := launcher(t, `["`+project+`"]`)
+	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
+	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
+	l.Locals = locals.Open(t.TempDir())
+	l.Locals.Create("l1", project, "Local 2")
+	s := spec("claude", "ask", false)
+	s.Project, s.Checkout = project, proto.Checkout{Local: "l1"}
+	var got Creating
+	var local string
+	l.Create(Who{Owner: true, Key: "owner"}, "r1", s, quiet, func(c Creating) {
+		got, local = c, l.d.Terminals.Get(c.Terminal).Info().Local
+	})
+	if got.Cwd != project || got.Setup || local != "l1" {
+		t.Fatalf("creating %+v in local %q", got, local)
+	}
+}
+
+func TestACreateInADeletedOrForeignLocalFails(t *testing.T) {
+	onPath(t, "claude")
+	l := launcher(t, `["/p","/q"]`)
+	l.Locals = locals.Open(t.TempDir())
+	l.Locals.Create("l1", "/q", "Local 2")
+	for _, id := range []string{"gone", "l1"} {
+		s := spec("claude", "ask", false)
+		s.Project, s.Checkout = "/p", proto.Checkout{Local: id}
+		r := l.Create(Who{Owner: true, Key: "owner"}, "r-"+id, s, quiet, func(Creating) {})
+		if r.Err == nil || r.Err.Code != "unknown_local" || r.Err.Message != "This Local was deleted" {
+			t.Fatalf("%s: %+v", id, r.Err)
+		}
 	}
 }
 

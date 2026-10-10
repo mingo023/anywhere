@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timeline.js";
 import { Automation, AutomationDraft, Run } from "./automation.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
+import { Local, LocalId } from "./locals.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
 export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
@@ -74,6 +75,15 @@ export const ClientMessage = Schema.Union(
     path: Schema.NonEmptyString,
     title: Schema.String,
   }),
+  Schema.Struct({
+    type: Schema.Literal("local.create"),
+    id: Schema.String,
+    localId: LocalId,
+    project: Schema.NonEmptyString,
+    name: Schema.String,
+  }),
+  Schema.Struct({ type: Schema.Literal("local.rename"), id: Schema.String, localId: LocalId, title: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("local.delete"), id: Schema.String, localId: LocalId }),
   Schema.Struct({ type: Schema.Literal("automation.save"), id: Schema.String, automation: AutomationDraft }),
   Schema.Struct({ type: Schema.Literal("automation.enable"), id: Schema.String, automationId: Schema.String, enabled: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("automation.delete"), id: Schema.String, automationId: Schema.String }),
@@ -162,6 +172,7 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("host.changed"), host: HostState }),
   Schema.Struct({ type: Schema.Literal("worktree.names"), names: Schema.Record({ key: Schema.String, value: Schema.String }) }),
   Schema.Struct({ type: Schema.Literal("naming.failed"), agentId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("local.list"), locals: Schema.Array(Local) }),
   Schema.Struct({ type: Schema.Literal("automations"), automations: Schema.Array(Automation), runs: Schema.Array(Run) }),
   ProjectList,
 );

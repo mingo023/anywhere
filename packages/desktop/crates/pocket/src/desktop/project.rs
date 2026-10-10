@@ -5,6 +5,7 @@ use crate::git_ui::diff;
 use crate::status::{self, Card, Status};
 use crate::util;
 use agents::Summary;
+use agents::locals::is_local;
 use git::Repo;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -56,7 +57,7 @@ impl Desktop {
             .iter()
             .filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?)))
             .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
-            .map(|(a, s)| status::card(a, &s.info.cwd))
+            .map(|(a, s)| status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })
             .collect();
         status::sort(&mut out, self.store.sidebar.sort);
         out
@@ -76,9 +77,32 @@ impl Desktop {
         self.agents.get(id).map(|a| a.cwd.clone()).or_else(|| self.terminals.sessions.get(id).map(|s| s.info.cwd.clone()))
     }
 
-    /// The worktree on screen: the one picked, else the project's main one.
-    pub fn cwd(&self) -> Option<String> {
+    /// The tree on screen, by its worktree's path or its Local's id: the one picked, else the project's main worktree.
+    pub fn place(&self) -> Option<String> {
         self.worktree.clone().or_else(|| self.tree_of(self.project.as_deref()?))
+    }
+
+    pub fn cwd(&self) -> Option<String> {
+        self.folder_of(&self.place()?)
+    }
+
+    /// A tree's folder; a Local's is its project's main worktree.
+    pub(crate) fn folder_of(&self, key: &str) -> Option<String> {
+        if !is_local(key) {
+            return Some(key.to_string());
+        }
+        let project = self.agents.local(key).map(|l| l.project.clone()).or_else(|| self.project.clone())?;
+        self.tree_of(&project)
+    }
+
+    /// A tree's short name: the one it was given, else its folder's.
+    pub(crate) fn place_name(&self, key: &str) -> String {
+        self.agents.given_name(key).map_or_else(|| util::basename(key), str::to_string)
+    }
+
+    /// The tree a terminal belongs to: the Local it was opened in, else the worktree holding its folder.
+    pub(crate) fn place_of(&self, info: &daemon::Info) -> Option<String> {
+        if info.local.is_empty() { self.tree_of(&info.cwd) } else { Some(info.local.clone()) }
     }
 
     pub fn repo(&self) -> Option<&Repo> {
@@ -88,7 +112,7 @@ impl Desktop {
     pub(crate) fn workspace(&mut self, tree: &str) -> &mut Workspace {
         let (mut mine, mut theirs) = (Vec::new(), Vec::new());
         for s in &self.terminals.sessions.items {
-            match self.tree_of(&s.info.cwd) {
+            match self.place_of(&s.info) {
                 Some(t) if t == tree => mine.push(s.info.id.clone()),
                 Some(_) => theirs.push(s.info.id.clone()),
                 None => {}
@@ -105,7 +129,7 @@ impl Desktop {
     }
 
     pub(crate) fn tree_terminals(&self, tree: &str) -> Vec<String> {
-        self.terminals.sessions.items.iter().filter(|s| self.tree_of(&s.info.cwd).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
+        self.terminals.sessions.items.iter().filter(|s| self.place_of(&s.info).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
     }
 
     fn git_cwds(&self) -> Vec<String> {
@@ -200,10 +224,14 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Closes the project's terminals and takes it off the sidebar; its folder is untouched.
+    /// Closes the project's terminals, deletes its Locals and takes it off the sidebar; its folder is untouched.
     pub(crate) fn remove_project(&mut self, p: &str, cx: &mut Context<Self>) {
         for id in self.project_terminals(p) {
             self.close_pane(&id, cx);
+        }
+        let locals: Vec<String> = self.agents.locals_removed_with(p).map(str::to_string).collect();
+        for id in locals {
+            self.delete_local(&id, cx);
         }
         self.store.remove(p);
         self.store.save();
@@ -218,7 +246,7 @@ impl Desktop {
     }
 
     pub(crate) fn ask_remove_project(&mut self, p: String, cx: &mut Context<Self>) {
-        if self.project_terminals(&p).is_empty() {
+        if self.project_terminals(&p).is_empty() && self.agents.locals_removed_with(&p).next().is_none() {
             self.remove_project(&p, cx);
         } else {
             self.confirm = Some(Confirm::RemoveProject(p));

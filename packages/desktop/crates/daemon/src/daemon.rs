@@ -21,6 +21,8 @@ pub struct Info {
     pub args: Vec<String>,
     pub cwd: String,
     pub foreground: String,
+    /// The Local the terminal was opened in; empty when it belongs to the worktree holding `cwd`.
+    pub local: String,
 }
 
 #[derive(Deserialize, Default, Debug)]

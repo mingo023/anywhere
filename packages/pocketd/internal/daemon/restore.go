@@ -67,7 +67,7 @@ func (p pending) Close()              { p.d.drop(p.h) }
 func (d *Daemon) Snapshot() state.File {
 	f := state.File{Version: state.Version, Terminals: []state.Terminal{}}
 	for _, info := range d.Terminals.List() {
-		e := state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows}
+		e := state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows, Local: info.Local}
 		var resuming *agent.Agent
 		d.mu.Lock()
 		h := d.restoring[info.ID]
@@ -125,7 +125,7 @@ func (d *Daemon) reopen(e state.Terminal, shell string) (*terminal.Terminal, str
 			reason = r
 		}
 	}
-	t, err := d.spawn(terminal.Spec{ID: e.TerminalID, Cmd: cmd, Args: args, Cwd: e.LaunchDir, Cols: e.Cols, Rows: e.Rows})
+	t, err := d.spawn(terminal.Spec{ID: e.TerminalID, Cmd: cmd, Args: args, Cwd: e.LaunchDir, Cols: e.Cols, Rows: e.Rows, Local: e.Local})
 	if err != nil {
 		log.Printf("restore %s: %v", e.TerminalID, err)
 		return nil, cmp.Or(reason, "resume_not_accepted")

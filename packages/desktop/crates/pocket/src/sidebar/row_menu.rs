@@ -1,7 +1,9 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, RowMenu, id};
 use crate::terminals::link;
+use crate::util::LOCAL_ICON;
 use agents::Summary;
+use agents::locals::is_local;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde_json::{Value, json};
@@ -130,6 +132,17 @@ impl Desktop {
                     }))
                 };
                 let mut rows = vec![first.into_any_element()];
+                if kept && self.agents.locals_offered() && self.listed_trees(&p).is_some_and(|t| !t.is_empty()) {
+                    let target = p.clone();
+                    rows.push(
+                        ui::menu_row("aside-menu-new-local", LOCAL_ICON, "New Local", None)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.row_menu = None;
+                                this.add_local(target.clone(), cx);
+                            }))
+                            .into_any_element(),
+                    );
+                }
                 let untracked = self.untracked_trees(&p).len();
                 if kept && untracked > 0 {
                     let target = p.clone();
@@ -176,6 +189,34 @@ impl Desktop {
                         }))
                         .into_any_element(),
                 );
+                rows
+            }
+            RowMenu::Local(local) => {
+                let mut rows = vec![];
+                if self.agents.renames_offered(&local) {
+                    let rename = local.clone();
+                    rows.push(
+                        ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.row_menu = None;
+                                this.start_rename(rename.clone(), window, cx);
+                            }))
+                            .into_any_element(),
+                    );
+                }
+                if is_local(&local) && self.agents.locals_offered() {
+                    if !rows.is_empty() {
+                        rows.push(ui::menu_divider().into_any_element());
+                    }
+                    rows.push(
+                        ui::danger_row("aside-menu-delete", "trash", "Delete Local…")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.row_menu = None;
+                                this.ask_delete_local(local.clone(), cx);
+                            }))
+                            .into_any_element(),
+                    );
+                }
                 rows
             }
             RowMenu::Session(id) => {

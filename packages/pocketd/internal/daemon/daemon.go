@@ -53,7 +53,7 @@ type Daemon struct {
 // environment, read again once if the command isn't on its PATH, so a tool
 // installed after pocketd started is found.
 func (d *Daemon) Spawn(m ops.Msg) (*terminal.Terminal, error) {
-	spec := terminal.Spec{ID: terminal.NewID(), Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows}
+	spec := terminal.Spec{ID: terminal.NewID(), Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows, Local: m.Local}
 	t, err := d.spawn(spec)
 	if errors.Is(err, exec.ErrNotFound) && m.Env == nil && d.Capture != nil {
 		d.Recapture()
@@ -66,7 +66,7 @@ func (d *Daemon) spawn(spec terminal.Spec) (*terminal.Terminal, error) {
 	if spec.Env == nil {
 		spec.Env = d.LoginEnv()
 	}
-	spec.Env = d.Env(spec.Env, spec.ID)
+	spec.Env = d.Env(spec.Env, spec.ID, spec.Local)
 	return d.Terminals.Spawn(spec)
 }
 

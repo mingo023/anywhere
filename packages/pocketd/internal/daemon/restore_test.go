@@ -44,6 +44,19 @@ func TestRestoreRecreatesTerminalsWithTheirIDs(t *testing.T) {
 	}
 }
 
+func TestARestoredTerminalStaysInItsLocal(t *testing.T) {
+	d := newDaemon(t)
+	d.Restore(state.File{Version: state.Version, Terminals: []state.Terminal{{TerminalID: "t-1", LaunchDir: t.TempDir(), Local: "l1"}}}, "/bin/sh")
+	term := d.Terminals.Get("t-1")
+	if term == nil {
+		t.Fatal("t-1 was not recreated")
+	}
+	t.Cleanup(term.Close)
+	if term.Info().Local != "l1" || d.Snapshot().Terminals[0].Local != "l1" {
+		t.Fatalf("info = %+v, saved = %+v", term.Info(), d.Snapshot().Terminals)
+	}
+}
+
 func TestRestoreResumesInTheLoginShellsEnvironment(t *testing.T) {
 	d := newDaemon(t)
 	d.Capture = func() shellenv.Result {
