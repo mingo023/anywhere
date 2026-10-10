@@ -3,13 +3,14 @@ pub mod tree;
 use serde::{Deserialize, Serialize};
 use tree::{Edge, PaneId, Rect, Tree};
 
-/// What a doc tab shows: a file by its absolute path, a file's changes by its path in the worktree, a file's changes in commit `sha`, or every change of a commit.
+/// What a doc tab shows: a file by its absolute path, a file's changes by its path in the worktree, a file's changes in commit `sha`, every change of a commit, or a file's changes since the branch left `base`, as its PR shows them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Doc {
     File(String),
     Diff(String),
     CommitFile { sha: String, path: String },
     Commit(String),
+    PrFile { base: String, path: String },
 }
 
 /// A tab of one worktree: a pocketd terminal by its id, a doc, or a browser page by the app's id for it.

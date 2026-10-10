@@ -147,6 +147,7 @@ impl Desktop {
                 let (path, text) = match doc {
                     Doc::File(p) | Doc::Diff(p) => (p, basename(p)),
                     Doc::CommitFile { sha, path } => (path, format!("{} ({})", basename(path), git::short_sha(sha))),
+                    Doc::PrFile { path, .. } => (path, format!("{} (PR)", basename(path))),
                     Doc::Commit(sha) => return row.child(icon("diff-multiple", 14., ink)).child(label(git::short_sha(sha).to_string()).when(preview, |d| d.italic())),
                 };
                 let totals = match doc {

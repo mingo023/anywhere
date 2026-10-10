@@ -1,11 +1,10 @@
-mod commit_box;
+pub(crate) mod commit_box;
 mod header;
 mod rows;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, empty};
 use git::FileStat;
-use git::github;
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
@@ -17,6 +16,8 @@ pub enum CommitKind {
     Commit,
     Push,
     Amend,
+    /// Commit and push, then open the PR composer.
+    Ship,
 }
 
 #[derive(Debug, PartialEq)]
@@ -191,6 +192,9 @@ impl Desktop {
         let Some(repo) = self.repo().cloned() else {
             return panel.child(empty("Not a git repository."));
         };
+        if let Some(comments) = self.pr.track.comments.then(|| self.pr_comments(cx)).flatten() {
+            return panel.child(comments);
+        }
         let rows = change_rows(&repo.files, self.store.diff.tree, &self.changes.folded);
         let list = uniform_list(
             "changes",
@@ -215,6 +219,8 @@ impl Desktop {
         panel
             .child(self.changes_header(&repo, cx))
             .child(self.commit_box(&repo, cx))
+            .children(self.pr_composer(&repo, cx))
+            .children(self.pr_card(cx))
             .child(self.with_graph(changes, cx))
     }
 
@@ -268,7 +274,7 @@ impl Desktop {
             CommitStep::Run { stage, busy } => (stage, busy),
         };
         let amend = kind == CommitKind::Amend;
-        let push_argv = self.push_argv();
+        let (push_argv, untracked, tree) = (self.push_argv(), self.store.git.untracked, cwd.clone());
         self.changes.busy = Some(busy);
         self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
@@ -276,17 +282,26 @@ impl Desktop {
                 git::set_staged(&cwd, &all, true);
             }
             let committed = daemon::run_login(&git::commit_argv(amend, &message), &cwd, &message).map(drop);
-            let pushed = if committed.is_ok() && kind == CommitKind::Push { push(&cwd, &push_argv) } else { Ok(()) };
-            (committed, pushed)
+            let pushed = if committed.is_ok() && matches!(kind, CommitKind::Push | CommitKind::Ship) { push(&cwd, &push_argv) } else { Ok(()) };
+            // The composer titles the PR from the commits, the one just made among them.
+            let shipped = (kind == CommitKind::Ship && committed.is_ok() && pushed.is_ok()).then(|| git::read(&cwd, untracked)).flatten();
+            (committed, pushed, shipped)
         });
         cx.spawn_in(window, async move |this, cx| {
-            let (committed, pushed) = task.await;
+            let (committed, pushed, shipped) = task.await;
             this.update_in(cx, |d, window, cx| {
                 d.changes.busy = None;
                 if committed.is_ok() {
                     d.changes.input.update(cx, |s, cx| s.set_value("", window, cx));
                 }
                 d.changes.error = committed.err().or(pushed.err());
+                if let Some(repo) = shipped {
+                    let shown = d.cwd().as_ref() == Some(&tree);
+                    d.repos.insert(tree, repo);
+                    if shown {
+                        d.open_pr_composer(window, cx);
+                    }
+                }
                 d.refresh_git(cx);
                 cx.notify();
             })
@@ -318,7 +333,7 @@ impl Desktop {
     }
 
     /// Pushes to the remote picked in Settings when this repo has it.
-    fn push_argv(&self) -> Vec<String> {
+    pub(crate) fn push_argv(&self) -> Vec<String> {
         let remote = &self.store.git.remote;
         git::push_argv(self.repo().filter(|r| r.remotes.contains(remote)).map(|_| remote.as_str()), self.store.git.force_with_lease)
     }
@@ -330,41 +345,6 @@ impl Desktop {
         } else {
             cx.open_url(&url);
         }
-    }
-
-    fn create_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.changes.menu = false;
-        let (Some(tree), Some(base)) = (self.cwd(), self.repo().and_then(|r| r.base.clone())) else { return cx.notify() };
-        if self.changes.busy.is_some() {
-            return cx.notify();
-        }
-        self.changes.busy = Some("Creating PR…");
-        self.changes.error = None;
-        let (dir, push_argv, draft) = (tree.clone(), self.push_argv(), self.store.git.draft);
-        let task = cx.background_executor().spawn(async move {
-            push(&dir, &push_argv)?;
-            daemon::run_login(&github::create_argv(&base, draft), &dir, "")
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let res = task.await;
-            this.update_in(cx, |d, window, cx| {
-                d.changes.busy = None;
-                match res {
-                    Ok(out) => {
-                        if let Some(url) = out.lines().last() {
-                            d.open_pr(url.to_string(), window, cx);
-                        }
-                        d.prs.forget(&tree);
-                    }
-                    Err(e) => d.changes.error = Some(e),
-                }
-                d.refresh_git(cx);
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-        cx.notify();
     }
 
     /// Asks the agent picked in Settings for a message from what the commit would hold.
@@ -398,7 +378,7 @@ impl Desktop {
     }
 }
 
-fn push(cwd: &str, argv: &[String]) -> Result<(), String> {
+pub(crate) fn push(cwd: &str, argv: &[String]) -> Result<(), String> {
     daemon::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), cwd, "").map(drop)
 }
 
@@ -463,7 +443,7 @@ mod tests {
 
     #[test]
     fn nothing_commits_while_git_works() {
-        for kind in [CommitKind::Commit, CommitKind::Push, CommitKind::Amend] {
+        for kind in [CommitKind::Commit, CommitKind::Push, CommitKind::Amend, CommitKind::Ship] {
             assert_eq!(commit_step(&[staged("a.rs")], kind, "Edit a", true, true), CommitStep::Skip);
         }
     }

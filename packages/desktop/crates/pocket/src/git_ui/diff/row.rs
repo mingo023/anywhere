@@ -1,4 +1,4 @@
-use super::{NUM, ROW, Row, SIGN};
+use super::{At, NUM, ROW, Row, SIGN};
 use crate::desktop::Desktop;
 use crate::syntax::Spans;
 use git::{Kind, Line};
@@ -103,7 +103,7 @@ impl Desktop {
             return self.fold(pane, id, i, cx);
         }
         let row = code(&v.lines[i], v.hl.get(i), numbers, v.pick.picked(&v.lines, i)).id((id, i));
-        if v.at.is_some() {
+        if v.at != At::Working {
             return row;
         }
         let last = v.pick.last() == Some(i);
@@ -145,6 +145,21 @@ impl Desktop {
                 .w_full()
                 .children(self.diff.draft_quote().map(|q| {
                     self.chat_card(&q, false, cx).mt(px(6.)).mb(px(10.)).mr(px(20.)).ml(px(if self.diff.split { NUM + SIGN } else { 2. * NUM + SIGN }))
+                }))
+                .into_any_element(),
+            Row::Thread(k) => div()
+                .w_full()
+                .children(v.pins.get(k).and_then(|p| self.pinned_thread(k, &p.id, cx)).map(|t| {
+                    div()
+                        .mt(px(6.))
+                        .mb(px(10.))
+                        .mr(px(20.))
+                        .ml(px(if self.diff.split { NUM + SIGN } else { 2. * NUM + SIGN }))
+                        .max_w(px(720.))
+                        .font_family(ui_font())
+                        .text_size(px(13.))
+                        .line_height(relative(1.2))
+                        .child(t)
                 }))
                 .into_any_element(),
         }

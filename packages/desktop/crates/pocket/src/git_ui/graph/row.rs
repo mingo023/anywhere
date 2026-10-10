@@ -1,6 +1,7 @@
 use super::ROW_GROUP;
 use super::lanes::{self, Dot, H, MID, Mark, Step};
 use crate::desktop::Desktop;
+use crate::git_ui::diff::At;
 use git::Tip;
 use git::graph::LaneColor;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -153,7 +154,7 @@ impl Desktop {
         let (commit, row) = (&self.graph.commits[i], &self.graph.rows[i]);
         let f = &self.graph.files[&commit.sha][j];
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
-        let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, Some(commit.sha.as_str())));
+        let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &At::Commit(commit.sha.clone())));
         div()
             .id(("graph-file", ix))
             .w_full()
