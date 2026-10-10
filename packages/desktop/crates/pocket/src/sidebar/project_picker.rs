@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Screen, id};
 use crate::util::{basename, tilde};
+use agents::locals::is_local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -30,7 +31,7 @@ impl ProjectPicker {
     }
 }
 
-/// A picker row: a project, or one of its worktrees.
+/// A picker row: a project, or one of its worktrees or added Locals.
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct Entry {
     project: String,
@@ -46,9 +47,9 @@ impl Entry {
     }
 }
 
-/// `current` first, then the rest in sidebar order, each followed by its worktrees.
-/// A project stays while `query` is in its name, its path or a worktree's name; its worktrees all stay when the project matches, else only those that match.
-pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, name: impl Fn(&str) -> String, trees: impl Fn(&str) -> Vec<String>) -> Vec<Entry> {
+/// `current` first, then the rest in sidebar order, each followed by its trees: `(key, name)`, a worktree's path or a Local's id.
+/// A project stays while `query` is in its name, its path or a tree's name; its trees all stay when the project matches, else only those that match.
+pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, name: impl Fn(&str) -> String, trees: impl Fn(&str) -> Vec<(String, String)>) -> Vec<Entry> {
     let query = query.trim().to_lowercase();
     let hit = |text: &str| text.to_lowercase().contains(&query);
     let (mut first, rest): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| Some(p.as_str()) == current);
@@ -56,7 +57,7 @@ pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, 
     let mut out = Vec::new();
     for p in first {
         let whole = hit(&format!("{}\n{p}", name(&p)));
-        let trees: Vec<String> = trees(&p).into_iter().filter(|t| whole || hit(&basename(t))).collect();
+        let trees: Vec<String> = trees(&p).into_iter().filter(|(_, n)| whole || hit(n)).map(|(t, _)| t).collect();
         if whole || !trees.is_empty() {
             out.push(Entry { project: p.clone(), tree: None, hit: whole });
             out.extend(trees.into_iter().map(|t| Entry { project: p.clone(), tree: Some(t), hit: true }));
@@ -84,7 +85,11 @@ fn parent(path: &str) -> String {
 
 impl Desktop {
     fn picked_entries(&self, cx: &App) -> Vec<Entry> {
-        let trees = |p: &str| self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path).collect();
+        let trees = |p: &str| {
+            let locals = self.agents.locals_in(p).map(|l| (l.id.clone(), l.name.clone()));
+            let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main);
+            locals.chain(worktrees.map(|w| (w.path.clone(), basename(&w.path)))).collect()
+        };
         listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), |p| self.repo_name(p), trees)
     }
 
@@ -132,7 +137,7 @@ impl Desktop {
         let rows = entries.iter().enumerate().map(|(i, e)| {
             let lead = match &e.tree {
                 _ if e.shown(current, tree.as_deref(), |p| self.tree_of(p)) => icon("check", 14., TEXT).into_any_element(),
-                Some(_) => icon("worktree", 14., TEXT_3).into_any_element(),
+                Some(tree) => icon(if is_local(tree) { "laptop" } else { "worktree" }, 14., TEXT_3).into_any_element(),
                 None => ui::repo_mark(&self.repo_name(&e.project), false, None).size(px(18.)).text_size(px(10.)).into_any_element(),
             };
             let target = e.clone();
@@ -152,7 +157,7 @@ impl Desktop {
                 .when(e.tree.is_some(), |d| d.pl(px(28.)))
                 .child(div().w(px(18.)).flex().flex_none().justify_center().child(lead))
                 .map(|d| match &e.tree {
-                    Some(tree) => d.child(div().flex_1().min_w_0().truncate().child(basename(tree))),
+                    Some(tree) => d.child(div().flex_1().min_w_0().truncate().child(self.place_name(tree))),
                     None => d
                         .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(self.repo_name(&e.project)))
                         .child(div().max_w(px(112.)).flex_none().truncate().font_family(MONO).text_size(px(11.)).text_color(TEXT_4).child(parent(&e.project)))
@@ -209,8 +214,14 @@ mod tests {
         s.iter().map(|s| s.to_string()).collect()
     }
 
-    fn no_trees(_: &str) -> Vec<String> {
+    fn no_trees(_: &str) -> Vec<(String, String)> {
         Vec::new()
+    }
+
+    /// `/w/app`'s worktrees, named by folder.
+    fn trees(p: &str) -> Vec<(String, String)> {
+        let paths = if p == "/w/app" { strings(&["/t/fix-login", "/t/dark-mode"]) } else { Vec::new() };
+        paths.into_iter().map(|t| (t.clone(), basename(&t))).collect()
     }
 
     fn projects(entries: Vec<Entry>) -> Vec<String> {
@@ -239,21 +250,24 @@ mod tests {
 
     #[test]
     fn each_project_is_followed_by_its_worktrees() {
-        let trees = |p: &str| if p == "/w/app" { strings(&["/t/fix-login", "/t/dark-mode"]) } else { Vec::new() };
         let got = listed(strings(&["/w/api", "/w/app"]), None, "", basename, trees);
         assert_eq!(rows(got), strings(&["/w/api", "/w/app", "/t/fix-login", "/t/dark-mode"]));
     }
 
     #[test]
     fn a_matching_worktree_keeps_its_project_and_a_matching_project_keeps_all_its_worktrees() {
-        let trees = |p: &str| if p == "/w/app" { strings(&["/t/fix-login", "/t/dark-mode"]) } else { Vec::new() };
         assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "dark", basename, trees)), strings(&["/w/app", "/t/dark-mode"]));
         assert_eq!(rows(listed(strings(&["/w/api", "/w/app"]), None, "app", basename, trees)), strings(&["/w/app", "/t/fix-login", "/t/dark-mode"]));
     }
 
     #[test]
+    fn a_local_is_found_by_its_name() {
+        let trees = |_: &str| vec![("local-1".to_string(), "Review".to_string()), ("/t/fix".to_string(), "fix".to_string())];
+        assert_eq!(rows(listed(strings(&["/w/app"]), None, "review", basename, trees)), strings(&["/w/app", "local-1"]));
+    }
+
+    #[test]
     fn the_highlight_starts_on_the_worktree_the_search_found_not_its_project() {
-        let trees = |p: &str| if p == "/w/app" { strings(&["/t/fix-login", "/t/dark-mode"]) } else { Vec::new() };
         assert_eq!(first_hit(&listed(strings(&["/w/api", "/w/app"]), None, "dark", basename, trees)), 1);
         assert_eq!(first_hit(&listed(strings(&["/w/api", "/w/app"]), None, "", basename, trees)), 0);
     }

@@ -229,6 +229,10 @@ impl Desktop {
         for id in self.project_terminals(p) {
             self.close_pane(&id, cx);
         }
+        let locals: Vec<String> = self.agents.locals_in(p).map(|l| l.id.clone()).collect();
+        for id in locals {
+            self.delete_local(&id, cx);
+        }
         self.store.remove(p);
         self.store.save();
         self.worktrees.remove(p);

@@ -4,6 +4,7 @@ use crate::desktop::sounds::Cue;
 use crate::modals::may_open;
 use crate::status::{self, Card, Status};
 use crate::util::basename;
+use agents::locals::Local;
 use agents::Agents;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
@@ -209,6 +210,19 @@ fn tree_entries(words: &[String], trees: Vec<(String, String, git::Worktree)>) -
         .collect()
 }
 
+/// `locals` holds each Local with its project's name. Only a query lists them.
+fn local_entries(words: &[String], locals: Vec<(String, Local)>) -> Vec<Entry> {
+    if words.is_empty() {
+        return Vec::new();
+    }
+    locals
+        .into_iter()
+        .filter(|(name, l)| matches(words, &[&l.name, name]))
+        .map(|(name, l)| Entry { pick: Pick::Tree { project: l.project, tree: Some(l.id) }, lead: Lead::Icon("laptop"), title: l.name, detail: name, keys: None })
+        .take(5)
+        .collect()
+}
+
 /// `changed` and `files` are relative to `root`.
 fn file_entries(words: &[String], root: &str, changed: &[String], files: &[String]) -> Vec<Entry> {
     let is_changed: HashSet<&str> = changed.iter().map(String::as_str).collect();
@@ -325,11 +339,13 @@ impl Desktop {
                     .filter_map(|p| Some((p, self.repo_name(p), self.listed_trees(p)?)))
                     .flat_map(|(p, name, trees)| trees.into_iter().map(move |w| (p.clone(), name.clone(), w)))
                     .collect();
+                let locals = scope.iter().flat_map(|p| self.agents.locals_in(p).map(|l| (self.repo_name(p), l.clone()))).collect();
                 let root = self.explore_root().unwrap_or_default();
                 let changed: Vec<String> = self.repos.get(&root).map(|r| r.files.iter().map(|f| f.path.clone()).collect()).unwrap_or_default();
                 vec![
                     ("Up next", up_next_entries(words, &cards)),
                     ("Sessions", session_entries(words, cards)),
+                    ("Locals", local_entries(words, locals)),
                     ("Worktrees", tree_entries(words, trees)),
                     ("Files", file_entries(words, &root, &changed, &self.palette.files)),
                     ("Actions", actions),
@@ -483,7 +499,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Lead, Nav, Pick, Query, action_entries, file_entries, matches, nav, query, row_child, runs, session_entries, tree_entries, up_next_entries};
+    use super::{Entry, Lead, Local, Nav, Pick, Query, action_entries, file_entries, local_entries, matches, nav, query, row_child, runs, session_entries, tree_entries, up_next_entries};
     use crate::desktop::sounds::Cue;
     use crate::status::{Card, Kind, Status};
     use agents::{Agents, Event};
@@ -603,6 +619,13 @@ mod tests {
     fn sessions_match_on_project_and_branch_too() {
         let got = session_entries(&strings(&["app", "main"]), vec![card("a1", "Fix CI", Status::Idle, 1)]);
         assert_eq!(titles(&got), vec!["Fix CI"]);
+    }
+
+    #[test]
+    fn a_local_is_found_by_its_name_and_opens_in_its_project() {
+        let local = Local { id: "local-1".into(), project: "/w/app".into(), name: "Review".into() };
+        let got: Vec<_> = local_entries(&strings(&["rev"]), vec![("app".into(), local)]).into_iter().map(|e| (e.pick, e.title)).collect();
+        assert_eq!(got, vec![(Pick::Tree { project: "/w/app".into(), tree: Some("local-1".into()) }, "Review".to_string())]);
     }
 
     #[test]
