@@ -409,6 +409,11 @@ impl Desktop {
         self.cwd()
     }
 
+    /// The provider's Label from Settings, else its own name.
+    pub(crate) fn agent_name(&self, provider: &str) -> String {
+        self.store.agents.label(provider).unwrap_or_else(|| theme::provider_name(provider).into())
+    }
+
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
             _ if self.shown_create().is_some() => self.creating_page(cx),

@@ -108,7 +108,7 @@ impl Desktop {
         let selected = i == self.inbox.selected;
         let mark = ui::indicator(("note-mark", i), Some(state(n.status, 0, 0)));
         let project = self.project_name(&n.agent);
-        let provider = self.agents.get(&n.agent).map(|a| provider_name(&a.provider)).unwrap_or("Shell");
+        let provider = self.agents.get(&n.agent).map_or_else(|| "Shell".into(), |a| self.agent_name(&a.provider));
         let (agent, markable) = (n.agent.clone(), !asks(&n));
         div()
             .id(("note", i))

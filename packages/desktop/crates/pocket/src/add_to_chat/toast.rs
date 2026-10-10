@@ -24,7 +24,7 @@ impl Desktop {
                     .flex()
                     .gap(px(4.))
                     .child("Added to")
-                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{}'s", provider_name(provider))))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{}'s", self.agent_name(provider))))
                     .child("input · ⏎ sends"),
             );
         Some(toast.with_animation("added-toast-in", Animation::new(MENU_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t)))

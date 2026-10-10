@@ -152,7 +152,7 @@ impl Desktop {
                             .text_size(px(13.))
                             .text_color(TEXT_3)
                             .child(provider_icon(&auto.provider, 14., TEXT_2))
-                            .child(format!("{} · {project}", provider_name(&auto.provider))),
+                            .child(format!("{} · {project}", self.agent_name(&auto.provider))),
                     ),
             );
 
@@ -161,7 +161,7 @@ impl Desktop {
         let facts = details(vec![
             ("Trigger", when_label(&auto.schedule).into_any_element()),
             ("Folder", div().truncate().child(tilde(&auto.folder)).into_any_element()),
-            ("Agent", provider_name(&auto.provider).into_any_element()),
+            ("Agent", self.agent_name(&auto.provider).into_any_element()),
             ("Next run", next.into_any_element()),
             ("If missed", "Skipped if more than 12 hours late".into_any_element()),
         ]);

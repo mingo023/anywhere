@@ -36,7 +36,7 @@ impl Desktop {
                 .children(keys.map(|k| div().text_size(px(11.5)).text_color(TEXT_4).child(k.to_string())))
         };
         let agent = |id: &'static str, provider: &'static str, cx: &mut Context<Self>| {
-            item(id, provider_icon(provider, 14., TEXT).into_any_element(), provider_name(provider).into(), self.model_hint(provider), None)
+            item(id, provider_icon(provider, 14., TEXT).into_any_element(), self.agent_name(provider), self.model_hint(provider), None)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.panels.menu = None;
                     this.new_agent_tab(provider, Place::Pane(Some(pane)), cx);

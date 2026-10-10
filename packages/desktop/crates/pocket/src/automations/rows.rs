@@ -67,7 +67,7 @@ impl Desktop {
                     .text_size(px(12.))
                     .text_color(TEXT_3)
                     .child(provider_icon(&auto.provider, 12., TEXT_3))
-                    .child(div().truncate().child(format!("{} · {}", provider_name(&auto.provider), self.repo_name(&auto.folder)))),
+                    .child(div().truncate().child(format!("{} · {}", self.agent_name(&auto.provider), self.repo_name(&auto.folder)))),
             )
             .child(div().h(px(20.)).truncate().text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).child(auto.name.clone()))
             .child(
