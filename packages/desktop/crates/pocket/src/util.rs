@@ -13,6 +13,7 @@ pub fn basename(path: &str) -> String {
     folder(path).to_string()
 }
 
+/// `basename`, borrowed.
 pub fn folder(path: &str) -> &str {
     path.trim_end_matches('/').rsplit('/').next().unwrap_or_default()
 }
@@ -87,7 +88,7 @@ pub fn ago_long(ms: i64, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LOCAL_ICON, WORKTREE_ICON, ago, ago_long, folder, initials, list_dir, tilde, tree_icon};
+    use super::{ago, ago_long, folder, initials, list_dir, tilde, tree_icon};
     use store::prefs::files::Files;
 
     #[test]
@@ -143,6 +144,6 @@ mod tests {
 
     #[test]
     fn a_local_shows_a_laptop_and_a_worktree_its_own_icon() {
-        assert_eq!((tree_icon("local-1"), tree_icon("/w/app-login")), (LOCAL_ICON, WORKTREE_ICON));
+        assert_eq!((tree_icon("local-1"), tree_icon("/w/app-login")), ("laptop", "worktree"));
     }
 }

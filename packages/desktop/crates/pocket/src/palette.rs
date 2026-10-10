@@ -197,7 +197,7 @@ fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)
     trees
         .into_iter()
         .filter_map(|(project, name, w)| {
-            // A named tree is still found by its folder; an unnamed one's title already is it, or is the project for the main one.
+            // Only a renamed tree needs its folder matchable.
             let (title, renamed_folder) = match given(&w.path) {
                 Some(n) => (n.to_string(), folder(&w.path)),
                 None if w.main => (name.clone(), ""),
