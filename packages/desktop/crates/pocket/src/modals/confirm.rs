@@ -10,7 +10,6 @@ use theme::*;
 use ui::{self, Variant};
 use workspace::Doc;
 
-/// Nothing for none, `one` for one, else `many(n)`.
 fn counted(n: usize, one: &str, many: impl FnOnce(usize) -> String) -> Option<String> {
     (n > 0).then(|| if n == 1 { one.to_string() } else { many(n) })
 }
