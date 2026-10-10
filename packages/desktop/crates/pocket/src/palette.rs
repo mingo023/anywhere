@@ -190,14 +190,14 @@ fn up_next_entries(words: &[String], cards: &[SessionCard]) -> Vec<Entry> {
 }
 
 /// `trees` holds each worktree with its project's path and name; `given` gives a worktree's name, if it has one. Only a query lists worktrees.
-fn tree_entries(words: &[String], trees: Vec<(String, String, git::Worktree)>, given: impl Fn(&str) -> Option<String>) -> Vec<Entry> {
+fn tree_entries<'a>(words: &[String], trees: Vec<(String, String, git::Worktree)>, given: impl Fn(&str) -> Option<&'a str>) -> Vec<Entry> {
     if words.is_empty() {
         return Vec::new();
     }
     trees
         .into_iter()
         .filter_map(|(project, name, w)| {
-            let title = given(&w.path).unwrap_or_else(|| if w.main { name.clone() } else { basename(&w.path) });
+            let title = given(&w.path).map_or_else(|| if w.main { name.clone() } else { basename(&w.path) }, str::to_string);
             matches(words, &[&title, &name, &w.branch, &basename(&w.path)]).then(|| Entry {
                 detail: format!("{name} · {}", w.branch),
                 pick: Pick::Tree { project, tree: (!w.main).then_some(w.path) },
@@ -346,7 +346,7 @@ impl Desktop {
                     ("Up next", up_next_entries(words, &cards)),
                     ("Sessions", session_entries(words, cards)),
                     ("Locals", local_entries(words, locals)),
-                    ("Worktrees", tree_entries(words, trees, |t| self.agents.given_name(t).map(str::to_string))),
+                    ("Worktrees", tree_entries(words, trees, |t| self.agents.given_name(t))),
                     ("Files", file_entries(words, &root, &changed, &self.palette.files)),
                     ("Actions", actions),
                 ]
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn a_renamed_worktree_is_shown_by_its_given_name_and_found_by_it_or_its_folder() {
         let trees = vec![("/w/app".into(), "app".into(), tree("/w/app", "main", true)), ("/w/app".into(), "app".into(), tree("/w/app-login", "login", false))];
-        let given = |t: &str| Some(if t == "/w/app" { "Hotfix" } else { "Sign in" }.to_string());
+        let given = |t: &str| Some(if t == "/w/app" { "Hotfix" } else { "Sign in" });
         let titles = |q| tree_entries(&strings(&[q]), trees.clone(), given).into_iter().map(|e| e.title).collect::<Vec<_>>();
         assert_eq!((titles("hot"), titles("sign"), titles("app-login")), (vec!["Hotfix".to_string()], vec!["Sign in".to_string()], vec!["Sign in".to_string()]));
     }

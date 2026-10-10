@@ -71,11 +71,11 @@ fn tree_place(w: &git::Worktree) -> String {
     if w.branch.is_empty() || w.branch == "detached" { basename(&w.path) } else { w.branch.clone() }
 }
 
-/// A worktree row's label and hover tip: its display name over its `tree_place`.
-pub(crate) fn tree_label(w: &git::Worktree, names: &HashMap<String, String>) -> (String, String) {
+/// A worktree row's label and hover tip: its `given` name over its `tree_place`.
+pub(crate) fn tree_label(w: &git::Worktree, given: Option<&str>) -> (String, String) {
     let place = tree_place(w);
-    match names.get(&w.path).filter(|t| !t.is_empty()) {
-        Some(title) => (title.clone(), place),
+    match given {
+        Some(title) => (title.to_string(), place),
         None => (place.clone(), place),
     }
 }
@@ -265,7 +265,7 @@ impl Desktop {
                 .flatten()
                 .filter(|w| !w.main)
                 .map(|w| {
-                    let (label, tip) = tree_label(w, &self.agents.names);
+                    let (label, tip) = tree_label(w, self.agents.given_name(&w.path));
                     (w.path.clone(), label, tip)
                 })
                 .collect();
@@ -401,12 +401,12 @@ mod tests {
     #[test]
     fn a_worktree_shows_its_name_over_its_branch_and_a_detached_one_its_folder() {
         let named = git::Worktree { path: "/wt/calm-otter".into(), branch: "fix-login".into(), main: false };
-        let names: HashMap<String, String> = [("/wt/calm-otter".to_string(), "Fix the login form".to_string())].into();
-        assert_eq!(tree_label(&named, &names), ("Fix the login form".into(), "fix-login".into()));
-        assert_eq!(tree_label(&named, &HashMap::new()), ("fix-login".into(), "fix-login".into()));
+        let name = Some("Fix the login form");
+        assert_eq!(tree_label(&named, name), ("Fix the login form".into(), "fix-login".into()));
+        assert_eq!(tree_label(&named, None), ("fix-login".into(), "fix-login".into()));
         let detached = git::Worktree { branch: "detached".into(), ..named };
-        assert_eq!(tree_label(&detached, &HashMap::new()), ("calm-otter".into(), "calm-otter".into()));
-        assert_eq!(tree_label(&detached, &names), ("Fix the login form".into(), "calm-otter".into()));
+        assert_eq!(tree_label(&detached, None), ("calm-otter".into(), "calm-otter".into()));
+        assert_eq!(tree_label(&detached, name), ("Fix the login form".into(), "calm-otter".into()));
     }
 
     #[test]

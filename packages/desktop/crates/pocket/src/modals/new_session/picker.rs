@@ -274,7 +274,7 @@ impl Desktop {
     fn checkout(&self, target: Target) -> Checkout {
         let main = self.project.as_deref().and_then(|p| self.tree_of(p));
         let open = match self.place() {
-            Some(t) if Some(&t) != main.as_ref() && !is_local(&t) => OpenTree::Worktree(self.worktree_of(&t).map_or_else(|| crate::util::basename(&t), |w| tree_label(w, &self.agents.names).0)),
+            Some(t) if Some(&t) != main.as_ref() && !is_local(&t) => OpenTree::Worktree(self.worktree_of(&t).map_or_else(|| crate::util::basename(&t), |w| tree_label(w, self.agents.given_name(&t)).0)),
             t => OpenTree::Local(self.local_name(t.as_deref().unwrap_or_default())),
         };
         checkout_choice(target, open)

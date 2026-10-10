@@ -88,7 +88,10 @@ impl Desktop {
         let trees = |p: &str| {
             let locals = self.agents.locals_in(p).map(|l| l.id.clone());
             let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
-            let found_by = |t: &str| if is_local(t) { self.place_name(t) } else { format!("{}\n{}", self.place_name(t), basename(t)) };
+            let found_by = |t: &str| match self.agents.given_name(t) {
+                Some(n) if !is_local(t) => format!("{n}\n{}", basename(t)),
+                _ => self.place_name(t),
+            };
             locals.chain(worktrees).map(|t| (t.clone(), found_by(&t))).collect()
         };
         let search_text = |p: &str| {
