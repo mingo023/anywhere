@@ -88,7 +88,6 @@ struct Draft {
     /// Branches and worktree folders a new worktree's name must not reuse.
     taken: HashSet<String>,
     seed: usize,
-    /// The checkout picked; a linked pull request overrides it with a worktree.
     checkout: Target,
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,

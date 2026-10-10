@@ -217,8 +217,8 @@ fn local_entries(words: &[String], locals: Vec<(String, Local)>) -> Vec<Entry> {
     }
     locals
         .into_iter()
-        .filter(|(name, l)| matches(words, &[&l.name, name]))
-        .map(|(name, l)| Entry { pick: Pick::Tree { project: l.project, tree: Some(l.id) }, lead: Lead::Icon("laptop"), title: l.name, detail: name, keys: None })
+        .filter(|(project_name, l)| matches(words, &[&l.name, project_name]))
+        .map(|(project_name, l)| Entry { pick: Pick::Tree { project: l.project, tree: Some(l.id) }, lead: Lead::Icon("laptop"), title: l.name, detail: project_name, keys: None })
         .take(5)
         .collect()
 }

@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Screen, id};
-use crate::util::{basename, tilde};
+use crate::util::tilde;
 use agents::locals::is_local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -86,9 +86,9 @@ fn parent(path: &str) -> String {
 impl Desktop {
     fn picked_entries(&self, cx: &App) -> Vec<Entry> {
         let trees = |p: &str| {
-            let locals = self.agents.locals_in(p).map(|l| (l.id.clone(), l.name.clone()));
-            let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main);
-            locals.chain(worktrees.map(|w| (w.path.clone(), basename(&w.path)))).collect()
+            let locals = self.agents.locals_in(p).map(|l| l.id.clone());
+            let worktrees = self.listed_trees(p).map(|w| self.creates.trees(p, &w)).unwrap_or_default().into_iter().filter(|w| !w.main).map(|w| w.path);
+            locals.chain(worktrees).map(|t| (t.clone(), self.place_name(&t))).collect()
         };
         listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), |p| self.repo_name(p), trees)
     }

@@ -224,7 +224,7 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Closes the project's terminals and takes it off the sidebar; its folder is untouched.
+    /// Closes the project's terminals, deletes its Locals and takes it off the sidebar; its folder is untouched.
     pub(crate) fn remove_project(&mut self, p: &str, cx: &mut Context<Self>) {
         for id in self.project_terminals(p) {
             self.close_pane(&id, cx);
