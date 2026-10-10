@@ -257,11 +257,14 @@ impl Desktop {
         cx.notify();
     }
 
+    /// Opens a terminal in its worktree, focusing it only if that worktree is still on screen: it arrives after the user may have moved on.
     fn adopt(&mut self, id: String, tree: String, place: Place, window: &mut Window, cx: &mut Context<Self>) {
         self.workspace(&tree).open_term(id.clone(), place);
-        self.show_tree(&tree);
-        self.load_active(cx);
-        self.focus_pane(id, window, cx);
+        if self.place().as_deref() == Some(tree.as_str()) {
+            self.show_tree(&tree);
+            self.load_active(cx);
+            self.focus_pane(id, window, cx);
+        }
         self.save_soon(cx);
     }
 

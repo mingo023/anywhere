@@ -571,7 +571,11 @@ impl Desktop {
         let prompt = self.new_form.prompt.read(cx).value().to_string();
         let Some(project) = self.new_form.draft.repo.clone() else { return };
         let tree = match self.new_form.draft.target() {
-            Target::NewLocal => self.new_local(&project),
+            Target::NewLocal => {
+                let id = self.new_local(&project);
+                self.select_tree(project.clone(), Some(id.clone()), cx);
+                id
+            }
             _ => self.place().unwrap_or_default(),
         };
         let f = &self.new_form.draft;
@@ -657,11 +661,6 @@ impl Desktop {
         f.want_base = Some(c.base().to_string());
         f.source = Source::of(c.asked());
         self.new_form.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
-    }
-
-    pub fn new_worktree_in(&mut self, p: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_project(p, cx);
-        self.new_worktree(&crate::actions::NewWorktree, window, cx);
     }
 
     pub fn new_session_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {

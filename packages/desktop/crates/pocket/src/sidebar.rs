@@ -230,9 +230,9 @@ impl Desktop {
             buttons.push(
                 icon_button_sized(id(format!("aside-plus:{p}")), "plus", 22., TEXT_3)
                     .rounded(px(6.))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
-                        this.new_worktree_in(target.clone(), window, cx);
+                        this.select_tree(target.clone(), None, cx);
                     }))
                     .into_any_element(),
             );
