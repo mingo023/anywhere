@@ -328,8 +328,7 @@ impl Agents {
 
     /// The ids of the Locals removing `project` deletes: none when pocketd won't take this client's deletes.
     pub fn locals_removed_with<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a str> {
-        let offered = self.locals_offered();
-        self.locals_in(project).filter(move |_| offered).map(|l| l.id.as_str())
+        self.locals_offered().then(|| self.locals_in(project)).into_iter().flatten().map(|l| l.id.as_str())
     }
 
     /// Shows a new Local before pocketd lists it.
