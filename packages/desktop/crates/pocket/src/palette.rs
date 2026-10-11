@@ -270,7 +270,7 @@ fn action_entries(words: &[String], project: &str, sounds: Sounds, agents: &Agen
     .into_iter()
     .chain(Cue::ALL.map(sound))
     .filter(|e| match e.pick {
-        Pick::New | Pick::Split => may_open(Overlay::NewSession, agents),
+        Pick::New | Pick::Split => crate::modals::new_session::may_start(agents),
         Pick::PairPhone => may_open(Overlay::PairPhone, agents),
         Pick::PhoneAccess => may_open(Overlay::PhoneAccess, agents),
         Pick::Automations => agents.automations_offered(),
@@ -368,7 +368,7 @@ impl Desktop {
                 self.screen = Screen::Sessions;
                 self.open_file(path, true, cx);
             }
-            Pick::New => self.open(Overlay::NewSession, window, cx),
+            Pick::New => self.new_session(None, false, window, cx),
             Pick::Split => self.new_shell(Place::Split(self.focused_pane(), Edge::Right), cx),
             Pick::Next => self.next_needs_you(&crate::actions::NextNeedsYou, window, cx),
             Pick::Tree { project, tree } => {

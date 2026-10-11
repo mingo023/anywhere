@@ -97,7 +97,7 @@ func TestParseReadsBackTheResumeArgv(t *testing.T) {
 func TestAMissingBinaryIsNotAccepted(t *testing.T) {
 	dir := t.TempDir()
 	onPath := func(p string) (string, bool) {
-		path, err := resolve(p, []string{"PATH=" + dir})
+		path, err := resolve(p, []string{"PATH=" + dir, "SHELL=/bin/sh"})
 		return path, err == nil
 	}
 	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", onPath); reason != "resume_not_accepted" {

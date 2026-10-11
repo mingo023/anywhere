@@ -187,7 +187,7 @@ impl Desktop {
         let url = url.or_else(|| self.store.browser.home_page(dev_url).map(|u| web::resolve(&u, self.store.browser.search_url())));
         let id = self.browsers.open();
         self.workspace(&tree).open_web(id);
-        self.screen = Screen::Sessions;
+        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         match url {
             Some(url) => self.browse(id, url, window, cx),
             None => self.focus_address(&FocusAddress, window, cx),

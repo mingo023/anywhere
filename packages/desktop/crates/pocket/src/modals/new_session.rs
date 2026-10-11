@@ -1,10 +1,10 @@
 pub(crate) mod launch;
 pub(crate) mod picker;
 
-use agents::{CreateReply, Event};
+use agents::{Agents, CreateReply, Event};
 use crate::creating::Create;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::Overlay;
+use crate::desktop::chrome::Screen;
 use crate::modals::form::{default_base, home};
 use crate::terminals::link;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON};
@@ -55,6 +55,8 @@ impl Access {
 }
 
 pub struct NewForm {
+    /// The new-session page fills the main area.
+    pub(crate) shown: bool,
     prompt: Entity<TextareaState>,
     search: Entity<InputState>,
     pr: Entity<InputState>,
@@ -90,6 +92,8 @@ struct Draft {
     taken: HashSet<String>,
     seed: usize,
     picked_checkout: Target,
+    /// Opened from a project's +: the session starts in a new Worktree or Local, never the tree on screen.
+    new_place: bool,
     repo: Option<String>,
     branches: Vec<(String, Option<i64>)>,
     /// Branches on origin with no local twin.
@@ -121,6 +125,7 @@ impl Default for Draft {
             taken: HashSet::new(),
             seed: 0,
             picked_checkout: Target::Open,
+            new_place: false,
             repo: None,
             branches: Vec::new(),
             remote_branches: Vec::new(),
@@ -194,6 +199,13 @@ impl Draft {
         if self.in_worktree() { Target::Worktree } else { self.picked_checkout }
     }
 
+    /// The checkouts the picker offers; `locals` is whether pocketd takes Locals.
+    fn targets(&self, locals: bool) -> Vec<Target> {
+        let open = (!self.new_place).then_some(Target::Open);
+        let local = locals.then_some(Target::NewLocal);
+        [Some(Target::Worktree), open, local].into_iter().flatten().collect()
+    }
+
     fn pick_checkout(&mut self, target: Target) {
         (self.picked_checkout, self.picker) = (target, None);
     }
@@ -250,7 +262,7 @@ impl Draft {
         self.reply = CreateReply::default();
     }
 
-    /// Reopening the sheet clears its error row, so a failure that arrives while it is closed goes to the page error line.
+    /// Reopening the page clears its error row, so a failure that arrives while it is gone goes to the window's error line.
     fn failed(&mut self, request: &str, message: String, detail: String, open: bool) -> Option<String> {
         if open && self.reply.answer(request, Some((message.clone(), detail))) {
             return None;
@@ -299,10 +311,13 @@ enum OpenTree {
     Worktree(String),
 }
 
-fn checkout_choice(target: Target, open: OpenTree) -> Checkout {
+/// `new_place`: the page only makes new places, so a new Local needs no "New" beside the tree on screen.
+fn checkout_choice(target: Target, open: OpenTree, new_place: bool) -> Checkout {
+    const NEW_LOCAL: &str = "A new place over the project's checkout: files and branch are shared";
     match (target, open) {
         (Target::Worktree, _) => Checkout { glyph: WORKTREE_ICON, label: "Worktree".into(), hint: "Its own branch and copy of the files" },
-        (Target::NewLocal, _) => Checkout { glyph: "plus", label: "New Local".into(), hint: "A new place over the project's checkout: files and branch are shared" },
+        (Target::NewLocal, _) if new_place => Checkout { glyph: LOCAL_ICON, label: "Local".into(), hint: NEW_LOCAL },
+        (Target::NewLocal, _) => Checkout { glyph: "plus", label: "New Local".into(), hint: NEW_LOCAL },
         (Target::Open, OpenTree::Worktree(label)) => Checkout { glyph: WORKTREE_ICON, label, hint: "This worktree as it is: files and branch are shared" },
         (Target::Open, OpenTree::Local(label)) => Checkout { glyph: LOCAL_ICON, label, hint: "The project's checkout as it is: files and branch are shared" },
     }
@@ -439,6 +454,10 @@ fn paste_image(desktop: &WeakEntity<Desktop>, item: &ClipboardItem, window: &mut
     true
 }
 
+pub(crate) fn may_start(agents: &Agents) -> bool {
+    !agents.observe_only()
+}
+
 fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, current: &str) {
     let default = default_base(branches.iter().map(|(b, _)| b.as_str()), preferred, current);
     if !branches.is_empty() {
@@ -469,7 +488,7 @@ impl NewForm {
                 cx.notify()
             }),
         ];
-        (Self { prompt, search, pr, draft: Draft::default() }, subs)
+        (Self { shown: false, prompt, search, pr, draft: Draft::default() }, subs)
     }
 }
 
@@ -493,6 +512,7 @@ impl Desktop {
             s.focus(window, cx);
         });
         f.draft.picked_checkout = if worktree { Target::Worktree } else { Target::Open };
+        f.draft.new_place = false;
         f.draft.images.clear();
         f.draft.open(&last);
         (f.draft.picker, f.draft.want_base) = (None, None);
@@ -551,7 +571,7 @@ impl Desktop {
         self.start_session(window, cx);
     }
 
-    /// A new worktree's sheet closes at once and its progress shows in the main view; a session's waits for pocketd.
+    /// A new worktree's page leaves at once for its progress; a session's waits for pocketd.
     fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.session_ready() {
             return;
@@ -566,6 +586,7 @@ impl Desktop {
         let tree = match self.new_form.draft.target() {
             Target::NewLocal => {
                 let id = self.new_local(&project);
+                self.store.collapsed.remove(&project);
                 self.select_tree(project.clone(), Some(id.clone()), cx);
                 id
             }
@@ -589,7 +610,7 @@ impl Desktop {
         }
         let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &home()));
         self.creates.list.push(Create::new(request, path.clone(), spec, Instant::now()));
-        self.close_overlay(window, cx);
+        self.leave_new_session(window, cx);
         self.select_tree(project, Some(path), cx);
     }
 
@@ -610,8 +631,8 @@ impl Desktop {
                     self.refresh_git(cx);
                 } else if self.empty_pane.launch.reply.answer(&request, None) {
                     self.terminals.aim(&terminal, self.empty_pane.launch.pane);
-                } else if self.new_form.draft.reply.answer(&request, None) && self.overlay == Some(Overlay::NewSession) {
-                    self.close_overlay(window, cx);
+                } else if self.new_form.draft.reply.answer(&request, None) && self.new_form.shown {
+                    self.leave_new_session(window, cx);
                 }
             }
             Event::Progress { request, step, note } => {
@@ -625,11 +646,10 @@ impl Desktop {
             Event::CreateFailed { request, message, detail, .. } => {
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());
-                } else if !self.empty_prompt_failed(&request, &message, &detail, window, cx) {
-                    let open = self.overlay == Some(Overlay::NewSession);
-                    if let Some(message) = self.new_form.draft.failed(&request, message, detail, open) {
-                        self.error = Some(message);
-                    }
+                } else if !self.empty_prompt_failed(&request, &message, &detail, window, cx)
+                    && let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown)
+                {
+                    self.error = Some(message);
                 }
             }
             _ => {}
@@ -638,16 +658,32 @@ impl Desktop {
     }
 
     pub fn new_worktree(&mut self, _: &crate::actions::NewWorktree, window: &mut Window, cx: &mut Context<Self>) {
-        if self.agents.observe_only() {
+        self.new_session(None, true, window, cx);
+    }
+
+    pub fn new_session(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !may_start(&self.agents) {
             return;
         }
         self.close_menus();
-        self.overlay = Some(Overlay::NewSession);
-        self.reset_new_form(None, true, window, cx);
+        (self.screen, self.new_form.shown) = (Screen::Sessions, true);
+        self.reset_new_form(prompt, worktree, window, cx);
         cx.notify();
     }
 
-    /// The sheet again, filled in as it was for a create that failed before git made its worktree.
+    pub(crate) fn leave_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_form.shown = false;
+        self.refocus(window, cx);
+    }
+
+    /// The page a project's + opens: a session in a new Worktree or Local of `project`.
+    pub(crate) fn new_place(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_tree(project, None, cx);
+        self.new_worktree(&crate::actions::NewWorktree, window, cx);
+        self.new_form.draft.new_place = true;
+    }
+
+    /// The page again, filled in as it was for a create that failed before git made its worktree.
     pub(crate) fn reopen_new_worktree(&mut self, c: &Create, window: &mut Window, cx: &mut Context<Self>) {
         self.new_worktree(&crate::actions::NewWorktree, window, cx);
         let f = &mut self.new_form.draft;
@@ -656,20 +692,11 @@ impl Desktop {
         self.new_form.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
     }
 
-    pub fn new_session_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
+    pub fn new_session_page(&mut self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
         let name = self.repo_name(&repo);
-        let close = ui::icon_button_sized("form-close", "x", 28., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let header = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(4.))
-            .pb(px(2.))
-            .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).child(if f.in_worktree() { "New worktree" } else { "New session" }))
-            .child(div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(ui::repo_tile(&crate::util::initials(&name), 18., false, None)).child(name))
-            .child(div().ml_auto().child(close));
+        let project = div().flex().flex_none().items_center().gap(px(6.)).px(px(6.)).text_color(TEXT_2).child(ui::repo_tile(&crate::util::initials(&name), 16., false, None)).child(name.clone());
         let agent = self.agent_select(cx);
         let model = self.model_select(cx);
         let access = self.access_select(cx);
@@ -732,7 +759,7 @@ impl Desktop {
             .flex_col()
             .rounded(px(14.))
             .bg(SURFACE)
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.)])
+            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.), ui::shadow(rgba(0x1111130d), 10., 30.)])
             .children(attached)
             // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
             .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&self.new_form.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25)).on_paste(move |item, window, cx| paste_image(&desktop, item, window, cx))))
@@ -740,32 +767,47 @@ impl Desktop {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(4.))
-                    .pt(px(6.))
+                    .gap(px(2.))
+                    .pt(px(4.))
                     .px(px(10.))
                     .pb(px(10.))
                     .text_size(px(13.))
                     .child(agent)
-                    .child(checkout)
-                    .children(branch)
+                    .child(model)
+                    .child(access)
                     .child(div().flex_1())
                     .children(link)
+                    .child(ui::kbd("⌘↵").mr(px(8.)))
                     .child(send),
             );
-        let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail));
+        let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
         let footer = div()
+            .w_full()
+            .max_w(px(600.))
+            .mt(px(10.))
             .flex()
             .items_center()
-            .gap(px(4.))
-            .px(px(6.))
+            .gap(px(2.))
             .text_size(px(13.))
-            .child(model)
-            .child(access)
-            .child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("⌘↵ to start · esc to cancel"));
-        div().absolute().top(px(110.)).left_0().right_0().flex().justify_center().child(
-            // The design's 0.5px border renders 1px wide and insets the sheet's content.
-            ui::pop(div().w(px(640.)).pt(px(17.)).px(px(17.)).pb(px(15.)).flex().flex_col().gap(px(10.))).rounded(px(R_DIALOG)).occlude().child(header).child(composer).children(error).child(footer),
-        )
+            .child(project)
+            .child(div().text_color(TEXT_4).child("·"))
+            .child(checkout)
+            .children(branch)
+            .child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("esc to cancel"));
+        let body = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .pt(px(72.))
+            .px(px(24.))
+            .pb(px(56.))
+            .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("What should we build next?"))
+            .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
+            .children(error)
+            .child(footer);
+        div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
     }
 }
 
@@ -793,13 +835,24 @@ mod tests {
     #[test]
     fn the_open_tree_shows_as_its_sidebar_row_does() {
         let choice = |target, open| {
-            let c = checkout_choice(target, open);
+            let c = checkout_choice(target, open, false);
             (c.glyph, c.label)
         };
         assert_eq!(choice(Target::Open, OpenTree::Local("Local 2".into())), ("laptop", "Local 2".to_string()));
         assert_eq!(choice(Target::Open, OpenTree::Worktree("Fix login".into())), ("worktree", "Fix login".to_string()));
         assert_eq!(choice(Target::Worktree, OpenTree::Worktree("Fix login".into())), ("worktree", "Worktree".to_string()));
         assert_eq!(choice(Target::NewLocal, OpenTree::Local("Local".into())).1, "New Local");
+    }
+
+    #[test]
+    fn a_project_s_plus_offers_only_new_places_and_names_the_new_local_plainly() {
+        let mut draft = Draft::default();
+        assert_eq!(draft.targets(true), [Target::Worktree, Target::Open, Target::NewLocal]);
+        draft.new_place = true;
+        assert_eq!(draft.targets(true), [Target::Worktree, Target::NewLocal]);
+        assert_eq!(draft.targets(false), [Target::Worktree]);
+        let local = checkout_choice(Target::NewLocal, OpenTree::Local("Local".into()), true);
+        assert_eq!((local.glyph, local.label.as_str()), ("laptop", "Local"));
     }
 
     #[test]
@@ -1024,7 +1077,7 @@ mod tests {
     }
 
     #[test]
-    fn a_create_error_after_the_sheet_closed_goes_to_the_page() {
+    fn a_create_error_after_the_page_left_goes_to_the_window() {
         let mut draft = Draft { reply: sent("r1"), ..Draft::default() };
         assert_eq!(draft.failed("r1", "Setup exited 1".into(), "npm ERR!".into(), false), Some("Setup exited 1".to_string()));
         assert_eq!(draft.reply.error, None);

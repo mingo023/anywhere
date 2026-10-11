@@ -162,3 +162,15 @@ func TestAnAutoNamedWorktreeTakesItsNamesFromThePrompt(t *testing.T) {
 		func(m Message) bool { return m.Type == "agent.update" && m.Agent.Title == "Say hello" },
 		func(m Message) bool { return m.Type == "agent.update" && m.Agent.Branch == "say-hello" })
 }
+
+func TestANewLocalTakesItsNameFromTheFirstPrompt(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner("locals.v1")
+	o.Send(map[string]any{"type": "local.create", "id": "l", "localId": "local-1", "project": h.Repo, "name": "Local 2"})
+	o.WaitFor("the placeholder", func(m Message) bool { return m.Type == "local.list" && strings.Contains(m.Raw, `"name":"Local 2"`) })
+	create(o, "r1", inRepo(h, map[string]any{"checkout": map[string]any{"local": "local-1"}, "prompt": "hello"}))
+	if c := reply(o, "agent.creating", "error"); c.Type != "agent.creating" {
+		t.Fatalf("got %s", c.Raw)
+	}
+	o.WaitFor("the Local's name", func(m Message) bool { return m.Type == "local.list" && strings.Contains(m.Raw, `"name":"Say hello"`) })
+}

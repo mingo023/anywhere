@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,6 +71,18 @@ func TestAPassingSetupIsReportedThenRunsTheAgent(t *testing.T) {
 	for _, shell := range shells {
 		if got := runWrapped(t, shell, "true", []string{"/bin/sh", "-c", "exit 0"}); got != "hook exit setup 0\nhook exit agent 0\n" {
 			t.Errorf("%s: got %q", shell, got)
+		}
+	}
+}
+
+func TestWrapRunsAShellFunctionNamedLikeTheAgent(t *testing.T) {
+	for shell, env := range shellsWith(t) {
+		exe, log := stub(t)
+		cmd := exec.Command(shell, Wrap(shell, exe, "", []string{"cc", "hi"})...)
+		cmd.Env = env
+		out, _ := cmd.Output()
+		if got, _ := os.ReadFile(log); string(got) != "hook exit agent 0\n" || !strings.HasPrefix(string(out), "hi\n") {
+			t.Errorf("%s: out %q, log %q", shell, out, got)
 		}
 	}
 }
