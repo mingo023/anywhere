@@ -165,6 +165,8 @@ pub const TEXT_3: Token = Token::new(0x8b8b94ff, 0x818181ff);
 pub const TEXT_4: Token = Token::new(0xa1a1aaff, 0x6c6c6cff);
 pub const TEXT_5: Token = Token::new(0xb4b4bcff, 0x616161ff);
 pub const TEXT_6: Token = Token::new(0xd4d4d8ff, 0x414141ff);
+/// The band of light crossing a working label.
+pub const SHIMMER: Token = Token::new(0xd4d4d8ff, 0xffffffff);
 pub const WHITE: Token = Token::fixed(0xffffffff);
 /// Text and glyphs on a `TEXT` fill.
 pub const ON_TEXT: Token = Token::new(0xffffffff, 0x171717ff);
@@ -427,7 +429,7 @@ macro_rules! embed {
 
 const ICONS: &[(&str, &[u8])] = embed!(
     "appearance", "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple", "diff-split",
-    "discard", "external", "file", "filter", "flow", "folder", "forward", "globe", "grip", "inbox", "keyboard", "laptop", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "reload", "run-cancelled", "run-skipped", "search", "send", "settings", "shield",
+    "discard", "external", "file", "filter", "flow", "folder", "forward", "globe", "grip", "inbox", "keyboard", "laptop", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "reload", "run-cancelled", "run-skipped", "search", "send", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
 
