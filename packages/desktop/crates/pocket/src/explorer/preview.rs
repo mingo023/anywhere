@@ -338,6 +338,16 @@ impl<V> PreviewState<V> {
         }
     }
 
+    /// Follows a rename: panes showing files at or under `from`, and their drafts, now hold them at `to`. The editors reload, so a new extension highlights.
+    pub fn move_files(&mut self, from: &str, to: &str) {
+        for f in self.panes.values_mut() {
+            if let Some(moved) = f.file.as_deref().and_then(|p| workspace::moved(p, from, to)) {
+                (f.file, f.stale) = (Some(moved), true);
+            }
+        }
+        self.drafts = self.drafts.drain().map(|(p, text)| (workspace::moved(&p, from, to).unwrap_or(p), text)).collect();
+    }
+
     /// Forgets the files of panes that closed; their unsaved edits stay.
     pub fn retain_panes(&mut self, panes: &[PaneId]) {
         self.panes.retain(|p, _| panes.contains(p));
@@ -757,5 +767,17 @@ mod tests {
         state.retain_panes(&[MAIN]);
         assert_eq!(state.file(OTHER), None);
         assert!(state.dirty("/r/b.rs"));
+    }
+
+    #[test]
+    fn a_rename_carries_the_pane_and_its_unsaved_edit_to_the_new_path() {
+        let mut state = shown("/r/src/a.txt", "a\n");
+        state.edit(MAIN, "ab\n".into());
+        state.take_sync(MAIN);
+        state.move_files("/r/src", "/r/lib");
+        assert_eq!(state.file(MAIN), Some("/r/lib/a.txt"));
+        assert!(state.dirty("/r/lib/a.txt") && !state.dirty("/r/src/a.txt"));
+        let sync = state.take_sync(MAIN).unwrap();
+        assert_eq!((sync.text.as_ref(), sync.same), ("ab\n", false));
     }
 }

@@ -24,6 +24,16 @@ pub struct PageEdit(pub web::Edit);
 #[action(namespace = desktop, no_json)]
 pub struct TreeMenuItem(pub Item);
 
+/// Moves the tree menu's highlight down, or up when false.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct TreeMenuStep(pub bool);
+
+/// Chooses the tree menu's highlighted item, else Rename.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct TreeMenuChoose;
+
 /// Focuses the panel touching the focused one at this edge.
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
@@ -87,7 +97,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-l", TreeMenuItem(Item::Mention), Some(menu::CONTEXT)),
         KeyBinding::new("cmd-alt-c", TreeMenuItem(Item::Copy), Some(menu::CONTEXT)),
         KeyBinding::new("cmd-alt-shift-c", TreeMenuItem(Item::CopyRelative), Some(menu::CONTEXT)),
-        KeyBinding::new("enter", TreeMenuItem(Item::Rename), Some(menu::CONTEXT)),
+        KeyBinding::new("enter", TreeMenuChoose, Some(menu::CONTEXT)),
+        KeyBinding::new("down", TreeMenuStep(true), Some(menu::CONTEXT)),
+        KeyBinding::new("up", TreeMenuStep(false), Some(menu::CONTEXT)),
         KeyBinding::new("cmd-backspace", TreeMenuItem(Item::Trash), Some(menu::CONTEXT)),
     ];
     out.extend((1..=9).map(|n| KeyBinding::new(&format!("cmd-{n}"), JumpToTab(n), None)));

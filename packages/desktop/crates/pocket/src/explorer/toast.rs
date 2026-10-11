@@ -1,7 +1,7 @@
 use super::{files, name_of};
 use crate::desktop::Desktop;
 use gpui_kit::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use theme::*;
 
@@ -55,6 +55,7 @@ impl Desktop {
             this.update(cx, |d, cx| {
                 match landed {
                     Some(to) => {
+                        d.close_trashed(&path, cx);
                         d.explorer.undo = Some((path.clone(), to));
                         d.show_notice(Notice::Trashed(path), cx);
                     }
@@ -66,6 +67,15 @@ impl Desktop {
             .ok();
         })
         .detach();
+    }
+
+    /// Closes the tabs of what went to the Trash; a file with unsaved edits stays open, so saving brings it back.
+    fn close_trashed(&mut self, path: &Path, cx: &mut Context<Self>) {
+        let path = path.to_string_lossy();
+        let preview = &self.preview;
+        self.workspaces.values_mut().for_each(|w| w.close_files(&path, |f| preview.dirty(f)));
+        self.load_active(cx);
+        self.save_soon(cx);
     }
 
     /// Puts the last trashed item back; false when there's none to undo.

@@ -412,7 +412,7 @@ impl Desktop {
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;
         self.automations.menu = None;
-        self.explorer.menu = None;
+        self.explorer.close_menu();
         open
     }
 
@@ -540,6 +540,9 @@ impl Render for Desktop {
                 if crate::explorer::toast::is_undo(&ev.keystroke.key, ev.keystroke.modifiers, taken) && this.undo_trash(cx) {
                     return cx.stop_propagation();
                 }
+                if this.type_tree_menu(&ev.keystroke, cx) {
+                    return cx.stop_propagation();
+                }
                 if ev.keystroke.key != "escape" {
                     return;
                 }
@@ -593,6 +596,8 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::open_selected))
             .on_action(cx.listener(Self::add_to_chat))
             .on_action(cx.listener(Self::tree_menu_item))
+            .on_action(cx.listener(Self::tree_menu_step))
+            .on_action(cx.listener(Self::tree_menu_choose))
             .children(lead)
             .children(column)
             .child(page)

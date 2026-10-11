@@ -11,7 +11,9 @@ use crate::util::list_dir;
 use git::FileStat;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use theme::*;
 use std::time::Duration;
@@ -52,18 +54,20 @@ pub fn status_word(status: Option<char>) -> (Token, &'static str) {
 pub struct ExplorerState {
     pub(crate) tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     pub(crate) menu: Option<menu::TreeMenu>,
+    /// The menu just closed, fading out, and when it closed.
+    leaving: Option<(menu::TreeMenu, std::time::Instant)>,
     edit: Option<edit::NameEdit>,
     notice: Option<(toast::Notice, Task<()>)>,
     /// The last trashed item and where it landed, while its notice shows.
     undo: Option<(PathBuf, PathBuf)>,
     flash: Option<(PathBuf, Task<()>)>,
-    scroll: ScrollHandle,
+    scroll: UniformListScrollHandle,
     /// Scroll the edit row, or else the flashed one, into view once it's listed.
     seek: bool,
 }
 
 /// A line of the tree: a file, or a folder and whether it is open.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub path: PathBuf,
     pub depth: usize,
@@ -73,7 +77,7 @@ pub struct Row {
 
 impl ExplorerState {
     pub fn new() -> Self {
-        Self { tree: HashMap::new(), menu: None, edit: None, notice: None, undo: None, flash: None, scroll: ScrollHandle::new(), seek: false }
+        Self { tree: HashMap::new(), menu: None, leaving: None, edit: None, notice: None, undo: None, flash: None, scroll: UniformListScrollHandle::new(), seek: false }
     }
 
     /// The tree under `root` top to bottom, descending into open folders only.
@@ -207,30 +211,40 @@ impl Desktop {
         if self.explorer.seek
             && let Some(ix) = seek(&rows, new_row.map(|(i, _)| i), renamed.as_deref(), flashed.as_deref())
         {
-            self.explorer.scroll.scroll_to_item(ix);
+            self.explorer.scroll.scroll_to_item(ix, ScrollStrategy::Nearest);
             self.explorer.seek = false;
         }
-        let mut rows: Vec<_> = rows.into_iter().map(|row| self.tree_row(row, &touched, cx)).collect();
-        if let Some((i, depth)) = new_row
-            && let Some(row) = self.edit_row(depth, cx)
-        {
-            rows.insert(i, row.into_any_element());
-        }
+        let lines = rows.len() + usize::from(new_row.is_some());
+        let list = uniform_list(
+            "explorer",
+            lines,
+            cx.processor(move |this, range: Range<usize>, _, cx| {
+                range
+                    .map(|ix| {
+                        let line = match new_row {
+                            Some((at, depth)) if ix == at => this.edit_row(depth, cx).unwrap_or_else(|| div().into_any_element()),
+                            Some((at, _)) if ix > at => this.tree_row(rows[ix - 1].clone(), &touched, cx),
+                            _ => this.tree_row(rows[ix].clone(), &touched, cx),
+                        };
+                        div().w_full().pb(px(1.)).flex().flex_col().child(line)
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.explorer.scroll)
+        .size_full()
+        .px(px(8.))
+        .pt(px(8.))
+        .pb(px(8.));
         let list = div()
             .id("explorer")
+            .relative()
             .flex_1()
             .min_h_0()
-            .px(px(8.))
-            .pt(px(8.))
-            .pb(px(8.))
-            .overflow_y_scroll()
-            .track_scroll(&self.explorer.scroll)
-            .flex()
-            .flex_col()
-            .gap(px(1.))
+            .child(list)
+            .vertical_scrollbar(&self.explorer.scroll)
             .on_mouse_down(MouseButton::Right, self.open_tree_menu(None, cx))
-            .when(self.explorer.menu_on(None), |d| d.shadow(outline(ACCENT)))
-            .children(rows);
+            .when(self.explorer.menu_on(None), |d| d.shadow(outline(ACCENT)));
         div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list).children(self.tree_menu(cx))
     }
 
@@ -238,7 +252,7 @@ impl Desktop {
         if self.explorer.renaming(&path)
             && let Some(row) = self.edit_row(depth, cx)
         {
-            return row.into_any_element();
+            return row;
         }
         let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let key = path.to_string_lossy().to_string();

@@ -3,7 +3,10 @@ use crate::desktop::Desktop;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use theme::*;
+
+const SHAKE: Duration = Duration::from_millis(280);
 
 #[derive(Clone)]
 pub enum Naming {
@@ -37,6 +40,8 @@ impl Naming {
 pub(crate) struct NameEdit {
     naming: Naming,
     input: Entity<InputState>,
+    /// Enter presses refused so far; each shakes the field anew.
+    shakes: usize,
     _sub: Subscription,
 }
 
@@ -57,6 +62,15 @@ pub fn verdict(name: &str, was: Option<&str>, refused: bool, strict: bool) -> Ve
         return Verdict::Save;
     }
     if strict && (refused || was.is_some()) { Verdict::Keep } else { Verdict::Drop }
+}
+
+/// The field's sideways offset, in px, `t` of the way through a shake: left, right, a smaller left, home.
+pub fn shake_x(t: f32) -> f32 {
+    const KEYS: [(f32, f32); 5] = [(0., 0.), (0.2, -4.), (0.45, 4.), (0.7, -2.), (1., 0.)];
+    KEYS.windows(2).find(|k| t <= k[1].0).map_or(0., |k| {
+        let ((t0, x0), (t1, x1)) = (k[0], k[1]);
+        x0 + (x1 - x0) * (t - t0).max(0.) / (t1 - t0)
+    })
 }
 
 /// How much of `name` starts selected: a file's name up to its extension, all of a folder's.
@@ -175,7 +189,7 @@ impl Desktop {
             self.explorer.tree.insert(parent.clone(), Vec::new());
             self.relist_explorer(cx);
         }
-        self.explorer.edit = Some(NameEdit { naming, input, _sub: sub });
+        self.explorer.edit = Some(NameEdit { naming, input, shakes: 0, _sub: sub });
         self.explorer.seek = true;
     }
 
@@ -186,7 +200,11 @@ impl Desktop {
         // An edit begun in a tree since switched away from is no longer on screen, so it goes unsaved.
         let left = !edit.naming.parent().starts_with(&root);
         match if left { Verdict::Drop } else { verdict(&name, edit.naming.renaming().map(name_of).as_deref(), refused, strict) } {
-            Verdict::Keep => return,
+            Verdict::Keep => {
+                if let Some(edit) = self.explorer.edit.as_mut() {
+                    edit.shakes += 1;
+                }
+            }
             Verdict::Drop => self.explorer.edit = None,
             Verdict::Save => {
                 let Some(edit) = self.explorer.edit.take() else { return };
@@ -220,6 +238,7 @@ impl Desktop {
                     }
                     (Naming::Rename { path, .. }, Ok(to)) => {
                         d.explorer.moved(&path, &to);
+                        d.tabs_follow(&path, &to, cx);
                         d.flash_row(to, cx);
                     }
                     (Naming::New { .. }, Err(e)) => d.error = Some(format!("Couldn’t create “{name}”: {e}")),
@@ -233,8 +252,15 @@ impl Desktop {
         .detach();
     }
 
+    fn tabs_follow(&mut self, from: &Path, to: &Path, cx: &mut Context<Self>) {
+        let (from, to) = (from.to_string_lossy(), to.to_string_lossy());
+        self.workspaces.values_mut().for_each(|w| w.move_files(&from, &to));
+        self.preview.move_files(&from, &to);
+        self.save_soon(cx);
+    }
+
     /// The row the name is typed in, laid out as the tree's rows are, with the reason it can't be saved under it.
-    pub(crate) fn edit_row(&self, depth: usize, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+    pub(crate) fn edit_row(&self, depth: usize, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (edit, root) = (self.explorer.edit.as_ref()?, self.explore_root()?);
         let name = edit.input.read(cx).value().to_string();
         let folder = edit.naming.folder() || name.ends_with('/');
@@ -256,13 +282,16 @@ impl Desktop {
             .child(file_icon(&name, folder, false, 16.))
             .child(div().flex_1().min_w_0().child(Input::new(&edit.input).appearance(false).p_0().text_size(px(13.5))))
             .children(problem.map(|p| ui::dropdown(32., ui::pop(div()).max_w(px(280.)).px(px(10.)).py(px(6.)).text_size(px(12.5)).text_color(FAILED).child(p))));
-        Some(row)
+        if edit.shakes == 0 {
+            return Some(row.into_any_element());
+        }
+        Some(row.with_animation(("tree-edit-shake", edit.shakes), Animation::new(SHAKE), |d, t| d.left(px(shake_x(t)))).into_any_element())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, Verdict, new_row_at, selected_len, verdict};
+    use super::{ExplorerState, Row, Verdict, new_row_at, selected_len, shake_x, verdict};
     use std::path::{Path, PathBuf};
 
     fn state(listings: &[(&str, &[(bool, &str)])]) -> ExplorerState {
@@ -356,5 +385,10 @@ mod tests {
         assert_eq!(s.tree[Path::new("/r/lib")], [(true, PathBuf::from("/r/lib/ui"))]);
         assert_eq!(s.tree[Path::new("/r/lib/ui")], [(false, PathBuf::from("/r/lib/ui/a.rs"))]);
         assert!(!s.tree.contains_key(Path::new("/r/src")));
+    }
+
+    #[test]
+    fn a_shake_goes_left_then_right_then_a_little_left_and_settles_home() {
+        assert_eq!([0., 0.1, 0.2, 0.45, 0.7, 1.].map(shake_x), [0., -2., -4., 4., -2., 0.]);
     }
 }
