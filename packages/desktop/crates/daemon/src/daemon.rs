@@ -141,7 +141,8 @@ fn terminal_env_in(env: impl Fn(&str) -> Option<String>, shell: &str) -> Vec<(St
         ("SHELL", shell.into()),
         ("TERM", "xterm-256color".into()),
         ("COLORTERM", "truecolor".into()),
-        ("TERM_PROGRAM", "Pocket".into()),
+        // Lets Claude Code open links on click: mouse reports can't carry ⌘.
+        ("TERM_PROGRAM", "ghostty".into()),
     ];
     kept.chain(set.map(|(k, v)| (k.to_string(), v))).collect()
 }
@@ -451,6 +452,7 @@ mod tests {
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
         assert_eq!((get("HOME"), get("USER"), get("TMUX")), (Some("/h"), Some("u"), None));
         assert_eq!((get("SHELL"), get("TERM"), get("COLORTERM")), (Some("/opt/homebrew/bin/fish"), Some("xterm-256color"), Some("truecolor")));
+        assert_eq!(get("TERM_PROGRAM"), Some("ghostty"));
         assert_eq!((get("PATH"), get("LANG")), (Some("/usr/bin:/bin:/usr/sbin:/sbin"), Some("en_US.UTF-8")));
     }
 
