@@ -233,6 +233,7 @@ impl Desktop {
         self.focus_pane(term, window, cx);
         self.save_soon(cx);
         self.refresh_git(cx);
+        self.load_repo(cx);
     }
 
     pub(crate) fn set_appearance(&mut self, appearance: WindowAppearance, window: &mut Window, cx: &mut Context<Self>) {
@@ -252,13 +253,8 @@ impl Desktop {
     }
 
     pub fn select_project(&mut self, p: String, cx: &mut Context<Self>) {
-        self.screen = Screen::Sessions;
-        if self.project.as_ref() != Some(&p) {
-            self.set_project(Some(p));
-            self.refresh_git(cx);
-            self.load_active(cx);
-        }
-        cx.notify();
+        let tree = self.worktree.clone().filter(|_| self.project.as_ref() == Some(&p));
+        self.select_tree(p, tree, cx);
     }
 
     fn set_project(&mut self, p: Option<String>) {
@@ -275,10 +271,15 @@ impl Desktop {
 
     /// Shows worktree `tree` of project `p`; `None` is the project's main worktree.
     pub fn select_tree(&mut self, p: String, tree: Option<String>, cx: &mut Context<Self>) {
-        self.select_project(p, cx);
-        if self.worktree != tree {
+        self.screen = Screen::Sessions;
+        let moved = self.project.as_ref() != Some(&p);
+        if moved {
+            self.set_project(Some(p));
+        }
+        if moved || self.worktree != tree {
             self.worktree = tree;
             self.refresh_git(cx);
+            self.load_repo(cx);
             self.load_active(cx);
         }
         cx.notify();

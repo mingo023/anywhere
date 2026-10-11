@@ -194,6 +194,7 @@ impl Desktop {
             trees.retain(|w| w.path != tree);
         }
         self.workspaces.remove(tree);
+        self.repos.remove(tree);
         self.prs.forget(tree);
         self.store.layouts.remove(tree);
         self.store.untrack(tree);
