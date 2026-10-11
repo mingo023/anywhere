@@ -274,7 +274,7 @@ impl Desktop {
         }
     }
 
-    fn flash_added(&mut self, provider: String, cx: &mut Context<Self>) {
+    pub(crate) fn flash_added(&mut self, provider: String, cx: &mut Context<Self>) {
         let hide = cx.spawn(async |this, cx| {
             cx.background_executor().timer(ADDED_TOAST).await;
             this.update(cx, |d, cx| {

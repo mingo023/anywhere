@@ -1,10 +1,15 @@
+pub(crate) mod edit;
+pub(crate) mod files;
+pub(crate) mod menu;
 pub(crate) mod mermaid;
 pub(crate) mod preview;
+mod toast;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Side, id};
 use crate::util::list_dir;
 use git::FileStat;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -42,6 +47,9 @@ pub fn status_word(status: Option<char>) -> (Token, &'static str) {
 
 pub struct ExplorerState {
     pub(crate) tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
+    pub(crate) menu: Option<menu::TreeMenu>,
+    edit: Option<edit::NameEdit>,
+    notice: Option<(toast::Notice, Task<()>)>,
 }
 
 /// A line of the tree: a file, or a folder and whether it is open.
@@ -55,7 +63,7 @@ pub struct Row {
 
 impl ExplorerState {
     pub fn new() -> Self {
-        Self { tree: HashMap::new() }
+        Self { tree: HashMap::new(), menu: None, edit: None, notice: None }
     }
 
     /// The tree under `root` top to bottom, descending into open folders only.
@@ -68,6 +76,11 @@ impl ExplorerState {
     /// Folds `dir`, keeping its open subfolders; false when it wasn't open.
     pub fn fold(&mut self, dir: &Path) -> bool {
         self.tree.remove(dir).is_some()
+    }
+
+    /// Whether the menu is open on `path`, or on the root for `None`.
+    pub(crate) fn menu_on(&self, path: Option<&Path>) -> bool {
+        self.menu.as_ref().is_some_and(|m| m.target.as_ref().map(|(p, _)| p.as_path()) == path)
     }
 
     fn push_rows(&self, dir: &Path, depth: usize, rows: &mut Vec<Row>) {
@@ -158,24 +171,58 @@ impl Desktop {
             .mx(px(8.))
             .mt(px(8.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::actions::GoToFile, window, cx)));
-        let rows = self.explore_root().map(|root| self.explorer.rows(Path::new(&root))).unwrap_or_default();
-        let rows: Vec<_> = rows.into_iter().map(|row| self.tree_row(row, &touched, cx)).collect();
-        let list = div().id("explorer").flex_1().min_h_0().px(px(8.)).pt(px(8.)).pb(px(8.)).overflow_y_scroll().flex().flex_col().gap(px(1.)).children(rows);
-        div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list)
+        let root = self.explore_root().map(PathBuf::from);
+        let rows = root.as_deref().map(|root| self.explorer.rows(root)).unwrap_or_default();
+        let new_row = root.as_deref().zip(self.explorer.new_parent()).and_then(|(root, parent)| edit::new_row_at(&rows, parent, root));
+        let mut rows: Vec<_> = rows.into_iter().map(|row| self.tree_row(row, &touched, cx)).collect();
+        if let Some((i, depth)) = new_row
+            && let Some(row) = self.edit_row(depth, cx)
+        {
+            rows.insert(i, row);
+        }
+        let list = div()
+            .id("explorer")
+            .flex_1()
+            .min_h_0()
+            .px(px(8.))
+            .pt(px(8.))
+            .pb(px(8.))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap(px(1.))
+            .on_mouse_down(MouseButton::Right, self.open_tree_menu(None, cx))
+            .when(self.explorer.menu_on(None), |d| d.shadow(outline(ACCENT)))
+            .children(rows);
+        div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list).children(self.tree_menu(cx))
     }
 
     fn tree_row(&self, Row { path, depth, is_dir, open }: Row, touched: &[String], cx: &mut Context<Self>) -> Stateful<Div> {
+        if self.explorer.renaming(&path)
+            && let Some(row) = self.edit_row(depth, cx)
+        {
+            return row;
+        }
         let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let key = path.to_string_lossy().to_string();
-        if !is_dir {
+        let menu = self.open_tree_menu(Some((path.clone(), is_dir)), cx);
+        let targeted = self.explorer.menu_on(Some(&path));
+        let row = if !is_dir {
             let selected = self.preview.file(self.focused_pane()) == Some(key.as_str());
             let git = self.file_status(&key);
             let touched = touched.contains(&key);
-            return ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
-                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)));
-        }
-        ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
+            ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
+                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)))
+        } else {
+            ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
+        };
+        row.on_mouse_down(MouseButton::Right, menu).when(targeted, |d| d.shadow(outline(ACCENT)))
     }
+}
+
+/// A 1px ring inside a row's edge: the row the menu is for, or the one a name is typed in.
+fn outline(color: Token) -> Vec<BoxShadow> {
+    vec![BoxShadow { inset: true, ..ui::ring(color, 1.) }]
 }
 
 #[cfg(test)]

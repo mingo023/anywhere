@@ -401,7 +401,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.automations.menu.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.automations.menu.is_some() || self.explorer.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -412,6 +412,7 @@ impl Desktop {
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;
         self.automations.menu = None;
+        self.explorer.menu = None;
         open
     }
 
@@ -437,7 +438,7 @@ impl Desktop {
             None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
             None => self.blank_page(cx),
         };
-        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast()).children(self.pr_notice(cx))
+        ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast()).children(self.tree_toast(cx)).children(self.pr_notice(cx))
     }
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
@@ -531,13 +532,18 @@ impl Render for Desktop {
             .text_color(TEXT)
             .when(self.screen == Screen::Inbox, |d| d.key_context(crate::inbox::CONTEXT))
             .when(self.screen == Screen::Settings, |d| d.key_context(crate::settings::CONTEXT))
+            .when(self.explorer.menu.is_some(), |d| d.key_context(crate::explorer::menu::CONTEXT))
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.hide_chips(cx);
+                // ⌘Z undoes a trash only while no text field would take it as its own undo.
+                if ev.keystroke.key == "z" && ev.keystroke.modifiers == Modifiers::command() && !window.context_stack().iter().any(|c| c.contains("Input")) && this.undo_trash(cx) {
+                    return cx.stop_propagation();
+                }
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.sidebar.cancel_rename() || this.close_picker() || this.close_menus() {
+                if this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.close_menus() {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
@@ -586,6 +592,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::open_selected))
             .on_action(cx.listener(Self::add_to_chat))
+            .on_action(cx.listener(Self::tree_menu_item))
             .children(lead)
             .children(column)
             .child(page)
