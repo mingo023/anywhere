@@ -178,7 +178,9 @@ impl Desktop {
         let (Some(edit), Some(root)) = (self.explorer.edit.as_ref(), self.explore_root()) else { return };
         let name = edit.input.read(cx).value().trim().to_string();
         let refused = self.explorer.edit_problem(&name, Path::new(&root)).is_some();
-        match verdict(&name, edit.naming.renaming().map(name_of).as_deref(), refused, strict) {
+        // An edit begun in a tree since switched away from is no longer on screen, so it goes unsaved.
+        let left = !edit.naming.parent().starts_with(&root);
+        match if left { Verdict::Drop } else { verdict(&name, edit.naming.renaming().map(name_of).as_deref(), refused, strict) } {
             Verdict::Keep => return,
             Verdict::Drop => self.explorer.edit = None,
             Verdict::Save => {
