@@ -181,14 +181,14 @@ impl Desktop {
                     return;
                 }
                 d.git_done = run;
-                let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
                 let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 // Before `worktrees` is replaced, while it still places their terminals.
                 for t in &gone {
                     d.forget_tree(t, cx);
                 }
-                let mut changed = !gone.is_empty() || repos != d.repos || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
-                (d.repos, d.explorer.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
+                let repos_changed = merge_repos(&mut d.repos, repos);
+                let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
+                (d.explorer.tree, d.initials, d.worktrees) = (tree, initials, worktrees);
                 d.poll_prs(cx);
                 for (pane, file) in files {
                     changed |= d.preview.apply(pane, file);
@@ -204,6 +204,27 @@ impl Desktop {
         })
         .detach();
         self.refresh_graph(cx);
+    }
+
+    /// Reads only the tree on screen, so a switch shows its changes without waiting for `refresh_git` to read every tree.
+    pub(crate) fn load_shown_repo(&mut self, cx: &mut Context<Self>) {
+        let Some(cwd) = self.cwd() else { return };
+        let (run, untracked) = (self.git_run, self.store.git.untracked);
+        let task = cx.background_executor().spawn({
+            let cwd = cwd.clone();
+            async move { git::read(&cwd, untracked) }
+        });
+        cx.spawn(async move |this, cx| {
+            let repo = task.await;
+            this.update(cx, |d, cx| {
+                // A newer refresh or a stage reads the index after this one did.
+                if run == d.git_run && d.cwd().as_ref() == Some(&cwd) && merge_repos(&mut d.repos, vec![(cwd, repo)]) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn repo_name(&self, path: &str) -> String {
@@ -241,6 +262,8 @@ impl Desktop {
         }
         self.store.remove(p);
         self.store.save();
+        let only = [p.to_string()];
+        self.repos.retain(|cwd, _| project::project_of(cwd, &only, &self.worktrees).is_none());
         self.worktrees.remove(p);
         if self.project.as_deref() == Some(p) {
             self.set_project(None);
@@ -259,5 +282,50 @@ impl Desktop {
             self.overlay = Some(Overlay::Confirm);
         }
         cx.notify();
+    }
+}
+
+/// Applies `read`, keeping folders it skipped so switching back shows them at once. Returns whether anything changed.
+fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo>)>) -> bool {
+    let mut changed = false;
+    for (cwd, repo) in read {
+        changed |= match repo {
+            Some(r) if repos.get(&cwd) != Some(&r) => {
+                repos.insert(cwd, r);
+                true
+            }
+            Some(_) => false,
+            None => repos.remove(&cwd).is_some(),
+        };
+    }
+    changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HashMap, Repo, merge_repos};
+
+    fn repo(branch: &str) -> Repo {
+        Repo { branch: branch.into(), ..Repo::default() }
+    }
+
+    #[test]
+    fn a_refresh_keeps_the_repos_it_did_not_read() {
+        let mut repos = HashMap::from([("/a".to_string(), repo("main")), ("/b".to_string(), repo("main"))]);
+        assert!(merge_repos(&mut repos, vec![("/a".into(), Some(repo("fix")))]));
+        assert_eq!((repos["/a"].branch.as_str(), repos["/b"].branch.as_str()), ("fix", "main"));
+    }
+
+    #[test]
+    fn a_folder_no_longer_a_repo_is_dropped() {
+        let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
+        assert!(merge_repos(&mut repos, vec![("/a".into(), None)]));
+        assert!(repos.is_empty());
+    }
+
+    #[test]
+    fn reading_the_same_state_changes_nothing() {
+        let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
+        assert!(!merge_repos(&mut repos, vec![("/a".into(), Some(repo("main"))), ("/b".into(), None)]));
     }
 }
