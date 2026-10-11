@@ -8,8 +8,8 @@ use agents::Summary;
 use agents::locals::is_local;
 use git::Repo;
 use gpui_kit::*;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 use theme::*;
 use ui::State;
 use workspace::Workspace;
@@ -148,6 +148,7 @@ impl Desktop {
             Some((*p, f, changed))
         }).collect();
         let root = self.cwd();
+        let known: BTreeSet<String> = self.store.tracked.iter().cloned().chain(self.worktrees.values().flatten().filter(|w| !w.main).map(|w| w.path.clone())).collect();
         let (untracked, options) = (self.store.git.untracked, self.diff.options);
         let diffs: Vec<_> = self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.working_file()?.to_string(), v.open.clone(), v.lines.clone()))).collect();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
@@ -170,10 +171,11 @@ impl Desktop {
                 (p, w)
             }).collect();
             let files: Vec<_> = files.into_iter().map(|(p, f, changed)| (p, preview::load(&f, changed))).collect();
-            (repos, diffs, initials, tree, worktrees, files)
+            let gone = project::vanished(known, &worktrees, |t| Path::new(t).exists());
+            (repos, diffs, initials, tree, worktrees, files, gone)
         });
         cx.spawn(async move |this, cx| {
-            let (repos, diffs, initials, tree, worktrees, files) = task.await;
+            let (repos, diffs, initials, tree, worktrees, files, gone) = task.await;
             this.update(cx, |d, cx| {
                 if run != d.git_run {
                     return;
@@ -181,7 +183,11 @@ impl Desktop {
                 d.git_done = run;
                 let repos: HashMap<String, Repo> = repos.into_iter().filter_map(|(c, r)| Some((c, r?))).collect();
                 let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
-                let mut changed = repos != d.repos || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
+                // Before `worktrees` is replaced, while it still places their terminals.
+                for t in &gone {
+                    d.forget_tree(t, cx);
+                }
+                let mut changed = !gone.is_empty() || repos != d.repos || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.repos, d.explorer.tree, d.initials, d.worktrees) = (repos, tree, initials, worktrees);
                 d.poll_prs(cx);
                 for (pane, file) in files {

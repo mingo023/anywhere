@@ -1,5 +1,5 @@
 use git::Worktree;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Each saved project's git worktrees, keyed by the project's folder.
 pub type Worktrees = HashMap<String, Vec<Worktree>>;
@@ -53,6 +53,12 @@ pub fn git_cwds(project: Option<&str>, sessions: Vec<String>, worktrees: &Worktr
     cwds.sort();
     cwds.dedup();
     cwds
+}
+
+/// The `known` trees gone from both git and disk. A folder still on disk stays, as git may have failed to list its project.
+pub fn vanished(known: impl IntoIterator<Item = String>, worktrees: &Worktrees, exists: impl Fn(&str) -> bool) -> Vec<String> {
+    let listed: HashSet<&str> = worktrees.values().flatten().map(|w| w.path.as_str()).collect();
+    known.into_iter().filter(|t| !listed.contains(t.as_str()) && !exists(t)).collect()
 }
 
 /// The worktree a folder belongs to: the listed worktree holding it, else the project it is in.
@@ -193,5 +199,18 @@ mod tests {
         assert_eq!(shown, list(&["/a/foo", "/w/fix"]));
         let hidden: Vec<String> = untracked(&worktrees["/a/foo"], tracked).into_iter().map(|w| w.path).collect();
         assert_eq!(hidden, list(&["/w/spike"]));
+    }
+
+    #[test]
+    fn a_tree_gone_from_git_and_disk_has_vanished() {
+        let worktrees = trees("/a/foo", &["/a/foo", "/w/fix"]);
+        let gone = vanished(list(&["/w/fix", "/w/old"]), &worktrees, |_| false);
+        assert_eq!(gone, list(&["/w/old"]));
+    }
+
+    #[test]
+    fn a_tree_whose_folder_remains_has_not_vanished_though_git_lists_nothing() {
+        let gone = vanished(list(&["/w/fix", "/w/old"]), &Worktrees::new(), |t| t == "/w/fix");
+        assert_eq!(gone, list(&["/w/old"]));
     }
 }
