@@ -98,7 +98,7 @@ fn set_aside(tree: &str) -> Option<PathBuf> {
 
 /// Purges a set-aside tree, or moves it to the Trash, then drops the folder that held it.
 fn dispose(aside: &Path, trash: bool) {
-    if !(trash && crate::util::trash(aside)) {
+    if !(trash && crate::util::trash(aside).is_some()) {
         std::fs::remove_dir_all(aside).ok();
     }
     if let Some(holder) = aside.parent() {

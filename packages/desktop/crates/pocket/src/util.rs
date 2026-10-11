@@ -46,18 +46,20 @@ pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, Pa
     entries
 }
 
-/// Moves `path` to the Trash; false when it couldn't.
-pub fn trash(path: &Path) -> bool {
+/// Moves `path` to the Trash, returning where it landed; `None` when it couldn't.
+pub fn trash(path: &Path) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         use objc2_foundation::{NSFileManager, NSString, NSURL};
         let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
-        NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).is_ok()
+        let mut landed = None;
+        NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, Some(&mut landed)).ok()?;
+        landed?.path().map(|p| PathBuf::from(p.to_string()))
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = path;
-        false
+        None
     }
 }
 

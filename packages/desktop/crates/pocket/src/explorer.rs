@@ -1,15 +1,26 @@
+pub(crate) mod edit;
+pub(crate) mod files;
+pub(crate) mod menu;
 pub(crate) mod mermaid;
 pub(crate) mod preview;
+pub(crate) mod toast;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Side, id};
 use crate::util::list_dir;
 use git::FileStat;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use theme::*;
+use std::time::{Duration, Instant};
 use workspace::Doc;
+
+/// How long a row just made, renamed or put back stays ringed.
+const FLASH: Duration = Duration::from_millis(900);
 
 /// Fresh listings for the folders still open, so a folder opened or closed while they were read keeps its new state.
 pub fn merge_tree(fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>, open: &HashMap<PathBuf, Vec<(bool, PathBuf)>>, root: Option<&Path>) -> HashMap<PathBuf, Vec<(bool, PathBuf)>> {
@@ -42,10 +53,21 @@ pub fn status_word(status: Option<char>) -> (Token, &'static str) {
 
 pub struct ExplorerState {
     pub(crate) tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
+    pub(crate) menu: Option<menu::TreeMenu>,
+    /// The menu just closed, fading out, and when it closed.
+    leaving: Option<(menu::TreeMenu, Instant)>,
+    edit: Option<edit::NameEdit>,
+    notice: Option<(toast::Notice, Task<()>)>,
+    /// The last trash, while its notice shows.
+    undo: Option<toast::Trashed>,
+    flash: Option<(PathBuf, Task<()>)>,
+    scroll: UniformListScrollHandle,
+    /// Scroll the edit row, or else the flashed one, into view once it's listed.
+    seek: bool,
 }
 
 /// A line of the tree: a file, or a folder and whether it is open.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub path: PathBuf,
     pub depth: usize,
@@ -55,7 +77,7 @@ pub struct Row {
 
 impl ExplorerState {
     pub fn new() -> Self {
-        Self { tree: HashMap::new() }
+        Self { tree: HashMap::new(), menu: None, leaving: None, edit: None, notice: None, undo: None, flash: None, scroll: UniformListScrollHandle::new(), seek: false }
     }
 
     /// The tree under `root` top to bottom, descending into open folders only.
@@ -68,6 +90,15 @@ impl ExplorerState {
     /// Folds `dir`, keeping its open subfolders; false when it wasn't open.
     pub fn fold(&mut self, dir: &Path) -> bool {
         self.tree.remove(dir).is_some()
+    }
+
+    /// Whether the menu is open on `path`, or on the root for `None`.
+    pub(crate) fn menu_on(&self, path: Option<&Path>) -> bool {
+        self.menu.as_ref().is_some_and(|m| m.target.as_ref().map(|(p, _)| p.as_path()) == path)
+    }
+
+    fn flashing(&self, path: &Path) -> bool {
+        self.flash.as_ref().is_some_and(|(p, _)| p == path)
     }
 
     fn push_rows(&self, dir: &Path, depth: usize, rows: &mut Vec<Row>) {
@@ -87,6 +118,11 @@ impl Desktop {
         self.worktree.as_deref().and_then(|t| self.folder_of(t)).or_else(|| self.project.clone())
     }
 
+    /// Whether `path` lies in the tree on screen, so what a slow write made there may be shown.
+    pub(crate) fn in_explore_root(&self, path: &Path) -> bool {
+        self.explore_root().is_some_and(|r| path.starts_with(r))
+    }
+
     /// Git's letter for a file under the explore root, if it has changed.
     pub fn file_status(&self, path: &str) -> Option<char> {
         let root = self.explore_root()?;
@@ -97,6 +133,20 @@ impl Desktop {
         let Some(root) = self.explore_root() else { return Vec::new() };
         let files = self.repos.get(&root).map(|r| r.files.as_slice()).unwrap_or_default();
         touched(files, &root, |p| self.agents.last_edit(p).is_some())
+    }
+
+    /// Rings `path`'s row for a moment and scrolls to it: what a create, rename or undo just made.
+    pub(crate) fn flash_row(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let fade = cx.spawn(async |this, cx| {
+            cx.background_executor().timer(FLASH).await;
+            this.update(cx, |d, cx| {
+                d.explorer.flash = None;
+                cx.notify();
+            })
+            .ok();
+        });
+        self.explorer.flash = Some((path, fade));
+        self.explorer.seek = true;
     }
 
     /// Lists the open folders again under new Explorer settings, applied only while those settings still hold.
@@ -158,29 +208,101 @@ impl Desktop {
             .mx(px(8.))
             .mt(px(8.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::actions::GoToFile, window, cx)));
-        let rows = self.explore_root().map(|root| self.explorer.rows(Path::new(&root))).unwrap_or_default();
-        let rows: Vec<_> = rows.into_iter().map(|row| self.tree_row(row, &touched, cx)).collect();
-        let list = div().id("explorer").flex_1().min_h_0().px(px(8.)).pt(px(8.)).pb(px(8.)).overflow_y_scroll().flex().flex_col().gap(px(1.)).children(rows);
-        div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list)
+        let root = self.explore_root().map(PathBuf::from);
+        let rows = root.as_deref().map(|root| self.explorer.rows(root)).unwrap_or_default();
+        let new_row = root.as_deref().zip(self.explorer.new_in()).and_then(|(root, parent)| edit::new_row_at(&rows, parent, root));
+        let renamed = self.explorer.renamed().map(Path::to_path_buf);
+        let flashed = self.explorer.flash.as_ref().map(|(p, _)| p.clone());
+        if self.explorer.seek
+            && let Some(ix) = seek(&rows, new_row.map(|(i, _)| i), renamed.as_deref(), flashed.as_deref())
+        {
+            self.explorer.scroll.scroll_to_item(ix, ScrollStrategy::Nearest);
+            self.explorer.seek = false;
+        }
+        let lines = rows.len() + usize::from(new_row.is_some());
+        let list = uniform_list(
+            "explorer",
+            lines,
+            cx.processor(move |this, range: Range<usize>, _, cx| {
+                range
+                    .map(|ix| {
+                        let line = match new_row {
+                            Some((at, depth)) if ix == at => this.edit_row(depth, cx).unwrap_or_else(|| div().into_any_element()),
+                            Some((at, _)) if ix > at => this.tree_row(rows[ix - 1].clone(), &touched, cx),
+                            _ => this.tree_row(rows[ix].clone(), &touched, cx),
+                        };
+                        div().w_full().pb(px(1.)).flex().flex_col().child(line)
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.explorer.scroll)
+        .size_full()
+        .px(px(8.))
+        .pt(px(8.))
+        .pb(px(8.));
+        let list = div()
+            .id("explorer")
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .child(list)
+            .vertical_scrollbar(&self.explorer.scroll)
+            .on_mouse_down(MouseButton::Right, self.open_tree_menu(None, cx))
+            .when(self.explorer.menu_on(None), |d| d.shadow(outline(ACCENT)));
+        div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list).children(self.tree_menu(cx))
     }
 
-    fn tree_row(&self, Row { path, depth, is_dir, open }: Row, touched: &[String], cx: &mut Context<Self>) -> Stateful<Div> {
-        let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    fn tree_row(&self, Row { path, depth, is_dir, open }: Row, touched: &[String], cx: &mut Context<Self>) -> AnyElement {
+        if self.explorer.renaming(&path)
+            && let Some(row) = self.edit_row(depth, cx)
+        {
+            return row;
+        }
+        let label = name_of(&path);
         let key = path.to_string_lossy().to_string();
-        if !is_dir {
-            let selected = self.preview.file(self.focused_pane()) == Some(key.as_str());
+        let menu = self.open_tree_menu(Some((path.clone(), is_dir)), cx);
+        let targeted = self.explorer.menu_on(Some(&path));
+        let flash = self.explorer.flashing(&path).then(|| id(format!("flash-{key}")));
+        let selected = !is_dir && self.preview.file(self.focused_pane()) == Some(key.as_str());
+        let row = if !is_dir {
             let git = self.file_status(&key);
             let touched = touched.contains(&key);
-            return ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
-                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)));
-        }
-        ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
+            ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
+                .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)))
+        } else {
+            ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
+        };
+        let row = row.on_mouse_down(MouseButton::Right, menu).when(targeted, |d| d.shadow(outline(ACCENT)));
+        let Some(flash) = flash else { return row.into_any_element() };
+        row.with_animation(flash, Animation::new(FLASH).with_easing(ease_out_quint()), move |d, t| {
+            let fade = |c: Token| Hsla::from(c).opacity(1. - t);
+            d.when(!selected && t < 1., |d| d.bg(fade(ACCENT_BG))).shadow(outline(fade(ACCENT)))
+        })
+        .into_any_element()
     }
+}
+
+/// Which row to scroll to: the new item's, else the renamed or flashed one's.
+pub fn seek(rows: &[Row], new_row: Option<usize>, renamed: Option<&Path>, flashed: Option<&Path>) -> Option<usize> {
+    new_row.or_else(|| {
+        let at = renamed.or(flashed)?;
+        rows.iter().position(|r| r.path == at)
+    })
+}
+
+fn name_of(path: &Path) -> String {
+    crate::util::basename(&path.to_string_lossy())
+}
+
+/// A 1px ring inside a row's edge: the row the menu is for, or the one a name is typed in.
+fn outline(color: impl Into<Hsla>) -> Vec<BoxShadow> {
+    vec![BoxShadow { inset: true, ..ui::ring(color, 1.) }]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, list_dir, merge_tree, status_of, touched};
+    use super::{ExplorerState, Row, list_dir, merge_tree, seek, status_of, touched};
     use store::prefs::files::Files;
     use git::FileStat;
     use std::collections::HashMap;
@@ -266,5 +388,15 @@ mod tests {
         let tree = merge_tree(fresh.clone(), &HashMap::new(), Some(Path::new("/r")));
         assert_eq!(tree, HashMap::from([("/r".into(), vec![entry(false, "/r/a.rs")])]));
         assert_eq!(merge_tree(fresh, &HashMap::new(), None), HashMap::new());
+    }
+
+    #[test]
+    fn the_new_row_is_scrolled_to_before_a_renamed_or_flashed_one() {
+        let row = |p: &str| Row { path: p.into(), depth: 0, is_dir: false, open: false };
+        let rows = [row("/r/a"), row("/r/b")];
+        assert_eq!(seek(&rows, Some(0), None, Some(Path::new("/r/b"))), Some(0));
+        assert_eq!(seek(&rows, None, Some(Path::new("/r/b")), Some(Path::new("/r/a"))), Some(1));
+        assert_eq!(seek(&rows, None, None, Some(Path::new("/r/a"))), Some(0));
+        assert_eq!(seek(&rows, None, None, Some(Path::new("/r/gone"))), None);
     }
 }

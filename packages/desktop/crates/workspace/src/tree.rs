@@ -385,6 +385,10 @@ impl<T> Tree<T> {
         self.tidy();
     }
 
+    pub fn each_tab_mut(&mut self, mut f: impl FnMut(&mut T)) {
+        self.root.each_pane_mut(&mut |p| p.tabs.iter_mut().for_each(&mut f));
+    }
+
     /// Each pane's rect within `bounds`, in reading order.
     pub fn layout(&self, bounds: Rect) -> Vec<(PaneId, Rect)> {
         let mut out = Vec::new();

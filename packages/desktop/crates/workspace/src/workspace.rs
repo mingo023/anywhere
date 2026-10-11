@@ -135,6 +135,34 @@ impl Workspace {
         self.tree.retain(|t| !matches!(t, Tab::Term(id) if ids.contains(id)));
     }
 
+    /// Points the tabs of files at or under `from` to where a rename moved them.
+    pub fn move_files(&mut self, from: &str, to: &str) {
+        let retarget = |d: &mut Doc| {
+            if let Doc::File(p) = d
+                && let Some(moved) = moved(p, from, to)
+            {
+                *p = moved;
+            }
+        };
+        self.tree.each_tab_mut(|t| {
+            if let Tab::Doc(d) = t {
+                retarget(d);
+            }
+        });
+        if let Some(d) = self.preview.as_mut() {
+            retarget(d);
+        }
+    }
+
+    /// Drops the tabs of files at or under `path` but those `keep` holds on to, closing the panes they leave empty.
+    pub fn close_files(&mut self, path: &str, keep: impl Fn(&str) -> bool) {
+        let gone = |d: &Doc| matches!(d, Doc::File(p) if under(p, path) && !keep(p));
+        self.tree.retain(|t| !matches!(t, Tab::Doc(d) if gone(d)));
+        if self.preview.as_ref().is_some_and(gone) {
+            self.preview = None;
+        }
+    }
+
     /// Takes tab `i` out of `pane`; a closed doc stops being the preview.
     pub fn close(&mut self, pane: PaneId, i: usize) -> Option<Tab> {
         let tab = self.tree.take(pane, i)?;
@@ -173,6 +201,15 @@ impl Workspace {
         });
         self
     }
+}
+
+/// `path` with its `from` prefix swapped for `to`, when it is `from` or lies under it.
+pub fn moved(path: &str, from: &str, to: &str) -> Option<String> {
+    under(path, from).then(|| format!("{to}{}", &path[from.len()..]))
+}
+
+fn under(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 #[cfg(test)]
@@ -427,5 +464,29 @@ mod tests {
         w.tree.push(0, Tab::Web(1));
         w.tree.push(0, term("alive"));
         assert_eq!(tabs(&w.restored(&["alive".into()])), vec![vec![term("alive")]]);
+    }
+
+    #[test]
+    fn a_rename_moves_the_tabs_of_the_file_and_of_what_the_folder_held() {
+        let mut w = Workspace::default();
+        w.open_doc(file("/r/src/a.rs"), true, Some(0));
+        w.open_doc(file("/r/srcs/b.rs"), true, Some(0));
+        w.open_doc(file("/r/src"), false, Some(0));
+        w.move_files("/r/src", "/r/lib");
+        assert_eq!(tabs(&w), vec![vec![Tab::Doc(file("/r/lib/a.rs")), Tab::Doc(file("/r/srcs/b.rs")), Tab::Doc(file("/r/lib"))]]);
+        assert_eq!(w.preview, Some(file("/r/lib")));
+    }
+
+    #[test]
+    fn a_trash_closes_the_tabs_under_it_but_those_kept_and_empties_their_pane() {
+        let mut w = with(&["t"]);
+        let docs = w.open_doc(file("/r/src/a.rs"), true, None).0;
+        w.open_doc(file("/r/src/b.rs"), false, Some(docs));
+        w.open_doc(file("/r/src/c.rs"), true, Some(docs));
+        w.close_files("/r/src", |p| p == "/r/src/c.rs");
+        assert_eq!(tabs(&w), vec![vec![term("t")], vec![Tab::Doc(file("/r/src/c.rs"))]]);
+        assert_eq!(w.preview, None);
+        w.close_files("/r/src", |_| false);
+        assert_eq!(tabs(&w), vec![vec![term("t")]]);
     }
 }

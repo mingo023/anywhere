@@ -1,8 +1,10 @@
-use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar};
+use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
 use crate::add_to_chat::Quote;
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::empty_pane::Menu;
+use crate::explorer::menu::{Arrow, TreeMenu};
+use crate::explorer::toast::Notice;
 use crate::modals::new_session::picker::Picker;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::git_ui::diff::At;
@@ -20,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 104] = [
+const STEPS: [(&str, Step); 107] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -34,6 +36,18 @@ const STEPS: [(&str, Step); 104] = [
     ("explore", |d, _, cx| {
         (d.side, d.sidebar.panel_open) = (Side::Explorer, true);
         d.refresh_git(cx);
+    }),
+    ("tree-menu", |d, window, cx| {
+        let Some(root) = d.explore_root().map(PathBuf::from) else { return };
+        let target = d.explorer.tree.get(&root).and_then(|l| l.first()).map(|(dir, p)| (p.clone(), *dir));
+        d.explorer.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, window.viewport_size().width));
+        cx.notify();
+    }),
+    ("tree-menu-down", |d, window, cx| d.tree_menu_arrow(&TreeMenuArrow(Arrow::Down), window, cx)),
+    ("tree-mentioned", |d, _, cx| {
+        if let Some(c) = d.chat_choices().into_iter().next() {
+            d.show_notice(Notice::Mentioned { provider: c.provider, title: c.title }, cx);
+        }
     }),
     ("changes", |d, _, cx| {
         d.open_changes(None, false, cx);

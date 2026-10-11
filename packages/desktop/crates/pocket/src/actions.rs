@@ -1,3 +1,4 @@
+use crate::explorer::menu::{self, Arrow, Item};
 use crate::{browser, inbox, settings};
 use gpui_kit::*;
 use std::collections::BTreeMap;
@@ -18,6 +19,19 @@ pub struct JumpToTab(pub usize);
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
 pub struct PageEdit(pub web::Edit);
+
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct TreeMenuItem(pub Item);
+
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct TreeMenuArrow(pub Arrow);
+
+/// Chooses the tree menu's highlighted chat or item.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct TreeMenuChoose;
 
 /// Focuses the panel touching the focused one at this edge.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -79,6 +93,15 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-a", PageEdit(web::Edit::SelectAll), Some(browser::CONTEXT)),
         KeyBinding::new("cmd-z", PageEdit(web::Edit::Undo), Some(browser::CONTEXT)),
         KeyBinding::new("cmd-shift-z", PageEdit(web::Edit::Redo), Some(browser::CONTEXT)),
+        KeyBinding::new("cmd-l", TreeMenuItem(Item::Mention), Some(menu::CONTEXT)),
+        KeyBinding::new("cmd-alt-c", TreeMenuItem(Item::Copy), Some(menu::CONTEXT)),
+        KeyBinding::new("cmd-alt-shift-c", TreeMenuItem(Item::CopyRelative), Some(menu::CONTEXT)),
+        KeyBinding::new("enter", TreeMenuChoose, Some(menu::CONTEXT)),
+        KeyBinding::new("down", TreeMenuArrow(Arrow::Down), Some(menu::CONTEXT)),
+        KeyBinding::new("up", TreeMenuArrow(Arrow::Up), Some(menu::CONTEXT)),
+        KeyBinding::new("left", TreeMenuArrow(Arrow::Left), Some(menu::CONTEXT)),
+        KeyBinding::new("right", TreeMenuArrow(Arrow::Right), Some(menu::CONTEXT)),
+        KeyBinding::new("cmd-backspace", TreeMenuItem(Item::Trash), Some(menu::CONTEXT)),
     ];
     out.extend((1..=9).map(|n| KeyBinding::new(&format!("cmd-{n}"), JumpToTab(n), None)));
     // Not ⌘⇧n: macOS takes ⌘⇧3–5 for screenshots before the app sees them.

@@ -1,0 +1,418 @@
+use super::{ExplorerState, Row, files, name_of, outline};
+use crate::desktop::Desktop;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::*;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+use theme::*;
+
+const SHAKE: Duration = Duration::from_millis(280);
+
+#[derive(Clone)]
+pub enum Naming {
+    New { parent: PathBuf, folder: bool },
+    Rename { path: PathBuf, folder: bool },
+}
+
+impl Naming {
+    fn parent(&self) -> &Path {
+        match self {
+            Naming::New { parent, .. } => parent,
+            Naming::Rename { path, .. } => path.parent().unwrap_or(path),
+        }
+    }
+
+    fn folder(&self) -> bool {
+        match self {
+            Naming::New { folder, .. } | Naming::Rename { folder, .. } => *folder,
+        }
+    }
+
+    /// What `name` comes to here; an edit begun in a tree since switched away from is off screen, so it goes unsaved.
+    pub fn verdict(&self, name: &str, root: &Path, refused: bool, strict: bool) -> Verdict {
+        if !self.parent().starts_with(root) {
+            return Verdict::Drop;
+        }
+        verdict(name, self.renaming().map(name_of).as_deref(), refused, strict)
+    }
+
+    fn renaming(&self) -> Option<&Path> {
+        match self {
+            Naming::Rename { path, .. } => Some(path),
+            Naming::New { .. } => None,
+        }
+    }
+}
+
+/// A name being typed into the tree: a new item's, in a row of its own, or a renamed one's, in its row.
+pub(crate) struct NameEdit {
+    naming: Naming,
+    input: Entity<InputState>,
+    /// Enter presses refused so far; each shakes the field anew.
+    shakes: usize,
+    _sub: Subscription,
+}
+
+/// What a typed name comes to: Enter (`strict`) keeps a refused name up to fix, and an emptied rename; leaving drops them.
+#[derive(Debug, PartialEq)]
+pub enum Verdict {
+    Save,
+    Keep,
+    Drop,
+}
+
+/// `was` is the renamed item's name, `None` for a new one.
+pub fn verdict(name: &str, was: Option<&str>, refused: bool, strict: bool) -> Verdict {
+    if was == Some(name) {
+        return Verdict::Drop;
+    }
+    if !name.is_empty() && !refused {
+        return Verdict::Save;
+    }
+    if strict && (refused || was.is_some()) { Verdict::Keep } else { Verdict::Drop }
+}
+
+/// The field's sideways offset, in px, `t` of the way through a shake: left, right, a smaller left, home.
+pub fn shake_x(t: f32) -> f32 {
+    const KEYS: [(f32, f32); 5] = [(0., 0.), (0.2, -4.), (0.45, 4.), (0.7, -2.), (1., 0.)];
+    KEYS.windows(2).find(|k| t <= k[1].0).map_or(0., |k| {
+        let ((t0, x0), (t1, x1)) = (k[0], k[1]);
+        x0 + (x1 - x0) * (t - t0).max(0.) / (t1 - t0)
+    })
+}
+
+/// How much of `name` starts selected: a file's name up to its extension, all of a folder's.
+pub fn selected_len(name: &str, folder: bool) -> usize {
+    if folder {
+        return name.len();
+    }
+    name.rfind('.').filter(|&i| i > 0).unwrap_or(name.len())
+}
+
+/// Where a new item's row goes among `rows`, and how deep: first inside `parent`, which must be open.
+pub fn new_row_at(rows: &[Row], parent: &Path, root: &Path) -> Option<(usize, usize)> {
+    if parent == root {
+        return Some((0, 0));
+    }
+    rows.iter().position(|r| r.path == parent && r.open).map(|i| (i + 1, rows[i].depth + 1))
+}
+
+impl ExplorerState {
+    /// Why `name` can't be made in `parent`, judged by the folders listed so far; `renaming` is the item being renamed, which doesn't clash with itself.
+    pub fn problem(&self, parent: &Path, name: &str, renaming: Option<&Path>, root: &Path) -> Option<String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        if renaming.is_some() && name.contains('/') {
+            return Some("A name can’t contain “/”".into());
+        }
+        let parts: Vec<&str> = name.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
+            return Some("Needs a name".into());
+        }
+        if parts.iter().any(|p| *p == "." || *p == "..") {
+            return Some("“.” and “..” are reserved".into());
+        }
+        let mut dir = parent.to_path_buf();
+        for (i, part) in parts.iter().enumerate() {
+            let (is_dir, hit) = self.tree.get(&dir)?.iter().find(|(_, p)| Some(p.as_path()) != renaming && name_of(p).to_lowercase() == part.to_lowercase())?;
+            if i == parts.len() - 1 {
+                let place = if dir == root { "the project".to_string() } else { format!("{}/", name_of(&dir)) };
+                return Some(format!("“{}” already exists in {place}", name_of(hit)));
+            }
+            if !is_dir {
+                return Some(format!("“{}” is a file, not a folder", name_of(hit)));
+            }
+            dir = hit.clone();
+        }
+        None
+    }
+
+    /// Opens the folders from `parent` down to the one holding `made`, so it shows once they're listed.
+    pub fn reveal(&mut self, parent: &Path, made: &Path) {
+        for dir in made.ancestors().skip(1).take_while(|d| d.starts_with(parent)) {
+            self.tree.entry(dir.to_path_buf()).or_default();
+        }
+    }
+
+    /// Points what the tree holds under `from` at `to`, after a rename.
+    pub fn moved(&mut self, from: &Path, to: &Path) {
+        let (from, to) = (from.to_string_lossy(), to.to_string_lossy());
+        let swap = |p: PathBuf| {
+            let moved = workspace::moved(&p.to_string_lossy(), &from, &to);
+            moved.map_or(p, PathBuf::from)
+        };
+        self.tree = std::mem::take(&mut self.tree).into_iter().map(|(dir, listing)| (swap(dir), listing.into_iter().map(|(d, p)| (d, swap(p))).collect())).collect();
+    }
+
+    /// Why the name typed so far can't be saved.
+    fn edit_problem(&self, name: &str, root: &Path) -> Option<String> {
+        let naming = &self.edit.as_ref()?.naming;
+        self.problem(naming.parent(), name, naming.renaming(), root)
+    }
+
+    pub(crate) fn renaming(&self, path: &Path) -> bool {
+        self.renamed() == Some(path)
+    }
+
+    pub(crate) fn renamed(&self) -> Option<&Path> {
+        self.edit.as_ref()?.naming.renaming()
+    }
+
+    pub(crate) fn new_in(&self) -> Option<&Path> {
+        match &self.edit.as_ref()?.naming {
+            Naming::New { parent, .. } => Some(parent),
+            Naming::Rename { .. } => None,
+        }
+    }
+
+    /// Drops the name being typed unsaved; true when there was one.
+    pub(crate) fn cancel_edit(&mut self) -> bool {
+        self.edit.take().is_some()
+    }
+}
+
+impl Desktop {
+    pub(crate) fn start_edit(&mut self, naming: Naming, window: &mut Window, cx: &mut Context<Self>) {
+        let folder = naming.folder();
+        let name = naming.renaming().map(name_of).unwrap_or_default();
+        let placeholder = if folder { "Folder name" } else { "File name — / makes folders" };
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+        let end = selected_len(&name, folder);
+        input.update(cx, |s, cx| {
+            s.set_value(name, window, cx);
+            s.focus(window, cx);
+            s.set_selected_range(0..end, cx);
+        });
+        let sub = cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, _, cx| match ev {
+            InputEvent::PressEnter { .. } => this.commit_edit(true, cx),
+            // Also when the row scrolls out of the list: GPUI loses the unrendered field's focus, as clicking away would.
+            InputEvent::Blur => this.commit_edit(false, cx),
+            InputEvent::Change => cx.notify(),
+            InputEvent::Focus => {}
+        });
+        if let Naming::New { parent, .. } = &naming
+            && !self.explorer.tree.contains_key(parent)
+        {
+            self.explorer.tree.insert(parent.clone(), Vec::new());
+            self.relist_explorer(cx);
+        }
+        self.explorer.edit = Some(NameEdit { naming, input, shakes: 0, _sub: sub });
+        self.explorer.seek = true;
+    }
+
+    pub(super) fn commit_edit(&mut self, strict: bool, cx: &mut Context<Self>) {
+        let (Some(edit), Some(root)) = (self.explorer.edit.as_ref(), self.explore_root()) else { return };
+        let name = edit.input.read(cx).value().trim().to_string();
+        let refused = self.explorer.edit_problem(&name, Path::new(&root)).is_some();
+        match edit.naming.verdict(&name, Path::new(&root), refused, strict) {
+            Verdict::Keep => {
+                if let Some(edit) = self.explorer.edit.as_mut() {
+                    edit.shakes += 1;
+                }
+            }
+            Verdict::Drop => self.explorer.edit = None,
+            Verdict::Save => {
+                let Some(edit) = self.explorer.edit.take() else { return };
+                self.save_name(edit.naming, name, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn save_name(&mut self, naming: Naming, name: String, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let made = cx.background_executor().spawn({
+                let (naming, name) = (naming.clone(), name.clone());
+                async move {
+                    match &naming {
+                        Naming::New { parent, folder } => files::create(parent, &name, *folder),
+                        Naming::Rename { path, .. } => files::rename(path, &name),
+                    }
+                }
+            });
+            let made = made.await;
+            this.update(cx, |d, cx| {
+                let folder = naming.folder() || name.ends_with('/');
+                match (naming, made) {
+                    (Naming::New { .. }, Ok(path)) if !d.in_explore_root(&path) => {}
+                    (Naming::New { parent, .. }, Ok(path)) => {
+                        d.explorer.reveal(&parent, &path);
+                        if !folder {
+                            d.open_file(path.to_string_lossy().to_string(), false, cx);
+                        }
+                        d.flash_row(path, cx);
+                    }
+                    (Naming::Rename { path, .. }, Ok(to)) => {
+                        d.explorer.moved(&path, &to);
+                        d.tabs_follow(&path, &to, cx);
+                        if d.in_explore_root(&to) {
+                            d.flash_row(to, cx);
+                        }
+                    }
+                    (Naming::New { .. }, Err(e)) => d.error = Some(format!("Couldn’t create “{name}”: {e}")),
+                    (Naming::Rename { .. }, Err(e)) => d.error = Some(format!("Couldn’t rename to “{name}”: {e}")),
+                }
+                d.relist_explorer(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn tabs_follow(&mut self, from: &Path, to: &Path, cx: &mut Context<Self>) {
+        let (from, to) = (from.to_string_lossy(), to.to_string_lossy());
+        self.workspaces.values_mut().for_each(|w| w.move_files(&from, &to));
+        self.preview.move_files(&from, &to);
+        self.save_soon(cx);
+    }
+
+    /// The row the name is typed in, laid out as the tree's rows are, with the reason it can't be saved under it.
+    pub(crate) fn edit_row(&self, depth: usize, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (edit, root) = (self.explorer.edit.as_ref()?, self.explore_root()?);
+        let name = edit.input.read(cx).value().to_string();
+        let folder = edit.naming.folder() || name.ends_with('/');
+        let problem = self.explorer.edit_problem(&name, Path::new(&root));
+        let field = div().relative().flex_1().min_w_0().child(Input::new(&edit.input).appearance(false).p_0().text_size(px(13.5)));
+        let field = if edit.shakes == 0 {
+            field.into_any_element()
+        } else {
+            field.with_animation(("tree-edit-shake", edit.shakes), Animation::new(SHAKE).with_easing(ease_out_quint()), |d, t| d.left(px(shake_x(t)))).into_any_element()
+        };
+        let row = div()
+            .id("tree-edit")
+            .relative()
+            .h(px(28.))
+            .pl(px(8. + depth as f32 * 16.))
+            .pr(px(10.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(8.))
+            .text_size(px(13.5))
+            .shadow(outline(if problem.is_some() { FAILED } else { ACCENT }))
+            .child(div().w(px(12.)))
+            .child(file_icon(&name, folder, false, 16.))
+            .child(field)
+            .children(problem.map(|p| ui::dropdown(32., ui::pop(div()).max_w(px(280.)).px(px(10.)).py(px(6.)).text_size(px(12.5)).text_color(FAILED).child(p))))
+            // A right-click in the field is the field's, not the tree's menu.
+            .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation());
+        Some(row.into_any_element())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExplorerState, Naming, Row, Verdict, new_row_at, selected_len, shake_x, verdict};
+    use std::path::{Path, PathBuf};
+
+    fn state(listings: &[(&str, &[(bool, &str)])]) -> ExplorerState {
+        let mut s = ExplorerState::new();
+        for (dir, listing) in listings {
+            s.tree.insert(dir.into(), listing.iter().map(|(d, p)| (*d, PathBuf::from(p))).collect());
+        }
+        s
+    }
+
+    #[test]
+    fn a_rename_starts_with_the_name_before_its_extension_selected() {
+        assert_eq!(selected_len("explorer.rs", false), 8);
+        assert_eq!(selected_len(".gitignore", false), 10);
+        assert_eq!(selected_len("Makefile", false), 8);
+        assert_eq!(selected_len("v1.2", true), 4);
+    }
+
+    #[test]
+    fn enter_keeps_a_refused_name_up_to_fix_but_leaving_drops_it() {
+        assert_eq!(verdict("a.rs", None, true, true), Verdict::Keep);
+        assert_eq!(verdict("a.rs", None, true, false), Verdict::Drop);
+        assert_eq!(verdict("b.rs", None, false, false), Verdict::Save);
+    }
+
+    #[test]
+    fn an_emptied_rename_waits_on_enter_and_an_untouched_one_just_closes() {
+        assert_eq!(verdict("", Some("a.rs"), false, true), Verdict::Keep);
+        assert_eq!(verdict("", None, false, true), Verdict::Drop);
+        assert_eq!(verdict("a.rs", Some("a.rs"), false, true), Verdict::Drop);
+    }
+
+    #[test]
+    fn an_edit_left_in_a_tree_since_switched_away_from_goes_unsaved() {
+        let rename = Naming::Rename { path: "/a/src/x.rs".into(), folder: false };
+        assert_eq!(rename.verdict("y.rs", Path::new("/a"), false, false), Verdict::Save);
+        assert_eq!(rename.verdict("y.rs", Path::new("/b"), false, false), Verdict::Drop);
+        let new = Naming::New { parent: "/a".into(), folder: true };
+        assert_eq!(new.verdict("lib", Path::new("/b"), false, true), Verdict::Drop);
+    }
+
+    #[test]
+    fn a_name_already_in_the_folder_is_refused_whatever_its_case() {
+        let s = state(&[("/r", &[(true, "/r/src"), (false, "/r/README.md")]), ("/r/src", &[(false, "/r/src/a.rs")])]);
+        let root = Path::new("/r");
+        assert_eq!(s.problem(root, "readme.md", None, root).as_deref(), Some("“README.md” already exists in the project"));
+        assert_eq!(s.problem(root, "src/A.rs", None, root).as_deref(), Some("“a.rs” already exists in src/"));
+        assert_eq!(s.problem(root, "README.md/x", None, root).as_deref(), Some("“README.md” is a file, not a folder"));
+        assert_eq!(s.problem(root, "src/b.rs", None, root), None);
+    }
+
+    #[test]
+    fn a_rename_may_change_only_its_case_but_never_hold_a_slash() {
+        let s = state(&[("/r", &[(false, "/r/a.rs")])]);
+        let root = Path::new("/r");
+        assert_eq!(s.problem(root, "A.rs", Some(Path::new("/r/a.rs")), root), None);
+        assert_eq!(s.problem(root, "x/a.rs", Some(Path::new("/r/a.rs")), root).as_deref(), Some("A name can’t contain “/”"));
+    }
+
+    #[test]
+    fn dots_and_bare_slashes_are_not_names_and_an_empty_one_waits() {
+        let s = state(&[("/r", &[])]);
+        let root = Path::new("/r");
+        assert_eq!(s.problem(root, "a/../b", None, root).as_deref(), Some("“.” and “..” are reserved"));
+        assert_eq!(s.problem(root, "//", None, root).as_deref(), Some("Needs a name"));
+        assert_eq!(s.problem(root, "  ", None, root), None);
+    }
+
+    #[test]
+    fn a_folder_never_listed_raises_no_clash() {
+        let s = state(&[("/r", &[(true, "/r/src")])]);
+        assert_eq!(s.problem(Path::new("/r"), "src/a.rs", None, Path::new("/r")), None);
+    }
+
+    #[test]
+    fn a_new_row_goes_first_in_its_folder() {
+        let rows = [
+            Row { path: "/r/src".into(), depth: 0, is_dir: true, open: true },
+            Row { path: "/r/src/a.rs".into(), depth: 1, is_dir: false, open: false },
+        ];
+        assert_eq!(new_row_at(&rows, Path::new("/r"), Path::new("/r")), Some((0, 0)));
+        assert_eq!(new_row_at(&rows, Path::new("/r/src"), Path::new("/r")), Some((1, 1)));
+        assert_eq!(new_row_at(&rows, Path::new("/r/docs"), Path::new("/r")), None);
+    }
+
+    #[test]
+    fn a_made_item_opens_the_folders_down_to_it() {
+        let mut s = state(&[("/r", &[])]);
+        s.reveal(Path::new("/r"), Path::new("/r/a/b/c.rs"));
+        let mut open: Vec<_> = s.tree.keys().cloned().collect();
+        open.sort();
+        assert_eq!(open, [PathBuf::from("/r"), "/r/a".into(), "/r/a/b".into()]);
+    }
+
+    #[test]
+    fn renaming_a_folder_keeps_what_is_open_inside_it() {
+        let mut s = state(&[("/r", &[(true, "/r/src")]), ("/r/src", &[(true, "/r/src/ui")]), ("/r/src/ui", &[(false, "/r/src/ui/a.rs")])]);
+        s.moved(Path::new("/r/src"), Path::new("/r/lib"));
+        assert_eq!(s.tree[Path::new("/r")], [(true, PathBuf::from("/r/lib"))]);
+        assert_eq!(s.tree[Path::new("/r/lib")], [(true, PathBuf::from("/r/lib/ui"))]);
+        assert_eq!(s.tree[Path::new("/r/lib/ui")], [(false, PathBuf::from("/r/lib/ui/a.rs"))]);
+        assert!(!s.tree.contains_key(Path::new("/r/src")));
+    }
+
+    #[test]
+    fn a_shake_goes_left_then_right_then_a_little_left_and_settles_home() {
+        assert_eq!([0., 0.1, 0.2, 0.45, 0.7, 1.].map(shake_x), [0., -2., -4., 4., -2., 0.]);
+    }
+}
