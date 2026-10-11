@@ -186,8 +186,8 @@ impl Desktop {
                 for t in &gone {
                     d.forget_tree(t, cx);
                 }
-                let merged = merge_repos(&mut d.repos, repos);
-                let mut changed = !gone.is_empty() || merged || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
+                let repos_changed = merge_repos(&mut d.repos, repos);
+                let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.explorer.tree, d.initials, d.worktrees) = (tree, initials, worktrees);
                 d.poll_prs(cx);
                 for (pane, file) in files {
@@ -207,7 +207,7 @@ impl Desktop {
     }
 
     /// Reads only the tree on screen, so a switch shows its changes without waiting for `refresh_git` to read every tree.
-    pub(crate) fn load_repo(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn load_shown_repo(&mut self, cx: &mut Context<Self>) {
         let Some(cwd) = self.cwd() else { return };
         let (run, untracked) = (self.git_run, self.store.git.untracked);
         let task = cx.background_executor().spawn({
@@ -262,6 +262,8 @@ impl Desktop {
         }
         self.store.remove(p);
         self.store.save();
+        let only = [p.to_string()];
+        self.repos.retain(|cwd, _| project::project_of(cwd, &only, &self.worktrees).is_none());
         self.worktrees.remove(p);
         if self.project.as_deref() == Some(p) {
             self.set_project(None);
@@ -283,7 +285,7 @@ impl Desktop {
     }
 }
 
-/// Puts what was `read` into `repos`, dropping folders that are no repo any more; folders not read keep their last state, so switching back shows them at once. Returns whether anything changed.
+/// Applies `read`, keeping folders it skipped so switching back shows them at once. Returns whether anything changed.
 fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo>)>) -> bool {
     let mut changed = false;
     for (cwd, repo) in read {

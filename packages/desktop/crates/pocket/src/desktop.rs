@@ -233,7 +233,7 @@ impl Desktop {
         self.focus_pane(term, window, cx);
         self.save_soon(cx);
         self.refresh_git(cx);
-        self.load_repo(cx);
+        self.load_shown_repo(cx);
     }
 
     pub(crate) fn set_appearance(&mut self, appearance: WindowAppearance, window: &mut Window, cx: &mut Context<Self>) {
@@ -279,7 +279,7 @@ impl Desktop {
         if moved || self.worktree != tree {
             self.worktree = tree;
             self.refresh_git(cx);
-            self.load_repo(cx);
+            self.load_shown_repo(cx);
             self.load_active(cx);
         }
         cx.notify();
