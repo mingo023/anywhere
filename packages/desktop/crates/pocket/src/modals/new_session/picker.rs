@@ -34,7 +34,7 @@ fn menu_frame(id: &'static str, width: f32, cx: &mut Context<Desktop>) -> Statef
         .w(px(width))
         .flex()
         .flex_col()
-        // Menus hang past the sheet's edge; without this a click there also lands on the backdrop and closes the sheet.
+        // Menus hang over the page; without this a click on one also lands on what it covers.
         .occlude()
         .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
             this.new_form.draft.picker = None;
@@ -124,9 +124,7 @@ impl Desktop {
 
     fn checkout_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
-        let targets = [Target::Worktree, Target::Open, Target::NewLocal];
-        let offered = if self.agents.locals_offered() { &targets[..] } else { &targets[..2] };
-        let rows: Vec<AnyElement> = offered.iter().enumerate().map(|(i, &target)| {
+        let rows: Vec<AnyElement> = f.targets(self.agents.locals_offered()).into_iter().enumerate().map(|(i, target)| {
             let Checkout { glyph, label, hint } = self.checkout(target);
             access_row(("checkout", i), f.target() == target, Some(glyph), &label, hint, TEXT)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -277,7 +275,7 @@ impl Desktop {
             Some(t) if Some(&t) != main.as_ref() && !is_local(&t) => OpenTree::Worktree(self.worktree_of(&t).map_or_else(|| crate::util::basename(&t), |w| tree_label(w, &self.agents).0)),
             t => OpenTree::Local(self.local_name(t.as_deref().unwrap_or_default())),
         };
-        checkout_choice(target, open)
+        checkout_choice(target, open, self.new_form.draft.new_place)
     }
 
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {

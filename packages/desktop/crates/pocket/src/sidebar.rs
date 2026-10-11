@@ -6,7 +6,7 @@ pub(crate) mod rail;
 mod rename;
 mod row_menu;
 pub(crate) mod sessions;
-mod tree_tip;
+mod tree_card;
 mod update;
 mod usage;
 
@@ -14,16 +14,16 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, drag_area, id, state};
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rename::Rename;
-use crate::sidebar::tree_tip::TreeTip;
+use crate::sidebar::tree_card::Hover;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
-use crate::util::{LOCAL_ICON, WORKTREE_ICON, basename};
+use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
 use agents::Agents;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::Instant;
 use theme::*;
 use ui::{self, icon_button_sized};
 
@@ -81,9 +81,17 @@ pub(crate) fn tree_label(w: &git::Worktree, agents: &Agents) -> (String, String)
     }
 }
 
-/// A tree row's label, showing `tip` on hover.
-fn tree_name(tree: &str, label: String, tip: String) -> Stateful<Div> {
-    div().id(id(format!("aside-tree-label:{tree}"))).truncate().child(label).tooltip(move |_, cx| cx.new(|_| TreeTip(tip.clone())).into()).tooltip_show_delay(Duration::from_millis(350))
+/// The colour a working tree's label sweeps from; `None` while it isn't working, or motion is reduced.
+fn sweep_base(state: Option<ui::State>, selected: bool, reduce_motion: bool) -> Option<Token> {
+    (state == Some(ui::State::Working) && !reduce_motion).then_some(if selected { TEXT } else { TEXT_BODY })
+}
+
+/// A tree row's label, sweeping from `sweeps` while its tree works.
+fn tree_name(tree: &str, label: String, sweeps: Option<Token>) -> AnyElement {
+    match sweeps {
+        Some(base) => ui::sweep(id(format!("aside-sweep:{tree}")), label.into(), base).into_any_element(),
+        None => label.into_any_element(),
+    }
 }
 
 #[derive(Clone)]
@@ -101,6 +109,8 @@ pub struct SidebarState {
     pub(crate) panel_open: bool,
     /// The worktree row being renamed.
     pub(crate) rename: Option<Rename>,
+    /// Which row's hover card shows.
+    pub(crate) hover: Hover,
 }
 
 impl SidebarState {
@@ -109,7 +119,7 @@ impl SidebarState {
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
-        (Self { search, menu_at: None, picker, panel_open, rename: None }, subs)
+        (Self { search, menu_at: None, picker, panel_open, rename: None, hover: Hover::default() }, subs)
     }
 }
 
@@ -187,15 +197,17 @@ impl Desktop {
     fn local_row(&self, p: &str, key: &str, selects: Option<&String>, tip: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
         let menu = RowMenu::Local(key.to_string());
         let renames = self.agents.renames_offered(key);
-        let mark = ui::indicator(id(format!("aside-spin:{key}")), rolled_state(&self.tree_cards(p, key)));
+        let (selected, own) = (current == Some(key), selects.is_none());
+        let state = rolled_state(&self.tree_cards(p, key));
+        let mark = ui::indicator(id(format!("aside-spin:{key}")), state).or_else(|| self.pr_mark(key).filter(|_| own));
+        let name = self.local_name(key);
         let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-            None => tree_name(key, self.local_name(key), tip.to_string()).into_any_element(),
+            None => tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())),
         };
         let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
         let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
-        ui::worktree_row(id(format!("aside-tree:{key}")), LOCAL_ICON, label, current == Some(key), mark)
-            .when(selects.is_none(), |row| row.children(self.pr_chip(key)))
+        let row = ui::worktree_row(id(format!("aside-tree:{key}")), LOCAL_ICON, label, selected, mark)
             .children(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 if this.sidebar.renaming(&path) {
@@ -206,13 +218,62 @@ impl Desktop {
                 }
                 this.select_tree(target.clone(), selects.clone(), cx);
             }))
-            .when(renames, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)))
-            .into_any_element()
+            .when(renames, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)));
+        let card = self.card_for(p, key, &name, tip, own, cx.reduce_motion());
+        Self::with_card(row, key, card, cx).into_any_element()
     }
 
-    /// A tree's pull request chip, if it has one.
-    fn pr_chip(&self, tree: &str) -> Option<impl IntoElement> {
-        self.prs.get(tree).map(|pr| pull_requests::chip(id(format!("aside-pr:{tree}")), pr))
+    /// A tree's pull request icon, if it has one.
+    fn pr_mark(&self, tree: &str) -> Option<AnyElement> {
+        self.prs.get(tree).map(|pr| {
+            let (name, color) = pull_requests::glyph(pr);
+            icon(name, 13., color).into_any_element()
+        })
+    }
+
+    /// `tree`'s card, naming it `title` on `branch`, while it shows. `shows_pr` shows its PR.
+    fn card_for(&self, p: &str, tree: &str, title: &str, branch: &str, shows_pr: bool, reduce_motion: bool) -> Option<Div> {
+        self.sidebar.hover.shows(tree).map(|fades| {
+            let when = self.tree_cards(p, tree).iter().map(|c| c.at).max().map(|at| ago_long(at, now_ms())).filter(|w| !w.is_empty());
+            tree_card::hung(title.to_string(), branch.to_string(), self.prs.get(tree).filter(|_| shows_pr), when, fades && !reduce_motion)
+        })
+    }
+
+    /// Shows `card` off `tree`'s row once the pointer rests there.
+    fn with_card(row: Stateful<Div>, tree: &str, card: Option<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+        let key = tree.to_string();
+        row.relative()
+            .on_hover(cx.listener(move |this, over: &bool, _, cx| this.hover_tree(&key, *over, cx)))
+            .on_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                if this.sidebar.hover.press() {
+                    cx.notify();
+                }
+            }))
+            .children(card)
+    }
+
+    fn hover_tree(&mut self, tree: &str, over: bool, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        if !over {
+            if self.sidebar.hover.leave(tree, now) {
+                cx.notify();
+            }
+            return;
+        }
+        if self.sidebar.hover.enter(tree, now) {
+            return cx.notify();
+        }
+        let tree = tree.to_string();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(tree_card::WAIT).await;
+            this.update(cx, |d, cx| {
+                if d.sidebar.hover.waited(&tree, Instant::now()) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// A project's row, then while it is open its checkout's and worktrees' rows.
@@ -234,9 +295,9 @@ impl Desktop {
             buttons.push(
                 icon_button_sized(id(format!("aside-plus:{p}")), "plus", 22., TEXT_3)
                     .rounded(px(6.))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         cx.stop_propagation();
-                        this.select_tree(target.clone(), None, cx);
+                        this.new_place(target.clone(), window, cx);
                     }))
                     .into_any_element(),
             );
@@ -275,39 +336,40 @@ impl Desktop {
                     (w.path.clone(), label, tip)
                 })
                 .collect();
-            for (tree, label, tip) in &trees {
+            for (tree, title, tip) in &trees {
                 let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
-                let mark = if self.creates.failed(tree) {
+                let selected = current.as_ref() == Some(tree);
+                let (failed, setting) = (self.creates.failed(tree), self::setting_up(&setups, tree));
+                let state = rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting);
+                let mark = if failed {
                     ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
-                } else if self::setting_up(&setups, tree) {
+                } else if setting {
                     Some(dot_spinner(id(format!("aside-setup:{tree}")), 11., TEXT_4).into_any_element())
                 } else {
-                    ui::indicator(id(format!("aside-spin:{tree}")), rolled_state(&self.tree_cards(p, tree)))
+                    ui::indicator(id(format!("aside-spin:{tree}")), state).or_else(|| self.pr_mark(tree))
                 };
                 let trail = ui::row_trail(None, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
                 let (target, path) = (p.to_string(), tree.clone());
                 let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
                     Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-                    None => tree_name(tree, label.clone(), tip.clone()).into_any_element(),
+                    None => tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())),
                 };
-                out.push(
-                    ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, label, current.as_ref() == Some(tree), mark)
-                        .children(self.pr_chip(tree))
-                        .child(trail)
-                        .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                            // The rename input sits inside the row; its clicks must not restart or leave it.
-                            if this.sidebar.renaming(&path) {
-                                return;
-                            }
-                            if ev.click_count() > 1 && this.agents.names_offered() {
-                                return this.start_rename(path.clone(), window, cx);
-                            }
-                            this.creates.show_progress(&path);
-                            this.select_tree(target.clone(), Some(path.clone()), cx);
-                        }))
-                        .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
-                        .into_any_element(),
-                );
+                let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, label, selected, mark)
+                    .child(trail)
+                    .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                        // The rename input sits inside the row; its clicks must not restart or leave it.
+                        if this.sidebar.renaming(&path) {
+                            return;
+                        }
+                        if ev.click_count() > 1 && this.agents.names_offered() {
+                            return this.start_rename(path.clone(), window, cx);
+                        }
+                        this.creates.show_progress(&path);
+                        this.select_tree(target.clone(), Some(path.clone()), cx);
+                    }))
+                    .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
+                let card = self.card_for(p, tree, title, tip, true, cx.reduce_motion());
+                out.push(Self::with_card(row, tree, card, cx).into_any_element());
             }
         }
         let to = p.to_string();
@@ -330,7 +392,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRow, column_shown, in_tree, setting_up, tree_label};
+    use super::{ProjectRow, column_shown, in_tree, setting_up, sweep_base, tree_label};
     use crate::desktop::chrome::{Layout, Screen};
     use crate::status::{self, Card};
     use agents::{Agents, Summary};
@@ -414,6 +476,12 @@ mod tests {
         let detached = git::Worktree { branch: "detached".into(), ..named };
         assert_eq!(tree_label(&detached, &none), ("calm-otter".into(), "calm-otter".into()));
         assert_eq!(tree_label(&detached, &name), ("Fix the login form".into(), "calm-otter".into()));
+    }
+
+    #[test]
+    fn only_a_working_trees_label_sweeps_and_never_with_motion_reduced() {
+        let got = [sweep_base(Some(ui::State::Working), false, false), sweep_base(Some(ui::State::Working), true, false), sweep_base(Some(ui::State::NeedsYou), false, false), sweep_base(None, false, false), sweep_base(Some(ui::State::Working), false, true)];
+        assert_eq!(got, [Some(theme::TEXT_BODY), Some(theme::TEXT), None, None, None]);
     }
 
     #[test]

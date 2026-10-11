@@ -10,3 +10,4 @@ Every project has one Local without a record: the main worktree's row, whose id 
 - A Local's id never starts with `/`, so it can't collide with a worktree path.
 - A terminal's Local is fixed at spawn. A terminal without one belongs to the worktree holding its launch directory, as before.
 - A rename trims the title; a blank one changes nothing.
+- A new Local's name is a placeholder ("Local 2", …) until naming titles it from the first session started in it with a prompt, as it does a Worktree. A rename keeps the user's name for good. pocketd keeps the flag in `locals.json`, off the wire.

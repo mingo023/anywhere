@@ -3,10 +3,13 @@
 package launch
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +31,7 @@ const (
 	poll       = 250 * time.Millisecond
 	attachWait = 10 * time.Second
 	probeTTL   = 30 * time.Second
+	probeWait  = 5 * time.Second
 )
 
 // createWait bounds setup plus the agent's start, so a create that hangs
@@ -165,10 +169,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		delete(l.pending, id)
 		l.mu.Unlock()
 	}()
-	shell := lookup(env, "SHELL")
-	if shell == "" {
-		shell = "/bin/zsh"
-	}
+	shell := shellOf(env)
 	origin := "desktop"
 	if !w.Owner {
 		origin = "phone"
@@ -188,7 +189,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	r := l.wait(t, id, exits, progress)
 	r.Cwd = cwd
 	if r.Err == nil && s.Prompt != "" {
-		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, agent: r.AgentID}
+		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, agent: r.AgentID, local: local}
 		if n := s.Checkout.New; n != nil && n.AutoName {
 			j.project, j.tree, j.branch = s.Project, cwd, n.Name
 		}
@@ -401,7 +402,7 @@ func (l *Launcher) Exited(terminalID, phase string, status int) {
 	}
 }
 
-// Providers lists the agents on the login PATH. maxAccess is w's ceiling.
+// Providers lists the agents the user's shell can run. maxAccess is w's ceiling.
 func (l *Launcher) Providers(w Who) (list []proto.ProviderInfo, maxAccess, phoneMax string) {
 	env := l.d.LoginEnv()
 	_, claude := l.find("claude", env)
@@ -417,7 +418,7 @@ func (l *Launcher) Providers(w Who) (list []proto.ProviderInfo, maxAccess, phone
 	}, maxAccess, phoneMax
 }
 
-// Paths is where each built-in agent is on the login PATH, empty when it isn't.
+// Paths is what runs each built-in agent: a path, a shell function's name, or empty.
 func (l *Launcher) Paths() map[string]string {
 	env := l.d.LoginEnv()
 	paths := map[string]string{}
@@ -450,7 +451,7 @@ func (l *Launcher) find(provider string, env []string) (string, bool) {
 	return path, path != ""
 }
 
-// CheckCommand refuses a command for config-set that isn't an executable on the login PATH.
+// CheckCommand refuses a command for config-set that the user's shell can't run.
 func (l *Launcher) CheckCommand(cmd string) error {
 	if err := config.ValidCommand(cmd); err != nil || cmd == "" {
 		return err
@@ -461,14 +462,43 @@ func (l *Launcher) CheckCommand(cmd string) error {
 	return nil
 }
 
-// resolve is cmd on env's PATH, or cmd itself when it's a path to an executable file.
+// resolve is the executable file cmd names, or cmd itself when the user's shell
+// runs it as a function: a fish function cc wins over /usr/bin/cc, as in their terminal.
 func resolve(cmd string, env []string) (string, error) {
-	path, err := terminal.LookPath(cmd, env)
-	if err != nil {
-		return "", err
+	path := cmd
+	if !strings.Contains(cmd, "/") {
+		if path = probe(shellOf(env), cmd, env); path == cmd {
+			return cmd, nil
+		}
 	}
-	if st, err := os.Stat(path); err != nil || st.IsDir() || st.Mode()&0o111 == 0 {
+	if st, err := os.Stat(path); !filepath.IsAbs(path) || err != nil || st.IsDir() || st.Mode()&0o111 == 0 {
 		return "", &exec.Error{Name: cmd, Err: exec.ErrNotFound}
 	}
 	return path, nil
+}
+
+// probe is what shell runs for name: a file's path, name itself for a function, or "".
+func probe(shell, name string, env []string) string {
+	args := []string{"-c", `command -v "$1"`, shell, name}
+	if filepath.Base(shell) == "fish" {
+		args = []string{"-c", "functions -q $argv[1]; and echo $argv[1]; or command -s $argv[1]", name}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), probeWait)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, shell, args...)
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	// Only the last line: rc files may print first.
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return lines[len(lines)-1]
+}
+
+func shellOf(env []string) string {
+	if shell := lookup(env, "SHELL"); shell != "" {
+		return shell
+	}
+	return "/bin/zsh"
 }

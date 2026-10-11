@@ -51,7 +51,6 @@ pub enum Column {
 #[derive(Clone, Copy, PartialEq)]
 pub enum Overlay {
     Palette,
-    NewSession,
     AddRepo,
     More,
     Confirm,

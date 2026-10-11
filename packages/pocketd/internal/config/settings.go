@@ -97,7 +97,7 @@ func (s *Settings) AutomationHistory() int { return s.number("automations", "his
 
 var commandName = regexp.MustCompile(`^[A-Za-z0-9._+][A-Za-z0-9._+-]{0,63}$`)
 
-// ValidCommand checks a <provider>.command: empty for the provider's own name, a name to find on PATH, or a full path.
+// ValidCommand checks a <provider>.command: empty for the provider's own name, a name the user's shell runs, or a full path.
 func ValidCommand(cmd string) error {
 	if cmd == "" || commandName.MatchString(cmd) || filepath.IsAbs(cmd) && len(cmd) <= 1024 && !strings.ContainsFunc(cmd, unicode.IsControl) {
 		return nil

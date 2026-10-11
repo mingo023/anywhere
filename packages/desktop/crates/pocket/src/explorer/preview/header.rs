@@ -1,6 +1,6 @@
 use super::{language, size};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Overlay, doc_bar};
+use crate::desktop::chrome::doc_bar;
 use crate::explorer::status_word;
 use crate::util::{ago_long, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -66,8 +66,7 @@ impl Desktop {
             .child(
                 ui::button("ask-file", Variant::Ghost, Some("sparkle"), "Ask about this file").text_color(TEXT).on_click(cx.listener(
                     move |this, _: &ClickEvent, window, cx| {
-                        this.open(Overlay::NewSession, window, cx);
-                        this.reset_new_form(Some(prompt.clone()), false, window, cx);
+                        this.new_session(Some(prompt.clone()), false, window, cx);
                     },
                 )),
             )

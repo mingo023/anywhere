@@ -479,12 +479,13 @@ pub fn busy(id: impl Into<ElementId>, label: &'static str) -> Div {
 }
 
 /// A sidebar row's right end: its status mark, swapped for its buttons while the row is hovered or its menu is open.
+/// Only then do the buttons take their width, so the label runs to the row's end otherwise.
 pub fn row_trail(mark: Option<AnyElement>, buttons: Vec<AnyElement>, open: bool) -> Div {
-    let width = buttons.len() as f32 * 24. - 2.;
+    let width = px(buttons.len() as f32 * 24. - 2.);
     div()
         .relative()
         .h_full()
-        .min_w(px(width))
+        .map(|d| if open { d.min_w(width) } else { d.group_hover(ROW_GROUP, |s| s.min_w(width)) })
         .flex()
         .flex_none()
         .items_center()
@@ -502,6 +503,29 @@ pub fn row_trail(mark: Option<AnyElement>, buttons: Vec<AnyElement>, open: bool)
                 .when(!open, |d| d.opacity(0.).group_hover(ROW_GROUP, |s| s.opacity(1.)))
                 .children(buttons),
         )
+}
+
+const SWEEP: std::time::Duration = std::time::Duration::from_millis(2800);
+
+/// How lit a point `x` across a label is, `t` through a sweep: a band 0.6 labels wide crossing from before its start to past its end.
+fn lit(x: f32, t: f32) -> f32 {
+    let centre = -0.3 + 1.6 * t;
+    (1. - (x - centre).abs() / 0.3).max(0.)
+}
+
+/// `text` in `base` with a band of light sweeping across it, as a working label.
+pub fn sweep(id: impl Into<ElementId>, text: SharedString, base: Token) -> AnimationElement<Div> {
+    let (base, peak): (Hsla, Hsla) = (base.into(), SHIMMER.into());
+    // Uncapped, a repeating animation redraws the whole window every vsync.
+    div().with_animation(id, Animation::new(SWEEP).repeat().with_max_fps(20.), move |d, t| {
+        let n = text.chars().count().max(1) as f32;
+        let runs: Vec<_> = text
+            .char_indices()
+            .enumerate()
+            .map(|(i, (at, c))| (at..at + c.len_utf8(), HighlightStyle { color: Some(base.blend(Hsla { a: lit((i as f32 + 0.5) / n, t), ..peak })), ..Default::default() }))
+            .collect();
+        d.child(StyledText::new(text.clone()).with_highlights(runs))
+    })
 }
 
 /// The accent line a dragged row lands on: under the row when moving down, over it when moving up.
@@ -1086,7 +1110,7 @@ pub fn failure(message: String, detail: String) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Glyph, State, Tone, tone, word};
+    use super::{Glyph, State, Tone, lit, tone, word};
     use theme::{ACCENT, ACCENT_TINT, WORKING};
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];
@@ -1102,6 +1126,13 @@ mod tests {
             }
         }
         assert!([State::Idle(0, 0), State::NotAttached, State::Sent, State::Draft].into_iter().all(|s| tone(s).is_none()));
+    }
+
+    #[test]
+    fn a_sweeps_light_crosses_the_label_and_is_gone_between_sweeps() {
+        let peak = |t: f32| (0..=20).map(|i| i as f32 / 20.).max_by(|a, b| lit(*a, t).total_cmp(&lit(*b, t))).unwrap();
+        assert!(peak(0.3) < peak(0.5) && peak(0.5) < peak(0.7));
+        assert!(lit(0., 0.) < 1e-4 && lit(1., 1.) < 1e-4 && lit(0.5, 0.5) > 0.999);
     }
 
     #[test]
