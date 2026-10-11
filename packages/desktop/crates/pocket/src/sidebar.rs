@@ -272,14 +272,14 @@ impl Desktop {
 
     fn hover_tree(&mut self, tree: &str, over: bool, y: f32, cx: &mut Context<Self>) {
         let now = Instant::now();
+        // Rows reserve their trail by `Hover::on`, so redraw even when no card shows or hides.
+        cx.notify();
         if !over {
-            if self.sidebar.hover.leave(tree, now) {
-                cx.notify();
-            }
+            self.sidebar.hover.leave(tree, now);
             return;
         }
         if self.sidebar.hover.enter(tree, now, y) {
-            return cx.notify();
+            return;
         }
         let tree = tree.to_string();
         cx.spawn(async move |this, cx| {

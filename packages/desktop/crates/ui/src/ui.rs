@@ -556,12 +556,16 @@ pub fn marquee(id: impl Into<ElementId>, text: SharedString, (width, overflow): 
     .absolute()
     .size_full();
     let label = div().flex_none().child(label);
-    let label = if overflow > 0. {
-        // Nowrap text ellipsizes to whatever width it's given, so the label needs its own full width, plus a px for rounding, to scroll whole.
-        let label = label.w(px(width + 1.));
+    // Under half a px is measuring noise, not a visible cut.
+    let label = if overflow > 0.5 {
         let cycle = Animation::new(std::time::Duration::from_secs_f32(marquee_cycle(overflow))).repeat();
         // 30fps steps 1px a frame at MARQUEE_SPEED; uncapped redraws the whole window every vsync.
-        label.with_animation(id, cycle.with_max_fps(30.), move |d, t| d.ml(px(-marquee_offset(t, overflow)))).into_any_element()
+        label.with_animation(id, cycle.with_max_fps(30.), move |d, t| {
+            let offset = marquee_offset(t, overflow);
+            // Nowrap text ellipsizes to whatever width it's given: at rest it keeps its "…", moving it needs its full width, plus a px for rounding.
+            d.when(offset > 0., |d| d.w(px(width + 1.)).ml(px(-offset)))
+        })
+        .into_any_element()
     } else {
         label.into_any_element()
     };

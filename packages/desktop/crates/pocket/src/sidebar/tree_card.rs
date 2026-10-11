@@ -13,6 +13,7 @@ const WARM: Duration = Duration::from_millis(300);
 const SLIDE: f32 = 29.;
 
 /// Which tree row's card shows: once the pointer rests on a row, then at once on each row it moves to.
+/// Also which row the pointer is on, where a swapped card slides from, and how far the hovered row's label overflows.
 #[derive(Default)]
 pub(crate) struct Hover {
     /// The row under the pointer, when and at what height it entered.
