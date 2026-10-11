@@ -152,6 +152,11 @@ impl Terminals {
         !observe || !self.sessions.get(id).is_some_and(|s| s.exit.is_none())
     }
 
+    /// pocketd drops a terminal once it exits, so input to it would only come back as an error. One not listed yet was just spawned and runs.
+    pub(crate) fn may_send(&self, id: &str, observe: bool) -> bool {
+        !observe && !self.sessions.get(id).is_some_and(|s| s.exit.is_some())
+    }
+
     /// Records a pane's size and returns whether pocketd must resize its running terminal to it.
     pub(crate) fn resize(&mut self, id: &str, cols: u16, rows: u16) -> bool {
         if self.sized.get(id) == Some(&(cols, rows)) || !self.sessions.get(id).is_some_and(|s| s.exit.is_none()) {
@@ -652,5 +657,13 @@ mod tests {
         t.listed(vec![info("a"), info("b")]);
         t.exited(&exit("b", 1));
         assert_eq!((t.may_close("a", true), t.may_close("b", true), t.may_close("a", false)), (false, true, true));
+    }
+
+    #[test]
+    fn input_reaches_a_running_or_just_spawned_terminal_but_not_an_exited_one() {
+        let mut t = Terminals::new(Default::default());
+        t.listed(vec![info("a"), info("b")]);
+        t.exited(&exit("b", 1));
+        assert_eq!((t.may_send("a", false), t.may_send("b", false), t.may_send("new", false), t.may_send("a", true)), (true, false, true, false));
     }
 }
