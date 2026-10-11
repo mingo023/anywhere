@@ -3,7 +3,7 @@ pub(crate) mod files;
 pub(crate) mod menu;
 pub(crate) mod mermaid;
 pub(crate) mod preview;
-mod toast;
+pub(crate) mod toast;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Side, id};
@@ -218,6 +218,10 @@ impl Desktop {
         };
         row.on_mouse_down(MouseButton::Right, menu).when(targeted, |d| d.shadow(outline(ACCENT)))
     }
+}
+
+fn name_of(path: &Path) -> String {
+    path.file_name().unwrap_or_default().to_string_lossy().to_string()
 }
 
 /// A 1px ring inside a row's edge: the row the menu is for, or the one a name is typed in.

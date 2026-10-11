@@ -1,4 +1,4 @@
-use super::files;
+use super::{files, name_of};
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use std::path::PathBuf;
@@ -12,6 +12,11 @@ const TRASHED_FOR: Duration = Duration::from_secs(6);
 pub(crate) enum Notice {
     Copied(String),
     Trashed { from: PathBuf, to: PathBuf },
+}
+
+/// Whether a key press is ⌘Z meant for the tree; a text field takes it as its own undo.
+pub fn is_undo(key: &str, modifiers: Modifiers, in_text: bool) -> bool {
+    key == "z" && modifiers == Modifiers::command() && !in_text
 }
 
 /// `path` cut to its last 33 characters behind "…" when longer than 34, so the toast keeps its file name.
@@ -48,7 +53,7 @@ impl Desktop {
             this.update(cx, |d, cx| {
                 match landed {
                     Some(to) => d.show_notice(Notice::Trashed { from: path, to }, cx),
-                    None => d.error = Some(format!("Couldn’t move “{}” to the Trash", path.file_name().unwrap_or_default().to_string_lossy())),
+                    None => d.error = Some(format!("Couldn’t move “{}” to the Trash", name_of(&path))),
                 }
                 d.relist_explorer(cx);
                 cx.notify();
@@ -60,7 +65,9 @@ impl Desktop {
 
     /// Puts the last trashed item back; false when there's none to undo.
     pub(crate) fn undo_trash(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some((Notice::Trashed { from, to }, _)) = self.explorer.notice.take() else { return false };
+        let Some((Notice::Trashed { from, to }, _)) = &self.explorer.notice else { return false };
+        let (from, to) = (from.clone(), to.clone());
+        self.explorer.notice = None;
         cx.spawn(async move |this, cx| {
             let restored = cx.background_executor().spawn({
                 let (from, to) = (from.clone(), to.clone());
@@ -68,8 +75,11 @@ impl Desktop {
             });
             let restored = restored.await;
             this.update(cx, |d, cx| {
-                if restored.is_err() {
-                    d.error = Some(format!("“{}” already exists, so it stays in the Trash", from.file_name().unwrap_or_default().to_string_lossy()));
+                if let Err(e) = restored {
+                    d.error = Some(match e.kind() {
+                        std::io::ErrorKind::AlreadyExists => format!("“{}” already exists, so it stays in the Trash", name_of(&from)),
+                        _ => format!("Couldn’t put “{}” back", name_of(&from)),
+                    });
                 }
                 d.relist_explorer(cx);
                 cx.notify();
@@ -105,7 +115,7 @@ impl Desktop {
                         .flex()
                         .gap(px(4.))
                         .child("Moved")
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(from.file_name().unwrap_or_default().to_string_lossy().to_string()))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(name_of(from)))
                         .child("to Trash"),
                 )
                 .child(
@@ -135,7 +145,15 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::short;
+    use super::{is_undo, short};
+    use gpui_kit::Modifiers;
+
+    #[test]
+    fn only_a_bare_cmd_z_outside_a_text_field_undoes_a_trash() {
+        assert!(is_undo("z", Modifiers::command(), false));
+        assert!(!is_undo("z", Modifiers::command(), true));
+        assert!(!is_undo("z", Modifiers::command_shift(), false));
+    }
 
     #[test]
     fn a_long_copied_path_keeps_its_end() {

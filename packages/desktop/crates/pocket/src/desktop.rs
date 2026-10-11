@@ -536,8 +536,8 @@ impl Render for Desktop {
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.hide_chips(cx);
-                // ⌘Z undoes a trash only while no text field would take it as its own undo.
-                if ev.keystroke.key == "z" && ev.keystroke.modifiers == Modifiers::command() && !window.context_stack().iter().any(|c| c.contains("Input")) && this.undo_trash(cx) {
+                let in_text = window.context_stack().iter().any(|c| c.contains("Input"));
+                if crate::explorer::toast::is_undo(&ev.keystroke.key, ev.keystroke.modifiers, in_text) && this.undo_trash(cx) {
                     return cx.stop_propagation();
                 }
                 if ev.keystroke.key != "escape" {

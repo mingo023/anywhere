@@ -59,8 +59,7 @@ pub fn items(row: bool, alt: bool) -> Vec<Option<Item>> {
 
 /// What a mention types: `path` from the agent's folder, a folder's with a trailing "/", then a space.
 pub fn mention_text(path: &Path, folder: bool, cwd: &Path) -> String {
-    let shown = path.strip_prefix(cwd).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| path.to_string_lossy().to_string());
-    let shown = if shown.is_empty() { ".".to_string() } else { shown };
+    let shown = relative(path, cwd);
     format!("@{shown}{} ", if folder && shown != "." { "/" } else { "" })
 }
 
@@ -73,7 +72,15 @@ pub fn relative(path: &Path, root: &Path) -> String {
     }
 }
 
-/// The right-click menu over the file tree.
+/// Where New File and New Folder make the item: in the folder clicked, else beside the file, else at the root.
+pub fn new_parent(target: Option<&(PathBuf, bool)>, root: &Path) -> PathBuf {
+    match target {
+        Some((dir, true)) => dir.clone(),
+        Some((file, false)) => file.parent().unwrap_or(root).to_path_buf(),
+        None => root.to_path_buf(),
+    }
+}
+
 pub(crate) struct TreeMenu {
     /// The row and whether it's a folder; `None` is the root, from the space under the rows.
     pub(crate) target: Option<(PathBuf, bool)>,
@@ -96,6 +103,7 @@ impl Desktop {
     pub(crate) fn open_tree_menu(&self, target: Option<(PathBuf, bool)>, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
         cx.listener(move |this, e: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
+            this.commit_edit(false, cx);
             this.close_menus();
             this.explorer.menu = Some(TreeMenu::new(target.clone(), e.position, window.modifiers().alt, window.viewport_size().width));
             cx.notify();
@@ -131,10 +139,7 @@ impl Desktop {
                     Plan::Off => return,
                 }
             }
-            Item::NewFile | Item::NewFolder => {
-                let parent = if folder { path } else { path.parent().map(Path::to_path_buf).unwrap_or(root) };
-                self.start_edit(Naming::New { parent, folder: item == Item::NewFolder }, window, cx);
-            }
+            Item::NewFile | Item::NewFolder => self.start_edit(Naming::New { parent: new_parent(target.as_ref(), &root), folder: item == Item::NewFolder }, window, cx),
             Item::Copy | Item::CopyRelative => {
                 let text = if item == Item::Copy { path.to_string_lossy().to_string() } else { relative(&path, &root) };
                 cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
@@ -242,7 +247,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, Plan, items, mention_text, plan, relative};
+    use super::{Item, Plan, items, mention_text, new_parent, plan, relative};
     use crate::add_to_chat::Choice;
     use std::path::Path;
 
@@ -287,6 +292,14 @@ mod tests {
         assert_eq!(mention_text(Path::new("/r/src"), true, Path::new("/r")), "@src/ ");
         assert_eq!(mention_text(Path::new("/r"), true, Path::new("/r")), "@. ");
         assert_eq!(mention_text(Path::new("/elsewhere/a.rs"), false, Path::new("/r")), "@/elsewhere/a.rs ");
+    }
+
+    #[test]
+    fn a_new_item_goes_in_the_folder_clicked_beside_the_file_clicked_or_at_the_root() {
+        let root = Path::new("/r");
+        assert_eq!(new_parent(Some(&("/r/src".into(), true)), root), Path::new("/r/src"));
+        assert_eq!(new_parent(Some(&("/r/src/a.rs".into(), false)), root), Path::new("/r/src"));
+        assert_eq!(new_parent(None, root), root);
     }
 
     #[test]

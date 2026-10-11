@@ -1,4 +1,4 @@
-use super::{ExplorerState, Row, files, outline};
+use super::{ExplorerState, Row, files, name_of, outline};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
@@ -19,6 +19,12 @@ impl Naming {
         }
     }
 
+    fn folder(&self) -> bool {
+        match self {
+            Naming::New { folder, .. } | Naming::Rename { folder, .. } => *folder,
+        }
+    }
+
     fn renaming(&self) -> Option<&Path> {
         match self {
             Naming::Rename { path, .. } => Some(path),
@@ -34,8 +40,27 @@ pub(crate) struct NameEdit {
     _sub: Subscription,
 }
 
+/// What a typed name comes to: Enter (`strict`) keeps a refused name up to fix, and an emptied rename; leaving drops them.
+#[derive(Debug, PartialEq)]
+pub enum Verdict {
+    Save,
+    Keep,
+    Drop,
+}
+
+/// `was` is the renamed item's name, `None` for a new one.
+pub fn verdict(name: &str, was: Option<&str>, refused: bool, strict: bool) -> Verdict {
+    if was == Some(name) {
+        return Verdict::Drop;
+    }
+    if !name.is_empty() && !refused {
+        return Verdict::Save;
+    }
+    if strict && (refused || was.is_some()) { Verdict::Keep } else { Verdict::Drop }
+}
+
 /// How much of `name` starts selected: a file's name up to its extension, all of a folder's.
-pub fn stem(name: &str, folder: bool) -> usize {
+pub fn selected_len(name: &str, folder: bool) -> usize {
     if folder {
         return name.len();
     }
@@ -99,6 +124,12 @@ impl ExplorerState {
         self.tree = std::mem::take(&mut self.tree).into_iter().map(|(dir, listing)| (swap(dir), listing.into_iter().map(|(d, p)| (d, swap(p))).collect())).collect();
     }
 
+    /// Why the name typed so far can't be saved.
+    fn edit_problem(&self, name: &str, root: &Path) -> Option<String> {
+        let naming = &self.edit.as_ref()?.naming;
+        self.problem(naming.parent(), name, naming.renaming(), root)
+    }
+
     pub(crate) fn renaming(&self, path: &Path) -> bool {
         self.edit.as_ref().is_some_and(|e| e.naming.renaming() == Some(path))
     }
@@ -116,19 +147,13 @@ impl ExplorerState {
     }
 }
 
-fn name_of(path: &Path) -> String {
-    path.file_name().unwrap_or_default().to_string_lossy().to_string()
-}
-
 impl Desktop {
     pub(crate) fn start_edit(&mut self, naming: Naming, window: &mut Window, cx: &mut Context<Self>) {
-        let (name, folder) = match &naming {
-            Naming::New { folder, .. } => (String::new(), *folder),
-            Naming::Rename { path, folder } => (name_of(path), *folder),
-        };
+        let folder = naming.folder();
+        let name = naming.renaming().map(name_of).unwrap_or_default();
         let placeholder = if folder { "Folder name" } else { "File name — / makes folders" };
         let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
-        let end = stem(&name, folder);
+        let end = selected_len(&name, folder);
         input.update(cx, |s, cx| {
             s.set_value(name, window, cx);
             s.focus(window, cx);
@@ -149,25 +174,18 @@ impl Desktop {
         self.explorer.edit = Some(NameEdit { naming, input, _sub: sub });
     }
 
-    /// Saves the typed name. Enter (`strict`) keeps a refused name up to fix, and an emptied rename; leaving drops them.
-    fn commit_edit(&mut self, strict: bool, cx: &mut Context<Self>) {
+    pub(super) fn commit_edit(&mut self, strict: bool, cx: &mut Context<Self>) {
         let (Some(edit), Some(root)) = (self.explorer.edit.as_ref(), self.explore_root()) else { return };
         let name = edit.input.read(cx).value().trim().to_string();
-        let renaming = edit.naming.renaming();
-        if renaming.is_some_and(|p| name_of(p) == name) {
-            self.explorer.edit = None;
-            return cx.notify();
-        }
-        let problem = self.explorer.problem(edit.naming.parent(), &name, renaming, Path::new(&root));
-        if name.is_empty() || problem.is_some() {
-            if !(strict && (problem.is_some() || renaming.is_some())) {
-                self.explorer.edit = None;
-                cx.notify();
+        let refused = self.explorer.edit_problem(&name, Path::new(&root)).is_some();
+        match verdict(&name, edit.naming.renaming().map(name_of).as_deref(), refused, strict) {
+            Verdict::Keep => return,
+            Verdict::Drop => self.explorer.edit = None,
+            Verdict::Save => {
+                let Some(edit) = self.explorer.edit.take() else { return };
+                self.save_name(edit.naming, name, cx);
             }
-            return;
         }
-        let Some(edit) = self.explorer.edit.take() else { return };
-        self.save_name(edit.naming, name, cx);
         cx.notify();
     }
 
@@ -184,10 +202,11 @@ impl Desktop {
             });
             let made = made.await;
             this.update(cx, |d, cx| {
+                let folder = naming.folder() || name.ends_with('/');
                 match (naming, made) {
-                    (Naming::New { parent, folder }, Ok(path)) => {
+                    (Naming::New { parent, .. }, Ok(path)) => {
                         d.explorer.reveal(&parent, &path);
-                        if !folder && !name.ends_with('/') {
+                        if !folder {
                             d.open_file(path.to_string_lossy().to_string(), false, cx);
                         }
                     }
@@ -207,10 +226,8 @@ impl Desktop {
     pub(crate) fn edit_row(&self, depth: usize, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let (edit, root) = (self.explorer.edit.as_ref()?, self.explore_root()?);
         let name = edit.input.read(cx).value().to_string();
-        let folder = match edit.naming {
-            Naming::New { folder, .. } | Naming::Rename { folder, .. } => folder || name.ends_with('/'),
-        };
-        let problem = self.explorer.problem(edit.naming.parent(), &name, edit.naming.renaming(), Path::new(&root));
+        let folder = edit.naming.folder() || name.ends_with('/');
+        let problem = self.explorer.edit_problem(&name, Path::new(&root));
         let row = div()
             .id("tree-edit")
             .relative()
@@ -234,7 +251,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, new_row_at, stem};
+    use super::{ExplorerState, Row, Verdict, new_row_at, selected_len, verdict};
     use std::path::{Path, PathBuf};
 
     fn state(listings: &[(&str, &[(bool, &str)])]) -> ExplorerState {
@@ -247,10 +264,24 @@ mod tests {
 
     #[test]
     fn a_rename_starts_with_the_name_before_its_extension_selected() {
-        assert_eq!(stem("explorer.rs", false), 8);
-        assert_eq!(stem(".gitignore", false), 10);
-        assert_eq!(stem("Makefile", false), 8);
-        assert_eq!(stem("v1.2", true), 4);
+        assert_eq!(selected_len("explorer.rs", false), 8);
+        assert_eq!(selected_len(".gitignore", false), 10);
+        assert_eq!(selected_len("Makefile", false), 8);
+        assert_eq!(selected_len("v1.2", true), 4);
+    }
+
+    #[test]
+    fn enter_keeps_a_refused_name_up_to_fix_but_leaving_drops_it() {
+        assert_eq!(verdict("a.rs", None, true, true), Verdict::Keep);
+        assert_eq!(verdict("a.rs", None, true, false), Verdict::Drop);
+        assert_eq!(verdict("b.rs", None, false, false), Verdict::Save);
+    }
+
+    #[test]
+    fn an_emptied_rename_waits_on_enter_and_an_untouched_one_just_closes() {
+        assert_eq!(verdict("", Some("a.rs"), false, true), Verdict::Keep);
+        assert_eq!(verdict("", None, false, true), Verdict::Drop);
+        assert_eq!(verdict("a.rs", Some("a.rs"), false, true), Verdict::Drop);
     }
 
     #[test]

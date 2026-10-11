@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::{self, ErrorKind};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 /// Makes `name` under `parent`, with any folders a "/" in it names; a trailing "/" makes a folder.
@@ -20,8 +21,10 @@ pub fn create(parent: &Path, name: &str, folder: bool) -> io::Result<PathBuf> {
 /// Renames `path` to `name` in its folder, refusing to replace anything but itself under another case.
 pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
     let to = path.with_file_name(name);
-    let only_case = path.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase() == name.to_lowercase());
-    if !only_case && to.symlink_metadata().is_ok() {
+    let inode = |p: &Path| p.symlink_metadata().map(|m| m.ino());
+    if let Ok(taken) = inode(&to)
+        && inode(path).ok() != Some(taken)
+    {
         return Err(io::Error::new(ErrorKind::AlreadyExists, format!("“{name}” already exists")));
     }
     fs::rename(path, &to)?;
