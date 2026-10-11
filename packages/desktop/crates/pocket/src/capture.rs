@@ -1,9 +1,9 @@
-use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuStep};
+use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
 use crate::add_to_chat::Quote;
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::empty_pane::Menu;
-use crate::explorer::menu::TreeMenu;
+use crate::explorer::menu::{Arrow, TreeMenu};
 use crate::explorer::toast::Notice;
 use crate::modals::new_session::picker::Picker;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
@@ -43,7 +43,7 @@ const STEPS: [(&str, Step); 106] = [
         d.explorer.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, window.viewport_size().width));
         cx.notify();
     }),
-    ("tree-menu-down", |d, window, cx| d.tree_menu_step(&TreeMenuStep(true), window, cx)),
+    ("tree-menu-down", |d, window, cx| d.tree_menu_arrow(&TreeMenuArrow(Arrow::Down), window, cx)),
     ("tree-mentioned", |d, _, cx| {
         if let Some(c) = d.chat_choices().into_iter().next() {
             d.show_notice(Notice::Mentioned { provider: c.provider, title: c.title }, cx);

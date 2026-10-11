@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use theme::*;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use workspace::Doc;
 
 /// How long a row just made, renamed or put back stays ringed.
@@ -55,11 +55,11 @@ pub struct ExplorerState {
     pub(crate) tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     pub(crate) menu: Option<menu::TreeMenu>,
     /// The menu just closed, fading out, and when it closed.
-    leaving: Option<(menu::TreeMenu, std::time::Instant)>,
+    leaving: Option<(menu::TreeMenu, Instant)>,
     edit: Option<edit::NameEdit>,
     notice: Option<(toast::Notice, Task<()>)>,
-    /// The last trashed item and where it landed, while its notice shows.
-    undo: Option<(PathBuf, PathBuf)>,
+    /// The last trash, while its notice shows.
+    undo: Option<toast::Trashed>,
     flash: Option<(PathBuf, Task<()>)>,
     scroll: UniformListScrollHandle,
     /// Scroll the edit row, or else the flashed one, into view once it's listed.
@@ -118,6 +118,11 @@ impl Desktop {
         self.worktree.as_deref().and_then(|t| self.folder_of(t)).or_else(|| self.project.clone())
     }
 
+    /// Whether `path` lies in the tree on screen, so what a slow write made there may be shown.
+    pub(crate) fn in_explore_root(&self, path: &Path) -> bool {
+        self.explore_root().is_some_and(|r| path.starts_with(r))
+    }
+
     /// Git's letter for a file under the explore root, if it has changed.
     pub fn file_status(&self, path: &str) -> Option<char> {
         let root = self.explore_root()?;
@@ -130,7 +135,6 @@ impl Desktop {
         touched(files, &root, |p| self.agents.last_edit(p).is_some())
     }
 
-    /// Lists the open folders again under new Explorer settings, applied only while those settings still hold.
     /// Rings `path`'s row for a moment and scrolls to it: what a create, rename or undo just made.
     pub(crate) fn flash_row(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let fade = cx.spawn(async |this, cx| {
@@ -145,6 +149,7 @@ impl Desktop {
         self.explorer.seek = true;
     }
 
+    /// Lists the open folders again under new Explorer settings, applied only while those settings still hold.
     pub(crate) fn relist_explorer(&mut self, cx: &mut Context<Self>) {
         let files = self.store.files.clone();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
@@ -205,7 +210,7 @@ impl Desktop {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::actions::GoToFile, window, cx)));
         let root = self.explore_root().map(PathBuf::from);
         let rows = root.as_deref().map(|root| self.explorer.rows(root)).unwrap_or_default();
-        let new_row = root.as_deref().zip(self.explorer.new_parent()).and_then(|(root, parent)| edit::new_row_at(&rows, parent, root));
+        let new_row = root.as_deref().zip(self.explorer.new_in()).and_then(|(root, parent)| edit::new_row_at(&rows, parent, root));
         let renamed = self.explorer.renamed().map(Path::to_path_buf);
         let flashed = self.explorer.flash.as_ref().map(|(p, _)| p.clone());
         if self.explorer.seek
@@ -254,7 +259,7 @@ impl Desktop {
         {
             return row;
         }
-        let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let label = name_of(&path);
         let key = path.to_string_lossy().to_string();
         let menu = self.open_tree_menu(Some((path.clone(), is_dir)), cx);
         let targeted = self.explorer.menu_on(Some(&path));
@@ -287,7 +292,7 @@ pub fn seek(rows: &[Row], new_row: Option<usize>, renamed: Option<&Path>, flashe
 }
 
 fn name_of(path: &Path) -> String {
-    path.file_name().unwrap_or_default().to_string_lossy().to_string()
+    crate::util::basename(&path.to_string_lossy())
 }
 
 /// A 1px ring inside a row's edge: the row the menu is for, or the one a name is typed in.

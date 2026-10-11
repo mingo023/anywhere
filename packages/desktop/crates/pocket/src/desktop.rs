@@ -536,8 +536,7 @@ impl Render for Desktop {
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.hide_chips(cx);
-                let taken = window.context_stack().iter().any(|c| c.contains("Input") || c.contains(keys::CONTEXT) || c.contains(crate::browser::CONTEXT));
-                if crate::explorer::toast::is_undo(&ev.keystroke.key, ev.keystroke.modifiers, taken) && this.undo_trash(cx) {
+                if crate::explorer::toast::is_undo(&ev.keystroke, || window.context_stack()) && this.undo_trash(cx) {
                     return cx.stop_propagation();
                 }
                 if this.type_tree_menu(&ev.keystroke, cx) {
@@ -596,7 +595,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::open_selected))
             .on_action(cx.listener(Self::add_to_chat))
             .on_action(cx.listener(Self::tree_menu_item))
-            .on_action(cx.listener(Self::tree_menu_step))
+            .on_action(cx.listener(Self::tree_menu_arrow))
             .on_action(cx.listener(Self::tree_menu_choose))
             .children(lead)
             .children(column)

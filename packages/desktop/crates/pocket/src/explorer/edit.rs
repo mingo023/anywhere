@@ -28,6 +28,14 @@ impl Naming {
         }
     }
 
+    /// What `name` comes to here; an edit begun in a tree since switched away from is off screen, so it goes unsaved.
+    pub fn verdict(&self, name: &str, root: &Path, refused: bool, strict: bool) -> Verdict {
+        if !self.parent().starts_with(root) {
+            return Verdict::Drop;
+        }
+        verdict(name, self.renaming().map(name_of).as_deref(), refused, strict)
+    }
+
     fn renaming(&self) -> Option<&Path> {
         match self {
             Naming::Rename { path, .. } => Some(path),
@@ -130,10 +138,10 @@ impl ExplorerState {
 
     /// Points what the tree holds under `from` at `to`, after a rename.
     pub fn moved(&mut self, from: &Path, to: &Path) {
-        let swap = |p: PathBuf| match p.strip_prefix(from) {
-            Ok(rest) if rest.as_os_str().is_empty() => to.to_path_buf(),
-            Ok(rest) => to.join(rest),
-            Err(_) => p,
+        let (from, to) = (from.to_string_lossy(), to.to_string_lossy());
+        let swap = |p: PathBuf| {
+            let moved = workspace::moved(&p.to_string_lossy(), &from, &to);
+            moved.map_or(p, PathBuf::from)
         };
         self.tree = std::mem::take(&mut self.tree).into_iter().map(|(dir, listing)| (swap(dir), listing.into_iter().map(|(d, p)| (d, swap(p))).collect())).collect();
     }
@@ -152,7 +160,7 @@ impl ExplorerState {
         self.edit.as_ref()?.naming.renaming()
     }
 
-    pub(crate) fn new_parent(&self) -> Option<&Path> {
+    pub(crate) fn new_in(&self) -> Option<&Path> {
         match &self.edit.as_ref()?.naming {
             Naming::New { parent, .. } => Some(parent),
             Naming::Rename { .. } => None,
@@ -179,6 +187,7 @@ impl Desktop {
         });
         let sub = cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, _, cx| match ev {
             InputEvent::PressEnter { .. } => this.commit_edit(true, cx),
+            // Also when the row scrolls out of the list: GPUI loses the unrendered field's focus, as clicking away would.
             InputEvent::Blur => this.commit_edit(false, cx),
             InputEvent::Change => cx.notify(),
             InputEvent::Focus => {}
@@ -197,9 +206,7 @@ impl Desktop {
         let (Some(edit), Some(root)) = (self.explorer.edit.as_ref(), self.explore_root()) else { return };
         let name = edit.input.read(cx).value().trim().to_string();
         let refused = self.explorer.edit_problem(&name, Path::new(&root)).is_some();
-        // An edit begun in a tree since switched away from is no longer on screen, so it goes unsaved.
-        let left = !edit.naming.parent().starts_with(&root);
-        match if left { Verdict::Drop } else { verdict(&name, edit.naming.renaming().map(name_of).as_deref(), refused, strict) } {
+        match edit.naming.verdict(&name, Path::new(&root), refused, strict) {
             Verdict::Keep => {
                 if let Some(edit) = self.explorer.edit.as_mut() {
                     edit.shakes += 1;
@@ -229,6 +236,7 @@ impl Desktop {
             this.update(cx, |d, cx| {
                 let folder = naming.folder() || name.ends_with('/');
                 match (naming, made) {
+                    (Naming::New { .. }, Ok(path)) if !d.in_explore_root(&path) => {}
                     (Naming::New { parent, .. }, Ok(path)) => {
                         d.explorer.reveal(&parent, &path);
                         if !folder {
@@ -239,7 +247,9 @@ impl Desktop {
                     (Naming::Rename { path, .. }, Ok(to)) => {
                         d.explorer.moved(&path, &to);
                         d.tabs_follow(&path, &to, cx);
-                        d.flash_row(to, cx);
+                        if d.in_explore_root(&to) {
+                            d.flash_row(to, cx);
+                        }
                     }
                     (Naming::New { .. }, Err(e)) => d.error = Some(format!("Couldn’t create “{name}”: {e}")),
                     (Naming::Rename { .. }, Err(e)) => d.error = Some(format!("Couldn’t rename to “{name}”: {e}")),
@@ -265,6 +275,12 @@ impl Desktop {
         let name = edit.input.read(cx).value().to_string();
         let folder = edit.naming.folder() || name.ends_with('/');
         let problem = self.explorer.edit_problem(&name, Path::new(&root));
+        let field = div().relative().flex_1().min_w_0().child(Input::new(&edit.input).appearance(false).p_0().text_size(px(13.5)));
+        let field = if edit.shakes == 0 {
+            field.into_any_element()
+        } else {
+            field.with_animation(("tree-edit-shake", edit.shakes), Animation::new(SHAKE).with_easing(ease_out_quint()), |d, t| d.left(px(shake_x(t)))).into_any_element()
+        };
         let row = div()
             .id("tree-edit")
             .relative()
@@ -280,18 +296,17 @@ impl Desktop {
             .shadow(outline(if problem.is_some() { FAILED } else { ACCENT }))
             .child(div().w(px(12.)))
             .child(file_icon(&name, folder, false, 16.))
-            .child(div().flex_1().min_w_0().child(Input::new(&edit.input).appearance(false).p_0().text_size(px(13.5))))
-            .children(problem.map(|p| ui::dropdown(32., ui::pop(div()).max_w(px(280.)).px(px(10.)).py(px(6.)).text_size(px(12.5)).text_color(FAILED).child(p))));
-        if edit.shakes == 0 {
-            return Some(row.into_any_element());
-        }
-        Some(row.with_animation(("tree-edit-shake", edit.shakes), Animation::new(SHAKE), |d, t| d.left(px(shake_x(t)))).into_any_element())
+            .child(field)
+            .children(problem.map(|p| ui::dropdown(32., ui::pop(div()).max_w(px(280.)).px(px(10.)).py(px(6.)).text_size(px(12.5)).text_color(FAILED).child(p))))
+            // A right-click in the field is the field's, not the tree's menu.
+            .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation());
+        Some(row.into_any_element())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, Verdict, new_row_at, selected_len, shake_x, verdict};
+    use super::{ExplorerState, Naming, Row, Verdict, new_row_at, selected_len, shake_x, verdict};
     use std::path::{Path, PathBuf};
 
     fn state(listings: &[(&str, &[(bool, &str)])]) -> ExplorerState {
@@ -322,6 +337,15 @@ mod tests {
         assert_eq!(verdict("", Some("a.rs"), false, true), Verdict::Keep);
         assert_eq!(verdict("", None, false, true), Verdict::Drop);
         assert_eq!(verdict("a.rs", Some("a.rs"), false, true), Verdict::Drop);
+    }
+
+    #[test]
+    fn an_edit_left_in_a_tree_since_switched_away_from_goes_unsaved() {
+        let rename = Naming::Rename { path: "/a/src/x.rs".into(), folder: false };
+        assert_eq!(rename.verdict("y.rs", Path::new("/a"), false, false), Verdict::Save);
+        assert_eq!(rename.verdict("y.rs", Path::new("/b"), false, false), Verdict::Drop);
+        let new = Naming::New { parent: "/a".into(), folder: true };
+        assert_eq!(new.verdict("lib", Path::new("/b"), false, true), Verdict::Drop);
     }
 
     #[test]

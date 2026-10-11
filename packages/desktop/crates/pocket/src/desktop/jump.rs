@@ -106,8 +106,7 @@ impl Desktop {
 
     pub(crate) fn on_modifiers(&mut self, ev: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.hide_chips(cx);
-        if let Some(menu) = self.explorer.menu.as_mut().filter(|m| m.alt != ev.modifiers.alt) {
-            menu.alt = ev.modifiers.alt;
+        if self.explorer.menu.as_mut().is_some_and(|m| m.set_alt(ev.modifiers.alt)) {
             cx.notify();
         }
         if !arms_chips(&ev.modifiers, self.overlay.is_some(), self.store.sidebar.jump_hints) {

@@ -37,7 +37,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `removal` | deleting a worktree: its teardown script, its branch, the confirm and the row's "Deleting…" |
 | `git_ui` | `changes` panel and commit, `diff` view, `graph` commit graph, `commit` stacked commit diff |
 | `add_to_chat` | quoting a selection into an agent's input: the composer, its agent menu, the selection pill |
-| `explorer` | file tree; `explorer/preview` code, markdown and image preview; `explorer/menu` its right-click menu, `explorer/edit` naming new and renamed items, `explorer/files` their disk writes, `explorer/toast` copy and trash notices |
+| `explorer` | file tree; `explorer/preview` code, markdown and image preview; `explorer/menu` its right-click menu, `explorer/edit` naming new and renamed items, `explorer/files` their disk writes, `explorer/toast` copy, trash and Mentioned notices |
 | `automations` | the Automations screen (⌘⇧A, offered only when pocketd has the capability): `automations/logic` the pure rules, `column` the tabs and lists, `rows`, `runs`, `detail` and `run_detail` the right pane, `editor` with `form` and `trigger` the full-page editor, `glyph`, `parts` |
 | `inbox`, `palette` | their screens |
 | `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers and the project editor share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission`, `keybindings`, `agents`, `provider` (each agent's own page), `automations`, `phone`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |

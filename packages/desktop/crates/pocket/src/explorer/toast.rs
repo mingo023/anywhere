@@ -15,9 +15,16 @@ pub(crate) enum Notice {
     Mentioned { provider: String, title: String },
 }
 
-/// Whether a key press is ⌘Z meant for the tree; a focused text field, terminal or page takes it as its own.
-pub fn is_undo(key: &str, modifiers: Modifiers, taken: bool) -> bool {
-    key == "z" && modifiers == Modifiers::command() && !taken
+/// What the last trash moved, and the focused file it closed.
+pub struct Trashed {
+    from: PathBuf,
+    to: PathBuf,
+    open: Option<String>,
+}
+
+/// Whether a key press is ⌘Z meant for the tree; a focused text field, terminal or page, by the key contexts it sets, takes it as its own.
+pub fn is_undo(key: &Keystroke, contexts: impl FnOnce() -> Vec<KeyContext>) -> bool {
+    key.key == "z" && key.modifiers == Modifiers::command() && !contexts().iter().any(|c| c.contains("Input") || c.contains(keys::CONTEXT) || c.contains(crate::browser::CONTEXT))
 }
 
 /// `path` cut to its last 33 characters behind "…" when longer than 34, so the toast keeps its file name.
@@ -27,6 +34,15 @@ pub fn short(path: &str) -> String {
         return path.to_string();
     }
     format!("…{}", path.chars().skip(n - 33).collect::<String>())
+}
+
+/// Why `name` couldn't come back from the Trash.
+pub fn unrestored(e: &std::io::Error, name: &str) -> String {
+    if e.kind() == std::io::ErrorKind::AlreadyExists {
+        format!("“{name}” already exists, so it stays in the Trash")
+    } else {
+        format!("Couldn’t put “{name}” back")
+    }
 }
 
 impl Desktop {
@@ -55,8 +71,8 @@ impl Desktop {
             this.update(cx, |d, cx| {
                 match landed {
                     Some(to) => {
-                        d.close_trashed(&path, cx);
-                        d.explorer.undo = Some((path.clone(), to));
+                        let open = d.close_trashed(&path, cx);
+                        d.explorer.undo = Some(Trashed { from: path.clone(), to, open });
                         d.show_notice(Notice::Trashed(path), cx);
                     }
                     None => d.error = Some(format!("Couldn’t move “{}” to the Trash", name_of(&path))),
@@ -70,17 +86,20 @@ impl Desktop {
     }
 
     /// Closes the tabs of what went to the Trash; a file with unsaved edits stays open, so saving brings it back.
-    fn close_trashed(&mut self, path: &Path, cx: &mut Context<Self>) {
-        let path = path.to_string_lossy();
+    /// Returns the focused file it closed, for an undo to reopen.
+    fn close_trashed(&mut self, path: &Path, cx: &mut Context<Self>) -> Option<String> {
         let preview = &self.preview;
+        let open = preview.file(self.focused_pane()).filter(|f| Path::new(f).starts_with(path) && !preview.dirty(f)).map(String::from);
+        let path = path.to_string_lossy();
         self.workspaces.values_mut().for_each(|w| w.close_files(&path, |f| preview.dirty(f)));
         self.load_active(cx);
         self.save_soon(cx);
+        open
     }
 
     /// Puts the last trashed item back; false when there's none to undo.
     pub(crate) fn undo_trash(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some((from, to)) = self.explorer.undo.take() else { return false };
+        let Some(Trashed { from, to, open }) = self.explorer.undo.take() else { return false };
         self.explorer.notice = None;
         cx.spawn(async move |this, cx| {
             let restored = cx.background_executor().spawn({
@@ -90,9 +109,14 @@ impl Desktop {
             let restored = restored.await;
             this.update(cx, |d, cx| {
                 match restored {
-                    Ok(()) => d.flash_row(from, cx),
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => d.error = Some(format!("“{}” already exists, so it stays in the Trash", name_of(&from))),
-                    Err(_) => d.error = Some(format!("Couldn’t put “{}” back", name_of(&from))),
+                    Ok(()) if d.in_explore_root(&from) => {
+                        if let Some(open) = open {
+                            d.open_file(open, false, cx);
+                        }
+                        d.flash_row(from, cx);
+                    }
+                    Ok(()) => {}
+                    Err(e) => d.error = Some(unrestored(&e, &name_of(&from))),
                 }
                 d.relist_explorer(cx);
                 cx.notify();
@@ -161,14 +185,24 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_undo, short};
-    use gpui_kit::Modifiers;
+    use super::{is_undo, short, unrestored};
+    use gpui_kit::{KeyContext, Keystroke};
 
     #[test]
-    fn only_a_bare_cmd_z_outside_a_text_field_undoes_a_trash() {
-        assert!(is_undo("z", Modifiers::command(), false));
-        assert!(!is_undo("z", Modifiers::command(), true));
-        assert!(!is_undo("z", Modifiers::command_shift(), false));
+    fn only_a_bare_cmd_z_outside_a_text_field_terminal_or_page_undoes_a_trash() {
+        let at = |names: &[&str]| names.iter().map(|n| KeyContext::parse(n).unwrap()).collect::<Vec<_>>();
+        let cmd_z = Keystroke::parse("cmd-z").unwrap();
+        assert!(is_undo(&cmd_z, || at(&["Desktop"])));
+        assert!(!is_undo(&cmd_z, || at(&["Desktop", "Input"])));
+        assert!(!is_undo(&cmd_z, || at(&["Desktop", crate::browser::CONTEXT])));
+        assert!(!is_undo(&Keystroke::parse("cmd-shift-z").unwrap(), || at(&["Desktop"])));
+    }
+
+    #[test]
+    fn an_undo_onto_a_taken_name_says_the_item_stays_in_the_trash() {
+        let taken = std::io::Error::from(std::io::ErrorKind::AlreadyExists);
+        assert_eq!(unrestored(&taken, "a.rs"), "“a.rs” already exists, so it stays in the Trash");
+        assert_eq!(unrestored(&std::io::Error::other("x"), "a.rs"), "Couldn’t put “a.rs” back");
     }
 
     #[test]

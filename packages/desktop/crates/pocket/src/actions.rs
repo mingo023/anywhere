@@ -1,4 +1,4 @@
-use crate::explorer::menu::{self, Item};
+use crate::explorer::menu::{self, Arrow, Item};
 use crate::{browser, inbox, settings};
 use gpui_kit::*;
 use std::collections::BTreeMap;
@@ -24,12 +24,11 @@ pub struct PageEdit(pub web::Edit);
 #[action(namespace = desktop, no_json)]
 pub struct TreeMenuItem(pub Item);
 
-/// Moves the tree menu's highlight down, or up when false.
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
-pub struct TreeMenuStep(pub bool);
+pub struct TreeMenuArrow(pub Arrow);
 
-/// Chooses the tree menu's highlighted item, else Rename.
+/// Chooses the tree menu's highlighted chat or item.
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
 pub struct TreeMenuChoose;
@@ -98,8 +97,10 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-alt-c", TreeMenuItem(Item::Copy), Some(menu::CONTEXT)),
         KeyBinding::new("cmd-alt-shift-c", TreeMenuItem(Item::CopyRelative), Some(menu::CONTEXT)),
         KeyBinding::new("enter", TreeMenuChoose, Some(menu::CONTEXT)),
-        KeyBinding::new("down", TreeMenuStep(true), Some(menu::CONTEXT)),
-        KeyBinding::new("up", TreeMenuStep(false), Some(menu::CONTEXT)),
+        KeyBinding::new("down", TreeMenuArrow(Arrow::Down), Some(menu::CONTEXT)),
+        KeyBinding::new("up", TreeMenuArrow(Arrow::Up), Some(menu::CONTEXT)),
+        KeyBinding::new("left", TreeMenuArrow(Arrow::Left), Some(menu::CONTEXT)),
+        KeyBinding::new("right", TreeMenuArrow(Arrow::Right), Some(menu::CONTEXT)),
         KeyBinding::new("cmd-backspace", TreeMenuItem(Item::Trash), Some(menu::CONTEXT)),
     ];
     out.extend((1..=9).map(|n| KeyBinding::new(&format!("cmd-{n}"), JumpToTab(n), None)));
