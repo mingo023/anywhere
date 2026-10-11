@@ -203,9 +203,9 @@ impl Desktop {
         let name = self.local_name(key);
         let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-            None => tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())),
+            None => self.scrolling(key, name.clone(), tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())), cx),
         };
-        let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu)));
+        let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
         let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
         let row = ui::worktree_row(id(format!("aside-tree:{key}")), LOCAL_ICON, label, selected, mark)
             .children(trail)
@@ -223,6 +223,23 @@ impl Desktop {
         Self::with_card(row, key, card, cx).into_any_element()
     }
 
+    /// `label`, reading `text`, scrolling through its cut-off end while `tree`'s card shows.
+    fn scrolling(&self, tree: &str, text: String, label: AnyElement, cx: &mut Context<Self>) -> AnyElement {
+        if cx.reduce_motion() || self.sidebar.hover.shows(tree).is_none() {
+            return label;
+        }
+        let (this, row) = (cx.weak_entity(), tree.to_string());
+        ui::marquee(id(format!("aside-marquee:{tree}")), text.into(), self.sidebar.hover.label(tree), label, move |width, overflow, cx| {
+            this.update(cx, |this, cx| {
+                if this.sidebar.hover.measured(&row, width, overflow) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .into_any_element()
+    }
+
     /// A tree's pull request icon, if it has one.
     fn pr_mark(&self, tree: &str) -> Option<AnyElement> {
         self.prs.get(tree).map(|pr| {
@@ -235,7 +252,8 @@ impl Desktop {
     fn card_for(&self, p: &str, tree: &str, title: &str, branch: &str, shows_pr: bool, reduce_motion: bool) -> Option<Div> {
         self.sidebar.hover.shows(tree).map(|fades| {
             let when = self.tree_cards(p, tree).iter().map(|c| c.at).max().map(|at| ago_long(at, now_ms())).filter(|w| !w.is_empty());
-            tree_card::hung(title.to_string(), branch.to_string(), self.prs.get(tree).filter(|_| shows_pr), when, fades && !reduce_motion)
+            let slide = self.sidebar.hover.slide().filter(|_| !reduce_motion);
+            tree_card::hung(title.to_string(), branch.to_string(), self.prs.get(tree).filter(|_| shows_pr), when, fades && !reduce_motion, slide)
         })
     }
 
@@ -243,7 +261,7 @@ impl Desktop {
     fn with_card(row: Stateful<Div>, tree: &str, card: Option<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = tree.to_string();
         row.relative()
-            .on_hover(cx.listener(move |this, over: &bool, _, cx| this.hover_tree(&key, *over, cx)))
+            .on_hover(cx.listener(move |this, over: &bool, window, cx| this.hover_tree(&key, *over, window.mouse_position().y.into(), cx)))
             .on_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 if this.sidebar.hover.press() {
                     cx.notify();
@@ -252,16 +270,16 @@ impl Desktop {
             .children(card)
     }
 
-    fn hover_tree(&mut self, tree: &str, over: bool, cx: &mut Context<Self>) {
+    fn hover_tree(&mut self, tree: &str, over: bool, y: f32, cx: &mut Context<Self>) {
         let now = Instant::now();
+        // Rows reserve their trail by `Hover::on`, so redraw even when no card shows or hides.
+        cx.notify();
         if !over {
-            if self.sidebar.hover.leave(tree, now) {
-                cx.notify();
-            }
+            self.sidebar.hover.leave(tree, now);
             return;
         }
-        if self.sidebar.hover.enter(tree, now) {
-            return cx.notify();
+        if self.sidebar.hover.enter(tree, now, y) {
+            return;
         }
         let tree = tree.to_string();
         cx.spawn(async move |this, cx| {
@@ -348,11 +366,11 @@ impl Desktop {
                 } else {
                     ui::indicator(id(format!("aside-spin:{tree}")), state).or_else(|| self.pr_mark(tree))
                 };
-                let trail = ui::row_trail(None, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
+                let trail = ui::row_trail(None, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
                 let (target, path) = (p.to_string(), tree.clone());
                 let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
                     Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-                    None => tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())),
+                    None => self.scrolling(tree, title.clone(), tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())), cx),
                 };
                 let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, label, selected, mark)
                     .child(trail)
