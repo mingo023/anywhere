@@ -1,14 +1,13 @@
 use super::{duration, fix_summary, gate_text, place, review_lines, shown_checks, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
-use crate::git_ui::pull_requests::{detail, tone};
+use crate::git_ui::pull_requests::{MERGED_BG, detail, tone};
 use git::github::{Check, Gate, Method, Outcome, Pr, PrState, Review, ThreadState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
-const MERGED_BG: Token = Token::fixed(0x8250df1f);
 const CHECKS_SHOWN: usize = 6;
 const COMMENTS_SHOWN: usize = 3;
 

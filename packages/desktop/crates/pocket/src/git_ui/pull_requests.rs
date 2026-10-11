@@ -7,6 +7,7 @@ use theme::*;
 
 const OTHERS_EVERY: Duration = Duration::from_secs(5 * 60);
 const GH_TURN: Duration = Duration::from_secs(60);
+pub(crate) const MERGED_BG: Token = Token::fixed(0x8250df1f);
 
 /// Each worktree's PR as `gh` last reported it, and when it was asked.
 #[derive(Default)]
@@ -188,6 +189,28 @@ pub(crate) fn chip(id: impl Into<ElementId>, pr: &Pr) -> Stateful<Div> {
         .tooltip_show_delay(Duration::from_millis(350))
 }
 
+/// The PR's icon and its colour, as GitHub shows its state.
+pub(crate) fn glyph(pr: &Pr) -> (&'static str, Token) {
+    match pr.state {
+        PrState::Merged => ("merge", MERGED),
+        PrState::Closed => ("pull-request-closed", FAILED_TEXT),
+        PrState::Open if pr.draft => ("pull-request-draft", TEXT_4),
+        PrState::Open => ("pull-request", SUCCESS_TEXT),
+    }
+}
+
+/// The fill and text of a pill holding the PR's `detail`: its `tone`, red once closed.
+pub(crate) fn badge(pr: &Pr) -> (Token, Token) {
+    if pr.state == PrState::Closed {
+        return (FAILED_BG, FAILED_TEXT);
+    }
+    let fg = tone(pr);
+    match [(MERGED, MERGED_BG), (FAILED_TEXT, FAILED_BG), (WAITING_TEXT, WAITING_BG), (SUCCESS_TEXT, SUCCESS_BG)].into_iter().find(|(t, _)| *t == fg) {
+        Some((_, bg)) => (bg, fg),
+        None => (FILL_2, TEXT_2),
+    }
+}
+
 impl Desktop {
     /// Checks whether `gh` is installed and signed in, off the UI thread.
     pub(crate) fn check_gh(&mut self, cx: &mut Context<Self>) {
@@ -250,7 +273,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Duration, GhProblem, GhStatus, Instant, Pr, PrItem, PullRequests, detail, tone};
+    use super::{Duration, GhProblem, GhStatus, Instant, Pr, PrItem, PullRequests, detail, glyph, tone};
     use git::github::{Checks, PrState};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_3, TEXT_4, WAITING_TEXT};
 
@@ -350,6 +373,13 @@ mod tests {
         ]
         .map(|p| tone(&p));
         assert_eq!(tones, [MERGED, TEXT_4, TEXT_4, FAILED_TEXT, WAITING_TEXT, SUCCESS_TEXT, TEXT_3]);
+    }
+
+    #[test]
+    fn a_prs_icon_shows_its_state_as_github_does_whatever_its_checks() {
+        let with = |state, draft| Pr { state, draft, checks: Checks { failed: 1, ..Checks::default() }, ..pr(1) };
+        let icons = [with(PrState::Open, false), with(PrState::Open, true), with(PrState::Merged, false), with(PrState::Closed, false)].map(|p| glyph(&p));
+        assert_eq!(icons, [("pull-request", SUCCESS_TEXT), ("pull-request-draft", TEXT_4), ("merge", MERGED), ("pull-request-closed", FAILED_TEXT)]);
     }
 
     #[test]
