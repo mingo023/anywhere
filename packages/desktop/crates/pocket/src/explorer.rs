@@ -14,7 +14,11 @@ use gpui_kit::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use theme::*;
+use std::time::Duration;
 use workspace::Doc;
+
+/// How long a row just made, renamed or put back stays ringed.
+const FLASH: Duration = Duration::from_millis(900);
 
 /// Fresh listings for the folders still open, so a folder opened or closed while they were read keeps its new state.
 pub fn merge_tree(fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>, open: &HashMap<PathBuf, Vec<(bool, PathBuf)>>, root: Option<&Path>) -> HashMap<PathBuf, Vec<(bool, PathBuf)>> {
@@ -50,6 +54,12 @@ pub struct ExplorerState {
     pub(crate) menu: Option<menu::TreeMenu>,
     edit: Option<edit::NameEdit>,
     notice: Option<(toast::Notice, Task<()>)>,
+    /// The last trashed item and where it landed, while its notice shows.
+    undo: Option<(PathBuf, PathBuf)>,
+    flash: Option<(PathBuf, Task<()>)>,
+    scroll: ScrollHandle,
+    /// Scroll the edit row, or else the flashed one, into view once it's listed.
+    seek: bool,
 }
 
 /// A line of the tree: a file, or a folder and whether it is open.
@@ -63,7 +73,7 @@ pub struct Row {
 
 impl ExplorerState {
     pub fn new() -> Self {
-        Self { tree: HashMap::new(), menu: None, edit: None, notice: None }
+        Self { tree: HashMap::new(), menu: None, edit: None, notice: None, undo: None, flash: None, scroll: ScrollHandle::new(), seek: false }
     }
 
     /// The tree under `root` top to bottom, descending into open folders only.
@@ -81,6 +91,10 @@ impl ExplorerState {
     /// Whether the menu is open on `path`, or on the root for `None`.
     pub(crate) fn menu_on(&self, path: Option<&Path>) -> bool {
         self.menu.as_ref().is_some_and(|m| m.target.as_ref().map(|(p, _)| p.as_path()) == path)
+    }
+
+    fn flashing(&self, path: &Path) -> bool {
+        self.flash.as_ref().is_some_and(|(p, _)| p == path)
     }
 
     fn push_rows(&self, dir: &Path, depth: usize, rows: &mut Vec<Row>) {
@@ -113,6 +127,20 @@ impl Desktop {
     }
 
     /// Lists the open folders again under new Explorer settings, applied only while those settings still hold.
+    /// Rings `path`'s row for a moment and scrolls to it: what a create, rename or undo just made.
+    pub(crate) fn flash_row(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let fade = cx.spawn(async |this, cx| {
+            cx.background_executor().timer(FLASH).await;
+            this.update(cx, |d, cx| {
+                d.explorer.flash = None;
+                cx.notify();
+            })
+            .ok();
+        });
+        self.explorer.flash = Some((path, fade));
+        self.explorer.seek = true;
+    }
+
     pub(crate) fn relist_explorer(&mut self, cx: &mut Context<Self>) {
         let files = self.store.files.clone();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
@@ -174,11 +202,19 @@ impl Desktop {
         let root = self.explore_root().map(PathBuf::from);
         let rows = root.as_deref().map(|root| self.explorer.rows(root)).unwrap_or_default();
         let new_row = root.as_deref().zip(self.explorer.new_parent()).and_then(|(root, parent)| edit::new_row_at(&rows, parent, root));
+        let renamed = self.explorer.renamed().map(Path::to_path_buf);
+        let flashed = self.explorer.flash.as_ref().map(|(p, _)| p.clone());
+        if self.explorer.seek
+            && let Some(ix) = seek(&rows, new_row.map(|(i, _)| i), renamed.as_deref(), flashed.as_deref())
+        {
+            self.explorer.scroll.scroll_to_item(ix);
+            self.explorer.seek = false;
+        }
         let mut rows: Vec<_> = rows.into_iter().map(|row| self.tree_row(row, &touched, cx)).collect();
         if let Some((i, depth)) = new_row
             && let Some(row) = self.edit_row(depth, cx)
         {
-            rows.insert(i, row);
+            rows.insert(i, row.into_any_element());
         }
         let list = div()
             .id("explorer")
@@ -188,6 +224,7 @@ impl Desktop {
             .pt(px(8.))
             .pb(px(8.))
             .overflow_y_scroll()
+            .track_scroll(&self.explorer.scroll)
             .flex()
             .flex_col()
             .gap(px(1.))
@@ -197,18 +234,19 @@ impl Desktop {
         div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list).children(self.tree_menu(cx))
     }
 
-    fn tree_row(&self, Row { path, depth, is_dir, open }: Row, touched: &[String], cx: &mut Context<Self>) -> Stateful<Div> {
+    fn tree_row(&self, Row { path, depth, is_dir, open }: Row, touched: &[String], cx: &mut Context<Self>) -> AnyElement {
         if self.explorer.renaming(&path)
             && let Some(row) = self.edit_row(depth, cx)
         {
-            return row;
+            return row.into_any_element();
         }
         let label = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let key = path.to_string_lossy().to_string();
         let menu = self.open_tree_menu(Some((path.clone(), is_dir)), cx);
         let targeted = self.explorer.menu_on(Some(&path));
+        let flash = self.explorer.flashing(&path).then(|| id(format!("flash-{key}")));
+        let selected = !is_dir && self.preview.file(self.focused_pane()) == Some(key.as_str());
         let row = if !is_dir {
-            let selected = self.preview.file(self.focused_pane()) == Some(key.as_str());
             let git = self.file_status(&key);
             let touched = touched.contains(&key);
             ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
@@ -216,8 +254,22 @@ impl Desktop {
         } else {
             ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
         };
-        row.on_mouse_down(MouseButton::Right, menu).when(targeted, |d| d.shadow(outline(ACCENT)))
+        let row = row.on_mouse_down(MouseButton::Right, menu).when(targeted, |d| d.shadow(outline(ACCENT)));
+        let Some(flash) = flash else { return row.into_any_element() };
+        row.with_animation(flash, Animation::new(FLASH).with_easing(ease_out_quint()), move |d, t| {
+            let fade = |c: Token| Hsla::from(c).opacity(1. - t);
+            d.when(!selected && t < 1., |d| d.bg(fade(ACCENT_BG))).shadow(outline(fade(ACCENT)))
+        })
+        .into_any_element()
     }
+}
+
+/// Which row to scroll to: the new item's, else the renamed or flashed one's.
+pub fn seek(rows: &[Row], new_row: Option<usize>, renamed: Option<&Path>, flashed: Option<&Path>) -> Option<usize> {
+    new_row.or_else(|| {
+        let at = renamed.or(flashed)?;
+        rows.iter().position(|r| r.path == at)
+    })
 }
 
 fn name_of(path: &Path) -> String {
@@ -225,13 +277,13 @@ fn name_of(path: &Path) -> String {
 }
 
 /// A 1px ring inside a row's edge: the row the menu is for, or the one a name is typed in.
-fn outline(color: Token) -> Vec<BoxShadow> {
+fn outline(color: impl Into<Hsla>) -> Vec<BoxShadow> {
     vec![BoxShadow { inset: true, ..ui::ring(color, 1.) }]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, list_dir, merge_tree, status_of, touched};
+    use super::{ExplorerState, Row, list_dir, merge_tree, seek, status_of, touched};
     use store::prefs::files::Files;
     use git::FileStat;
     use std::collections::HashMap;
@@ -317,5 +369,15 @@ mod tests {
         let tree = merge_tree(fresh.clone(), &HashMap::new(), Some(Path::new("/r")));
         assert_eq!(tree, HashMap::from([("/r".into(), vec![entry(false, "/r/a.rs")])]));
         assert_eq!(merge_tree(fresh, &HashMap::new(), None), HashMap::new());
+    }
+
+    #[test]
+    fn the_new_row_is_scrolled_to_before_a_renamed_or_flashed_one() {
+        let row = |p: &str| Row { path: p.into(), depth: 0, is_dir: false, open: false };
+        let rows = [row("/r/a"), row("/r/b")];
+        assert_eq!(seek(&rows, Some(0), None, Some(Path::new("/r/b"))), Some(0));
+        assert_eq!(seek(&rows, None, Some(Path::new("/r/b")), Some(Path::new("/r/a"))), Some(1));
+        assert_eq!(seek(&rows, None, None, Some(Path::new("/r/a"))), Some(0));
+        assert_eq!(seek(&rows, None, None, Some(Path::new("/r/gone"))), None);
     }
 }

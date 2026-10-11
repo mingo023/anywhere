@@ -131,7 +131,11 @@ impl ExplorerState {
     }
 
     pub(crate) fn renaming(&self, path: &Path) -> bool {
-        self.edit.as_ref().is_some_and(|e| e.naming.renaming() == Some(path))
+        self.renamed() == Some(path)
+    }
+
+    pub(crate) fn renamed(&self) -> Option<&Path> {
+        self.edit.as_ref()?.naming.renaming()
     }
 
     pub(crate) fn new_parent(&self) -> Option<&Path> {
@@ -172,6 +176,7 @@ impl Desktop {
             self.relist_explorer(cx);
         }
         self.explorer.edit = Some(NameEdit { naming, input, _sub: sub });
+        self.explorer.seek = true;
     }
 
     pub(super) fn commit_edit(&mut self, strict: bool, cx: &mut Context<Self>) {
@@ -211,8 +216,12 @@ impl Desktop {
                         if !folder {
                             d.open_file(path.to_string_lossy().to_string(), false, cx);
                         }
+                        d.flash_row(path, cx);
                     }
-                    (Naming::Rename { path, .. }, Ok(to)) => d.explorer.moved(&path, &to),
+                    (Naming::Rename { path, .. }, Ok(to)) => {
+                        d.explorer.moved(&path, &to);
+                        d.flash_row(to, cx);
+                    }
                     (Naming::New { .. }, Err(e)) => d.error = Some(format!("Couldn’t create “{name}”: {e}")),
                     (Naming::Rename { .. }, Err(e)) => d.error = Some(format!("Couldn’t rename to “{name}”: {e}")),
                 }

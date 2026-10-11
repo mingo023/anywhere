@@ -536,8 +536,8 @@ impl Render for Desktop {
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.hide_chips(cx);
-                let in_text = window.context_stack().iter().any(|c| c.contains("Input"));
-                if crate::explorer::toast::is_undo(&ev.keystroke.key, ev.keystroke.modifiers, in_text) && this.undo_trash(cx) {
+                let taken = window.context_stack().iter().any(|c| c.contains("Input") || c.contains(keys::CONTEXT) || c.contains(crate::browser::CONTEXT));
+                if crate::explorer::toast::is_undo(&ev.keystroke.key, ev.keystroke.modifiers, taken) && this.undo_trash(cx) {
                     return cx.stop_propagation();
                 }
                 if ev.keystroke.key != "escape" {

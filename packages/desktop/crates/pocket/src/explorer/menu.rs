@@ -104,6 +104,8 @@ impl Desktop {
         cx.listener(move |this, e: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             this.commit_edit(false, cx);
+            // The menu's key equivalents bind on the window; a focused terminal or page would take the keys first.
+            window.focus(&this.root, cx);
             this.close_menus();
             this.explorer.menu = Some(TreeMenu::new(target.clone(), e.position, window.modifiers().alt, window.viewport_size().width));
             cx.notify();
@@ -159,7 +161,8 @@ impl Desktop {
         self.send_input(&terminal, &term::paste_bytes(&mention_text(path, folder, Path::new(&cwd)), bracketed), cx);
         // The focused chat shows the mention landing in its input; any other gets a toast.
         if self.session() != Some(id) {
-            self.flash_added(provider, cx);
+            let title = self.chat_choices().into_iter().find(|c| c.id == id).map(|c| c.title).unwrap_or_default();
+            self.show_notice(Notice::Mentioned { provider, title }, cx);
         }
     }
 
