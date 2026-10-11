@@ -128,11 +128,11 @@ impl Terminals {
         listed.into_iter().filter_map(|id| self.created.remove_entry(&id)).collect()
     }
 
-    /// Records an exit and returns whether its pane should close: a clean exit closes, as Terminal.app does; a failed one stays so its error can be read.
+    /// Records an exit and returns whether its pane should close. Only a failed setup stays so its error can be read: a shell's `exit` passes on its last command's status, so any other code means nothing went wrong.
     pub(crate) fn exited(&mut self, m: &Msg) -> bool {
         self.sessions.apply(m);
-        self.setups.remove(&m.id);
-        self.sessions.get(&m.id).is_some_and(|s| s.exit == Some(0))
+        let setup = self.setups.remove(&m.id).is_some();
+        self.sessions.get(&m.id).is_some_and(|s| !(setup && s.failed()))
     }
 
     /// Forgets a terminal for good, even if pocketd lists it again; returns whether it still runs and pocketd must end it.
@@ -463,12 +463,16 @@ mod tests {
     }
 
     #[test]
-    fn a_clean_exit_closes_its_pane_and_a_failed_one_stays_to_be_read() {
+    fn any_exit_closes_its_pane_but_a_failed_setup_stays_to_be_read() {
         let mut t = Terminals::new(Default::default());
-        t.listed(vec![info("a"), info("b")]);
+        t.created("r1", "c".into(), "/w".into(), true);
+        t.created("r2", "d".into(), "/w".into(), true);
+        t.listed(vec![info("a"), info("b"), info("c"), info("d")]);
         assert!(t.exited(&exit("a", 0)));
-        assert!(!t.exited(&exit("b", 1)));
-        assert_eq!(t.sessions.get("b").and_then(|s| s.exit), Some(1));
+        assert!(t.exited(&exit("b", 127)));
+        assert!(t.exited(&exit("c", 0)));
+        assert!(!t.exited(&exit("d", 1)));
+        assert_eq!(t.sessions.get("d").and_then(|s| s.exit), Some(1));
     }
 
     #[test]

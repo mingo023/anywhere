@@ -81,6 +81,11 @@ impl Sessions {
         self.items.iter_mut().find(|s| s.info.id == id)
     }
 
+    /// A terminal that hasn't exited, so pocketd still takes its input.
+    pub fn running(&self, id: &str) -> bool {
+        self.get(id).is_some_and(|s| s.exit.is_none())
+    }
+
     pub fn term(&mut self, id: &str) -> Option<&mut Term> {
         self.get_mut(id).and_then(|s| s.term.as_mut())
     }
@@ -147,6 +152,14 @@ mod tests {
         assert_eq!(s.get("a").unwrap().exit, Some(2));
         s.remove("a");
         assert_eq!(ids(&s), vec!["b"]);
+    }
+
+    #[test]
+    fn only_a_listed_terminal_that_has_not_exited_is_running() {
+        let mut s = Sessions::default();
+        s.sync(vec![info("a"), info("b")]);
+        s.apply(&Msg { code: 0, ..msg("exit", "a", "") });
+        assert_eq!(["a", "b", "x"].map(|id| s.running(id)), [false, true, false]);
     }
 
     #[test]
