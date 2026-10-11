@@ -8,7 +8,7 @@ mod tab_actions;
 mod tab_menu;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Overlay, drag_area, id, observe_banner};
+use crate::desktop::chrome::{Layout, Overlay, Side, drag_area, id, observe_banner};
 use crate::terminal_view::context;
 use drop::Aim;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -54,6 +54,11 @@ pub(crate) struct Panels {
 /// Whether `pane` touches the top of the main area, where its bar also moves the window, and its left, where the bar starts with the sidebar toggle.
 pub(crate) fn edges(layout: &[(PaneId, Rect)], pane: PaneId) -> (bool, bool) {
     layout.iter().find(|(p, _)| *p == pane).map_or((true, true), |(_, r)| (r.y < 1e-4, r.x < 1e-4))
+}
+
+/// Whether `pane` is the top-right one, beside the rail, whose bar shows the worktree's changes.
+pub(crate) fn top_right(layout: &[(PaneId, Rect)], pane: PaneId) -> bool {
+    layout.iter().find(|(p, _)| *p == pane).is_none_or(|(_, r)| r.y < 1e-4 && r.x + r.w > 1. - 1e-4)
 }
 
 pub(crate) fn rect(b: Bounds<Pixels>) -> Rect {
@@ -188,6 +193,7 @@ impl Desktop {
             .flex_none()
             .items_center()
             .gap(px(8.))
+            .children(self.changes_chip(top_right(layout, p), cx))
             .when(!observe, |d| d.child(ui::icon_group([split("split-right", Edge::Right, can[0], cx), split("split-down", Edge::Bottom, can[1], cx)])))
             .child(ui::icon_group([ui::group_button("session-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx)))]));
         let bar = div()
@@ -216,6 +222,27 @@ impl Desktop {
             .when(!focused, |d| d.on_any_mouse_down(|_, window, _| window.prevent_default()))
             .child(if top { drag_area(bar) } else { bar })
             .child(body)
+    }
+
+    /// The worktree's +/−, opening Changes in the workspace panel like the rail's button.
+    fn changes_chip(&self, shown: bool, cx: &mut Context<Self>) -> Option<Div> {
+        let (added, removed) = self.repo().filter(|r| shown && self.layout != Layout::Focus && !r.files.is_empty())?.totals();
+        let open = self.sidebar.panel_open && self.side == Side::Changes;
+        let chip = ui::control(div().id("pane-changes"))
+            .h(px(30.))
+            .pl(px(10.))
+            .pr(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(7.))
+            .rounded(px(15.))
+            .cursor_pointer()
+            .when(open, |d| d.bg(FILL_4))
+            .hover(|s| s.bg(FILL_3))
+            .child(icon("branch", 15., TEXT_2))
+            .child(ui::meta_diff(added, removed, 11.5))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_side(Side::Changes, cx)));
+        Some(ui::icon_group([chip]))
     }
 
     fn empty_pane(&self, p: PaneId, cx: &mut Context<Self>) -> Div {
@@ -309,7 +336,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::edges;
+    use super::{edges, top_right};
     use workspace::tree::{Edge, Tree, UNIT};
 
     #[test]
@@ -320,5 +347,15 @@ mod tests {
         let c = t.split(b, Edge::Bottom, 3).unwrap();
         let layout = t.layout(UNIT);
         assert_eq!([0, b, c].map(|p| edges(&layout, p)), [(true, true), (true, false), (false, false)]);
+    }
+
+    #[test]
+    fn only_the_top_right_pane_shows_the_worktrees_changes() {
+        let mut t = Tree::default();
+        t.push(0, 1);
+        let b = t.split(0, Edge::Right, 2).unwrap();
+        let c = t.split(b, Edge::Bottom, 3).unwrap();
+        let layout = t.layout(UNIT);
+        assert_eq!([0, b, c].map(|p| top_right(&layout, p)), [false, true, false]);
     }
 }

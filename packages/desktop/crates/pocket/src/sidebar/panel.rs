@@ -28,7 +28,7 @@ fn edge_width(wide: f32) -> Option<f32> {
 }
 
 impl Desktop {
-    fn pick_side(&mut self, side: Side, cx: &mut Context<Self>) {
+    pub(crate) fn pick_side(&mut self, side: Side, cx: &mut Context<Self>) {
         (self.side, self.sidebar.panel_open) = rail_pick(self.side, self.sidebar.panel_open, side);
         self.refresh_graph(cx);
         cx.notify();
