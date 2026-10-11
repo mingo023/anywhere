@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"pocketd/internal/agent"
+	"pocketd/internal/locals"
 	"pocketd/internal/names"
 	"pocketd/internal/naming"
 	"pocketd/internal/timeline"
@@ -105,5 +106,18 @@ func TestAPushedPlaceholderKeepsItsBranch(t *testing.T) {
 	l.name(j)
 	if current(t, j.tree) != "calm-otter" || l.Names.Titles()[j.tree] != "Fix login" {
 		t.Fatal(current(t, j.tree))
+	}
+}
+
+func TestNamingTitlesTheLocalTheSessionStartedInOnlyOnce(t *testing.T) {
+	l, a, j := placed(t)
+	l.Locals = locals.Open(t.TempDir())
+	l.Locals.Create("l1", j.project, "Local 2")
+	j.tree, j.local = "", "l1"
+	answers(l, naming.Result{Title: "Fix login", Branch: "fix-login"}, naming.Result{Title: "Add tests", Branch: "add-tests"})
+	l.name(j)
+	l.name(j)
+	if got, _ := l.Locals.Get("l1"); got.Name != "Fix login" || a.Summary().Title != "Add tests" || current(t, j.project) == "fix-login" {
+		t.Fatalf("%q %+v", got.Name, a.Summary())
 	}
 }

@@ -14,7 +14,6 @@ use std::time::Duration;
 
 pub(crate) fn may_open(o: Overlay, agents: &Agents) -> bool {
     match o {
-        Overlay::NewSession => !agents.observe_only(),
         Overlay::PairPhone => agents.owner() && agents.pairing(),
         Overlay::PhoneAccess => agents.owner(),
         Overlay::Palette | Overlay::AddRepo | Overlay::More | Overlay::Confirm => true,
@@ -30,7 +29,6 @@ impl Desktop {
         self.overlay = Some(o);
         match o {
             Overlay::Palette => self.open_palette(window, cx),
-            Overlay::NewSession => self.reset_new_form(None, false, window, cx),
             Overlay::AddRepo => self.reset_repo_form(None, window, cx),
             Overlay::PairPhone => self.begin_pairing(window, cx),
             Overlay::More | Overlay::Confirm | Overlay::PhoneAccess => {}
@@ -40,6 +38,10 @@ impl Desktop {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = None;
+        self.refocus(window, cx);
+    }
+
+    pub(crate) fn refocus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.web_tab(self.focused_pane()).is_some() {
             window.focus(&self.browsers.focus, cx);
         } else if self.empty_pane.drawn.last {
@@ -52,10 +54,9 @@ impl Desktop {
 
     pub fn overlay_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let o = self.overlay?;
-        // Entrance as (ms, rise). The palette and new-session sheet open from shortcuts many times a day; motion would only slow them.
+        // Entrance as (ms, rise). The palette opens from a shortcut many times a day; motion would only slow it.
         let (body, alpha, entrance) = match o {
             Overlay::Palette => (self.palette(cx), 0x1f, None),
-            Overlay::NewSession => (self.new_session_view(window, cx), 0x2e, None),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40, Some((200, 8.))),
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
@@ -80,6 +81,7 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::may_open;
+    use super::new_session::may_start;
     use crate::desktop::chrome::Overlay;
     use agents::{Agents, Event};
 
@@ -94,9 +96,9 @@ mod tests {
 
     #[test]
     fn an_observe_only_desktop_cannot_start_a_session() {
-        assert!(!may_open(Overlay::NewSession, &connected(&["observe"], &["pair.v1"])));
-        assert!(may_open(Overlay::NewSession, &connected(&OWNER, &[])));
-        assert!(may_open(Overlay::NewSession, &Agents::default()));
+        assert!(!may_start(&connected(&["observe"], &["pair.v1"])));
+        assert!(may_start(&connected(&OWNER, &[])));
+        assert!(may_start(&Agents::default()));
     }
 
     #[test]

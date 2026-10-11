@@ -20,7 +20,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 103] = [
+const STEPS: [(&str, Step); 104] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -115,7 +115,7 @@ const STEPS: [(&str, Step); 103] = [
         (d.confirm, d.overlay) = (Some(crate::desktop::chrome::Confirm::ResetSection(d.settings.section)), Some(Overlay::Confirm));
     }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
-    ("new-session", |d, window, cx| d.open(Overlay::NewSession, window, cx)),
+    ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("form-model", |d, _, cx| d.toggle_picker(Picker::Model, cx)),
     ("form-access", |d, _, cx| d.toggle_picker(Picker::Access, cx)),
     ("empty-model", |d, _, cx| d.toggle_empty_menu(Menu::Model, cx)),
@@ -289,6 +289,11 @@ const STEPS: [(&str, Step); 103] = [
     ("rename-local", |d, window, cx| d.start_rename("local-review".into(), window, cx)),
     ("delete-local", |d, _, cx| d.ask_delete_local("local-review".into(), cx)),
     ("form-checkout", |d, _, cx| d.toggle_picker(Picker::Checkout, cx)),
+    ("new-place", |d, window, cx| {
+        if let Some(p) = d.project.clone() {
+            d.new_place(p, window, cx);
+        }
+    }),
     ("rename", |d, window, cx| {
         if let Some(tree) = d.agents.names.keys().next().cloned() {
             d.start_rename(tree, window, cx);

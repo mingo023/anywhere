@@ -7,7 +7,6 @@ pub(crate) use selection::offers_chat;
 
 use crate::actions::AddToChat;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::Overlay;
 use crate::git_ui::diff::{At, DiffView, ordered, span};
 use crate::sidebar::in_tree;
 use crate::status::{Card, Kind, Status};
@@ -302,10 +301,7 @@ impl Desktop {
         let Some(quote) = self.chat_quote() else { return };
         let prompt = quote.prompt(&self.chat.input.read(cx).value());
         self.cancel_chat(window, cx);
-        self.open(Overlay::NewSession, window, cx);
-        if self.overlay == Some(Overlay::NewSession) {
-            self.reset_new_form(Some(prompt), false, window, cx);
-        }
+        self.new_session(Some(prompt), false, window, cx);
     }
 }
 

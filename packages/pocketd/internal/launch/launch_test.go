@@ -36,6 +36,47 @@ func onPath(t *testing.T, names ...string) {
 		os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\n"), 0o755)
 	}
 	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	t.Setenv("SHELL", "/bin/sh")
+}
+
+// shellsWith is each shell on this Mac with a function cc that echoes its args, and a PATH holding a file cc.
+func shellsWith(t *testing.T) map[string][]string {
+	home, bin := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(bin, "cc"), []byte("#!/bin/sh\necho compiler\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "real"), []byte("#!/bin/sh\n"), 0o755)
+	os.WriteFile(filepath.Join(home, ".zshenv"), []byte("cc() { echo \"$@\"; }\n"), 0o644)
+	os.MkdirAll(filepath.Join(home, ".config", "fish", "functions"), 0o755)
+	os.WriteFile(filepath.Join(home, ".config", "fish", "functions", "cc.fish"), []byte("function cc; echo $argv; end\n"), 0o644)
+	envs := map[string][]string{}
+	for _, shell := range []string{"/bin/zsh", "fish"} {
+		if path, err := exec.LookPath(shell); err == nil {
+			envs[path] = []string{"HOME=" + home, "ZDOTDIR=" + home, "PATH=" + bin + ":/usr/bin:/bin", "SHELL=" + path}
+		}
+	}
+	return envs
+}
+
+func TestAShellFunctionWinsOverTheFileOfTheSameNameAsInTheUsersTerminal(t *testing.T) {
+	for shell, env := range shellsWith(t) {
+		if got, err := resolve("cc", env); got != "cc" || err != nil {
+			t.Errorf("%s: cc resolves to %q, %v", shell, got, err)
+		}
+		if got, _ := resolve("real", env); !strings.HasSuffix(got, "/real") {
+			t.Errorf("%s: real resolves to %q", shell, got)
+		}
+		if _, err := resolve("missing", env); err == nil {
+			t.Errorf("%s: a missing command was found", shell)
+		}
+	}
+}
+
+func TestNamingRunsAShellFunctionThroughTheShell(t *testing.T) {
+	for shell, env := range shellsWith(t) {
+		n, err := generate("claude", "cc", `{"title":"Fix login"}`, env)
+		if err != nil || n.Title != "Fix login" {
+			t.Errorf("%s: got %+v, %v", shell, n, err)
+		}
+	}
 }
 
 func TestProvidersShowWhatIsInstalledAndTheCeiling(t *testing.T) {
@@ -255,8 +296,10 @@ func TestANewWorktreeReportsEachStepAsItStarts(t *testing.T) {
 }
 
 func TestATerminalThatCantStartFailsTheStepAfterTheWorktree(t *testing.T) {
-	t.Setenv("SHELL", "/no/such/shell")
 	l, s := newWorktree(t, "")
+	claude, _ := exec.LookPath("claude")
+	l.set.Set("claude.command", claude)
+	t.Setenv("SHELL", "/no/such/shell")
 	var steps []string
 	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(step, note string) { steps = append(steps, step) }, func(Creating) {})
 	if r.Err == nil || r.Err.Message != "Couldn't start a terminal" {

@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"log"
+	"path/filepath"
 	"time"
 
 	"pocketd/internal/agent"
@@ -16,6 +17,8 @@ type job struct {
 	env                          []string
 	// tree is "" unless naming may name the Worktree and rename its branch.
 	project, tree, branch string
+	// local is the Local the session started in, which naming names while its name is a placeholder.
+	local string
 }
 
 const tries = 3
@@ -26,7 +29,11 @@ var (
 )
 
 func generate(provider, exe, prompt string, env []string) (naming.Result, error) {
-	return naming.Generate(context.Background(), naming.Command(provider, exe, prompt), env)
+	argv := naming.Command(provider, exe, prompt)
+	if !filepath.IsAbs(exe) {
+		argv = InShell(shellOf(env), argv)
+	}
+	return naming.Generate(context.Background(), argv, env)
 }
 
 func (l *Launcher) name(j job) {
@@ -43,7 +50,7 @@ func (l *Launcher) name(j job) {
 			continue
 		}
 		named = &n
-		l.title(a, j.tree, n.Title)
+		l.title(a, j, n.Title)
 		if !n.Vague || reply != "" {
 			break
 		}
@@ -57,6 +64,9 @@ func (l *Launcher) name(j job) {
 		}
 		return
 	}
+	if j.local != "" && named.Title != "" && l.Locals != nil {
+		l.Locals.Settle(j.local)
+	}
 	if !renamable || named.Branch == "" {
 		return
 	}
@@ -69,13 +79,16 @@ func (l *Launcher) name(j job) {
 	}
 }
 
-func (l *Launcher) title(a *agent.Agent, tree, title string) {
+func (l *Launcher) title(a *agent.Agent, j job, title string) {
 	if title == "" {
 		return
 	}
 	a.SetNamed(title)
-	if tree != "" && l.Names != nil {
-		l.Names.Auto(tree, title)
+	if j.tree != "" && l.Names != nil {
+		l.Names.Auto(j.tree, title)
+	}
+	if j.local != "" && l.Locals != nil {
+		l.Locals.Auto(j.local, title)
 	}
 }
 

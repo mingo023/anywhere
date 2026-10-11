@@ -109,3 +109,34 @@ func TestEachChangeSendsEveryLocal(t *testing.T) {
 	default:
 	}
 }
+
+func TestNamingRenamesANewLocalUntilItSettlesOrTheUserRenamesIt(t *testing.T) {
+	home := t.TempDir()
+	l := Open(home)
+	l.Create("a", "/p", "Local 2")
+	l.Create("b", "/p", "Local 3")
+	if !l.Auto("a", "Fix login") || !l.Auto("a", "Fix the login form") {
+		t.Fatal("refused")
+	}
+	l.Settle("a")
+	l.Rename("b", "Mine")
+	if l.Auto("a", "Other") || l.Auto("b", "Other") {
+		t.Fatal("renamed")
+	}
+	want := []proto.Local{{ID: "a", Project: "/p", Name: "Fix the login form"}, {ID: "b", Project: "/p", Name: "Mine"}}
+	if got := Open(home).List(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestALocalStillAPlaceholderAfterARestartIsNamedLater(t *testing.T) {
+	home := t.TempDir()
+	Open(home).Create("a", "/p", "Local 2")
+	l := Open(home)
+	if !l.Auto("a", "Fix login") {
+		t.Fatal("refused")
+	}
+	if got, _ := l.Get("a"); got.Name != "Fix login" {
+		t.Fatalf("%q", got.Name)
+	}
+}

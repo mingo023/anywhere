@@ -248,7 +248,7 @@ impl Desktop {
         if let Some(p) = self.folder_of(tree).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
             self.project = Some(p);
         }
-        self.screen = Screen::Sessions;
+        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         self.worktree = Some(tree.to_string());
     }
 
@@ -271,7 +271,7 @@ impl Desktop {
 
     /// Shows worktree `tree` of project `p`; `None` is the project's main worktree.
     pub fn select_tree(&mut self, p: String, tree: Option<String>, cx: &mut Context<Self>) {
-        self.screen = Screen::Sessions;
+        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         let moved = self.project.as_ref() != Some(&p);
         if moved {
             self.set_project(Some(p));
@@ -325,7 +325,7 @@ impl Desktop {
     /// With no pane holding docs it opens in a new pane right of the focused one, or in the focused one when that has no room to split.
     pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
         let Some(tree) = self.place() else { return };
-        self.screen = Screen::Sessions;
+        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         let bounds = self.panels.bounds;
         let files = &self.store.files;
         let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
@@ -417,7 +417,7 @@ impl Desktop {
 
     /// The worktree whose panes the main view shows.
     pub(crate) fn session_tree(&self) -> Option<String> {
-        if self.terminals.link.is_down() || self.screen != Screen::Sessions {
+        if self.terminals.link.is_down() || self.screen != Screen::Sessions || self.new_form.shown {
             return None;
         }
         self.place()
@@ -433,6 +433,7 @@ impl Desktop {
             _ if self.shown_create().is_some() => self.creating_page(cx),
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
+            None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(cx),
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
             None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
             None => self.blank_page(cx),
@@ -495,7 +496,7 @@ impl Desktop {
                     d.child(
                         ui::button("blank-new", ui::Variant::Primary, Some("sparkle"), "New session")
                             .child(ui::button_kbd("⌘N"))
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::NewSession, window, cx))),
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session(None, false, window, cx))),
                     )
                 }),
         )
@@ -541,6 +542,8 @@ impl Render for Desktop {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
+                } else if this.overlay.is_none() && this.new_form.shown && this.screen == Screen::Sessions {
+                    this.leave_new_session(window, cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Settings {
                     this.escape_settings(window, cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Automations {
@@ -551,7 +554,7 @@ impl Render for Desktop {
                 cx.stop_propagation();
             }))
             .on_action(cx.listener(|this, _: &crate::actions::OpenPalette, window, cx| this.open(Overlay::Palette, window, cx)))
-            .on_action(cx.listener(|this, _: &crate::actions::StartSession, window, cx| this.open(Overlay::NewSession, window, cx)))
+            .on_action(cx.listener(|this, _: &crate::actions::StartSession, window, cx| this.new_session(None, false, window, cx)))
             .on_action(cx.listener(Self::go_to_file))
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))
