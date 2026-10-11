@@ -212,6 +212,8 @@ impl Desktop {
             .flex_col()
             .overflow_hidden()
             .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| this.focus_panel(p, window, cx)))
+            // An unfocused pane tracks no focus, so the press would bubble to the root, whose `track_focus` retakes focus from `focus_panel`.
+            .when(!focused, |d| d.on_any_mouse_down(|_, window, _| window.prevent_default()))
             .child(if top { drag_area(bar) } else { bar })
             .child(body)
     }
