@@ -1,0 +1,74 @@
+# Saves the caches release-mac.yml restores. A tag run can only restore caches saved by its own ref or main,
+# so without this every release builds cold. The daily run keeps them past GitHub's 7-day eviction,
+# building only when the key changed.
+name: Release cache macOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/desktop/Cargo.lock
+      - packages/desktop/Cargo.toml
+      - scripts/build-ghostty.sh
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cache-mac
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      # As release-mac.sh exports it; cc-built deps fingerprint it, so a mismatch rebuilds them.
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Rust targets
+        id: rust
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          echo "rustc=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      # Keys and paths must match release-mac.yml.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: ghostty
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            packages/desktop/target
+            !packages/desktop/target/release-mac
+          key: cargo-release-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
+          restore-keys: cargo-release-${{ steps.rust.outputs.rustc }}-
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        with:
+          version: 0.16.0
+
+      - name: Ghostty
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        run: scripts/build-ghostty.sh
+
+      - name: Build
+        if: steps.cargo.outputs.cache-hit != 'true'
+        working-directory: packages/desktop
+        run: |
+          for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --profile dist -p pocket --target "$triple"
+          done

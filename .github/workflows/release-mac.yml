@@ -34,14 +34,18 @@ jobs:
           cache-dependency-path: packages/pocketd/go.sum
 
       - name: Rust targets
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        id: rust
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          echo "rustc=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restore only: release-cache-mac.yml saves these on main, the one ref every tag can restore from.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/ghostty
           key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index
@@ -49,8 +53,8 @@ jobs:
             ~/.cargo/git/db
             packages/desktop/target
             !packages/desktop/target/release-mac
-          key: cargo-release-${{ hashFiles('packages/desktop/Cargo.lock') }}
-          restore-keys: cargo-release-
+          key: cargo-release-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
+          restore-keys: cargo-release-${{ steps.rust.outputs.rustc }}-
 
       - name: Signing keychain
         env:
