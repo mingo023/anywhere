@@ -152,7 +152,7 @@ impl Desktop {
 
     /// Unlike `send_input`, leaves the selection and scroll alone: hovering a program that tracks the mouse mustn't clear them.
     fn send_mouse(&mut self, pane: &str, at: Pointer, action: MouseAction, button: Option<Button>, mods: Modifiers) {
-        if self.agents.observe_only() {
+        if !self.terminals.may_send(pane, self.agents.observe_only()) {
             return;
         }
         let Some(t) = self.terminals.sessions.term(pane) else { return };
@@ -330,7 +330,7 @@ impl Desktop {
 
     /// The one way input reaches a pane, so the view always returns to the prompt.
     pub(crate) fn send_input(&mut self, pane: &str, bytes: &[u8], cx: &mut Context<Self>) {
-        if self.agents.observe_only() {
+        if !self.terminals.may_send(pane, self.agents.observe_only()) {
             return;
         }
         self.terminal.blink_on = true;

@@ -128,11 +128,11 @@ impl Terminals {
         listed.into_iter().filter_map(|id| self.created.remove_entry(&id)).collect()
     }
 
-    /// Records an exit and returns whether its pane should close: a clean exit closes, as Terminal.app does; a failed one stays so its error can be read.
+    /// Records an exit and returns whether its pane should close. Only a failed setup stays so its error can be read: a shell's `exit` passes on its last command's status, so any other code means nothing went wrong.
     pub(crate) fn exited(&mut self, m: &Msg) -> bool {
         self.sessions.apply(m);
-        self.setups.remove(&m.id);
-        self.sessions.get(&m.id).is_some_and(|s| s.exit == Some(0))
+        let setup = self.setups.remove(&m.id).is_some();
+        self.sessions.get(&m.id).is_some_and(|s| !(setup && s.failed()))
     }
 
     /// Forgets a terminal for good, even if pocketd lists it again; returns whether it still runs and pocketd must end it.
@@ -150,6 +150,11 @@ impl Terminals {
     /// An observer can't end a running terminal; pocketd would refuse while the pane vanished here.
     pub(crate) fn may_close(&self, id: &str, observe: bool) -> bool {
         !observe || !self.sessions.get(id).is_some_and(|s| s.exit.is_none())
+    }
+
+    /// pocketd drops a terminal once it exits, so input to it would only come back as an error. One not listed yet was just spawned and runs.
+    pub(crate) fn may_send(&self, id: &str, observe: bool) -> bool {
+        !observe && !self.sessions.get(id).is_some_and(|s| s.exit.is_some())
     }
 
     /// Records a pane's size and returns whether pocketd must resize its running terminal to it.
@@ -463,12 +468,16 @@ mod tests {
     }
 
     #[test]
-    fn a_clean_exit_closes_its_pane_and_a_failed_one_stays_to_be_read() {
+    fn any_exit_closes_its_pane_but_a_failed_setup_stays_to_be_read() {
         let mut t = Terminals::new(Default::default());
-        t.listed(vec![info("a"), info("b")]);
+        t.created("r1", "c".into(), "/w".into(), true);
+        t.created("r2", "d".into(), "/w".into(), true);
+        t.listed(vec![info("a"), info("b"), info("c"), info("d")]);
         assert!(t.exited(&exit("a", 0)));
-        assert!(!t.exited(&exit("b", 1)));
-        assert_eq!(t.sessions.get("b").and_then(|s| s.exit), Some(1));
+        assert!(t.exited(&exit("b", 127)));
+        assert!(t.exited(&exit("c", 0)));
+        assert!(!t.exited(&exit("d", 1)));
+        assert_eq!(t.sessions.get("d").and_then(|s| s.exit), Some(1));
     }
 
     #[test]
@@ -648,5 +657,13 @@ mod tests {
         t.listed(vec![info("a"), info("b")]);
         t.exited(&exit("b", 1));
         assert_eq!((t.may_close("a", true), t.may_close("b", true), t.may_close("a", false)), (false, true, true));
+    }
+
+    #[test]
+    fn input_reaches_a_running_or_just_spawned_terminal_but_not_an_exited_one() {
+        let mut t = Terminals::new(Default::default());
+        t.listed(vec![info("a"), info("b")]);
+        t.exited(&exit("b", 1));
+        assert_eq!((t.may_send("a", false), t.may_send("b", false), t.may_send("new", false), t.may_send("a", true)), (true, false, true, false));
     }
 }
