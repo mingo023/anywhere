@@ -507,6 +507,7 @@ impl Desktop {
         let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
         f.draft.seed = crate::util::now_ms() as usize;
+        f.field.hide();
         f.draft.taken.clear();
         f.draft.source = Source::New;
         f.prompt.update(cx, |s, cx| {
@@ -796,7 +797,6 @@ impl Desktop {
             .child(checkout)
             .children(branch)
             .child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("esc to cancel"));
-        let body = div().flex_1().flex().flex_col().items_center().justify_center().pt(px(72.)).px(px(24.)).pb(px(56.));
         let content = div()
             .flex()
             .flex_col()
@@ -805,7 +805,7 @@ impl Desktop {
             .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
             .children(error)
             .child(footer);
-        let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", body, content, cx);
+        let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx);
         div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
     }
 }

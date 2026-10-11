@@ -7,7 +7,7 @@ use theme::*;
 
 const CELL_W: f32 = 10.;
 const CELL_H: f32 = 18.;
-const LENS: f32 = 210.;
+const LENS_RADIUS: f32 = 210.;
 const RAMP: [&str; 7] = ["·", ":", "-", "=", "+", "*", "#"];
 
 /// A dot grid behind a prompt page, hiding a contour map the cursor lights up.
@@ -28,9 +28,13 @@ impl Field {
         self.lens.aim(x, y, false);
     }
 
+    /// Unlights the lens, whose cursor may have left while the page wasn't drawn.
+    pub(crate) fn hide(&mut self) {
+        (self.lens, self.stepped) = (Lens::default(), None);
+    }
+
     /// Eases the lens by the time since the last frame; true while it still moves.
-    fn tick(&mut self, reduce_motion: bool) -> bool {
-        let now = Instant::now();
+    fn tick(&mut self, now: Instant, reduce_motion: bool) -> bool {
         let dt = self.stepped.map_or(0., |t| now.duration_since(t).as_secs_f32().min(0.064));
         if reduce_motion {
             self.lens.settle();
@@ -50,34 +54,33 @@ impl Field {
                 let cols = (f32::from(bounds.size.width) / CELL_W).ceil() as usize;
                 let rows = (f32::from(bounds.size.height) / CELL_H).ceil() as usize;
                 let mut levels = levels.borrow_mut();
-                let level = levels.sized(cols, rows);
+                let map = levels.sized(cols, rows);
                 let rect = (f32::from(content.left()), f32::from(content.top()), f32::from(content.right()), f32::from(content.bottom()));
                 let (faint, soft, strong) = (Hsla::from(TEXT_6), Hsla::from(TEXT_5), Hsla::from(TEXT_2));
                 let mono = font(code_font());
-                for row in 0..rows {
-                    for col in 0..cols {
-                        let x = f32::from(bounds.origin.x) + col as f32 * CELL_W + CELL_W / 2.;
-                        let y = f32::from(bounds.origin.y) + row as f32 * CELL_H + CELL_H / 2.;
-                        let m = mask(outside(rect, x, y));
-                        if m < 0.02 {
-                            continue;
+                // The grid rounds up, so its last row and column would spill past the page.
+                window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                    for row in 0..rows {
+                        for col in 0..cols {
+                            let x = f32::from(bounds.origin.x) + col as f32 * CELL_W + CELL_W / 2.;
+                            let y = f32::from(bounds.origin.y) + row as f32 * CELL_H + CELL_H / 2.;
+                            match mark(map[row * cols + col], lens.glow(x, y), mask(outside(rect, x, y))) {
+                                Mark::Hidden => {}
+                                Mark::Dot { alpha } => {
+                                    let dot = Bounds::new(point(px(x - 1.), px(y - 1.)), size(px(2.), px(2.)));
+                                    window.paint_quad(fill(dot, faint.opacity(alpha)).corner_radii(px(1.)));
+                                }
+                                Mark::Glyph { glyph, shade, alpha } => {
+                                    let color = mix(soft, strong, shade).opacity(alpha);
+                                    let run = TextRun { len: glyph.len(), font: mono.clone(), color, background_color: None, underline: None, strikethrough: None };
+                                    let shaped = window.text_system().shape_line(glyph.into(), px(12.), &[run], None);
+                                    let origin = point(px(x) - shaped.width / 2., px(y - CELL_H / 2.));
+                                    shaped.paint(origin, px(CELL_H), TextAlign::Left, None, window, cx).ok();
+                                }
+                            }
                         }
-                        let l = level[row * cols + col];
-                        let f = lens.glow(x, y) * m;
-                        let lit = l * f;
-                        if lit < 0.06 {
-                            let dot = Bounds::new(point(px(x - 1.), px(y - 1.)), size(px(2.), px(2.)));
-                            window.paint_quad(fill(dot, faint.opacity(m * (0.35 + l * 0.65))).corner_radii(px(1.)));
-                            continue;
-                        }
-                        let glyph = RAMP[((lit * RAMP.len() as f32) as usize).min(RAMP.len() - 1)];
-                        let color = mix(soft, strong, (lit * 1.3).min(1.)).opacity((0.25 + f).min(1.));
-                        let run = TextRun { len: glyph.len(), font: mono.clone(), color, background_color: None, underline: None, strikethrough: None };
-                        let shaped = window.text_system().shape_line(glyph.into(), px(12.), &[run], None);
-                        let origin = point(px(x) - shaped.width / 2., px(y - CELL_H / 2.));
-                        shaped.paint(origin, px(CELL_H), TextAlign::Left, None, window, cx).ok();
                     }
-                }
+                });
                 if moving {
                     window.request_animation_frame();
                 }
@@ -89,14 +92,22 @@ impl Field {
 }
 
 impl Desktop {
-    /// `body` with `field` painted behind it, fading around `content`, a column at most 600px wide.
-    pub(crate) fn with_field(&mut self, field: fn(&mut Desktop) -> &mut Field, id: &'static str, body: Div, content: Div, cx: &mut Context<Self>) -> Div {
-        let moving = field(self).tick(cx.reduce_motion());
+    /// A prompt page: `content`, a column at most 600px wide, centred over `field`, which fades around it.
+    pub(crate) fn with_field(&mut self, field: fn(&mut Desktop) -> &mut Field, id: &'static str, content: Div, cx: &mut Context<Self>) -> Div {
+        let moving = field(self).tick(Instant::now(), cx.reduce_motion());
         let bounds = Rc::new(Cell::new(None));
         let measured = bounds.clone();
-        let body = body
+        let body = div()
             .id(id)
             .relative()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .pt(px(72.))
+            .px(px(24.))
+            .pb(px(56.))
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
                 field(this).aim(ev.position);
                 cx.notify();
@@ -114,8 +125,31 @@ impl Desktop {
     }
 }
 
+/// What a cell shows: nothing near the content, a dot, or under the lens a glyph of the map.
+#[derive(Debug, PartialEq)]
+enum Mark {
+    Hidden,
+    Dot { alpha: f32 },
+    /// `shade` runs from the soft colour (0) to the strong one (1).
+    Glyph { glyph: &'static str, shade: f32, alpha: f32 },
+}
+
+/// The mark for a cell at map `level`, lit `glow` by the lens, and `mask` from 0 at the content to 1 clear of it.
+fn mark(level: f32, glow: f32, mask: f32) -> Mark {
+    if mask < 0.02 {
+        return Mark::Hidden;
+    }
+    let lit = glow * mask;
+    let strength = level * lit;
+    if strength < 0.06 {
+        return Mark::Dot { alpha: mask * (0.35 + level * 0.65) };
+    }
+    let glyph = RAMP[((strength * RAMP.len() as f32) as usize).min(RAMP.len() - 1)];
+    Mark::Glyph { glyph, shade: (strength * 1.3).min(1.), alpha: (0.25 + lit).min(1.) }
+}
+
 /// The cursor's lens, in window pixels, with `k` how far it has faded in; `t…` is where it's heading.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Default)]
 struct Lens {
     x: f32,
     y: f32,
@@ -147,10 +181,10 @@ impl Lens {
         (self.tx - self.x).abs() + (self.ty - self.y).abs() > 0.4 || (self.tk - self.k).abs() > 0.004
     }
 
-    /// How brightly the lens lights a point: 1 at its centre, 0 from `LENS` out.
+    /// How brightly the lens lights a point: 1 at its centre, 0 from `LENS_RADIUS` out.
     fn glow(&self, x: f32, y: f32) -> f32 {
         let d = (x - self.x).hypot(y - self.y);
-        if self.k < 0.01 || d >= LENS { 0. } else { smooth(1. - d / LENS) * self.k }
+        if self.k < 0.01 || d >= LENS_RADIUS { 0. } else { smooth(1. - d / LENS_RADIUS) * self.k }
     }
 }
 
@@ -178,7 +212,6 @@ fn level(col: usize, row: usize) -> f32 {
     (contour * 0.8 + v / 7. * 0.35).clamp(0., 1.)
 }
 
-/// 0 within 24px of the content, easing to 1 by 134px away.
 fn mask(distance: f32) -> f32 {
     smooth(((distance - 24.) / 110.).clamp(0., 1.))
 }
@@ -217,7 +250,9 @@ fn hash(x: i32, y: i32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{LENS, Lens, Levels, level, mask, noise, outside};
+    use super::{Field, LENS_RADIUS, Lens, Levels, Mark, level, mark, mask, noise, outside};
+    use gpui_kit::{point, px};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn noise_stays_within_zero_and_one() {
@@ -252,7 +287,7 @@ mod tests {
         assert_eq!(lens.glow(500., 300.), 0.);
         while lens.step(1. / 60.) {}
         assert!(lens.glow(500., 300.) > 0.99);
-        assert_eq!(lens.glow(500. + LENS, 300.), 0.);
+        assert_eq!(lens.glow(500. + LENS_RADIUS, 300.), 0.);
     }
 
     #[test]
@@ -275,5 +310,40 @@ mod tests {
         lens.settle();
         assert!(!lens.step(0.));
         assert_eq!((lens.x, lens.y, lens.k), (90., 40., 0.));
+    }
+
+    #[test]
+    fn the_lens_shows_the_map_as_glyphs_denser_where_it_is_higher() {
+        assert_eq!(mark(1., 1., 0.), Mark::Hidden);
+        assert!(matches!(mark(0.5, 0., 1.), Mark::Dot { .. }));
+        assert!(matches!(mark(0.02, 1., 1.), Mark::Dot { .. }));
+        assert!(matches!(mark(0.3, 1., 1.), Mark::Glyph { glyph: ":" | "-", .. }));
+        assert!(matches!(mark(1., 1., 1.), Mark::Glyph { glyph: "#", alpha: 1., .. }));
+    }
+
+    #[test]
+    fn a_field_eases_until_its_lens_settles_then_stops_asking_for_frames() {
+        let mut field = Field::default();
+        let start = Instant::now();
+        field.aim(point(px(300.), px(200.)));
+        let mut frames = 0;
+        while field.tick(start + Duration::from_millis(16 * frames), false) {
+            frames += 1;
+        }
+        assert!(frames > 1 && frames < 120, "{frames}");
+        assert!(field.lens.glow(300., 200.) > 0.99);
+        field.leave();
+        assert!(!field.tick(start, true));
+        assert_eq!(field.lens.glow(300., 200.), 0.);
+    }
+
+    #[test]
+    fn a_hidden_field_is_unlit_when_its_page_returns() {
+        let mut field = Field::default();
+        field.aim(point(px(300.), px(200.)));
+        field.tick(Instant::now(), true);
+        field.hide();
+        assert_eq!(field.lens.glow(300., 200.), 0.);
+        assert!(!field.tick(Instant::now(), false));
     }
 }

@@ -13,6 +13,7 @@ impl Desktop {
     /// Draws the prompt, taking the keys if it wasn't drawn last frame: its pane's last tab closed, or the pane, worktree or screen changed.
     pub(crate) fn empty_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         if self.empty_pane.drawn.draw() {
+            self.empty_pane.field.hide();
             self.focus_empty_prompt(window, cx);
         }
         let pick = self.launch_pick();
@@ -20,7 +21,6 @@ impl Desktop {
         let launch = &self.empty_pane.launch;
         let starting = launch.starting_in(&tree).then(|| div().mt(px(12.)).child(ui::busy("empty-starting", "Starting…")));
         let error = launch.error_in(&tree).cloned().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
-        let body = div().flex_1().flex().flex_col().items_center().justify_center().pt(px(72.)).px(px(24.)).pb(px(56.));
         let content = div()
             .flex()
             .flex_col()
@@ -32,7 +32,7 @@ impl Desktop {
             .children(error)
             .child(div().w_full().max_w(px(600.)).mt(px(14.)).flex().flex_wrap().justify_center().gap(px(6.)).children(starters(&self.store.agents.starters, cx)))
             .child(div().mt(px(22.)).flex().items_center().gap(px(2.)).text_size(px(12.5)).text_color(TEXT_3).child(div().mr(px(4.)).child("or open")).child(terminal_link(cx)));
-        self.with_field(|d| &mut d.empty_pane.field, "empty-pane-body", body, content, cx)
+        self.with_field(|d| &mut d.empty_pane.field, "empty-pane-body", content, cx)
     }
 
     fn empty_branch_line(&self) -> Option<Div> {

@@ -17,7 +17,7 @@ pub(crate) struct EmptyPane {
     chosen: Option<(String, LaunchPick)>,
     menu: Option<Menu>,
     pub(crate) drawn: Drawn,
-    pub(crate) field: Field,
+    field: Field,
 }
 
 /// The composer chip whose menu is open.
