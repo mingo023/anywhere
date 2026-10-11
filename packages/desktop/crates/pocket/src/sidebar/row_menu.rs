@@ -84,6 +84,7 @@ impl Desktop {
         let button = icon_button_sized(id(format!("aside-more:{key}")), "more", 22., TEXT_3).rounded(px(6.)).capture_any_mouse_down(cx.listener(
             move |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
+                this.sidebar.hover.press();
                 this.row_menu = (this.row_menu.as_ref() != Some(&toggle)).then(|| toggle.clone());
                 this.sidebar.menu_at = None;
                 this.panels.menu = None;

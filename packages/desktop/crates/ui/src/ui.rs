@@ -528,6 +528,46 @@ pub fn sweep(id: impl Into<ElementId>, text: SharedString, base: Token) -> Anima
     })
 }
 
+/// How fast a cut-off label scrolls, in px a second.
+const MARQUEE_SPEED: f32 = 30.;
+/// How long a scrolling label rests at its start, then at its end, in seconds.
+const MARQUEE_REST: (f32, f32) = (0.6, 1.);
+
+fn marquee_cycle(overflow: f32) -> f32 {
+    MARQUEE_REST.0 + overflow / MARQUEE_SPEED + MARQUEE_REST.1
+}
+
+/// How far a label `overflow` px wider than its row has scrolled `t` through a cycle: it rests, scrolls to its end, rests there.
+fn marquee_offset(t: f32, overflow: f32) -> f32 {
+    ((t * marquee_cycle(overflow) - MARQUEE_REST.0) * MARQUEE_SPEED).clamp(0., overflow)
+}
+
+/// `label` scrolling through its cut-off end and back while `text`, `width` px wide, is `overflow` px wider than its row.
+/// `measured` hears each frame's width and overflow.
+pub fn marquee(id: impl Into<ElementId>, text: SharedString, (width, overflow): (f32, f32), label: impl IntoElement, measured: impl FnOnce(f32, f32, &mut App) + 'static) -> Div {
+    let measure = canvas(
+        move |bounds, window, cx| {
+            let style = window.text_style();
+            let width = window.text_system().shape_line(text.clone(), style.font_size.to_pixels(window.rem_size()), &[style.to_run(text.len())], None).width;
+            measured(width.into(), f32::from(width - bounds.size.width), cx);
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full();
+    let label = div().flex_none().child(label);
+    let label = if overflow > 0. {
+        // Nowrap text ellipsizes to whatever width it's given, so the label needs its own full width, plus a px for rounding, to scroll whole.
+        let label = label.w(px(width + 1.));
+        let cycle = Animation::new(std::time::Duration::from_secs_f32(marquee_cycle(overflow))).repeat();
+        // 30fps steps 1px a frame at MARQUEE_SPEED; uncapped redraws the whole window every vsync.
+        label.with_animation(id, cycle.with_max_fps(30.), move |d, t| d.ml(px(-marquee_offset(t, overflow)))).into_any_element()
+    } else {
+        label.into_any_element()
+    };
+    div().relative().w_full().min_w_0().flex().overflow_hidden().child(measure).child(label)
+}
+
 /// The accent line a dragged row lands on: under the row when moving down, over it when moving up.
 pub fn drop_line(below: bool) -> Vec<BoxShadow> {
     vec![BoxShadow { inset: true, ..shadow(ACCENT, if below { -2. } else { 2. }, 0.) }]
@@ -1110,7 +1150,7 @@ pub fn failure(message: String, detail: String) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Glyph, State, Tone, lit, tone, word};
+    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, State, Tone, lit, marquee_cycle, marquee_offset, tone, word};
     use theme::{ACCENT, ACCENT_TINT, WORKING};
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];
@@ -1133,6 +1173,17 @@ mod tests {
         let peak = |t: f32| (0..=20).map(|i| i as f32 / 20.).max_by(|a, b| lit(*a, t).total_cmp(&lit(*b, t))).unwrap();
         assert!(peak(0.3) < peak(0.5) && peak(0.5) < peak(0.7));
         assert!(lit(0., 0.) < 1e-4 && lit(1., 1.) < 1e-4 && lit(0.5, 0.5) > 0.999);
+    }
+
+    #[test]
+    fn a_marquee_rests_at_its_start_scrolls_to_its_end_and_rests_there() {
+        let (overflow, cycle) = (60., marquee_cycle(60.));
+        let at = |secs: f32| marquee_offset(secs / cycle, overflow);
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        assert!(near(at(0.), 0.) && near(at(MARQUEE_REST.0), 0.));
+        assert!(near(at(MARQUEE_REST.0 + 1.), MARQUEE_SPEED));
+        assert!(near(at(cycle - MARQUEE_REST.1), overflow) && near(at(cycle), overflow));
+        assert!((0..=100).map(|i| at(cycle * i as f32 / 100.)).collect::<Vec<_>>().is_sorted());
     }
 
     #[test]
