@@ -185,7 +185,7 @@ impl Desktop {
         cx.notify();
     }
 
-    fn forget_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
+    pub(crate) fn forget_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
         for id in self.tree_terminals(tree) {
             self.close_pane(&id, cx);
         }
