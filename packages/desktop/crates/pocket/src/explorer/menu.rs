@@ -487,7 +487,7 @@ impl Desktop {
             return row.when(lit, |d| d.bg(bg)).into_any_element();
         }
         if menu.chosen == Some(Pick::Item(item)) {
-            return blink(row, bg).into_any_element();
+            return blink(row, if item == Item::Trash { FAILED_BG } else { ACCENT_BG }).into_any_element();
         }
         row.when(lit, |d| d.bg(bg))
             .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.hover_tree_menu(|m| m.hover(item, *hovered), cx)))
@@ -521,7 +521,7 @@ impl Desktop {
                 return row.into_any_element();
             }
             if menu.chosen == Some(Pick::Chat(i)) {
-                return blink(row, FILL_2).into_any_element();
+                return blink(row, ACCENT_BG).into_any_element();
             }
             row.cursor_pointer()
                 .when(menu.chat_highlighted == Some(i), |d| d.bg(FILL_2))
