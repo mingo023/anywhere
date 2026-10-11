@@ -70,7 +70,8 @@ func Base(environ []string, shell string) []string {
 		"SHELL="+shell,
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
-		"TERM_PROGRAM=Pocket",
+		// Lets Claude Code open links on click: mouse reports can't carry ⌘.
+		"TERM_PROGRAM=ghostty",
 	)
 }
 
