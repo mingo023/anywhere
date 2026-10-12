@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds a signed, notarized and stapled Anywhere.dmg in packages/desktop/target/release-mac (ADR 0004),
-# and the standalone pocketd archives for hosts in packages/pocketd/dist; --publish uploads both.
+# Builds a signed, notarized and stapled Anywhere.dmg in packages/desktop/target/release-mac (ADR 0004).
+# --publish also builds the standalone pocketd archives for hosts (scripts/package-pocketd.sh) and uploads them with it.
 # Usage: scripts/release-mac.sh <version> [--publish]    e.g. 0.1.0
 # --publish needs CHANGELOG.md's section for the version, tag v<version> at HEAD, a clean tree, gh logged in
 # and the Sparkle private key (ANYWHERE_SPARKLE_KEY, or the login Keychain).
@@ -41,8 +41,6 @@ build() {
   done
   lipo -create -output "$OUT/pocketd" "$OUT/pocketd-arm64" "$OUT/pocketd-amd64"
   rm "$OUT/pocketd-arm64" "$OUT/pocketd-amd64"
-  rm -rf "$ROOT/packages/pocketd/dist"
-  "$ROOT/scripts/package-pocketd.sh" "$VERSION"
 }
 
 assemble() {
@@ -162,7 +160,9 @@ check_tag() {
 # Sparkle signs the stapled DMG, so this runs after notarize.
 publish() {
   tag="v$VERSION"
-  # The standalone pocketd archives a desktop installs on hosts (scripts/package-pocketd.sh).
+  # The standalone pocketd archives a desktop installs on hosts.
+  rm -rf "$ROOT/packages/pocketd/dist"
+  "$ROOT/scripts/package-pocketd.sh" "$VERSION"
   hosts=$(find "$ROOT/packages/pocketd/dist" -name 'pocketd-*.tar.gz*')
   case "$VERSION" in
     *-*)
