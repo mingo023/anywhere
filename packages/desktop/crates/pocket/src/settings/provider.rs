@@ -232,7 +232,7 @@ impl Desktop {
                 cx.notify();
             }))
         });
-        let toggle = div().id("provider-enabled").flex_none().cursor_pointer().child(ui::toggle(on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let toggle = div().id("provider-enabled").flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.store.agents.set_enabled(p, !on);
             this.save_soon(cx);
             cx.notify();

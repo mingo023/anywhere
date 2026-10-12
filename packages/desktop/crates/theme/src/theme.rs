@@ -9,6 +9,8 @@ pub const SYMBOLS: &str = "GeistMono Nerd Font Mono";
 pub const R_POPOVER: f32 = 12.;
 pub const R_DIALOG: f32 = 16.;
 pub const MENU_IN: std::time::Duration = std::time::Duration::from_millis(150);
+/// Critically damped, so what it moves never overshoots its target.
+pub const SPRING: SpringConfig = SpringConfig::new(900., 60., 1.);
 
 pub mod contrast;
 
@@ -506,10 +508,10 @@ mod tests {
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, highlight_theme_with, material, material_icon,
-        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, WORKING, accent_rgba,
+        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, WORKING, accent_rgba,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
-    use gpui_kit::{Hsla, rgba};
+    use gpui_kit::{Hsla, SpringState, rgba};
 
     const TEXT_ROLES: [(&str, Token); 11] = [
         ("TEXT", TEXT),
@@ -696,5 +698,12 @@ mod tests {
         for t in [FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, SEPARATOR, SEPARATOR_STRONG, SURFACE] {
             assert_eq!(t.pick(true) >> 8, 0xebebeb);
         }
+    }
+
+    #[test]
+    fn the_spring_settles_inside_the_ui_budget_without_overshooting() {
+        let (_, damping_ratio) = SPRING.canonical();
+        let settle = SPRING.settle_time(SpringState::default(), 1., 0.01);
+        assert!(damping_ratio >= 1. && settle <= std::time::Duration::from_millis(250), "{damping_ratio} {settle:?}");
     }
 }

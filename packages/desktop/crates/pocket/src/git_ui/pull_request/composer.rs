@@ -62,7 +62,7 @@ impl Desktop {
             .cursor_pointer()
             .text_size(px(12.5))
             .text_color(TEXT_2)
-            .child(ui::toggle(draft))
+            .child(ui::toggle("switch", draft))
             .child("Draft")
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.store.git.draft = !this.store.git.draft;

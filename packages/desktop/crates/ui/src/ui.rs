@@ -107,12 +107,12 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
         .whitespace_nowrap()
         .text_color(v.fg());
     let d = match v {
-        Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD),
-        Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM),
-        Variant::Accent => d.bg(ACCENT_FILL).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]),
-        Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)),
-        Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)),
-        Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD),
+        Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD).active(|s| s.opacity(0.85)),
+        Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM).active(|s| s.opacity(0.85)),
+        Variant::Accent => d.bg(ACCENT_FILL).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]).active(|s| s.opacity(0.85)),
+        Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)).active(|s| s.opacity(0.85)),
+        Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)).active(|s| s.bg(FILL_4)),
+        Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD).active(|s| s.opacity(0.85)),
     };
     d.children(icon_name.map(|n| icon(n, 14., v.fg()))).child(label)
 }
@@ -127,7 +127,7 @@ pub fn button_kbd(keys: &str) -> Div {
 }
 
 fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
-    control(div().id(id)).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3))
+    control(div().id(id)).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3)).active(|s| s.bg(FILL_4))
 }
 
 fn glyph_button(id: impl Into<ElementId>, name: &str, w: f32, h: f32, radius: f32, color: Token) -> Stateful<Div> {
@@ -427,11 +427,12 @@ pub fn repo_tile(mark: &Mark, size: f32, selected: bool, state: Option<State>) -
 }
 
 const ROW_GROUP: &str = "sidebar-row";
+pub const SIDEBAR_ROW_H: f32 = 28.;
 
 fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
     control(div().id(id))
         .group(ROW_GROUP)
-        .h(px(28.))
+        .h(px(SIDEBAR_ROW_H))
         .px(px(6.))
         .flex()
         .flex_none()
@@ -759,18 +760,14 @@ pub fn tree_row(
         .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
 }
 
-/// An on/off control that turns green when on.
-pub fn toggle(on: bool) -> Div {
-    div()
-        .w(px(30.))
-        .h(px(18.))
-        .p(px(2.))
-        .flex()
-        .flex_none()
-        .rounded(px(9.))
-        .when(on, |d| d.bg(SUCCESS).justify_end())
-        .when(!on, |d| d.bg(FILL_4))
-        .child(div().size(px(14.)).rounded(px(7.)).bg(WHITE).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
+/// An on/off control that turns green when on. Its knob slides when `on` flips, and sits still when it first shows.
+pub fn toggle(id: impl Into<ElementId>, on: bool) -> SpringAnimationElement<Div> {
+    div().w(px(30.)).h(px(18.)).p(px(2.)).flex().flex_none().rounded(px(9.)).with_spring(id, SpringAnimation::new(SPRING).to(on), |d, t| {
+        // Through RGB, as HSL would sweep the off grey's hue through yellow on its way to green.
+        let (off, green) = (Rgba::from(Hsla::from(FILL_4)), Rgba::from(Hsla::from(SUCCESS)));
+        d.bg(t.interpolate_clamped(off, green))
+            .child(div().ml(px(t.interpolate_clamped(0., 12.))).size(px(14.)).rounded(px(7.)).bg(WHITE).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
+    })
 }
 
 pub fn checkbox(on: bool) -> Div {

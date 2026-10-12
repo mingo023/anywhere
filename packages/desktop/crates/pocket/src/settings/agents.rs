@@ -116,7 +116,7 @@ impl Desktop {
                 .when(p == default, |d| d.child(div().px(px(5.)).rounded(px(4.)).bg(FILL_3).text_size(px(10.5)).text_color(TEXT_2).child("Default")));
             let line = provider_line(self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).map(String::as_str));
             let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(div().truncate().font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(line));
-            let toggle = div().id(("provider-enabled", i)).flex_none().cursor_pointer().child(ui::toggle(on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let toggle = div().id(("provider-enabled", i)).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
                 this.store.agents.set_enabled(p, !on);
                 this.save_soon(cx);
