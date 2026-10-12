@@ -674,13 +674,18 @@ impl Outbox {
 /// Follows pocketd's phone protocol over its unix socket, where pocketd tells
 /// the owner from a process inside a Terminal: the agent list and every agent's timeline.
 pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
+    connect_with(sock, None)
+}
+
+/// `connect` to a socket behind which pocketd wants an owner token: a Windows host's forwarded TCP port.
+pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedReceiver<Event>) {
     let (tx, rx) = unbounded();
     let (out, queue) = channel();
     let sock = sock.to_path_buf();
     std::thread::spawn(move || {
         let mut unanswered = Vec::new();
         loop {
-            let _ = run(&sock, &tx, &queue, &mut unanswered);
+            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered);
             if tx.is_closed() {
                 return;
             }
@@ -693,13 +698,20 @@ pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
 /// What this client understands beyond protocol 3.
 const CAPS: [&str; 9] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP];
 
-fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
+fn hello(token: Option<&str>) -> Value {
+    let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
+    if let Some(token) = token {
+        hello["ownerToken"] = token.into();
+    }
+    hello
+}
+
+fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
     let (mut ws, _) = tungstenite::client("ws://localhost/", stream).ok()?;
     // Reads time out so the loop gets to send the queue even while pocketd is quiet.
     ws.get_ref().set_read_timeout(Some(Duration::from_millis(100))).ok()?;
-    let hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
-    ws.send(Message::text(hello.to_string())).ok()?;
+    ws.send(Message::text(hello(token).to_string())).ok()?;
     for m in unanswered.iter() {
         ws.send(Message::text(m.to_string())).ok()?;
     }
@@ -803,6 +815,12 @@ mod tests {
 
     fn summary(provider: &str, model: Option<&str>) -> Summary {
         Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() }
+    }
+
+    #[test]
+    fn the_hello_carries_an_owner_token_only_when_there_is_one() {
+        assert!(hello(None).get("ownerToken").is_none());
+        assert_eq!(hello(Some("t1"))["ownerToken"], "t1");
     }
 
     #[test]
