@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 
 /// The caps a host's pocketd needs for its projects to open here.
 pub const NEEDS: [&str; 2] = ["exec.v1", "fs.v1"];
@@ -74,6 +74,8 @@ pub struct Client {
     next: AtomicU64,
     /// An exec's cwd when it names none; `/` isn't absolute on Windows, so there it's the home `status` gave.
     root: OnceLock<String>,
+    /// Held across `sync_registry`'s read and write, so two creates don't drop each other's projects.
+    registry: Mutex<()>,
 }
 
 impl Client {
@@ -82,7 +84,7 @@ impl Client {
     }
 
     pub fn to(id: &str, endpoint: Endpoint) -> Self {
-        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new() }
+        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), registry: Mutex::default() }
     }
 
     pub fn id(&self) -> &str {
@@ -196,6 +198,7 @@ impl Client {
     /// Lists `ours`' projects in the `desktop.json` beside the host's pocketd, which makes worktrees only for those listed there.
     pub fn sync_registry(&self, ours: &Value) -> io::Result<()> {
         use git::Exec;
+        let _held = self.registry.lock().unwrap();
         let path = format!("{}/{}/desktop.json", self.status()?.user_home, channel::home_dir_name());
         let theirs = match self.stat(&path)? {
             Some(_) => serde_json::from_slice(&self.read(&path, REGISTRY_MAX)?).map_err(io::Error::other)?,
@@ -265,11 +268,15 @@ impl git::Exec for Client {
             op["stdin"] = STANDARD.encode(input).into();
         }
         let reply = self.call(op, timeout + REPLY_SLACK)?;
-        Ok(git::Output { code: reply["code"].as_i64().unwrap_or(0) as i32, stdout: bytes(&reply["stdout"]), stderr: bytes(&reply["stderr"]) })
+        let code = reply["code"].as_i64().ok_or_else(|| io::Error::other("host sent no exit code"))?;
+        Ok(git::Output { code: code as i32, stdout: bytes(&reply["stdout"]), stderr: bytes(&reply["stderr"]) })
     }
 
     fn read(&self, path: &str, max: usize) -> io::Result<Vec<u8>> {
-        let reply = self.fs("fs.read", json!({"path": self.host_path(path), "max": max.min(i64::MAX as usize)}))?;
+        let reply = self.fs("fs.read", json!({"path": self.host_path(path), "max": max}))?;
+        if reply["truncated"] == true {
+            return Err(git::too_large(max));
+        }
         Ok(bytes(&reply["data"]))
     }
 
@@ -278,8 +285,8 @@ impl git::Exec for Client {
         if reply["exists"] != true {
             return Ok(None);
         }
-        let mtime = reply["mtime"].as_u64().map(|ms| UNIX_EPOCH + Duration::from_millis(ms));
-        Ok(Some(git::Stat { dir: reply["dir"] == true, size: reply["size"].as_u64().unwrap_or(0), created: mtime }))
+        // pocketd's stat has no creation time, and its mtime would order worktrees by their last edit.
+        Ok(Some(git::Stat { dir: reply["dir"] == true, size: reply["size"].as_u64().unwrap_or(0), created: None }))
     }
 
     fn place(&self, path: &str) -> String {

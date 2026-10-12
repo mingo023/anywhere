@@ -329,6 +329,17 @@ impl Desktop {
         cx.notify();
     }
 
+    /// Sends a create to the pocketd holding `spec`'s project; `None`, with the error shown, when that's a host that isn't connected.
+    pub(crate) fn send_create(&mut self, spec: serde_json::Value) -> Option<String> {
+        match self.outbox.create(spec, |h| self.store.host_registry(h)) {
+            Ok(request) => Some(request),
+            Err(host) => {
+                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                None
+            }
+        }
+    }
+
     /// Opens the shell Settings › Terminal names in the worktree's folder, its tab at `place`.
     pub fn new_shell(&mut self, place: Place, cx: &mut Context<Self>) {
         let t = &self.store.terminal;

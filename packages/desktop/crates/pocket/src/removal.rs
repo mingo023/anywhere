@@ -113,7 +113,7 @@ fn run_script(script: &str, tree: &str, limit: Duration) -> Result<(), String> {
     match hosts::runner_for(tree) {
         git::Runner::Local => daemon::run_script(script, tree, limit).map(drop),
         host => {
-            let out = host.exec(tree, &["sh", "-c", script], None, limit).map_err(|e| e.to_string())?;
+            let out = host.exec(tree, &hosts::script_argv(tree, script), None, limit).map_err(|e| e.to_string())?;
             if out.code == 0 {
                 return Ok(());
             }

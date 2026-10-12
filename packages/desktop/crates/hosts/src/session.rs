@@ -235,17 +235,18 @@ impl Outboxes {
     /**
      * Sends a create to the pocketd holding `spec`'s project, in its paths, and returns the requestId, tagged for a host.
      * A host's pocketd only makes worktrees for projects its `desktop.json` lists, so `registry(host)` is written there first.
+     * `Err` names the host when it isn't connected, so nothing was sent.
      */
-    pub fn create(&self, mut spec: Value, registry: impl FnOnce(&str) -> Value) -> String {
+    pub fn create(&self, mut spec: Value, registry: impl FnOnce(&str) -> Value) -> Result<String, String> {
         let project = spec["project"].as_str().unwrap_or_default().to_string();
-        let (Some(host), path) = crate::split(&project) else { return self.local.create(spec) };
+        let (Some(host), path) = crate::split(&project) else { return Ok(self.local.create(spec)) };
         spec["project"] = path.into();
         if let Some(tree) = spec["checkout"]["worktree"].as_str().map(|t| crate::split(t).1.to_string()) {
             spec["checkout"]["worktree"] = tree.into();
         }
         let request = agents::request_id();
         let tagged = tag(host, &request);
-        let Some(out) = self.to(Some(host)) else { return tagged };
+        let Some(out) = self.to(Some(host)) else { return Err(host.into()) };
         let (host, registry) = (host.to_string(), registry(host));
         std::thread::spawn(move || {
             if let Some(client) = crate::remote::connected(&host) {
@@ -253,7 +254,7 @@ impl Outboxes {
             }
             out.create_as(&request, spec);
         });
-        tagged
+        Ok(tagged)
     }
 }
 
@@ -382,13 +383,20 @@ mod tests {
     fn a_create_for_a_hosts_project_goes_there_in_its_paths_under_a_tagged_request() {
         let (out, here, there) = outboxes();
         let spec = json!({"project": "//devbox/home/me/app", "checkout": {"worktree": "//devbox/home/me/.worktrees/app/fox"}});
-        let request = out.create(spec, |host| json!({"projects": [host]}));
+        let request = out.create(spec, |host| json!({"projects": [host]})).unwrap();
         let sent = there.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         assert_eq!(request, tag("devbox", sent["requestId"].as_str().unwrap()));
         assert_eq!((sent["spec"]["project"].as_str(), sent["spec"]["checkout"]["worktree"].as_str()), (Some("/home/me/app"), Some("/home/me/.worktrees/app/fox")));
         assert!(here.try_iter().next().is_none());
 
-        let mine = out.create(json!({"project": "/src/app"}), |_| unreachable!("this Mac's pocketd reads the desktop's own desktop.json"));
+        let mine = out.create(json!({"project": "/src/app"}), |_| unreachable!("this Mac's pocketd reads the desktop's own desktop.json")).unwrap();
         assert_eq!(here.try_iter().next().unwrap()["requestId"], mine.as_str());
+    }
+
+    #[test]
+    fn a_create_for_a_host_that_isnt_connected_sends_nothing_and_names_it() {
+        let (out, here, there) = outboxes();
+        assert_eq!(out.create(json!({"project": "//laptop/home/me/app"}), |_| json!({})), Err("laptop".into()));
+        assert!(here.try_iter().next().is_none() && there.try_iter().next().is_none());
     }
 }
