@@ -78,17 +78,12 @@ pub const BUILT_IN: &[Builtin] = &[
     Builtin { sound: Sound::DingDong, name: "Ding Dong", hint: "Soft two-note bell", emoji: "\u{1f6ce}\u{fe0f}", length: "0.9s", file: "ding-dong.mp3", bytes: include_bytes!("../../assets/sounds/ding-dong.mp3") },
 ];
 
-/// What the settings call `sound`: a built-in's name, else the file's.
+/// What the settings call `sound`: a built-in's name, else its file's, which the copy into Pocket's folder keeps unique.
 pub fn sound_name(sound: &Sound) -> String {
     match sound {
-        Sound::Custom(path) => file_name(path),
+        Sound::Custom(path) => std::path::Path::new(path).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned()),
         s => BUILT_IN.iter().find(|b| b.sound == *s).map_or_else(String::new, |b| b.name.into()),
     }
-}
-
-/// A custom sound's name: its file's, without the extension.
-pub fn file_name(path: &str) -> String {
-    std::path::Path::new(path).file_stem().map_or_else(|| path.into(), |n| n.to_string_lossy().into_owned())
 }
 
 /// Turns status changes into at most one sound per `COALESCE_MS` window.
@@ -259,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_custom_sound_is_named_by_its_file() {
-        assert_eq!([sound_name(&Sound::HighDing), sound_name(&Sound::Custom("/s/Bloop.wav".into()))], ["High Ding", "Bloop"]);
+        assert_eq!([sound_name(&Sound::HighDing), sound_name(&Sound::Custom("/s/Bloop.wav".into()))], ["High Ding", "Bloop.wav"]);
     }
 
     #[test]
