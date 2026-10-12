@@ -10,7 +10,7 @@ Reference: MonoCode `docs/remote-access.md` (clone at `/tmp/monocode-research/mo
 - A session on a host is a terminal in that host's pocketd, as locally.
 - UI copy says **Host** (Settings › Hosts, "Open folder on a host…"). Layout follows MonoCode: a host's projects sit in the normal project list with a globe and the host's link dot.
 - Mac and Linux: the desktop forwards the host's `pocketd.sock` over `ssh -L` (existing `hosts` crate). A forwarded unix peer is owner; no token.
-- Windows: pocketd also listens on `127.0.0.1:<port>`; the desktop forwards that TCP port and authenticates with an owner token minted by `pocketd pair --json` over SSH.
+- Windows: pocketd also listens on `127.0.0.1:<port>`; the desktop forwards that TCP port and authenticates with an owner token minted by `pocketd pair --json` over SSH. Any process of that user can mint one, so the port trusts the user's processes as much as their shell does; other users on the host can reach the port, but the token file sits in the user's profile, which they can't read.
 - The desktop installs pocketd over SSH when the host has none: download the release archive for the host's os/arch on the host, verify its `.sha256`, unpack to `~/<home>/runtime/<version>/`, install a user service (LaunchAgent, systemd user unit + linger, Task Scheduler). A pocketd already running is reused, never replaced, except by **Update host**.
 - Remote git and files go through pocketd ops `exec` and `fs.*`; the Rust `git` crate takes a `Runner`, so parsing stays in one place.
 - Upgrades: Mac/Linux keep the in-place handoff. Windows restarts, and the Update dialog says terminals will close.
@@ -23,7 +23,7 @@ Reference: MonoCode `docs/remote-access.md` (clone at `/tmp/monocode-research/mo
 `status` reply gains:
 
 ```json
-{"hostId":"8f0c…","os":"linux","arch":"arm64","home":"/home/me","shell":"/bin/bash","name":"devbox","caps":["host.v2","fs.v1","exec.v1"]}
+{"hostId":"8f0c…","os":"linux","arch":"arm64","userHome":"/home/me","shell":"/bin/bash","name":"devbox","caps":["host.v2","fs.v1","exec.v1"]}
 ```
 
 `hostId` is a random 128-bit hex id kept in `<home>/state/host.json`, made on first serve.
