@@ -36,9 +36,9 @@ func (in hookInput) updates(option string) []json.RawMessage {
 	return nil
 }
 
-// answered is AskUserQuestion's input with answers, keyed by question, which
+// withAnswers is AskUserQuestion's input with answers, keyed by question, which
 // Claude takes in place of its own dialog's.
-func (in hookInput) answered(answers map[string]string) json.RawMessage {
+func (in hookInput) withAnswers(answers map[string]string) json.RawMessage {
 	var input map[string]json.RawMessage
 	if in.ToolName != "AskUserQuestion" || len(answers) == 0 || json.Unmarshal(in.ToolInput, &input) != nil {
 		return nil

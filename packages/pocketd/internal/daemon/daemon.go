@@ -236,7 +236,7 @@ func (d *Daemon) permission(ctx context.Context, pr *presence, in hookInput) []b
 		}
 		return nil
 	case "allow":
-		decision = hookDecision{Behavior: "allow", UpdatedInput: in.answered(a.Answers), UpdatedPermissions: in.updates(a.Option)}
+		decision = hookDecision{Behavior: "allow", UpdatedInput: in.withAnswers(a.Answers), UpdatedPermissions: in.updates(a.Option)}
 		pr.working("")
 	case "deny":
 		decision = hookDecision{Behavior: "deny", Message: "Denied from phone", Interrupt: true}

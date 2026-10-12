@@ -18,6 +18,9 @@ struct Expanded: View {
             if ask.questions.isEmpty {
                 request
             }
+            if replying, let question = controller.island.picks.question {
+                Text(question.question).font(.system(size: 13, weight: .semibold)).foregroundColor(.ink).fixedSize(horizontal: false, vertical: true)
+            }
             if replying {
                 ReplyField(ask: ask, send: { controller.answer(.reply($0)) }, back: controller.back)
             } else if ask.questions.isEmpty {

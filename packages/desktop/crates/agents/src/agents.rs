@@ -104,12 +104,12 @@ pub struct Detail {
     pub description: String,
     pub name: String,
     /// AskUserQuestion's, from the tool's input; the rest of it isn't kept, as timeline items share this.
-    #[serde(rename = "input", deserialize_with = "questions")]
+    #[serde(rename = "input", deserialize_with = "questions_in_input")]
     pub questions: Vec<Question>,
 }
 
 /// A tool's input that isn't AskUserQuestion's has no questions, rather than failing its frame.
-fn questions<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Question>, D::Error> {
+fn questions_in_input<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Question>, D::Error> {
     let input = Option::<Value>::deserialize(d)?;
     Ok(input.and_then(|i| Vec::deserialize(i.get("questions")?).ok()).unwrap_or_default())
 }

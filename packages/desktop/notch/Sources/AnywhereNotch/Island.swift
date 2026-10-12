@@ -149,14 +149,18 @@ struct Island: Equatable {
     mutating func pick(_ label: String) -> Ask? {
         guard stage == .open else { return nil }
         picks.pick(label)
-        return picks.isDone ? answer(.questions(picks.answers)) : nil
+        return answerIfDone()
     }
 
     /// On from a multi-select question; answers the ask, returning it, past the last.
     mutating func nextQuestion() -> Ask? {
         guard stage == .open else { return nil }
         picks.next()
-        return picks.isDone ? answer(.questions(picks.answers)) : nil
+        return answerIfDone()
+    }
+
+    private mutating func answerIfDone() -> Ask? {
+        picks.isDone ? answer(.questions(picks.answers)) : nil
     }
 
     mutating func previousQuestion() {

@@ -9,42 +9,44 @@ struct Questions: View {
     var body: some View {
         if let question = picks.question {
             VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(question.header).font(.system(size: 11.5, weight: .medium)).foregroundColor(.waiting)
-                        Spacer(minLength: 0)
-                        if picks.questions.count > 1 {
-                            Text("Question \(picks.page + 1) of \(picks.questions.count)")
-                                .font(.system(size: 11, weight: .medium)).foregroundColor(.ink3).monospacedDigit()
-                        }
+                HStack {
+                    Text(question.header).font(.system(size: 11.5, weight: .medium)).foregroundColor(.waiting)
+                    Spacer(minLength: 0)
+                    if picks.questions.count > 1 {
+                        Text("Question \(picks.page + 1) of \(picks.questions.count)")
+                            .font(.system(size: 11, weight: .medium)).foregroundColor(.ink3).monospacedDigit()
                     }
-                    Text(question.question)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.ink)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-                // Many options scroll rather than pushing the buttons off the island.
+                // A long question or many options scroll rather than pushing the buttons off the island.
                 ViewThatFits(in: .vertical) {
-                    options(question)
-                    ScrollView { options(question) }
+                    content(question)
+                    ScrollView { content(question) }
                 }
-                .frame(maxHeight: 300)
+                .frame(maxHeight: 320)
                 footer(question)
             }
         }
     }
 
+    private func content(_ question: Question) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(question.question)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            options(question)
+        }
+    }
+
     private func options(_ question: Question) -> some View {
         VStack(spacing: 4) {
-            ForEach(Array(question.options.enumerated()), id: \.offset) { n, choice in
+            ForEach(Array(question.options.enumerated()), id: \.offset) { _, choice in
                 let chosen = picks.isChosen(choice.label)
                 Button { controller.pick(choice.label) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        if question.multiSelect {
-                            Image(systemName: chosen ? "checkmark.square.fill" : "square").font(.system(size: 12)).foregroundColor(chosen ? .ink : .ink3)
-                        } else {
-                            Text("\(n + 1)").font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundColor(.ink3)
-                        }
+                        Image(systemName: question.multiSelect ? (chosen ? "checkmark.square.fill" : "square") : (chosen ? "largecircle.fill.circle" : "circle"))
+                            .font(.system(size: 12))
+                            .foregroundColor(chosen ? .ink : .ink3)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(choice.label).font(.system(size: 13, weight: .medium)).foregroundColor(.ink)
                             if !choice.description.isEmpty {
