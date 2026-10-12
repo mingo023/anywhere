@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 127] = [
+const STEPS: [(&str, Step); 128] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -132,6 +132,11 @@ const STEPS: [(&str, Step); 127] = [
     ("vm-remove", |d, _, _| {
         if let Some(h) = d.store.hosts.first() {
             (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: h.id.clone(), name: h.name.clone() }), Some(Overlay::Confirm));
+        }
+    }),
+    ("vm-uninstall", |d, _, cx| {
+        if let Some(id) = d.store.hosts.first().map(|h| h.id.clone()) {
+            d.remove_host(&id, true, cx);
         }
     }),
     ("vm-add", |d, window, cx| {
