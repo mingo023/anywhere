@@ -54,6 +54,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
 objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std"] }
+petname = { version = "3.2", default-features = false, features = ["default-words"] }
 qrcode = { version = "0.14", default-features = false }
 resvg = "0.46"
 serde = { version = "1", features = ["derive"] }
