@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds a signed, notarized and stapled Anywhere.dmg in packages/desktop/target/release-mac (ADR 0004).
-# --publish also builds the standalone pocketd archives for hosts (scripts/package-pocketd.sh) and uploads them with it.
+# --publish also builds the standalone pocketd archives for hosts (scripts/package-pocketd.sh, package-pocketd-windows.sh) and uploads them with it.
 # Usage: scripts/release-mac.sh <version> [--publish]    e.g. 0.1.0
 # --publish needs CHANGELOG.md's section for the version, tag v<version> at HEAD, a clean tree, gh logged in
 # and the Sparkle private key (ANYWHERE_SPARKLE_KEY, or the login Keychain).
@@ -163,7 +163,8 @@ publish() {
   # The standalone pocketd archives a desktop installs on hosts.
   rm -rf "$ROOT/packages/pocketd/dist"
   "$ROOT/scripts/package-pocketd.sh" "$VERSION"
-  hosts=$(find "$ROOT/packages/pocketd/dist" -name 'pocketd-*.tar.gz*')
+  "$ROOT/scripts/package-pocketd-windows.sh" "$VERSION"
+  hosts=$(find "$ROOT/packages/pocketd/dist" -name 'pocketd-*.tar.gz*' -o -name 'pocketd-windows-*.zip*')
   case "$VERSION" in
     *-*)
       # shellcheck disable=SC2086

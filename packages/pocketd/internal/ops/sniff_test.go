@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"pocketd/internal/owners"
 	"pocketd/internal/peer"
 	"pocketd/internal/terminal"
 )
@@ -103,5 +104,71 @@ func TestAPtyPeerCanListButNotAttachOrTypeIntoAnAsk(t *testing.T) {
 		if !strings.Contains(screen, w) {
 			t.Errorf("missing %q in:\n%s", w, screen)
 		}
+	}
+}
+
+// serveTCP serves srv on loopback TCP, where a peer is no one until it sends an owner token.
+func serveTCP(t *testing.T, srv *Server) (net.Conn, string) {
+	t.Helper()
+	store := &owners.Store{Path: owners.Path(t.TempDir())}
+	_, token, err := store.Mint("pc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Owners = store
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go srv.Serve(ln)
+	c, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return c, token
+}
+
+func closedSoon(t *testing.T, c net.Conn) {
+	t.Helper()
+	c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for {
+		if _, err := c.Read(make([]byte, 512)); err != nil {
+			if os.IsTimeout(err) {
+				t.Fatal("conn still open")
+			}
+			return
+		}
+	}
+}
+
+func TestATCPPeerThatNeverAuthsIsClosedAfterTheAuthWindow(t *testing.T) {
+	defer func(d time.Duration) { authWindow = d }(authWindow)
+	authWindow = 50 * time.Millisecond
+	c, _ := serveTCP(t, &Server{Terminals: terminal.NewManager()})
+	fmt.Fprintln(c, `{"op":"list"}`)
+	closedSoon(t, c)
+}
+
+func TestATCPPeerCantSendMuchBeforeAuth(t *testing.T) {
+	c, _ := serveTCP(t, &Server{Terminals: terminal.NewManager()})
+	fmt.Fprintf(c, `{"op":"auth","token":"%s"}`+"\n", strings.Repeat("x", 2*authBytes))
+	closedSoon(t, c)
+}
+
+func TestAnAuthedTCPPeerHasNoWindowOrCap(t *testing.T) {
+	defer func(d time.Duration) { authWindow = d }(authWindow)
+	authWindow = 50 * time.Millisecond
+	conn, token := serveTCP(t, &Server{Terminals: terminal.NewManager()})
+	c := newConn(conn)
+	c.Send(Msg{Op: "auth", Token: token})
+	if m, err := c.Recv(); err != nil || m.Ev != "ok" {
+		t.Fatalf("auth: %+v %v", m, err)
+	}
+	time.Sleep(2 * authWindow)
+	c.Send(Msg{Op: "list", Text: strings.Repeat("x", 2*authBytes)})
+	if m, err := c.Recv(); err != nil || m.Ev != "terminals" {
+		t.Fatalf("list: %+v %v", m, err)
 	}
 }

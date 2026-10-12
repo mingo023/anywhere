@@ -220,9 +220,12 @@ func serve(sock, handed string) error {
 	}
 	var ownerLn net.Listener
 	if cfg.OwnerListen != "off" {
-		if ownerLn, err = net.Listen("tcp", cfg.OwnerListen); err != nil {
+		if ownerLn, err = net.Listen("tcp", cfg.OwnerListen); err != nil && handed == "" {
 			ln.Close()
 			return fmt.Errorf("ownerListen: %w", err)
+		} else if err != nil {
+			// Exiting now would close every Terminal the handoff adopted.
+			log.Printf("ownerListen: %v", err)
 		}
 	}
 	if watch != nil {
