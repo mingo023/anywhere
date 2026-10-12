@@ -324,11 +324,11 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 			s.pairBegin(ctx, c, m)
 			continue
 		case "owner.revokeSelf":
-			if who.Token == "" {
+			if who.TokenID == "" {
 				c.Send(Msg{Ev: "error", Error: "only a conn that sent an owner token can revoke it"})
 				continue
 			}
-			if _, err := s.Owners.Revoke(who.Token); err != nil {
+			if _, err := s.Owners.Revoke(who.TokenID); err != nil {
 				c.Send(Msg{Ev: "error", Error: err.Error()})
 				continue
 			}
