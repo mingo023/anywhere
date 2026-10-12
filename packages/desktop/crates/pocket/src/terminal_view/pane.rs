@@ -71,7 +71,15 @@ impl Desktop {
                 let caret = (focused || c.is_some()).then_some(((f.cursor_x, f.cursor_y), f.rows, c));
                 (surface::screen(&f, cells, m), Some((f.cols, f.rows)), f.at_bottom == 0, caret)
             }
-            None => (div().text_color(TEXT_3).child(if known { "Connecting…" } else { "This session is not running." }), None, false, None),
+            None => {
+                let offline = hosts::session::untag(id).0.is_some_and(|h| hosts::remote::connected(h).is_none());
+                let text = match (known, offline) {
+                    (true, true) => "Disconnected from the host.",
+                    (true, false) => "Connecting…",
+                    (false, _) => "This session is not running.",
+                };
+                (div().text_color(TEXT_3).child(text), None, false, None)
+            }
         };
         let caret = caret.map(|(at, rows, c)| {
             let preedit = self.terminal.marked.clone().filter(|_| typing);
