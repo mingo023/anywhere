@@ -48,6 +48,9 @@ func TestRedTeamFromInsideATerminal(t *testing.T) {
 		"ws.config.set":      "scope_denied",
 		"ops.config-set":     "scope_denied",
 		"ops.launch-exit":    "not_own_terminal",
+		"ops.exec":           "scope_denied",
+		"ops.fs.read":        "scope_denied",
+		"ops.fs.write":       "scope_denied",
 	} {
 		if got[probe] != want {
 			t.Errorf("%s: %q, want %q", probe, got[probe], want)

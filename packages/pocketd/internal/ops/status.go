@@ -27,7 +27,19 @@ type Status struct {
 	Config map[string]any `json:"config,omitempty"`
 	// Providers is each built-in agent's path on the login PATH, empty when it isn't found.
 	Providers map[string]string `json:"providers,omitempty"`
+	// HostID stays with this host's pocketd home, so a desktop knows the host under any address.
+	HostID string `json:"hostId,omitempty"`
+	OS     string `json:"os,omitempty"`
+	Arch   string `json:"arch,omitempty"`
+	// UserHome is the user's home; Home is pocketd's.
+	UserHome string   `json:"userHome,omitempty"`
+	Shell    string   `json:"shell,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Caps     []string `json:"caps,omitempty"`
 }
+
+// HostCaps are the ops a desktop may use on a project that lives on this host.
+var HostCaps = []string{"host.v2", "fs.v1", "exec.v1"}
 
 func (s Status) Text() string {
 	agents := "none"

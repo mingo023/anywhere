@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"pocketd/internal/devices"
+	"pocketd/internal/hostop"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -43,6 +44,28 @@ type Msg struct {
 	Status    *Status          `json:"status,omitempty"`
 	// Local is the Local a spawned Terminal belongs to.
 	Local string `json:"local,omitempty"`
+	// Login spawns the host's login shell in its login env, running Argv in it when set.
+	Login bool     `json:"login,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	// The rest are exec's and fs.*'s.
+	Stdin     []byte         `json:"stdin,omitempty"`
+	TimeoutMs int            `json:"timeoutMs,omitempty"`
+	Stdout    []byte         `json:"stdout,omitempty"`
+	Stderr    []byte         `json:"stderr,omitempty"`
+	Path      string         `json:"path,omitempty"`
+	From      string         `json:"from,omitempty"`
+	To        string         `json:"to,omitempty"`
+	Max       int64          `json:"max,omitempty"`
+	Create    bool           `json:"create,omitempty"`
+	Parents   bool           `json:"parents,omitempty"`
+	Recursive bool           `json:"recursive,omitempty"`
+	Entries   []hostop.Entry `json:"entries,omitempty"`
+	Exists    bool           `json:"exists,omitempty"`
+	Dir       bool           `json:"dir,omitempty"`
+	Size      int64          `json:"size,omitempty"`
+	Mtime     int64          `json:"mtime,omitempty"`
+	Truncated bool           `json:"truncated,omitempty"`
+	Trashed   string         `json:"trashed,omitempty"`
 }
 
 type Conn struct {
@@ -118,6 +141,10 @@ type Server struct {
 	// Upgrade execs pocketd's binary on disk. It returns only on failure;
 	// on success the caller sees the socket close.
 	Upgrade func() error
+	// LoginEnv is what exec and fs.list run git with; nil means pocketd's own.
+	LoginEnv func() []string
+	// TrashDir is where fs.trash puts things on an OS without a trash.
+	TrashDir string
 }
 
 func (s *Server) asking(id string) string {
@@ -269,6 +296,9 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 			continue
 		case "pair.begin":
 			s.pairBegin(ctx, c, m)
+			continue
+		case "exec", "fs.list", "fs.stat", "fs.read", "fs.write", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
+			go func() { c.Send(s.hostOp(ctx, m)) }()
 			continue
 		}
 		t := s.Terminals.Get(m.ID)
