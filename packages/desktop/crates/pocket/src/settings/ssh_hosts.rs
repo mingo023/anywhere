@@ -3,10 +3,12 @@ use super::host::{service_line, uptime};
 use super::{field_box, row};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
+use crate::fleet::needs_update;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use hosts::Host;
+use hosts::checklist::{Checklist, Mark, Outcome};
 use hosts::link::Link;
 use hosts::ssh::Failure;
 use theme::*;
@@ -65,7 +67,20 @@ impl Desktop {
             .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
         let remotes = self.store.hosts.clone().into_iter().enumerate().map(|(i, h)| {
             let link = self.fleet.links.get(&h.id);
-            let line = host_line(&h, link);
+            let list = self.fleet.installs.get(&h.id);
+            let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, link));
+            let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
+            let install = (not_running && list.is_none()).then(|| {
+                let id = h.id.clone();
+                super::action(("host-install", i), "Install").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, false, cx)))
+            });
+            let update = (list.is_none() && needs_update(link, channel::version())).then(|| {
+                let (id, name, windows) = (h.id.clone(), h.name.clone(), self.fleet.windows.contains(&h.id));
+                super::action(("host-update", i), "Update").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }), Some(Overlay::Confirm));
+                    cx.notify();
+                }))
+            });
             let reconnect = link.filter(|l| !matches!(l, Link::Connecting)).map(|_| {
                 let id = h.id.clone();
                 super::action(("host-reconnect", i), "Reconnect").on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.fleet.retry(&id)))
@@ -75,9 +90,54 @@ impl Desktop {
                 (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
                 cx.notify();
             }));
-            host_row(i + 1, "server", h.name.clone(), line, link_color(link)).children(reconnect).child(remove)
+            let row = host_row(i + 1, "server", h.name.clone(), line, link_color(link)).children(install).children(update).children(reconnect).child(remove);
+            let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &list, cx));
+            div().flex().flex_col().child(row).children(panel)
         });
         div().flex().flex_col().child(here).children(remotes.collect::<Vec<_>>())
+    }
+
+    /// The install's steps under the host's row, with Retry once it failed and Done once pocketd runs.
+    fn checklist_panel(&mut self, i: usize, id: &str, list: &Checklist, cx: &mut Context<Self>) -> Div {
+        let title = match (&list.outcome, list.update) {
+            (None, false) => "Installing pocketd",
+            (None, true) => "Updating pocketd",
+            (Some(Outcome::Failed(_)), false) => "Couldn't install pocketd",
+            (Some(Outcome::Failed(_)), true) => "Couldn't update pocketd",
+            (Some(_), false) => "pocketd is installed",
+            (Some(_), true) => "pocketd is updated",
+        };
+        let rows = list.rows().map(|(step, mark)| {
+            let lead = match mark {
+                Mark::Done => icon("check", 13., SUCCESS).into_any_element(),
+                Mark::Active => spinner(("host-step", i * 8 + step as usize), 13., TEXT_3).into_any_element(),
+                Mark::Failed => icon("x-bold", 11., FAILED).into_any_element(),
+                Mark::Pending | Mark::Skipped => div().size(px(5.)).rounded_full().bg(TEXT_5).into_any_element(),
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(px(22.))
+                .child(div().size(px(14.)).flex().flex_none().items_center().justify_center().child(lead))
+                .child(div().text_size(px(12.5)).text_color(if mark == Mark::Pending { TEXT_4 } else { TEXT }).child(step.label()))
+        });
+        let warnings = list.warnings.iter().map(|w| div().text_size(px(12.)).text_color(TEXT_3).child(w.clone()));
+        let error = match &list.outcome {
+            Some(Outcome::Failed(e)) => Some(div().text_size(px(12.)).text_color(FAILED_TEXT).child(e.clone())),
+            _ => None,
+        };
+        let (id, update) = (id.to_string(), list.update);
+        let button = match &list.outcome {
+            Some(Outcome::Failed(_)) => Some(super::action(("host-install-retry", i), "Retry").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx)))),
+            Some(_) => Some(super::action(("host-install-done", i), "Done").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.fleet.installs.remove(&id);
+                cx.notify();
+            }))),
+            None => None,
+        };
+        let head = div().flex().items_center().child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title)).children(button);
+        div().ml(px(54.)).mr(px(14.)).mb(px(10.)).px(px(12.)).py(px(8.)).flex().flex_col().gap(px(4.)).rounded(px(8.)).bg(FILL_2).child(head).children(rows.collect::<Vec<_>>()).children(warnings).children(error)
     }
 
     fn add_host_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
