@@ -135,9 +135,20 @@ impl Client {
         self.call(msg, FS_TIMEOUT)
     }
 
+    /// pocketd answers `status` without echoing an id, so it gets a connection of its own.
     pub fn status(&self) -> io::Result<HostInfo> {
-        let reply = self.call(json!({"op": "status"}), FS_TIMEOUT)?;
-        serde_json::from_value(reply["status"].clone()).map_err(io::Error::other)
+        let mut stream = UnixStream::connect(&self.sock)?;
+        stream.set_read_timeout(Some(FS_TIMEOUT))?;
+        writeln!(stream, "{}", json!({"op": "status"}))?;
+        for line in BufReader::new(stream).lines() {
+            let reply: Value = serde_json::from_str(&line?).unwrap_or_default();
+            match reply["ev"].as_str() {
+                Some("status") => return serde_json::from_value(reply["status"].clone()).map_err(io::Error::other),
+                Some("error") => return Err(io::Error::other(reply["error"].as_str().unwrap_or("host refused").to_string())),
+                _ => {}
+            }
+        }
+        Err(io::Error::new(ErrorKind::ConnectionAborted, "lost the host"))
     }
 
     pub fn list(&self, dir: &str) -> io::Result<Vec<Entry>> {
@@ -268,12 +279,24 @@ mod tests {
                     let reply = match msg["op"].as_str() {
                         Some("exec") if msg["argv"][0] == "fail" => json!({"ev": "error", "id": msg["id"], "error": "no such command"}),
                         Some("exec") => json!({"ev": "exec", "id": msg["id"], "code": 0, "stdout": STANDARD.encode(format!("{}|{}", msg["argv"][1].as_str().unwrap(), msg["cwd"].as_str().unwrap()))}),
+                        // pocketd answers status without the id.
+                        Some("status") => json!({"ev": "status", "status": {"userHome": "/home/dev", "caps": ["exec.v1", "fs.v1"]}}),
                         _ => json!({"ev": "fs.stat", "id": msg["id"]}),
                     };
                     writeln!(writer.lock().unwrap(), "{reply}").unwrap();
                 });
             }
         });
+    }
+
+    #[test]
+    fn status_is_read_though_pocketd_answers_it_without_the_id() {
+        let sock = temp_sock("status");
+        serve(&sock);
+        let info = Client::new("devbox", sock.clone()).status().unwrap();
+        assert_eq!(info.user_home, "/home/dev");
+        assert!(info.serves_projects());
+        let _ = std::fs::remove_file(sock);
     }
 
     #[test]
