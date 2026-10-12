@@ -11,3 +11,7 @@ Permission prompts in flight carry over. The Claude hook redials and resends its
 - The upgrade path never reaches `CloseAll`. Only a real shutdown closes terminals.
 - The old binary's code runs the handoff and its in-flight hooks, so the hook retry and the old side of the handoff ship in the first release.
 - If the dry run fails, the old pocketd keeps running and the app shows a toast.
+
+## Windows exception
+
+A pocketd on a Windows host can't hand off: Windows has no exec that keeps the process and its ConPTY handles. `pocketd upgrade` refuses there, and **Update host** ends the logon task, replaces `pocketd.exe` and starts it again, which closes that host's terminals. The Update dialog says so before it runs.

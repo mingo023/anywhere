@@ -18,6 +18,7 @@ Users download `Anywhere.dmg` from a landing page whose button points at `github
 | Bundle ID | `dev.mingo.anywhere`, never renamed | `dev.mingo.anywhere.dev` |
 | Name | Anywhere | Anywhere Dev |
 | Daemon label | `dev.mingo.anywhere.pocketd` | `dev.mingo.anywhere.dev.pocketd` |
+| Host service label | `dev.mingo.anywhere.host.pocketd` | `dev.mingo.anywhere.dev.host.pocketd` |
 | Home | `~/.coding-pocket` | `~/.coding-pocket-dev` |
 | Updates | Sparkle feed | none |
 
