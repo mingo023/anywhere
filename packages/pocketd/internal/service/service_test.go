@@ -65,3 +65,10 @@ func TestUnitQuotesSpacesQuotesAndSpecifiers(t *testing.T) {
 		t.Fatalf("got\n%s", got)
 	}
 }
+
+func TestUnitKeepsADollarInThePathLiteral(t *testing.T) {
+	got := string(unit(Spec{Exe: `/home/$me/pocketd`, Home: `/home/$me`}))
+	if !strings.Contains(got, `ExecStart="/home/$$me/pocketd" serve`) || !strings.Contains(got, `Environment="POCKET_HOME=/home/$me"`) {
+		t.Fatalf("got\n%s", got)
+	}
+}
