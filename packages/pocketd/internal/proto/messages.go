@@ -21,6 +21,7 @@ type ClientMessage struct {
 	Decision        string
 	Option          string
 	Message         string
+	Answers         map[string]string
 	AgentIDs        []string
 	Pinned          bool
 	Spec            *LaunchSpec
@@ -80,6 +81,10 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		_, has := fields[key]
 		return !has || stringList(key, dst)
 	}
+	optionalAnswers := func(dst *map[string]string) bool {
+		_, has := fields["answers"]
+		return !has || get("answers", dst)
+	}
 	optionalRange := func(key string, dst **Range) bool {
 		if _, has := fields[key]; !has {
 			return true
@@ -114,7 +119,7 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 			(m.Limit == nil || *m.Limit >= 1 && *m.Limit <= 500)
 	case m.Type == "permission.resolve":
 		ok = get("requestId", &m.RequestID) && get("decision", &m.Decision) && (m.Decision == "allow" || m.Decision == "deny") &&
-			optionalString("option", &m.Option) && optionalString("message", &m.Message)
+			optionalString("option", &m.Option) && optionalString("message", &m.Message) && optionalAnswers(&m.Answers)
 	case m.Type == "agent.create":
 		ok = get("requestId", &m.RequestID) && m.RequestID != "" && len(m.RequestID) <= 64 && decodeSpec(fields["spec"], &m.Spec)
 	case m.Type == "config.set":

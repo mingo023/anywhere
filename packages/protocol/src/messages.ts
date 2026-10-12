@@ -59,6 +59,7 @@ export const ClientMessage = Schema.Union(
     decision: Decision,
     option: Schema.optional(Schema.String),
     message: Schema.optional(Schema.String),
+    answers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   }),
   ProjectListRequest,
   Schema.Struct({ type: Schema.Literal("agent.create"), id: Schema.String, requestId: Schema.String, spec: LaunchSpec }),

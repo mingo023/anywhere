@@ -3,7 +3,7 @@ import AppKit
 /// Borderless, as AppKit keeps titled windows below the menu bar; non-activating, so a click types into it without taking the frontmost app's place.
 final class Panel: NSPanel {
     /// Room for the open island; its clear rest lets clicks through to the menu bar.
-    static let size = CGSize(width: 520, height: 300)
+    static let size = CGSize(width: 520, height: 520)
 
     init() {
         super.init(contentRect: CGRect(origin: .zero, size: Self.size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

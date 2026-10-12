@@ -143,6 +143,7 @@ type hookInput struct {
 
 type hookDecision struct {
 	Behavior           string            `json:"behavior"`
+	UpdatedInput       json.RawMessage   `json:"updatedInput,omitempty"`
 	UpdatedPermissions []json.RawMessage `json:"updatedPermissions,omitempty"`
 	Message            string            `json:"message,omitempty"`
 	Interrupt          bool              `json:"interrupt,omitempty"`
@@ -235,7 +236,7 @@ func (d *Daemon) permission(ctx context.Context, pr *presence, in hookInput) []b
 		}
 		return nil
 	case "allow":
-		decision = hookDecision{Behavior: "allow", UpdatedPermissions: in.updates(a.Option)}
+		decision = hookDecision{Behavior: "allow", UpdatedInput: in.answered(a.Answers), UpdatedPermissions: in.updates(a.Option)}
 		pr.working("")
 	case "deny":
 		decision = hookDecision{Behavior: "deny", Message: "Denied from phone", Interrupt: true}

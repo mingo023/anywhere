@@ -439,7 +439,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.pairBegin(m.ID)
 	case "permission.resolve":
 		agentID := c.asker(m.RequestID)
-		if !c.s.Broker.Resolve(m.RequestID, broker.Answer{Decision: m.Decision, Option: m.Option, Message: m.Message}) {
+		if !c.s.Broker.Resolve(m.RequestID, broker.Answer{Decision: m.Decision, Option: m.Option, Message: m.Message, Answers: m.Answers}) {
 			return errors.New("Permission request is no longer open")
 		}
 		c.s.Events.Emit(events.Event{Kind: "answer", Agent: agentID, Principal: c.principal(), Decision: m.Decision})

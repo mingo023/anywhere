@@ -4,7 +4,7 @@ pub mod locals;
 use automations::{Automation, AutomationDraft, Automations, Run};
 use locals::Local;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -103,6 +103,32 @@ pub struct Detail {
     pub query: String,
     pub description: String,
     pub name: String,
+    /// AskUserQuestion's, from the tool's input; the rest of it isn't kept, as timeline items share this.
+    #[serde(rename = "input", deserialize_with = "questions")]
+    pub questions: Vec<Question>,
+}
+
+/// A tool's input that isn't AskUserQuestion's has no questions, rather than failing its frame.
+fn questions<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Question>, D::Error> {
+    let input = Option::<Value>::deserialize(d)?;
+    Ok(input.and_then(|i| Vec::deserialize(i.get("questions")?).ok()).unwrap_or_default())
+}
+
+/// One of AskUserQuestion's questions.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Question {
+    pub question: String,
+    pub header: String,
+    pub options: Vec<Choice>,
+    pub multi_select: bool,
+}
+
+#[derive(Deserialize, Serialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Choice {
+    pub label: String,
+    pub description: String,
 }
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
@@ -133,6 +159,14 @@ impl Permission {
             _ => ("use".into(), if d.name.is_empty() { &self.tool_name } else { &d.name }),
         };
         (format!("Wants to {verb}"), what.clone())
+    }
+
+    /// AskUserQuestion's questions; none for any other ask.
+    pub fn questions(&self) -> Vec<Question> {
+        if self.tool_name != "AskUserQuestion" {
+            return vec![];
+        }
+        self.detail.questions.clone()
     }
 }
 
@@ -519,6 +553,11 @@ impl Outbox {
             Decision::Deny => "deny",
         };
         self.send(json!({"type": "permission.resolve", "id": "resolve", "requestId": request_id, "decision": decision}));
+    }
+
+    /// Allows an AskUserQuestion with `answers`, keyed by question, in place of its dialog's.
+    pub fn answer(&self, request_id: &str, answers: &HashMap<String, String>) {
+        self.send(json!({"type": "permission.resolve", "id": "resolve", "requestId": request_id, "decision": "allow", "answers": answers}));
     }
 
     /// Denies the ask with `message`, which pocketd types as the agent's next prompt.
@@ -1042,6 +1081,47 @@ mod tests {
         Outbox(tx).reply("q1", "Use pnpm instead");
         let sent: Vec<Value> = rx.try_iter().collect();
         assert_eq!(sent, vec![json!({"type": "permission.resolve", "id": "resolve", "requestId": "q1", "decision": "deny", "message": "Use pnpm instead"})]);
+    }
+
+    #[test]
+    fn answer_allows_with_the_answers() {
+        let (tx, rx) = channel();
+        Outbox(tx).answer("q1", &HashMap::from([("Which color?".into(), "Blue".into())]));
+        let sent: Vec<Value> = rx.try_iter().collect();
+        assert_eq!(
+            sent,
+            vec![json!({"type": "permission.resolve", "id": "resolve", "requestId": "q1", "decision": "allow", "answers": {"Which color?": "Blue"}})]
+        );
+    }
+
+    #[test]
+    fn an_ask_user_question_request_carries_its_questions() {
+        let f: Frame = serde_json::from_value(json!({"type": "permission.request", "request": {
+            "requestId": "r1", "agentId": "a1", "toolName": "AskUserQuestion",
+            "detail": {"kind": "other", "name": "AskUserQuestion", "input": {"questions": [
+                {"question": "Which color?", "header": "Color", "options": [{"label": "Red", "description": "Warm"}, {"label": "Blue"}], "multiSelect": true}
+            ]}}
+        }}))
+        .unwrap();
+        let q = f.request.unwrap().questions();
+        assert_eq!(q.len(), 1);
+        assert_eq!((q[0].question.as_str(), q[0].header.as_str(), q[0].multi_select), ("Which color?", "Color", true));
+        assert_eq!(q[0].options[0], Choice { label: "Red".into(), description: "Warm".into() });
+        assert_eq!(q[0].options[1].description, "");
+    }
+
+    #[test]
+    fn only_ask_user_question_has_questions() {
+        let p = Permission { tool_name: "Bash".into(), detail: Detail { questions: vec![Question::default()], ..Default::default() }, ..Default::default() };
+        assert!(p.questions().is_empty());
+    }
+
+    #[test]
+    fn a_tool_input_shaped_unlike_questions_still_reads() {
+        let d: Detail = serde_json::from_value(json!({"kind": "other", "name": "mcp", "input": {"questions": "free text"}})).unwrap();
+        assert_eq!((d.name.as_str(), d.questions.len()), ("mcp", 0));
+        let d: Detail = serde_json::from_value(json!({"kind": "other", "input": null})).unwrap();
+        assert!(d.questions.is_empty());
     }
 
     #[test]

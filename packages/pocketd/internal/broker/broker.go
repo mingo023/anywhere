@@ -24,9 +24,11 @@ type pending struct {
 }
 
 // Answer is the phone's reply. Option is one of the request's Options;
-// Message is feedback sent with a deny.
+// Message is feedback sent with a deny; Answers answer an AskUserQuestion,
+// keyed by question.
 type Answer struct {
 	Decision, Option, Message string
+	Answers                   map[string]string
 }
 
 type Broker struct {

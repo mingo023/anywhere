@@ -15,23 +15,15 @@ struct Expanded: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             head
-            VStack(alignment: .leading, spacing: 5) {
-                Text(ask.verb).font(.system(size: 11.5, weight: .medium)).foregroundColor(.waiting)
-                // A long command scrolls rather than hiding its tail, as allowing it runs all of it.
-                ViewThatFits(in: .vertical) {
-                    subject
-                    ScrollView { subject.frame(maxWidth: .infinity, alignment: .leading) }
-                }
-                .frame(maxHeight: 100)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.fill))
+            if ask.questions.isEmpty {
+                request
             }
             if replying {
                 ReplyField(ask: ask, send: { controller.answer(.reply($0)) }, back: controller.back)
-            } else {
+            } else if ask.questions.isEmpty {
                 buttons
+            } else {
+                Questions(controller: controller, ask: ask, picks: controller.island.picks)
             }
         }
         .padding(.top, controller.notch.height + 6)
@@ -39,6 +31,22 @@ struct Expanded: View {
         .padding(.bottom, 14)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var request: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(ask.verb).font(.system(size: 11.5, weight: .medium)).foregroundColor(.waiting)
+            // A long command scrolls rather than hiding its tail, as allowing it runs all of it.
+            ViewThatFits(in: .vertical) {
+                subject
+                ScrollView { subject.frame(maxWidth: .infinity, alignment: .leading) }
+            }
+            .frame(maxHeight: 100)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.fill))
+        }
     }
 
     private var head: some View {

@@ -13,10 +13,74 @@ struct Ask: Codable, Equatable {
     var subject: String
     var shell: Bool
     var feedback: Bool
+    var questions: [Question] = []
+}
+
+/// One of AskUserQuestion's questions.
+struct Question: Codable, Equatable {
+    var question: String
+    var header: String
+    var options: [Choice]
+    var multiSelect: Bool
+}
+
+struct Choice: Codable, Equatable {
+    var label: String
+    var description: String
 }
 
 enum Answer: Equatable {
     case allow, deny, reply(String)
+    /// AskUserQuestion's answers, keyed by question.
+    case questions([String: String])
+}
+
+/// The labels picked for an ask's questions, answered one at a time.
+struct Picks: Equatable {
+    let questions: [Question]
+    private(set) var page = 0
+    private var chosen: [[String]]
+
+    init(_ questions: [Question]) {
+        self.questions = questions
+        chosen = questions.map { _ in [] }
+    }
+
+    /// The question showing; nil once the last is answered.
+    var question: Question? { questions.indices.contains(page) ? questions[page] : nil }
+    var isLast: Bool { page == questions.count - 1 }
+    var isAnswered: Bool { question != nil && !chosen[page].isEmpty }
+    var isDone: Bool { !questions.isEmpty && page == questions.count }
+
+    func isChosen(_ label: String) -> Bool { question != nil && chosen[page].contains(label) }
+
+    /// Toggles `label` on a multi-select question; on another, chooses it and moves on.
+    mutating func pick(_ label: String) {
+        guard let question else { return }
+        if question.multiSelect {
+            chosen[page] = chosen[page].contains(label) ? chosen[page].filter { $0 != label } : chosen[page] + [label]
+        } else {
+            chosen[page] = [label]
+            next()
+        }
+    }
+
+    mutating func next() {
+        if isAnswered { page += 1 }
+    }
+
+    mutating func back() {
+        if page > 0 { page -= 1 }
+    }
+
+    /// Keyed by question; a multi-select's labels in the options' order, joined as Claude's own dialog does.
+    var answers: [String: String] {
+        var out: [String: String] = [:]
+        for (q, labels) in zip(questions, chosen) {
+            out[q.question] = q.options.map(\.label).filter(labels.contains).joined(separator: ", ")
+        }
+        return out
+    }
 }
 
 enum Stage: Equatable {
@@ -29,6 +93,8 @@ enum Stage: Equatable {
 struct Island: Equatable {
     private(set) var asks: [Ask] = []
     private(set) var stage = Stage.compact
+    /// The showing ask's picks, kept while it shows.
+    private(set) var picks = Picks([])
     /// The desktop lists an answered ask until it hears back, which mustn't show it again.
     private var answered: Set<String> = []
 
@@ -47,6 +113,7 @@ struct Island: Equatable {
         asks = isDone ? Array(asks.prefix(1)) + waiting : waiting
         if !isDone && current?.request != showing {
             stage = .compact
+            picks = Picks(current?.questions ?? [])
         }
     }
 
@@ -78,6 +145,24 @@ struct Island: Equatable {
         }
     }
 
+    /// Picks `label` for the showing question; answers the ask, returning it, once the last is answered.
+    mutating func pick(_ label: String) -> Ask? {
+        guard stage == .open else { return nil }
+        picks.pick(label)
+        return picks.isDone ? answer(.questions(picks.answers)) : nil
+    }
+
+    /// On from a multi-select question; answers the ask, returning it, past the last.
+    mutating func nextQuestion() -> Ask? {
+        guard stage == .open else { return nil }
+        picks.next()
+        return picks.isDone ? answer(.questions(picks.answers)) : nil
+    }
+
+    mutating func previousQuestion() {
+        if stage == .open { picks.back() }
+    }
+
     /// Answers the showing ask, once; returns it.
     mutating func answer(_ answer: Answer) -> Ask? {
         guard !isDone, let ask = current else { return nil }
@@ -91,6 +176,7 @@ struct Island: Equatable {
         if isDone {
             asks.removeFirst()
             stage = .compact
+            picks = Picks(current?.questions ?? [])
         }
     }
 }

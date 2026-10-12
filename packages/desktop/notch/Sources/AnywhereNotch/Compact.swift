@@ -42,6 +42,7 @@ struct Compact: View {
         case .done(.allow): "Allowed"
         case .done(.deny): "Stopped"
         case .done(.reply): "Sent"
+        case .done(.questions): "Answered"
         default: count > 1 ? "Needs you · \(count)" : "Needs you"
         }
     }
