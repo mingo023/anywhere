@@ -15,7 +15,7 @@ use theme::*;
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("hosts", "Hosts", "Hosts", |d, _, cx| d.host_rows(cx)),
-    Setting::custom("add-host", "Hosts", "Add a host", |d, s, cx| d.add_host_row(s, cx)).hint("A machine with Anywhere installed that you can reach over SSH"),
+    Setting::custom("add-host", "Hosts", "Add a host", |d, s, cx| d.add_host_row(s, cx)).hint("A Mac, Linux or Windows machine you can reach over SSH"),
 ];
 
 /// What a host's row says about its link.
@@ -75,7 +75,7 @@ impl Desktop {
                 super::action(("host-install", i), "Install").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, false, cx)))
             });
             let update = (list.is_none() && needs_update(link, channel::version())).then(|| {
-                let (id, name, windows) = (h.id.clone(), h.name.clone(), self.fleet.windows.contains(&h.id));
+                let (id, name, windows) = (h.id.clone(), h.name.clone(), h.windows);
                 super::action(("host-update", i), "Update").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }), Some(Overlay::Confirm));
                     cx.notify();

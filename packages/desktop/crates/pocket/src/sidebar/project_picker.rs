@@ -206,6 +206,7 @@ impl Desktop {
             this.sidebar.picker.open = false;
             this.open(Overlay::AddRepo, window, cx);
         }));
+        let host = ui::menu_row("projects-host-folder", "globe", "Open folder on a host…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
         ui::pop(div().id("projects-menu"))
             .w(px(286.))
             .overflow_hidden()
@@ -219,7 +220,7 @@ impl Desktop {
             }))
             .child(search)
             .child(list)
-            .child(div().p(px(5.)).border_t(px(0.5)).border_color(SEPARATOR).child(new))
+            .child(div().p(px(5.)).border_t(px(0.5)).border_color(SEPARATOR).child(new).child(host))
     }
 }
 

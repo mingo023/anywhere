@@ -10,8 +10,8 @@ use hosts::Host;
 use hosts::checklist::{Checklist, Outcome};
 use hosts::install::{self, Platform, Progress, Step};
 use hosts::link::{self, Link, Paths, Supervisor};
-use hosts::remote::Client;
-use std::collections::{HashMap, HashSet};
+use hosts::remote::{Client, HostInfo};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -48,9 +48,44 @@ impl Links {
     }
 }
 
-/// Whether the host's pocketd isn't the one this app ships; one that didn't say its version is left alone.
+/// Whether the host's pocketd is older than the one this app ships; one that didn't say its version is left alone.
+/// A version that isn't numbers, as a dev build's, only has to differ.
 pub(crate) fn needs_update(link: Option<&Link>, app: &str) -> bool {
-    matches!(link, Some(Link::Online { version, .. }) if !version.is_empty() && version != app)
+    let Some(Link::Online { version, .. }) = link else { return false };
+    let numbers = |v: &str| -> Option<Vec<u64>> { v.split('-').next()?.split('.').map(|n| n.parse().ok()).collect() };
+    match (numbers(version), numbers(app)) {
+        _ if version.is_empty() || version == app => false,
+        // A pre-release comes before its release.
+        (Some(host), Some(ours)) => host < ours || (host == ours && version.contains('-')),
+        _ => true,
+    }
+}
+
+/// What a host's pocketd answering `status` asks of this Mac.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Status {
+    /// Serve its folders and terminals here: its link is still up and it can.
+    pub serve: bool,
+    /// Its owner token isn't the one its open session and agents channel send, as after a re-pair.
+    pub reopen: bool,
+}
+
+/// What `info` from a host whose link is `online` asks; `opened_with` is the token its session was opened with, if one is.
+pub(crate) fn on_status(info: &HostInfo, online: bool, opened_with: Option<&Option<String>>, token: &Option<String>) -> Status {
+    let serve = online && info.serves_projects();
+    Status { serve, reopen: serve && opened_with.is_some_and(|was| was != token) }
+}
+
+/// What an install off the UI thread reports.
+enum Report {
+    Windows(bool),
+    Progress(Progress),
+}
+
+/// The host to install on once `platform` is known, and where its pocketd comes from.
+fn install_plan(host: &Host, platform: Platform, version: &str, dist: Option<&Path>) -> Result<(Host, install::Source), String> {
+    let source = install::source(platform, version, dist)?;
+    Ok((Host { windows: matches!(platform, Platform::Windows { .. }), ..host.clone() }, source))
 }
 
 #[derive(Debug, PartialEq)]
@@ -116,8 +151,6 @@ pub(crate) struct Fleet {
     pub form: AddForm,
     /// Installs and updates under way, or ended and not yet dismissed.
     pub installs: HashMap<String, Checklist>,
-    /// Hosts whose pocketd runs on Windows, where an update closes terminals.
-    pub windows: HashSet<String>,
     /// The owner token each host's session and agents channel were opened with.
     tokens: HashMap<String, Option<String>>,
     /// What a host's row says instead of its link, as while its service is uninstalled.
@@ -147,7 +180,6 @@ impl Fleet {
             sessions: HashMap::new(),
             form,
             installs: HashMap::new(),
-            windows: HashSet::new(),
             tokens: HashMap::new(),
             notices: HashMap::new(),
         };
@@ -187,7 +219,6 @@ impl Fleet {
         self.sessions.remove(id);
         self.links.remove(id);
         self.installs.remove(id);
-        self.windows.remove(id);
         self.tokens.remove(id);
         self.notices.remove(id);
     }
@@ -240,20 +271,17 @@ impl Desktop {
             this.update_in(cx, |d, window, cx| {
                 let Ok(info) = info else { return };
                 if info.os == "windows" {
-                    d.fleet.windows.insert(id.clone());
-                    if let Some(host) = d.store.hosts.iter_mut().find(|h| h.id == id && !h.windows) {
-                        host.windows = true;
-                        d.save_soon(cx);
-                    }
+                    d.host_is_windows(&id, true, cx);
                 }
-                if !d.fleet.links.online(&id) || !info.serves_projects() {
+                let status = on_status(&info, d.fleet.links.online(&id), d.fleet.tokens.get(&id), &endpoint.token);
+                if !status.serve {
                     return;
                 }
-                // A re-paired host's new token isn't the one its open session and agents channel send.
-                if d.fleet.tokens.insert(id.clone(), endpoint.token.clone()).is_some_and(|was| was != endpoint.token) {
+                if status.reopen {
                     d.daemon.remove(&id);
                     d.close_host_agents(&id);
                 }
+                d.fleet.tokens.insert(id.clone(), endpoint.token.clone());
                 hosts::remote::register(client);
                 d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 if !d.daemon.has(&id) {
@@ -279,6 +307,14 @@ impl Desktop {
             }
         });
         self.fleet.sessions.insert(id, task);
+    }
+
+    /// Saves what the host runs, once known from its pocketd or an install's probe.
+    fn host_is_windows(&mut self, id: &str, windows: bool, cx: &mut Context<Self>) {
+        if let Some(host) = self.store.hosts.iter_mut().find(|h| h.id == id && h.windows != windows) {
+            host.windows = windows;
+            self.save_soon(cx);
+        }
     }
 
     pub(crate) fn host_name(&self, id: &str) -> String {
@@ -353,13 +389,13 @@ impl Desktop {
         // Not the background executor: an install can take minutes.
         std::thread::spawn(move || {
             let send = |p| {
-                let _ = tx.unbounded_send(p);
+                let _ = tx.unbounded_send(Report::Progress(p));
             };
             // Finding the platform and uploading the archive come before bootstrap.sh says it checks the host.
             send(Progress::Step(Step::Detect));
             let ran = install::probe(&host, &paths).and_then(|platform| {
-                let host = Host { windows: matches!(platform, Platform::Windows { .. }), ..host.clone() };
-                let source = install::source(platform, channel::version(), install::dist_dir().as_deref()).map_err(install::Error::Failed)?;
+                let (host, source) = install_plan(&host, platform, channel::version(), install::dist_dir().as_deref()).map_err(install::Error::Failed)?;
+                let _ = tx.unbounded_send(Report::Windows(host.windows));
                 if update { install::update(&host, &paths, &source, send) } else { install::install(&host, &paths, &source, send) }
             });
             if let Err(e) = ran {
@@ -368,9 +404,12 @@ impl Desktop {
         });
         let id = id.to_string();
         cx.spawn(async move |this, cx| {
-            while let Some(progress) = rx.next().await {
+            while let Some(report) = rx.next().await {
                 let shown = this.update(cx, |d, cx| {
-                    d.fleet.install_progress(&id, progress);
+                    match report {
+                        Report::Windows(windows) => d.host_is_windows(&id, windows, cx),
+                        Report::Progress(progress) => d.fleet.install_progress(&id, progress),
+                    }
                     cx.notify();
                 });
                 if shown.is_err() {
@@ -431,9 +470,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Link, Links, Removing, needs_update, new_host, removal};
-    use hosts::Target;
+    use super::{Link, Links, Platform, Removing, Status, install_plan, needs_update, new_host, on_status, removal};
+    use hosts::remote::HostInfo;
     use hosts::ssh::Failure;
+    use hosts::{Host, Target};
 
     #[test]
     fn a_link_shows_only_what_changed_for_a_host_still_listed() {
@@ -454,13 +494,46 @@ mod tests {
     }
 
     #[test]
-    fn an_update_is_offered_only_when_the_hosts_pocketd_is_another_version() {
+    fn an_update_is_offered_only_when_the_hosts_pocketd_is_older() {
         let online = |version: &str| Link::Online { version: version.into(), uptime: 0 };
         assert!(needs_update(Some(&online("1.4.2")), "1.5.0"));
+        assert!(needs_update(Some(&online("1.4.10")), "1.5.0"));
+        assert!(!needs_update(Some(&online("1.10.0")), "1.9.0"), "a newer host is never downgraded");
+        assert!(needs_update(Some(&online("1.5.0-rc.1")), "1.5.0"));
+        assert!(needs_update(Some(&online("0.0.0-e2e")), "dev"), "a dev build only has to differ");
         assert!(!needs_update(Some(&online("1.5.0")), "1.5.0"));
         assert!(!needs_update(Some(&online("")), "1.5.0"), "an old pocketd that didn't say");
         assert!(!needs_update(Some(&Link::Retrying(Failure::NotRunning)), "1.5.0"));
         assert!(!needs_update(None, "1.5.0"));
+    }
+
+    #[test]
+    fn a_host_is_served_only_while_its_link_is_up_and_its_pocketd_holds_projects() {
+        let info = HostInfo { caps: vec!["exec.v1".into(), "fs.v1".into()], ..HostInfo::default() };
+        assert_eq!(on_status(&info, true, None, &None), Status { serve: true, reopen: false });
+        assert_eq!(on_status(&info, false, None, &None), Status::default(), "the link dropped while status was asked");
+        assert_eq!(on_status(&HostInfo::default(), true, None, &None), Status::default(), "an old pocketd only runs terminals");
+    }
+
+    #[test]
+    fn a_re_paired_hosts_session_reopens_with_its_new_token() {
+        let info = HostInfo { caps: vec!["exec.v1".into(), "fs.v1".into()], ..HostInfo::default() };
+        let (old, new) = (Some("t1".to_string()), Some("t2".to_string()));
+        assert!(on_status(&info, true, Some(&old), &new).reopen);
+        assert!(!on_status(&info, true, Some(&old), &old).reopen);
+    }
+
+    #[test]
+    fn an_install_runs_as_the_platform_the_probe_found() {
+        let host = Host::new(Target::Alias { name: "pc".into() }, &[]);
+        let dist = std::env::temp_dir().join(format!("fleet-plan-{}", std::process::id()));
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("pocketd-windows-amd64.zip"), b"").unwrap();
+        let (on, source) = install_plan(&host, Platform::Windows { arch: "amd64" }, "dev", Some(&dist)).unwrap();
+        assert!(on.windows && source == hosts::install::Source::Archive(dist.join("pocketd-windows-amd64.zip")));
+        let (on, _) = install_plan(&Host { windows: true, ..host }, Platform::Unix { os: "linux", arch: "arm64" }, "1.2.0", None).unwrap();
+        assert!(!on.windows);
+        std::fs::remove_dir_all(dist).unwrap();
     }
 
     #[test]
