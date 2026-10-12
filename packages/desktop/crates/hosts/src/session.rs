@@ -1,7 +1,7 @@
 //! Terminals on hosts next to this Mac's: their ids carry the host's, and ops go back to the pocketd holding them.
 
 use daemon::{Daemon, Info, Msg};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -35,6 +35,11 @@ pub fn tag_msg(host: &str, m: &mut Msg) {
     }
 }
 
+/// Opens the host's login shell in `cwd`, a path on the host, running `argv` in it when there is one.
+pub fn spawn_op(cwd: &str, argv: &[String]) -> Value {
+    json!({"op": "spawn", "login": true, "cwd": cwd, "argv": argv, "cols": 120, "rows": 36})
+}
+
 /// This Mac's pocketd and each linked host's, sending every op to the one that holds its terminal.
 #[derive(Clone)]
 pub struct Daemons {
@@ -53,6 +58,10 @@ impl Daemons {
 
     pub fn remove(&self, host: &str) {
         self.hosts.lock().unwrap().remove(host);
+    }
+
+    pub fn has(&self, host: &str) -> bool {
+        self.hosts.lock().unwrap().contains_key(host)
     }
 
     /// Sends `msg` to whichever pocketd holds the terminal it names, with that pocketd's id; a `list` goes to every one.
