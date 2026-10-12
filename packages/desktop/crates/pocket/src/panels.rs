@@ -49,6 +49,8 @@ pub(crate) struct Panels {
     tree: Option<String>,
     /// Whether the panels saved last launch were brought back; until then `desktop.json` keeps them as they were.
     pub(crate) restored: bool,
+    /// Panels saved last launch for worktrees on hosts, until each host first lists its terminals.
+    pub(crate) waiting: std::collections::BTreeMap<String, workspace::Workspace>,
 }
 
 /// Whether `pane` touches the top of the main area, where its bar also moves the window, and its left, where the bar starts with the sidebar toggle.

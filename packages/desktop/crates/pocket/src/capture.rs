@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 116] = [
+const STEPS: [(&str, Step); 124] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -109,6 +109,31 @@ const STEPS: [(&str, Step); 116] = [
         d.fleet.links.0.insert(devbox.id.clone(), hosts::link::Link::Online { version: "1.4.2".into(), uptime: 3 * 86_400 });
         d.fleet.links.0.insert(gpu.id.clone(), hosts::link::Link::Retrying(hosts::ssh::Failure::NotRunning));
         d.store.hosts = vec![devbox, gpu];
+    }),
+    // The real host the remote hosts e2e runs against; see `.ui-review/remote-hosts/`.
+    ("vm", |d, window, cx| {
+        let target = hosts::Target::Address { addr: "127.0.0.1".into(), port: 2222, user: "mingo".into(), key_file: Some("/tmp/anywhere-e2e/id_ed25519".into()) };
+        if !d.store.hosts.iter().any(|h| h.target == target) {
+            d.store.hosts.push(hosts::Host::new(target, &[]));
+            d.connect_hosts(window, cx);
+        }
+    }),
+    ("wait", |_, _, _| {}),
+    ("vm-add", |d, window, cx| {
+        d.open(Overlay::AddRepo, window, cx);
+        d.set_repo_source(crate::modals::add_project::Source::Host);
+        if let Some(h) = d.store.hosts.first() {
+            d.browse_host(h.id.clone(), window, cx);
+        }
+    }),
+    ("vm-browse", |d, window, cx| d.browse_to("/home/mingo/vm-app".into(), window, cx)),
+    ("vm-open", |d, window, cx| d.open_browsed(window, cx)),
+    ("vm-save", |d, window, cx| d.save_repo(window, cx)),
+    ("vm-shell", |d, _, cx| d.new_shell(workspace::Place::Pane(None), cx)),
+    ("vm-uname", |d, _, _| {
+        if let Some(id) = d.terminals.sessions.items.iter().rev().map(|s| s.info.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
+            d.daemon.input(&id, b"uname -a\r");
+        }
     }),
     ("hosts-add", |d, _, _| {
         (d.fleet.form.open, d.fleet.form.suggestions) = (true, vec!["devbox".into(), "gpu-box".into(), "nas".into()]);

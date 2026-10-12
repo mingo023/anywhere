@@ -43,7 +43,7 @@ use crate::terminals::Terminals;
 use crate::terminals::link::Hint;
 use crate::updates::Updates;
 use agents::{Agents, Outbox};
-use daemon::Daemon;
+use hosts::session::Daemons;
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -58,7 +58,7 @@ use workspace::{Doc, Tab, Workspace};
 pub(crate) const MAIN: PaneId = 0;
 
 pub struct Desktop {
-    pub(crate) daemon: Daemon,
+    pub(crate) daemon: Daemons,
     pub(crate) outbox: Outbox,
     pub(crate) alerts: Alerts,
     pub(crate) notch: Notch,
@@ -117,7 +117,7 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub(crate) fn new(daemon: Daemon, outbox: Outbox, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(daemon: Daemons, outbox: Outbox, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);

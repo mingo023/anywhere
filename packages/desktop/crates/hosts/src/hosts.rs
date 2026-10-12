@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 pub mod install;
 pub mod link;
+pub mod remote;
+pub mod session;
 pub mod ssh;
 pub mod ssh_config;
 
@@ -121,11 +123,14 @@ pub fn split(key: &str) -> (Option<&str>, &str) {
     (Some(id), drive.unwrap_or(path))
 }
 
-/// Where git for the tree at `key` runs. No host is linked yet, so a host's key gets a runner that only fails.
+/// Where git for the tree at `key` runs: this Mac, its host while linked, else a runner that only fails.
 pub fn runner_for(key: &str) -> git::Runner {
     match split(key) {
         (None, _) => git::Runner::Local,
-        (Some(_), _) => git::Runner::Remote(std::sync::Arc::new(git::NotConnected)),
+        (Some(id), _) => match remote::connected(id) {
+            Some(client) => git::Runner::Remote(client),
+            None => git::Runner::Remote(std::sync::Arc::new(git::NotConnected)),
+        },
     }
 }
 

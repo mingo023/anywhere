@@ -282,7 +282,7 @@ impl Desktop {
             if !all.is_empty() {
                 git::set_staged(&runner, &cwd, &all, true);
             }
-            let committed = daemon::run_login(&git::commit_argv(amend, &message), &cwd, &message).map(drop);
+            let committed = crate::util::run_login(&git::commit_argv(amend, &message), &cwd, &message).map(drop);
             let pushed = if committed.is_ok() && matches!(kind, CommitKind::Push | CommitKind::Ship) { push(&cwd, &push_argv) } else { Ok(()) };
             // The composer titles the PR from the commits, the one just made among them.
             let shipped = (kind == CommitKind::Ship && committed.is_ok() && pushed.is_ok()).then(|| git::read(&runner, &cwd, untracked)).flatten();
@@ -360,7 +360,7 @@ impl Desktop {
         self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
             let context = git::commit_context(&hosts::runner_for(&cwd), &cwd, staged, untracked);
-            daemon::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &cwd, &context)
+            crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &cwd, &context)
         });
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
@@ -380,7 +380,7 @@ impl Desktop {
 }
 
 pub(crate) fn push(cwd: &str, argv: &[String]) -> Result<(), String> {
-    daemon::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), cwd, "").map(drop)
+    crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), cwd, "").map(drop)
 }
 
 #[cfg(test)]

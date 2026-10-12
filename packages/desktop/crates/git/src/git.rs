@@ -170,6 +170,9 @@ fn parse_worktrees(out: &str) -> Vec<Worktree> {
 /// The repository's checkouts: the main one, then the rest oldest first.
 pub fn worktrees(run: &Runner, cwd: &str) -> Vec<Worktree> {
     let mut out = parse_worktrees(&git(run, cwd, &["worktree", "list", "--porcelain"]).unwrap_or_default());
+    for w in &mut out {
+        w.path = run.place(&w.path);
+    }
     out.sort_by_cached_key(|w| (!w.main, run.stat(&w.path).ok().flatten().and_then(|s| s.created)));
     out
 }

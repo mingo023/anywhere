@@ -54,7 +54,7 @@ fn from_commits(commits: &[Commit]) -> (String, String) {
 /// The last `n` lines of a review comment's hunk, which ends at the line it's on.
 /// Runs `argv` in `dir` through the login shell, so `gh` finds its auth as it does in a terminal.
 pub(crate) fn run(argv: &[String], dir: &str, input: &str) -> Result<String, String> {
-    daemon::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), dir, input)
+    crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), dir, input)
 }
 
 pub(crate) fn hunk_tail(hunk: &str, n: usize) -> Vec<&str> {
