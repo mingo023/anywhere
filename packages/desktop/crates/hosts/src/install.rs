@@ -195,7 +195,9 @@ pub fn update(host: &Host, paths: &Paths, source: &Source, on: impl FnMut(Progre
 /// A Windows host's pocketd first forgets this Mac's owner token, through the link that's still up.
 pub fn uninstall(host: &Host, paths: &Paths) -> Result<(), Error> {
     let dir = &paths.remote_dir;
-    if host.windows {
+    // A host never reached since it was added may be Windows without this Mac knowing yet.
+    let windows = host.windows || matches!(probe(host, paths)?, Platform::Windows { .. });
+    if windows {
         let _ = daemon::request_to(&host.endpoint(&paths.home), &serde_json::json!({"op": "owner.revokeSelf"}), Duration::from_secs(5));
         let shim = ssh::ps_quote(&format!(r"{dir}\bin\pocketd.cmd"));
         let script = format!("$p = Join-Path $HOME {shim}; if (Test-Path $p) {{ & $p service uninstall --label {}; exit $LASTEXITCODE }}", ssh::ps_quote(&label(dir)));

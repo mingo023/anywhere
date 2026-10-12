@@ -134,8 +134,18 @@ pub fn place(id: &str, path: &str) -> String {
 /// The host id and the path on it that `key` names; `None` and the key itself for a path on this Mac.
 pub fn split(key: &str) -> (Option<&str>, &str) {
     let Some((id, path)) = key.strip_prefix("//").and_then(|rest| rest.find('/').map(|i| rest.split_at(i))) else { return (None, key) };
-    let drive = path.get(1..).filter(|p| matches!(p.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic()));
+    let drive = path.get(1..).filter(|p| on_windows(p));
     (Some(id), drive.unwrap_or(path))
+}
+
+/// Whether a host's `path` starts with a drive, as only Windows paths do.
+pub fn on_windows(path: &str) -> bool {
+    matches!(path.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic())
+}
+
+/// The command that runs a project's `script` on the host holding `key`, in its own shell: PowerShell on Windows, else sh.
+pub fn script_argv<'a>(key: &str, script: &'a str) -> Vec<&'a str> {
+    if on_windows(split(key).1) { vec!["powershell", "-NoProfile", "-NonInteractive", "-Command", script] } else { vec!["sh", "-c", script] }
 }
 
 /// Where git for the tree at `key` runs: this Mac, its host while linked, else a runner that only fails.
@@ -228,6 +238,12 @@ mod tests {
     fn a_path_on_this_mac_names_no_host() {
         assert_eq!(split("/Users/me/app"), (None, "/Users/me/app"));
         assert_eq!(split("local-1"), (None, "local-1"));
+    }
+
+    #[test]
+    fn a_script_runs_in_powershell_on_a_windows_host_and_in_sh_elsewhere() {
+        assert_eq!(script_argv("//pc/C:/Users/me/app", "npm ci")[0], "powershell");
+        assert_eq!(script_argv("//devbox/home/me/app", "npm ci"), ["sh", "-c", "npm ci"]);
     }
 
     #[test]

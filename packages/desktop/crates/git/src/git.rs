@@ -7,7 +7,7 @@ use std::time::Duration;
 pub mod github;
 pub mod graph;
 mod runner;
-pub use runner::{Exec, NotConnected, Output, Runner, Stat};
+pub use runner::{Exec, MAX_READ, NotConnected, Output, Runner, Stat, too_large};
 use graph::LaneColor;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -48,11 +48,17 @@ impl Repo {
 
 /// How long a git command may take on a host.
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a clone or a worktree's removal may take on a host: they move a whole tree.
+const LONG: Duration = Duration::from_secs(10 * 60);
 
 /// `-C` rather than the exec's `cwd`, so a missing folder fails with git's message; `-C ""` stays put.
 fn output(run: &Runner, cwd: &str, args: &[&str]) -> std::io::Result<Output> {
+    output_within(run, cwd, args, TIMEOUT)
+}
+
+fn output_within(run: &Runner, cwd: &str, args: &[&str], timeout: Duration) -> std::io::Result<Output> {
     let argv: Vec<&str> = ["git", "-C", cwd].into_iter().chain(args.iter().copied()).collect();
-    run.exec("", &argv, None, TIMEOUT)
+    run.exec("", &argv, None, timeout)
 }
 
 fn git(run: &Runner, cwd: &str, args: &[&str]) -> Option<String> {
@@ -62,7 +68,11 @@ fn git(run: &Runner, cwd: &str, args: &[&str]) -> Option<String> {
 
 /// `git` for a command whose failure the user reads.
 fn git_result(run: &Runner, cwd: &str, args: &[&str]) -> Result<(), String> {
-    let out = output(run, cwd, args).map_err(|e| e.to_string())?;
+    git_result_within(run, cwd, args, TIMEOUT)
+}
+
+fn git_result_within(run: &Runner, cwd: &str, args: &[&str], timeout: Duration) -> Result<(), String> {
+    let out = output_within(run, cwd, args, timeout).map_err(|e| e.to_string())?;
     if out.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
@@ -97,7 +107,7 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
     let new = if untracked { lines(git(run, cwd, &["ls-files", "--others", "--exclude-standard"])) } else { Vec::new() };
     for path in new {
         let full = Path::new(cwd).join(&path);
-        let added = run.read(&full.to_string_lossy(), usize::MAX).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
+        let added = run.read(&full.to_string_lossy(), MAX_READ).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
         files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A' });
     }
     let base = if branch == "main" || branch == "master" {
@@ -206,7 +216,7 @@ pub fn ls_files(run: &Runner, cwd: &str) -> Vec<String> {
 
 /// Deletes the worktree's folder, uncommitted changes included; its branch stays.
 pub fn remove_worktree(run: &Runner, repo: &str, path: &str) -> Result<(), String> {
-    git_result(run, repo, &["worktree", "remove", "--force", path])
+    git_result_within(run, repo, &["worktree", "remove", "--force", path], LONG)
 }
 
 /// Commits that deleting `branch` would lose, or with no branch the detached HEAD of `cwd`: those no other branch, remote or tag holds.
@@ -228,7 +238,7 @@ pub fn delete_branch(run: &Runner, repo: &str, branch: &str) -> Result<(), Strin
 }
 
 pub fn clone(run: &Runner, url: &str, dest: &str) -> Result<(), String> {
-    git_result(run, "", &["clone", "--", url, dest])
+    git_result_within(run, "", &["clone", "--", url, dest], LONG)
 }
 
 fn with_paths<'a>(args: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
@@ -342,7 +352,7 @@ pub fn texts(run: &Runner, cwd: &str, path: &str) -> (String, String) {
     let full = Path::new(cwd).join(path);
     let rel = full.strip_prefix(cwd).unwrap_or(&full).to_string_lossy().into_owned();
     let old = git(run, cwd, &["show", &format!("HEAD:./{rel}")]).unwrap_or_default();
-    let new = run.read(&full.to_string_lossy(), usize::MAX).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+    let new = run.read(&full.to_string_lossy(), MAX_READ).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
     (old, new)
 }
 
@@ -749,6 +759,47 @@ mod tests {
         assert_eq!(texts(&offline, r, "a"), (String::new(), String::new()));
         assert!(remove_worktree(&offline, r, r).unwrap_err().contains("not connected"));
         assert!(repo.join("a").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A host that answers every command with success and keeps the timeout each was given.
+    #[derive(Default)]
+    struct Timeouts(std::sync::Mutex<Vec<Duration>>);
+
+    impl Exec for Timeouts {
+        fn exec(&self, _: &str, _: &[&str], _: Option<&[u8]>, timeout: Duration) -> std::io::Result<Output> {
+            self.0.lock().unwrap().push(timeout);
+            Ok(Output::default())
+        }
+        fn read(&self, _: &str, _: usize) -> std::io::Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+        fn stat(&self, _: &str) -> std::io::Result<Option<Stat>> {
+            Ok(None)
+        }
+        fn place(&self, path: &str) -> String {
+            path.into()
+        }
+    }
+
+    #[test]
+    fn a_clone_or_a_worktrees_removal_on_a_host_gets_longer_than_a_quick_command() {
+        let host = std::sync::Arc::new(Timeouts::default());
+        let run = Runner::Remote(host.clone());
+        clone(&run, "https://x/r.git", "/home/me/r").unwrap();
+        remove_worktree(&run, "/home/me/r", "/home/me/w").unwrap();
+        delete_branch(&run, "/home/me/r", "fix").unwrap();
+        assert_eq!(*host.0.lock().unwrap(), [LONG, LONG, TIMEOUT]);
+    }
+
+    #[test]
+    fn a_file_over_the_read_limit_is_refused_not_cut_short() {
+        let dir = scratch_repo("big");
+        let file = dir.join("big.txt");
+        std::fs::write(&file, "abcdef").unwrap();
+        let path = file.to_str().unwrap();
+        assert_eq!(Runner::Local.read(path, 6).unwrap(), b"abcdef");
+        assert_eq!(Runner::Local.read(path, 5).unwrap_err().kind(), std::io::ErrorKind::FileTooLarge);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

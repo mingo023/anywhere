@@ -282,10 +282,11 @@ impl Desktop {
     }
 
     pub(crate) fn retry_create(&mut self, request: &str, cx: &mut Context<Self>) {
-        let Some(c) = self.creates.get(request) else { return };
-        let spec = c.again();
-        let request = self.outbox.create(spec.clone(), |h| self.store.host_registry(h));
-        *c = Create::new(request, c.path.clone(), spec, Instant::now());
+        let Some(spec) = self.creates.get(request).map(|c| c.again()) else { return };
+        let sent = self.send_create(spec.clone());
+        if let (Some(sent), Some(c)) = (sent, self.creates.get(request)) {
+            *c = Create::new(sent, c.path.clone(), spec, Instant::now());
+        }
         cx.notify();
     }
 
