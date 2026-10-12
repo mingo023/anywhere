@@ -1,3 +1,4 @@
+use crate::fs::fs_at;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::MetadataExt;
@@ -5,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 /// Makes `name` under `parent`, with any folders a "/" in it names; a trailing "/" makes a folder.
 pub fn create(parent: &Path, name: &str, folder: bool) -> io::Result<PathBuf> {
+    fs_at(parent).local()?;
     let folder = folder || name.ends_with('/');
     let path = parent.join(name.trim_matches('/'));
     if let Some(dir) = path.parent() {
@@ -20,6 +22,7 @@ pub fn create(parent: &Path, name: &str, folder: bool) -> io::Result<PathBuf> {
 
 /// Renames `path` to `name` in its folder, refusing to replace anything but itself under another case.
 pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
+    fs_at(path).local()?;
     let to = path.with_file_name(name);
     let inode = |p: &Path| p.symlink_metadata().map(|m| m.ino());
     if let Ok(taken) = inode(&to)
@@ -33,6 +36,7 @@ pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
 
 /// Moves `trashed` back to `to`, unless something took its place meanwhile.
 pub fn restore(trashed: &Path, to: &Path) -> io::Result<()> {
+    fs_at(to).local()?;
     if to.symlink_metadata().is_ok() {
         return Err(io::Error::new(ErrorKind::AlreadyExists, "taken"));
     }
@@ -59,6 +63,15 @@ mod tests {
         let made = create(&dir, "a/b/c.rs", false).unwrap();
         assert_eq!(made, dir.join("a/b/c.rs"));
         assert!(made.is_file());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn nothing_is_made_on_this_mac_for_a_folder_on_a_host() {
+        let dir = temp("host");
+        let on_host = PathBuf::from(hosts::place("devbox", &dir.to_string_lossy()));
+        assert_eq!(create(&on_host, "a.rs", false).unwrap_err().kind(), ErrorKind::NotConnected);
+        assert!(!dir.join("a.rs").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 

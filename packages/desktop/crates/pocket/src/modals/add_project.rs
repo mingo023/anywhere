@@ -256,7 +256,10 @@ impl Desktop {
         f.draft.probe = Some(Probe::Loading);
         f.name.update(cx, |s, cx| s.set_placeholder(basename(&path), window, cx));
         let dir = path.clone();
-        let task = cx.background_executor().spawn(async move { (git::read(&dir, true), git::branches(&dir), git::remotes(&dir)) });
+        let task = cx.background_executor().spawn(async move {
+            let runner = hosts::runner_for(&dir);
+            (git::read(&runner, &dir, true), git::branches(&runner, &dir), git::remotes(&runner, &dir))
+        });
         cx.spawn(async move |this, cx| {
             let (repo, branches, remotes) = task.await;
             this.update(cx, |d, cx| {
@@ -301,7 +304,7 @@ impl Desktop {
         self.repo_form.draft.error = None;
         let task = cx.background_executor().spawn({
             let dest = dest.clone();
-            async move { git::clone(&url, &dest) }
+            async move { git::clone(&hosts::runner_for(&dest), &url, &dest) }
         });
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;

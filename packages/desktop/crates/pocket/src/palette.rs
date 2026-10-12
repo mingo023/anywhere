@@ -311,7 +311,8 @@ impl Desktop {
             s.focus(window, cx);
         });
         let Some(root) = self.explore_root() else { return };
-        let task = cx.background_executor().spawn(async move { git::ls_files(&root) });
+        let runner = hosts::runner_for(&root);
+        let task = cx.background_executor().spawn(async move { git::ls_files(&runner, &root) });
         cx.spawn(async move |this, cx| {
             let files = task.await;
             this.update(cx, |d, cx| {

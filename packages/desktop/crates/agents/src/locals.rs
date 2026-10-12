@@ -41,6 +41,7 @@ mod tests {
     fn a_local_id_is_anything_but_a_path() {
         assert!(is_local(&new_id()));
         assert!(!is_local("/w/app"));
+        assert!(!is_local("//devbox/w/app"));
     }
 
     #[test]

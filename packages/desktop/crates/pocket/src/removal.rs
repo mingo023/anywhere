@@ -1,5 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
+use crate::fs::fs_for;
 use crate::util::basename;
 use gpui_kit::*;
 use std::collections::HashSet;
@@ -51,8 +52,8 @@ impl Removal {
     /// Commits only this deletion loses: a detached tree's, or its branch's when that goes too.
     fn lost(&self) -> usize {
         match (&self.branch, self.delete_branch) {
-            (None, _) => git::lost_commits(&self.tree, None),
-            (Some(b), true) => git::lost_commits(&self.project, Some(b)),
+            (None, _) => git::lost_commits(&hosts::runner_for(&self.tree), &self.tree, None),
+            (Some(b), true) => git::lost_commits(&hosts::runner_for(&self.project), &self.project, Some(b)),
             (Some(_), false) => 0,
         }
     }
@@ -82,6 +83,7 @@ pub(crate) fn branch_deletable(branch: &str, base: &str) -> bool {
 /// Moves `tree` into a folder of its own in the temp folder, an instant rename where deleting a `target/` takes seconds.
 /// It keeps its name there, so it reaches the Trash under it. `None` when it can't, e.g. across volumes: git then deletes it in place.
 fn set_aside(tree: &str) -> Option<PathBuf> {
+    fs_for(tree).local().ok()?;
     let name = Path::new(tree).file_name()?;
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_nanos();
     let holder = std::env::temp_dir().join(format!("pocket-deleted-{nanos}"));
@@ -108,17 +110,18 @@ fn dispose(aside: &Path, trash: bool) {
 
 /// Teardown goes first: scripts like `docker compose down` need the folder.
 fn run(r: &Removal, teardown: &str, limit: Duration) -> Result<Removed, Failure> {
-    if r.teardown && !teardown.is_empty() && Path::new(&r.tree).is_dir() {
+    if r.teardown && !teardown.is_empty() && fs_for(&r.tree).local().is_ok() && Path::new(&r.tree).is_dir() {
         daemon::run_script(teardown, &r.tree, limit).map_err(Failure::Teardown)?;
     }
+    let runner = hosts::runner_for(&r.project);
     let aside = set_aside(&r.tree);
-    if let Err(e) = git::remove_worktree(&r.project, &r.tree) {
+    if let Err(e) = git::remove_worktree(&runner, &r.project, &r.tree) {
         if let Some(aside) = &aside {
             std::fs::rename(aside, &r.tree).ok();
         }
         return Err(Failure::Remove(e));
     }
-    let kept = r.branch.as_deref().filter(|_| r.delete_branch).and_then(|b| git::delete_branch(&r.project, b).err().map(|e| (b.to_string(), e)));
+    let kept = r.branch.as_deref().filter(|_| r.delete_branch).and_then(|b| git::delete_branch(&runner, &r.project, b).err().map(|e| (b.to_string(), e)));
     Ok(Removed { aside, kept })
 }
 
@@ -132,7 +135,7 @@ impl Desktop {
         let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b, base));
         let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
         let job = removal.clone();
-        let task = cx.background_executor().spawn(async move { (git::read(&job.tree, true).map_or(0, |r| r.files.len()), job.lost()) });
+        let task = cx.background_executor().spawn(async move { (git::read(&hosts::runner_for(&job.tree), &job.tree, true).map_or(0, |r| r.files.len()), job.lost()) });
         cx.spawn(async move |this, cx| {
             let (dirty, lost) = task.await;
             this.update(cx, |d, cx| {
@@ -275,7 +278,7 @@ mod tests {
         let removed = run(&r, "", LIMIT).unwrap();
         dispose(&removed.aside.unwrap(), false);
         assert!(!Path::new(&r.tree).exists());
-        assert!(!git::branches(&r.project).contains(&"feat".to_string()));
+        assert!(!git::branches(&git::Runner::Local, &r.project).contains(&"feat".to_string()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -285,7 +288,7 @@ mod tests {
         std::fs::write(Path::new(&r.tree).join("big"), "x").unwrap();
         let aside = run(&r, "", LIMIT).unwrap().aside.unwrap();
         assert!(!Path::new(&r.tree).exists());
-        assert_eq!(git::worktrees(&r.project).len(), 1);
+        assert_eq!(git::worktrees(&git::Runner::Local, &r.project).len(), 1);
         assert!(aside.join("big").exists());
         assert!(aside.ends_with("feat"));
         let holder = aside.parent().unwrap().to_path_buf();
@@ -316,11 +319,21 @@ mod tests {
     }
 
     #[test]
+    fn a_worktree_on_a_host_is_never_deleted_from_the_same_path_here() {
+        let (dir, r) = scratch("host");
+        let on_host = Removal { project: hosts::place("devbox", &r.project), tree: hosts::place("devbox", &r.tree), ..r.clone() };
+        assert!(matches!(run(&on_host, "exit 1", LIMIT), Err(Failure::Remove(e)) if e.contains("not connected")));
+        assert!(Path::new(&r.tree).exists());
+        assert!(git::branches(&git::Runner::Local, &r.project).contains(&"feat".to_string()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_failed_teardown_deletes_nothing() {
         let (dir, r) = scratch("teardown");
         assert!(matches!(run(&r, "echo nope; exit 3", LIMIT), Err(Failure::Teardown(tail)) if tail.ends_with("nope")));
         assert!(Path::new(&r.tree).exists());
-        assert!(git::branches(&r.project).contains(&"feat".to_string()));
+        assert!(git::branches(&git::Runner::Local, &r.project).contains(&"feat".to_string()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -329,7 +342,7 @@ mod tests {
         let (dir, r) = scratch("gone");
         std::fs::remove_dir_all(&r.tree).unwrap();
         assert_eq!(run(&Removal { delete_branch: false, ..r.clone() }, "exit 1", LIMIT), Ok(Removed { aside: None, kept: None }));
-        assert_eq!(git::worktrees(&r.project).len(), 1);
+        assert_eq!(git::worktrees(&git::Runner::Local, &r.project).len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

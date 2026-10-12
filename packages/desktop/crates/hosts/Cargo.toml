@@ -10,5 +10,6 @@ path = "src/hosts.rs"
 [dependencies]
 daemon.workspace = true
 futures.workspace = true
+git.workspace = true
 serde.workspace = true
 serde_json.workspace = true

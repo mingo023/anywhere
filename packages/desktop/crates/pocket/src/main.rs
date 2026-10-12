@@ -9,6 +9,7 @@ mod empty_pane;
 mod explorer;
 mod field;
 mod fleet;
+mod fs;
 mod git_ui;
 mod inbox;
 mod modals;
