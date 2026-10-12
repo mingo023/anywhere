@@ -1,3 +1,5 @@
+//go:build unix
+
 package e2e
 
 import (
@@ -55,6 +57,8 @@ type Harness struct {
 	Sock      string
 	ClaudeDir string
 	Port      int
+	OwnerPort int
+	ownerTCP  bool
 	Token     string
 	Env       []string
 	Repo      string
@@ -129,7 +133,12 @@ func (h *Harness) serve() bool {
 	log := &bytes.Buffer{}
 	h.Port, h.log = freePort(h.t), log
 	// resumeAgents is off: a resumed agent would run from the login shell's PATH, where the real claude is.
-	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback","restore":{"resumeAgents":false}}`, h.Token, h.Port)
+	owner := ""
+	if h.ownerTCP {
+		h.OwnerPort = freePort(h.t)
+		owner = fmt.Sprintf(`,"ownerListen":"127.0.0.1:%d"`, h.OwnerPort)
+	}
+	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback","restore":{"resumeAgents":false}%s}`, h.Token, h.Port, owner)
 	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
 		h.t.Fatal(err)
 	}

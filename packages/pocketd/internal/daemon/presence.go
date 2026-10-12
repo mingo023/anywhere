@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slices"
 	"sync"
-	"syscall"
 	"time"
 
 	"pocketd/internal/agent"
@@ -223,7 +222,7 @@ func (c termDriver) Interrupt() error {
 // Close leaves a pid that left the foreground alone: it may belong to another process by now.
 func (c termDriver) Close() {
 	if c.inForeground() {
-		syscall.Kill(c.pid, syscall.SIGTERM)
+		proc.Terminate(c.pid)
 	}
 }
 

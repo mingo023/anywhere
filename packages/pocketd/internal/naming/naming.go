@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"pocketd/internal/names"
@@ -80,8 +79,7 @@ func Generate(ctx context.Context, argv, env []string) (Result, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir, cmd.Env = os.TempDir(), Env(env)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	killGroup(cmd)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
