@@ -132,7 +132,12 @@ fn run(host: &Host, paths: &Paths, tx: &Sender<Event>, rx: &Receiver<Event>, rep
 /// Forwards a socket here to pocketd on the host, and checks it until something ends the link.
 fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Receiver<Event>, report: &dyn Fn(Link) -> bool, backoff: &mut Backoff) -> End {
     let known_hosts = host.known_hosts(&paths.home);
-    let probe = ssh::args(host, &known_hosts, &[], &ssh::probe_command(&paths.remote_dir));
+    // Before the probe, or ssh can't record a host key it accepts, and a password sign-in then won't trust it.
+    if let Some(dir) = known_hosts.parent() {
+        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
+    }
+    let key = Some(host.app_key(&paths.home)).filter(|k| k.exists());
+    let probe = ssh::args(host, &known_hosts, key.as_deref(), &[], &ssh::probe_command(&paths.remote_dir));
     let Ok(out) = Command::new("ssh").args(probe).stdin(Stdio::null()).output() else { return End::Failed(Failure::Other) };
     if !out.status.success() {
         return End::Failed(ssh::classify(&String::from_utf8_lossy(&out.stderr)));
@@ -146,12 +151,9 @@ fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Rec
         Ok(forward) => forward,
         Err(failure) => return End::Failed(failure),
     };
-    if let Some(dir) = local.parent() {
-        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
-    }
     // stdin stays open for `cat` on the host: if this app dies, the pipe closes and ssh ends with it.
     let spawned = Command::new("ssh")
-        .args(ssh::args(host, &known_hosts, &forward, ssh::TUNNEL_COMMAND))
+        .args(ssh::args(host, &known_hosts, key.as_deref(), &forward, ssh::TUNNEL_COMMAND))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
