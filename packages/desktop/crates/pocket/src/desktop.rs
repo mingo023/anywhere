@@ -31,6 +31,7 @@ use crate::git_ui::pull_requests::PullRequests;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, new_session};
+use crate::notch::Notch;
 use crate::palette::PaletteState;
 use crate::panels::Panels;
 use crate::removal::Removals;
@@ -59,6 +60,7 @@ pub struct Desktop {
     pub(crate) daemon: Daemon,
     pub(crate) outbox: Outbox,
     pub(crate) alerts: Alerts,
+    pub(crate) notch: Notch,
     pub(crate) chime: Chime,
     pub(crate) badge: Badge,
     pub(crate) terminals: Terminals,
@@ -126,6 +128,7 @@ impl Desktop {
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
+        let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         let updates = Updates::new(&mut store, cx);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
@@ -166,6 +169,7 @@ impl Desktop {
             daemon,
             outbox,
             alerts: Alerts::new(),
+            notch,
             chime: Chime::new(),
             badge: Badge::default(),
             terminals,

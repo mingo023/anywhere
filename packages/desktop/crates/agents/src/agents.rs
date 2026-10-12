@@ -112,18 +112,27 @@ pub struct Permission {
     pub agent_id: String,
     pub tool_name: String,
     pub detail: Detail,
+    /// Whether a deny can carry a message back to the agent.
+    pub feedback: bool,
 }
 
 impl Permission {
     pub fn ask(&self) -> String {
+        let (verb, what) = self.parts();
+        format!("{verb} {what}")
+    }
+
+    /// The ask split as ("Wants to run", "ls /tmp").
+    pub fn parts(&self) -> (String, String) {
         let d = &self.detail;
-        match d.kind.as_str() {
-            "shell" => format!("Wants to run {}", d.command),
-            "edit" | "write" | "read" => format!("Wants to {} {}", d.kind, d.path),
-            "search" => format!("Wants to search {}", d.query),
-            "task" => format!("Wants to start {}", d.description),
-            _ => format!("Wants to use {}", if d.name.is_empty() { &self.tool_name } else { &d.name }),
-        }
+        let (verb, what) = match d.kind.as_str() {
+            "shell" => ("run".into(), &d.command),
+            "edit" | "write" | "read" => (d.kind.clone(), &d.path),
+            "search" => ("search".into(), &d.query),
+            "task" => ("start".into(), &d.description),
+            _ => ("use".into(), if d.name.is_empty() { &self.tool_name } else { &d.name }),
+        };
+        (format!("Wants to {verb}"), what.clone())
     }
 }
 
@@ -510,6 +519,11 @@ impl Outbox {
             Decision::Deny => "deny",
         };
         self.send(json!({"type": "permission.resolve", "id": "resolve", "requestId": request_id, "decision": decision}));
+    }
+
+    /// Denies the ask with `message`, which pocketd types as the agent's next prompt.
+    pub fn reply(&self, request_id: &str, message: &str) {
+        self.send(json!({"type": "permission.resolve", "id": "resolve", "requestId": request_id, "decision": "deny", "message": message}));
     }
 
     pub fn pair_begin(&self) {
@@ -1020,6 +1034,21 @@ mod tests {
                 json!({"type": "permission.resolve", "id": "resolve", "requestId": "q2", "decision": "deny"}),
             ]
         );
+    }
+
+    #[test]
+    fn reply_denies_with_the_message() {
+        let (tx, rx) = channel();
+        Outbox(tx).reply("q1", "Use pnpm instead");
+        let sent: Vec<Value> = rx.try_iter().collect();
+        assert_eq!(sent, vec![json!({"type": "permission.resolve", "id": "resolve", "requestId": "q1", "decision": "deny", "message": "Use pnpm instead"})]);
+    }
+
+    #[test]
+    fn a_permission_request_says_whether_it_takes_feedback() {
+        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/permission_request.json")).unwrap();
+        let p = f.request.unwrap();
+        assert_eq!((p.request_id.as_str(), p.feedback), ("r1", true));
     }
 
     #[test]

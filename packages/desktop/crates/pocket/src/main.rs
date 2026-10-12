@@ -10,6 +10,7 @@ mod explorer;
 mod git_ui;
 mod inbox;
 mod modals;
+mod notch;
 mod palette;
 mod panels;
 mod removal;
