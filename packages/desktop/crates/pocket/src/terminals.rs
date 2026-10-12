@@ -134,8 +134,12 @@ impl Terminals {
     pub(crate) fn exited(&mut self, m: &Msg) -> bool {
         self.sessions.apply(m);
         let setup = self.setups.remove(&m.id).is_some();
-        let killed = self.killed.remove(&m.id);
+        let killed = self.killed(&m.id);
         self.sessions.get(&m.id).is_some_and(|s| !killed && !(setup && s.failed()))
+    }
+
+    pub(crate) fn killed(&self, id: &str) -> bool {
+        self.killed.contains(id)
     }
 
     /// Forgets a terminal for good, even if pocketd lists it again; returns whether it still runs and pocketd must end it.
@@ -151,7 +155,7 @@ impl Terminals {
         running
     }
 
-    /// Keeps the pane of a terminal about to be ended; returns whether it still runs and pocketd must end it.
+    /// Keeps the pane of a terminal about to be ended until it is closed; returns whether it still runs and pocketd must end it.
     pub(crate) fn kill(&mut self, id: &str) -> bool {
         let running = self.sessions.get(id).is_some_and(|s| s.exit.is_none());
         if running {
@@ -337,6 +341,9 @@ impl Desktop {
         if self.terminals.close(id) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
+        if self.terminal.menu.as_ref().is_some_and(|(p, _)| p == id) {
+            self.terminal.menu = None;
+        }
         let ids = [id.to_string()];
         for w in self.workspaces.values_mut() {
             w.remove(&ids);
@@ -360,8 +367,13 @@ impl Desktop {
         }
         let Some(a) = self.agents.get(id) else { return };
         let term = a.terminal_id.clone();
-        if !self.ask_close(vec![term.clone()], cx) {
-            self.close_pane(&term, cx);
+        self.close_terminal(&term, cx);
+    }
+
+    /// Closes a terminal and its tabs, asking first if it is busy.
+    pub fn close_terminal(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.terminals.may_close(id, self.agents.observe_only()) && !self.ask_close(vec![id.to_string()], cx) {
+            self.close_pane(id, cx);
         }
     }
 
@@ -507,6 +519,13 @@ mod tests {
         assert!(t.kill("a"));
         assert!(!t.exited(&exit("a", 143)));
         assert_eq!(t.sessions.get("a").and_then(|s| s.exit), Some(143));
+    }
+
+    #[test]
+    fn an_exited_terminal_has_nothing_left_to_kill() {
+        let mut t = Terminals::new(Default::default());
+        t.listed(vec![info("a")]);
+        t.exited(&exit("a", 0));
         assert!(!t.kill("a"));
     }
 

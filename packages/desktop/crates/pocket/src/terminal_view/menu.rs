@@ -11,20 +11,32 @@ pub enum Item {
     Kill,
 }
 
-/// The rows a pane's menu offers. Only a terminal that takes input can be pasted into, cleared or killed, and a full-screen program owns its screen.
-pub fn items(selected: bool, writable: bool, alt_screen: bool) -> Vec<Item> {
+/// What the pane under the menu allows.
+#[derive(Clone, Copy)]
+pub struct Pane {
+    pub selected: bool,
+    pub writable: bool,
+    pub closable: bool,
+    /// A full-screen program or an agent's TUI draws the whole screen, so clearing it would leave a blank one.
+    pub owns_screen: bool,
+}
+
+/// The rows a pane's menu offers. Only a terminal that takes input can be pasted into, cleared or killed.
+pub fn items(p: Pane) -> Vec<Item> {
     let mut items = Vec::new();
-    if selected {
+    if p.selected {
         items.push(Item::Copy);
     }
-    if writable {
+    if p.writable {
         items.push(Item::Paste);
-        if !alt_screen {
+        if !p.owns_screen {
             items.push(Item::Clear);
         }
     }
-    items.push(Item::Close);
-    if writable {
+    if p.closable {
+        items.push(Item::Close);
+    }
+    if p.writable {
         items.push(Item::Kill);
     }
     items
@@ -51,9 +63,13 @@ impl Desktop {
         let (_, at) = self.terminal.menu.as_ref().filter(|(p, _)| p == pane)?;
         let session = self.terminals.sessions.get(pane);
         let term = session.and_then(|s| s.term.as_ref());
-        let selected = term.is_some_and(|t| t.selection_text().is_some());
-        let writable = session.is_some() && self.terminals.may_send(pane, self.agents.observe_only());
-        let alt_screen = term.is_some_and(|t| t.alt_screen());
+        let observe = self.agents.observe_only();
+        let facts = Pane {
+            selected: term.is_some_and(|t| t.selection_text().is_some()),
+            writable: session.is_some() && self.terminals.may_send(pane, observe),
+            closable: self.terminals.may_close(pane, observe),
+            owns_screen: term.is_some_and(|t| t.alt_screen()) || self.summary(pane).is_some(),
+        };
         let mut menu = ui::pop(div().id("term-menu"))
             .w(px(200.))
             .p(px(6.))
@@ -65,7 +81,7 @@ impl Desktop {
                 cx.notify();
             }));
         let mut prev = None;
-        for item in items(selected, writable, alt_screen) {
+        for item in items(facts) {
             if prev.is_some_and(|p| p != group(item)) {
                 menu = menu.child(ui::menu_divider());
             }
@@ -84,11 +100,7 @@ impl Desktop {
                     Item::Copy => this.copy_selection(&CopySelection, window, cx),
                     Item::Paste => this.paste(&Paste, window, cx),
                     Item::Clear => this.clear_pane(&pane, cx),
-                    Item::Close => {
-                        if this.terminals.may_close(&pane, this.agents.observe_only()) && !this.ask_close(vec![pane.clone()], cx) {
-                            this.close_pane(&pane, cx);
-                        }
-                    }
+                    Item::Close => this.close_terminal(&pane, cx),
                     Item::Kill => this.kill_pane(&pane),
                 }
                 cx.notify();
@@ -100,21 +112,28 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, items};
+    use super::{Item, Pane, items};
+
+    const SHELL: Pane = Pane { selected: false, writable: true, closable: true, owns_screen: false };
 
     #[test]
     fn a_running_shell_offers_every_row_but_copy_until_text_is_selected() {
-        assert_eq!(items(false, true, false), [Item::Paste, Item::Clear, Item::Close, Item::Kill]);
-        assert_eq!(items(true, true, false), [Item::Copy, Item::Paste, Item::Clear, Item::Close, Item::Kill]);
+        assert_eq!(items(SHELL), [Item::Paste, Item::Clear, Item::Close, Item::Kill]);
+        assert_eq!(items(Pane { selected: true, ..SHELL }), [Item::Copy, Item::Paste, Item::Clear, Item::Close, Item::Kill]);
     }
 
     #[test]
-    fn a_full_screen_program_keeps_its_screen_from_clear() {
-        assert_eq!(items(false, true, true), [Item::Paste, Item::Close, Item::Kill]);
+    fn a_program_that_owns_the_screen_keeps_it_from_clear() {
+        assert_eq!(items(Pane { owns_screen: true, ..SHELL }), [Item::Paste, Item::Close, Item::Kill]);
     }
 
     #[test]
     fn a_terminal_that_takes_no_input_can_only_be_copied_from_and_closed() {
-        assert_eq!(items(true, false, false), [Item::Copy, Item::Close]);
+        assert_eq!(items(Pane { selected: true, writable: false, ..SHELL }), [Item::Copy, Item::Close]);
+    }
+
+    #[test]
+    fn a_terminal_that_may_not_be_closed_offers_no_close() {
+        assert_eq!(items(Pane { selected: true, writable: false, closable: false, owns_screen: false }), [Item::Copy]);
     }
 }
