@@ -17,7 +17,3 @@ func lockNB(f *os.File, exclusive bool) error {
 	}
 	return windows.LockFileEx(windows.Handle(f.Fd()), flags, 0, 1, 0, &windows.Overlapped{OffsetHigh: 0x7fffffff})
 }
-
-func lockWait(f *os.File) error {
-	return windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &windows.Overlapped{OffsetHigh: 0x7fffffff})
-}

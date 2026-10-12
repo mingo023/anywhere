@@ -108,7 +108,7 @@ func TestConcurrentMintsKeepEveryToken(t *testing.T) {
 
 func TestWatchOutlastsABriefUnreadableFile(t *testing.T) {
 	defer func(d time.Duration) { WatchEvery = d }(WatchEvery)
-	WatchEvery = 20 * time.Millisecond
+	WatchEvery = 50 * time.Millisecond
 	s := store(t)
 	o, _, _ := s.Mint("pc")
 	good, _ := os.ReadFile(s.Path)

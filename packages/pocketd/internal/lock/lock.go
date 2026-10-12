@@ -75,11 +75,19 @@ func Wait(path string) (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := lockWait(f); err != nil {
-		f.Close()
-		return nil, err
+	// Polls rather than blocks: a blocking LockFileEx on a handle Go may have
+	// opened overlapped returns ERROR_IO_PENDING instead of waiting.
+	for {
+		err := lockNB(f, true)
+		if err == nil {
+			return &Lock{f}, nil
+		}
+		if !errors.Is(err, errBusy) {
+			f.Close()
+			return nil, err
+		}
+		time.Sleep(probeWait)
 	}
-	return &Lock{f}, nil
 }
 
 // Holder is the pid of the pocketd holding home's lock, if one does.

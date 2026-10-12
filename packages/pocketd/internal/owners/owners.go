@@ -140,7 +140,7 @@ func (s Store) Lookup(token string) (Owner, bool) {
 }
 
 // Has reports whether id is still an owner token. A file it can't read
-// revokes them all.
+// revokes them all; Watch allows a few such reads first.
 func (s Store) Has(id string) bool {
 	list, err := s.read()
 	return err == nil && has(list, id)
