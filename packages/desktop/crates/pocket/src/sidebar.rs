@@ -62,6 +62,11 @@ impl ProjectRow {
     }
 }
 
+/// A host's project shows a globe, with its link's dot.
+fn host_mark(link: Option<&hosts::link::Link>) -> Div {
+    div().flex().flex_none().items_center().gap(px(3.)).child(icon("globe", 12., TEXT_3)).child(ui::dot(6., crate::settings::ssh_hosts::link_color(link)))
+}
+
 /// Whether a terminal is setting up `tree`; `setups` maps terminals to the worktree they set up.
 fn setting_up(setups: &HashMap<String, String>, tree: &str) -> bool {
     setups.values().any(|t| t == tree)
@@ -207,7 +212,8 @@ impl Desktop {
         };
         let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
         let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
-        let row = ui::worktree_row(id(format!("aside-tree:{key}")), LOCAL_ICON, label, selected, mark)
+        let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
+        let row = ui::worktree_row(id(format!("aside-tree:{key}")), glyph, label, selected, mark)
             .children(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 if this.sidebar.renaming(&path) {
@@ -325,8 +331,12 @@ impl Desktop {
         let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu));
         let target = p.to_string();
         let name = self.repo_name(p);
+        let host = hosts::split(p).0;
+        let offline = host.is_some_and(|h| !self.fleet.links.online(h));
         let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, kept, state)
+            .children(host.map(|h| host_mark(self.fleet.links.get(h))))
             .child(trail)
+            .when(offline, |row| row.opacity(0.5))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if git {
                     this.store.toggle(&target);

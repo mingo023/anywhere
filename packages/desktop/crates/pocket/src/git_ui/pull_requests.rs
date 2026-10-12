@@ -242,7 +242,7 @@ impl Desktop {
         self.prs.start(&tree, started);
         let dir = tree.clone();
         let task = cx.background_executor().spawn(async move {
-            let mut result = github::view_result(daemon::run_login(github::VIEW, &dir, ""));
+            let mut result = github::view_result(crate::util::run_login(github::VIEW, &dir, ""));
             let mut lost = false;
             if let Ok(Some(pr)) = &mut result
                 && pr.state == PrState::Open
