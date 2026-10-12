@@ -153,7 +153,10 @@ impl Desktop {
             let lead = match &e.tree {
                 _ if e.shown(current, tree.as_deref(), |p| self.tree_of(p)) => icon("check", 14., TEXT).into_any_element(),
                 Some(tree) => icon(tree_icon(tree), 14., TEXT_3).into_any_element(),
-                None => ui::repo_mark(&self.repo_name(&e.project), false, None).size(px(18.)).text_size(px(10.)).into_any_element(),
+                None => {
+                    let mark = self.project_mark(&e.project, ui::mark_letter(&self.repo_name(&e.project)));
+                    ui::repo_mark(&mark, false, None).size(px(18.)).text_size(px((18. * mark.scale(0.56)).round())).into_any_element()
+                }
             };
             let target = e.clone();
             div()

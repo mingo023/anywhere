@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 108] = [
+const STEPS: [(&str, Step); 110] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -138,6 +138,14 @@ const STEPS: [(&str, Step); 108] = [
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
     ("project-settings", |d, window, cx| d.project_settings(&crate::actions::ProjectSettings, window, cx)),
+    ("project-icons", |d, _, _| {
+        let app_icon = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/AppIcon.png"));
+        let icons = [store::ProjectIcon::Emoji("🚀".into()), store::ProjectIcon::Image(app_icon)];
+        for (p, icon) in d.projects().into_iter().zip(icons) {
+            d.store.repos.entry(p).or_default().icon = Some(icon);
+        }
+    }),
+    ("emoji-menu", |d, _, _| d.settings.menu = Some(crate::modals::add_project::icon::EMOJI_MENU)),
     ("phone-access", |d, window, cx| d.open(Overlay::PhoneAccess, window, cx)),
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("owner", |d, _, _| {

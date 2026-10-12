@@ -1,3 +1,5 @@
+pub(crate) mod icon;
+
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use crate::modals::form::{default_base, footer, home, typed_or};
@@ -9,7 +11,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
 use store::prefs::agents::efforts;
-use store::{LaunchPick, RepoConfig};
+use store::{LaunchPick, ProjectIcon, RepoConfig};
 use theme::*;
 use ui::{Segment, Variant};
 
@@ -30,7 +32,6 @@ pub struct RepoForm {
     name: Entity<InputState>,
     setup: Entity<InputState>,
     teardown: Entity<InputState>,
-    dev_url: Entity<InputState>,
     draft: RepoDraft,
 }
 
@@ -40,6 +41,7 @@ struct RepoDraft {
     path: Option<String>,
     probe: Option<Probe>,
     color: u32,
+    icon: Option<ProjectIcon>,
     branches: Vec<String>,
     base: usize,
     worktrees: String,
@@ -61,6 +63,7 @@ impl Default for RepoDraft {
             path: None,
             probe: None,
             color: PALETTE[0],
+            icon: None,
             branches: Vec::new(),
             base: 0,
             worktrees: String::new(),
@@ -122,7 +125,7 @@ fn pinned(mut pick: LaunchPick, app: &str, set: impl FnOnce(&mut LaunchPick)) ->
     pick
 }
 
-/// What Reset would put back, as (setting, now, default); name and colour are the project's own.
+/// What Reset would put back, as (setting, now, default); name, colour and icon are the project's own.
 fn project_changes(cfg: &RepoConfig, default_base: &str) -> Vec<(&'static str, String, String)> {
     let or = |value: String, none: &str| if value.is_empty() { none.to_string() } else { value };
     let script = |s: &str| if s.is_empty() { "empty" } else { "edited" }.to_string();
@@ -143,7 +146,6 @@ fn project_changes(cfg: &RepoConfig, default_base: &str) -> Vec<(&'static str, S
         ("Agent", agent, "App default".into()),
         ("Model", model, "App default".into()),
         ("Effort", effort, "App default".into()),
-        ("Dev server URL", or(cfg.dev_url.clone(), "empty"), "empty".into()),
     ]
     .into_iter()
     .filter(|(_, now, default)| now != default)
@@ -160,7 +162,6 @@ impl RepoForm {
         let name = cx.new(|cx| InputState::new(window, cx));
         let setup = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm install"));
         let teardown = cx.new(|cx| InputState::new(window, cx).placeholder("docker compose down"));
-        let dev_url = cx.new(|cx| InputState::new(window, cx).placeholder("localhost:3000"));
         let subs = vec![
             cx.subscribe_in(&url, window, |this, url, ev: &InputEvent, window, cx| {
                 if let InputEvent::Change = ev {
@@ -171,7 +172,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { url, name, setup, teardown, dev_url, draft: RepoDraft::default() }, subs)
+        (Self { url, name, setup, teardown, draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -232,7 +233,7 @@ impl Desktop {
             self.load_models(cx);
         }
         let f = &mut self.repo_form;
-        f.draft = RepoDraft { color, worktrees: cfg.worktrees, copy: cfg.copy, agent: cfg.agent, editing: editing.clone(), ..RepoDraft::default() };
+        f.draft = RepoDraft { color, icon: cfg.icon, worktrees: cfg.worktrees, copy: cfg.copy, agent: cfg.agent, editing: editing.clone(), ..RepoDraft::default() };
         f.url.update(cx, |s, cx| s.set_value("", window, cx));
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
@@ -240,7 +241,6 @@ impl Desktop {
         });
         f.setup.update(cx, |s, cx| s.set_value(cfg.setup, window, cx));
         f.teardown.update(cx, |s, cx| s.set_value(cfg.teardown, window, cx));
-        f.dev_url.update(cx, |s, cx| s.set_value(cfg.dev_url, window, cx));
         if let Some(p) = editing {
             self.set_repo_path(p, window, cx);
         }
@@ -318,20 +318,22 @@ impl Desktop {
         .detach();
     }
 
-    /// The project as the form now has it.
+    /// The project as the form now has it; its dev server URL is set in Settings › Browser.
     fn repo_config(&self, path: &str, name: String, cx: &App) -> RepoConfig {
         let f = &self.repo_form;
+        let saved = self.store.repos.get(path);
         RepoConfig {
             name,
             color: f.draft.color,
+            icon: f.draft.icon.clone(),
             base: f.draft.branches.get(f.draft.base).cloned().unwrap_or_default(),
             worktrees: f.draft.worktrees.clone(),
             setup: f.setup.read(cx).value().trim().to_string(),
             teardown: f.teardown.read(cx).value().trim().to_string(),
             copy: f.draft.copy.clone(),
-            launch: self.store.repos.get(path).map(|r| r.launch.clone()).unwrap_or_default(),
+            launch: saved.map(|r| r.launch.clone()).unwrap_or_default(),
             agent: f.draft.agent.clone(),
-            dev_url: f.dev_url.read(cx).value().trim().to_string(),
+            dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
         }
     }
 
@@ -342,7 +344,7 @@ impl Desktop {
         (d.base, d.agent, d.resetting) = (d.default_base, LaunchPick::default(), false);
         d.worktrees.clear();
         d.copy.clear();
-        for input in [&f.setup, &f.teardown, &f.dev_url] {
+        for input in [&f.setup, &f.teardown] {
             input.update(cx, |s, cx| s.set_value("", window, cx));
         }
         cx.notify();
@@ -523,7 +525,8 @@ impl Desktop {
             .flex()
             .gap(px(14.))
             .child(field("Name", ui::field_box().child(div().flex_1().child(Input::new(&f.name).appearance(false).p_0().text_size(px(14.))))))
-            .child(field("Colour", colors));
+            .child(field("Colour", colors).flex_none())
+            .child(field("Icon", self.icon_choices(&name, cx)).flex_none());
         let count = f.draft.branches.len();
         let base_name = f.draft.branches.get(f.draft.base).cloned().unwrap_or_else(|| "Default branch".into());
         let base = ui::field_box()
@@ -561,11 +564,6 @@ impl Desktop {
             "When a worktree is deleted",
             ui::field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.teardown).appearance(false).p_0().text_size(px(13.)))),
         );
-        let dev_url = field(
-            "Dev server URL",
-            ui::field_box().child(icon("globe", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.dev_url).appearance(false).p_0().text_size(px(13.)))),
-        )
-        .child(div().text_size(px(12.)).text_color(TEXT_4).child("Opens in the in-app browser for this project."));
         let remove = f.draft.editing.clone().map(|p| {
             let text = div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(ui::field_label("Remove project".to_string())).child(
                 div().text_size(px(12.)).text_color(TEXT_4).child("Removes it from Anywhere. Files and worktrees stay on disk."),
@@ -631,7 +629,6 @@ impl Desktop {
             body.extend([layout.into_any_element(), div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).child(copies).into_any_element()]);
         }
         body.push(agent.into_any_element());
-        body.push(dev_url.into_any_element());
         body.extend(remove.map(IntoElement::into_any_element));
         body.extend(reset.map(IntoElement::into_any_element));
         body.push(footer(note, cancel, submit).into_any_element());
@@ -643,7 +640,7 @@ impl Desktop {
 mod tests {
     use super::{Probe, RepoDraft, Source, pinned, project_changes, repo_from_url};
     use std::path::PathBuf;
-    use store::{LaunchPick, RepoConfig};
+    use store::{LaunchPick, ProjectIcon, RepoConfig};
 
     #[test]
     fn repo_name_comes_from_the_url() {
@@ -714,10 +711,12 @@ mod tests {
     }
 
     #[test]
-    fn reset_lists_what_differs_from_the_app_s_defaults_but_not_the_name_or_colour() {
+    fn reset_lists_what_differs_from_the_app_s_defaults_but_not_the_name_colour_icon_or_dev_server() {
         let cfg = RepoConfig {
             name: "app".into(),
             color: 1,
+            icon: Some(ProjectIcon::Emoji("🚀".into())),
+            dev_url: "localhost:3000".into(),
             base: "develop".into(),
             setup: "pnpm install".into(),
             agent: LaunchPick { provider: "claude".into(), model: "opus".into(), effort: String::new(), access: String::new() },

@@ -696,7 +696,7 @@ impl Desktop {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
         let name = self.repo_name(&repo);
-        let project = div().flex().flex_none().items_center().gap(px(6.)).px(px(6.)).text_color(TEXT_2).child(ui::repo_tile(&crate::util::initials(&name), 16., false, None)).child(name.clone());
+        let project = div().flex().flex_none().items_center().gap(px(6.)).px(px(6.)).text_color(TEXT_2).child(ui::repo_tile(&self.project_mark(&repo, crate::util::initials(&name)), 16., false, None)).child(name.clone());
         let agent = self.agent_select(cx);
         let model = self.model_select(cx);
         let access = self.access_select(cx);

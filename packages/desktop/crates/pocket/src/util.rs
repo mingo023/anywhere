@@ -1,5 +1,6 @@
 use agents::locals::is_local;
 use std::path::{Path, PathBuf};
+use store::ProjectIcon;
 
 pub const LOCAL_ICON: &str = "laptop";
 pub const WORKTREE_ICON: &str = "worktree";
@@ -31,6 +32,15 @@ pub fn tilde(path: &str) -> String {
 pub fn initials(name: &str) -> String {
     let word = name.rsplit('-').find(|w| !w.is_empty()).unwrap_or(name);
     word.chars().filter(|c| c.is_alphanumeric()).take(2).collect::<String>().to_uppercase()
+}
+
+/// A project's tile mark: its icon, else `letters`.
+pub fn mark(icon: Option<&ProjectIcon>, letters: String) -> ui::Mark {
+    match icon {
+        Some(ProjectIcon::Emoji(e)) => ui::Mark::Emoji(e.clone()),
+        Some(ProjectIcon::Image(path)) => ui::Mark::Image { path: path.clone(), letters },
+        None => ui::Mark::Letters(letters),
+    }
 }
 
 /// Reads `.gitignore`s up to the repository root, so call it off the UI thread.
@@ -90,7 +100,8 @@ pub fn ago_long(ms: i64, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, folder, initials, list_dir, tilde, tree_icon};
+    use super::{ago, ago_long, folder, initials, list_dir, mark, tilde, tree_icon};
+    use store::ProjectIcon;
     use store::prefs::files::Files;
 
     #[test]
@@ -111,6 +122,13 @@ mod tests {
         assert_eq!(initials("app-android"), "AN");
         assert_eq!(initials("cs"), "CS");
         assert_eq!(initials("shared-ui"), "UI");
+    }
+
+    #[test]
+    fn a_project_icon_replaces_its_letters_and_a_picture_keeps_them_for_when_it_cannot_load() {
+        assert_eq!(mark(None, "AN".into()), ui::Mark::Letters("AN".into()));
+        assert_eq!(mark(Some(&ProjectIcon::Emoji("🚀".into())), "AN".into()), ui::Mark::Emoji("🚀".into()));
+        assert_eq!(mark(Some(&ProjectIcon::Image("/logo.png".into())), "AN".into()), ui::Mark::Image { path: "/logo.png".into(), letters: "AN".into() });
     }
 
     #[test]
