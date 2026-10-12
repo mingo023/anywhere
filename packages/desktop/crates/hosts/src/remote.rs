@@ -268,8 +268,8 @@ impl git::Exec for Client {
             op["stdin"] = STANDARD.encode(input).into();
         }
         let reply = self.call(op, timeout + REPLY_SLACK)?;
-        let code = reply["code"].as_i64().ok_or_else(|| io::Error::other("host sent no exit code"))?;
-        Ok(git::Output { code: code as i32, stdout: bytes(&reply["stdout"]), stderr: bytes(&reply["stderr"]) })
+        // pocketd omits a zero `code`.
+        Ok(git::Output { code: reply["code"].as_i64().unwrap_or(0) as i32, stdout: bytes(&reply["stdout"]), stderr: bytes(&reply["stderr"]) })
     }
 
     fn read(&self, path: &str, max: usize) -> io::Result<Vec<u8>> {
