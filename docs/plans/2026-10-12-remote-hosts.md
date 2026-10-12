@@ -23,10 +23,12 @@ Reference: MonoCode `docs/remote-access.md` (clone at `/tmp/monocode-research/mo
 `status` reply gains:
 
 ```json
-{"hostId":"8f0c…","os":"linux","arch":"arm64","home":"/home/me","shell":"/bin/bash","name":"devbox","caps":["host.v2","fs.v1","exec.v1"]}
+{"hostId":"8f0c…","os":"linux","arch":"arm64","userHome":"/home/me","shell":"/bin/bash","name":"devbox","caps":["host.v2","fs.v1","exec.v1"]}
 ```
 
-`hostId` is a random 128-bit hex id kept in `<home>/state/host.json`, made on first serve.
+`hostId` is a random 128-bit hex id kept in `<home>/state/host.json`, made on first serve. `userHome` is the user's home; `home` stays pocketd's own.
+
+`exec` and `fs.*` are owner only: a forwarded unix peer, or a TCP peer once `{"op":"auth","token":…}` succeeds. Every reply echoes the request's `id`, so one connection can carry several at once.
 
 `spawn` with `"login":true` lets pocketd pick the program and env: it runs the host's login shell with its captured login env, in `cwd` (`~` or empty means the host's home). With `"argv":["claude",…]` it runs that inside the login shell and drops back to the shell when it exits, like the desktop's `agent_op`.
 
@@ -45,7 +47,7 @@ Runs with the login env (so `git`, `gh`, `claude` resolve as in a terminal). `co
 |---|---|---|
 | `fs.list` | `path` | `entries:[{name,dir,link,size,mtime,ignored}]` (ignored = gitignored) |
 | `fs.stat` | `path` | `exists,dir,size,mtime` |
-| `fs.read` | `path`, `max` (bytes, default 16 MiB) | `data` (base64), `size`, `truncated` |
+| `fs.read` | `path`, `max` (bytes; 0 or omitted means 16 MiB) | `data` (base64), `size`, `truncated` (the file is over `max`; the desktop treats it as an error) |
 | `fs.write` | `path`, `data`, `create` (fail if exists) | `{}` |
 | `fs.mkdir` | `path`, `parents` | `{}` |
 | `fs.rename` | `from`, `to` | `{}` |
