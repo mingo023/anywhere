@@ -162,6 +162,7 @@ impl Desktop {
             self.close_pane(&term, cx);
         }
         if connected {
+            self.new_form.offer_locals(self.agents.locals_offered());
             self.leave_unoffered_automations();
         }
         if locals {

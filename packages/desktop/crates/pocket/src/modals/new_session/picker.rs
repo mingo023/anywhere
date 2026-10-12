@@ -122,7 +122,7 @@ impl Desktop {
 
     fn checkout_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
-        let rows: Vec<AnyElement> = f.targets(self.agents.locals_offered()).into_iter().enumerate().map(|(i, target)| {
+        let rows: Vec<AnyElement> = f.targets().into_iter().enumerate().map(|(i, target)| {
             let Checkout { glyph, label, hint } = checkout_choice(target);
             access_row(("checkout", i), f.target() == target, Some(glyph), label, hint, TEXT)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
