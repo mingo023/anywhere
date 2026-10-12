@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 pub mod checklist;
 pub mod install;
 pub mod link;
+pub mod owner;
 pub mod remote;
 pub mod session;
 pub mod ssh;
@@ -31,6 +32,9 @@ pub struct Host {
     pub id: String,
     pub name: String,
     pub target: Target,
+    /// Its pocketd is reached on its owner TCP port with a token, not on its socket.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub windows: bool,
 }
 
 impl Host {
@@ -41,12 +45,22 @@ impl Host {
             Target::Address { addr, .. } => short_name(addr),
         };
         let id = unique(&slug(&name), taken);
-        Self { id, name, target }
+        Self { id, name, target, windows: false }
     }
 
     /// Where this Mac's end of the tunnel to the host's pocketd listens.
     pub fn socket(&self, home: &Path) -> PathBuf {
         home.join("hosts").join(format!("{}.sock", self.id))
+    }
+
+    /// The owner token a Windows host's pocketd gave this Mac; removing the host forgets it.
+    pub fn owner_file(&self, home: &Path) -> PathBuf {
+        home.join("hosts").join(format!("{}.token", self.id))
+    }
+
+    /// The tunnel's socket, with the owner token when there is one. Reads a file.
+    pub fn endpoint(&self, home: &Path) -> daemon::Endpoint {
+        daemon::Endpoint { path: self.socket(home), token: owner::load(&self.owner_file(home)).map(|o| o.token) }
     }
 
     /// The host keys this app accepted for the host; removing the host forgets them.

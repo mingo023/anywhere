@@ -1,13 +1,13 @@
 //! Keeps one ssh tunnel to each host's pocketd up, and reports how it's going.
 
-use crate::Host;
+use crate::{Host, owner};
 use crate::ssh::{self, Failure};
 use futures::channel::mpsc::UnboundedSender;
 use serde_json::json;
 use std::hash::{BuildHasher, RandomState};
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::fs::DirBuilderExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
@@ -73,6 +73,8 @@ enum Event {
 enum End {
     Stop,
     Retry,
+    /// A Windows host's pocketd refused the owner token; its file is gone, so the next connect pairs again.
+    Unpaired,
     Failed(Failure),
 }
 
@@ -103,7 +105,7 @@ impl Backoff {
 }
 
 fn run(host: &Host, paths: &Paths, tx: &Sender<Event>, rx: &Receiver<Event>, report: &dyn Fn(Link) -> bool) {
-    let (mut backoff, mut tunnel) = (Backoff::default(), 0);
+    let (mut backoff, mut tunnel, mut repaired) = (Backoff::default(), 0, false);
     loop {
         if !report(Link::Connecting) {
             return;
@@ -113,8 +115,14 @@ fn run(host: &Host, paths: &Paths, tx: &Sender<Event>, rx: &Receiver<Event>, rep
             End::Stop => return,
             End::Retry => {
                 backoff.reset();
+                repaired = false;
                 continue;
             }
+            End::Unpaired if !repaired => {
+                repaired = true;
+                continue;
+            }
+            End::Unpaired => Failure::Unpaired,
             End::Failed(failure) => failure,
         };
         let (link, wait) = backoff.failed(failure);
@@ -123,7 +131,10 @@ fn run(host: &Host, paths: &Paths, tx: &Sender<Event>, rx: &Receiver<Event>, rep
         }
         match next(rx, None, wait.map(|w| jitter(w, failure))) {
             Some(Event::Stop) => return,
-            Some(Event::Retry) => backoff.reset(),
+            Some(Event::Retry) => {
+                backoff.reset();
+                repaired = false;
+            }
             _ => {}
         }
     }
@@ -132,17 +143,37 @@ fn run(host: &Host, paths: &Paths, tx: &Sender<Event>, rx: &Receiver<Event>, rep
 /// Forwards a socket here to pocketd on the host, and checks it until something ends the link.
 fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Receiver<Event>, report: &dyn Fn(Link) -> bool, backoff: &mut Backoff) -> End {
     let known_hosts = host.known_hosts(&paths.home);
-    let probe = ssh::args(host, &known_hosts, &[], &ssh::probe_command(&paths.remote_dir));
-    let Ok(out) = Command::new("ssh").args(probe).stdin(Stdio::null()).output() else { return End::Failed(Failure::Other) };
-    if !out.status.success() {
-        return End::Failed(ssh::classify(&String::from_utf8_lossy(&out.stderr)));
-    }
-    let Some(found) = ssh::parse_probe(&String::from_utf8_lossy(&out.stdout)) else { return End::Failed(Failure::Other) };
+    let probe = |command: &str| {
+        let out = Command::new("ssh").args(ssh::args(host, &known_hosts, &[], command)).stdin(Stdio::null()).output().map_err(|_| Failure::Other)?;
+        // 255 is ssh's own failure; anything else is the command's, as when a Windows shell can't run the POSIX probe.
+        if out.status.code() == Some(255) {
+            return Err(ssh::classify(&String::from_utf8_lossy(&out.stderr)));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let posix = if host.windows { None } else { probe(&ssh::probe_command(&paths.remote_dir)).map(|out| ssh::parse_probe(&out)).transpose() };
+    let found = posix.map(|p| p.map(|p| (p, false))).unwrap_or_else(|| {
+        let out = probe(&ssh::windows_probe_command(&paths.remote_dir))?;
+        ssh::parse_windows_probe(&out).map(|p| (p, true)).ok_or(Failure::Other)
+    });
+    let (found, windows) = match found {
+        Ok(found) => found,
+        Err(failure) => return End::Failed(failure),
+    };
     if !found.running {
         return End::Failed(Failure::NotRunning);
     }
     let local = host.socket(&paths.home);
-    let forward = match ssh::forward(&local, &found.home, &paths.remote_dir) {
+    let (forward, token, command) = if windows {
+        let owner = match owner::load(&host.owner_file(&paths.home)).map_or_else(|| owner::pair(host, paths), Ok) {
+            Ok(owner) => owner,
+            Err(failure) => return End::Failed(failure),
+        };
+        (ssh::tcp_forward(&local, owner.port), Some(owner.token), ssh::windows_tunnel_command())
+    } else {
+        (ssh::forward(&local, &found.home, &paths.remote_dir), None, ssh::TUNNEL_COMMAND.to_string())
+    };
+    let forward = match forward {
         Ok(forward) => forward,
         Err(failure) => return End::Failed(failure),
     };
@@ -151,7 +182,7 @@ fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Rec
     }
     // stdin stays open for `cat` on the host: if this app dies, the pipe closes and ssh ends with it.
     let spawned = Command::new("ssh")
-        .args(ssh::args(host, &known_hosts, &forward, ssh::TUNNEL_COMMAND))
+        .args(ssh::args(host, &known_hosts, &forward, &command))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -172,15 +203,18 @@ fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Rec
         let _ = stderr.read_to_string(&mut text);
         text
     });
-    let end = watch(&local, tunnel, rx, report, backoff);
+    let end = watch(&daemon::Endpoint { path: local, token }, tunnel, rx, report, backoff);
     let _ = child.kill();
     let _ = child.wait();
     let stderr = errors.join().unwrap_or_default();
+    if matches!(end, Some(End::Unpaired)) {
+        let _ = std::fs::remove_file(host.owner_file(&paths.home));
+    }
     end.unwrap_or_else(|| End::Failed(ssh::classify(&stderr)))
 }
 
 /// Waits for the tunnel, then checks pocketd through it; `None` when ssh exits.
-fn watch(local: &Path, tunnel: u32, rx: &Receiver<Event>, report: &dyn Fn(Link) -> bool, backoff: &mut Backoff) -> Option<End> {
+fn watch(endpoint: &daemon::Endpoint, tunnel: u32, rx: &Receiver<Event>, report: &dyn Fn(Link) -> bool, backoff: &mut Backoff) -> Option<End> {
     match next(rx, Some(tunnel), Some(READY_WITHIN)) {
         Some(Event::Ready(_)) => {}
         Some(Event::Exited(_)) => return None,
@@ -189,7 +223,7 @@ fn watch(local: &Path, tunnel: u32, rx: &Receiver<Event>, report: &dyn Fn(Link) 
         None => return Some(End::Failed(Failure::TimedOut)),
     }
     loop {
-        match daemon::request_at(local, &json!({"op": "status"})) {
+        match daemon::request_to(endpoint, &json!({"op": "status"}), Duration::from_secs(5)) {
             Ok(reply) => {
                 backoff.reset();
                 let status = reply.status.unwrap_or_default();
@@ -206,6 +240,7 @@ fn watch(local: &Path, tunnel: u32, rx: &Receiver<Event>, report: &dyn Fn(Link) 
                     Some(Event::Ready(_)) | None => Some(End::Failed(Failure::NotRunning)),
                 };
             }
+            Err(e) if e == daemon::NOT_OWNER => return Some(End::Unpaired),
             // A quiet link times out instead; ServerAlive ends ssh if it's gone, which ends this wait.
             Err(_) => {}
         }

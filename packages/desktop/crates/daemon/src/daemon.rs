@@ -106,6 +106,7 @@ impl Endpoint {
 
     /// A connection pocketd treats as its owner. Without a token nothing is sent first.
     /// The reply to auth is read a byte at a time so nothing after it is lost to a buffer.
+    #[allow(clippy::unbuffered_bytes)]
     pub fn connect(&self, timeout: Duration) -> Result<UnixStream, String> {
         let stream = UnixStream::connect(&self.path).map_err(|e| e.to_string())?;
         let Some(token) = &self.token else { return Ok(stream) };
