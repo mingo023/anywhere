@@ -100,6 +100,7 @@ impl Desktop {
             .drag_over::<ExternalPaths>(|s, _, _, _| s.shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT, 1.5) }]))
             .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| this.drop_paths(drop_id.clone(), paths, window, cx)))
             .children(banner)
+            .children(self.term_menu(id, cx))
             .child(
                 div()
                     .flex_1()

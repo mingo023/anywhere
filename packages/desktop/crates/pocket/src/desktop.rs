@@ -405,7 +405,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.automations.menu.is_some() || self.explorer.menu.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -417,6 +417,7 @@ impl Desktop {
         self.sidebar.picker.open = false;
         self.automations.menu = None;
         self.explorer.close_menu();
+        self.terminal.menu = None;
         open
     }
 

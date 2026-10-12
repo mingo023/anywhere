@@ -71,6 +71,11 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                             cx.stop_propagation();
                             return;
                         }
+                        // Never reported, even to a program tracking the mouse: agents like Claude Code track it, and would hide the menu.
+                        if e.button == MouseButton::Right {
+                            d.open_term_menu(&down_pane, e.position, cx);
+                            return;
+                        }
                         let taken = term_button(e.button).is_some_and(|b| d.mouse_press(&down_pane, at(e.position), b, e.modifiers, cx));
                         if left && !taken {
                             d.select_start(&down_pane, at(e.position), e.click_count, e.modifiers.shift, line, cx);
