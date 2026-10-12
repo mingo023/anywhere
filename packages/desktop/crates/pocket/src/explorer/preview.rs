@@ -60,8 +60,15 @@ fn classify(path: &str, len: u64) -> Option<Preview> {
 
 /// What Explore can show for the file at `path`.
 pub fn preview(path: &str) -> Preview {
-    let Ok(len) = fs_for(path).local().and_then(|()| std::fs::metadata(path)).map(|m| m.len()) else { return Preview::Unreadable };
-    classify(path, len).unwrap_or_else(|| std::fs::read(path).map_or(Preview::Unreadable, decode))
+    let mut shown = None;
+    match fs_for(path).read(Path::new(path), |len| {
+        shown = classify(path, len);
+        shown.is_none()
+    }) {
+        Ok(Some(bytes)) => decode(bytes),
+        Ok(None) => shown.unwrap_or(Preview::Unreadable),
+        Err(_) => Preview::Unreadable,
+    }
 }
 
 /// What a file shows as and its diff against HEAD when git reports it changed.
@@ -391,7 +398,7 @@ impl Desktop {
             return;
         };
         let (dest, bytes) = (path.clone(), text.clone());
-        let task = cx.background_executor().spawn(async move { fs_for(&dest).local().and_then(|()| std::fs::write(dest, bytes.as_bytes())) });
+        let task = cx.background_executor().spawn(async move { fs_for(&dest).write(Path::new(&dest), bytes.as_bytes()) });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {
