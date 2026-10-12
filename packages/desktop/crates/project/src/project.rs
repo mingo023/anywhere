@@ -105,6 +105,16 @@ mod tests {
     }
 
     #[test]
+    fn a_project_on_a_host_holds_neither_this_macs_path_nor_another_hosts() {
+        let projects = list(&["//devbox/a/foo"]);
+        let none = Worktrees::new();
+        assert_eq!(project_of("//devbox/a/foo/src", &projects, &none), Some(&projects[0]));
+        assert_eq!(project_of("/a/foo/src", &projects, &none), None);
+        assert_eq!(project_of("//devbox-2/a/foo", &projects, &none), None);
+        assert_eq!(project_of("//devbox/a/foo", &list(&["/a/foo"]), &none), None);
+    }
+
+    #[test]
     fn the_innermost_of_nested_projects_owns_a_folder() {
         let projects = list(&["/a/foo/pkg", "/a/foo"]);
         let none = Worktrees::new();

@@ -53,7 +53,7 @@ pub struct Page {
 }
 
 fn read_page(cwd: String, tips: Tips, skip: usize, n: usize) -> Page {
-    let commits = if tips.head.is_empty() { Vec::new() } else { git::log_graph(&cwd, &tips.revs(), skip, n) };
+    let commits = if tips.head.is_empty() { Vec::new() } else { git::log_graph(&hosts::runner_for(&cwd), &cwd, &tips.revs(), skip, n) };
     Page { cwd, tips, skip, n, commits }
 }
 
@@ -241,7 +241,7 @@ impl Desktop {
         let task = cx.background_executor().spawn({
             let cwd = cwd.clone();
             async move {
-                let tips = git::tips(&cwd, all).unwrap_or_default();
+                let tips = git::tips(&hosts::runner_for(&cwd), &cwd, all).unwrap_or_default();
                 (shown.as_ref() != Some(&tips)).then(|| read_page(cwd, tips, 0, n))
             }
         });
@@ -289,7 +289,7 @@ impl Desktop {
             let (sha, parent) = (commit.sha.clone(), commit.parents.first().cloned());
             let task = cx.background_executor().spawn({
                 let (cwd, sha) = (cwd.clone(), sha.clone());
-                async move { git::commit_files(&cwd, &sha, parent.as_deref()) }
+                async move { git::commit_files(&hosts::runner_for(&cwd), &cwd, &sha, parent.as_deref()) }
             });
             cx.spawn(async move |this, cx| {
                 let files = task.await;

@@ -26,7 +26,7 @@ pub struct FileDiff {
 }
 
 fn read_file(cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile, options: git::Options) -> FileDiff {
-    let (old, new) = git::commit_texts(cwd, sha, parent, file);
+    let (old, new) = git::commit_texts(&hosts::runner_for(cwd), cwd, sha, parent, file);
     let lines = git::diff_texts(&old, &new, &HashSet::new(), options);
     let syntax = diff::syntax(&file.path, &old, &new);
     let hl = diff::highlights(&lines, &syntax.0, &syntax.1);
@@ -147,8 +147,9 @@ impl Desktop {
                 .spawn({
                     let (cwd, sha) = (cwd.clone(), sha.clone());
                     async move {
-                        let parent = git::first_parent(&cwd, &sha);
-                        let files = git::commit_files(&cwd, &sha, parent.as_deref());
+                        let runner = hosts::runner_for(&cwd);
+                        let parent = git::first_parent(&runner, &cwd, &sha);
+                        let files = git::commit_files(&runner, &cwd, &sha, parent.as_deref());
                         (parent, files)
                     }
                 })

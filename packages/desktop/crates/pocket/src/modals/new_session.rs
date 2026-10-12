@@ -7,6 +7,7 @@ use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::field::Field;
+use crate::fs::fs_for;
 use crate::modals::form::{default_base, home};
 use crate::terminals::link;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON};
@@ -540,11 +541,12 @@ impl Desktop {
         f.copy_env = !cfg.copy.is_empty();
         f.run_setup = !cfg.setup.is_empty();
         let dir = repo.clone();
+        let (runner, fs) = (hosts::runner_for(&dir), fs_for(&dir));
         let task = cx.background_executor().spawn(async move {
-            let current = git::read(&dir, true).map(|r| r.branch).unwrap_or_default();
-            let branches = git::dated_branches(&dir);
-            let entries = std::fs::read_dir(&folders).into_iter().flatten().flatten();
-            let remote = git::remote_branches(&dir);
+            let current = git::read(&runner, &dir, true).map(|r| r.branch).unwrap_or_default();
+            let branches = git::dated_branches(&runner, &dir);
+            let entries = fs.local().and_then(|()| std::fs::read_dir(&folders)).into_iter().flatten().flatten();
+            let remote = git::remote_branches(&runner, &dir);
             let taken = taken_names(&branches, &remote, entries.filter_map(|e| e.file_name().into_string().ok()));
             (current, branches, taken, remote)
         });

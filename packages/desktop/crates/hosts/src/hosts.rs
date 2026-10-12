@@ -107,6 +107,27 @@ fn unique(base: &str, taken: &[Host]) -> String {
     (2..).map(|n| format!("{base}-{n}")).find(|id| free(id)).unwrap()
 }
 
+/// The desktop's key for `path` on host `id`: `//<id>/<path>`, with a Windows path's `\` as `/`.
+pub fn place(id: &str, path: &str) -> String {
+    let path = path.replace('\\', "/");
+    if path.starts_with('/') { format!("//{id}{path}") } else { format!("//{id}/{path}") }
+}
+
+/// The host id and the path on it that `key` names; `None` and the key itself for a path on this Mac.
+pub fn split(key: &str) -> (Option<&str>, &str) {
+    let Some((id, path)) = key.strip_prefix("//").and_then(|rest| rest.find('/').map(|i| rest.split_at(i))) else { return (None, key) };
+    let drive = path.get(1..).filter(|p| matches!(p.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic()));
+    (Some(id), drive.unwrap_or(path))
+}
+
+/// Where git for the tree at `key` runs. No host is linked yet, so a host's key gets a runner that only fails.
+pub fn runner_for(key: &str) -> git::Runner {
+    match split(key) {
+        (None, _) => git::Runner::Local,
+        (Some(_), _) => git::Runner::Remote(std::sync::Arc::new(git::NotConnected)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +189,31 @@ mod tests {
         ];
         let raw = serde_json::to_string(&hosts).unwrap();
         assert_eq!(serde_json::from_str::<Vec<Host>>(&raw).unwrap(), hosts);
+    }
+
+    #[test]
+    fn a_host_path_is_keyed_under_the_host_id() {
+        assert_eq!(place("devbox", "/home/me/app"), "//devbox/home/me/app");
+        assert_eq!(split("//devbox/home/me/app"), (Some("devbox"), "/home/me/app"));
+    }
+
+    #[test]
+    fn a_windows_path_is_keyed_with_forward_slashes_and_comes_back_without_a_leading_one() {
+        assert_eq!(place("win", "C:\\Users\\me\\app"), "//win/C:/Users/me/app");
+        assert_eq!(split("//win/C:/Users/me/app"), (Some("win"), "C:/Users/me/app"));
+    }
+
+    #[test]
+    fn a_path_on_this_mac_names_no_host() {
+        assert_eq!(split("/Users/me/app"), (None, "/Users/me/app"));
+        assert_eq!(split("local-1"), (None, "local-1"));
+    }
+
+    #[test]
+    fn git_for_a_host_key_never_runs_on_this_mac() {
+        assert!(matches!(runner_for("/Users/me/app"), git::Runner::Local));
+        let remote = runner_for("//devbox/Users/me/app");
+        assert!(matches!(remote, git::Runner::Remote(_)));
+        assert_eq!(remote.stat("/").unwrap_err().kind(), std::io::ErrorKind::NotConnected);
     }
 }
