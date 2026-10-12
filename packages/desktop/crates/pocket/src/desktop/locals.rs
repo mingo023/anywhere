@@ -18,7 +18,7 @@ impl Desktop {
         let main = self.tree_of(project).map(|t| self.local_name(&t));
         let taken: Vec<String> = self.agents.locals_in(project).map(|l| l.name.clone()).chain(main).collect();
         let local = Local { id: locals::new_id(), project: project.to_string(), name: locals::next_name(taken.iter().map(String::as_str)) };
-        self.outbox.local_create(&local);
+        self.outbox.local.local_create(&local);
         self.agents.add_local(local.clone());
         local.id
     }
@@ -41,7 +41,7 @@ impl Desktop {
         for term in self.tree_terminals(id) {
             self.close_pane(&term, cx);
         }
-        self.outbox.local_delete(id);
+        self.outbox.local.local_delete(id);
         self.agents.remove_local(id);
         self.workspaces.remove(id);
         self.store.layouts.remove(id);

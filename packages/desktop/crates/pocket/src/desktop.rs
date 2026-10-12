@@ -23,6 +23,7 @@ use crate::empty_pane::EmptyPane;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::fleet::Fleet;
+use crate::host_agents::HostAgents;
 use crate::git_ui::changes::ChangesState;
 use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::{At, DiffState};
@@ -42,8 +43,8 @@ use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use crate::terminals::link::Hint;
 use crate::updates::Updates;
-use agents::{Agents, Outbox};
-use hosts::session::Daemons;
+use agents::Agents;
+use hosts::session::{Daemons, Outboxes};
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -59,7 +60,7 @@ pub(crate) const MAIN: PaneId = 0;
 
 pub struct Desktop {
     pub(crate) daemon: Daemons,
-    pub(crate) outbox: Outbox,
+    pub(crate) outbox: Outboxes,
     pub(crate) alerts: Alerts,
     pub(crate) notch: Notch,
     pub(crate) chime: Chime,
@@ -99,6 +100,7 @@ pub struct Desktop {
     pub(crate) sidebar: SidebarState,
     pub(crate) settings: SettingsState,
     pub(crate) fleet: Fleet,
+    pub(crate) host_agents: HostAgents,
     pub(crate) updates: Updates,
     pub(crate) chips: Chips,
     pub(crate) overlay: Option<Overlay>,
@@ -117,7 +119,7 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub(crate) fn new(daemon: Daemons, outbox: Outbox, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
@@ -210,6 +212,7 @@ impl Desktop {
             sidebar,
             settings,
             fleet,
+            host_agents: HostAgents::default(),
             updates,
             chips,
             overlay: None,

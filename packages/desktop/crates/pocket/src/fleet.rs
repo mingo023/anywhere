@@ -236,6 +236,7 @@ impl Desktop {
                     return;
                 }
                 hosts::remote::register(client);
+                d.open_host_agents(&id, &sock, info.user_home, window, cx);
                 if !d.daemon.has(&id) {
                     d.open_host_session(id, &sock, window, cx);
                 }
@@ -394,6 +395,7 @@ impl Desktop {
     fn forget_host(&mut self, id: &str, cx: &mut Context<Self>) {
         self.fleet.remove(id);
         self.daemon.remove(id);
+        self.close_host_agents(id);
         hosts::remote::forget(id);
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);
