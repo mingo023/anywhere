@@ -8,6 +8,7 @@ use crate::add_to_chat::offers_chat;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::empty;
 use crate::explorer::mermaid::Diagrams;
+use crate::fs::fs_for;
 use crate::syntax::language_for;
 use crate::util::basename;
 use code::{Mark, code_pane, gutter};
@@ -59,7 +60,7 @@ fn classify(path: &str, len: u64) -> Option<Preview> {
 
 /// What Explore can show for the file at `path`.
 pub fn preview(path: &str) -> Preview {
-    let Ok(len) = std::fs::metadata(path).map(|m| m.len()) else { return Preview::Unreadable };
+    let Ok(len) = fs_for(path).local().and_then(|()| std::fs::metadata(path)).map(|m| m.len()) else { return Preview::Unreadable };
     classify(path, len).unwrap_or_else(|| std::fs::read(path).map_or(Preview::Unreadable, decode))
 }
 
@@ -67,7 +68,7 @@ pub fn preview(path: &str) -> Preview {
 pub fn load(path: &str, changed: bool) -> (String, Preview, Vec<Line>) {
     let preview = preview(path);
     let dir = Path::new(path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-    let diff = if changed { git::file_diff(&dir, path) } else { Vec::new() };
+    let diff = if changed { git::file_diff(&hosts::runner_for(&dir), &dir, path) } else { Vec::new() };
     (path.to_string(), preview, diff)
 }
 
@@ -390,7 +391,7 @@ impl Desktop {
             return;
         };
         let (dest, bytes) = (path.clone(), text.clone());
-        let task = cx.background_executor().spawn(async move { std::fs::write(dest, bytes.as_bytes()) });
+        let task = cx.background_executor().spawn(async move { fs_for(&dest).local().and_then(|()| std::fs::write(dest, bytes.as_bytes())) });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {

@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, state};
 use crate::explorer::{self, preview};
+use crate::fs::fs_for;
 use crate::git_ui::diff;
 use crate::status::{self, Card, Status};
 use crate::util;
@@ -157,21 +158,21 @@ impl Desktop {
         let run = self.git_run;
         let task = cx.background_executor().spawn(async move {
             let repos: Vec<(String, Option<Repo>)> = cwds.into_iter().map(|c| {
-                let r = git::read(&c, untracked);
+                let r = git::read(&hosts::runner_for(&c), &c, untracked);
                 (c, r)
             }).collect();
             let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, open, shown)| (p, diff::read_diff(&cwd, path, diff::At::Working, open, options, &shown))).collect()).unwrap_or_default();
-            let initials = repos.first().map(|(c, _)| git::user_initials(c)).unwrap_or_default();
+            let initials = repos.first().map(|(c, _)| git::user_initials(&hosts::runner_for(c), c)).unwrap_or_default();
             let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
                 let listing = util::list_dir(&d, &shown);
                 (d, listing)
             }).collect();
             let worktrees: HashMap<String, Vec<git::Worktree>> = projects.into_iter().map(|p| {
-                let w = git::worktrees(&p);
+                let w = git::worktrees(&hosts::runner_for(&p), &p);
                 (p, w)
             }).collect();
             let files: Vec<_> = files.into_iter().map(|(p, f, changed)| (p, preview::load(&f, changed))).collect();
-            let gone = project::vanished(known, &worktrees, |t| Path::new(t).exists());
+            let gone = project::vanished(known, &worktrees, |t| fs_for(t).exists(Path::new(t)));
             (repos, diffs, initials, tree, worktrees, files, gone)
         });
         cx.spawn(async move |this, cx| {
@@ -212,7 +213,7 @@ impl Desktop {
         let (run, untracked) = (self.git_run, self.store.git.untracked);
         let task = cx.background_executor().spawn({
             let cwd = cwd.clone();
-            async move { git::read(&cwd, untracked) }
+            async move { git::read(&hosts::runner_for(&cwd), &cwd, untracked) }
         });
         cx.spawn(async move |this, cx| {
             let repo = task.await;

@@ -388,7 +388,7 @@ impl Desktop {
         self.pr.writing = true;
         self.pr.error = None;
         let task = cx.background_executor().spawn(async move {
-            let context = git::pr_context(&cwd, &base);
+            let context = git::pr_context(&hosts::runner_for(&cwd), &cwd, &base);
             run(&argv, &cwd, &context)
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -551,7 +551,7 @@ impl Desktop {
         let tree = tree.to_string();
         let dir = tree.clone();
         // Untracked files count even when Changes hides them, so this reads the tree afresh.
-        let task = cx.background_executor().spawn(async move { git::read(&dir, true).is_none_or(|r| !r.files.is_empty()) });
+        let task = cx.background_executor().spawn(async move { git::read(&hosts::runner_for(&dir), &dir, true).is_none_or(|r| !r.files.is_empty()) });
         cx.spawn(async move |this, cx| {
             let dirty = task.await;
             this.update(cx, |d, cx| {

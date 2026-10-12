@@ -80,8 +80,13 @@ pub const CLOSED: &str = "pocketd closed the connection";
 
 /// `request` to the pocketd listening on `path`.
 pub fn request_at(path: &Path, msg: &Value) -> Result<Msg, String> {
+    request_at_with_timeout(path, msg, Duration::from_secs(5))
+}
+
+/// `request_at`, waiting up to `timeout` for the reply.
+pub fn request_at_with_timeout(path: &Path, msg: &Value, timeout: Duration) -> Result<Msg, String> {
     let stream = UnixStream::connect(path).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
     writeln!(&stream, "{msg}").map_err(|e| e.to_string())?;
     let mut line = String::new();
     if BufReader::new(&stream).read_line(&mut line).map_err(|e| e.to_string())? == 0 {

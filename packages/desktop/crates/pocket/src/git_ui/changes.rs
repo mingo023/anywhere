@@ -233,7 +233,7 @@ impl Desktop {
         // Drops refreshes already running: they read the index from before this change.
         self.git_run += 1;
         cx.notify();
-        let task = cx.background_executor().spawn(async move { git::set_staged(&cwd, &paths, staged) });
+        let task = cx.background_executor().spawn(async move { git::set_staged(&hosts::runner_for(&cwd), &cwd, &paths, staged) });
         cx.spawn(async move |this, cx| {
             task.await;
             this.update(cx, |d, cx| d.refresh_git(cx)).ok();
@@ -249,7 +249,7 @@ impl Desktop {
 
     pub fn discard(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
         let Some(cwd) = self.cwd() else { return };
-        let task = cx.background_executor().spawn(async move { git::discard(&cwd, &paths) });
+        let task = cx.background_executor().spawn(async move { git::discard(&hosts::runner_for(&cwd), &cwd, &paths) });
         cx.spawn(async move |this, cx| {
             task.await;
             this.update(cx, |d, cx| d.refresh_git(cx)).ok();
@@ -278,13 +278,14 @@ impl Desktop {
         self.changes.busy = Some(busy);
         self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
+            let runner = hosts::runner_for(&cwd);
             if !all.is_empty() {
-                git::set_staged(&cwd, &all, true);
+                git::set_staged(&runner, &cwd, &all, true);
             }
             let committed = daemon::run_login(&git::commit_argv(amend, &message), &cwd, &message).map(drop);
             let pushed = if committed.is_ok() && matches!(kind, CommitKind::Push | CommitKind::Ship) { push(&cwd, &push_argv) } else { Ok(()) };
             // The composer titles the PR from the commits, the one just made among them.
-            let shipped = (kind == CommitKind::Ship && committed.is_ok() && pushed.is_ok()).then(|| git::read(&cwd, untracked)).flatten();
+            let shipped = (kind == CommitKind::Ship && committed.is_ok() && pushed.is_ok()).then(|| git::read(&runner, &cwd, untracked)).flatten();
             (committed, pushed, shipped)
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -358,7 +359,7 @@ impl Desktop {
         self.changes.writing = true;
         self.changes.error = None;
         let task = cx.background_executor().spawn(async move {
-            let context = git::commit_context(&cwd, staged, untracked);
+            let context = git::commit_context(&hosts::runner_for(&cwd), &cwd, staged, untracked);
             daemon::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &cwd, &context)
         });
         cx.spawn_in(window, async move |this, cx| {

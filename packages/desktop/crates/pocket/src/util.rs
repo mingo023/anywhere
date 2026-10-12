@@ -1,3 +1,4 @@
+use crate::fs::fs_at;
 use agents::locals::is_local;
 use std::path::{Path, PathBuf};
 use store::ProjectIcon;
@@ -45,6 +46,9 @@ pub fn mark(icon: Option<&ProjectIcon>, letters: String) -> ui::Mark {
 
 /// Reads `.gitignore`s up to the repository root, so call it off the UI thread.
 pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, PathBuf)> {
+    if fs_at(dir).local().is_err() {
+        return Vec::new();
+    }
     let git = files.hide_ignored;
     let walk = ignore::WalkBuilder::new(dir).standard_filters(false).max_depth(Some(1)).parents(git).git_ignore(git).git_exclude(git).git_global(git).build();
     let mut entries: Vec<(bool, PathBuf)> = walk
@@ -58,6 +62,7 @@ pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, Pa
 
 /// Moves `path` to the Trash, returning where it landed; `None` when it couldn't.
 pub fn trash(path: &Path) -> Option<PathBuf> {
+    fs_at(path).local().ok()?;
     #[cfg(target_os = "macos")]
     {
         use objc2_foundation::{NSFileManager, NSString, NSURL};

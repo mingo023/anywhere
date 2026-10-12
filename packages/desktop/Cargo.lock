@@ -3273,6 +3273,7 @@ version = "0.0.0"
 dependencies = [
  "daemon",
  "futures",
+ "git",
  "serde",
  "serde_json",
 ]
