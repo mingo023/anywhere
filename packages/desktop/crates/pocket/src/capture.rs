@@ -117,7 +117,7 @@ const STEPS: [(&str, Step); 117] = [
     ("hosts-password", |d, window, cx| {
         d.fleet.links.0.insert("10-0-4-12".into(), hosts::link::Link::Failed(hosts::ssh::Failure::Auth));
         d.open_password("10-0-4-12".into(), window, cx);
-        d.fleet.password.error = Some("Wrong password.".into());
+        d.fleet.password.error = Some(crate::fleet::sign_in_error(hosts::ssh::Failure::Auth, "10.0.4.12", false));
     }),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
     ("hosts-remove", |d, _, _| {

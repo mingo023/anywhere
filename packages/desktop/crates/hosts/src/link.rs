@@ -136,7 +136,7 @@ fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Rec
     if let Some(dir) = known_hosts.parent() {
         let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
     }
-    let key = Some(host.key(&paths.home)).filter(|k| k.exists());
+    let key = Some(host.app_key(&paths.home)).filter(|k| k.exists());
     let probe = ssh::args(host, &known_hosts, key.as_deref(), &[], &ssh::probe_command(&paths.remote_dir));
     let Ok(out) = Command::new("ssh").args(probe).stdin(Stdio::null()).output() else { return End::Failed(Failure::Other) };
     if !out.status.success() {

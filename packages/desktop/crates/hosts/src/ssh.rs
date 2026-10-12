@@ -31,7 +31,7 @@ pub fn parse_probe(stdout: &str) -> Option<Probe> {
 
 /// ssh's arguments for `command` on `host`, never prompting, with `extra` options before the destination.
 /// App options come first because ssh keeps the first value it reads for an option.
-/// `key` is the app's own key for the host, offered before any other.
+/// `key` is the app's own key for the host; with it, keys ssh wasn't named aren't offered, so the user's agent can't spend `MaxAuthTries` first.
 pub fn args(host: &Host, known_hosts: &Path, key: Option<&Path>, extra: &[String], command: &str) -> Vec<String> {
     let mut out = options(&[
         "BatchMode=yes",
@@ -47,7 +47,7 @@ pub fn args(host: &Host, known_hosts: &Path, key: Option<&Path>, extra: &[String
     ]);
     out.extend(known_hosts_option(known_hosts));
     if let Some(key) = key {
-        out.extend(["-i".into(), key.display().to_string()]);
+        out.extend(["-i".into(), key.display().to_string(), "-o".into(), "IdentitiesOnly=yes".into()]);
     }
     out.extend(extra.iter().cloned());
     out.extend(destination(host, command));
@@ -63,7 +63,7 @@ pub fn password_args(host: &Host, known_hosts: &Path, method: PasswordMethod, co
         method.option(),
         // Each wrong password adds to sshd's penalty, which also locks out good keys.
         "NumberOfPasswordPrompts=1",
-        // The password goes only to a host whose key a key sign-in already pinned.
+        // The password goes only to the host key the key sign-in recorded, never to a new one.
         "StrictHostKeyChecking=yes",
         "ConnectTimeout=10",
         "LogLevel=INFO",
@@ -77,7 +77,7 @@ pub fn password_args(host: &Host, known_hosts: &Path, method: PasswordMethod, co
 
 /// One method per connection: after a wrong password, OpenSSH 9.6 on Ubuntu never answers a
 /// keyboard-interactive attempt in the same connection, so ssh hangs until the server's login grace ends.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy)]
 pub enum PasswordMethod {
     Password,
     KeyboardInteractive,
@@ -98,9 +98,9 @@ pub fn takes_passwords(stderr: &str) -> bool {
     rest.split(')').next().unwrap_or_default().split(',').any(|m| m == "password")
 }
 
-/// Adds the public key on stdin to the host's `authorized_keys` unless it's there.
-/// Wrapped in `sh -c` because the host's login shell may not be POSIX.
-pub const INSTALL_KEY: &str = r#"sh -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys || printf "%s\n" "$key" >> ~/.ssh/authorized_keys'"#;
+/// Adds the public key on stdin to the host's `authorized_keys` unless it's there, on a line of its own
+/// even when the file doesn't end in a newline. Wrapped in `sh -c` because the host's login shell may not be POSIX.
+pub const INSTALL_KEY: &str = r#"sh -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys && exit; [ -z "$(tail -c1 ~/.ssh/authorized_keys)" ] || echo >> ~/.ssh/authorized_keys; printf "%s\n" "$key" >> ~/.ssh/authorized_keys'"#;
 
 fn options(opts: &[&str]) -> Vec<String> {
     opts.iter().flat_map(|o| ["-o".to_string(), o.to_string()]).collect()
@@ -256,10 +256,29 @@ mod tests {
     }
 
     #[test]
-    fn the_apps_own_key_is_offered_before_the_users() {
+    fn the_apps_own_key_goes_first_and_the_users_agent_keys_not_at_all() {
         let args = args(&address(22, "", Some("/k/id")), Path::new("/k"), Some(Path::new("/h/devbox.key")), &[], "true");
         let at = |key: &str| args.iter().position(|a| a == key).unwrap();
         assert!(at("/h/devbox.key") < at("/k/id"));
+        let no_key_file = super::args(&address(22, "", None), Path::new("/k"), Some(Path::new("/h/devbox.key")), &[], "true");
+        assert!(no_key_file.iter().any(|a| a == "IdentitiesOnly=yes"));
+    }
+
+    #[test]
+    fn installing_a_key_adds_it_once_on_its_own_line() {
+        let home = std::env::temp_dir().join(format!("pocket-install-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        std::fs::write(home.join(".ssh/authorized_keys"), "ssh-ed25519 AAAAold me").unwrap();
+        let install = || {
+            let mut sh = std::process::Command::new("sh").args(["-c", INSTALL_KEY]).env("HOME", &home).stdin(std::process::Stdio::piped()).spawn().unwrap();
+            std::io::Write::write_all(&mut sh.stdin.take().unwrap(), b"ssh-ed25519 AAAAnew anywhere\n").unwrap();
+            assert!(sh.wait().unwrap().success());
+        };
+        install();
+        install();
+        assert_eq!(std::fs::read_to_string(home.join(".ssh/authorized_keys")).unwrap(), "ssh-ed25519 AAAAold me\nssh-ed25519 AAAAnew anywhere\n");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

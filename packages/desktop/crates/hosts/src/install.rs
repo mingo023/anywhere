@@ -2,21 +2,25 @@
 
 use crate::Host;
 use crate::ssh::{self, Failure, PasswordMethod};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// Askpass reads the password from here: an inherited fd doesn't reach it, and argv shows in `ps`.
 const PASSWORD_VAR: &str = "POCKET_SSH_PW";
+
+/// ssh's `ConnectTimeout` doesn't bound a server that stops answering mid sign-in.
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Puts the app's key for `host` in its `authorized_keys`, signing in with `password`; blocks until ssh is done.
 /// The host's key must already be trusted, so the password never goes to a host nobody checked.
 pub fn with_password(host: &Host, home: &Path, password: &str) -> Result<(), Failure> {
     let dir = home.join("hosts");
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|_| Failure::Other)?;
-    let key = host.key(home);
+    let key = host.app_key(home);
     if !key.exists() {
         keygen(&key)?;
     }
@@ -46,13 +50,32 @@ fn sign_in(host: &Host, home: &Path, askpass: &Path, password: &str, public: &[u
         .spawn()
         .map_err(|e| e.to_string())?;
     let _ = child.stdin.take().map(|mut stdin| stdin.write_all(public));
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).into()) }
+    let stderr = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = pipe.read_to_string(&mut text);
+            text
+        })
+    });
+    let deadline = Instant::now() + SIGN_IN_TIMEOUT;
+    let status = loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                // ssh's own wording, so `classify` calls it TimedOut.
+                return Err("Operation timed out".into());
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    let stderr = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
+    if status.success() { Ok(()) } else { Err(stderr) }
 }
 
-/// Forgets the app's key for `host`.
 pub fn remove_key(host: &Host, home: &Path) {
-    let key = host.key(home);
+    let key = host.app_key(home);
     let _ = std::fs::remove_file(public_key(&key));
     let _ = std::fs::remove_file(key);
 }

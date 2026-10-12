@@ -52,7 +52,7 @@ impl Host {
     }
 
     /// The key this app signs in with after a password sign-in put it on the host; its public half is `<key>.pub`.
-    pub fn key(&self, home: &Path) -> PathBuf {
+    pub fn app_key(&self, home: &Path) -> PathBuf {
         home.join("hosts").join(format!("{}.key", self.id))
     }
 
