@@ -579,7 +579,7 @@ impl Desktop {
     }
 
     /// A new worktree's page leaves at once for its progress; a session's waits for pocketd.
-    fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.session_ready() {
             return;
         }
