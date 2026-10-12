@@ -32,6 +32,8 @@ pub trait Exec: Send + Sync {
     fn read(&self, path: &str, max: usize) -> io::Result<Vec<u8>>;
     /// `None` when nothing is at `path`.
     fn stat(&self, path: &str) -> io::Result<Option<Stat>>;
+    /// The desktop's key for a path git printed on that machine.
+    fn place(&self, path: &str) -> String;
 }
 
 /// Where a tree's git commands run and its files are read: this Mac, or the host holding it.
@@ -69,6 +71,13 @@ impl Runner {
                 Err(e) => Err(e),
             },
             Runner::Remote(host) => host.stat(path),
+        }
+    }
+
+    pub fn place(&self, path: &str) -> String {
+        match self {
+            Runner::Local => path.to_string(),
+            Runner::Remote(host) => host.place(path),
         }
     }
 }
@@ -111,5 +120,9 @@ impl Exec for NotConnected {
 
     fn stat(&self, _: &str) -> io::Result<Option<Stat>> {
         Err(Self::error())
+    }
+
+    fn place(&self, path: &str) -> String {
+        path.to_string()
     }
 }
