@@ -78,7 +78,7 @@ impl Desktop {
         let open = self.sidebar.panel_open;
         let waiting = self.sessions_matching("").iter().any(|c| c.status == Status::NeedsYou);
         let changed = self.repo().map_or(0, |r| r.files.len());
-        let sides = [(Side::Sessions, "comment"), (Side::Explorer, "file"), (Side::Changes, "branch")].into_iter().enumerate().map(|(i, (side, name))| {
+        let sides = [(Side::Sessions, "sessions"), (Side::Explorer, "explorer"), (Side::Changes, "branch")].into_iter().enumerate().map(|(i, (side, name))| {
             rail_button(("panel-side", i), name, open && self.side == side)
                 .when(side == Side::Sessions && waiting, |d| d.child(ui::dot(6., WAITING_DOT).absolute().top(px(5.)).right(px(5.))))
                 .when(side == Side::Changes && changed > 0, |d| d.child(changes_badge(changed)))

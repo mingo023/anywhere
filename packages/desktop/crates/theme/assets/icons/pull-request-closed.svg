@@ -1,1 +1,2 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M4 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M16 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M6 7v10 M18 11v6 M16 3.5l4 4 M20 3.5l-4 4"/></svg>
+<!-- @license lucide-static v1.55.0 - ISC -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 3.5 5 5"/><path d="m15.5 8.5 5-5"/><path d="M18 11.62V15"/><path d="M6 9v12"/><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/></svg>
