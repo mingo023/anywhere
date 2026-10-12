@@ -171,6 +171,17 @@ pub fn update(host: &Host, paths: &Paths, source: &Source, on: impl FnMut(Progre
     run(host, paths, source, true, on)
 }
 
+/// Stops pocketd's service on `host` and removes it; pocketd's files and the host's projects stay.
+pub fn uninstall(host: &Host, paths: &Paths) -> Result<(), Error> {
+    let dir = &paths.remote_dir;
+    let command = format!(r#"sh -c 'p="$HOME/{dir}/bin/pocketd"; [ -x "$p" ] || exit 0; POCKET_HOME="$HOME/{dir}" "$p" service uninstall --label {}'"#, label(dir));
+    let out = ssh(host, paths, &command, Stdio::null())?;
+    if !out.status.success() {
+        return Err(Error::Failed(format!("Couldn't uninstall pocketd: {}", last_line(&out.stderr))));
+    }
+    Ok(())
+}
+
 fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl FnMut(Progress)) -> Result<(), Error> {
     let dir = &paths.remote_dir;
     let (version, url, mut env) = match source {
