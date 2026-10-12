@@ -1,36 +1,12 @@
-// Package proc reads the processes behind a PTY from the macOS kernel.
 package proc
 
 import (
 	"bytes"
 	"encoding/binary"
-	"os"
 	"slices"
 
 	"golang.org/x/sys/unix"
 )
-
-type Proc struct {
-	Pid  int
-	Sid  int // set by Orphans only
-	Argv []string
-	Env  []string
-}
-
-// Foreground returns the PTY's foreground process group; 0 means none.
-func Foreground(f *os.File) (int, error) {
-	// Not f.Fd(): it would switch the PTY to blocking mode and hang the reader goroutine on Close.
-	rc, err := f.SyscallConn()
-	if err != nil {
-		return 0, err
-	}
-	var pgid int
-	var ioErr error
-	if err := rc.Control(func(fd uintptr) { pgid, ioErr = unix.IoctlGetInt(int(fd), unix.TIOCGPGRP) }); err != nil {
-		return 0, err
-	}
-	return pgid, ioErr
-}
 
 func Members(pgid int) ([]int, error) {
 	kps, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)

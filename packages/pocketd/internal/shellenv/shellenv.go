@@ -43,10 +43,8 @@ func LoginShell() string {
 			return s
 		}
 	}
-	return "/bin/zsh"
+	return fallbackShell
 }
-
-var kept = []string{"HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK", "__CF_USER_TEXT_ENCODING"}
 
 // Base is the env a new Terminal.app window starts from, as the desktop
 // builds it (terminal_env): the account's basics and nothing from the

@@ -19,6 +19,9 @@ import (
 	"unsafe"
 )
 
+// System is the platform's sleep holder.
+func System() Sleeper { return &IOKit{} }
+
 // IOKit holds a PreventUserIdleSystemSleep assertion. The kernel drops it if pocketd dies.
 type IOKit struct {
 	id   C.IOPMAssertionID
