@@ -7,6 +7,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use hosts::Host;
 use hosts::link::{self, Link, Paths, Supervisor};
+use hosts::ssh::Failure;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -53,6 +54,8 @@ pub(crate) struct AddForm {
     pub address: Entity<InputState>,
     pub port: Entity<InputState>,
     pub user: Entity<InputState>,
+    /// Tried only if the host refuses the user's keys.
+    pub password: Entity<InputState>,
     pub key_file: Option<String>,
     pub error: Option<String>,
     /// The hosts `~/.ssh/config` names, read when the form opens.
@@ -67,11 +70,34 @@ impl AddForm {
         (self.key_file, self.error) = (None, None);
         let address = picked.clone().unwrap_or_default();
         self.address.update(cx, |f, cx| f.set_value(address, window, cx));
-        for field in [&self.port, &self.user] {
+        for field in [&self.port, &self.user, &self.password] {
             field.update(cx, |f, cx| f.set_value("", window, cx));
         }
         self.picked = picked;
     }
+}
+
+/// A password typed in the add form, kept until its host says whether it takes the user's keys.
+#[derive(Default)]
+pub(crate) struct Pending(Option<(String, String)>);
+
+impl Pending {
+    /// The password to sign in with, once `id`'s keys are refused; dropped once the link settles any other way.
+    fn take_for(&mut self, id: &str, link: &Link) -> Option<String> {
+        if self.0.as_ref().is_none_or(|(pending, _)| pending != id) || matches!(link, Link::Connecting | Link::Retrying(_)) {
+            return None;
+        }
+        self.0.take().filter(|_| *link == Link::Failed(Failure::Auth)).map(|(_, password)| password)
+    }
+}
+
+/// The password field under a host whose keys it refused.
+pub(crate) struct PasswordForm {
+    /// The host it's open for.
+    pub host: Option<String>,
+    pub input: Entity<InputState>,
+    pub error: Option<String>,
+    pub signing_in: bool,
 }
 
 pub(crate) struct Fleet {
@@ -80,6 +106,8 @@ pub(crate) struct Fleet {
     /// Set once links start; captures never start them.
     events: Option<UnboundedSender<(String, Link)>>,
     pub form: AddForm,
+    pub password: PasswordForm,
+    pending: Pending,
 }
 
 impl Fleet {
@@ -87,7 +115,9 @@ impl Fleet {
         let address = cx.new(|cx| InputState::new(window, cx).placeholder("10.0.4.12 or devbox.example.com"));
         let port = cx.new(|cx| InputState::new(window, cx).placeholder("22"));
         let user = cx.new(|cx| InputState::new(window, cx).placeholder(std::env::var("USER").unwrap_or_default()));
-        let subs = [&address, &port, &user]
+        let typed = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("Only if it refuses your keys"));
+        let password = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("Password"));
+        let mut subs: Vec<_> = [&address, &port, &user, &typed]
             .into_iter()
             .map(|field| {
                 cx.subscribe_in(field, window, |this, _, ev: &InputEvent, window, cx| match ev {
@@ -97,8 +127,14 @@ impl Fleet {
                 })
             })
             .collect();
-        let form = AddForm { open: false, address, port, user, key_file: None, error: None, suggestions: Vec::new(), picked: None };
-        (Self { links: Links::default(), supervisors: HashMap::new(), events: None, form }, subs)
+        subs.push(cx.subscribe_in(&password, window, |this, _, ev: &InputEvent, window, cx| match ev {
+            InputEvent::PressEnter { .. } => this.sign_in_with_password(window, cx),
+            InputEvent::Change if this.fleet.password.error.take().is_some() => cx.notify(),
+            _ => {}
+        }));
+        let form = AddForm { open: false, address, port, user, password: typed, key_file: None, error: None, suggestions: Vec::new(), picked: None };
+        let password = PasswordForm { host: None, input: password, error: None, signing_in: false };
+        (Self { links: Links::default(), supervisors: HashMap::new(), events: None, form, password, pending: Pending::default() }, subs)
     }
 
     fn connect(&mut self, host: Host, home: &Path) {
@@ -118,6 +154,10 @@ impl Fleet {
     fn remove(&mut self, id: &str) {
         self.supervisors.remove(id);
         self.links.remove(id);
+        if self.password.host.as_deref() == Some(id) {
+            self.password.host = None;
+        }
+        self.pending.0.take_if(|(pending, _)| pending == id);
     }
 }
 
@@ -132,8 +172,12 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             while let Some((id, link)) = rx.next().await {
                 let shown = |d: &mut Desktop, cx: &mut Context<Desktop>| {
+                    let password = d.fleet.pending.take_for(&id, &link);
                     if d.fleet.links.apply(&id, link) {
                         cx.notify();
+                    }
+                    if let Some(password) = password {
+                        d.sign_in(id, password, cx);
                     }
                 };
                 if this.update(cx, shown).is_err() {
@@ -182,12 +226,16 @@ impl Desktop {
     pub(crate) fn add_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let form = &self.fleet.form;
         let [address, port, user] = [&form.address, &form.port, &form.user].map(|f| f.read(cx).value().to_string());
+        let password = form.password.read(cx).value().to_string();
         let added = hosts::target(&address, &port, &user, form.key_file.as_deref(), &form.suggestions)
             .map_err(String::from)
             .and_then(|target| new_host(&self.store.hosts, target));
         match added {
             Ok(host) => {
                 self.store.hosts.push(host.clone());
+                if !password.is_empty() {
+                    self.fleet.pending.0 = Some((host.id.clone(), password));
+                }
                 self.fleet.connect(host, self.store.home());
                 self.save_soon(cx);
                 self.close_add_host(window, cx);
@@ -199,11 +247,68 @@ impl Desktop {
         }
     }
 
+    pub(crate) fn open_password(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let form = &mut self.fleet.password;
+        (form.host, form.error) = (Some(id), None);
+        form.input.update(cx, |f, cx| {
+            f.set_value("", window, cx);
+            f.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn close_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let form = &mut self.fleet.password;
+        (form.host, form.error) = (None, None);
+        form.input.update(cx, |f, cx| f.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn sign_in_with_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let form = &self.fleet.password;
+        let password = form.input.read(cx).value().to_string();
+        let Some(id) = form.host.clone().filter(|_| !password.is_empty() && !form.signing_in) else { return };
+        form.input.update(cx, |f, cx| f.set_value("", window, cx));
+        self.sign_in(id, password, cx);
+    }
+
+    /// Puts the app's own key on the host with `password`, then reconnects with that key.
+    fn sign_in(&mut self, id: String, password: String, cx: &mut Context<Self>) {
+        let Some(host) = self.store.hosts.iter().find(|h| h.id == id).cloned() else { return };
+        let form = &mut self.fleet.password;
+        (form.host, form.signing_in, form.error) = (Some(id), true, None);
+        let (id, name, home) = (host.id.clone(), host.name.clone(), self.store.home().to_path_buf());
+        cx.spawn(async move |this, cx| {
+            let signed_in = cx.background_executor().spawn(async move { hosts::install::with_password(&host, &home, &password) }).await;
+            let _ = this.update(cx, |d, cx| {
+                let form = &mut d.fleet.password;
+                form.signing_in = false;
+                match signed_in {
+                    Ok(()) => {
+                        form.host = None;
+                        d.fleet.retry(&id);
+                    }
+                    Err(Failure::Auth) => form.error = Some("Wrong password.".into()),
+                    Err(f) => form.error = Some(f.message(&name)),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(crate) fn remove_host(&mut self, id: &str, cx: &mut Context<Self>) {
         self.fleet.remove(id);
         if let Some(at) = self.store.hosts.iter().position(|h| h.id == id) {
-            let known_hosts = self.store.hosts.remove(at).known_hosts(self.store.home());
-            cx.background_executor().spawn(async move { std::fs::remove_file(known_hosts) }).detach();
+            let host = self.store.hosts.remove(at);
+            let home = self.store.home().to_path_buf();
+            cx.background_executor()
+                .spawn(async move {
+                    let _ = std::fs::remove_file(host.known_hosts(&home));
+                    hosts::install::remove_key(&host, &home);
+                })
+                .detach();
         }
         self.save_soon(cx);
         cx.notify();
@@ -212,7 +317,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Link, Links, new_host};
+    use super::{Link, Links, Pending, new_host};
     use hosts::Target;
     use hosts::ssh::Failure;
 
@@ -225,6 +330,19 @@ mod tests {
         links.remove("devbox");
         assert!(!links.apply("devbox", Link::Connecting), "a removed host's last report is dropped");
         assert_eq!(links.get("devbox"), None);
+    }
+
+    #[test]
+    fn a_typed_password_is_used_only_once_its_hosts_keys_are_refused() {
+        let pending = |id: &str| Pending(Some((id.into(), "hunter2".into())));
+        let mut waiting = pending("devbox");
+        assert_eq!(waiting.take_for("devbox", &Link::Retrying(Failure::Throttled)), None);
+        assert_eq!(waiting.take_for("gpu", &Link::Failed(Failure::Auth)), None, "another host's refusal");
+        assert_eq!(waiting.take_for("devbox", &Link::Failed(Failure::Auth)), Some("hunter2".into()));
+        assert_eq!(waiting.take_for("devbox", &Link::Failed(Failure::Auth)), None, "used once");
+        let mut keys_worked = pending("devbox");
+        assert_eq!(keys_worked.take_for("devbox", &Link::Online { version: "1.4.2".into(), uptime: 0 }), None);
+        assert_eq!(keys_worked.0, None, "dropped once the keys work");
     }
 
     #[test]

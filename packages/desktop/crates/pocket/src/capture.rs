@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 116] = [
+const STEPS: [(&str, Step); 117] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -113,6 +113,11 @@ const STEPS: [(&str, Step); 116] = [
     ("hosts-add", |d, _, _| {
         (d.fleet.form.open, d.fleet.form.suggestions) = (true, vec!["devbox".into(), "gpu-box".into(), "nas".into()]);
         d.fleet.form.error = Some("Enter the host's address or name".into());
+    }),
+    ("hosts-password", |d, window, cx| {
+        d.fleet.links.0.insert("10-0-4-12".into(), hosts::link::Link::Failed(hosts::ssh::Failure::Auth));
+        d.open_password("10-0-4-12".into(), window, cx);
+        d.fleet.password.error = Some("Wrong password.".into());
     }),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
     ("hosts-remove", |d, _, _| {

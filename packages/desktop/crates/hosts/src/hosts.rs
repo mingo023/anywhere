@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+pub mod install;
 pub mod link;
 pub mod ssh;
 pub mod ssh_config;
@@ -48,6 +49,11 @@ impl Host {
     /// The host keys this app accepted for the host; removing the host forgets them.
     pub fn known_hosts(&self, home: &Path) -> PathBuf {
         home.join("hosts").join(format!("{}.known_hosts", self.id))
+    }
+
+    /// The key this app signs in with after a password sign-in put it on the host; its public half is `<key>.pub`.
+    pub fn key(&self, home: &Path) -> PathBuf {
+        home.join("hosts").join(format!("{}.key", self.id))
     }
 
     /// `user@addr:port` as typed, or the alias.

@@ -66,18 +66,49 @@ impl Desktop {
         let remotes = self.store.hosts.clone().into_iter().enumerate().map(|(i, h)| {
             let link = self.fleet.links.get(&h.id);
             let line = host_line(&h, link);
-            let reconnect = link.filter(|l| !matches!(l, Link::Connecting)).map(|_| {
+            let typing = self.fleet.password.host.as_ref() == Some(&h.id);
+            // A reconnect while a password sign-in runs would spend sshd's penalty budget twice.
+            let reconnect = link.filter(|l| !matches!(l, Link::Connecting) && !(typing && self.fleet.password.signing_in)).map(|_| {
                 let id = h.id.clone();
                 super::action(("host-reconnect", i), "Reconnect").on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.fleet.retry(&id)))
+            });
+            let password = (link == Some(&Link::Failed(Failure::Auth)) && !typing).then(|| {
+                let id = h.id.clone();
+                super::action(("host-password", i), "Use password").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_password(id.clone(), window, cx)))
             });
             let (id, name) = (h.id.clone(), h.name.clone());
             let remove = ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
                 cx.notify();
             }));
-            host_row(i + 1, "server", h.name.clone(), line, link_color(link)).children(reconnect).child(remove)
+            let row = host_row(i + 1, "server", h.name.clone(), line, link_color(link)).children(password).children(reconnect).child(remove);
+            div().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx)))
         });
         div().flex().flex_col().child(here).children(remotes.collect::<Vec<_>>())
+    }
+
+    /// Signs in once with a password to put the app's own key on a host that refused the user's keys.
+    fn password_form(&self, name: &str, cx: &mut Context<Self>) -> Div {
+        let form = &self.fleet.password;
+        let input = field_box().child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&form.input).appearance(false).p_0().text_size(px(12.))));
+        let cancel = ui::button("host-password-cancel", ui::Variant::Secondary, None, "Cancel").h(px(26.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_password(window, cx)));
+        let sign_in = match form.signing_in {
+            true => ui::button("host-sign-in", ui::Variant::Primary, None, "Signing in\u{2026}").h(px(26.)).opacity(0.6),
+            false => ui::button("host-sign-in", ui::Variant::Primary, None, "Sign in").h(px(26.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.sign_in_with_password(window, cx))),
+        };
+        let note = format!("Used once to add a key for this app to {name}\u{2019}s ~/.ssh/authorized_keys. The password isn\u{2019}t saved.");
+        let error = form.error.clone().map(|e| div().text_size(px(12.)).text_color(FAILED_TEXT).child(e));
+        // Lines up under the host's name, past its 28px tile and the 12px gap.
+        div()
+            .pl(px(54.))
+            .pr(px(14.))
+            .pb(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(div().flex().items_center().gap(px(8.)).child(input).child(div().flex_1()).child(cancel).child(sign_in))
+            .children(error)
+            .child(div().text_size(px(12.)).text_color(TEXT_3).child(note))
     }
 
     fn add_host_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
@@ -143,12 +174,12 @@ impl Desktop {
             .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(setting.label))
             .children(suggested)
             .map(|d| match form.picked {
-                Some(_) => d.child(div().flex().child(field("Host", &form.address).flex_1())).child(
+                Some(_) => d.child(div().flex().gap(px(10.)).child(field("Host", &form.address).flex_1()).child(field("Password", &form.password).flex_1())).child(
                     div().text_size(px(12.)).text_color(TEXT_3).child("From your ~/.ssh/config: its user, port, key and jump host are used as they are."),
                 ),
                 None => d
                     .child(div().flex().gap(px(10.)).child(field("Address", &form.address).flex_1()).child(field("Port", &form.port).w(px(80.))))
-                    .child(div().flex().gap(px(10.)).child(field("Username", &form.user).flex_1()).child(div().flex_1()))
+                    .child(div().flex().gap(px(10.)).child(field("Username", &form.user).flex_1()).child(field("Password", &form.password).flex_1()))
                     .child(key),
             })
             .children(error)
