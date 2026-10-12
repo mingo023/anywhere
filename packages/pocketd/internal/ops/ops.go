@@ -163,7 +163,7 @@ func (s *Server) Serve(ln net.Listener) error {
 	ws := newChanListener(ln.Addr())
 	defer ws.Close()
 	if s.WS != nil {
-		hs := &http.Server{Handler: s.WS, ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+		hs := &http.Server{Handler: s.WS, ReadHeaderTimeout: authWindow, ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			return peer.With(ctx, c.(*sniffed).who)
 		}}
 		go hs.Serve(ws)
@@ -184,6 +184,8 @@ func (s *Server) route(c net.Conn, ws *chanListener) {
 		c.Close()
 	case first == 'G' && s.WS != nil:
 		ws.hand(sc)
+	case sc.who.Kind == peer.None:
+		s.handle(newConn(newPreauth(sc)), sc.who)
 	default:
 		s.handle(newConn(sc), sc.who)
 	}
@@ -245,6 +247,9 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				return
 			}
 			who = peer.OwnerByToken(o)
+			if p, ok := c.conn.(*preauth); ok {
+				p.authed()
+			}
 			go s.Owners.Watch(ctx, o, func() { c.Close() })
 			c.Send(Msg{Ev: "ok"})
 			continue
