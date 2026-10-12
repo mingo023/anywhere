@@ -342,7 +342,7 @@ pub fn mark_letter(name: &str) -> String {
 }
 
 /// What a repository's tile shows: its letters, or an emoji or picture chosen in their place.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Mark {
     Letters(String),
     Emoji(String),
@@ -351,9 +351,9 @@ pub enum Mark {
 }
 
 impl Mark {
-    /// The tile's text size as a share of its side; `letters` is the share for letters.
-    pub fn scale(&self, letters: f32) -> f32 {
-        if matches!(self, Mark::Emoji(_)) { 0.6 } else { letters }
+    /// The tile's text size as a share of its side, given the share letters take.
+    pub fn scale(&self, letters_scale: f32) -> f32 {
+        if matches!(self, Mark::Emoji(_)) { 0.6 } else { letters_scale }
     }
 
     fn letter_count(&self) -> usize {
@@ -960,6 +960,22 @@ pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> D
         .children(count.map(|n| div().font_weight(FontWeight::MEDIUM).child(n.to_string())))
 }
 
+/// A project's mark in white on its colour.
+pub fn colour_tile(mark: &Mark, color: u32, size: f32, radius: f32) -> Div {
+    div()
+        .size(px(size))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(radius))
+        .bg(rgba(color))
+        .text_size(px(size * mark.scale(5. / 12.)))
+        .font_weight(FontWeight::BOLD)
+        .text_color(WHITE)
+        .child(mark.fill(radius))
+}
+
 pub fn swatch(color: u32, size: f32, radius: f32) -> Div {
     div().size(px(size)).flex_none().rounded(px(radius)).bg(rgba(color))
 }
@@ -1195,8 +1211,14 @@ pub fn failure(message: String, detail: String) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, State, Tone, count_text, lit, marquee_cycle, marquee_offset, tone, word};
+    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, Mark, State, Tone, count_text, lit, marquee_cycle, marquee_offset, tone, word};
     use theme::{ACCENT, ACCENT_TINT, WORKING};
+
+    #[test]
+    fn an_emoji_fills_more_of_its_tile_than_letters_or_a_picture_s_fallback() {
+        let image = Mark::Image { path: "/logo.png".into(), letters: "AN".into() };
+        assert_eq!([Mark::Emoji("🚀".into()).scale(0.34), Mark::Letters("AN".into()).scale(0.34), image.scale(0.34)], [0.6, 0.34, 0.34]);
+    }
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];
 

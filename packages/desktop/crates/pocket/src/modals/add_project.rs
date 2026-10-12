@@ -1,3 +1,5 @@
+pub(crate) mod icon;
+
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use crate::modals::form::{default_base, footer, home, typed_or};
@@ -148,17 +150,6 @@ fn project_changes(cfg: &RepoConfig, default_base: &str) -> Vec<(&'static str, S
     .into_iter()
     .filter(|(_, now, default)| now != default)
     .collect()
-}
-
-const EMOJI_MENU: &str = "repo-emoji";
-
-const EMOJI: [&str; 40] = [
-    "🚀", "⚡", "🔥", "✨", "🌟", "💎", "🎯", "🎨", "🧪", "🔬", "🛠️", "⚙️", "🧩", "📦", "📱", "💻", "🖥️", "🌐", "🔒", "🔑", "📊", "📈", "🧠", "🤖", "👾", "🎮", "🎵", "📚", "📝", "💡", "🌱", "🌊", "🍀", "🍎", "🍕", "☕", "🐙", "🦊", "🐳", "🦄",
-];
-
-/// A choice beside the colour swatches, ringed in the project's colour while chosen.
-fn icon_cell(id: &'static str, on: bool, color: u32) -> Stateful<Div> {
-    div().id(id).size(px(28.)).flex().items_center().justify_center().rounded(px(9.)).cursor_pointer().when(on, |d| d.shadow(vec![ui::ring(rgba(color), 1.5)]))
 }
 
 fn field(label: &str, body: impl IntoElement) -> Div {
@@ -386,72 +377,6 @@ impl Desktop {
             field("Effort", pick)
         });
         div().flex().gap(px(14.)).child(field("Agent", pick_agent).flex_none().w(px(210.))).child(field("Model", pick_model)).children(pick_effort)
-    }
-
-    /// Initials, an emoji from a menu, or a picked image.
-    fn icon_choices(&self, name: &str, cx: &mut Context<Self>) -> Div {
-        let draft = &self.repo_form.draft;
-        let (color, chosen) = (draft.color, draft.icon.clone());
-        let letters = crate::util::initials(name);
-        let tile = |mark: ui::Mark| {
-            div()
-                .size(px(22.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(7.))
-                .bg(rgba(color))
-                .text_size(px(22. * mark.scale(0.4)))
-                .font_weight(FontWeight::BOLD)
-                .text_color(WHITE)
-                .child(mark.fill(7.))
-        };
-        let initials = icon_cell("repo-icon-initials", chosen.is_none(), color).child(tile(ui::Mark::Letters(letters.clone()))).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.repo_form.draft.icon = None;
-            cx.notify();
-        }));
-        let emoji = match &chosen {
-            Some(ProjectIcon::Emoji(e)) => tile(ui::Mark::Emoji(e.clone())),
-            _ => tile(ui::Mark::Emoji(EMOJI[0].into())).bg(FILL_2).opacity(0.5),
-        };
-        let open = self.settings.menu == Some(EMOJI_MENU);
-        let emoji = icon_cell("repo-icon-emoji", matches!(chosen, Some(ProjectIcon::Emoji(_))), color).child(emoji).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.settings.menu = (!open).then_some(EMOJI_MENU);
-            cx.notify();
-        }));
-        let image = match &chosen {
-            Some(ProjectIcon::Image(path)) => tile(ui::Mark::Image { path: path.clone(), letters }),
-            _ => tile(ui::Mark::Letters(String::new())).bg(FILL_2).child(icon("plus", 12., TEXT_3)),
-        };
-        let image = icon_cell("repo-icon-image", matches!(chosen, Some(ProjectIcon::Image(_))), color).child(image).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.settings.menu = None;
-            this.pick_path(false, window, cx, |d, paths, _, _| {
-                if let Some(p) = paths.into_iter().next() {
-                    d.repo_form.draft.icon = Some(ProjectIcon::Image(p));
-                }
-            })
-        }));
-        let menu = open.then(|| {
-            let cells = EMOJI.iter().enumerate().map(|(i, &e)| {
-                div()
-                    .id(("repo-emoji", i))
-                    .size(px(30.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(6.))
-                    .text_size(px(18.))
-                    .cursor_pointer()
-                    .hover(|d| d.bg(FILL_2))
-                    .child(e)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        (this.repo_form.draft.icon, this.settings.menu) = (Some(ProjectIcon::Emoji(e.into())), None);
-                        cx.notify();
-                    }))
-            });
-            ui::dropdown_right(36., ui::menu_in("repo-emoji-in", ui::pop(div()).w(px(8. * 30. + 8.)).p(px(4.)).flex().flex_wrap().children(cells)))
-        });
-        div().relative().h(px(38.)).flex().items_center().gap(px(4.)).child(initials).child(emoji).child(image).children(menu)
     }
 
     /// The Reset line under an edited project, or the list it asks to confirm.

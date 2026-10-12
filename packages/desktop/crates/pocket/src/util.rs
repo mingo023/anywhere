@@ -100,7 +100,8 @@ pub fn ago_long(ms: i64, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, folder, initials, list_dir, tilde, tree_icon};
+    use super::{ago, ago_long, folder, initials, list_dir, mark, tilde, tree_icon};
+    use store::ProjectIcon;
     use store::prefs::files::Files;
 
     #[test]
@@ -121,6 +122,13 @@ mod tests {
         assert_eq!(initials("app-android"), "AN");
         assert_eq!(initials("cs"), "CS");
         assert_eq!(initials("shared-ui"), "UI");
+    }
+
+    #[test]
+    fn a_project_icon_replaces_its_letters_and_a_picture_keeps_them_for_when_it_cannot_load() {
+        assert_eq!(mark(None, "AN".into()), ui::Mark::Letters("AN".into()));
+        assert_eq!(mark(Some(&ProjectIcon::Emoji("🚀".into())), "AN".into()), ui::Mark::Emoji("🚀".into()));
+        assert_eq!(mark(Some(&ProjectIcon::Image("/logo.png".into())), "AN".into()), ui::Mark::Image { path: "/logo.png".into(), letters: "AN".into() });
     }
 
     #[test]

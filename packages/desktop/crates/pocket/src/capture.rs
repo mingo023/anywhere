@@ -145,7 +145,7 @@ const STEPS: [(&str, Step); 110] = [
             d.store.repos.entry(p).or_default().icon = Some(icon);
         }
     }),
-    ("emoji-menu", |d, _, _| d.settings.menu = Some("repo-emoji")),
+    ("emoji-menu", |d, _, _| d.settings.menu = Some(crate::modals::add_project::icon::EMOJI_MENU)),
     ("phone-access", |d, window, cx| d.open(Overlay::PhoneAccess, window, cx)),
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("owner", |d, _, _| {

@@ -51,7 +51,7 @@ impl Desktop {
         let p = self.project.as_deref().unwrap_or_default();
         let mark = self.project_mark(p, ui::mark_letter(&self.repo_name(p)));
         let button = rail_slot("nav-project", open)
-            .child(ui::repo_mark(&mark, true, None).size(px(24.)).text_size(px((24. * mark.scale(0.5)).round())))
+            .child(ui::repo_tile(&mark, 24., true, None))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
                 cx.stop_propagation();
                 this.toggle_project_picker(window, cx);

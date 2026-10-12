@@ -24,20 +24,7 @@ pub(super) const ROWS: &[Setting] = &[
 
 impl Desktop {
     pub(super) fn project_tile(&self, p: &str, size: f32) -> Div {
-        let mark = self.project_mark(p, initials(&self.repo_name(p)));
-        let radius = size / 4.;
-        div()
-            .size(px(size))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(radius))
-            .bg(rgba(self.repo_color(p)))
-            .text_size(px(size * mark.scale(5. / 12.)))
-            .font_weight(FontWeight::BOLD)
-            .text_color(WHITE)
-            .child(mark.fill(radius))
+        ui::colour_tile(&self.project_mark(p, initials(&self.repo_name(p))), self.repo_color(p), size, size / 4.)
     }
 
     fn project_list(&mut self, cx: &mut Context<Self>) -> Div {
