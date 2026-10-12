@@ -12,7 +12,7 @@ import (
 	"pocketd/internal/lock"
 )
 
-const usage = "usage: pocketd serve | run <cmd> [args...] | attach <id> | hook | pair [--host h:p] | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | --version | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535>"
+const usage = "usage: pocketd serve | run <cmd> [args...] | attach <id> | hook | pair [--host h:p] | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535>"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -28,6 +28,10 @@ func main() {
 	switch {
 	case slices.Equal(os.Args[1:], []string{"--version"}):
 		fmt.Println("pocketd", versionString())
+	case slices.Equal(os.Args[1:], []string{"version", "--json"}):
+		fmt.Println(string(versionJSON()))
+	case os.Args[1] == "service":
+		code, err = serviceMain(os.Args[2:], os.Stdout, os.Stderr)
 	case len(os.Args) == 4 && os.Args[1] == "handoff" && os.Args[2] == "--check":
 		err = handoffCheck(os.Args[3])
 	case len(os.Args) == 4 && os.Args[1] == "serve" && os.Args[2] == "--handoff":
