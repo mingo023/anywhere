@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+pub mod install;
 pub mod link;
 pub mod ssh;
 pub mod ssh_config;
