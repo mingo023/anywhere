@@ -1,5 +1,6 @@
 // Package service runs a standalone pocketd as a per-user service on a host:
-// a LaunchAgent on macOS, a systemd user unit on Linux.
+// a LaunchAgent on macOS, a systemd user unit on Linux, a logon task in Task
+// Scheduler on Windows.
 package service
 
 import (
@@ -83,6 +84,7 @@ func quote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%").Replace(s) + `"`
 }
 
+// ExecStart expands $VAR but Environment= doesn't, so only the command doubles $.
 func unit(s Spec) []byte {
-	return fmt.Appendf(nil, unitTemplate, quote(s.Exe), quote("POCKET_HOME="+s.Home))
+	return fmt.Appendf(nil, unitTemplate, quote(strings.ReplaceAll(s.Exe, "$", "$$")), quote("POCKET_HOME="+s.Home))
 }

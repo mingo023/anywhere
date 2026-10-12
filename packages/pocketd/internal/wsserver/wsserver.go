@@ -234,7 +234,7 @@ func (c *conn) handle(raw []byte) {
 			if ok {
 				o, ok = c.s.Owners.Lookup(m.OwnerToken)
 			}
-			if !ok || c.authed && o.ID != c.who.Token {
+			if !ok || c.authed && o.ID != c.who.TokenID {
 				c.reject(proto.NewErrorCode(m.ID, proto.CodeNotPaired, "Not an owner token"), statusUnpaired, proto.CodeNotPaired)
 				return
 			}
