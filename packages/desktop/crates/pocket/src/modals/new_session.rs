@@ -247,13 +247,13 @@ impl Draft {
         (self.provider, self.picker) = (provider, None);
     }
 
-    /// `tree` is the new Local's id the session starts in when it isn't a new worktree.
-    fn spec(&self, project: &str, tree: &str, name: &str, prompt: &str) -> Value {
-        let checkout = match (self.in_worktree(), &self.source) {
-            (false, _) => agents::locals::checkout(tree),
-            (true, Source::New) => json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}}),
-            (true, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
-            (true, Source::Pr(_)) => json!({"new": {"pr": name, "copy": self.copy_env, "setup": self.run_setup}}),
+    /// `local` is the new Local's id the session starts in; without one it gets a new worktree.
+    fn spec(&self, project: &str, local: Option<&str>, name: &str, prompt: &str) -> Value {
+        let checkout = match (local, &self.source) {
+            (Some(id), _) => agents::locals::checkout(id),
+            (None, Source::New) => json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}}),
+            (None, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
+            (None, Source::Pr(_)) => json!({"new": {"pr": name, "copy": self.copy_env, "setup": self.run_setup}}),
         };
         self.pick().spec(project, checkout, &with_images(prompt.trim(), &self.images))
     }
@@ -583,18 +583,18 @@ impl Desktop {
         let name = self.new_form.draft.name();
         let prompt = self.new_form.prompt.read(cx).value().to_string();
         let Some(project) = self.new_form.draft.repo.clone() else { return };
-        let tree = match self.new_form.draft.target() {
+        let local = match self.new_form.draft.target() {
             Target::NewLocal => {
                 let id = self.new_form.draft.retry_local(self.agents.locals_in(&project)).unwrap_or_else(|| self.new_local(&project));
                 self.new_form.draft.local = Some(id.clone());
                 self.store.collapsed.remove(&project);
                 self.select_tree(project.clone(), Some(id.clone()), cx);
-                id
+                Some(id)
             }
-            Target::Worktree => String::new(),
+            Target::Worktree => None,
         };
         let f = &self.new_form.draft;
-        let (mut spec, worktree, folder) = (f.spec(&project, &tree, &name, &prompt), f.in_worktree(), f.folder(&name));
+        let (mut spec, worktree, folder) = (f.spec(&project, local.as_deref(), &name, &prompt), f.in_worktree(), f.folder(&name));
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
@@ -834,7 +834,7 @@ mod tests {
     #[test]
     fn a_session_in_a_local_names_it_and_a_new_local_needs_a_project_and_pocketd_taking_locals() {
         let mut draft = Draft::default();
-        assert_eq!(draft.spec("/p", "local-1", "", "")["checkout"], json!({"local": "local-1"}));
+        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["checkout"], json!({"local": "local-1"}));
         draft.pick_checkout(Target::NewLocal);
         assert!(!draft.ready(""));
         draft.repo = Some("/p".into());
@@ -865,7 +865,7 @@ mod tests {
     fn a_local_session_sends_only_its_local_whatever_the_worktree_choices_were() {
         let draft = Draft { picked_checkout: Target::NewLocal, source: Source::Branch("fix/login".into()), repo: Some("/p".into()), branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         assert!(draft.ready(""));
-        assert_eq!(draft.spec("/p", "local-1", "", "")["checkout"], json!({"local": "local-1"}));
+        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["checkout"], json!({"local": "local-1"}));
     }
 
     #[test]
@@ -945,17 +945,17 @@ mod tests {
         let at = |path: &str| Attachment { path: path.into(), image: image.clone() };
         let draft = Draft { images: vec![at("/h/attachments/a.png"), at("/h/attachments/b.png")], ..Draft::default() };
         let block = "# Attached images\n\n- /h/attachments/a.png\n- /h/attachments/b.png";
-        assert_eq!(draft.spec("/p", "/p/w", "", " Fix CI ")["prompt"], format!("Fix CI\n\n{block}"));
-        assert_eq!(draft.spec("/p", "/p/w", "", "")["prompt"], block);
+        assert_eq!(draft.spec("/p", Some("local-1"), "", " Fix CI ")["prompt"], format!("Fix CI\n\n{block}"));
+        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["prompt"], block);
     }
 
     #[test]
     fn a_spec_leaves_access_to_the_app_without_planning_and_carries_no_argv() {
-        let want = json!({"project": "/p", "checkout": {"worktree": "/p/w"}, "provider": "claude", "plan": false, "prompt": "Fix CI"});
-        assert_eq!(Draft::default().spec("/p", "/p/w", "", "  Fix CI  "), want);
+        let want = json!({"project": "/p", "checkout": {"local": "local-1"}, "provider": "claude", "plan": false, "prompt": "Fix CI"});
+        assert_eq!(Draft::default().spec("/p", Some("local-1"), "", "  Fix CI  "), want);
         let new = Draft { picked_checkout: Target::Worktree, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
-        assert_eq!(new.spec("/p", "/p", "fix-ci", " \n "), want);
+        assert_eq!(new.spec("/p", None, "fix-ci", " \n "), want);
     }
 
     #[test]
@@ -970,8 +970,8 @@ mod tests {
     fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
         let draft = Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "plan": false});
-        assert_eq!(draft.spec("/p", "/p", "fix/login", ""), want);
-        assert_eq!(draft.spec("/p", "/p", "origin/fix/login", ""), want);
+        assert_eq!(draft.spec("/p", None, "fix/login", ""), want);
+        assert_eq!(draft.spec("/p", None, "origin/fix/login", ""), want);
         assert_eq!(draft.folder("fix/login"), "fix-login");
     }
 
@@ -996,7 +996,7 @@ mod tests {
         let draft = Draft { picked_checkout: Target::Worktree, source: Source::Pr("#7".into()), repo: Some("/p".into()), copy_env: true, ..Draft::default() };
         assert!(draft.ready("#7") && !draft.ready("seven"));
         let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
-        assert_eq!(draft.spec("/p", "/p", "#7", ""), want);
+        assert_eq!(draft.spec("/p", None, "#7", ""), want);
         assert_eq!(draft.folder("#7"), "pr-7");
         assert_eq!(Source::of(&want["checkout"]["new"]), Source::Pr("#7".into()));
     }
@@ -1044,12 +1044,12 @@ mod tests {
     #[test]
     fn a_remembered_model_and_effort_start_the_session_until_the_agent_changes() {
         let mut draft = Draft { model: "opus".into(), effort: "high".into(), ..Draft::default() };
-        let spec = draft.spec("/p", "/p", "", "");
+        let spec = draft.spec("/p", Some("local-1"), "", "");
         assert_eq!((&spec["model"], &spec["effort"]), (&json!("opus"), &json!("high")));
         draft.pick_provider("claude");
-        assert_eq!(draft.spec("/p", "/p", "", "")["model"], "opus");
+        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["model"], "opus");
         draft.pick_provider("codex");
-        let spec = draft.spec("/p", "/p", "", "");
+        let spec = draft.spec("/p", Some("local-1"), "", "");
         assert_eq!((spec.get("model"), spec.get("effort")), (None, None));
     }
 
@@ -1057,7 +1057,7 @@ mod tests {
     fn a_picked_access_starts_the_session_whatever_the_agent() {
         let mut draft = Draft { access: "edits".into(), ..Draft::default() };
         draft.pick_provider("codex");
-        assert_eq!(draft.spec("/p", "/p", "", "")["access"], "edits");
+        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["access"], "edits");
     }
 
     #[test]
