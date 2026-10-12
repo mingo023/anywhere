@@ -289,7 +289,7 @@ impl Draft {
 /// A checkout choice as its chip and menu row show it.
 struct Checkout {
     glyph: &'static str,
-    label: String,
+    label: &'static str,
     hint: &'static str,
 }
 
@@ -302,8 +302,8 @@ enum Target {
 
 fn checkout_choice(target: Target) -> Checkout {
     match target {
-        Target::Worktree => Checkout { glyph: WORKTREE_ICON, label: "Worktree".into(), hint: "Its own branch and copy of the files" },
-        Target::NewLocal => Checkout { glyph: LOCAL_ICON, label: "Local".into(), hint: "A new place over the project's checkout: files and branch are shared" },
+        Target::Worktree => Checkout { glyph: WORKTREE_ICON, label: "Worktree", hint: "Its own branch and copy of the files" },
+        Target::NewLocal => Checkout { glyph: LOCAL_ICON, label: "Local", hint: "A new place over the project's checkout: files and branch are shared" },
     }
 }
 
@@ -811,7 +811,7 @@ mod tests {
         assert_eq!(draft.targets(true), [Target::Worktree, Target::NewLocal]);
         assert_eq!(draft.targets(false), [Target::Worktree]);
         let local = checkout_choice(Target::NewLocal);
-        assert_eq!((local.glyph, local.label.as_str()), ("laptop", "Local"));
+        assert_eq!((local.glyph, local.label), ("laptop", "Local"));
     }
 
     #[test]
