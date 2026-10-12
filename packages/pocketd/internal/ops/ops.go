@@ -267,11 +267,11 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 			continue
 		case "status":
 			if s.Status == nil {
-				c.Send(Msg{Ev: "error", Error: "status unsupported"})
+				c.Send(Msg{Ev: "error", ID: m.ID, Error: "status unsupported"})
 				continue
 			}
 			st := s.Status()
-			c.Send(Msg{Ev: "status", Status: &st})
+			c.Send(Msg{Ev: "status", ID: m.ID, Status: &st})
 			continue
 		case "hook":
 			if s.Hook == nil {

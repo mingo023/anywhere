@@ -259,6 +259,14 @@ func TestStatusAnswersWithWhatTheServerReports(t *testing.T) {
 	}
 }
 
+func TestStatusEchoesTheRequestsIDSoItCanShareAConnection(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager(), Status: func() Status { return Status{PID: 42} }})
+	c.Send(Msg{Op: "status", ID: "7"})
+	if m := recv(t, c, "status"); m.ID != "7" {
+		t.Fatalf("%+v", m)
+	}
+}
+
 func TestStatusTextNamesEveryField(t *testing.T) {
 	st := Status{PID: 42, Version: "abc123", Home: "/h", Sock: "/h/pocketd.sock", Log: "/h/logs/pocketd.log", Uptime: 3725,
 		Listen: []string{"100.64.1.2:7331"}, Terminals: 3, Agents: map[string]int{"working": 1, "idle": 2},
