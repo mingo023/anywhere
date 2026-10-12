@@ -1,3 +1,4 @@
+pub(crate) mod host_folder;
 pub(crate) mod icon;
 
 use crate::desktop::Desktop;
@@ -9,6 +10,7 @@ use crate::util::{basename, tilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use host_folder::Browse;
 use std::path::{Path, PathBuf};
 use store::prefs::agents::efforts;
 use store::{LaunchPick, ProjectIcon, RepoConfig};
@@ -19,6 +21,7 @@ use ui::{Segment, Variant};
 pub enum Source {
     Local,
     Clone,
+    Host,
 }
 
 enum Probe {
@@ -32,6 +35,7 @@ pub struct RepoForm {
     name: Entity<InputState>,
     setup: Entity<InputState>,
     teardown: Entity<InputState>,
+    host_path: Entity<InputState>,
     draft: RepoDraft,
 }
 
@@ -54,6 +58,7 @@ struct RepoDraft {
     editing: Option<String>,
     busy: bool,
     error: Option<String>,
+    browse: Option<Browse>,
 }
 
 impl Default for RepoDraft {
@@ -74,6 +79,7 @@ impl Default for RepoDraft {
             editing: None,
             busy: false,
             error: None,
+            browse: None,
         }
     }
 }
@@ -81,7 +87,7 @@ impl Default for RepoDraft {
 impl RepoDraft {
     fn fallback_name(&self, url: &str) -> String {
         match self.source {
-            Source::Local => self.path.as_deref().map(basename).unwrap_or_default(),
+            Source::Local | Source::Host => self.path.as_deref().map(basename).unwrap_or_default(),
             Source::Clone => repo_from_url(url),
         }
     }
@@ -90,14 +96,14 @@ impl RepoDraft {
         let named = !name.is_empty();
         match self.source {
             _ if self.busy => false,
-            Source::Local => named && matches!(self.probe, Some(Probe::Git { .. } | Probe::NotGit)),
+            Source::Local | Source::Host => named && matches!(self.probe, Some(Probe::Git { .. } | Probe::NotGit)),
             Source::Clone => named && self.path.is_some() && !url.trim().is_empty(),
         }
     }
 
     /// A local folder that isn't a repository, so it never gets worktrees.
     fn plain_folder(&self) -> bool {
-        self.source == Source::Local && matches!(self.probe, Some(Probe::NotGit))
+        self.source != Source::Clone && matches!(self.probe, Some(Probe::NotGit))
     }
 
     fn add_copies(&mut self, repo: &str, paths: Vec<PathBuf>) {
@@ -162,7 +168,14 @@ impl RepoForm {
         let name = cx.new(|cx| InputState::new(window, cx));
         let setup = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm install"));
         let teardown = cx.new(|cx| InputState::new(window, cx).placeholder("docker compose down"));
+        let host_path = cx.new(|cx| InputState::new(window, cx).placeholder("/home/me/code/app"));
         let subs = vec![
+            cx.subscribe_in(&host_path, window, |this, field, ev: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = ev {
+                    let typed = field.read(cx).value().trim().to_string();
+                    this.browse_to(typed, window, cx);
+                }
+            }),
             cx.subscribe_in(&url, window, |this, url, ev: &InputEvent, window, cx| {
                 if let InputEvent::Change = ev {
                     let name = repo_from_url(&url.read(cx).value());
@@ -172,7 +185,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { url, name, setup, teardown, draft: RepoDraft::default() }, subs)
+        (Self { url, name, setup, teardown, host_path, draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -213,13 +226,14 @@ impl Desktop {
         cx.notify();
     }
 
-    fn set_repo_source(&mut self, v: Source) {
+    pub(crate) fn set_repo_source(&mut self, v: Source) {
         let root = self.store.clone_root(&home());
         let f = &mut self.repo_form.draft;
         f.source = v;
         f.path = (v == Source::Clone).then_some(root).filter(|p| Path::new(p).is_dir());
         f.probe = None;
         f.branches.clear();
+        f.browse = None;
     }
 
     pub fn reset_repo_form(&mut self, editing: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
@@ -287,7 +301,7 @@ impl Desktop {
         f.draft.ready(&self.repo_form_name(cx), &f.url.read(cx).value())
     }
 
-    fn save_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn save_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.repo_ready(cx) {
             return;
         }
@@ -295,7 +309,7 @@ impl Desktop {
         let Some(path) = f.draft.path.clone() else { return };
         let name = self.repo_form_name(cx);
         let cfg = self.repo_config(&path, name.clone(), cx);
-        if f.draft.source == Source::Local {
+        if f.draft.source != Source::Clone {
             return self.add_repo(path, cfg, window, cx);
         }
         let url = f.url.read(cx).value().trim().to_string();
@@ -440,7 +454,10 @@ impl Desktop {
         let clone = f.source == Source::Clone;
         let title = match (&f.path, clone) {
             (Some(p), true) => format!("Clone into {}", tilde(p)),
-            (Some(p), false) => tilde(p),
+            (Some(p), false) => match hosts::split(p) {
+                (Some(h), path) => format!("{}:{path}", self.host_name(h)),
+                (None, _) => tilde(p),
+            },
             (None, true) => "Choose where to clone".into(),
             (None, false) => "No folder chosen".into(),
         };
@@ -478,7 +495,7 @@ impl Desktop {
                     .child(div().truncate().font_family(MONO).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(title))
                     .child(div().flex().items_center().gap(px(4.)).text_size(px(12.5)).text_color(color).children(mark.map(|m| icon(m, 12., color))).child(line)),
             )
-            .when(f.editing.is_none(), |d| {
+            .when(f.editing.is_none() && f.source != Source::Host, |d| {
                 d.child(ui::button("repo-choose", Variant::Secondary, None, "Choose…").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.pick_path(true, window, cx, |d, paths, window, cx| {
                         if let Some(p) = paths.into_iter().next() {
@@ -495,7 +512,11 @@ impl Desktop {
         let reset = self.repo_form.draft.editing.clone().map(|p| self.reset_line(&p, &name, cx));
         let f = &self.repo_form;
         let source = div().id("repo-source").child(ui::segmented(
-            vec![Segment { icon: Some("folder"), value: Source::Local, label: "Local folder".into(), badge: None }, Segment { icon: Some("external"), value: Source::Clone, label: "Clone from URL".into(), badge: None }],
+            vec![
+                Segment { icon: Some("folder"), value: Source::Local, label: "Local folder".into(), badge: None },
+                Segment { icon: Some("external"), value: Source::Clone, label: "Clone from URL".into(), badge: None },
+                Segment { icon: Some("globe"), value: Source::Host, label: "Folder on a host".into(), badge: None },
+            ],
             f.draft.source,
             false,
             true,
@@ -627,6 +648,9 @@ impl Desktop {
             body.push(source.into_any_element());
         }
         body.extend(url.map(IntoElement::into_any_element));
+        if f.draft.source == Source::Host && !editing {
+            body.push(self.host_browser(cx).into_any_element());
+        }
         body.extend([self.folder_card(cx).into_any_element(), identity.into_any_element()]);
         if !f.draft.plain_folder() {
             body.extend([layout.into_any_element(), div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).child(copies).into_any_element()]);
