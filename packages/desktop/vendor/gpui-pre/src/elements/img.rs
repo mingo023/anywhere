@@ -347,7 +347,11 @@ impl Element for Img {
 
                             let image_size = data.render_size(frame_index);
 
-                            if style.aspect_ratio.is_none() {
+                            // Taffy stretches a sized leaf's height to width / ratio, so skip the ratio when both sides are set.
+                            if style.aspect_ratio.is_none()
+                                && (style.size.width == Length::Auto
+                                    || style.size.height == Length::Auto)
+                            {
                                 style.aspect_ratio = Some(image_size.width / image_size.height);
                             }
 
