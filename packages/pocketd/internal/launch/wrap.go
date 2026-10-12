@@ -3,6 +3,8 @@ package launch
 import (
 	"path/filepath"
 	"strings"
+
+	"pocketd/internal/shellenv"
 )
 
 // Wrap is the shell's argument list: setup, then argv, then a login shell.
@@ -13,6 +15,9 @@ import (
 // setup that calls exit. argv[0] may name a shell function (resolve), which
 // the shell runs as the user's terminal would.
 func Wrap(shell, exe, setup string, argv []string) []string {
+	if shellenv.PowerShell(shell) {
+		return wrapPowerShell(exe, setup, argv)
+	}
 	hook := quote(exe) + " hook exit"
 	if filepath.Base(shell) == "fish" {
 		script := ""
@@ -30,8 +35,25 @@ func Wrap(shell, exe, setup string, argv []string) []string {
 	return append([]string{"-l", "-c", script, shell}, argv...)
 }
 
+// wrapPowerShell is Wrap for PowerShell, whose -NoExit leaves the shell
+// running after the script. A setup that calls exit goes unreported.
+func wrapPowerShell(exe, setup string, argv []string) []string {
+	hook := "& " + shellenv.PSQuote(exe) + " hook exit"
+	// $? is false after a native command exits non-zero; a cmdlet sets no code.
+	status := "$s = if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 }; "
+	script := ""
+	if setup != "" {
+		script = setup + "\n" + status + "if ($s) { " + hook + " setup $s; exit $s }\n" + hook + " setup 0\n"
+	}
+	script += shellenv.PSCommand(argv) + "; " + status + hook + " agent $s"
+	return []string{"-NoLogo", "-NoExit", "-Command", script}
+}
+
 // InShell runs argv through shell, so a shell function named argv[0] runs.
 func InShell(shell string, argv []string) []string {
+	if shellenv.PowerShell(shell) {
+		return []string{shell, "-NoLogo", "-Command", shellenv.PSCommand(argv)}
+	}
 	if filepath.Base(shell) == "fish" {
 		return append([]string{shell, "-c", "$argv"}, argv...)
 	}

@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,7 +24,10 @@ import (
 	"pocketd/internal/proto"
 )
 
-var errBusy = errors.New("a session is being created; upgrade after it")
+var (
+	errBusy      = errors.New("a session is being created; upgrade after it")
+	errNoHandoff = errors.New("Windows can't hand terminals to a new pocketd; restart it instead, which ends its terminals")
+)
 
 // upgrader hands pocketd's live state to the binary at exe and execs it in
 // this pid (ADR 0005).
@@ -38,6 +42,9 @@ type upgrader struct {
 
 // run returns only when the upgrade didn't happen; the old pocketd goes on.
 func (u *upgrader) run() error {
+	if runtime.GOOS == "windows" {
+		return errNoHandoff
+	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.starting() {

@@ -12,6 +12,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/handoff"
+	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 )
@@ -117,7 +118,7 @@ func (d *Daemon) reopen(e state.Terminal, shell string) (*terminal.Terminal, str
 		log.Printf("restore %s: launch_dir_missing", e.TerminalID)
 		return nil, "launch_dir_missing"
 	}
-	cmd, args, reason := shell, []string{"-l"}, ""
+	cmd, args, reason := shell, shellenv.LoginArgs(shell), ""
 	if e.AgentID != "" && d.Resume != nil {
 		if c, a, r := d.Resume(e); r == "" {
 			cmd, args = c, a

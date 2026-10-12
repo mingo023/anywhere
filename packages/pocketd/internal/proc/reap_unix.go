@@ -16,6 +16,8 @@ func Alive(pid int) bool {
 	return err == nil || errors.Is(err, unix.EPERM)
 }
 
+func Terminate(pid int) { unix.Kill(pid, unix.SIGTERM) }
+
 // Kill sends SIGTERM to each pid, waits up to grace for all to exit, then SIGKILLs the rest.
 func Kill(pids []int, grace time.Duration) {
 	for _, pid := range pids {
