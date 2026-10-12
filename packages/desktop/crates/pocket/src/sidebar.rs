@@ -110,6 +110,8 @@ pub struct SidebarState {
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: ProjectPicker,
+    /// The Projects + menu shows.
+    pub(crate) add_menu: bool,
     /// The right-hand panel shows; collapsed at launch.
     pub(crate) panel_open: bool,
     /// The worktree row being renamed.
@@ -124,11 +126,38 @@ impl SidebarState {
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
-        (Self { search, menu_at: None, picker, panel_open, rename: None, hover: Hover::default() }, subs)
+        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default() }, subs)
     }
 }
 
 impl Desktop {
+    /// The Projects + button and its menu: add a project, or open a folder on a host.
+    fn add_menu(&self, cx: &mut Context<Self>) -> Div {
+        let open = self.sidebar.add_menu;
+        let button = icon_button_sized("aside-add", "plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.close_menus();
+            this.sidebar.add_menu = !open;
+            cx.notify();
+        }));
+        div().relative().child(button).when(open, |d| {
+            let add = ui::menu_row("aside-add-project", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx)));
+            let host = ui::menu_row("aside-add-host-folder", "globe", "Open folder on a host…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
+            let menu = ui::pop(div().id("aside-add-menu"))
+                .w(px(220.))
+                .p(px(6.))
+                .flex()
+                .flex_col()
+                .occlude()
+                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.sidebar.add_menu = false;
+                    cx.notify();
+                }))
+                .child(add)
+                .child(host);
+            d.child(ui::dropdown_right(26., ui::menu_in("aside-add-menu-in", menu)))
+        })
+    }
+
     /// The expanded sidebar: projects with their worktrees.
     pub(crate) fn aside(&self, cx: &mut Context<Self>) -> Div {
         let unseen = crate::inbox::count(&self.agents);
@@ -167,11 +196,7 @@ impl Desktop {
             .font_weight(FontWeight::BOLD)
             .text_color(TEXT_3)
             .child(div().flex_1().child("PROJECTS"))
-            .child(
-                icon_button_sized("aside-add", "plus", 22., TEXT_3)
-                    .rounded(px(6.))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx))),
-            );
+            .child(self.add_menu(cx));
         let mut repos = Vec::new();
         for (i, p) in self.projects().into_iter().enumerate() {
             repos.push(self.project_block(i, &p, cx));

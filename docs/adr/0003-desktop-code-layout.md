@@ -22,7 +22,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `term` | the ghostty VT |
 | `store` | the saved projects, settings (sounds, notifications, appearance, worktree root; `store/prefs` one struct per Settings section) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
-| `hosts` | SSH hosts: what one is and how it's saved, `hosts/ssh` the ssh commands and what their failures mean, `hosts/link` the tunnel to a host's pocketd that reconnects by itself, `hosts/ssh_config` the hosts `~/.ssh/config` names |
+| `hosts` | SSH hosts: what one is and how it's saved, `hosts/ssh` the ssh commands and what their failures mean, `hosts/link` the tunnel to a host's pocketd that reconnects by itself, `hosts/ssh_config` the hosts `~/.ssh/config` names, `hosts/remote` exec and file ops through a host's pocketd, `hosts/session` terminals and agents on hosts and which pocketd holds them, `hosts/install` putting pocketd on a host as a user service, `hosts/checklist` an install's progress, `hosts/owner` a Windows host's owner token |
 | `web` | the WKWebView page of a browser tab, address and link parsing |
 | `ui`, `theme` | widgets, colours, icons |
 
@@ -41,7 +41,9 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview; `explorer/menu` its right-click menu, `explorer/edit` naming new and renamed items, `explorer/files` their disk writes, `explorer/toast` copy, trash and Mentioned notices |
 | `automations` | the Automations screen (⌘⇧A, offered only when pocketd has the capability): `automations/logic` the pure rules, `column` the tabs and lists, `rows`, `runs`, `detail` and `run_detail` the right pane, `editor` with `form` and `trigger` the full-page editor, `glyph`, `parts` |
 | `inbox`, `palette` | their screens |
-| `fleet` | each SSH host's link, adding and removing hosts |
+| `fleet` | each SSH host's link, adding, installing, updating and removing hosts |
+| `host_agents` | each host's pocketd agent channel, opened once the host serves projects |
+| `fs` | where a tree's files are read and changed: this Mac or a host |
 | `notch` | the island that grows out of the notch to answer permission asks: which asks it offers, and the `anywhere-notch` helper that draws it (a SwiftPM package in `packages/desktop/notch`), spoken to in JSON lines |
 | `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers and the project editor share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission` and `notifications/sounds` (the sound list), `keybindings`, `agents`, `provider` (each agent's own page), `automations`, `phone`, `ssh_hosts`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |
 | `modals` | overlays: new session, add project, confirm, more, pair phone |

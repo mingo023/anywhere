@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 132] = [
+const STEPS: [(&str, Step); 133] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -33,6 +33,7 @@ const STEPS: [(&str, Step); 132] = [
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
     ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
+    ("add-menu", |d, _, _| d.sidebar.add_menu = true),
     ("explore", |d, _, cx| {
         (d.side, d.sidebar.panel_open) = (Side::Explorer, true);
         d.refresh_git(cx);

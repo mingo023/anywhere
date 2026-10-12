@@ -16,6 +16,3 @@ futures.workspace = true
 git.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-agents.workspace = true

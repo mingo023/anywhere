@@ -28,7 +28,7 @@ pub struct Stat {
 pub trait Exec: Send + Sync {
     /// Runs `argv` in `cwd`, or wherever the host starts commands when `cwd` is empty.
     fn exec(&self, cwd: &str, argv: &[&str], stdin: Option<&[u8]>, timeout: Duration) -> io::Result<Output>;
-    /// Up to `max` bytes of the file at `path`.
+    /// The file at `path`; `too_large` when it's over `max` bytes.
     fn read(&self, path: &str, max: usize) -> io::Result<Vec<u8>>;
     /// `None` when nothing is at `path`.
     fn stat(&self, path: &str) -> io::Result<Option<Stat>>;
@@ -55,8 +55,10 @@ impl Runner {
     pub fn read(&self, path: &str, max: usize) -> io::Result<Vec<u8>> {
         match self {
             Runner::Local => {
-                let mut bytes = std::fs::read(path)?;
-                bytes.truncate(max);
+                let bytes = std::fs::read(path)?;
+                if bytes.len() > max {
+                    return Err(too_large(max));
+                }
                 Ok(bytes)
             }
             Runner::Remote(host) => host.read(path, max),
@@ -100,11 +102,19 @@ fn local_exec(cwd: &str, argv: &[&str], stdin: Option<&[u8]>) -> io::Result<Outp
     Ok(Output { code: out.status.code().unwrap_or(-1), stdout: out.stdout, stderr: out.stderr })
 }
 
+/// The most of a file read in one go: a host sends no more in one reply.
+pub const MAX_READ: usize = 16 << 20;
+
+/// A file over the `max` its read allowed; never handed back cut short.
+pub fn too_large(max: usize) -> io::Error {
+    io::Error::new(ErrorKind::FileTooLarge, format!("file is over {max} bytes"))
+}
+
 /// A host the desktop isn't linked to: everything fails, so its paths never run here.
 pub struct NotConnected;
 
 impl NotConnected {
-    fn error() -> io::Error {
+    pub fn error() -> io::Error {
         io::Error::new(ErrorKind::NotConnected, "host not connected")
     }
 }

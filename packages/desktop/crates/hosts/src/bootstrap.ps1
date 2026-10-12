@@ -1,8 +1,9 @@
 # Installs pocketd @@VERSION@@ on a Windows host and starts it as a logon task. PowerShell 5.1.
 # The desktop fills the @@...@@ placeholders and pipes this to PowerShell over ssh. Keep it ASCII:
 # PowerShell reads stdin in the console's code page.
-# ANYWHERE_ARCHIVE names a zip already on the host to use instead (checked against ANYWHERE_SHA256 if set), removed after.
-# ANYWHERE_FORCE=1 updates: replaces a running pocketd, which closes its terminals.
+# ANYWHERE_ARCHIVE names a zip already on the host to use instead, checked against ANYWHERE_SHA256 and removed after.
+# ANYWHERE_FORCE=1 updates: replaces a running pocketd once the new one is verified, which closes its terminals.
+# Downloads are https only; ANYWHERE_ALLOW_HTTP=1 allows http for tests.
 # Lines for the desktop: ANYWHERE step <name> | error <msg> | running | done. Others are log.
 $ErrorActionPreference = 'Stop'
 # The progress bar makes Invoke-WebRequest many times slower on 5.1.
@@ -23,7 +24,7 @@ function Port {
     $listen = (Get-Content -Raw $config | ConvertFrom-Json).ownerListen
     if ($listen -and $listen -ne 'off') { return [int]($listen -split ':')[-1] }
   }
-  return 4519
+  return @@PORT@@
 }
 
 function Answers {
@@ -36,23 +37,14 @@ try {
   # A 32-bit shell on ARM64 reports x86 and the real arch here.
   $cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
   $arch = switch ($cpu) { 'AMD64' { 'amd64' } 'ARM64' { 'arm64' } default { throw "unsupported CPU $cpu" } }
-  if (Answers) {
-    if (-not $env:ANYWHERE_FORCE) {
-      Write-Output 'ANYWHERE running'
-      exit 0
-    }
-    # The task runs one instance, and the running one holds its pocketd.exe open.
-    $ErrorActionPreference = 'Continue'
-    schtasks.exe /End /TN $Label 2>&1 | Out-Null
-    $ErrorActionPreference = 'Stop'
-    $deadline = (Get-Date).AddSeconds(15)
-    while (Answers) {
-      if ((Get-Date) -gt $deadline) { throw "pocketd didn't stop within 15s" }
-      Start-Sleep -Milliseconds 300
-    }
+  $running = Answers
+  if ($running -and -not $env:ANYWHERE_FORCE) {
+    Write-Output 'ANYWHERE running'
+    exit 0
   }
 
   $zip = "pocketd-windows-$arch.zip"
+  $runtime = Join-Path $HomeDir "runtime\$Version"
   $tmp = Join-Path ([IO.Path]::GetTempPath()) ("anywhere-" + [Guid]::NewGuid())
   New-Item -ItemType Directory -Path $tmp | Out-Null
   try {
@@ -61,6 +53,7 @@ try {
       $archive = $env:ANYWHERE_ARCHIVE
     } else {
       Step 'download'
+      if (-not $Url.StartsWith('https://') -and -not $env:ANYWHERE_ALLOW_HTTP) { throw "won't download $Url/$zip`: not https" }
       [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
       $archive = Join-Path $tmp $zip
       Invoke-WebRequest -UseBasicParsing -Uri "$Url/$zip" -OutFile $archive
@@ -68,16 +61,28 @@ try {
       $want = ((Get-Content -Raw "$archive.sha256").Trim() -split '\s+')[0]
     }
 
-    if ($want) {
-      Step 'verify'
-      $got = (Get-FileHash -Algorithm SHA256 $archive).Hash
-      if ($got -ne $want) { throw "$zip checksum is $got, want $want" }
-    }
+    Step 'verify'
+    if (-not $want) { throw "no checksum to verify $zip against" }
+    $got = (Get-FileHash -Algorithm SHA256 $archive).Hash
+    if ($got -ne $want) { throw "$zip checksum is $got, want $want" }
 
     Step 'unpack'
-    $runtime = Join-Path $HomeDir "runtime\$Version"
+    $staged = Join-Path $tmp 'x'
+    Expand-Archive -Force -Path $archive -DestinationPath $staged
+
+    if ($running) {
+      # The task runs one instance, and the running one holds its pocketd.exe open.
+      $ErrorActionPreference = 'Continue'
+      schtasks.exe /End /TN $Label 2>&1 | Out-Null
+      $ErrorActionPreference = 'Stop'
+      $deadline = (Get-Date).AddSeconds(15)
+      while (Answers) {
+        if ((Get-Date) -gt $deadline) { throw "pocketd didn't stop within 15s" }
+        Start-Sleep -Milliseconds 300
+      }
+    }
     New-Item -ItemType Directory -Force -Path $runtime | Out-Null
-    Expand-Archive -Force -Path $archive -DestinationPath $runtime
+    Copy-Item -Recurse -Force -Path (Join-Path $staged '*') -Destination $runtime
   } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
     if ($env:ANYWHERE_ARCHIVE) { Remove-Item -Force $env:ANYWHERE_ARCHIVE -ErrorAction SilentlyContinue }
