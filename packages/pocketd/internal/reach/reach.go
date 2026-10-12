@@ -23,10 +23,11 @@ var (
 )
 
 // IsTailnet reports whether ip on iface is a Tailscale address. 100.64.0.0/10
-// counts only on utun interfaces: elsewhere it is carrier-grade NAT.
+// counts only on Tailscale's interface (utun on macOS, tailscale0 on Linux):
+// elsewhere it is carrier-grade NAT.
 func IsTailnet(ip netip.Addr, iface string) bool {
 	ip = ip.Unmap()
-	return tailnet6.Contains(ip) || cgnat.Contains(ip) && strings.HasPrefix(iface, "utun")
+	return tailnet6.Contains(ip) || cgnat.Contains(ip) && (strings.HasPrefix(iface, "utun") || iface == "tailscale0")
 }
 
 type Iface struct {

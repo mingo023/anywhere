@@ -1,8 +1,12 @@
 package vt
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../../../third_party/ghostty/zig-out/include
-#cgo LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out/lib/ghostty-vt.xcframework/macos-arm64_x86_64/libghostty-vt.a
+#cgo darwin CFLAGS: -I${SRCDIR}/../../../../third_party/ghostty/zig-out/include
+#cgo darwin LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out/lib/ghostty-vt.xcframework/macos-arm64_x86_64/libghostty-vt.a
+#cgo linux,arm64 CFLAGS: -I${SRCDIR}/../../../../third_party/ghostty/zig-out-linux-arm64/include
+#cgo linux,arm64 LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out-linux-arm64/lib/libghostty-vt.a
+#cgo linux,amd64 CFLAGS: -I${SRCDIR}/../../../../third_party/ghostty/zig-out-linux-amd64/include
+#cgo linux,amd64 LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out-linux-amd64/lib/libghostty-vt.a
 #include <ghostty/vt.h>
 #include <stdint.h>
 

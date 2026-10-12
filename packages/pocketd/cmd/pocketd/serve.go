@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
@@ -124,7 +125,7 @@ func serve(sock, handed string) error {
 		}
 	}
 	settings := config.NewSettings(home)
-	keeper := &awake.Keeper{S: &awake.IOKit{}, Enabled: settings.KeepAwake, Linger: settings.AwakeLinger, After: time.After,
+	keeper := &awake.Keeper{S: awake.System(), Enabled: settings.KeepAwake, Linger: settings.AwakeLinger, After: time.After,
 		OnHeld: func(on bool) { mon.Set(func(s *proto.HostState) { s.KeepingAwake = on }) }}
 	go keeper.Run(ctx, kick, func() bool { return agent.Busy(d.Agents.List()) })
 	go tick(ctx, mon, evs)
@@ -348,6 +349,9 @@ func endGrace(store *devices.Store, closeDevice func(id, reason string)) error {
 // computerName is the name the Mac shows in Finder and AirDrop, which the
 // phone shows when asking to pair.
 func computerName(fallback string) string {
+	if runtime.GOOS != "darwin" {
+		return fallback
+	}
 	out, err := exec.Command("scutil", "--get", "ComputerName").Output()
 	if name := strings.TrimSpace(string(out)); err == nil && name != "" {
 		return name
