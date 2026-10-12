@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs the desktop's host bootstrap (packages/desktop/crates/hosts/src/bootstrap.sh) for real on a Linux host over ssh:
-# once downloading from a local HTTP server, once from an uploaded archive. Uses its own home and label, and removes both.
+# once downloading from a local HTTP server (ANYWHERE_ALLOW_HTTP=1), once from an uploaded archive. Uses its own home and label, and removes both.
 # Usage: scripts/test-bootstrap.sh [user@host]; default the OrbStack VM anywhere-linux.
 # ANYWHERE_E2E_KEY / ANYWHERE_E2E_KNOWN_HOSTS: ssh key and known_hosts (default /tmp/anywhere-e2e/…);
 # ANYWHERE_E2E_SSH_OPTS replaces all ssh options, e.g. for OrbStack's proxy (-p 32222, host mingo@anywhere-linux@127.0.0.1).
@@ -63,7 +63,7 @@ python3 -m http.server --bind :: --directory "$DIST" "$PORT" >/dev/null 2>&1 &
 server=$!
 sleep 1
 
-out=$(bootstrap "$HOME_DIR") || true
+out=$(bootstrap "$HOME_DIR" ANYWHERE_ALLOW_HTTP=1) || true
 echo "$out"
 check "a fresh host downloads, verifies and starts pocketd" has "$out" "ANYWHERE done"
 check "the download was verified" has "$out" "ANYWHERE step verify"
@@ -72,7 +72,7 @@ check "the socket answers status" remote "$POCKETD status >/dev/null"
 check "status reports a linux host" reports_linux
 check "the service says installed and running" has "$(remote "$POCKETD service status --label $LABEL --json")" "{\"label\":\"$LABEL\",\"installed\":true,\"running\":true,\"linger\":true}"
 
-out=$(bootstrap "$HOME_DIR") || true
+out=$(bootstrap "$HOME_DIR" ANYWHERE_ALLOW_HTTP=1) || true
 check "a second run finds pocketd running and touches nothing" has "$out" "ANYWHERE running"
 
 remote "$POCKETD service uninstall --label $LABEL"
@@ -91,5 +91,11 @@ check "an uploaded archive skips the download" lacks "$out" "step download"
 out=$(bootstrap "$HOME_DIR-bad" ANYWHERE_ARCHIVE=/tmp/pocketd-e2e.tar.gz ANYWHERE_SHA256=0000) && failed=1
 check "a wrong checksum is an error" has "$out" "ANYWHERE error checksum mismatch: got $sum, want 0000"
 check "a wrong checksum stops before unpacking" lacks "$out" "step unpack"
+
+out=$(bootstrap "$HOME_DIR-bad" ANYWHERE_ARCHIVE=/tmp/pocketd-e2e.tar.gz) && failed=1
+check "an archive without a checksum is an error" has "$out" "ANYWHERE error no checksum to verify /tmp/pocketd-e2e.tar.gz against"
+
+out=$(bootstrap "$HOME_DIR-bad") && failed=1
+check "a plain http download is refused" has "$out" "ANYWHERE error won't download http://$SERVE_HOST:$PORT/pocketd-linux-$arch.tar.gz: not https"
 
 exit $failed

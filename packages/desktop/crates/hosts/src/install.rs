@@ -195,7 +195,9 @@ pub fn update(host: &Host, paths: &Paths, source: &Source, on: impl FnMut(Progre
 /// A Windows host's pocketd first forgets this Mac's owner token, through the link that's still up.
 pub fn uninstall(host: &Host, paths: &Paths) -> Result<(), Error> {
     let dir = &paths.remote_dir;
-    if host.windows {
+    // A host never reached since it was added may be Windows without this Mac knowing yet.
+    let windows = host.windows || matches!(probe(host, paths)?, Platform::Windows { .. });
+    if windows {
         let _ = daemon::request_to(&host.endpoint(&paths.home), &serde_json::json!({"op": "owner.revokeSelf"}), Duration::from_secs(5));
         let shim = ssh::ps_quote(&format!(r"{dir}\bin\pocketd.cmd"));
         let script = format!("$p = Join-Path $HOME {shim}; if (Test-Path $p) {{ & $p service uninstall --label {}; exit $LASTEXITCODE }}", ssh::ps_quote(&label(dir)));
@@ -219,10 +221,15 @@ fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl Fn
     let (version, url, sum) = match source {
         Source::Release { version, url } => (version.as_str(), url.as_str(), None),
         Source::Archive(path) => {
-            upload(host, paths, path)?;
-            (channel::version(), "", checksum(path))
+            let sum = checksum(path).ok_or_else(|| Error::Failed(format!("No checksum beside {}", path.display())))?;
+            (channel::version(), "", Some(sum))
         }
     };
+    let filled = if host.windows { render_ps1(version, url, dir, &label(dir)) } else { render(version, url, dir, &label(dir)) };
+    let filled = filled.map_err(Error::Failed)?;
+    if let Source::Archive(path) = source {
+        upload(host, paths, path)?;
+    }
     let uploaded = matches!(source, Source::Archive(_));
     let (command, script) = if host.windows {
         let mut env = Vec::new();
@@ -233,7 +240,7 @@ fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl Fn
         if force {
             env.push("$env:ANYWHERE_FORCE = '1'".into());
         }
-        let script = env.iter().map(|e| format!("{e}\r\n")).collect::<String>() + &render_ps1(version, url, dir, &label(dir));
+        let script = env.iter().map(|e| format!("{e}\r\n")).collect::<String>() + &filled;
         // `-Command -` runs stdin line by line, which breaks the script's multi-line blocks.
         (ssh::powershell("& ([ScriptBlock]::Create([Console]::In.ReadToEnd()))"), script)
     } else {
@@ -245,7 +252,7 @@ fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl Fn
         if force {
             env.push("ANYWHERE_FORCE=1".into());
         }
-        (bootstrap_command(dir, &env, uploaded), render(version, url, dir, &label(dir)))
+        (bootstrap_command(dir, &env, uploaded), filled)
     };
     let mut child = Command::new("ssh")
         .args(args(host, paths, &command))
@@ -318,16 +325,32 @@ fn bootstrap_command(dir: &str, env: &[String], uploaded: bool) -> String {
     format!("sh -c '{inner}'")
 }
 
-fn render(version: &str, url: &str, dir: &str, label: &str) -> String {
+fn render(version: &str, url: &str, dir: &str, label: &str) -> Result<String, String> {
     fill(BOOTSTRAP, version, url, dir, label)
 }
 
-fn render_ps1(version: &str, url: &str, dir: &str, label: &str) -> String {
+fn render_ps1(version: &str, url: &str, dir: &str, label: &str) -> Result<String, String> {
     fill(BOOTSTRAP_PS1, version, url, dir, label)
 }
 
-fn fill(script: &str, version: &str, url: &str, dir: &str, label: &str) -> String {
-    script.replace("@@VERSION@@", version).replace("@@URL@@", url).replace("@@HOME_DIR@@", dir).replace("@@LABEL@@", label)
+/// The owner port a pocketd of this build's channel listens on, as pocketd's config.DefaultOwnerPort.
+fn owner_port() -> u16 {
+    if channel::is_release() { 4519 } else { 4520 }
+}
+
+/// `script` with its placeholders filled. They sit inside quoted shell and PowerShell literals, so a value
+/// holding anything but these characters is refused rather than escaped.
+fn fill(script: &str, version: &str, url: &str, dir: &str, label: &str) -> Result<String, String> {
+    let safe = |v: &str| v.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-+/:".contains(&b));
+    if let Some(bad) = [version, url, dir, label].into_iter().find(|v| !safe(v)) {
+        return Err(format!("Can't install with {bad:?}: it has characters a script can't quote"));
+    }
+    Ok(script
+        .replace("@@VERSION@@", version)
+        .replace("@@URL@@", url)
+        .replace("@@HOME_DIR@@", dir)
+        .replace("@@LABEL@@", label)
+        .replace("@@PORT@@", &owner_port().to_string()))
 }
 
 /// ssh's arguments for `command`, as the link connects. ssh adds an accepted key to the app's known_hosts,
@@ -425,16 +448,25 @@ mod tests {
 
     #[test]
     fn the_windows_script_is_ascii_and_filled_in() {
-        let script = render_ps1("1.2.0", "https://x/v1.2.0", ".coding-pocket", "dev.mingo.anywhere.host.pocketd");
+        let script = render_ps1("1.2.0", "https://x/v1.2.0", ".coding-pocket", "dev.mingo.anywhere.host.pocketd").unwrap();
         assert!(BOOTSTRAP_PS1.is_ascii(), "PowerShell reads stdin in the console's code page");
-        assert!(["@@VERSION@@", "@@URL@@", "@@HOME_DIR@@", "@@LABEL@@"].iter().all(|p| !script.contains(p)));
+        assert!(["@@VERSION@@", "@@URL@@", "@@HOME_DIR@@", "@@LABEL@@", "@@PORT@@"].iter().all(|p| !script.contains(p)));
         assert!(script.contains("$Version = '1.2.0'") && script.contains("$HomeDir = Join-Path $HOME '.coding-pocket'"));
+        assert!(script.contains(&format!("return {}", owner_port())));
+    }
+
+    #[test]
+    fn a_value_that_could_break_out_of_its_quotes_is_refused() {
+        assert!(render("1.2.0'; rm -rf ~; '", "https://x", ".cp", "l").is_err());
+        assert!(render_ps1("1.2.0", "https://x", ".cp", "l' + (iex 'calc') + '").is_err());
+        assert!(render("1.2.0", "https://x", "$(id)", "l").is_err());
+        assert!(render("0.0.0-e2e+1", "https://github.com/a/b/v0.0.0", ".coding-pocket-e2e", "dev.mingo.anywhere.host.pocketd").is_ok());
     }
 
     #[test]
     fn the_rendered_script_has_no_placeholder_left() {
-        let script = render("1.2.0", "https://x/v1.2.0", ".coding-pocket", "dev.mingo.anywhere.host.pocketd");
-        assert!(["@@VERSION@@", "@@URL@@", "@@HOME_DIR@@", "@@LABEL@@"].iter().all(|p| !script.contains(p)));
+        let script = render("1.2.0", "https://x/v1.2.0", ".coding-pocket", "dev.mingo.anywhere.host.pocketd").unwrap();
+        assert!(["@@VERSION@@", "@@URL@@", "@@HOME_DIR@@", "@@LABEL@@", "@@PORT@@"].iter().all(|p| !script.contains(p)));
         assert!(script.contains("VERSION='1.2.0'") && script.contains(r#"DIR="$HOME/.coding-pocket""#));
     }
 

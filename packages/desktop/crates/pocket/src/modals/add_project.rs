@@ -36,6 +36,7 @@ pub struct RepoForm {
     setup: Entity<InputState>,
     teardown: Entity<InputState>,
     host_path: Entity<InputState>,
+    host_scroll: UniformListScrollHandle,
     draft: RepoDraft,
 }
 
@@ -185,7 +186,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { url, name, setup, teardown, host_path, draft: RepoDraft::default() }, subs)
+        (Self { url, name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -223,6 +224,13 @@ impl Desktop {
     pub(crate) fn clone_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open(Overlay::AddRepo, window, cx);
         self.set_repo_source(Source::Clone);
+        cx.notify();
+    }
+
+    /// Opens Add project on Folder on a host.
+    pub(crate) fn open_host_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open(Overlay::AddRepo, window, cx);
+        self.set_repo_source(Source::Host);
         cx.notify();
     }
 

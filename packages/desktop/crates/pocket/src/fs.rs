@@ -12,11 +12,8 @@ pub enum Fs {
     Remote(Arc<Client>),
 }
 
-/// The most of a file a host sends in one read.
-const MAX_READ: usize = 16 << 20;
-
 fn not_connected() -> io::Error {
-    io::Error::new(ErrorKind::NotConnected, "host not connected")
+    git::NotConnected::error()
 }
 
 fn text(path: &Path) -> String {
@@ -70,7 +67,7 @@ impl Fs {
                 if !take(len) {
                     return Ok(None);
                 }
-                c.read(&text(path), MAX_READ).map(Some)
+                c.read(&text(path), git::MAX_READ).map(Some)
             }
         }
     }

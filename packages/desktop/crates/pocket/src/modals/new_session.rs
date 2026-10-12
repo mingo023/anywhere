@@ -611,7 +611,7 @@ impl Desktop {
             self.store.collapsed.remove(&project);
         }
         self.store.save();
-        let request = self.outbox.create(spec.clone(), |h| self.store.host_registry(h));
+        let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
         if !worktree {
             self.new_form.draft.reply.sent(request);
             return cx.notify();
