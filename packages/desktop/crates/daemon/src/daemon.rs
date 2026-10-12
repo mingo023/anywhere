@@ -85,7 +85,54 @@ pub fn request_at(path: &Path, msg: &Value) -> Result<Msg, String> {
 
 /// `request_at`, waiting up to `timeout` for the reply.
 pub fn request_at_with_timeout(path: &Path, msg: &Value, timeout: Duration) -> Result<Msg, String> {
-    let stream = UnixStream::connect(path).map_err(|e| e.to_string())?;
+    request_to(&Endpoint::local(path), msg, timeout)
+}
+
+/// What pocketd answers an auth line whose token it doesn't know.
+pub const NOT_OWNER: &str = "not an owner token";
+
+/// Where a pocketd listens: a socket, and the owner token it wants first when the socket is a
+/// Windows host's TCP port forwarded by ssh.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Endpoint {
+    pub path: PathBuf,
+    pub token: Option<String>,
+}
+
+impl Endpoint {
+    pub fn local(path: &Path) -> Self {
+        Self { path: path.into(), token: None }
+    }
+
+    /// A connection pocketd treats as its owner. Without a token nothing is sent first.
+    /// The reply to auth is read a byte at a time so nothing after it is lost to a buffer.
+    pub fn connect(&self, timeout: Duration) -> Result<UnixStream, String> {
+        let stream = UnixStream::connect(&self.path).map_err(|e| e.to_string())?;
+        let Some(token) = &self.token else { return Ok(stream) };
+        stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
+        writeln!(&stream, "{}", json!({"op": "auth", "token": token})).map_err(|e| e.to_string())?;
+        let mut line = Vec::new();
+        for byte in (&stream).bytes() {
+            match byte.map_err(|e| e.to_string())? {
+                b'\n' => break,
+                b => line.push(b),
+            }
+        }
+        if line.is_empty() {
+            return Err(CLOSED.into());
+        }
+        let reply: Msg = serde_json::from_slice(&line).map_err(|e| e.to_string())?;
+        if reply.ev != "ok" {
+            return Err(reply.error);
+        }
+        stream.set_read_timeout(None).map_err(|e| e.to_string())?;
+        Ok(stream)
+    }
+}
+
+/// `request_at_with_timeout` to `endpoint`.
+pub fn request_to(endpoint: &Endpoint, msg: &Value, timeout: Duration) -> Result<Msg, String> {
+    let stream = endpoint.connect(timeout)?;
     stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
     writeln!(&stream, "{msg}").map_err(|e| e.to_string())?;
     let mut line = String::new();
@@ -278,7 +325,11 @@ pub struct Daemon {
 impl Daemon {
     /// Connects in the background and keeps reconnecting, reporting each change as a `Msg` with `ev` "up" or "down".
     pub fn spawn(path: &Path) -> (Self, UnboundedReceiver<Msg>) {
-        let path = path.to_path_buf();
+        Self::spawn_to(Endpoint::local(path))
+    }
+
+    /// `spawn` to `endpoint`; a connection pocketd refuses as owner counts as down.
+    pub fn spawn_to(endpoint: Endpoint) -> (Self, UnboundedReceiver<Msg>) {
         let writer = Arc::new(Mutex::new(None));
         let (tx, rx) = unbounded();
         let shared = writer.clone();
@@ -287,7 +338,7 @@ impl Daemon {
             let mut wait = Duration::from_millis(200);
             let mut down = false;
             loop {
-                if let Ok((reader, stream)) = UnixStream::connect(&path).and_then(|s| Ok((BufReader::new(s.try_clone()?), s))) {
+                if let Ok((reader, stream)) = endpoint.connect(Duration::from_secs(5)).and_then(|s| Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))) {
                     *shared.lock().unwrap() = Some(stream);
                     down = false;
                     if !link("up") {
@@ -517,6 +568,53 @@ mod tests {
         assert_eq!(next(&mut rx), "up");
         drop(ln.accept().unwrap());
         assert_eq!(next(&mut rx), "down");
+    }
+
+    fn read_line(peer: &UnixStream) -> Value {
+        let mut line = String::new();
+        BufReader::new(peer).read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+
+    #[test]
+    fn a_token_is_sent_first_and_what_pocketd_sends_right_after_ok_still_arrives() {
+        let path = sock("auth");
+        let ln = UnixListener::bind(&path).unwrap();
+        let (d, mut rx) = Daemon::spawn_to(Endpoint { path, token: Some("t1".into()) });
+        let (peer, _) = ln.accept().unwrap();
+        assert_eq!(read_line(&peer), json!({"op": "auth", "token": "t1"}));
+        write!(&peer, "{{\"ev\":\"ok\"}}\n{{\"ev\":\"spawned\",\"id\":\"s2\"}}\n").unwrap();
+        assert_eq!(next(&mut rx), "up");
+        assert_eq!(next(&mut rx), "spawned");
+        assert!(d.send(json!({"op": "list"})));
+        assert_eq!(read_line(&peer), json!({"op": "list"}));
+    }
+
+    #[test]
+    fn without_a_token_the_first_line_is_the_request() {
+        let path = sock("plain");
+        let ln = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (peer, _) = ln.accept().unwrap();
+            let first = read_line(&peer);
+            writeln!(&peer, r#"{{"ev":"terminals"}}"#).unwrap();
+            first
+        });
+        assert_eq!(request_at(&path, &json!({"op": "list"})).unwrap().ev, "terminals");
+        assert_eq!(server.join().unwrap(), json!({"op": "list"}));
+    }
+
+    #[test]
+    fn a_refused_token_fails_the_request_with_pocketds_words() {
+        let path = sock("refused");
+        let ln = UnixListener::bind(&path).unwrap();
+        std::thread::spawn(move || {
+            let (peer, _) = ln.accept().unwrap();
+            read_line(&peer);
+            writeln!(&peer, r#"{{"ev":"error","error":"not an owner token","errorCode":"not_paired"}}"#).unwrap();
+        });
+        let endpoint = Endpoint { path, token: Some("old".into()) };
+        assert_eq!(request_to(&endpoint, &json!({"op": "status"}), Duration::from_secs(5)).unwrap_err(), NOT_OWNER);
     }
 
     #[test]

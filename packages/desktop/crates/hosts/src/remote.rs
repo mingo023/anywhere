@@ -4,6 +4,7 @@ use crate::split;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use daemon::Endpoint;
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, ErrorKind, Write};
 use std::os::unix::net::UnixStream;
@@ -68,14 +69,20 @@ struct Conn {
 /// A host's pocketd, reached through the socket its tunnel forwards. Paths may be the host's own or desktop keys under this host.
 pub struct Client {
     id: String,
-    sock: PathBuf,
+    endpoint: Endpoint,
     conn: Mutex<Option<Conn>>,
     next: AtomicU64,
+    /// An exec's cwd when it names none; `/` isn't absolute on Windows, so there it's the home `status` gave.
+    root: OnceLock<String>,
 }
 
 impl Client {
     pub fn new(id: &str, sock: PathBuf) -> Self {
-        Self { id: id.into(), sock, conn: Mutex::new(None), next: AtomicU64::new(1) }
+        Self::to(id, Endpoint { path: sock, token: None })
+    }
+
+    pub fn to(id: &str, endpoint: Endpoint) -> Self {
+        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new() }
     }
 
     pub fn id(&self) -> &str {
@@ -107,7 +114,7 @@ impl Client {
             }
             let open = match conn.as_mut() {
                 Some(c) => c,
-                None => conn.insert(open(&self.sock)?),
+                None => conn.insert(open(&self.endpoint)?),
             };
             open.waiters.lock().unwrap().get_or_insert_default().insert(id.clone(), tx);
             if let Err(e) = writeln!(open.stream, "{op}") {
@@ -139,13 +146,19 @@ impl Client {
 
     /// pocketd answers `status` without echoing an id, so it gets a connection of its own.
     pub fn status(&self) -> io::Result<HostInfo> {
-        let mut stream = UnixStream::connect(&self.sock)?;
+        let mut stream = self.endpoint.connect(FS_TIMEOUT).map_err(io::Error::other)?;
         stream.set_read_timeout(Some(FS_TIMEOUT))?;
         writeln!(stream, "{}", json!({"op": "status"}))?;
         for line in BufReader::new(stream).lines() {
             let reply: Value = serde_json::from_str(&line?).unwrap_or_default();
             match reply["ev"].as_str() {
-                Some("status") => return serde_json::from_value(reply["status"].clone()).map_err(io::Error::other),
+                Some("status") => {
+                    let info: HostInfo = serde_json::from_value(reply["status"].clone()).map_err(io::Error::other)?;
+                    if info.os == "windows" && !info.user_home.is_empty() {
+                        let _ = self.root.set(info.user_home.replace('\\', "/"));
+                    }
+                    return Ok(info);
+                }
                 Some("error") => return Err(io::Error::other(reply["error"].as_str().unwrap_or("host refused").to_string())),
                 _ => {}
             }
@@ -219,8 +232,8 @@ fn merged(mut theirs: Value, ours: &Value) -> Value {
     theirs
 }
 
-fn open(sock: &PathBuf) -> io::Result<Conn> {
-    let stream = UnixStream::connect(sock)?;
+fn open(endpoint: &Endpoint) -> io::Result<Conn> {
+    let stream = endpoint.connect(FS_TIMEOUT).map_err(io::Error::other)?;
     let waiters: Waiters = Arc::new(Mutex::new(Some(HashMap::new())));
     let reader = BufReader::new(stream.try_clone()?);
     let shared = waiters.clone();
@@ -246,7 +259,7 @@ impl git::Exec for Client {
     fn exec(&self, cwd: &str, argv: &[&str], stdin: Option<&[u8]>, timeout: Duration) -> io::Result<git::Output> {
         let argv: Vec<&str> = argv.iter().map(|a| self.host_path(a)).collect();
         // pocketd wants an absolute cwd; git's `-C` names the real one.
-        let cwd = if cwd.is_empty() { "/" } else { self.host_path(cwd) };
+        let cwd = if cwd.is_empty() { self.root.get().map_or("/", String::as_str) } else { self.host_path(cwd) };
         let mut op = json!({"op": "exec", "cwd": cwd, "argv": argv, "timeoutMs": timeout.as_millis() as u64});
         if let Some(input) = stdin {
             op["stdin"] = STANDARD.encode(input).into();
@@ -391,6 +404,29 @@ mod tests {
         let client = Client::new("devbox", sock.clone());
         let err = client.call(json!({"op": "exec", "cwd": "/", "argv": ["echo", "2000"]}), Duration::from_millis(50)).unwrap_err();
         assert!(matches!(err.kind(), ErrorKind::TimedOut), "{err}");
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn on_windows_a_command_without_a_cwd_runs_in_the_home_status_gave() {
+        let sock = temp_sock("windows");
+        let listener = UnixListener::bind(&sock).unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().map_while(Result::ok) {
+                let mut line = String::new();
+                BufReader::new(&stream).read_line(&mut line).unwrap();
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                let reply = match msg["op"].as_str() {
+                    Some("status") => json!({"ev": "status", "status": {"os": "windows", "userHome": r"C:\Users\me"}}),
+                    _ => json!({"ev": "exec", "id": msg["id"], "code": 0, "stdout": STANDARD.encode(msg["cwd"].as_str().unwrap())}),
+                };
+                writeln!(&stream, "{reply}").unwrap();
+            }
+        });
+        let client = Client::new("pc", sock.clone());
+        client.status().unwrap();
+        let out = client.exec("", &["git", "--version"], None, Duration::from_secs(5)).unwrap();
+        assert_eq!(String::from_utf8(out.stdout).unwrap(), "C:/Users/me");
         let _ = std::fs::remove_file(sock);
     }
 
