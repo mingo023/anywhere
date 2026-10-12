@@ -1,6 +1,6 @@
 # Spike: pocketd on Windows
 
-Can pocketd be built for Windows from this Mac, and how does the desktop reach it? Run 2026-10-12 against ghostty `4ae9f1a`, Go 1.27.1, zig 0.15.
+Can pocketd be built for Windows from this Mac, and how does the desktop reach it? Run 2026-10-12 against ghostty `4ae9f1a`, Go 1.27.1, zig 0.16.
 
 ## (a) libghostty-vt for Windows: yes
 
