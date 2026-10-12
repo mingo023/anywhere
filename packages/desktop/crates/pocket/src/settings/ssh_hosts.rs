@@ -37,7 +37,7 @@ fn host_line(host: &Host, link: Option<&Link>) -> String {
     if address == host.name { link_line(link, &host.name) } else { format!("{address} \u{b7} {}", link_line(link, &host.name)) }
 }
 
-fn link_color(link: Option<&Link>) -> Token {
+pub(crate) fn link_color(link: Option<&Link>) -> Token {
     match link {
         Some(Link::Online { .. }) => SUCCESS,
         Some(Link::Failed(_)) => FAILED,

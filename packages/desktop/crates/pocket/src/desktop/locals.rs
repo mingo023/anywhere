@@ -4,9 +4,13 @@ use agents::locals::{self, Local};
 use gpui_kit::*;
 
 impl Desktop {
-    /// A tree's name as its Local row shows it: a Local's own, else the project checkout's given name, else "Local".
+    /// A tree's name as its Local row shows it: a Local's own, else the project checkout's given name, else its host's name, else "Local".
     pub(crate) fn local_name(&self, key: &str) -> String {
-        self.agents.given_name(key).unwrap_or("Local").to_string()
+        match (self.agents.given_name(key), hosts::split(key).0) {
+            (Some(name), _) => name.to_string(),
+            (None, Some(host)) => self.host_name(host),
+            (None, None) => "Local".to_string(),
+        }
     }
 
     /// Adds a Local to `project`, named after the first free number, and returns its id.
