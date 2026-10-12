@@ -135,6 +135,11 @@ func serve(sock, handed string) error {
 	d.Terminals.OnInput = d.Input
 	d.Terminals.OnReport = d.Report
 	hostname, _ := os.Hostname()
+	hostID, err := state.HostID(home)
+	if err != nil {
+		return err
+	}
+	userHome, _ := os.UserHomeDir()
 	pairs := pairing.New(time.Now)
 	var live atomic.Pointer[reach.Listener]
 	pairHost := func() (string, bool) {
@@ -241,7 +246,8 @@ func serve(sock, handed string) error {
 		return ops.Status{PID: os.Getpid(), Version: versionString(), Home: home, Sock: sock, Log: logPath,
 			Uptime: int64(time.Since(started).Seconds()), Listen: addrs(live.Load().Addrs()), Terminals: len(d.Terminals.List()),
 			Agents: agents, KeepingAwake: h.KeepingAwake, Tailnet: h.Tailnet, ShellEnv: d.ShellEnv(), Service: service,
-			Config: settings.Values(), Providers: l.Paths()}
+			Config: settings.Values(), Providers: l.Paths(),
+			HostID: hostID, OS: runtime.GOOS, Arch: runtime.GOARCH, UserHome: userHome, Shell: shellenv.LoginShell(), Name: ws.MacName, Caps: ops.HostCaps}
 	}
 	err = (&ops.Server{
 		Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook,
@@ -258,7 +264,9 @@ func serve(sock, handed string) error {
 			default:
 			}
 		})),
-		Upgrade: up.run,
+		Upgrade:  up.run,
+		LoginEnv: d.LoginEnv,
+		TrashDir: filepath.Join(home, "trash"),
 	}).Serve(ln)
 	if ctx.Err() != nil {
 		writer.Freeze()

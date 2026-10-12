@@ -61,6 +61,9 @@ func inside(out, claudeTerm, agentID, requestID string) {
 		{"hook.own", ops.Msg{Op: "hook", ID: own, Data: ask}},
 		{"ops.config-set", ops.Msg{Op: "config-set", Key: "phone.maxAccess", Text: "auto"}},
 		{"ops.launch-exit", ops.Msg{Op: "launch-exit", ID: claudeTerm, Text: "agent", Code: 1}},
+		{"ops.exec", ops.Msg{Op: "exec", Cwd: "/", Argv: []string{"true"}}},
+		{"ops.fs.read", ops.Msg{Op: "fs.read", Path: "/etc/hosts"}},
+		{"ops.fs.write", ops.Msg{Op: "fs.write", Path: out + ".forged", Data: []byte("x")}},
 	} {
 		note(p.name, opsOutcome(sock, p.m))
 	}
