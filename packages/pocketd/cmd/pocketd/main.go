@@ -12,7 +12,7 @@ import (
 	"pocketd/internal/lock"
 )
 
-const usage = "usage: pocketd serve | run <cmd> [args...] | attach <id> | hook | pair [--host h:p] | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535>"
+const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535>"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -21,6 +21,11 @@ func main() {
 	}
 	if os.Args[1] == "worktree" {
 		os.Exit(worktreeMain(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	// A scheduled task can't set env, so it passes the home as a flag.
+	if len(os.Args) == 4 && os.Args[1] == "serve" && os.Args[2] == "--home" {
+		os.Setenv("POCKET_HOME", os.Args[3])
+		os.Args = os.Args[:2]
 	}
 	sock := config.Sock()
 	var err error
@@ -50,6 +55,10 @@ func main() {
 		err = hook(sock)
 	case os.Args[1] == "attach" && len(os.Args) == 3:
 		code, err = run(sock, os.Args[2], "", nil)
+	case os.Args[1] == "pair" && slices.Contains(os.Args[2:], "--json"):
+		err = ownerPair(config.Home(), os.Args[2:], os.Stdout)
+	case os.Args[1] == "owner":
+		err = ownerCmd(config.Home(), os.Args[2:], os.Stdout)
 	case os.Args[1] == "pair":
 		code, err = pairCmd(sock, os.Args[2:], term.IsTerminal(int(os.Stdin.Fd())), os.Stdout, os.Stderr)
 	case os.Args[1] == "devices":

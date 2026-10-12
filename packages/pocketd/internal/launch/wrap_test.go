@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,14 @@ func TestAPassingSetupIsReportedThenRunsTheAgent(t *testing.T) {
 		if got := runWrapped(t, shell, "true", []string{"/bin/sh", "-c", "exit 0"}); got != "hook exit setup 0\nhook exit agent 0\n" {
 			t.Errorf("%s: got %q", shell, got)
 		}
+	}
+}
+
+func TestWrapHandsPowerShellTheAgentThenKeepsItOpen(t *testing.T) {
+	got := Wrap(`C:\pwsh.exe`, `C:\p\pocketd.exe`, "", []string{"claude", "it's"})
+	want := []string{"-NoLogo", "-NoExit", "-Command", `& 'claude' 'it''s'; $s = if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 }; & 'C:\p\pocketd.exe' hook exit agent $s`}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q", got)
 	}
 }
 

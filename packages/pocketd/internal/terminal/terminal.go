@@ -1,24 +1,15 @@
 package terminal
 
 import (
-	"cmp"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	"github.com/creack/pty"
-	"golang.org/x/sys/unix"
-
-	"pocketd/internal/proc"
 	"pocketd/internal/vt"
 )
 
@@ -67,7 +58,7 @@ type subscriber struct {
 type Terminal struct {
 	info   Info
 	mu     sync.Mutex
-	pty    *os.File
+	pty    console
 	proc   *os.Process
 	vt     *vt.VT
 	subs   map[*subscriber]bool
@@ -102,31 +93,6 @@ func NewID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-// LookPath resolves cmd against the caller's PATH, not the daemon's: a
-// daemon started by launchd has a minimal PATH. The last PATH entry wins, as
-// it does for exec.Cmd.Env.
-func LookPath(cmd string, env []string) (string, error) {
-	if strings.Contains(cmd, "/") {
-		return cmd, nil
-	}
-	path, found := "", false
-	for _, kv := range env {
-		if p, ok := strings.CutPrefix(kv, "PATH="); ok {
-			path, found = p, true
-		}
-	}
-	if !found {
-		return exec.LookPath(cmd)
-	}
-	for _, dir := range filepath.SplitList(path) {
-		f := filepath.Join(dir, cmd)
-		if st, err := os.Stat(f); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
-			return f, nil
-		}
-	}
-	return "", &exec.Error{Name: cmd, Err: exec.ErrNotFound}
-}
-
 func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 	if spec.ID == "" {
 		spec.ID = NewID()
@@ -141,22 +107,14 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(bin, spec.Args...)
-	cmd.Dir = spec.Cwd
-	cmd.Env = spec.Env
-	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(spec.Cols), Rows: uint16(spec.Rows)})
+	f, p, err := start(bin, spec)
 	if err != nil {
-		return nil, err
-	}
-	if f, err = pollable(f); err != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
 		return nil, err
 	}
 	s := &Terminal{
 		info:   Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local},
 		pty:    f,
-		proc:   cmd.Process,
+		proc:   p,
 		subs:   map[*subscriber]bool{},
 		done:   make(chan struct{}),
 		input:  m.OnInput,
@@ -165,7 +123,7 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 	}
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
 	if err != nil {
-		cmd.Process.Kill()
+		p.Kill()
 		f.Close()
 		return nil, err
 	}
@@ -197,9 +155,10 @@ type Adopted struct {
 // Adopt takes over a handed-down Terminal. Its fd is still non-blocking,
 // so the new file is pollable too.
 func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
-	syscall.CloseOnExec(a.FD)
-	f := os.NewFile(uintptr(a.FD), "/dev/ptmx")
-	p, _ := os.FindProcess(a.Pid) // never fails on unix
+	f, p, err := adopt(a.FD, a.Pid)
+	if err != nil {
+		return nil, err
+	}
 	s := &Terminal{
 		info:   Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows, Local: a.Local},
 		pty:    f,
@@ -209,7 +168,6 @@ func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
 		input:  m.OnInput,
 		report: m.OnReport,
 	}
-	var err error
 	if s.vt, err = vt.New(a.Cols, a.Rows, s.replyToQuery); err != nil {
 		f.Close()
 		return nil, err
@@ -217,34 +175,6 @@ func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
 	s.vt.Write(a.Screen)
 	m.start(s)
 	return s, nil
-}
-
-// pollable moves f to a non-blocking fd the runtime poller owns, so a read
-// deadline can stop the pump. creack/pty's file blocks a thread instead.
-func pollable(f *os.File) (*os.File, error) {
-	defer f.Close()
-	fd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	if err := unix.SetNonblock(fd, true); err != nil {
-		unix.Close(fd)
-		return nil, err
-	}
-	return os.NewFile(uintptr(fd), f.Name()), nil
-}
-
-// setsize is pty.Setsize without Fd, which would make f blocking again.
-func setsize(f *os.File, cols, rows int) error {
-	rc, err := f.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var ioErr error
-	err = rc.Control(func(fd uintptr) {
-		ioErr = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
-	})
-	return cmp.Or(err, ioErr)
 }
 
 func (m *Manager) Get(id string) *Terminal {
@@ -417,25 +347,6 @@ func (s *Terminal) Handoff() (Handed, error) {
 	return Handed{FD: fd, Pid: s.proc.Pid, Screen: s.vt.Snapshot()}, nil
 }
 
-// inherit sets whether f survives exec, and returns its fd. Fd would make f blocking again.
-func inherit(f *os.File, on bool) (int, error) {
-	rc, err := f.SyscallConn()
-	if err != nil {
-		return 0, err
-	}
-	var fd int
-	var ioErr error
-	err = rc.Control(func(p uintptr) {
-		fd = int(p)
-		flags := unix.FD_CLOEXEC
-		if on {
-			flags = 0
-		}
-		_, ioErr = unix.FcntlInt(p, unix.F_SETFD, flags)
-	})
-	return fd, cmp.Or(err, ioErr)
-}
-
 func (s *Terminal) broadcast(e Event) {
 	for sub := range s.subs {
 		sub.fn(e)
@@ -480,7 +391,7 @@ func (s *Terminal) Pgrp() (int, error) {
 	if s.closed {
 		return 0, nil
 	}
-	return proc.Foreground(s.pty)
+	return s.group()
 }
 
 func (s *Terminal) SetForeground(text string) {
@@ -561,31 +472,6 @@ var CloseGrace = 2 * time.Second
 
 // Close ends the Terminal's whole session in the background; Done reports the end.
 func (s *Terminal) Close() { go s.stop(CloseGrace) }
-
-// stop signals every process group in the shell's session: job-control jobs
-// get their own groups, and nohup'd children ignore the pty's SIGHUP.
-// SIGHUP goes with SIGTERM because an interactive shell ignores SIGTERM.
-func (s *Terminal) stop(grace time.Duration) {
-	sid := s.Pid()
-	signal := func(sigs ...syscall.Signal) {
-		pgids, err := proc.Session(sid)
-		if err != nil {
-			pgids = []int{sid}
-		}
-		for _, pg := range pgids {
-			for _, sig := range sigs {
-				syscall.Kill(-pg, sig)
-			}
-		}
-	}
-	signal(syscall.SIGHUP, syscall.SIGTERM)
-	for deadline := time.Now().Add(grace); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if pgids, err := proc.Session(sid); err == nil && len(pgids) == 0 {
-			return
-		}
-	}
-	signal(syscall.SIGKILL)
-}
 
 // CloseAll stops every Terminal at once. It returns when all have ended or grace+500ms has passed.
 func (m *Manager) CloseAll(grace time.Duration) {

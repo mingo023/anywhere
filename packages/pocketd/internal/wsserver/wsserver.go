@@ -26,6 +26,7 @@ import (
 	"pocketd/internal/launch"
 	"pocketd/internal/locals"
 	"pocketd/internal/names"
+	"pocketd/internal/owners"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -81,6 +82,8 @@ type Server struct {
 	Locals    *locals.Locals
 	Registry  *registry.Registry
 	Terminals *terminal.Manager
+	// Owners are the tokens a TCP peer sends in hello's ownerToken to become the owner.
+	Owners *owners.Store
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -224,6 +227,22 @@ func (c *conn) handle(raw []byte) {
 			return
 		}
 		who, local := peer.From(c.ctx)
+		if local && who.Kind == peer.None {
+			// A TCP conn: the owner token is all that says who it is.
+			var o owners.Owner
+			ok := c.s.Owners != nil
+			if ok {
+				o, ok = c.s.Owners.Lookup(m.OwnerToken)
+			}
+			if !ok || c.authed && o.ID != c.who.Token {
+				c.reject(proto.NewErrorCode(m.ID, proto.CodeNotPaired, "Not an owner token"), statusUnpaired, proto.CodeNotPaired)
+				return
+			}
+			if !c.authed {
+				go c.s.Owners.Watch(c.ctx, o.ID, func() { c.ws.Close(statusUnpaired, "revoked") })
+			}
+			who = peer.OwnerByToken(o.ID)
+		}
 		if !local {
 			d, ok := c.s.Devices.Lookup(m.Token)
 			if !ok {

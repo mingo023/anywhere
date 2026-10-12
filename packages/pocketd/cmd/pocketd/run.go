@@ -3,8 +3,6 @@ package main
 import (
 	"errors"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"golang.org/x/term"
 
@@ -45,7 +43,7 @@ func run(sock, id, cmd string, args []string) (int, error) {
 	defer term.Restore(int(os.Stdin.Fd()), state)
 
 	winch := make(chan os.Signal, 1)
-	signal.Notify(winch, syscall.SIGWINCH)
+	notifyResize(winch)
 	go func() {
 		for range winch {
 			cols, rows, _ := term.GetSize(int(os.Stdout.Fd()))

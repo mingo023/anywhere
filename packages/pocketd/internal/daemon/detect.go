@@ -17,7 +17,7 @@ func Provider(argv []string) string {
 	if len(argv) == 0 {
 		return ""
 	}
-	name := filepath.Base(argv[0])
+	name := strings.TrimSuffix(filepath.Base(argv[0]), ".exe")
 	skip, ok := notAgent[name]
 	if !ok {
 		return ""
