@@ -10,9 +10,17 @@ pub(crate) fn has_changes(repo: Option<&Repo>) -> bool {
     repo.is_some_and(|r| !r.files.is_empty())
 }
 
+/// The window colour around a mark on a sidebar icon, so it reads as cut out of the icon.
+const RAIL_CUTOUT: Token = Token::new(0xfafafaff, 0x171717ff);
+
 /// Marks a sidebar toggle while the hidden Changes list has something in it.
 pub(crate) fn changes_dot() -> Div {
-    ui::dot(6., ACCENT).absolute().top(px(5.)).right(px(5.)).shadow(vec![ui::ring(Token::new(0xfafafaff, 0x171717ff), 1.5)])
+    ui::dot(6., ACCENT).absolute().top(px(5.)).right(px(5.)).shadow(vec![ui::ring(RAIL_CUTOUT, 1.5)])
+}
+
+/// How many files the Changes list holds, at the bottom right of its 32px rail icon.
+pub(crate) fn changes_badge(n: usize) -> Div {
+    ui::count_badge(n).top(px(19.)).right(px(-4.)).bg(PRIMARY).text_color(ON_PRIMARY).shadow(vec![ui::ring(RAIL_CUTOUT, 2.)])
 }
 
 impl Desktop {

@@ -14,6 +14,7 @@ use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
+use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_3, TEXT_4, Token, WAITING_TEXT};
 use workspace::Doc;
 use workspace::tree::PaneId;
 
@@ -102,26 +103,56 @@ pub(crate) fn fix_summary(checks: usize, comments: usize) -> (String, String) {
     (format!("{} to fix", plural(checks + comments, "thing")), parts.join(" · "))
 }
 
-/// Failed checks first, then running ones, at most `max`; with how many were left out.
-pub(crate) fn shown_checks(pr: &Pr, max: usize) -> (Vec<&Check>, usize) {
-    let rank = |o: Outcome| match o {
-        Outcome::Failed => 0,
-        Outcome::Pending => 1,
-        Outcome::Passed => 2,
-        Outcome::Skipped => 3,
-    };
-    let mut runs: Vec<&Check> = pr.runs.iter().collect();
-    runs.sort_by_key(|c| rank(c.outcome));
-    let hidden = runs.len().saturating_sub(max);
-    runs.truncate(max);
-    (runs, hidden)
+/// The checks named one by one, failed before pending; the passed and skipped ones are only counted.
+pub(crate) struct CheckRows<'a> {
+    pub(crate) named: Vec<&'a Check>,
+    pub(crate) passed: usize,
+    pub(crate) skipped: usize,
 }
 
-pub(crate) fn duration(secs: u64) -> String {
-    match (secs / 60, secs % 60) {
-        (0, s) => format!("{s}s"),
-        (m, 0) => format!("{m}m"),
-        (m, s) => format!("{m}m {s}s"),
+pub(crate) fn check_rows(pr: &Pr) -> CheckRows<'_> {
+    let mut named: Vec<&Check> = pr.runs.iter().filter(|c| matches!(c.outcome, Outcome::Failed | Outcome::Pending)).collect();
+    named.sort_by_key(|c| c.outcome != Outcome::Failed);
+    let count = |o: Outcome| pr.runs.iter().filter(|c| c.outcome == o).count();
+    CheckRows { named, passed: count(Outcome::Passed), skipped: count(Outcome::Skipped) }
+}
+
+/// "5 passed · 1 skipped", leaving out what is none.
+pub(crate) fn tally(parts: impl IntoIterator<Item = (usize, &'static str)>) -> String {
+    parts.into_iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect::<Vec<_>>().join(" · ")
+}
+
+pub(crate) fn fixing_text(agent: &str, items: usize) -> String {
+    format!("{agent} is fixing {}", plural(items, "item"))
+}
+
+pub(crate) fn resolving_text(agent: &str) -> String {
+    format!("{agent} is resolving the conflict")
+}
+
+/// Where the PR stands in one line, in its colour: all a folded card says.
+pub(crate) fn verdict(pr: &Pr, fixing: Option<&Sent>, busy: Option<&str>, agent: &str) -> (Token, String) {
+    let items = fixing.map_or(0, Sent::items);
+    match (pr.state, busy) {
+        (PrState::Merged, _) => (MERGED, format!("Merged into {}", pr.base)),
+        (PrState::Closed, _) => (TEXT_4, "Closed".into()),
+        (_, Some(busy)) => (WAITING_TEXT, busy.into()),
+        _ if items > 0 => (WAITING_TEXT, fixing_text(agent, items)),
+        _ if fixing.is_some_and(|s| s.conflict) => (WAITING_TEXT, resolving_text(agent)),
+        _ => {
+            let gate = pr.gate();
+            let c = pr.checks;
+            match gate {
+                Gate::Draft => (TEXT_4, "Draft".into()),
+                Gate::Ready => (SUCCESS_TEXT, "Ready to merge".into()),
+                Gate::Conflicts => (FAILED_TEXT, gate_text(gate, &pr.base)),
+                Gate::ChecksFailed if pr.review == Review::ChangesRequested => (FAILED_TEXT, format!("{} failed · changes requested", plural(c.failed.into(), "check"))),
+                Gate::ChecksFailed => (FAILED_TEXT, format!("{} failed", plural(c.failed.into(), "check"))),
+                Gate::ChecksRunning => (WAITING_TEXT, format!("{} in progress", plural(c.pending.into(), "check"))),
+                Gate::ChangesRequested => (FAILED_TEXT, "Changes requested".into()),
+                _ => (TEXT_3, gate_text(gate, &pr.base)),
+            }
+        }
     }
 }
 
@@ -188,11 +219,13 @@ pub(crate) struct Track {
     pub(crate) all: bool,
     /// Resolved threads shown whole.
     pub(crate) expanded: HashSet<String>,
+    /// The card shows only its title and verdict.
+    pub(crate) folded: bool,
 }
 
 impl Default for Track {
     fn default() -> Self {
-        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, comments: false, all: false, expanded: HashSet::new() }
+        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, comments: false, all: false, expanded: HashSet::new(), folded: false }
     }
 }
 
@@ -310,6 +343,12 @@ impl Desktop {
         let tree = self.cwd()?;
         let pr = self.prs.get(&tree)?;
         Some((tree, pr))
+    }
+
+    /// Where the PR of `tree` stands, in its colour, as its card's header says it.
+    pub(crate) fn pr_verdict(&self, tree: &str, pr: &Pr) -> (Token, String) {
+        let busy = self.pr.busy.filter(|_| self.pr.composing.is_none());
+        verdict(pr, self.pr.track.fixing(tree, pr), busy, self.fix_agent())
     }
 
     /// Opens the composer for the worktree on screen, filled by the agent picked for commit messages or from the commits.
@@ -705,9 +744,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ship, Track, conflict_prompt, duration, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, review_lines, ship, shown_checks, to_fix};
+    use super::{Ship, Track, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, review_lines, ship, tally, to_fix, verdict};
     use crate::git_ui::pull_requests::PrItem;
-    use git::github::{Check, Comment, Gate, Outcome, Pr, Review, Thread};
+    use git::github::{Check, Checks, Comment, Gate, Mergeable, Outcome, Pr, PrState, Review, Thread};
+    use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
     use git::{Commit, FileStat, Repo};
 
     fn repo(files: usize, ahead: usize, unpushed: Option<usize>) -> Repo {
@@ -760,7 +800,7 @@ mod tests {
 
     #[test]
     fn a_fix_lists_each_failed_check_with_its_log_then_each_thread_with_the_code_it_is_on() {
-        let check = Check { name: "test".into(), outcome: Outcome::Failed, url: "https://github.com/acme/app/actions/runs/1".into(), secs: Some(3) };
+        let check = Check { name: "test".into(), outcome: Outcome::Failed, url: "https://github.com/acme/app/actions/runs/1".into() };
         let t = thread("T1");
         assert_eq!(
             fix_prompt(&pr(), &[&check], &[&t]),
@@ -811,7 +851,7 @@ mod tests {
     }
 
     fn check(name: &str, outcome: Outcome) -> Check {
-        Check { name: name.into(), outcome, url: String::new(), secs: None }
+        Check { name: name.into(), outcome, url: String::new() }
     }
 
     #[test]
@@ -832,16 +872,48 @@ mod tests {
     }
 
     #[test]
-    fn failed_checks_show_first_then_running_ones_and_the_rest_are_counted() {
-        let pr = Pr { runs: vec![check("a", Outcome::Passed), check("b", Outcome::Pending), check("c", Outcome::Failed), check("d", Outcome::Skipped)], ..pr() };
-        let (shown, hidden) = shown_checks(&pr, 3);
-        assert_eq!(shown.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["c", "b", "a"]);
-        assert_eq!(hidden, 1);
+    fn failed_checks_are_named_before_running_ones_and_the_rest_are_only_counted() {
+        let pr = Pr { runs: vec![check("a", Outcome::Passed), check("b", Outcome::Pending), check("c", Outcome::Failed), check("d", Outcome::Skipped), check("e", Outcome::Passed)], ..pr() };
+        let rows = check_rows(&pr);
+        assert_eq!(rows.named.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["c", "b"]);
+        assert_eq!((rows.passed, rows.skipped), (2, 1));
     }
 
     #[test]
-    fn durations_read_in_minutes_and_seconds() {
-        assert_eq!([duration(42), duration(120), duration(75)], ["42s", "2m", "1m 15s"]);
+    fn counted_checks_leave_out_what_is_none() {
+        assert_eq!([tally([(5, "passed"), (1, "skipped")]), tally([(3, "passed"), (0, "skipped")]), tally([(0, "passed"), (2, "skipped")])], ["5 passed · 1 skipped", "3 passed", "2 skipped"]);
+    }
+
+    fn open(checks: Checks, review: Review) -> Pr {
+        Pr { checks, review, mergeable: Mergeable::Clean, ..pr() }
+    }
+
+    #[test]
+    fn a_folded_card_says_what_holds_the_pr_back_in_its_colour() {
+        let failed = Checks { passed: 5, failed: 2, pending: 1 };
+        assert_eq!(verdict(&open(failed, Review::ChangesRequested), None, None, "Claude"), (FAILED_TEXT, "2 checks failed · changes requested".into()));
+        assert_eq!(verdict(&open(Checks { pending: 1, ..Checks::default() }, Review::None), None, None, "Claude"), (WAITING_TEXT, "1 check in progress".into()));
+        assert_eq!(verdict(&open(Checks { passed: 3, ..Checks::default() }, Review::Approved), None, None, "Claude"), (SUCCESS_TEXT, "Ready to merge".into()));
+        let conflicting = Pr { mergeable: Mergeable::Conflicting, ..open(failed, Review::None) };
+        assert_eq!(verdict(&conflicting, None, None, "Claude"), (FAILED_TEXT, "Conflicts with main".into()));
+        assert_eq!(verdict(&Pr { draft: true, ..open(failed, Review::None) }, None, None, "Claude"), (TEXT_4, "Draft".into()));
+    }
+
+    #[test]
+    fn what_the_agent_or_gh_is_doing_comes_before_what_holds_the_pr_back() {
+        let pr = open(Checks { failed: 2, ..Checks::default() }, Review::None);
+        let mut track = Track::default();
+        track.send("/a", &pr, &[], &[&check("lint", Outcome::Failed), &check("test", Outcome::Failed)], false);
+        assert_eq!(verdict(&pr, track.fixing("/a", &pr), None, "Claude"), (WAITING_TEXT, "Claude is fixing 2 items".into()));
+        assert_eq!(verdict(&pr, None, Some("Merging…"), "Claude"), (WAITING_TEXT, "Merging…".into()));
+        let mut track = Track::default();
+        track.send("/a", &pr, &[], &[], true);
+        assert_eq!(verdict(&pr, track.fixing("/a", &pr), None, "Claude").1, "Claude is resolving the conflict");
+    }
+
+    #[test]
+    fn a_merged_card_names_where_it_went() {
+        assert_eq!(verdict(&Pr { state: PrState::Merged, ..pr() }, None, Some("Merging…"), "Claude"), (MERGED, "Merged into main".into()));
     }
 
     #[test]

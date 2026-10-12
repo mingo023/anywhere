@@ -56,7 +56,7 @@ impl Desktop {
             .gap(px(6.))
             .child(back)
             .child(div().flex_1().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child("Comments"))
-            .child(chip("pr-comments-chip", pr))
+            .child(chip("pr-comments-chip", pr, self.pr_verdict(&tree, pr).0))
             .child(ui::icon_button_sized("pr-comments-open", "external", 26., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(url.clone(), window, cx))));
         let unresolved = pr.unresolved().count();
         let all = self.pr.track.all;

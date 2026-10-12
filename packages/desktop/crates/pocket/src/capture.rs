@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 107] = [
+const STEPS: [(&str, Step); 108] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -249,13 +249,13 @@ const STEPS: [(&str, Step); 107] = [
         let at = crate::util::now_ms() as u64;
         let said = |author: &str, body: &str, mins: u64| Comment { author: author.into(), body: body.into(), at: at - mins * 60_000, hunk: String::new() };
         let thread = |id: &str, line: u32, resolved: bool, comments: Vec<Comment>| Thread { id: id.into(), path: "hooks/use-restore-preview.ts".into(), line: Some(line), resolved, comments, ..Thread::default() };
-        let run = |name: &str, outcome: Outcome, secs: u64| Check { name: name.into(), outcome, url: "https://github.com/acme/app/actions/runs/1".into(), secs: Some(secs) };
+        let run = |name: &str, outcome: Outcome| Check { name: name.into(), outcome, url: "https://github.com/acme/app/actions/runs/1".into() };
         let pr = Pr {
             number: 128,
             title: "Fix stale terminal reveal".into(),
             url: "https://github.com/acme/app/pull/128".into(),
             checks: Checks { passed: 3, failed: 1, pending: 0 },
-            runs: vec![run("lint", Outcome::Passed, 42), run("typecheck", Outcome::Passed, 61), run("test", Outcome::Failed, 134), run("build", Outcome::Passed, 98)],
+            runs: vec![run("lint", Outcome::Passed), run("typecheck", Outcome::Passed), run("test", Outcome::Failed), run("build", Outcome::Passed)],
             review: Review::ChangesRequested,
             reviews: vec![("hoang".into(), Review::ChangesRequested)],
             requested: vec!["linh".into()],
@@ -274,6 +274,7 @@ const STEPS: [(&str, Step); 107] = [
         d.prs.apply(tree, now, Ok(Some(pr)), now);
     }),
     ("pr-comments", |d, _, _| d.pr.track.comments = true),
+    ("pr-fold", |d, _, _| d.pr.track.folded = true),
     ("pr-diff", |d, _, cx| {
         let first = d.shown_pr().and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
         if let Some(id) = first {
@@ -411,6 +412,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.creates.list.clear();
     d.graph = GraphState::default();
     d.pr.track.comments = false;
+    d.pr.track.folded = false;
     d.agents.names.clear();
     d.agents.locals.clear();
     d.sidebar.rename = None;

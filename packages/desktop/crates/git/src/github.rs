@@ -42,8 +42,6 @@ pub struct Check {
     pub outcome: Outcome,
     /// Where its log is.
     pub url: String,
-    /// How long it ran, once it finished.
-    pub secs: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -402,9 +400,7 @@ fn runs(rollup: &Value) -> Vec<Check> {
             };
             (outcome, field("name"), field("detailsUrl"))
         };
-        // GitHub can stamp a skipped run as completing before it started.
-        let secs = (outcome != Outcome::Pending).then(|| Some(epoch_ms(field("completedAt"))?.saturating_sub(epoch_ms(field("startedAt"))?) / 1000)).flatten();
-        runs.push(Check { name: name.to_string(), outcome, url: url.to_string(), secs });
+        runs.push(Check { name: name.to_string(), outcome, url: url.to_string() });
     }
     runs
 }
@@ -459,18 +455,12 @@ mod tests {
     ],"title":"`gh issue artifact` stack 10/11: Add `edit --restore-version`","url":"https://github.com/cli/cli/pull/14580"}"#;
 
     #[test]
-    fn an_open_pr_lists_each_check_with_its_duration_and_log() {
+    fn an_open_pr_lists_each_check_with_its_log() {
         let pr = view_result(Ok(CLI.into())).unwrap().unwrap();
         let build = &pr.runs[1];
-        assert_eq!((build.name.as_str(), build.outcome, build.secs), ("CodeQL-Build", Outcome::Passed, Some(174)));
+        assert_eq!((build.name.as_str(), build.outcome), ("CodeQL-Build", Outcome::Passed));
         assert_eq!(build.url, "https://github.com/cli/cli/actions/runs/37048540763/job/110975885942");
-        assert_eq!((pr.runs[2].outcome, pr.runs[2].secs), (Outcome::Pending, None));
-    }
-
-    #[test]
-    fn a_check_that_completes_before_it_starts_lasts_no_time() {
-        let pr = view_result(Ok(CLI.into())).unwrap().unwrap();
-        assert_eq!((pr.runs[0].outcome, pr.runs[0].secs), (Outcome::Skipped, Some(0)));
+        assert_eq!((pr.runs[0].outcome, pr.runs[2].outcome), (Outcome::Skipped, Outcome::Pending));
     }
 
     #[test]

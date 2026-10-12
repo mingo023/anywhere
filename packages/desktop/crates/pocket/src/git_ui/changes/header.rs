@@ -28,7 +28,7 @@ impl Desktop {
         let pr = self.cwd().and_then(|tree| {
             let pr = self.prs.get(&tree)?;
             let url = pr.url.clone();
-            Some(pull_requests::chip("changes-pr", pr).cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(url.clone(), window, cx))))
+            Some(pull_requests::chip("changes-pr", pr, self.pr_verdict(&tree, pr).0).cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(url.clone(), window, cx))))
         });
         div()
             .h(px(40.))

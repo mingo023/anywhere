@@ -816,6 +816,11 @@ pub fn add_tile(id: impl Into<ElementId>, size: f32) -> Stateful<Div> {
         .child(icon("plus", 16., TEXT_3))
 }
 
+/// A count that fits a badge: thousands read as "1k+".
+fn count_text(n: usize) -> String {
+    if n >= 1000 { format!("{}k+", n / 1000) } else { n.to_string() }
+}
+
 pub fn count_badge(count: usize) -> Div {
     div()
         .absolute()
@@ -832,7 +837,7 @@ pub fn count_badge(count: usize) -> Div {
         .text_size(px(10.))
         .font_weight(FontWeight::BOLD)
         .text_color(WHITE)
-        .child(count.to_string())
+        .child(count_text(count))
 }
 
 pub fn avatar(initials: &str, size: f32) -> Div {
@@ -1154,10 +1159,15 @@ pub fn failure(message: String, detail: String) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, State, Tone, lit, marquee_cycle, marquee_offset, tone, word};
+    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, State, Tone, count_text, lit, marquee_cycle, marquee_offset, tone, word};
     use theme::{ACCENT, ACCENT_TINT, WORKING};
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];
+
+    #[test]
+    fn a_badge_counts_up_to_999_then_reads_in_thousands() {
+        assert_eq!([count_text(1), count_text(999), count_text(1000), count_text(2480)], ["1", "999", "1k+", "2k+"]);
+    }
 
     #[test]
     fn every_alerting_state_has_its_own_glyph_and_colour() {
