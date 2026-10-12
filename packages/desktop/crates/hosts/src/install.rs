@@ -7,13 +7,16 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::time::Duration;
 
 const BOOTSTRAP: &str = include_str!("bootstrap.sh");
+const BOOTSTRAP_PS1: &str = include_str!("bootstrap.ps1");
 const RELEASES: &str = "https://github.com/mingo023/anywhere/releases/download";
 /// Where an uploaded archive waits, in the app's folder on the host.
 const UPLOAD: &str = "upload.tar.gz";
+const UPLOAD_ZIP: &str = "upload.zip";
 
-/// A line of the install checklist, in the order bootstrap.sh reports them.
+/// A line of the install checklist, in the order bootstrap.sh and bootstrap.ps1 report them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {
     Detect,
@@ -73,17 +76,16 @@ pub fn parse(line: &str) -> Option<Progress> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Platform {
     Unix { os: &'static str, arch: &'static str },
-    Windows,
+    Windows { arch: &'static str },
 }
 
 /// The platform `uname -s` then `uname -m` printed, past any login noise.
 pub fn parse_uname(stdout: &str) -> Result<Platform, String> {
     let mut lines = stdout.lines().map(str::trim).filter(|l| !l.is_empty());
     let (Some(machine), Some(system)) = (lines.next_back(), lines.next_back()) else { return Err("uname printed nothing".into()) };
-    if ["MINGW", "MSYS", "CYGWIN"].iter().any(|p| system.starts_with(p)) {
-        return Ok(Platform::Windows);
-    }
+    let windows = ["MINGW", "MSYS", "CYGWIN"].iter().any(|p| system.starts_with(p));
     let os = match system {
+        _ if windows => "windows",
         "Darwin" => "darwin",
         "Linux" => "linux",
         _ => return Err(format!("Anywhere doesn't run on {system}")),
@@ -93,7 +95,22 @@ pub fn parse_uname(stdout: &str) -> Result<Platform, String> {
         "x86_64" | "amd64" => "amd64",
         _ => return Err(format!("Anywhere doesn't run on {machine}")),
     };
-    Ok(Platform::Unix { os, arch })
+    Ok(if windows { Platform::Windows { arch } } else { Platform::Unix { os, arch } })
+}
+
+/// Prints `windows <CPU>` from PowerShell; a 32-bit shell on a 64-bit CPU names the real one in the W6432 variable.
+fn windows_arch_command() -> String {
+    ssh::powershell("$cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }; Write-Output \"windows $cpu\"")
+}
+
+/// What `windows_arch_command` printed; `None` when it wasn't Windows that ran it.
+fn parse_windows_arch(stdout: &str) -> Option<Result<Platform, String>> {
+    let cpu = stdout.lines().map(str::trim).rev().find_map(|l| l.strip_prefix("windows "))?;
+    Some(match cpu {
+        "AMD64" => Ok(Platform::Windows { arch: "amd64" }),
+        "ARM64" => Ok(Platform::Windows { arch: "arm64" }),
+        _ => Err(format!("Anywhere doesn't run on {cpu}")),
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,15 +128,15 @@ impl Error {
     }
 }
 
-/// What the host runs. Windows' shells have no `uname`, so a failed one asks `ver`.
+/// What the host runs. Windows' shells have no `uname`, so a failed one asks PowerShell.
 pub fn probe(host: &Host, paths: &Paths) -> Result<Platform, Error> {
     let out = ssh(host, paths, "uname -s; uname -m", Stdio::null())?;
     if out.status.success() {
         return parse_uname(&String::from_utf8_lossy(&out.stdout)).map_err(Error::Failed);
     }
-    let ver = ssh(host, paths, "cmd /c ver", Stdio::null())?;
-    if String::from_utf8_lossy(&ver.stdout).contains("Microsoft Windows") {
-        return Ok(Platform::Windows);
+    let ps = ssh(host, paths, &windows_arch_command(), Stdio::null())?;
+    if let Some(platform) = parse_windows_arch(&String::from_utf8_lossy(&ps.stdout)) {
+        return platform.map_err(Error::Failed);
     }
     Err(Error::Failed(format!("Couldn't tell what {} runs: {}", host.name, last_line(&out.stderr))))
 }
@@ -134,14 +151,16 @@ pub enum Source {
 /// The source for `platform`: an archive in `dist` when it has one, else the release `version`.
 /// A dev build has no release, so it needs the archive.
 pub fn source(platform: Platform, version: &str, dist: Option<&Path>) -> Result<Source, String> {
-    let Platform::Unix { os, arch } = platform else { return Err("Windows hosts: coming next".into()) };
-    let name = format!("pocketd-{os}-{arch}.tar.gz");
+    let (name, package) = match platform {
+        Platform::Unix { os, arch } => (format!("pocketd-{os}-{arch}.tar.gz"), format!("package-pocketd.sh dev {os}-{arch}")),
+        Platform::Windows { arch } => (format!("pocketd-windows-{arch}.zip"), format!("package-pocketd-windows.sh dev {arch}")),
+    };
     if let Some(path) = dist.map(|d| d.join(&name)).filter(|p| p.is_file()) {
         return Ok(Source::Archive(path));
     }
     if version == "dev" {
         let dir = dist.map_or("packages/pocketd/dist".into(), |d| d.display().to_string());
-        return Err(format!("No {name} in {dir}. Build it with scripts/package-pocketd.sh dev {os}-{arch}"));
+        return Err(format!("No {name} in {dir}. Build it with scripts/{package}"));
     }
     Ok(Source::Release { version: version.into(), url: format!("{RELEASES}/v{version}") })
 }
@@ -167,13 +186,26 @@ pub fn install(host: &Host, paths: &Paths, source: &Source, on: impl FnMut(Progr
 }
 
 /// Installs `source` even over a running pocketd, which hands off to it in place, keeping its terminals.
+/// On Windows it restarts instead, closing them.
 pub fn update(host: &Host, paths: &Paths, source: &Source, on: impl FnMut(Progress)) -> Result<(), Error> {
     run(host, paths, source, true, on)
 }
 
 /// Stops pocketd's service on `host` and removes it; pocketd's files and the host's projects stay.
+/// A Windows host's pocketd first forgets this Mac's owner token, through the link that's still up.
 pub fn uninstall(host: &Host, paths: &Paths) -> Result<(), Error> {
     let dir = &paths.remote_dir;
+    if host.windows {
+        let _ = daemon::request_to(&host.endpoint(&paths.home), &serde_json::json!({"op": "owner.revokeSelf"}), Duration::from_secs(5));
+        let shim = ssh::ps_quote(&format!(r"{dir}\bin\pocketd.cmd"));
+        let script = format!("$p = Join-Path $HOME {shim}; if (Test-Path $p) {{ & $p service uninstall --label {}; exit $LASTEXITCODE }}", ssh::ps_quote(&label(dir)));
+        let out = ssh(host, paths, &ssh::powershell(&script), Stdio::null())?;
+        if !out.status.success() {
+            return Err(Error::Failed(format!("Couldn't uninstall pocketd: {}", last_line(&out.stderr))));
+        }
+        let _ = std::fs::remove_file(host.owner_file(&paths.home));
+        return Ok(());
+    }
     let command = format!(r#"sh -c 'p="$HOME/{dir}/bin/pocketd"; [ -x "$p" ] || exit 0; POCKET_HOME="$HOME/{dir}" "$p" service uninstall --label {}'"#, label(dir));
     let out = ssh(host, paths, &command, Stdio::null())?;
     if !out.status.success() {
@@ -184,19 +216,37 @@ pub fn uninstall(host: &Host, paths: &Paths) -> Result<(), Error> {
 
 fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl FnMut(Progress)) -> Result<(), Error> {
     let dir = &paths.remote_dir;
-    let (version, url, mut env) = match source {
-        Source::Release { version, url } => (version.as_str(), url.as_str(), Vec::new()),
+    let (version, url, sum) = match source {
+        Source::Release { version, url } => (version.as_str(), url.as_str(), None),
         Source::Archive(path) => {
             upload(host, paths, path)?;
-            let mut env = vec![format!("ANYWHERE_ARCHIVE=\"$HOME/{dir}/{UPLOAD}\"")];
-            env.extend(checksum(path).map(|sum| format!("ANYWHERE_SHA256={sum}")));
-            (channel::version(), "", env)
+            (channel::version(), "", checksum(path))
         }
     };
-    if force {
-        env.push("ANYWHERE_FORCE=1".into());
-    }
-    let command = bootstrap_command(dir, &env, matches!(source, Source::Archive(_)));
+    let uploaded = matches!(source, Source::Archive(_));
+    let (command, script) = if host.windows {
+        let mut env = Vec::new();
+        if uploaded {
+            env.push(format!("$env:ANYWHERE_ARCHIVE = Join-Path $HOME {}", ssh::ps_quote(&format!(r"{dir}\{UPLOAD_ZIP}"))));
+        }
+        env.extend(sum.map(|sum| format!("$env:ANYWHERE_SHA256 = '{sum}'")));
+        if force {
+            env.push("$env:ANYWHERE_FORCE = '1'".into());
+        }
+        let script = env.iter().map(|e| format!("{e}\r\n")).collect::<String>() + &render_ps1(version, url, dir, &label(dir));
+        // `-Command -` runs stdin line by line, which breaks the script's multi-line blocks.
+        (ssh::powershell("& ([ScriptBlock]::Create([Console]::In.ReadToEnd()))"), script)
+    } else {
+        let mut env = Vec::new();
+        if uploaded {
+            env.push(format!("ANYWHERE_ARCHIVE=\"$HOME/{dir}/{UPLOAD}\""));
+        }
+        env.extend(sum.map(|sum| format!("ANYWHERE_SHA256={sum}")));
+        if force {
+            env.push("ANYWHERE_FORCE=1".into());
+        }
+        (bootstrap_command(dir, &env, uploaded), render(version, url, dir, &label(dir)))
+    };
     let mut child = Command::new("ssh")
         .args(args(host, paths, &command))
         .stdin(Stdio::piped())
@@ -205,7 +255,7 @@ fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl Fn
         .spawn()
         .map_err(|e| Error::Failed(format!("Couldn't run ssh: {e}")))?;
     // A host that refused the login has closed the pipe; ssh's exit says why.
-    let _ = child.stdin.take().unwrap().write_all(render(version, url, dir, &label(dir)).as_bytes());
+    let _ = child.stdin.take().unwrap().write_all(script.as_bytes());
     let mut stderr = child.stderr.take().unwrap();
     let errors = std::thread::spawn(move || {
         let mut text = Vec::new();
@@ -235,7 +285,15 @@ fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl Fn
 fn upload(host: &Host, paths: &Paths, archive: &Path) -> Result<(), Error> {
     let file = std::fs::File::open(archive).map_err(|e| Error::Failed(format!("Can't read {}: {e}", archive.display())))?;
     let dir = &paths.remote_dir;
-    let out = ssh(host, paths, &format!(r#"sh -c 'umask 077; mkdir -p "$HOME/{dir}" && cat > "$HOME/{dir}/{UPLOAD}"'"#), file.into())?;
+    let command = if host.windows {
+        ssh::powershell(&format!(
+            "$d = Join-Path $HOME {}; New-Item -ItemType Directory -Force -Path $d | Out-Null; $f = [IO.File]::Create((Join-Path $d '{UPLOAD_ZIP}')); try {{ [Console]::OpenStandardInput().CopyTo($f) }} finally {{ $f.Close() }}",
+            ssh::ps_quote(dir)
+        ))
+    } else {
+        format!(r#"sh -c 'umask 077; mkdir -p "$HOME/{dir}" && cat > "$HOME/{dir}/{UPLOAD}"'"#)
+    };
+    let out = ssh(host, paths, &command, file.into())?;
     if !out.status.success() {
         return Err(Error::Failed(format!("Couldn't upload pocketd: {}", last_line(&out.stderr))));
     }
@@ -261,7 +319,15 @@ fn bootstrap_command(dir: &str, env: &[String], uploaded: bool) -> String {
 }
 
 fn render(version: &str, url: &str, dir: &str, label: &str) -> String {
-    BOOTSTRAP.replace("@@VERSION@@", version).replace("@@URL@@", url).replace("@@HOME_DIR@@", dir).replace("@@LABEL@@", label)
+    fill(BOOTSTRAP, version, url, dir, label)
+}
+
+fn render_ps1(version: &str, url: &str, dir: &str, label: &str) -> String {
+    fill(BOOTSTRAP_PS1, version, url, dir, label)
+}
+
+fn fill(script: &str, version: &str, url: &str, dir: &str, label: &str) -> String {
+    script.replace("@@VERSION@@", version).replace("@@URL@@", url).replace("@@HOME_DIR@@", dir).replace("@@LABEL@@", label)
 }
 
 /// ssh's arguments for `command`, as the link connects. ssh adds an accepted key to the app's known_hosts,
@@ -308,6 +374,7 @@ mod tests {
     fn every_step_bootstrap_reports_has_a_checklist_line() {
         for name in ["detect", "download", "verify", "unpack", "link", "service", "start"] {
             assert!(BOOTSTRAP.contains(&format!("say step {name}")), "{name}");
+            assert!(BOOTSTRAP_PS1.contains(&format!("Step '{name}'")), "{name}");
             assert!(Step::named(name).is_some(), "{name}");
         }
     }
@@ -317,7 +384,7 @@ mod tests {
         assert_eq!(parse_uname("Welcome!\nLinux\naarch64\n"), Ok(Platform::Unix { os: "linux", arch: "arm64" }));
         assert_eq!(parse_uname("Darwin\narm64\n"), Ok(Platform::Unix { os: "darwin", arch: "arm64" }));
         assert_eq!(parse_uname("Linux\nx86_64\n"), Ok(Platform::Unix { os: "linux", arch: "amd64" }));
-        assert_eq!(parse_uname("MINGW64_NT-10.0-22631\nx86_64\n"), Ok(Platform::Windows));
+        assert_eq!(parse_uname("MINGW64_NT-10.0-22631\nx86_64\n"), Ok(Platform::Windows { arch: "amd64" }));
         assert_eq!(parse_uname("FreeBSD\namd64\n"), Err("Anywhere doesn't run on FreeBSD".into()));
         assert_eq!(parse_uname("Linux\nriscv64\n"), Err("Anywhere doesn't run on riscv64".into()));
     }
@@ -345,7 +412,23 @@ mod tests {
     fn a_dev_build_without_an_archive_says_how_to_make_one() {
         let err = source(Platform::Unix { os: "linux", arch: "amd64" }, "dev", None).unwrap_err();
         assert!(err.contains("scripts/package-pocketd.sh dev linux-amd64"), "{err}");
-        assert_eq!(source(Platform::Windows, "1.2.0", None), Err("Windows hosts: coming next".into()));
+        let err = source(Platform::Windows { arch: "arm64" }, "dev", None).unwrap_err();
+        assert!(err.contains("No pocketd-windows-arm64.zip") && err.contains("scripts/package-pocketd-windows.sh dev arm64"), "{err}");
+    }
+
+    #[test]
+    fn powershell_names_a_windows_hosts_cpu_and_a_unix_shell_says_nothing() {
+        assert_eq!(parse_windows_arch("Welcome\r\nwindows AMD64\r\n"), Some(Ok(Platform::Windows { arch: "amd64" })));
+        assert_eq!(parse_windows_arch("windows x86\n"), Some(Err("Anywhere doesn't run on x86".into())));
+        assert_eq!(parse_windows_arch("sh: powershell: command not found\n"), None);
+    }
+
+    #[test]
+    fn the_windows_script_is_ascii_and_filled_in() {
+        let script = render_ps1("1.2.0", "https://x/v1.2.0", ".coding-pocket", "dev.mingo.anywhere.host.pocketd");
+        assert!(BOOTSTRAP_PS1.is_ascii(), "PowerShell reads stdin in the console's code page");
+        assert!(["@@VERSION@@", "@@URL@@", "@@HOME_DIR@@", "@@LABEL@@"].iter().all(|p| !script.contains(p)));
+        assert!(script.contains("$Version = '1.2.0'") && script.contains("$HomeDir = Join-Path $HOME '.coding-pocket'"));
     }
 
     #[test]

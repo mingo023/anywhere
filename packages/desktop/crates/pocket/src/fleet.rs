@@ -5,10 +5,10 @@ use futures::StreamExt;
 use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use daemon::Daemon;
+use daemon::{Daemon, Endpoint};
 use hosts::Host;
 use hosts::checklist::{Checklist, Outcome};
-use hosts::install::{self, Progress, Step};
+use hosts::install::{self, Platform, Progress, Step};
 use hosts::link::{self, Link, Paths, Supervisor};
 use hosts::remote::Client;
 use std::collections::{HashMap, HashSet};
@@ -118,6 +118,8 @@ pub(crate) struct Fleet {
     pub installs: HashMap<String, Checklist>,
     /// Hosts whose pocketd runs on Windows, where an update closes terminals.
     pub windows: HashSet<String>,
+    /// The owner token each host's session and agents channel were opened with.
+    tokens: HashMap<String, Option<String>>,
     /// What a host's row says instead of its link, as while its service is uninstalled.
     pub notices: HashMap<String, String>,
 }
@@ -146,6 +148,7 @@ impl Fleet {
             form,
             installs: HashMap::new(),
             windows: HashSet::new(),
+            tokens: HashMap::new(),
             notices: HashMap::new(),
         };
         (fleet, subs)
@@ -185,6 +188,7 @@ impl Fleet {
         self.links.remove(id);
         self.installs.remove(id);
         self.windows.remove(id);
+        self.tokens.remove(id);
         self.notices.remove(id);
     }
 }
@@ -220,25 +224,40 @@ impl Desktop {
 
     /// Serves the host's folders and terminals here, once its pocketd says it can.
     fn host_online(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(host) = self.store.hosts.iter().find(|h| h.id == id) else { return };
-        let sock = host.socket(self.store.home());
-        let client = Arc::new(Client::new(id, sock.clone()));
+        let Some(host) = self.store.hosts.iter().find(|h| h.id == id).cloned() else { return };
+        let home = self.store.home().to_path_buf();
         let id = id.to_string();
         cx.spawn_in(window, async move |this, cx| {
-            let probe = client.clone();
-            let info = cx.background_executor().spawn(async move { probe.status() }).await;
+            let (client, endpoint, info) = cx
+                .background_executor()
+                .spawn(async move {
+                    let endpoint = host.endpoint(&home);
+                    let client = Arc::new(Client::to(&host.id, endpoint.clone()));
+                    let info = client.status();
+                    (client, endpoint, info)
+                })
+                .await;
             this.update_in(cx, |d, window, cx| {
                 let Ok(info) = info else { return };
                 if info.os == "windows" {
                     d.fleet.windows.insert(id.clone());
+                    if let Some(host) = d.store.hosts.iter_mut().find(|h| h.id == id && !h.windows) {
+                        host.windows = true;
+                        d.save_soon(cx);
+                    }
                 }
                 if !d.fleet.links.online(&id) || !info.serves_projects() {
                     return;
                 }
+                // A re-paired host's new token isn't the one its open session and agents channel send.
+                if d.fleet.tokens.insert(id.clone(), endpoint.token.clone()).is_some_and(|was| was != endpoint.token) {
+                    d.daemon.remove(&id);
+                    d.close_host_agents(&id);
+                }
                 hosts::remote::register(client);
-                d.open_host_agents(&id, &sock, info.user_home, window, cx);
+                d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 if !d.daemon.has(&id) {
-                    d.open_host_session(id, &sock, window, cx);
+                    d.open_host_session(id, endpoint, window, cx);
                 }
                 cx.notify();
             })
@@ -247,8 +266,8 @@ impl Desktop {
     }
 
     /// Talks to the host's pocketd for as long as the host stays added; its own reconnects ride out the link's.
-    fn open_host_session(&mut self, id: String, sock: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        let (daemon, mut rx) = Daemon::spawn(sock);
+    fn open_host_session(&mut self, id: String, endpoint: Endpoint, window: &mut Window, cx: &mut Context<Self>) {
+        let (daemon, mut rx) = Daemon::spawn_to(endpoint);
         self.daemon.add(&id, daemon);
         let host = id.clone();
         let task = cx.spawn_in(window, async move |this, cx| {
@@ -339,6 +358,7 @@ impl Desktop {
             // Finding the platform and uploading the archive come before bootstrap.sh says it checks the host.
             send(Progress::Step(Step::Detect));
             let ran = install::probe(&host, &paths).and_then(|platform| {
+                let host = Host { windows: matches!(platform, Platform::Windows { .. }), ..host.clone() };
                 let source = install::source(platform, channel::version(), install::dist_dir().as_deref()).map_err(install::Error::Failed)?;
                 if update { install::update(&host, &paths, &source, send) } else { install::install(&host, &paths, &source, send) }
             });
@@ -400,8 +420,9 @@ impl Desktop {
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);
         if let Some(at) = self.store.hosts.iter().position(|h| h.id == id) {
-            let known_hosts = self.store.hosts.remove(at).known_hosts(self.store.home());
-            cx.background_executor().spawn(async move { std::fs::remove_file(known_hosts) }).detach();
+            let host = self.store.hosts.remove(at);
+            let files = [host.known_hosts(self.store.home()), host.owner_file(self.store.home())];
+            cx.background_executor().spawn(async move { files.iter().for_each(|f| _ = std::fs::remove_file(f)) }).detach();
         }
         self.save_soon(cx);
         cx.notify();
