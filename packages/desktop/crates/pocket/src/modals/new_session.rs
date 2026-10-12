@@ -96,7 +96,7 @@ struct Draft {
     seed: usize,
     picked_checkout: Target,
     /// pocketd takes Locals; without them every session gets a Worktree, whatever was picked.
-    locals: bool,
+    locals_offered: bool,
     /// The Local an earlier send made, so a retry after a failed create starts there instead of making another.
     local: Option<String>,
     repo: Option<String>,
@@ -130,7 +130,7 @@ impl Default for Draft {
             taken: HashSet::new(),
             seed: 0,
             picked_checkout: Target::NewLocal,
-            locals: true,
+            locals_offered: true,
             local: None,
             repo: None,
             branches: Vec::new(),
@@ -183,7 +183,7 @@ impl Draft {
 
     /// A pull request always gets its own worktree; the checkout picked returns once it is unlinked.
     fn in_worktree(&self) -> bool {
-        self.picked_checkout == Target::Worktree || !self.locals || matches!(self.source, Source::Pr(_))
+        self.picked_checkout == Target::Worktree || !self.locals_offered || matches!(self.source, Source::Pr(_))
     }
 
     fn link_pr(&mut self, typed: &str) {
@@ -206,7 +206,7 @@ impl Draft {
     }
 
     fn targets(&self) -> Vec<Target> {
-        [Some(Target::Worktree), self.locals.then_some(Target::NewLocal)].into_iter().flatten().collect()
+        [Some(Target::Worktree), self.locals_offered.then_some(Target::NewLocal)].into_iter().flatten().collect()
     }
 
     fn pick_checkout(&mut self, target: Target) {
@@ -461,8 +461,8 @@ fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, curren
 
 impl NewForm {
     /// pocketd's caps change on every connect.
-    pub(crate) fn offer_locals(&mut self, locals: bool) {
-        self.draft.locals = locals;
+    pub(crate) fn offer_locals(&mut self, offered: bool) {
+        self.draft.locals_offered = offered;
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
@@ -512,7 +512,7 @@ impl Desktop {
             s.focus(window, cx);
         });
         f.draft.picked_checkout = if worktree { Target::Worktree } else { Target::NewLocal };
-        (f.draft.locals, f.draft.local) = (self.agents.locals_offered(), None);
+        (f.draft.locals_offered, f.draft.local) = (self.agents.locals_offered(), None);
         f.draft.images.clear();
         f.draft.open(&last);
         (f.draft.picker, f.draft.want_base) = (None, None);
@@ -826,7 +826,7 @@ mod tests {
     fn the_picker_offers_only_a_new_worktree_and_a_new_local() {
         let draft = Draft::default();
         assert_eq!(draft.targets(), [Target::Worktree, Target::NewLocal]);
-        assert_eq!(Draft { locals: false, ..draft }.targets(), [Target::Worktree]);
+        assert_eq!(Draft { locals_offered: false, ..draft }.targets(), [Target::Worktree]);
         let local = checkout_choice(Target::NewLocal);
         assert_eq!((local.glyph, local.label), ("laptop", "Local"));
     }
@@ -845,9 +845,9 @@ mod tests {
 
     #[test]
     fn without_locals_a_picked_local_becomes_a_worktree_until_pocketd_takes_them_again() {
-        let mut draft = Draft { repo: Some("/p".into()), locals: false, ..Draft::default() };
+        let mut draft = Draft { repo: Some("/p".into()), locals_offered: false, ..Draft::default() };
         assert_eq!((draft.target(), draft.ready("")), (Target::Worktree, false));
-        draft.locals = true;
+        draft.locals_offered = true;
         assert_eq!((draft.target(), draft.ready("")), (Target::NewLocal, true));
     }
 
