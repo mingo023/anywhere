@@ -1,6 +1,6 @@
 #!/bin/sh
 # libghostty's C API has no stable version yet, so the commit is pinned.
-# Usage: build-ghostty.sh [linux-arm64|linux-amd64]; no target builds the macOS lib.
+# Usage: build-ghostty.sh [linux-arm64|linux-amd64|windows-arm64|windows-amd64]; no target builds the macOS lib.
 set -eu
 REV=4ae9f1a2de5484de3d6a13fe03676b8853b9c41c
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,8 +15,12 @@ case "$TARGET" in
     OUT="$DIR/zig-out-$TARGET"
     LIB="$OUT/lib/libghostty-vt.a"
     ;;
+  windows-arm64|windows-amd64)
+    OUT="$DIR/zig-out-$TARGET"
+    LIB="$OUT/lib/ghostty-vt-static.lib"
+    ;;
   *)
-    echo "build-ghostty: unknown target $TARGET (want linux-arm64 or linux-amd64)" >&2
+    echo "build-ghostty: unknown target $TARGET (want linux-arm64, linux-amd64, windows-arm64 or windows-amd64)" >&2
     exit 2
     ;;
 esac
@@ -45,5 +49,7 @@ case "$TARGET" in
   "") zig build -Demit-lib-vt -Demit-xcframework=true -Doptimize=ReleaseFast ;;
   linux-arm64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu --prefix "$OUT" ;;
   linux-amd64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu --prefix "$OUT" ;;
+  windows-arm64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=aarch64-windows-gnu --prefix "$OUT" ;;
+  windows-amd64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$OUT" ;;
 esac
 echo "$REV" > "$STAMP"

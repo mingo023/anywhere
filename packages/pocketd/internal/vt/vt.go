@@ -7,6 +7,10 @@ package vt
 #cgo linux,arm64 LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out-linux-arm64/lib/libghostty-vt.a
 #cgo linux,amd64 CFLAGS: -I${SRCDIR}/../../../../third_party/ghostty/zig-out-linux-amd64/include
 #cgo linux,amd64 LDFLAGS: ${SRCDIR}/../../../../third_party/ghostty/zig-out-linux-amd64/lib/libghostty-vt.a
+#cgo windows,arm64 CFLAGS: -DGHOSTTY_STATIC -I${SRCDIR}/../../../../third_party/ghostty/zig-out-windows-arm64/include
+#cgo windows,arm64 LDFLAGS: -L${SRCDIR}/../../../../third_party/ghostty/zig-out-windows-arm64/lib -lghostty-vt-static
+#cgo windows,amd64 CFLAGS: -DGHOSTTY_STATIC -I${SRCDIR}/../../../../third_party/ghostty/zig-out-windows-amd64/include
+#cgo windows,amd64 LDFLAGS: -L${SRCDIR}/../../../../third_party/ghostty/zig-out-windows-amd64/lib -lghostty-vt-static
 #include <ghostty/vt.h>
 #include <stdint.h>
 
