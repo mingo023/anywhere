@@ -1,8 +1,6 @@
 use super::launch::{self, Pick};
-use super::{Checkout, OpenTree, Source, Target, checkout_choice, listed_branches, parse_pr};
+use super::{Checkout, Source, checkout_choice, listed_branches, parse_pr};
 use crate::desktop::Desktop;
-use agents::locals::is_local;
-use crate::sidebar::tree_label;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -125,7 +123,7 @@ impl Desktop {
     fn checkout_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
         let rows: Vec<AnyElement> = f.targets(self.agents.locals_offered()).into_iter().enumerate().map(|(i, target)| {
-            let Checkout { glyph, label, hint } = self.checkout(target);
+            let Checkout { glyph, label, hint } = checkout_choice(target);
             access_row(("checkout", i), f.target() == target, Some(glyph), &label, hint, TEXT)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.new_form.draft.pick_checkout(target);
@@ -268,19 +266,9 @@ impl Desktop {
         div().relative().child(chip).children(menu)
     }
 
-    /// Names the open tree as the sidebar does.
-    fn checkout(&self, target: Target) -> Checkout {
-        let main = self.project.as_deref().and_then(|p| self.tree_of(p));
-        let open = match self.place() {
-            Some(t) if Some(&t) != main.as_ref() && !is_local(&t) => OpenTree::Worktree(self.worktree_of(&t).map_or_else(|| crate::util::basename(&t), |w| tree_label(w, &self.agents).0)),
-            t => OpenTree::Local(self.local_name(t.as_deref().unwrap_or_default())),
-        };
-        checkout_choice(target, open, self.new_form.draft.new_place)
-    }
-
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let Checkout { glyph, label, .. } = self.checkout(f.target());
+        let Checkout { glyph, label, .. } = checkout_choice(f.target());
         let checkout = ui::menu_chip("form-checkout", f.picker == Some(Picker::Checkout))
             .child(icon(glyph, 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(label))
