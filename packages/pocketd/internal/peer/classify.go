@@ -36,5 +36,8 @@ func Classify(pid int, roots map[int]string) Principal {
 		}
 		p = next
 	}
+	if !pidOwns {
+		return Principal{Kind: PTY, Pid: pid, Scopes: PTYScopes}
+	}
 	return OwnerOf(pid)
 }

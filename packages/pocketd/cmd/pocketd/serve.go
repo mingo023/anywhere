@@ -61,6 +61,7 @@ func serve(sock, handed string) error {
 	}
 	defer logs.Close()
 	log.SetOutput(logs)
+	detachConsole()
 	started := time.Now()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

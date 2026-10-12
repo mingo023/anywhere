@@ -1,3 +1,5 @@
+//go:build unix
+
 // Command redteam is the inside stage of the no-self-approval red-team. The
 // e2e test runs it in a scratch pocketd's Terminal, so every call it makes
 // comes from a PTY peer. It writes one "<probe> <outcome>" line per call to its

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -42,14 +41,14 @@ func Acquire(home string) (*Lock, error) {
 	}
 	var lockErr error
 	for try := 0; try < probeRetries; try++ {
-		if lockErr = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); lockErr == nil || !errors.Is(lockErr, syscall.EWOULDBLOCK) {
+		if lockErr = lockNB(f, true); lockErr == nil || !errors.Is(lockErr, errBusy) {
 			break
 		}
 		time.Sleep(probeWait)
 	}
 	if lockErr != nil {
 		f.Close()
-		if errors.Is(lockErr, syscall.EWOULDBLOCK) {
+		if errors.Is(lockErr, errBusy) {
 			pid, _ := Holder(home)
 			return nil, ErrRunning{PID: pid, Home: home}
 		}
@@ -76,7 +75,7 @@ func Holder(home string) (int, bool) {
 		return 0, false
 	}
 	defer f.Close()
-	if syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB) == nil {
+	if lockNB(f, false) == nil {
 		return 0, false
 	}
 	raw, err := os.ReadFile(path(home))
