@@ -21,6 +21,7 @@ import (
 
 	"pocketd/internal/atomicfile"
 	"pocketd/internal/devices"
+	"pocketd/internal/lock"
 )
 
 var (
@@ -65,11 +66,29 @@ func (s Store) read() ([]Owner, error) {
 }
 
 func (s Store) write(list []Owner) error {
+	raw, _ := json.MarshalIndent(file{1, list}, "", "  ")
+	return atomicfile.Write(s.Path, append(raw, '\n'), 0o600)
+}
+
+// change runs a read-modify-write under a lock beside the file, so a mint and a
+// revoke in two processes can't drop each other's write.
+func (s Store) change(edit func([]Owner) ([]Owner, error)) error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
 		return err
 	}
-	raw, _ := json.MarshalIndent(file{1, list}, "", "  ")
-	return atomicfile.Write(s.Path, append(raw, '\n'), 0o600)
+	l, err := lock.Wait(s.Path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer l.Close()
+	list, err := s.read()
+	if err != nil {
+		return err
+	}
+	if list, err = edit(list); err != nil {
+		return err
+	}
+	return s.write(list)
 }
 
 func hash(token string) []byte {
@@ -79,15 +98,11 @@ func hash(token string) []byte {
 
 // Mint adds an owner token and returns it. The token is never stored or shown again.
 func (s Store) Mint(name string) (Owner, string, error) {
-	list, err := s.read()
-	if err != nil {
-		return Owner{}, "", err
-	}
 	id := make([]byte, 16)
 	rand.Read(id)
 	token := devices.NewToken()
 	o := Owner{ID: hex.EncodeToString(id), Name: devices.CleanName(name), CreatedAt: time.Now().UnixMilli(), TokenHash: hex.EncodeToString(hash(token))}
-	if err := s.write(append(list, o)); err != nil {
+	if err := s.change(func(list []Owner) ([]Owner, error) { return append(list, o), nil }); err != nil {
 		return Owner{}, "", err
 	}
 	o.TokenHash = ""
@@ -128,22 +143,39 @@ func (s Store) Lookup(token string) (Owner, bool) {
 // revokes them all.
 func (s Store) Has(id string) bool {
 	list, err := s.read()
-	return err == nil && slices.ContainsFunc(list, func(o Owner) bool { return o.ID == id })
+	return err == nil && has(list, id)
+}
+
+func has(list []Owner, id string) bool {
+	return slices.ContainsFunc(list, func(o Owner) bool { return o.ID == id })
 }
 
 // WatchEvery is how soon a revoke reaches a live conn.
 var WatchEvery = 2 * time.Second
 
+// watchMisses is how many checks in a row may fail to read the file before
+// Watch takes it as a revoke: on Windows a read can lose to the CLI's rename.
+const watchMisses = 3
+
 // Watch calls revoked once id stops being an owner token, unless ctx ends first.
 func (s Store) Watch(ctx context.Context, id string, revoked func()) {
 	t := time.NewTicker(WatchEvery)
 	defer t.Stop()
+	misses := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if !s.Has(id) {
+			list, err := s.read()
+			if err != nil {
+				if misses++; misses < watchMisses {
+					continue
+				}
+			} else {
+				misses = 0
+			}
+			if err != nil || !has(list, id) {
 				revoked()
 				return
 			}
@@ -154,25 +186,25 @@ func (s Store) Watch(ctx context.Context, id string, revoked func()) {
 // Revoke removes the owner token whose id starts with prefix. Conns that
 // authed with it close within WatchEvery.
 func (s Store) Revoke(prefix string) (Owner, error) {
-	list, err := s.read()
+	var o Owner
+	err := s.change(func(list []Owner) ([]Owner, error) {
+		found := -1
+		for i, o := range list {
+			if prefix == "" || !strings.HasPrefix(o.ID, prefix) {
+				continue
+			}
+			if found >= 0 {
+				return nil, ErrAmbiguous
+			}
+			found = i
+		}
+		if found < 0 {
+			return nil, ErrNotFound
+		}
+		o = list[found]
+		return slices.Delete(list, found, found+1), nil
+	})
 	if err != nil {
-		return Owner{}, err
-	}
-	found := -1
-	for i, o := range list {
-		if prefix == "" || !strings.HasPrefix(o.ID, prefix) {
-			continue
-		}
-		if found >= 0 {
-			return Owner{}, ErrAmbiguous
-		}
-		found = i
-	}
-	if found < 0 {
-		return Owner{}, ErrNotFound
-	}
-	o := list[found]
-	if err := s.write(slices.Delete(list, found, found+1)); err != nil {
 		return Owner{}, err
 	}
 	o.TokenHash = ""

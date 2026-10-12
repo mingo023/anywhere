@@ -16,3 +16,5 @@ func lockNB(f *os.File, exclusive bool) error {
 	}
 	return syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB)
 }
+
+func lockWait(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LOCK_EX) }

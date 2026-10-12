@@ -68,6 +68,20 @@ func Acquire(home string) (*Lock, error) {
 
 func (l *Lock) Close() error { return l.f.Close() }
 
+// Wait blocks until it holds path's lock, for a read-modify-write that other
+// processes also do; Close drops it.
+func Wait(path string) (*Lock, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := lockWait(f); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return &Lock{f}, nil
+}
+
 // Holder is the pid of the pocketd holding home's lock, if one does.
 func Holder(home string) (int, bool) {
 	f, err := os.Open(path(home))
