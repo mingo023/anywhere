@@ -33,6 +33,14 @@ func Label() string {
 	return "dev.mingo.anywhere.dev.pocketd"
 }
 
+// HostLabel names the service `pocketd service install` sets up on a host, apart from the app's.
+func HostLabel() string {
+	if Release() {
+		return "dev.mingo.anywhere.host.pocketd"
+	}
+	return "dev.mingo.anywhere.dev.host.pocketd"
+}
+
 // DefaultPort is the phone port a new config.json gets. Release and Dev differ so both can run.
 func DefaultPort() int {
 	if Release() {

@@ -63,7 +63,10 @@ jobs:
 
       - name: Ghostty
         if: steps.ghostty.outputs.cache-hit != 'true'
-        run: scripts/build-ghostty.sh
+        run: |
+          scripts/build-ghostty.sh
+          scripts/build-ghostty.sh linux-arm64
+          scripts/build-ghostty.sh linux-amd64
 
       - name: Build
         if: steps.cargo.outputs.cache-hit != 'true'
