@@ -23,6 +23,7 @@ for arch in "$@"; do
   rm -f "$OUT/$zip"
   (cd "$stage" && zip -q "$OUT/$zip" pocketd.exe)
   rm -r "$stage"
-  (cd "$OUT" && shasum -a 256 "$zip" > "$zip.sha256")
+  if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
+  (cd "$OUT" && $sum "$zip" > "$zip.sha256")
   echo "$OUT/$zip"
 done
