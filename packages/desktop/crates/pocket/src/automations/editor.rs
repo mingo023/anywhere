@@ -124,7 +124,7 @@ impl Desktop {
             .cursor_pointer()
             .text_size(px(13.))
             .text_color(TEXT_2)
-            .child(ui::toggle(enabled))
+            .child(ui::toggle("switch", enabled))
             .child(if enabled { "Active" } else { "Paused" })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.automations.form.v.enabled = !enabled;
@@ -217,7 +217,7 @@ impl Desktop {
             .gap(px(8.))
             .cursor_pointer()
             .text_color(TEXT_2)
-            .child(ui::toggle(on))
+            .child(ui::toggle("switch", on))
             .child("Each run gets its own worktree and branch")
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.automations.form.v.new_worktree = !on;

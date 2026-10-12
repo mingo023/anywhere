@@ -356,8 +356,10 @@ fn parse_pr(s: &str) -> Option<u32> {
     n.bytes().all(|b| b.is_ascii_digit()).then(|| n.parse().ok()).flatten().filter(|&n| n > 0)
 }
 
-const ADJECTIVES: [&str; 8] = ["brave", "calm", "eager", "fuzzy", "keen", "lucky", "quiet", "swift"];
-const NOUNS: [&str; 8] = ["otter", "heron", "maple", "comet", "falcon", "cedar", "koala", "lynx"];
+/// Origin's branches count: closing a worktree deletes its folder and local branch, but its pushed branch and pull request live on.
+fn taken_names(branches: &[(String, Option<i64>)], remote: &[String], folders: impl Iterator<Item = String>) -> HashSet<String> {
+    branches.iter().map(|(b, _)| b.clone()).chain(remote.iter().cloned()).chain(folders).collect()
+}
 
 /// Case-insensitive because APFS is; a branch `a/b` owns the name `a`.
 fn is_taken(name: &str, taken: &HashSet<String>) -> bool {
@@ -365,8 +367,10 @@ fn is_taken(name: &str, taken: &HashSet<String>) -> bool {
 }
 
 fn free_name(seed: usize, taken: &HashSet<String>) -> String {
-    let count = ADJECTIVES.len() * NOUNS.len();
-    (0..count).map(|i| (seed + i) % count).map(|n| format!("{}-{}", ADJECTIVES[n / NOUNS.len()], NOUNS[n % NOUNS.len()])).find(|n| !is_taken(n, taken)).unwrap_or_else(|| unique("worktree", taken))
+    let words = petname::Petnames::medium();
+    let (adjectives, nouns) = (&words.adjectives, &words.nouns);
+    let count = adjectives.len() * nouns.len();
+    (0..count).map(|i| (seed + i) % count).map(|n| format!("{}-{}", adjectives[n / nouns.len()], nouns[n % nouns.len()])).find(|n| !is_taken(n, taken)).unwrap_or_else(|| unique("worktree", taken))
 }
 
 /// `base`, or `base-2`, `base-3`… when taken.
@@ -540,8 +544,9 @@ impl Desktop {
             let current = git::read(&dir, true).map(|r| r.branch).unwrap_or_default();
             let branches = git::dated_branches(&dir);
             let entries = std::fs::read_dir(&folders).into_iter().flatten().flatten();
-            let taken: HashSet<String> = branches.iter().map(|(b, _)| b.clone()).chain(entries.filter_map(|e| e.file_name().into_string().ok())).collect();
-            (current, branches, taken, git::remote_branches(&dir))
+            let remote = git::remote_branches(&dir);
+            let taken = taken_names(&branches, &remote, entries.filter_map(|e| e.file_name().into_string().ok()));
+            (current, branches, taken, remote)
         });
         cx.spawn_in(window, async move |this, cx| {
             let (current, mut branches, taken, remote) = task.await;
@@ -696,7 +701,7 @@ impl Desktop {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
         let name = self.repo_name(&repo);
-        let project = div().flex().flex_none().items_center().gap(px(6.)).px(px(6.)).text_color(TEXT_2).child(ui::repo_tile(&crate::util::initials(&name), 16., false, None)).child(name.clone());
+        let project = div().flex().flex_none().items_center().gap(px(6.)).px(px(6.)).text_color(TEXT_2).child(ui::repo_tile(&self.project_mark(&repo, crate::util::initials(&name)), 16., false, None)).child(name.clone());
         let agent = self.agent_select(cx);
         let model = self.model_select(cx);
         let access = self.access_select(cx);
@@ -809,7 +814,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Attachment, Draft, Local, Source, Target, attachment_path, checkout_choice, default_first, listed_branches, name_problem, parse_pr, pasted_image, save_image};
+    use super::{Attachment, Draft, Local, Source, Target, attachment_path, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, pasted_image, save_image, taken_names};
     use agents::CreateReply;
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use serde_json::json;
@@ -892,11 +897,22 @@ mod tests {
 
     #[test]
     fn an_empty_name_falls_back_to_a_free_one() {
-        let taken: HashSet<String> = ["brave-otter", "Brave-Heron", "release/1.0"].map(String::from).into();
-        let draft = Draft { picked_checkout: Target::Worktree, taken, ..Draft::default() };
-        assert_eq!((draft.auto_name(), draft.name()), ("brave-maple".to_string(), "brave-maple".to_string()));
         let fresh = |seed| Draft { seed, ..Draft::default() }.auto_name();
-        assert_eq!((fresh(63), fresh(64)), ("swift-lynx".to_string(), "brave-otter".to_string()));
+        let taken: HashSet<String> = [fresh(0).to_uppercase(), format!("{}/x", fresh(1)), "release/1.0".into()].into();
+        let draft = Draft { picked_checkout: Target::Worktree, taken, ..Draft::default() };
+        assert_eq!((draft.auto_name(), draft.name()), (fresh(2), fresh(2)));
+        let words = petname::Petnames::medium();
+        assert_eq!(fresh(words.adjectives.len() * words.nouns.len()), fresh(0));
+    }
+
+    #[test]
+    fn a_closed_worktrees_pushed_branch_keeps_its_name_taken() {
+        let taken = taken_names(&[("main".into(), None)], &["calm-lynx".into()], ["brave-otter".to_string()].into_iter());
+        assert_eq!(name_problem("calm-lynx", &taken), Some("A worktree or branch with this name already exists"));
+        assert!(is_taken("brave-otter", &taken));
+        let first = Draft::default().auto_name();
+        let pushed = taken_names(&[], std::slice::from_ref(&first), std::iter::empty());
+        assert_ne!(Draft { taken: pushed, ..Draft::default() }.auto_name(), first);
     }
 
     #[test]

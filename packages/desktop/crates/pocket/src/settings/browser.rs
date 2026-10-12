@@ -50,7 +50,7 @@ impl Desktop {
     }
 
     fn dev_servers(&mut self) -> Div {
-        let caption = div().px(px(14.)).py(px(9.)).border_b(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child("One URL per project. Also editable in each project\u{2019}s settings.");
+        let caption = div().px(px(14.)).py(px(9.)).border_b(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child("One URL per project.");
         let rows = self.store.projects.iter().filter_map(|p| {
             let (field, _) = self.settings.dev_urls.get(p)?;
             let input = field_box().w(px(180.)).child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.))));
@@ -63,7 +63,7 @@ impl Desktop {
                     .gap(px(10.))
                     .border_b(px(0.5))
                     .border_color(SEPARATOR)
-                    .child(self.project_tile(p).size(px(20.)).rounded(px(5.)).text_size(px(8.5)))
+                    .child(self.project_tile(p, 20.))
                     .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(self.repo_name(p)))
                     .child(input),
             )

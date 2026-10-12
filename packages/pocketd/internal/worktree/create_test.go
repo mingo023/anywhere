@@ -32,13 +32,14 @@ func TestANameMustBeFreeAndValidForGit(t *testing.T) {
 	}
 }
 
-func TestTakenNamesAreBranchesAndFolders(t *testing.T) {
+func TestTakenNamesAreBranchesRemoteBranchesAndFolders(t *testing.T) {
 	p := repo(t)
 	git(t, p, "branch", "feat/x")
+	git(t, p, "update-ref", "refs/remotes/origin/calm-lynx", "HEAD")
 	dir := t.TempDir()
 	os.Mkdir(filepath.Join(dir, "old"), 0o755)
 	taken, err := Taken(p, dir)
-	if err != nil || !slices.Contains(taken, "main") || !slices.Contains(taken, "feat/x") || !slices.Contains(taken, "old") {
+	if err != nil || !slices.Contains(taken, "main") || !slices.Contains(taken, "feat/x") || !slices.Contains(taken, "calm-lynx") || !slices.Contains(taken, "old") {
 		t.Fatalf("taken = %v, %v", taken, err)
 	}
 }

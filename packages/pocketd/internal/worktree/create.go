@@ -56,18 +56,26 @@ func Validate(name string, taken []string) error {
 	return nil
 }
 
-// Taken is every name a new Worktree of project can't have: its branches and
-// the folders already in dir.
+// Taken is every name a new Worktree of project can't have: its branches,
+// its remotes' branches and the folders already in dir. Closing a Worktree
+// deletes its folder and branch, but its pushed branch and pull request live on.
 func Taken(project, dir string) ([]string, error) {
 	taken, err := branches(project)
 	if err != nil {
 		return nil, err
 	}
+	taken = append(taken, remoteBranches(project)...)
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		taken = append(taken, e.Name())
 	}
 	return taken, nil
+}
+
+// remoteBranches is the branches project's remotes have, without the remote's name.
+func remoteBranches(project string) []string {
+	out, _ := exec.Command("git", "-C", project, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/remotes").Output()
+	return strings.Fields(string(out))
 }
 
 // branches is project's local branches, most recently committed first.

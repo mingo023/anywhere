@@ -236,6 +236,11 @@ impl Desktop {
         self.store.repos.get(path).map(|r| r.color).filter(|c| *c != 0).unwrap_or_else(fallback)
     }
 
+    /// The project's tile mark, with `letters` where it has no icon of its own.
+    pub fn project_mark(&self, path: &str, letters: String) -> ui::Mark {
+        util::mark(self.store.repos.get(path).and_then(|r| r.icon.as_ref()), letters)
+    }
+
     pub fn roll_up(&self, p: &str) -> Option<(Status, usize)> {
         status::roll_up(self.cards(p).iter().map(|c| c.status))
     }

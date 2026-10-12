@@ -581,7 +581,7 @@ impl Desktop {
         match setting.control {
             Control::Switch { get, .. } => {
                 let on = get(&self.store);
-                div().id(setting.id).flex_none().cursor_pointer().child(ui::toggle(on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_switch(setting, !on, cx))).into_any_element()
+                div().id(setting.id).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_switch(setting, !on, cx))).into_any_element()
             }
             Control::Choice { options, look: Look::Segmented, get, .. } => {
                 ui::segmented(segments(options), get(&self.store), true, false, move |this: &mut Self, i, cx| this.choose(setting, i, cx), cx).into_any_element()

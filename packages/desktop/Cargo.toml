@@ -55,6 +55,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
 objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std"] }
+petname = { version = "3.2", default-features = false, features = ["default-words"] }
 qrcode = { version = "0.14", default-features = false }
 resvg = "0.46"
 serde = { version = "1", features = ["derive"] }
@@ -64,6 +65,7 @@ tungstenite = "0.26"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
 
 # gpui-pre 0.3.6 with `List` keeping item heights as hints on a width change instead of re-measuring every item; drop once upstream does.
+# It also gives `img` its picture's ratio only when a side is auto, so a portrait picture stays inside a sized box; drop once upstream does.
 # It also adds `Window::set_zoom`, drawing the whole window larger as a browser zooms; upstream has no equivalent.
 [patch.crates-io]
 gpui-pre = { path = "vendor/gpui-pre" }

@@ -22,6 +22,15 @@ pub struct RepoConfig {
     pub agent: LaunchPick,
     /// The dev server the browser's home page opens for this project.
     pub dev_url: String,
+    /// Shown on its tile in place of its initials.
+    pub icon: Option<ProjectIcon>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectIcon {
+    Emoji(String),
+    Image(PathBuf),
 }
 
 /// The agent a Project's next session starts with.
@@ -686,6 +695,17 @@ mod tests {
         let cfg = RepoConfig { teardown: "docker compose down".into(), ..Default::default() };
         let back: RepoConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
         assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn an_icon_round_trips_and_an_old_desktop_json_loads_without_one() {
+        let old: RepoConfig = serde_json::from_str(r#"{"name":"w"}"#).unwrap();
+        assert_eq!(old.icon, None);
+        for icon in [ProjectIcon::Emoji("🚀".into()), ProjectIcon::Image("/logo.png".into())] {
+            let cfg = RepoConfig { icon: Some(icon), ..Default::default() };
+            let back: RepoConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+            assert_eq!(back, cfg);
+        }
     }
 
     #[test]

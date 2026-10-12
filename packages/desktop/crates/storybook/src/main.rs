@@ -126,19 +126,19 @@ impl Render for Storybook {
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(ui::repo_mark("app", false, None))
-                    .child(ui::repo_mark("android", true, None))
-                    .child(ui::repo_mark("ios", false, Some(State::NeedsYou)))
-                    .child(ui::repo_mark("web", false, Some(State::Done(0, 0))))
-                    .child(ui::repo_mark("hk", false, Some(State::Working))),
+                    .child(ui::repo_mark(&ui::Mark::Letters(ui::mark_letter("app")), false, None))
+                    .child(ui::repo_mark(&ui::Mark::Letters(ui::mark_letter("android")), true, None))
+                    .child(ui::repo_mark(&ui::Mark::Letters(ui::mark_letter("ios")), false, Some(State::NeedsYou)))
+                    .child(ui::repo_mark(&ui::Mark::Letters(ui::mark_letter("web")), false, Some(State::Done(0, 0))))
+                    .child(ui::repo_mark(&ui::Mark::Letters(ui::mark_letter("hk")), false, Some(State::Working))),
             ))
             .child(story(
                 "Project row",
                 "Sidebar rail",
                 list()
-                    .child(ui::repo_row("repo-android", Some(ui::chevron("chev-android", true)), "app-android", true, true, None))
-                    .child(ui::repo_row("repo-ios", Some(ui::chevron("chev-ios", false)), "app-ios", false, true, Some(State::NeedsYou)))
-                    .child(ui::repo_row("repo-scratch", None, "scratch", false, false, Some(State::Working))),
+                    .child(ui::repo_row("repo-android", Some(ui::chevron("chev-android", true)), "app-android", &ui::Mark::Letters(ui::mark_letter("app-android")), true, true, None))
+                    .child(ui::repo_row("repo-ios", Some(ui::chevron("chev-ios", false)), "app-ios", &ui::Mark::Letters(ui::mark_letter("app-ios")), false, true, Some(State::NeedsYou)))
+                    .child(ui::repo_row("repo-scratch", None, "scratch", &ui::Mark::Letters(ui::mark_letter("scratch")), false, false, Some(State::Working))),
             ))
             .child(story(
                 "Session row",
@@ -175,9 +175,9 @@ impl Render for Storybook {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(ui::repo_tile("AN", 38., true, None))
-                    .child(ui::repo_tile("iO", 38., false, Some(State::NeedsYou)))
-                    .child(ui::repo_tile("HK", 38., false, Some(State::Working)))
+                    .child(ui::repo_tile(&ui::Mark::Letters("AN".into()), 38., true, None))
+                    .child(ui::repo_tile(&ui::Mark::Letters("iO".into()), 38., false, Some(State::NeedsYou)))
+                    .child(ui::repo_tile(&ui::Mark::Letters("HK".into()), 38., false, Some(State::Working)))
                     .child(ui::add_tile("rail-add", 38.))
                     .child(ui::count_badge(2))
                     .child(ui::avatar("MN", 32.)),

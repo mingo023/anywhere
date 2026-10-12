@@ -114,7 +114,7 @@ impl Desktop {
             .gap(px(8.))
             .cursor_pointer()
             .text_color(TEXT_2)
-            .child(ui::toggle(enabled))
+            .child(ui::toggle("switch", enabled))
             .child(if enabled { "Active" } else { "Paused" })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_automation(&id, !enabled, cx)));
         let (edit_id, run_id) = (auto.id.clone(), auto.id.clone());
@@ -135,7 +135,7 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(14.))
-            .child(ui::repo_tile(&initials(&project), 40., false, None))
+            .child(ui::repo_tile(&self.project_mark(&auto.folder, initials(&project)), 40., false, None))
             .child(
                 div()
                     .flex_1()

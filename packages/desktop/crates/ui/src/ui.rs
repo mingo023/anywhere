@@ -1,6 +1,7 @@
 use theme::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::path::PathBuf;
 
 pub fn shadow(color: impl Into<Hsla>, y: f32, blur: f32) -> BoxShadow {
     BoxShadow { color: color.into(), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(0.), inset: false }
@@ -106,12 +107,12 @@ pub fn button(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, lab
         .whitespace_nowrap()
         .text_color(v.fg());
     let d = match v {
-        Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD),
-        Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM),
-        Variant::Accent => d.bg(ACCENT_FILL).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]),
-        Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)),
-        Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)),
-        Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD),
+        Variant::Primary => primary(d).font_weight(FontWeight::SEMIBOLD).active(|s| s.opacity(0.85)),
+        Variant::Glass => glass(d).font_weight(FontWeight::MEDIUM).active(|s| s.opacity(0.85)),
+        Variant::Accent => d.bg(ACCENT_FILL).font_weight(FontWeight::SEMIBOLD).shadow(vec![highlight(rgba(0xffffff40)), shadow(rgba(0x0000002e), 2., 6.)]).active(|s| s.opacity(0.85)),
+        Variant::Secondary => d.bg(FILL_3).font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_4)).active(|s| s.opacity(0.85)),
+        Variant::Ghost => d.font_weight(FontWeight::MEDIUM).hover(|s| s.bg(FILL_3)).active(|s| s.bg(FILL_4)),
+        Variant::Danger => d.bg(FAILED).font_weight(FontWeight::SEMIBOLD).active(|s| s.opacity(0.85)),
     };
     d.children(icon_name.map(|n| icon(n, 14., v.fg()))).child(label)
 }
@@ -126,7 +127,7 @@ pub fn button_kbd(keys: &str) -> Div {
 }
 
 fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
-    control(div().id(id)).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3))
+    control(div().id(id)).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3)).active(|s| s.bg(FILL_4))
 }
 
 fn glyph_button(id: impl Into<ElementId>, name: &str, w: f32, h: f32, radius: f32, color: Token) -> Stateful<Div> {
@@ -335,13 +336,47 @@ pub fn kbd(keys: &str) -> Div {
 }
 
 /// One letter for a repository, taken from its last dash-separated word: "app-ios" is I.
-fn mark_letter(name: &str) -> String {
+pub fn mark_letter(name: &str) -> String {
     let word = name.rsplit('-').find(|w| !w.is_empty()).unwrap_or(name);
     word.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()
 }
 
-pub fn repo_mark(name: &str, selected: bool, state: Option<State>) -> Div {
-    repo_tile(&mark_letter(name), 22., selected, state)
+/// What a repository's tile shows: its letters, or an emoji or picture chosen in their place.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Mark {
+    Letters(String),
+    Emoji(String),
+    /// Shows `letters` while the picture can't be read.
+    Image { path: PathBuf, letters: String },
+}
+
+impl Mark {
+    /// The tile's text size as a share of its side, given the share letters take.
+    pub fn scale(&self, letters_scale: f32) -> f32 {
+        if matches!(self, Mark::Emoji(_)) { 0.6 } else { letters_scale }
+    }
+
+    fn letter_count(&self) -> usize {
+        match self {
+            Mark::Letters(l) | Mark::Image { letters: l, .. } => l.chars().count(),
+            Mark::Emoji(_) => 1,
+        }
+    }
+
+    /// The tile's contents; a picture is rounded by `radius` to fill it.
+    pub fn fill(&self, radius: f32) -> AnyElement {
+        match self {
+            Mark::Letters(text) | Mark::Emoji(text) => text.clone().into_any_element(),
+            Mark::Image { path, letters } => {
+                let letters = letters.clone();
+                img(path.clone()).size_full().rounded(px(radius)).object_fit(ObjectFit::Cover).with_fallback(move || letters.clone().into_any_element()).into_any_element()
+            }
+        }
+    }
+}
+
+pub fn repo_mark(mark: &Mark, selected: bool, state: Option<State>) -> Div {
+    repo_tile(mark, 22., selected, state)
 }
 
 /// The color that marks a state asking for a look: Needs you, Failed or Done.
@@ -369,9 +404,10 @@ fn corner_badges(state: Option<State>) -> Vec<Div> {
     alert.into_iter().chain(working).collect()
 }
 
-/// A repository's initials on a square tile, badged by its state.
-pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>) -> Div {
-    let scale = if letters.chars().count() > 1 { 0.34 } else { 0.5 };
+/// A repository's mark on a square tile, badged by its state.
+pub fn repo_tile(mark: &Mark, size: f32, selected: bool, state: Option<State>) -> Div {
+    let scale = mark.scale(if mark.letter_count() > 1 { 0.34 } else { 0.5 });
+    let radius = (size * 0.27).round();
     div()
         .relative()
         .size(px(size))
@@ -379,23 +415,24 @@ pub fn repo_tile(letters: &str, size: f32, selected: bool, state: Option<State>)
         .flex_none()
         .items_center()
         .justify_center()
-        .rounded(px((size * 0.27).round()))
+        .rounded(px(radius))
         .text_size(px((size * scale).round()))
         .font_weight(FontWeight::SEMIBOLD)
         .when(selected, |d| d.bg(TEXT).text_color(ON_TEXT))
         .when(!selected, |d| {
             d.bg(SURFACE).text_color(TEXT_2).shadow(vec![BoxShadow { inset: true, ..ring(SEPARATOR_STRONG, 0.5) }])
         })
-        .child(letters.to_string())
+        .child(mark.fill(radius))
         .children(corner_badges(state))
 }
 
 const ROW_GROUP: &str = "sidebar-row";
+pub const SIDEBAR_ROW_H: f32 = 28.;
 
 fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
     control(div().id(id))
         .group(ROW_GROUP)
-        .h(px(28.))
+        .h(px(SIDEBAR_ROW_H))
         .px(px(6.))
         .flex()
         .flex_none()
@@ -413,9 +450,9 @@ const ROW_MARK_SIZE: f32 = 20.;
 
 /// `kept` is false for a project Pocket shows only while it has terminals: its mark is dashed and its name dim.
 /// A `chevron` takes the mark's place while the row is hovered. A `state` badges the mark.
-pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: &str, selected: bool, kept: bool, state: Option<State>) -> Stateful<Div> {
+pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: &str, mark: &Mark, selected: bool, kept: bool, state: Option<State>) -> Stateful<Div> {
     let mark = if kept {
-        repo_tile(&mark_letter(name), ROW_MARK_SIZE, false, state)
+        repo_tile(mark, ROW_MARK_SIZE, false, state)
     } else {
         div()
             .relative()
@@ -428,10 +465,10 @@ pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: 
             .border(px(1.))
             .border_dashed()
             .border_color(TEXT_5)
-            .text_size(px(10.))
+            .text_size(px((ROW_MARK_SIZE * mark.scale(0.5)).round()))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(TEXT_3)
-            .child(mark_letter(name))
+            .child(mark.fill(5.))
             .children(corner_badges(state))
     };
     let lead = match chevron {
@@ -723,18 +760,14 @@ pub fn tree_row(
         .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
 }
 
-/// An on/off control that turns green when on.
-pub fn toggle(on: bool) -> Div {
-    div()
-        .w(px(30.))
-        .h(px(18.))
-        .p(px(2.))
-        .flex()
-        .flex_none()
-        .rounded(px(9.))
-        .when(on, |d| d.bg(SUCCESS).justify_end())
-        .when(!on, |d| d.bg(FILL_4))
-        .child(div().size(px(14.)).rounded(px(7.)).bg(WHITE).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
+/// An on/off control that turns green when on. Its knob slides when `on` flips, and sits still when it first shows.
+pub fn toggle(id: impl Into<ElementId>, on: bool) -> SpringAnimationElement<Div> {
+    div().w(px(30.)).h(px(18.)).p(px(2.)).flex().flex_none().rounded(px(9.)).with_spring(id, SpringAnimation::new(SPRING).to(on), |d, t| {
+        // Through RGB, as HSL would sweep the off grey's hue through yellow on its way to green.
+        let (off, green) = (Rgba::from(Hsla::from(FILL_4)), Rgba::from(Hsla::from(SUCCESS)));
+        d.bg(t.interpolate_clamped(off, green))
+            .child(div().ml(px(t.interpolate_clamped(0., 12.))).size(px(14.)).rounded(px(7.)).bg(WHITE).shadow(vec![shadow(rgba(0x00000026), 1., 2.)]))
+    })
 }
 
 pub fn checkbox(on: bool) -> Div {
@@ -922,6 +955,22 @@ pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> D
         .text_color(TEXT_2)
         .child(label.into())
         .children(count.map(|n| div().font_weight(FontWeight::MEDIUM).child(n.to_string())))
+}
+
+/// A project's mark in white on its colour.
+pub fn colour_tile(mark: &Mark, color: u32, size: f32, radius: f32) -> Div {
+    div()
+        .size(px(size))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(radius))
+        .bg(rgba(color))
+        .text_size(px(size * mark.scale(5. / 12.)))
+        .font_weight(FontWeight::BOLD)
+        .text_color(WHITE)
+        .child(mark.fill(radius))
 }
 
 pub fn swatch(color: u32, size: f32, radius: f32) -> Div {
@@ -1159,8 +1208,14 @@ pub fn failure(message: String, detail: String) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, State, Tone, count_text, lit, marquee_cycle, marquee_offset, tone, word};
+    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, Mark, State, Tone, count_text, lit, marquee_cycle, marquee_offset, tone, word};
     use theme::{ACCENT, ACCENT_TINT, WORKING};
+
+    #[test]
+    fn an_emoji_fills_more_of_its_tile_than_letters_or_a_picture_s_fallback() {
+        let image = Mark::Image { path: "/logo.png".into(), letters: "AN".into() };
+        assert_eq!([Mark::Emoji("🚀".into()).scale(0.34), Mark::Letters("AN".into()).scale(0.34), image.scale(0.34)], [0.6, 0.34, 0.34]);
+    }
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];
 
