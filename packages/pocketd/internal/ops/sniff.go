@@ -2,6 +2,7 @@ package ops
 
 import (
 	"bufio"
+	"errors"
 	"net"
 	"sync"
 	"time"
@@ -55,6 +56,40 @@ func (l *chanListener) hand(c net.Conn) {
 	case <-l.done:
 		c.Close()
 	}
+}
+
+// A TCP peer is anyone on the host until it sends an owner token, so before
+// auth it gets as long and as many bytes as the WebSocket hello does.
+var authWindow = 10 * time.Second
+
+const authBytes = 4 << 10
+
+// preauth is a TCP conn that can read authBytes in authWindow until authed.
+type preauth struct {
+	net.Conn
+	left int
+}
+
+func newPreauth(c net.Conn) *preauth {
+	c.SetReadDeadline(time.Now().Add(authWindow))
+	return &preauth{Conn: c, left: authBytes}
+}
+
+func (c *preauth) Read(b []byte) (int, error) {
+	if c.left < 0 {
+		return c.Conn.Read(b)
+	}
+	if c.left == 0 {
+		return 0, errors.New("too much before auth")
+	}
+	n, err := c.Conn.Read(b[:min(len(b), c.left)])
+	c.left -= n
+	return n, err
+}
+
+func (c *preauth) authed() {
+	c.left = -1
+	c.SetReadDeadline(time.Time{})
 }
 
 // sniff reads the first byte: '{' starts line JSON, 'G' a WebSocket upgrade.
