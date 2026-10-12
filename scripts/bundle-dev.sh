@@ -13,10 +13,12 @@ case "${1:-}" in
 esac
 TARGET="${CARGO_TARGET_DIR:-$ROOT/packages/desktop/target}"
 (cd "$ROOT/packages/desktop" && cargo build --release -p pocket)
+swift build -c release --package-path "$ROOT/packages/desktop/notch"
 APP="$TARGET/release/Anywhere Dev.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TARGET/release/pocket-desktop" "$APP/Contents/MacOS/pocket-desktop"
+cp "$ROOT/packages/desktop/notch/.build/release/anywhere-notch" "$APP/Contents/MacOS/anywhere-notch"
 cp "$ROOT/packages/desktop/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +37,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+codesign --force --sign - "$APP/Contents/MacOS/anywhere-notch"
 codesign --force --sign - "$APP"
 if [ "$OPEN" = 0 ]; then
   echo "bundle-dev: built $APP"

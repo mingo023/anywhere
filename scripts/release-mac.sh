@@ -31,6 +31,9 @@ build() {
   done
   lipo -create -output "$OUT/pocket-desktop" \
     "$TARGET/aarch64-apple-darwin/dist/pocket-desktop" "$TARGET/x86_64-apple-darwin/dist/pocket-desktop"
+  set -- -c release --arch arm64 --arch x86_64 --package-path "$DESKTOP/notch"
+  swift build "$@"
+  cp "$(swift build "$@" --show-bin-path)/anywhere-notch" "$OUT/anywhere-notch"
   for arch in arm64 amd64; do
     (cd "$ROOT/packages/pocketd" && CGO_ENABLED=1 GOARCH="$arch" go build -trimpath \
       -ldflags "-s -w -X main.version=$VERSION -X pocketd/internal/config.channel=release" -o "$OUT/pocketd-$arch" ./cmd/pocketd)
@@ -42,6 +45,7 @@ build() {
 assemble() {
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   cp "$OUT/pocket-desktop" "$APP/Contents/MacOS/pocket-desktop"
+  cp "$OUT/anywhere-notch" "$APP/Contents/MacOS/anywhere-notch"
   cp "$DESKTOP/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
   cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -98,6 +102,7 @@ sign_sparkle() {
 sign() {
   sign_sparkle
   codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/Library/Helpers/AnywhereDaemon.app"
+  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/MacOS/anywhere-notch"
   codesign --force --timestamp --options runtime \
     --entitlements "$DESKTOP/assets/Anywhere.entitlements" --sign "$SIGN_ID" "$APP"
   codesign --verify --deep --strict --verbose=2 "$APP"

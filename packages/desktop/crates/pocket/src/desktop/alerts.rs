@@ -185,7 +185,7 @@ impl Desktop {
     }
 
     /// "{project} · {worktree}" for the Local or worktree the agent's terminal belongs to; empty outside every project.
-    fn alert_place(&self, a: &Summary) -> String {
+    pub(crate) fn alert_place(&self, a: &Summary) -> String {
         let projects = self.projects();
         let Some(info) = self.terminals.sessions.get(&a.terminal_id).map(|s| &s.info) else { return String::new() };
         match (self.project_of(&info.cwd, &projects), self.place_of(info)) {
@@ -199,6 +199,7 @@ impl Desktop {
         let n = self.store.notifications;
         let show = alerts.sync(&self.agents, |a| self.alert_place(a), |s| !self.capturing && wants_banner(n, s), n.on_screen);
         self.alerts = alerts;
+        self.sync_island(&show);
         for n in show {
             let actions = n.actions();
             cx.show_system_notification(SystemNotification { tag: n.id.into(), title: n.title.into(), body: n.body.into(), actions });

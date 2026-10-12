@@ -341,10 +341,21 @@ pub fn provider_color(provider: &str) -> Token {
 
 /// Claude's spark in its orange; OpenAI's knot, or a terminal for anything else, in `ink`.
 pub fn provider_icon(provider: &str, size: f32, ink: impl Into<Hsla>) -> Svg {
+    let ink = if provider == "claude" { AGENT_CLAUDE.into() } else { ink.into() };
+    icon(provider_glyph(provider), size, ink)
+}
+
+/// The SVG `provider_icon` draws, for drawing it outside GPUI.
+pub fn provider_svg(provider: &str) -> &'static [u8] {
+    let path = format!("icons/{}.svg", provider_glyph(provider));
+    ICONS.iter().find(|(p, _)| *p == path).map_or(&[], |(_, bytes)| bytes)
+}
+
+fn provider_glyph(provider: &str) -> &'static str {
     match provider {
-        "claude" => icon("claude", size, AGENT_CLAUDE),
-        "codex" => icon("openai", size, ink),
-        _ => icon("terminal", size, ink),
+        "claude" => "claude",
+        "codex" => "openai",
+        _ => "terminal",
     }
 }
 
