@@ -236,6 +236,10 @@ impl Desktop {
 
     /// Asks `gh` about the next due worktree, off the UI thread.
     pub(crate) fn poll_prs(&mut self, cx: &mut Context<Self>) {
+        // Until `gh` is checked, no project's account is known to be signed in, so it would ask as the active one.
+        if !matches!(self.prs.gh, Some(Some(_))) {
+            return self.check_gh(cx);
+        }
         let mut trees: Vec<String> = self.project.as_ref().and_then(|p| self.listed_trees(p)).into_iter().flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path).collect();
         trees.sort();
         let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };

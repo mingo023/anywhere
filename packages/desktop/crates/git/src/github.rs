@@ -317,8 +317,8 @@ fn accounts(auth: &str) -> (Vec<String>, Option<String>) {
 }
 
 /// The token `gh` keeps for `login`, which `GH_TOKEN` takes to act as that account.
-pub fn token_argv(login: &str) -> [&str; 5] {
-    ["gh", "auth", "token", "--user", login]
+pub fn token_argv(login: &str) -> [&str; 7] {
+    ["gh", "auth", "token", "--hostname", "github.com", "--user", login]
 }
 
 /// GitHub refused the token, as it does one revoked by signing in again.

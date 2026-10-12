@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
@@ -34,13 +36,18 @@ func (d *Daemon) GhEnv(env []string, cwd string) []string {
 	return append(out, "GH_TOKEN="+token)
 }
 
+// ghWait bounds asking gh for a token, since a terminal waits on it to start.
+const ghWait = 5 * time.Second
+
 // ghToken is the token gh keeps for account, or "" when it has none.
 func ghToken(account string, env []string) string {
 	gh, err := terminal.LookPath("gh", env)
 	if err != nil {
 		return ""
 	}
-	cmd := exec.Command(gh, "auth", "token", "--hostname", "github.com", "--user", account)
+	ctx, cancel := context.WithTimeout(context.Background(), ghWait)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, gh, "auth", "token", "--hostname", "github.com", "--user", account)
 	cmd.Env, cmd.Dir = withoutTokens(env), "/"
 	out, err := cmd.Output()
 	if err != nil {

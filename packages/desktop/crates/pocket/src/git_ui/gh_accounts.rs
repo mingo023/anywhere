@@ -3,7 +3,11 @@ use git::github::{self, GhStatus};
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use store::RepoConfig;
+
+/// A comparison that hangs, as on a keychain prompt, gives up its turn after this.
+const DETECT_TURN: Duration = Duration::from_secs(60);
 
 /// Which signed-in github.com account `gh` acts as in each project.
 #[derive(Default)]
@@ -12,8 +16,8 @@ pub(crate) struct GhAccounts {
     pub(crate) accounts: Vec<String>,
     pub(crate) active: String,
     tokens: Tokens,
-    /// The project whose accounts are being compared; one at a time, as each account runs a login shell.
-    pub(crate) detecting: Option<String>,
+    /// The project whose accounts are being compared, and since when; one at a time, as each account runs a login shell.
+    detecting: Option<(String, Instant)>,
     /// Projects compared since the last check, so one no account can see isn't compared on every poll.
     tried: HashSet<String>,
 }
@@ -34,21 +38,25 @@ impl GhAccounts {
     }
 
     /// The next project to compare accounts for: one with none chosen, when there's more than one to choose from.
-    pub(crate) fn due(&self, projects: &[String], repos: &BTreeMap<String, RepoConfig>) -> Option<String> {
-        if self.detecting.is_some() || self.accounts.len() < 2 {
+    pub(crate) fn due(&self, projects: &[String], repos: &BTreeMap<String, RepoConfig>, now: Instant) -> Option<String> {
+        if self.detecting.as_ref().is_some_and(|(_, at)| now.duration_since(*at) < DETECT_TURN) || self.accounts.len() < 2 {
             return None;
         }
         projects.iter().find(|p| !self.tried.contains(*p) && self.chosen(repos, p).is_none()).cloned()
     }
 
-    pub(crate) fn start(&mut self, project: &str) {
-        self.detecting = Some(project.to_string());
+    pub(crate) fn detecting(&self, project: &str) -> bool {
+        self.detecting.as_ref().is_some_and(|(p, _)| p == project)
+    }
+
+    pub(crate) fn start(&mut self, project: &str, now: Instant) {
+        self.detecting = Some((project.to_string(), now));
         self.tried.insert(project.to_string());
     }
 
     /// Saves the account found for `project` unless one was chosen meanwhile. True when it did.
     pub(crate) fn finish(&mut self, project: &str, found: Option<String>, repos: &mut BTreeMap<String, RepoConfig>) -> bool {
-        if self.detecting.as_deref() == Some(project) {
+        if self.detecting(project) {
             self.detecting = None;
         }
         let Some(found) = found.filter(|_| self.chosen(repos, project).is_none()) else { return false };
@@ -123,17 +131,15 @@ impl Desktop {
 
     /// Compares the accounts' access to the next project with none chosen, off the UI thread.
     pub(crate) fn detect_gh_account(&mut self, cx: &mut Context<Self>) {
-        if self.prs.gh.is_none() {
-            return self.check_gh(cx);
-        }
-        let Some(project) = self.gh_accounts.due(&self.store.projects, &self.store.repos) else { return };
-        self.gh_accounts.start(&project);
+        let Some(project) = self.gh_accounts.due(&self.store.projects, &self.store.repos, Instant::now()) else { return };
+        self.gh_accounts.start(&project, Instant::now());
         let accounts: Vec<Gh> = self.gh_accounts.accounts.iter().map(|a| self.gh_accounts.gh(Some(a.clone()))).collect();
         let (dir, active) = (project.clone(), self.gh_accounts.active.clone());
         let task = cx.background_executor().spawn(async move { detect(&dir, &accounts, &active) });
         cx.spawn(async move |this, cx| {
             let found = task.await;
             this.update(cx, |d, cx| {
+                let found = found.filter(|_| d.store.projects.contains(&project));
                 if d.gh_accounts.finish(&project, found, &mut d.store.repos) {
                     d.gh_account_changed(&project, cx);
                 }
@@ -166,6 +172,7 @@ mod tests {
     use super::GhAccounts;
     use git::github::GhStatus;
     use std::collections::BTreeMap;
+    use std::time::{Duration, Instant};
     use store::RepoConfig;
 
     fn signed_in(accounts: &[&str]) -> GhAccounts {
@@ -184,14 +191,14 @@ mod tests {
 
     #[test]
     fn accounts_are_compared_only_when_there_is_more_than_one() {
-        assert_eq!(signed_in(&["me"]).due(&projects(), &repos(&[])), None);
-        assert_eq!(signed_in(&["me", "work"]).due(&projects(), &repos(&[])).as_deref(), Some("/a"));
+        assert_eq!(signed_in(&["me"]).due(&projects(), &repos(&[]), Instant::now()), None);
+        assert_eq!(signed_in(&["me", "work"]).due(&projects(), &repos(&[]), Instant::now()).as_deref(), Some("/a"));
     }
 
     #[test]
     fn a_project_whose_account_signed_out_is_compared_again() {
         let gh = signed_in(&["me", "work"]);
-        assert_eq!(gh.due(&projects(), &repos(&[("/a", "work"), ("/b", "gone")])).as_deref(), Some("/b"));
+        assert_eq!(gh.due(&projects(), &repos(&[("/a", "work"), ("/b", "gone")]), Instant::now()).as_deref(), Some("/b"));
         assert_eq!(gh.chosen(&repos(&[("/b", "gone")]), "/b"), None);
     }
 
@@ -199,24 +206,33 @@ mod tests {
     fn projects_are_compared_one_at_a_time_and_one_no_account_sees_waits_for_the_next_check() {
         let mut gh = signed_in(&["me", "work"]);
         let mut chosen = repos(&[]);
-        gh.start("/a");
-        assert_eq!(gh.due(&projects(), &chosen), None);
+        gh.start("/a", Instant::now());
+        assert_eq!(gh.due(&projects(), &chosen, Instant::now()), None);
         assert!(!gh.finish("/a", None, &mut chosen));
-        assert_eq!(gh.due(&projects(), &chosen).as_deref(), Some("/b"));
-        gh.start("/b");
+        assert_eq!(gh.due(&projects(), &chosen, Instant::now()).as_deref(), Some("/b"));
+        gh.start("/b", Instant::now());
         assert!(gh.finish("/b", Some("work".into()), &mut chosen));
-        assert_eq!(gh.due(&projects(), &chosen), None);
+        assert_eq!(gh.due(&projects(), &chosen, Instant::now()), None);
         gh.checked(&GhStatus::Ready { version: "2.95.0".into(), login: "me".into(), accounts: vec!["me".into(), "work".into()] });
-        assert_eq!(gh.due(&projects(), &chosen).as_deref(), Some("/a"));
+        assert_eq!(gh.due(&projects(), &chosen, Instant::now()).as_deref(), Some("/a"));
     }
 
     #[test]
     fn an_account_picked_while_comparing_is_kept() {
         let mut gh = signed_in(&["me", "work"]);
         let mut chosen = repos(&[]);
-        gh.start("/a");
+        gh.start("/a", Instant::now());
         chosen.insert("/a".into(), RepoConfig { gh_account: "me".into(), ..Default::default() });
         assert!(!gh.finish("/a", Some("work".into()), &mut chosen));
         assert_eq!(gh.chosen(&chosen, "/a"), Some("me"));
+    }
+
+    #[test]
+    fn a_comparison_that_hangs_gives_up_its_turn_after_a_minute() {
+        let mut gh = signed_in(&["me", "work"]);
+        let now = Instant::now();
+        gh.start("/a", now);
+        assert_eq!(gh.due(&projects(), &repos(&[]), now + Duration::from_secs(59)), None);
+        assert_eq!(gh.due(&projects(), &repos(&[]), now + Duration::from_secs(60)).as_deref(), Some("/b"));
     }
 }

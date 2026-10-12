@@ -141,7 +141,7 @@ impl Desktop {
 
     fn gh_account_row(&mut self, i: usize, project: String, cx: &mut Context<Self>) -> Div {
         let chosen = self.gh_accounts.chosen(&self.store.repos, &project).map(str::to_string);
-        let checking = chosen.is_none() && self.gh_accounts.detecting.as_deref() == Some(project.as_str());
+        let checking = chosen.is_none() && self.gh_accounts.detecting(&project);
         let open = self.settings.menu == Some(ACCOUNT_MENU) && self.settings.account_menu.as_deref() == Some(project.as_str());
         let shown = match (&chosen, checking) {
             (Some(account), _) => div().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(account.clone()),
@@ -153,28 +153,30 @@ impl Desktop {
             (this.settings.menu, this.settings.account_menu) = if open { (None, None) } else { (Some(ACCOUNT_MENU), Some(toggle.clone())) };
             cx.notify();
         }));
-        let options = self.gh_accounts.accounts.clone().into_iter().enumerate().map(|(j, account)| {
-            let project = project.clone();
-            div()
-                .id(("gh-account-option", j))
-                .h(px(26.))
-                .px(px(8.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(5.))
-                .cursor_pointer()
-                .hover(|d| d.bg(FILL_2))
-                .text_color(TEXT)
-                .child(div().w(px(14.)).flex_none().when(chosen.as_ref() == Some(&account), |d| d.child(icon("check", 13., TEXT))))
-                .child(div().font_family(MONO).text_size(px(12.)).child(account.clone()))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.settings.menu, this.settings.account_menu) = (None, None);
-                    this.pick_gh_account(&project, account.clone(), cx);
-                    cx.notify();
-                }))
+        let menu = open.then(|| {
+            let options = self.gh_accounts.accounts.clone().into_iter().enumerate().map(|(j, account)| {
+                let project = project.clone();
+                div()
+                    .id(("gh-account-option", j))
+                    .h(px(26.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(5.))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(FILL_2))
+                    .text_color(TEXT)
+                    .child(div().w(px(14.)).flex_none().when(chosen.as_ref() == Some(&account), |d| d.child(icon("check", 13., TEXT))))
+                    .child(div().font_family(MONO).text_size(px(12.)).child(account.clone()))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        (this.settings.menu, this.settings.account_menu) = (None, None);
+                        this.pick_gh_account(&project, account.clone(), cx);
+                        cx.notify();
+                    }))
+            });
+            ui::menu_in(SharedString::from(format!("gh-account-menu-in-{i}")), ui::pop(div()).min_w(px(180.)).max_h(px(320.)).p(px(4.)).flex().flex_col().children(options))
         });
-        let menu = ui::menu_in(SharedString::from(format!("gh-account-menu-in-{i}")), ui::pop(div()).min_w(px(180.)).max_h(px(320.)).p(px(4.)).flex().flex_col().children(options));
         div()
             .px(px(14.))
             .py(px(7.))
@@ -185,7 +187,7 @@ impl Desktop {
             .border_color(SEPARATOR)
             .child(self.project_tile(&project, 20.))
             .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(self.repo_name(&project)))
-            .child(div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(30., menu))))
+            .child(div().relative().child(button).children(menu.map(|m| ui::dropdown_right(30., m))))
     }
 
     /// A dropdown of the remotes the repository on screen has.
