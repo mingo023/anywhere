@@ -3,6 +3,7 @@
 # The desktop fills the @@…@@ placeholders and pipes this into `sh -s` over ssh.
 # @@URL@@ is the release's download directory; it holds pocketd-<os>-<arch>.tar.gz and its .sha256.
 # ANYWHERE_ARCHIVE names a tarball already on the host to use instead (checked against ANYWHERE_SHA256 if set).
+# ANYWHERE_FORCE=1 updates: installs the archive even over a running pocketd, which hands off to it in place.
 # Lines for the desktop: ANYWHERE step <name> | warn <msg> | error <msg> | running | done. Others are log.
 set -u
 umask 077
@@ -21,6 +22,13 @@ fail() {
 # running: whether a pocketd answers on DIR's socket, asked through the pocketd at $1.
 running() {
   [ -S "$DIR/pocketd.sock" ] && [ -x "$1" ] && POCKET_HOME="$DIR" POCKETD_SOCK="$DIR/pocketd.sock" "$1" status >/dev/null 2>&1
+}
+
+# version_of: the "version" field of what the pocketd at $1 prints for the rest of the arguments.
+version_of() {
+  exe=$1
+  shift
+  POCKET_HOME="$DIR" POCKETD_SOCK="$DIR/pocketd.sock" "$exe" "$@" 2>/dev/null </dev/null | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1
 }
 
 fetch() {
@@ -85,33 +93,38 @@ main() {
   # Under Rosetta, uname says x86_64 on Apple silicon.
   if [ "$os" = darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; fi
 
-  if running "$DIR/bin/pocketd"; then
+  force=${ANYWHERE_FORCE:-}
+  if [ -z "$force" ] && running "$DIR/bin/pocketd"; then
     say running
     exit 0
   fi
   bin="$DIR/runtime/$VERSION/pocketd"
-  [ -x "$bin" ] || unpack
+  # A dev build's version never changes, so an update unpacks again.
+  if [ -n "$force" ] || [ ! -x "$bin" ]; then unpack; fi
   # Another pocketd (an Anywhere app on this Mac) may hold the home; it's reused, never replaced.
-  if running "$bin"; then
+  if [ -z "$force" ] && running "$bin"; then
     say running
     exit 0
   fi
 
+  # A copy, not a symlink: the service runs this path, and a running pocketd hands off in place
+  # when the file it runs from changes, so replacing it is the update.
   say step link
-  mkdir -p "$DIR/bin" && ln -sfn "../runtime/$VERSION/pocketd" "$DIR/bin/pocketd" || fail "can't link $DIR/bin/pocketd"
+  mkdir -p "$DIR/bin" && cp "$bin" "$DIR/bin/pocketd.new" && mv -f "$DIR/bin/pocketd.new" "$DIR/bin/pocketd" || fail "can't install $DIR/bin/pocketd"
 
   say step service
-  out=$(POCKET_HOME="$DIR" "$bin" service install --label "$LABEL" --json 2>&1 </dev/null) || fail "service install: $out"
+  out=$(POCKET_HOME="$DIR" "$DIR/bin/pocketd" service install --label "$LABEL" --json 2>&1 </dev/null) || fail "service install: $out"
   echo "$out"
   case "$out" in
     *'"linger":false'*) say warn "linger is off, so pocketd stops when $(id -un) logs out; run: sudo loginctl enable-linger $(id -un)" ;;
   esac
 
   say step start
+  want=$(version_of "$bin" version --json)
   i=0
-  until running "$bin"; do
+  until running "$bin" && [ "$(version_of "$bin" status --json)" = "$want" ]; do
     i=$((i + 1))
-    [ "$i" -le 30 ] || fail "pocketd didn't start in 30s; see $DIR/logs"
+    [ "$i" -le 30 ] || fail "pocketd $want didn't start in 30s; see $DIR/logs"
     sleep 1
   done
   say "done"
