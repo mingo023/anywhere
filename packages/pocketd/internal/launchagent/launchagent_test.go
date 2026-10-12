@@ -25,6 +25,9 @@ func TestPlistMatchesGolden(t *testing.T) {
 	if got := Plist(spec); !bytes.Equal(got, want) {
 		t.Fatalf("got\n%s", got)
 	}
+	if _, err := exec.LookPath("plutil"); err != nil {
+		return
+	}
 	if out, err := exec.Command("plutil", "-lint", golden).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
