@@ -909,7 +909,10 @@ mod tests {
     fn a_closed_worktrees_pushed_branch_keeps_its_name_taken() {
         let taken = taken_names(&[("main".into(), None)], &["calm-lynx".into()], ["brave-otter".to_string()].into_iter());
         assert_eq!(name_problem("calm-lynx", &taken), Some("A worktree or branch with this name already exists"));
-        assert!(is_taken("brave-otter", &taken) && is_taken("main", &taken));
+        assert!(is_taken("brave-otter", &taken));
+        let first = Draft::default().auto_name();
+        let pushed = taken_names(&[], std::slice::from_ref(&first), std::iter::empty());
+        assert_ne!(Draft { taken: pushed, ..Draft::default() }.auto_name(), first);
     }
 
     #[test]

@@ -35,8 +35,7 @@ func RenameBranch(project, path, from, to string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	remotes, _ := exec.Command("git", "-C", project, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/remotes").Output()
-	taken = append(taken, strings.Fields(string(remotes))...)
+	taken = append(taken, remoteBranches(project)...)
 	name := to
 	for i := 2; ; i++ {
 		err := Validate(name, taken)
