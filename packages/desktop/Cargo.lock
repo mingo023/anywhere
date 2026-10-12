@@ -3268,6 +3268,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hosts"
+version = "0.0.0"
+dependencies = [
+ "daemon",
+ "futures",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5539,6 +5549,7 @@ dependencies = [
  "futures",
  "git",
  "gpui-kit",
+ "hosts",
  "ignore",
  "image",
  "keys",
@@ -7080,6 +7091,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "store"
 version = "0.0.0"
 dependencies = [
+ "hosts",
  "serde",
  "serde_json",
  "workspace",

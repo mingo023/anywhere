@@ -363,6 +363,9 @@ pub struct Store {
     /// Shortcuts changed on the Keyboard page: the new keys by binding id, empty for none.
     #[serde(deserialize_with = "lenient")]
     pub keys: BTreeMap<String, String>,
+    /// Machines reached over SSH, in the order they were added.
+    #[serde(deserialize_with = "lenient")]
+    pub hosts: Vec<hosts::Host>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -534,6 +537,7 @@ mod tests {
         s.widths = ColumnWidths { projects: Some(260.), sessions: None };
         s.graph_share = Some(0.3);
         s.track("/t/fix");
+        s.hosts.push(hosts::Host::new(hosts::Target::Alias { name: "devbox".into() }, &[]));
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);

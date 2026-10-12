@@ -20,6 +20,7 @@ daemon.workspace = true
 futures.workspace = true
 git.workspace = true
 gpui-kit.workspace = true
+hosts.workspace = true
 ignore.workspace = true
 image = { workspace = true, features = ["tiff"] }
 keys.workspace = true

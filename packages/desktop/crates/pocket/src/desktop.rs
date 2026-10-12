@@ -22,6 +22,7 @@ use crate::desktop::sounds::Chime;
 use crate::empty_pane::EmptyPane;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
+use crate::fleet::Fleet;
 use crate::git_ui::changes::ChangesState;
 use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::{At, DiffState};
@@ -97,6 +98,7 @@ pub struct Desktop {
     pub(crate) palette: PaletteState,
     pub(crate) sidebar: SidebarState,
     pub(crate) settings: SettingsState,
+    pub(crate) fleet: Fleet,
     pub(crate) updates: Updates,
     pub(crate) chips: Chips,
     pub(crate) overlay: Option<Overlay>,
@@ -119,6 +121,7 @@ impl Desktop {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
+        let (fleet, fleet_subs) = Fleet::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
         let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
@@ -153,6 +156,7 @@ impl Desktop {
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
+        _subs.extend(fleet_subs);
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(changes_subs);
@@ -205,6 +209,7 @@ impl Desktop {
             palette,
             sidebar,
             settings,
+            fleet,
             updates,
             chips,
             overlay: None,

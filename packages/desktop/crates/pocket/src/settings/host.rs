@@ -135,7 +135,7 @@ pub(crate) fn service_line(connected: bool, status: Option<&daemon::Status>) -> 
     }
 }
 
-fn uptime(secs: u64) -> String {
+pub(super) fn uptime(secs: u64) -> String {
     match secs / 60 {
         m if m < 60 => format!("{m}m"),
         m if m < 24 * 60 => format!("{}h", m / 60),

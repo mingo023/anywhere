@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 108] = [
+const STEPS: [(&str, Step); 113] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -101,6 +101,23 @@ const STEPS: [(&str, Step); 108] = [
     ("settings-agents", |d, _, _| d.settings.section = Section::Agents),
     ("settings-automations", |d, _, _| d.settings.section = Section::Automations),
     ("settings-phone", |d, _, _| d.settings.section = Section::Phone),
+    ("settings-hosts", |d, _, _| d.settings.section = Section::Hosts),
+    ("hosts-sample", |d, _, _| {
+        let devbox = hosts::Host::new(hosts::Target::Alias { name: "devbox".into() }, &[]);
+        let gpu = hosts::Host::new(hosts::Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None }, &[]);
+        d.fleet.links.0.insert(devbox.id.clone(), hosts::link::Link::Online { version: "1.4.2".into(), uptime: 3 * 86_400 });
+        d.fleet.links.0.insert(gpu.id.clone(), hosts::link::Link::Retrying(hosts::ssh::Failure::NotRunning));
+        d.store.hosts = vec![devbox, gpu];
+    }),
+    ("hosts-add", |d, _, _| {
+        (d.fleet.form.open, d.fleet.form.suggestions) = (true, vec!["devbox".into(), "gpu-box".into(), "nas".into()]);
+        d.fleet.form.error = Some("Enter the host's address or name".into());
+    }),
+    ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
+    ("hosts-remove", |d, _, _| {
+        let name = "devbox".to_string();
+        (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: name.clone(), name }), Some(Overlay::Confirm));
+    }),
     ("settings-sidebar", |d, _, _| d.settings.section = Section::Sidebar),
     ("settings-terminal", |d, _, _| d.settings.section = Section::Terminal),
     ("settings-files", |d, _, _| d.settings.section = Section::Files),

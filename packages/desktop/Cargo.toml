@@ -13,6 +13,7 @@ agents = { path = "crates/agents" }
 channel = { path = "crates/channel" }
 daemon = { path = "crates/daemon" }
 git = { path = "crates/git" }
+hosts = { path = "crates/hosts" }
 keys = { path = "crates/keys" }
 project = { path = "crates/project" }
 store = { path = "crates/store" }

@@ -8,6 +8,7 @@ mod desktop;
 mod empty_pane;
 mod explorer;
 mod field;
+mod fleet;
 mod git_ui;
 mod inbox;
 mod modals;
@@ -138,7 +139,11 @@ fn main() {
                         let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
                     }
                 });
-                Desktop::new(daemon, outbox, store, window, cx)
+                let mut desktop = Desktop::new(daemon, outbox, store, window, cx);
+                if !capturing {
+                    desktop.connect_hosts(cx);
+                }
+                desktop
             });
             // Root paints gpui-kit's opaque background, which would hide the blurred desktop in dark.
             cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
