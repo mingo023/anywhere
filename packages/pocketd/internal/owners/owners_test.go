@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -84,6 +85,57 @@ func TestWatchReportsARevoke(t *testing.T) {
 	case <-revoked:
 	case <-time.After(time.Second):
 		t.Fatal("revoke not seen")
+	}
+}
+
+func TestConcurrentMintsKeepEveryToken(t *testing.T) {
+	s := store(t)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, _, err := (Store{s.Path}).Mint("pc"); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if list, _ := s.List(); len(list) != 20 {
+		t.Fatalf("kept %d of 20", len(list))
+	}
+}
+
+func TestWatchOutlastsABriefUnreadableFile(t *testing.T) {
+	defer func(d time.Duration) { WatchEvery = d }(WatchEvery)
+	WatchEvery = 20 * time.Millisecond
+	s := store(t)
+	o, _, _ := s.Mint("pc")
+	good, _ := os.ReadFile(s.Path)
+	revoked := make(chan struct{})
+	go s.Watch(t.Context(), o.ID, func() { close(revoked) })
+	os.WriteFile(s.Path, []byte("{"), 0o600)
+	time.Sleep(WatchEvery + WatchEvery/2)
+	os.WriteFile(s.Path, good, 0o600)
+	select {
+	case <-revoked:
+		t.Fatal("revoked by one failed read")
+	case <-time.After(10 * WatchEvery):
+	}
+}
+
+func TestWatchRevokesWhenTheFileStaysUnreadable(t *testing.T) {
+	defer func(d time.Duration) { WatchEvery = d }(WatchEvery)
+	WatchEvery = 10 * time.Millisecond
+	s := store(t)
+	o, _, _ := s.Mint("pc")
+	revoked := make(chan struct{})
+	go s.Watch(t.Context(), o.ID, func() { close(revoked) })
+	os.WriteFile(s.Path, []byte("{"), 0o600)
+	select {
+	case <-revoked:
+	case <-time.After(time.Second):
+		t.Fatal("still owner")
 	}
 }
 
