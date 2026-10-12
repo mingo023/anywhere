@@ -2,9 +2,14 @@ use crate::desktop::Desktop;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use hosts::remote::{self, Entry};
+use std::ops::Range;
 use theme::*;
 use ui::Variant;
+
+/// A folder row's height.
+const ROW: f32 = 28.;
 
 /// Where Add project's host browser stands: a folder on a host, and its folders once listed.
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -25,13 +30,26 @@ impl Browse {
             self.folders = Some(folders);
         }
     }
+
+    /// The list's rows as `(name, folder it opens)`: `..` unless at a root, then the listed folders.
+    pub fn rows(&self) -> Vec<(String, String)> {
+        let up = parent(&self.dir);
+        let up = (!self.dir.is_empty() && up != self.dir).then(|| ("..".to_string(), up));
+        let names = match &self.folders {
+            Some(Ok(names)) => names.as_slice(),
+            _ => &[],
+        };
+        up.into_iter().chain(names.iter().map(|n| (n.clone(), child(&self.dir, n)))).collect()
+    }
 }
 
-/// The folder holding `dir`; the root holds itself.
+/// The folder holding `dir`; a root, `/` or a Windows drive's, holds itself.
 pub(crate) fn parent(dir: &str) -> String {
-    match dir.trim_end_matches('/').rsplit_once('/') {
-        Some(("", _)) | None => "/".into(),
-        Some((up, _)) => up.into(),
+    let up = dir.trim_end_matches('/').rsplit_once('/').map_or("", |(up, _)| up);
+    match up {
+        _ if hosts::on_windows(dir) && up.len() <= 2 => format!("{}/", &dir[..2]),
+        "" => "/".into(),
+        up => up.into(),
     }
 }
 
@@ -52,7 +70,7 @@ impl Desktop {
         let Some(client) = remote::connected(&host) else { return };
         self.repo_form.draft.browse = Some(Browse::at(&host, ""));
         cx.spawn_in(window, async move |this, cx| {
-            let home = cx.background_executor().spawn(async move { client.status().map(|s| s.user_home) }).await;
+            let home = cx.background_executor().spawn(async move { client.status().map(|s| s.user_home.replace('\\', "/")) }).await;
             this.update_in(cx, |d, window, cx| match home {
                 Ok(home) => d.browse_to(home, window, cx),
                 Err(e) => {
@@ -117,32 +135,42 @@ impl Desktop {
             .child(icon("globe", 13., TEXT_3))
             .child(div().flex_1().font_family(MONO).child(Input::new(&self.repo_form.host_path).appearance(false).p_0().text_size(px(13.))))
             .child(ui::button("host-open", Variant::Secondary, None, "Open").when(!b.dir.is_empty(), |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_browsed(window, cx)))));
-        let row = |id: ElementId, name: String, dir: String| {
-            div()
-                .id(id)
-                .h(px(28.))
-                .px(px(10.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .hover(|s| s.bg(FILL_2))
-                .child(icon("folder", 13., TEXT_3))
-                .child(div().truncate().font_family(MONO).text_size(px(12.5)).child(name))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.browse_to(dir.clone(), window, cx)))
+        let rows = b.rows();
+        let height = px((rows.len() as f32 * ROW).min(200.));
+        let list = uniform_list(
+            "host-folders",
+            rows.len(),
+            cx.processor(move |_, range: Range<usize>, _, cx| {
+                range
+                    .map(|i| {
+                        let (name, dir) = rows[i].clone();
+                        div()
+                            .id(("host-folder", i))
+                            .w_full()
+                            .h(px(ROW))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .rounded(px(7.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(FILL_2))
+                            .child(icon("folder", 13., TEXT_3))
+                            .child(div().truncate().font_family(MONO).text_size(px(12.5)).child(name))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.browse_to(dir.clone(), window, cx)))
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.repo_form.host_scroll)
+        .size_full();
+        let list = div().relative().h(height).child(list).vertical_scrollbar(&self.repo_form.host_scroll);
+        let note = match &b.folders {
+            None => Some(div().px(px(10.)).text_size(px(12.5)).text_color(TEXT_4).child("Listing…")),
+            Some(Err(e)) => Some(div().px(px(10.)).text_size(px(12.5)).text_color(FAILED).child(e.clone())),
+            Some(Ok(_)) => None,
         };
-        let mut list = div().id("host-folders").max_h(px(200.)).overflow_y_scroll().flex().flex_col().gap(px(1.));
-        if !b.dir.is_empty() && b.dir != "/" {
-            list = list.child(row("host-up".into(), "..".into(), parent(&b.dir)));
-        }
-        list = match &b.folders {
-            None => list.child(div().px(px(10.)).text_size(px(12.5)).text_color(TEXT_4).child("Listing…")),
-            Some(Err(e)) => list.child(div().px(px(10.)).text_size(px(12.5)).text_color(FAILED).child(e.clone())),
-            Some(Ok(names)) => list.children(names.iter().enumerate().map(|(i, n)| row(("host-folder", i).into(), n.clone(), child(&b.dir, n)))),
-        };
-        div().flex().flex_col().gap(px(8.)).child(chips).child(path).child(list)
+        div().flex().flex_col().gap(px(8.)).child(chips).child(path).child(div().flex().flex_col().child(list).children(note))
     }
 }
 
@@ -155,6 +183,22 @@ mod tests {
     fn going_up_stops_at_the_root() {
         assert_eq!((parent("/home/mingo"), parent("/home/"), parent("/home"), parent("/")), ("/home".into(), "/".into(), "/".into(), "/".into()));
         assert_eq!((child("/home", "mingo"), child("/", "srv")), ("/home/mingo".into(), "/srv".into()));
+    }
+
+    #[test]
+    fn going_up_on_windows_stops_at_the_drive() {
+        assert_eq!((parent("C:/Users/me"), parent("C:/Users"), parent("C:/"), parent("D:")), ("C:/Users".into(), "C:/".into(), "C:/".into(), "D:/".into()));
+        assert_eq!(child("C:/", "Users"), "C:/Users");
+    }
+
+    #[test]
+    fn the_list_offers_going_up_except_at_a_root() {
+        let mut b = Browse::at("pc", "C:/Users");
+        b.listed("pc", "C:/Users", Ok(vec!["me".into()]));
+        assert_eq!(b.rows(), [("..".to_string(), "C:/".to_string()), ("me".into(), "C:/Users/me".into())]);
+        assert_eq!(Browse::at("pc", "C:/").rows(), []);
+        assert_eq!(Browse::at("devbox", "/").rows(), []);
+        assert_eq!(Browse::at("devbox", "").rows(), [], "nothing until the home folder is known");
     }
 
     #[test]
