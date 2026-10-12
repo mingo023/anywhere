@@ -72,11 +72,21 @@ pub struct Device {
 /// Sends one op on its own connection and returns pocketd's reply, so it never reaches the terminal stream.
 /// Blocks for up to five seconds; call it off the UI thread.
 pub fn request(msg: &Value) -> Result<Msg, String> {
-    let stream = UnixStream::connect(sock_path()).map_err(|e| e.to_string())?;
+    request_at(&sock_path(), msg)
+}
+
+/// What `request_at` returns when the socket closes before pocketd replies.
+pub const CLOSED: &str = "pocketd closed the connection";
+
+/// `request` to the pocketd listening on `path`.
+pub fn request_at(path: &Path, msg: &Value) -> Result<Msg, String> {
+    let stream = UnixStream::connect(path).map_err(|e| e.to_string())?;
     stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
     writeln!(&stream, "{msg}").map_err(|e| e.to_string())?;
     let mut line = String::new();
-    BufReader::new(&stream).read_line(&mut line).map_err(|e| e.to_string())?;
+    if BufReader::new(&stream).read_line(&mut line).map_err(|e| e.to_string())? == 0 {
+        return Err(CLOSED.into());
+    }
     let reply: Msg = serde_json::from_str(&line).map_err(|e| e.to_string())?;
     if reply.ev == "error" {
         return Err(reply.error);
