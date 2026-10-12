@@ -1,30 +1,15 @@
 # Third-party notices
 
-## Zeron sounds
+## Freesound sounds
 
-`crates/pocket/assets/sounds/request.wav`, `done.wav` and `failed.wav` come from Zeron (`crates/ui/assets/sounds/`; `failed.wav` is its `attention.wav`).
+The notification sounds in `crates/pocket/assets/sounds/` are the HQ previews of these Freesound sounds, released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/):
 
-MIT License
-
-Copyright (c) 2026 Wing
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- `chime.mp3`: [Notification Sound 3](https://freesound.org/people/deadrobotmusic/sounds/750609/) by deadrobotmusic
+- `ping.mp3`: [Notification Sound 2](https://freesound.org/people/deadrobotmusic/sounds/750608/) by deadrobotmusic
+- `gasp.mp3`: [GASP UI Notification 4](https://freesound.org/people/Rob_Marion/sounds/542035/) by Rob_Marion
+- `high-ding.mp3`: [Soft Bell – High Ding](https://freesound.org/people/LegitCheese/sounds/571512/) by LegitCheese
+- `shimmer.mp3`: [UX Quick Shimmer 07](https://freesound.org/people/PLukx/sounds/703287/) by PLukx
+- `ding-dong.mp3`: [Soft Bell – Ding Dong](https://freesound.org/people/LegitCheese/sounds/571513/) by LegitCheese
 
 ## VS Code Source Control Graph
 

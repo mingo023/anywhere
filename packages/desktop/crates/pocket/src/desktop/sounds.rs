@@ -5,7 +5,8 @@ use agents::Summary;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::time::Duration;
-use store::{Sounds, Tone};
+use std::path::PathBuf;
+use store::{Sound, Sounds};
 
 /// A sound, ordered by priority: when several land in one window, the first wins.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -31,19 +32,11 @@ impl Cue {
         }
     }
 
-    pub fn on(self, s: Sounds) -> bool {
+    pub fn on(self, s: &Sounds) -> bool {
         match self {
             Cue::NeedsYou => s.needs_you,
             Cue::Done => s.done,
             Cue::Failed => s.failed,
-        }
-    }
-
-    pub fn tone(self, s: Sounds) -> Tone {
-        match self {
-            Cue::NeedsYou => s.needs_you_tone,
-            Cue::Done => s.done_tone,
-            Cue::Failed => s.failed_tone,
         }
     }
 
@@ -63,14 +56,39 @@ impl Cue {
         };
         *on = !*on;
     }
+}
 
-    fn wav(self) -> (&'static str, &'static [u8]) {
-        match self {
-            Cue::NeedsYou => ("request.wav", include_bytes!("../../assets/sounds/request.wav")),
-            Cue::Done => ("done.wav", include_bytes!("../../assets/sounds/done.wav")),
-            Cue::Failed => ("failed.wav", include_bytes!("../../assets/sounds/failed.wav")),
-        }
+/// A sound the app ships.
+pub struct Builtin {
+    pub sound: Sound,
+    pub name: &'static str,
+    pub hint: &'static str,
+    pub emoji: &'static str,
+    pub length: &'static str,
+    file: &'static str,
+    bytes: &'static [u8],
+}
+
+pub const BUILT_IN: &[Builtin] = &[
+    Builtin { sound: Sound::Chime, name: "Chime", hint: "Light notification", emoji: "\u{1f390}", length: "0.8s", file: "chime.mp3", bytes: include_bytes!("../../assets/sounds/chime.mp3") },
+    Builtin { sound: Sound::Ping, name: "Ping", hint: "Short alert tone", emoji: "\u{1f4cd}", length: "0.7s", file: "ping.mp3", bytes: include_bytes!("../../assets/sounds/ping.mp3") },
+    Builtin { sound: Sound::Gasp, name: "Gasp", hint: "Bright UI alert", emoji: "\u{1f4ab}", length: "1.1s", file: "gasp.mp3", bytes: include_bytes!("../../assets/sounds/gasp.mp3") },
+    Builtin { sound: Sound::HighDing, name: "High Ding", hint: "Soft bell", emoji: "\u{1f514}", length: "0.8s", file: "high-ding.mp3", bytes: include_bytes!("../../assets/sounds/high-ding.mp3") },
+    Builtin { sound: Sound::Shimmer, name: "Shimmer", hint: "Quick sparkle", emoji: "\u{2728}", length: "0.3s", file: "shimmer.mp3", bytes: include_bytes!("../../assets/sounds/shimmer.mp3") },
+    Builtin { sound: Sound::DingDong, name: "Ding Dong", hint: "Soft two-note bell", emoji: "\u{1f6ce}\u{fe0f}", length: "0.9s", file: "ding-dong.mp3", bytes: include_bytes!("../../assets/sounds/ding-dong.mp3") },
+];
+
+/// What the settings call `sound`: a built-in's name, else the file's.
+pub fn sound_name(sound: &Sound) -> String {
+    match sound {
+        Sound::Custom(path) => file_name(path),
+        s => BUILT_IN.iter().find(|b| b.sound == *s).map_or_else(String::new, |b| b.name.into()),
     }
+}
+
+/// A custom sound's name: its file's, without the extension.
+pub fn file_name(path: &str) -> String {
+    std::path::Path::new(path).file_stem().map_or_else(|| path.into(), |n| n.to_string_lossy().into_owned())
 }
 
 /// Turns status changes into at most one sound per `COALESCE_MS` window.
@@ -91,7 +109,7 @@ impl Chime {
     }
 
     /// Takes a snapshot; returns true when it opened a window, which the caller closes with `flush` after `COALESCE_MS`.
-    pub fn heard(&mut self, agents: &[Summary], seen: &[String], on: Sounds, now_ms: i64) -> bool {
+    pub fn heard(&mut self, agents: &[Summary], seen: &[String], on: &Sounds, now_ms: i64) -> bool {
         let now: HashMap<String, Status> = agents.iter().filter_map(|a| Some((a.id.clone(), Status::of(a)?))).collect();
         let before = &self.statuses;
         let cue = agents
@@ -125,12 +143,12 @@ impl Desktop {
             return;
         }
         let seen = if self.store.notifications.on_screen { Vec::new() } else { self.alerts.viewing.clone().unwrap_or_default() };
-        if !self.chime.heard(&self.agents.list, &seen, self.store.sounds, now_ms()) {
+        if !self.chime.heard(&self.agents.list, &seen, &self.store.sounds, now_ms()) {
             return;
         }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(COALESCE_MS)).await;
-            this.update(cx, |d, cx| d.chime.flush().map(|cue| play(cue, d.store.sounds, cx))).ok();
+            this.update(cx, |d, cx| d.chime.flush().map(|_| play(&d.store.sounds.sound, d.store.sounds.volume, cx))).ok();
         })
         .detach();
     }
@@ -141,22 +159,25 @@ fn gain(volume: u32) -> String {
     format!("{}", f64::from(volume.min(100)) / 100.)
 }
 
-/// Plays `cue` with `afplay` in its chosen tone, writing the app's own WAV to the temp dir the first time.
-fn play(cue: Cue, sounds: Sounds, cx: &App) {
-    let (name, bytes) = cue.wav();
-    let system = cue.tone(sounds).system_path();
-    let gain = gain(sounds.volume);
+/// Plays `sound` with `afplay`, writing a built-in to the temp dir the first time.
+pub(crate) fn play(sound: &Sound, volume: u32, cx: &App) {
+    let sound = sound.clone();
+    let gain = gain(volume);
     cx.background_executor()
         .spawn(async move {
-            let path = system.map(std::path::PathBuf::from).unwrap_or_else(|| {
-                let dir = std::env::temp_dir().join("pocket-sounds");
-                let path = dir.join(name);
-                if std::fs::metadata(&path).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
-                    std::fs::create_dir_all(&dir).ok();
-                    std::fs::write(&path, bytes).ok();
+            let path = match sound {
+                Sound::Custom(path) => PathBuf::from(path),
+                s => {
+                    let b = BUILT_IN.iter().find(|b| b.sound == s).unwrap_or(&BUILT_IN[0]);
+                    let dir = std::env::temp_dir().join("pocket-sounds");
+                    let path = dir.join(b.file);
+                    if std::fs::metadata(&path).map(|m| m.len()).ok() != Some(b.bytes.len() as u64) {
+                        std::fs::create_dir_all(&dir).ok();
+                        std::fs::write(&path, b.bytes).ok();
+                    }
+                    path
                 }
-                path
-            });
+            };
             std::process::Command::new("afplay").arg("-v").arg(gain).arg(&path).status().ok();
         })
         .detach();
@@ -164,9 +185,9 @@ fn play(cue: Cue, sounds: Sounds, cx: &App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Chime, Cue, FRESH_MS, gain};
+    use super::{BUILT_IN, Chime, Cue, FRESH_MS, gain, sound_name};
     use agents::Summary;
-    use store::Sounds;
+    use store::{Sound, Sounds};
 
     const NOW: i64 = 1_000_000;
 
@@ -176,14 +197,14 @@ mod tests {
 
     fn primed(agents: &[Summary]) -> Chime {
         let mut c = Chime::new();
-        c.heard(agents, &[], Sounds::default(), NOW);
+        c.heard(agents, &[], &Sounds::default(), NOW);
         c
     }
 
     #[test]
     fn the_first_snapshot_is_silent() {
         let mut c = Chime::new();
-        assert!(!c.heard(&[agent("a", "needsYou")], &[], Sounds::default(), NOW));
+        assert!(!c.heard(&[agent("a", "needsYou")], &[], &Sounds::default(), NOW));
         assert_eq!(c.flush(), None);
     }
 
@@ -191,38 +212,38 @@ mod tests {
     fn a_reconnect_is_silent() {
         let mut c = primed(&[agent("a", "working")]);
         c.rebase();
-        assert!(!c.heard(&[agent("a", "needsYou")], &[], Sounds::default(), NOW));
-        assert!(c.heard(&[agent("a", "done")], &[], Sounds::default(), NOW));
+        assert!(!c.heard(&[agent("a", "needsYou")], &[], &Sounds::default(), NOW));
+        assert!(c.heard(&[agent("a", "done")], &[], &Sounds::default(), NOW));
     }
 
     #[test]
     fn the_highest_cue_wins_a_window() {
         let mut c = primed(&[agent("a", "working"), agent("b", "working"), agent("f", "working")]);
-        assert!(c.heard(&[agent("a", "done"), agent("b", "working"), agent("f", "working")], &[], Sounds::default(), NOW));
+        assert!(c.heard(&[agent("a", "done"), agent("b", "working"), agent("f", "working")], &[], &Sounds::default(), NOW));
         let failed = Summary { failed: true, ..agent("f", "done") };
-        assert!(!c.heard(&[agent("a", "done"), agent("b", "needsYou"), failed], &[], Sounds::default(), NOW));
+        assert!(!c.heard(&[agent("a", "done"), agent("b", "needsYou"), failed], &[], &Sounds::default(), NOW));
         assert_eq!((c.flush(), c.flush()), (Some(Cue::Failed), None));
     }
 
     #[test]
     fn seen_sessions_stay_silent() {
         let mut c = primed(&[agent("a", "working")]);
-        assert!(!c.heard(&[agent("a", "done")], &["a".into()], Sounds::default(), NOW));
+        assert!(!c.heard(&[agent("a", "done")], &["a".into()], &Sounds::default(), NOW));
     }
 
     #[test]
     fn a_stale_done_is_silent() {
         let mut c = primed(&[agent("a", "working")]);
         let stale = Summary { updated_at: NOW - FRESH_MS - 1, ..agent("a", "done") };
-        assert!(!c.heard(&[stale], &[], Sounds::default(), NOW));
+        assert!(!c.heard(&[stale], &[], &Sounds::default(), NOW));
     }
 
     #[test]
     fn a_muted_cue_is_silent() {
         let mut c = primed(&[agent("a", "working"), agent("b", "working")]);
         let on = Sounds { needs_you: false, ..Sounds::default() };
-        assert!(!c.heard(&[agent("a", "needsYou"), agent("b", "working")], &[], on, NOW));
-        assert!(c.heard(&[agent("a", "needsYou"), agent("b", "done")], &[], on, NOW));
+        assert!(!c.heard(&[agent("a", "needsYou"), agent("b", "working")], &[], &on, NOW));
+        assert!(c.heard(&[agent("a", "needsYou"), agent("b", "done")], &[], &on, NOW));
         assert_eq!(c.flush(), Some(Cue::Done));
     }
 
@@ -232,15 +253,19 @@ mod tests {
     }
 
     #[test]
-    fn each_cue_plays_its_own_tone() {
-        let s = Sounds { failed_tone: store::Tone::Basso, ..Sounds::default() };
-        assert_eq!(Cue::ALL.map(|c| c.tone(s)), [store::Tone::Anywhere, store::Tone::Anywhere, store::Tone::Basso]);
+    fn the_default_sound_is_the_first_built_in() {
+        assert_eq!(BUILT_IN[0].sound, Sound::default());
+    }
+
+    #[test]
+    fn a_custom_sound_is_named_by_its_file() {
+        assert_eq!([sound_name(&Sound::HighDing), sound_name(&Sound::Custom("/s/Bloop.wav".into()))], ["High Ding", "Bloop"]);
     }
 
     #[test]
     fn muting_all_sounds_silences_every_cue() {
         let mut c = primed(&[agent("a", "working"), agent("b", "working"), agent("c", "working")]);
         let on = Sounds { all: false, ..Sounds::default() };
-        assert!(!c.heard(&[agent("a", "needsYou"), agent("b", "done"), agent("c", "failed")], &[], on, NOW));
+        assert!(!c.heard(&[agent("a", "needsYou"), agent("b", "done"), agent("c", "failed")], &[], &on, NOW));
     }
 }
