@@ -108,10 +108,26 @@ fn dispose(aside: &Path, trash: bool) {
     }
 }
 
+/// Runs a project's `script` in `tree` on the machine holding it, never here for a host's; the end of its output when it fails.
+fn run_script(script: &str, tree: &str, limit: Duration) -> Result<(), String> {
+    match hosts::runner_for(tree) {
+        git::Runner::Local => daemon::run_script(script, tree, limit).map(drop),
+        host => {
+            let out = host.exec(tree, &["sh", "-c", script], None, limit).map_err(|e| e.to_string())?;
+            if out.code == 0 {
+                return Ok(());
+            }
+            let text = String::from_utf8_lossy(&[out.stdout, out.stderr].concat()).into_owned();
+            let lines: Vec<&str> = text.trim().lines().collect();
+            Err(lines[lines.len().saturating_sub(20)..].join("\n"))
+        }
+    }
+}
+
 /// Teardown goes first: scripts like `docker compose down` need the folder.
 fn run(r: &Removal, teardown: &str, limit: Duration) -> Result<Removed, Failure> {
-    if r.teardown && !teardown.is_empty() && fs_for(&r.tree).local().is_ok() && Path::new(&r.tree).is_dir() {
-        daemon::run_script(teardown, &r.tree, limit).map_err(Failure::Teardown)?;
+    if r.teardown && !teardown.is_empty() && hosts::runner_for(&r.tree).stat(&r.tree).is_ok_and(|s| s.is_some_and(|s| s.dir)) {
+        run_script(teardown, &r.tree, limit).map_err(Failure::Teardown)?;
     }
     let runner = hosts::runner_for(&r.project);
     let aside = set_aside(&r.tree);
@@ -210,7 +226,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Removal, Removals, Removed, branch_deletable, dispose, run};
+    use super::{Failure, Removal, Removals, Removed, branch_deletable, dispose, run, run_script};
     use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -325,6 +341,16 @@ mod tests {
         assert!(matches!(run(&on_host, "exit 1", LIMIT), Err(Failure::Remove(e)) if e.contains("not connected")));
         assert!(Path::new(&r.tree).exists());
         assert!(git::branches(&git::Runner::Local, &r.project).contains(&"feat".to_string()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_hosts_teardown_never_runs_on_this_mac() {
+        let (dir, r) = scratch("script");
+        let marker = dir.join("ran");
+        let script = format!("touch {}", marker.display());
+        assert!(run_script(&script, &hosts::place("devbox", &r.tree), LIMIT).is_err());
+        assert!(!marker.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

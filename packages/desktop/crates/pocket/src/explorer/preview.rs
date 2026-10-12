@@ -20,6 +20,7 @@ use gpui_kit::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 use store::prefs::files::{Autosave, Files};
 use theme::*;
@@ -28,12 +29,12 @@ use workspace::tree::PaneId;
 
 const MAX_BYTES: u64 = 512 * 1024;
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
-const IMAGES: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Preview {
     Text(String),
-    Image,
+    /// An image on a host carries its bytes, since `img` can't open its path; one here loads from its path.
+    Image(Option<Arc<Image>>),
     Binary(u64),
     TooLarge(u64),
     Unreadable,
@@ -50,22 +51,39 @@ fn decode(bytes: Vec<u8>) -> Preview {
 
 /// What the name and size of a `len`-byte file at `path` decide it shows as; `None` when its bytes must be read.
 fn classify(path: &str, len: u64) -> Option<Preview> {
-    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
-    let image = IMAGES.contains(&ext.as_str());
+    let image = image_format(path).is_some();
     if len > if image { MAX_IMAGE_BYTES } else { MAX_BYTES } {
         return Some(Preview::TooLarge(len));
     }
-    image.then_some(Preview::Image)
+    image.then_some(Preview::Image(None))
+}
+
+fn image_format(path: &str) -> Option<ImageFormat> {
+    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    Some(match ext.as_str() {
+        "png" => ImageFormat::Png,
+        "jpg" | "jpeg" => ImageFormat::Jpeg,
+        "gif" => ImageFormat::Gif,
+        "webp" => ImageFormat::Webp,
+        "bmp" => ImageFormat::Bmp,
+        "ico" => ImageFormat::Ico,
+        "svg" => ImageFormat::Svg,
+        _ => return None,
+    })
 }
 
 /// What Explore can show for the file at `path`.
 pub fn preview(path: &str) -> Preview {
+    let remote = hosts::split(path).0.is_some();
     let mut shown = None;
     match fs_for(path).read(Path::new(path), |len| {
         shown = classify(path, len);
-        shown.is_none()
+        shown.is_none() || remote && shown == Some(Preview::Image(None))
     }) {
-        Ok(Some(bytes)) => decode(bytes),
+        Ok(Some(bytes)) => match image_format(path).filter(|_| shown.is_some()) {
+            Some(format) => Preview::Image(Some(Arc::new(Image::from_bytes(format, bytes)))),
+            None => decode(bytes),
+        },
         Ok(None) => shown.unwrap_or(Preview::Unreadable),
         Err(_) => Preview::Unreadable,
     }
@@ -159,7 +177,7 @@ impl Views {
 pub enum Body {
     Markdown,
     Code,
-    Image,
+    Image(Option<Arc<Image>>),
     Note(String),
     Blank,
 }
@@ -281,7 +299,7 @@ impl<V> PreviewState<V> {
             Some(Preview::Text(_)) if f.markdown() && !f.md_source => Body::Markdown,
             Some(Preview::Text(_)) => Body::Code,
             _ if f.file.as_deref().is_some_and(|p| self.dirty(p)) => Body::Code,
-            Some(Preview::Image) => Body::Image,
+            Some(Preview::Image(bytes)) => Body::Image(bytes.clone()),
             Some(Preview::Binary(n)) => Body::Note(format!("Binary file · {}", size(*n as usize))),
             Some(Preview::TooLarge(n)) => Body::Note(format!("Too large to preview · {}", size(*n as usize))),
             Some(Preview::Unreadable) => Body::Note("This file can't be shown.".into()),
@@ -442,13 +460,13 @@ impl Desktop {
         let body = match self.preview.body(pane) {
             Body::Markdown => offers_chat(pane, markdown_pane(views, cx), cx).into_any_element(),
             Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone(), self.store.files.font_size as f32), cx).into_any_element(),
-            Body::Image => frame()
+            Body::Image(bytes) => frame()
                 .p(px(24.))
                 .flex()
                 .items_center()
                 .justify_center()
                 .bg(SURFACE_SUNKEN)
-                .child(img(PathBuf::from(&path)).max_w_full().max_h_full().object_fit(ObjectFit::Contain))
+                .child(img(bytes.map_or_else(|| ImageSource::from(PathBuf::from(&path)), ImageSource::from)).max_w_full().max_h_full().object_fit(ObjectFit::Contain))
                 .into_any_element(),
             Body::Note(note) => empty(note).into_any_element(),
             Body::Blank => div().flex_1().into_any_element(),
@@ -531,7 +549,7 @@ mod tests {
 
     #[test]
     fn images_may_be_larger_than_text_before_they_are_too_large() {
-        assert_eq!(classify("a/logo.png", 20 * 1024 * 1024), Some(Preview::Image));
+        assert_eq!(classify("a/logo.png", 20 * 1024 * 1024), Some(Preview::Image(None)));
         assert_eq!(classify("a/logo.png", 20 * 1024 * 1024 + 1), Some(Preview::TooLarge(20 * 1024 * 1024 + 1)));
         assert_eq!(classify("a/notes.txt", 512 * 1024), None);
         assert_eq!(classify("a/notes.txt", 512 * 1024 + 1), Some(Preview::TooLarge(512 * 1024 + 1)));
@@ -547,7 +565,7 @@ mod tests {
             p.to_string_lossy().into_owned()
         };
         assert_eq!(preview(&file("a.rs", b"x\n")), Preview::Text("x\n".into()));
-        assert_eq!(preview(&file("logo.PNG", b"\x89PNG\0")), Preview::Image);
+        assert_eq!(preview(&file("logo.PNG", b"\x89PNG\0")), Preview::Image(None));
         assert_eq!(preview(&file("big.txt", &vec![b'a'; 600 * 1024])), Preview::TooLarge(600 * 1024));
         assert_eq!(preview(&dir.join("missing.rs").to_string_lossy()), Preview::Unreadable);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -627,7 +645,7 @@ mod tests {
 
     #[test]
     fn files_without_text_show_the_image_or_say_why_not_and_nothing_while_loading() {
-        assert_eq!(body_of("/r/logo.png", Preview::Image), Body::Image);
+        assert_eq!(body_of("/r/logo.png", Preview::Image(None)), Body::Image(None));
         assert_eq!(body_of("/r/big.log", Preview::TooLarge(3 * 1024 * 1024)), Body::Note("Too large to preview · 3.0 MB".into()));
         assert_eq!(body_of("/r/gone.rs", Preview::Unreadable), Body::Note("This file can't be shown.".into()));
         assert_eq!(opened("/r/a.rs").body(MAIN), Body::Blank);

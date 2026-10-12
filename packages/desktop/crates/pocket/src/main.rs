@@ -10,6 +10,7 @@ mod explorer;
 mod field;
 mod fleet;
 mod fs;
+mod host_agents;
 mod git_ui;
 mod inbox;
 mod modals;
@@ -141,7 +142,7 @@ fn main() {
                         let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
                     }
                 });
-                let mut desktop = Desktop::new(daemon, outbox, store, window, cx);
+                let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, window, cx);
                 if !capturing {
                     desktop.connect_hosts(window, cx);
                 }

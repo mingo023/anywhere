@@ -73,7 +73,7 @@ impl Desktop {
 
     fn save_automation(&mut self, cx: &mut Context<Self>) {
         let Ok(draft) = self.automations.form.values(cx).draft() else { return };
-        self.outbox.automation_save(draft);
+        self.outbox.local.automation_save(draft);
         self.automations.form.open = false;
         cx.notify();
     }

@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 128] = [
+const STEPS: [(&str, Step); 132] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -153,6 +153,22 @@ const STEPS: [(&str, Step); 128] = [
     ("vm-uname", |d, _, _| {
         if let Some(id) = d.terminals.sessions.items.iter().rev().map(|s| s.info.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
             d.daemon.input(&id, b"uname -a\r");
+        }
+    }),
+    ("vm-new", |d, window, cx| {
+        let Some(project) = d.store.projects.iter().find(|p| hosts::split(p).0.is_some()).cloned() else { return };
+        d.select_tree(project, None, cx);
+        d.new_session(Some("hello from the mac".into()), true, window, cx);
+    }),
+    ("vm-start", |d, window, cx| d.start_session(window, cx)),
+    ("vm-agent", |d, window, cx| {
+        if let Some(id) = d.agents.list.iter().map(|a| a.id.clone()).find(|id| hosts::session::untag(id).0.is_some()) {
+            d.focus_agent(&id, window, cx);
+        }
+    }),
+    ("vm-image", |d, _, cx| {
+        if let Some(project) = d.store.projects.iter().find(|p| hosts::split(p).0.is_some()) {
+            d.open_file(format!("{project}/logo.png"), false, cx);
         }
     }),
     ("hosts-add", |d, _, _| {

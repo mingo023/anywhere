@@ -9,7 +9,7 @@ impl Desktop {
         let rows = [Access::Ask, Access::Edits, Access::Auto].map(|a| {
             access_row(a.wire(), self.agents.phone_max == a.wire(), None, a.label(), a.hint(), TEXT)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.outbox.set_phone_access(a.wire());
+                    this.outbox.local.set_phone_access(a.wire());
                     this.close_overlay(window, cx);
                 }))
                 .into_any_element()
