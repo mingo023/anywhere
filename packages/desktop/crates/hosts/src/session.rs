@@ -1,5 +1,6 @@
-//! Terminals on hosts next to this Mac's: their ids carry the host's, and ops go back to the pocketd holding them.
+//! Terminals and agents on hosts next to this Mac's: their ids carry the host's, and ops go back to the pocketd holding them.
 
+use agents::{Decision, Event, Outbox, Summary};
 use daemon::{Daemon, Info, Msg};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -97,6 +98,165 @@ impl Daemons {
     }
 }
 
+fn tag_summary(host: &str, a: &mut Summary) {
+    a.id = tag(host, &a.id);
+    if !a.terminal_id.is_empty() {
+        a.terminal_id = tag(host, &a.terminal_id);
+    }
+    if !a.cwd.is_empty() {
+        a.cwd = crate::place(host, &a.cwd);
+    }
+}
+
+/// An agent event from host `host`'s pocketd in the desktop's terms, as `tag_msg`; false for news only this Mac's pocketd gives: pairing, the phone, Locals, automations.
+pub fn tag_event(host: &str, ev: &mut Event) -> bool {
+    let t = |id: &mut String| *id = tag(host, id);
+    match ev {
+        Event::Agents(list) => list.iter_mut().for_each(|a| tag_summary(host, a)),
+        Event::Agent(a) => tag_summary(host, a),
+        Event::Items(id, _) | Event::Resolved(id) | Event::NamingFailed(id) | Event::Progress { request: id, .. } | Event::CreateFailed { request: id, .. } => t(id),
+        Event::Asked(p) => {
+            t(&mut p.request_id);
+            t(&mut p.agent_id);
+        }
+        Event::Creating { request, terminal, cwd, .. } => {
+            t(request);
+            t(terminal);
+            *cwd = crate::place(host, cwd);
+        }
+        Event::Created { request, agent } => {
+            t(request);
+            t(agent);
+        }
+        Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
+        Event::Connected { .. } => {}
+        Event::Host(_)
+        | Event::PairCode { .. }
+        | Event::Paired(_)
+        | Event::PairFailed(_)
+        | Event::Providers { .. }
+        | Event::ConfigFailed(_)
+        | Event::Locals(_)
+        | Event::Automations { .. }
+        | Event::AutomationError(_) => return false,
+    }
+    true
+}
+
+/// This Mac's pocketd's agent channel and each linked host's, sending every message to the pocketd its ids name, in that one's terms.
+#[derive(Clone)]
+pub struct Outboxes {
+    /// For what only this Mac's pocketd does: pairing, the phone, Locals, automations.
+    pub local: Outbox,
+    hosts: Arc<Mutex<HashMap<String, Outbox>>>,
+}
+
+impl Outboxes {
+    pub fn new(local: Outbox) -> Self {
+        Self { local, hosts: Arc::default() }
+    }
+
+    pub fn add(&self, host: &str, outbox: Outbox) {
+        self.hosts.lock().unwrap().insert(host.into(), outbox);
+    }
+
+    pub fn remove(&self, host: &str) {
+        self.hosts.lock().unwrap().remove(host);
+    }
+
+    pub fn has(&self, host: &str) -> bool {
+        self.hosts.lock().unwrap().contains_key(host)
+    }
+
+    fn to(&self, host: Option<&str>) -> Option<Outbox> {
+        match host {
+            None => Some(self.local.clone()),
+            Some(h) => self.hosts.lock().unwrap().get(h).cloned(),
+        }
+    }
+
+    /// Each pocketd hears of the agents in `ids` it holds; every one of them hears it when `all`, even of none.
+    fn split_ids(&self, ids: &[String], all: bool, send: impl Fn(&Outbox, &[String])) {
+        let hosts = self.hosts.lock().unwrap().clone();
+        let mut by: HashMap<Option<&str>, Vec<String>> = HashMap::new();
+        if all {
+            by.insert(None, Vec::new());
+            by.extend(hosts.keys().map(|h| (Some(h.as_str()), Vec::new())));
+        }
+        for id in ids {
+            let (host, theirs) = untag(id);
+            by.entry(host).or_default().push(theirs.to_string());
+        }
+        for (host, ids) in by {
+            if let Some(out) = host.map_or(Some(&self.local), |h| hosts.get(h)) {
+                send(out, &ids);
+            }
+        }
+    }
+
+    pub fn view(&self, ids: &[String]) {
+        self.split_ids(ids, true, Outbox::view);
+    }
+
+    pub fn seen(&self, ids: &[String]) {
+        self.split_ids(ids, false, Outbox::seen);
+    }
+
+    fn by_id(&self, id: &str, send: impl FnOnce(&Outbox, &str)) {
+        let (host, theirs) = untag(id);
+        if let Some(out) = self.to(host) {
+            send(&out, theirs);
+        }
+    }
+
+    pub fn pin(&self, agent_id: &str, pinned: bool) {
+        self.by_id(agent_id, |o, id| o.pin(id, pinned));
+    }
+
+    pub fn resolve(&self, request_id: &str, decision: Decision) {
+        self.by_id(request_id, |o, id| o.resolve(id, decision));
+    }
+
+    pub fn answer(&self, request_id: &str, answers: &HashMap<String, String>) {
+        self.by_id(request_id, |o, id| o.answer(id, answers));
+    }
+
+    pub fn reply(&self, request_id: &str, message: &str) {
+        self.by_id(request_id, |o, id| o.reply(id, message));
+    }
+
+    pub fn rename(&self, path: &str, title: &str) {
+        let (host, theirs) = crate::split(path);
+        if let Some(out) = self.to(host) {
+            out.rename(theirs, title);
+        }
+    }
+
+    /**
+     * Sends a create to the pocketd holding `spec`'s project, in its paths, and returns the requestId, tagged for a host.
+     * A host's pocketd only makes worktrees for projects its `desktop.json` lists, so `registry(host)` is written there first.
+     */
+    pub fn create(&self, mut spec: Value, registry: impl FnOnce(&str) -> Value) -> String {
+        let project = spec["project"].as_str().unwrap_or_default().to_string();
+        let (Some(host), path) = crate::split(&project) else { return self.local.create(spec) };
+        spec["project"] = path.into();
+        if let Some(tree) = spec["checkout"]["worktree"].as_str().map(|t| crate::split(t).1.to_string()) {
+            spec["checkout"]["worktree"] = tree.into();
+        }
+        let request = agents::request_id();
+        let tagged = tag(host, &request);
+        let Some(out) = self.to(Some(host)) else { return tagged };
+        let (host, registry) = (host.to_string(), registry(host));
+        std::thread::spawn(move || {
+            if let Some(client) = crate::remote::connected(&host) {
+                _ = client.sync_registry(&registry);
+            }
+            out.create_as(&request, spec);
+        });
+        tagged
+    }
+}
+
 /// The last terminal list each pocketd sent, so one pocketd's list doesn't drop another's terminals.
 #[derive(Default)]
 pub struct Lists {
@@ -166,5 +326,69 @@ mod tests {
         let daemons = Daemons::new(local);
         assert!(!daemons.send(serde_json::json!({"op": "input", "id": "devbox/7f3a"})));
         assert!(!daemons.input("devbox/7f3a", b"ls"));
+    }
+
+    #[test]
+    fn a_hosts_agent_events_are_tagged_and_its_phone_and_pairing_news_dropped() {
+        let mut list = Event::Agents(vec![Summary { id: "a1".into(), terminal_id: "7f3a".into(), cwd: "/home/me/app".into(), ..Summary::default() }]);
+        assert!(tag_event("devbox", &mut list));
+        let Event::Agents(list) = list else { unreachable!() };
+        assert_eq!((list[0].id.as_str(), list[0].terminal_id.as_str(), list[0].cwd.as_str()), ("devbox/a1", "devbox/7f3a", "//devbox/home/me/app"));
+
+        let mut creating = Event::Creating { request: "r1".into(), terminal: "7f3a".into(), cwd: "/home/me/.worktrees/app/fox".into(), setup: true };
+        assert!(tag_event("devbox", &mut creating));
+        assert!(matches!(creating, Event::Creating { request, terminal, cwd, .. }
+            if request == "devbox/r1" && terminal == "devbox/7f3a" && cwd == "//devbox/home/me/.worktrees/app/fox"));
+
+        let mut asked = Event::Asked(agents::Permission { request_id: "q1".into(), agent_id: "a1".into(), ..Default::default() });
+        assert!(tag_event("devbox", &mut asked));
+        assert!(matches!(asked, Event::Asked(p) if p.request_id == "devbox/q1" && p.agent_id == "devbox/a1"));
+
+        let mut names = Event::Names(HashMap::from([("/home/me/app".into(), "App".into())]));
+        assert!(tag_event("devbox", &mut names));
+        assert!(matches!(names, Event::Names(n) if n.contains_key("//devbox/home/me/app")));
+
+        assert!(!tag_event("devbox", &mut Event::Paired("iPhone".into())));
+        assert!(!tag_event("devbox", &mut Event::Locals(Vec::new())));
+    }
+
+    fn outboxes() -> (Outboxes, std::sync::mpsc::Receiver<Value>, std::sync::mpsc::Receiver<Value>) {
+        let (local, here) = std::sync::mpsc::channel();
+        let (host, there) = std::sync::mpsc::channel();
+        let out = Outboxes::new(local.into());
+        out.add("devbox", host.into());
+        (out, here, there)
+    }
+
+    #[test]
+    fn ops_on_a_hosts_agents_reach_that_host_with_its_own_ids() {
+        let (out, here, there) = outboxes();
+        out.view(&["a1".into(), "devbox/b1".into()]);
+        out.resolve("devbox/q1", Decision::Allow);
+        out.pin("a1", true);
+        out.rename("//devbox/home/me/app", "Box");
+        let sent: Vec<Value> = there.try_iter().collect();
+        assert_eq!(sent[0]["agentIds"], json!(["b1"]));
+        assert_eq!(sent[1]["requestId"], "q1");
+        assert_eq!(sent[2]["path"], "/home/me/app");
+        let sent: Vec<Value> = here.try_iter().collect();
+        assert_eq!((sent[0]["agentIds"].clone(), sent[1]["agentId"].clone()), (json!(["a1"]), json!("a1")));
+
+        out.view(&[]);
+        assert_eq!(there.try_iter().next().unwrap()["agentIds"], json!([]), "a host stops streaming once none of its agents is viewed");
+    }
+
+    #[test]
+    fn a_create_for_a_hosts_project_goes_there_in_its_paths_under_a_tagged_request() {
+        let (out, here, there) = outboxes();
+        let spec = json!({"project": "//devbox/home/me/app", "checkout": {"worktree": "//devbox/home/me/.worktrees/app/fox"}});
+        let request = out.create(spec, |host| json!({"projects": [host]}));
+        let sent = there.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(request, tag("devbox", sent["requestId"].as_str().unwrap()));
+        assert_eq!((sent["spec"]["project"].as_str(), sent["spec"]["checkout"]["worktree"].as_str()), (Some("/home/me/app"), Some("/home/me/.worktrees/app/fox")));
+        assert!(here.try_iter().next().is_none());
+
+        let mine = out.create(json!({"project": "/src/app"}), |_| unreachable!("this Mac's pocketd reads the desktop's own desktop.json"));
+        assert_eq!(here.try_iter().next().unwrap()["requestId"], mine.as_str());
     }
 }

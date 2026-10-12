@@ -161,7 +161,7 @@ impl Desktop {
         let pick = self.launch_pick();
         let mut spec = pick.spec(&project, agents::locals::checkout(&tree), &prompt);
         self.store.agents.launch(&mut spec);
-        let request = self.outbox.create(spec);
+        let request = self.outbox.create(spec, |h| self.store.host_registry(h));
         self.store.repos.entry(project).or_default().launch = pick;
         self.save_soon(cx);
         let pane = self.workspace(&tree).tree.focused;

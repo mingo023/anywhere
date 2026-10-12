@@ -135,12 +135,12 @@ impl Desktop {
     }
 
     pub(super) fn toggle_automation(&mut self, id: &str, enabled: bool, cx: &mut Context<Self>) {
-        self.outbox.automation_enable(id, enabled);
+        self.outbox.local.automation_enable(id, enabled);
         cx.notify();
     }
 
     pub(super) fn run_automation(&mut self, id: &str) {
-        self.outbox.automation_run(id);
+        self.outbox.local.automation_run(id);
     }
 
     pub(super) fn open_run_session(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -176,7 +176,7 @@ impl Desktop {
     }
 
     pub(crate) fn delete_automation(&mut self, id: &str) {
-        self.outbox.automation_delete(id);
+        self.outbox.local.automation_delete(id);
         if self.automations.selected.as_deref() == Some(id) {
             self.automations.selected = None;
         }

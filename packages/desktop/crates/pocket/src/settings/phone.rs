@@ -20,7 +20,7 @@ pub(super) const ROWS: &[Setting] = &[
         PHONE_ACCESSES.iter().position(|a| *a == s.phone.max_access).unwrap_or(0)
     }, |s, i| s.phone.max_access = PHONE_ACCESSES[i].into())
     .hint("The phone never allows more than this, whatever the session's own mode")
-    .effect(|d, _| d.outbox.set_phone_access(&d.store.phone.max_access)),
+    .effect(|d, _| d.outbox.local.set_phone_access(&d.store.phone.max_access)),
     Setting::choice("reachable-from", "Network", "Reachable from", &["This Mac", "Tailnet"], Look::Segmented, |s| s.phone.tailnet as usize, |s, i| s.phone.tailnet = i == 1)
         .hint("Tailnet lets the phone connect from anywhere over Tailscale")
         .effect(|d, cx| d.set_reach("listen", if d.store.phone.tailnet { "auto" } else { "loopback" }.into(), cx)),

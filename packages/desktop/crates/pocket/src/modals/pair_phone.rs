@@ -93,7 +93,7 @@ impl PairPhone {
 impl Desktop {
     pub(crate) fn begin_pairing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pair = PairPhone::default();
-        self.outbox.pair_begin();
+        self.outbox.local.pair_begin();
         self.pair.ticking = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
