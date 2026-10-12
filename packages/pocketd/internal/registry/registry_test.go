@@ -20,8 +20,8 @@ func write(t *testing.T, path, body string, mtime time.Time) {
 
 func TestADesktopJSONLoadsAndItsUnknownKeysAreIgnored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "desktop.json")
-	write(t, path, `{"projects":["/w/pocket"],"repos":{"/w/pocket":{"name":"Pocket","color":1,"base":"dev","worktrees":"/wt","setup":"make","copy":[".env"]}},"collapsed":["/w/pocket"],"sounds":{"done":false}}`, time.Now())
-	want := File{Projects: []string{"/w/pocket"}, Repos: map[string]Repo{"/w/pocket": {Name: "Pocket", Base: "dev", Worktrees: "/wt", Setup: "make", Copy: []string{".env"}}}}
+	write(t, path, `{"projects":["/w/pocket"],"repos":{"/w/pocket":{"name":"Pocket","color":1,"base":"dev","worktrees":"/wt","setup":"make","copy":[".env"],"gh_account":"work"}},"collapsed":["/w/pocket"],"sounds":{"done":false}}`, time.Now())
+	want := File{Projects: []string{"/w/pocket"}, Repos: map[string]Repo{"/w/pocket": {Name: "Pocket", Base: "dev", Worktrees: "/wt", Setup: "make", Copy: []string{".env"}, GhAccount: "work"}}}
 	if got := New(path).Load(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v", got)
 	}

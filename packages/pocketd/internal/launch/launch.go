@@ -181,7 +181,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	}
 	local := s.Checkout.Local
 	t, err := l.d.Terminals.Spawn(terminal.Spec{ID: id, Cmd: shell, Args: Wrap(shell, l.d.Exe, setup, argv), Cwd: cwd,
-		Env: l.d.Env(env, id, local), Cols: 100, Rows: 30, Origin: origin, Local: local})
+		Env: l.d.Env(l.d.GhEnv(env, cwd), id, local), Cols: 100, Rows: 30, Origin: origin, Local: local})
 	if err != nil {
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
 	}

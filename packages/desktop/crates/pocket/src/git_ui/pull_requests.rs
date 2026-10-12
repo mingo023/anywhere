@@ -223,6 +223,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let status = task.await;
             this.update(cx, |d, cx| {
+                d.gh_accounts.checked(&status);
                 d.prs.checked(status);
                 d.poll_prs(cx);
                 cx.notify();
@@ -235,20 +236,24 @@ impl Desktop {
 
     /// Asks `gh` about the next due worktree, off the UI thread.
     pub(crate) fn poll_prs(&mut self, cx: &mut Context<Self>) {
+        // Until `gh` is checked, no project's account is known to be signed in, so it would ask as the active one.
+        if !matches!(self.prs.gh, Some(Some(_))) {
+            return self.check_gh(cx);
+        }
         let mut trees: Vec<String> = self.project.as_ref().and_then(|p| self.listed_trees(p)).into_iter().flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path).collect();
         trees.sort();
         let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
         let started = Instant::now();
         self.prs.start(&tree, started);
-        let dir = tree.clone();
+        let (dir, gh) = (tree.clone(), self.gh_in(&tree));
         let task = cx.background_executor().spawn(async move {
-            let mut result = github::view_result(daemon::run_login(github::VIEW, &dir, ""));
+            let mut result = github::view_result(gh.run(github::VIEW, &dir, ""));
             let mut lost = false;
             if let Ok(Some(pr)) = &mut result
                 && pr.state == PrState::Open
             {
                 let argv = github::threads_argv(pr.number);
-                let threads = super::pull_request::run(&argv, &dir, "").ok().and_then(|json| github::threads_result(&json));
+                let threads = gh.run(&argv, &dir, "").ok().and_then(|json| github::threads_result(&json));
                 lost = threads.is_none();
                 pr.threads = threads.unwrap_or_default();
             }
@@ -397,7 +402,7 @@ mod tests {
         answer(&mut prs, "/a", Err(GhProblem::LoggedOut), now);
         prs.checked(GhStatus::SignedOut { version: "2.81.0".into() });
         assert_eq!(prs.due(None, EVERY, &trees(), now), None);
-        prs.checked(GhStatus::Ready { version: "2.81.0".into(), login: "me".into() });
+        prs.checked(GhStatus::Ready { version: "2.81.0".into(), login: "me".into(), accounts: vec!["me".into()] });
         assert_eq!(prs.due(None, EVERY, &trees(), now), Some("/a".into()));
     }
 
