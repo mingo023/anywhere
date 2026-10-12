@@ -156,7 +156,7 @@ impl Desktop {
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
         }
-        let exited = exited_terminal(&self.agents.list, &ev).filter(|_| self.store.agents.close_on_exit && !self.capturing);
+        let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
         self.agents.apply(ev);
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.tab_of(t).is_some())) {
             self.close_pane(&term, cx);

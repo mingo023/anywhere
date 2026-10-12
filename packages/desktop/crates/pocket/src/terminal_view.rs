@@ -1,6 +1,7 @@
 pub(crate) mod context;
 pub(crate) mod cursor;
 pub(crate) mod link;
+pub(crate) mod menu;
 pub(crate) mod mouse;
 pub(crate) mod pane;
 pub(crate) mod scroll;
@@ -34,11 +35,13 @@ pub struct TerminalViewState {
     pub(crate) cursor_blinks: bool,
     /// The focused pane's cursor cell on screen, where the IME puts its candidate window.
     pub(crate) caret: Option<Bounds<Pixels>>,
+    /// The pane whose right-click menu is open, and where the click was.
+    pub(crate) menu: Option<(String, Point<Pixels>)>,
 }
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None, menu: None }
     }
 }
 
@@ -275,6 +278,18 @@ impl Desktop {
     pub(crate) fn paste_into(&mut self, pane: &str, text: &str, cx: &mut Context<Self>) {
         let Some(bracketed) = self.terminals.sessions.term(pane).map(|t| t.mode(2004)) else { return };
         self.send_input(pane, &term::paste_bytes(text, bracketed), cx);
+    }
+
+    /// Wipes the screen and scrollback, as ⌘K does in Ghostty, and has an idle shell redraw its prompt at the top.
+    pub(crate) fn clear_pane(&mut self, pane: &str, cx: &mut Context<Self>) {
+        let idle = self.terminals.sessions.get(pane).is_some_and(|s| s.busy().is_none());
+        let Some(t) = self.terminals.sessions.term(pane) else { return };
+        // Only this window's copy: pocketd keeps the scrollback, so a reattach brings it back.
+        t.write(b"\x1b[H\x1b[2J\x1b[3J");
+        if idle {
+            self.send_input(pane, b"\x0c", cx);
+        }
+        cx.notify();
     }
 
     pub(crate) fn wheel(&mut self, pane: &str, e: &ScrollWheelEvent, at: Pointer, line: f32, cx: &mut Context<Self>) {

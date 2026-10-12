@@ -47,6 +47,8 @@ pub struct Terminals {
     reattach: HashSet<String>,
     pub(crate) link: Link,
     pub(crate) bell: Bell,
+    /// Terminals ended from their pane, which stays open on its last screen.
+    killed: HashSet<String>,
 }
 
 /// A created terminal's worktree, and the pane it opens in if one was asked for.
@@ -58,7 +60,7 @@ pub(crate) struct Created {
 
 impl Terminals {
     pub fn new(config: term::Config) -> Self {
-        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default() }
+        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default(), killed: HashSet::new() }
     }
 
     /// The listed terminals closed here that still run, because their close never reached pocketd.
@@ -128,11 +130,16 @@ impl Terminals {
         listed.into_iter().filter_map(|id| self.created.remove_entry(&id)).collect()
     }
 
-    /// Records an exit and returns whether its pane should close. Only a failed setup stays so its error can be read: a shell's `exit` passes on its last command's status, so any other code means nothing went wrong.
+    /// Records an exit and returns whether its pane should close. Only a failed setup or a killed terminal stays so it can be read: a shell's `exit` passes on its last command's status, so any other code means nothing went wrong.
     pub(crate) fn exited(&mut self, m: &Msg) -> bool {
         self.sessions.apply(m);
         let setup = self.setups.remove(&m.id).is_some();
-        self.sessions.get(&m.id).is_some_and(|s| !(setup && s.failed()))
+        let killed = self.killed(&m.id);
+        self.sessions.get(&m.id).is_some_and(|s| !killed && !(setup && s.failed()))
+    }
+
+    pub(crate) fn killed(&self, id: &str) -> bool {
+        self.killed.contains(id)
     }
 
     /// Forgets a terminal for good, even if pocketd lists it again; returns whether it still runs and pocketd must end it.
@@ -144,6 +151,16 @@ impl Terminals {
         self.pending.remove(id);
         self.setups.remove(id);
         self.created.remove(id);
+        self.killed.remove(id);
+        running
+    }
+
+    /// Keeps the pane of a terminal about to be ended until it is closed; returns whether it still runs and pocketd must end it.
+    pub(crate) fn kill(&mut self, id: &str) -> bool {
+        let running = self.sessions.get(id).is_some_and(|s| s.exit.is_none());
+        if running {
+            self.killed.insert(id.to_string());
+        }
         running
     }
 
@@ -324,6 +341,9 @@ impl Desktop {
         if self.terminals.close(id) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
+        if self.terminal.menu.as_ref().is_some_and(|(p, _)| p == id) {
+            self.terminal.menu = None;
+        }
         let ids = [id.to_string()];
         for w in self.workspaces.values_mut() {
             w.remove(&ids);
@@ -333,6 +353,13 @@ impl Desktop {
         cx.notify();
     }
 
+    /// Ends a terminal's processes but leaves its pane on the last screen.
+    pub fn kill_pane(&mut self, id: &str) {
+        if self.terminals.may_send(id, self.agents.observe_only()) && self.terminals.kill(id) {
+            self.daemon.send(json!({"op": "close", "id": id}));
+        }
+    }
+
     /// Ends a session with its terminal.
     pub fn close_session(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.agents.observe_only() {
@@ -340,8 +367,13 @@ impl Desktop {
         }
         let Some(a) = self.agents.get(id) else { return };
         let term = a.terminal_id.clone();
-        if !self.ask_close(vec![term.clone()], cx) {
-            self.close_pane(&term, cx);
+        self.close_terminal(&term, cx);
+    }
+
+    /// Closes a terminal and its tabs, asking first if it is busy.
+    pub fn close_terminal(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.terminals.may_close(id, self.agents.observe_only()) && !self.ask_close(vec![id.to_string()], cx) {
+            self.close_pane(id, cx);
         }
     }
 
@@ -478,6 +510,23 @@ mod tests {
         assert!(t.exited(&exit("c", 0)));
         assert!(!t.exited(&exit("d", 1)));
         assert_eq!(t.sessions.get("d").and_then(|s| s.exit), Some(1));
+    }
+
+    #[test]
+    fn a_killed_terminal_keeps_its_pane_open_on_exit() {
+        let mut t = Terminals::new(Default::default());
+        t.listed(vec![info("a")]);
+        assert!(t.kill("a"));
+        assert!(!t.exited(&exit("a", 143)));
+        assert_eq!(t.sessions.get("a").and_then(|s| s.exit), Some(143));
+    }
+
+    #[test]
+    fn an_exited_terminal_has_nothing_left_to_kill() {
+        let mut t = Terminals::new(Default::default());
+        t.listed(vec![info("a")]);
+        t.exited(&exit("a", 0));
+        assert!(!t.kill("a"));
     }
 
     #[test]
