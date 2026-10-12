@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use crate::git_ui::pull_request::tally;
 use git::github::{self, GhProblem, GhStatus, Pr, PrState};
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -146,8 +147,8 @@ pub(crate) fn detail(pr: &Pr) -> String {
         PrState::Open => pr.draft.then_some("Draft"),
     };
     let c = pr.checks;
-    let counts: Vec<String> = [(c.failed, "failed"), (c.pending, "pending"), (c.passed, "passed")].into_iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect();
-    let checks = if counts.is_empty() { "No checks".to_string() } else { counts.join(" · ") };
+    let counts = tally([(c.failed.into(), "failed"), (c.pending.into(), "pending"), (c.passed.into(), "passed")]);
+    let checks = if counts.is_empty() { "No checks".to_string() } else { counts };
     match state {
         Some(s) => format!("{s} · {checks}"),
         None => checks,
@@ -174,8 +175,8 @@ impl Render for PrCard {
     }
 }
 
-/// `#123`, coloured by the PR's state and checks, with its title and checks on hover.
-pub(crate) fn chip(id: impl Into<ElementId>, pr: &Pr) -> Stateful<Div> {
+/// `#123` in `color`, with its title and checks on hover.
+pub(crate) fn chip(id: impl Into<ElementId>, pr: &Pr, color: Token) -> Stateful<Div> {
     let (title, line) = (format!("#{} {}", pr.number, pr.title), detail(pr));
     div()
         .id(id)
@@ -183,7 +184,7 @@ pub(crate) fn chip(id: impl Into<ElementId>, pr: &Pr) -> Stateful<Div> {
         .font_family(MONO)
         .text_size(px(11.5))
         .font_weight(FontWeight::MEDIUM)
-        .text_color(tone(pr))
+        .text_color(color)
         .child(format!("#{}", pr.number))
         .tooltip(move |_, cx| cx.new(|_| PrCard { title: title.clone(), line: line.clone() }).into())
         .tooltip_show_delay(Duration::from_millis(350))

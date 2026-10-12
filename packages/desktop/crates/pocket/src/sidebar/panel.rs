@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area};
-use crate::sidebar::column::{changes_dot, has_changes};
+use crate::sidebar::column::changes_badge;
 use crate::sidebar::rail::rail_button;
 use crate::status::Status;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -77,11 +77,11 @@ impl Desktop {
     pub(crate) fn workspace_rail(&self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.panel_open;
         let waiting = self.sessions_matching("").iter().any(|c| c.status == Status::NeedsYou);
-        let dirty = has_changes(self.repo());
+        let changed = self.repo().map_or(0, |r| r.files.len());
         let sides = [(Side::Sessions, "comment"), (Side::Explorer, "file"), (Side::Changes, "branch")].into_iter().enumerate().map(|(i, (side, name))| {
             rail_button(("panel-side", i), name, open && self.side == side)
                 .when(side == Side::Sessions && waiting, |d| d.child(ui::dot(6., WAITING_DOT).absolute().top(px(5.)).right(px(5.))))
-                .when(side == Side::Changes && dirty, |d| d.child(changes_dot()))
+                .when(side == Side::Changes && changed > 0, |d| d.child(changes_badge(changed)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_side(side, cx)))
         });
         drag_area(div().bg(SIDE))
