@@ -4,7 +4,6 @@ use crate::desktop::Desktop;
 use futures::StreamExt;
 use gpui_kit::*;
 use std::collections::HashMap;
-use std::path::Path;
 
 #[derive(Default)]
 pub(crate) struct HostAgents {
@@ -25,7 +24,7 @@ impl HostAgents {
 
 impl Desktop {
     /// Lists the host's agents beside this Mac's, and lists its projects where its pocketd looks for them.
-    pub(crate) fn open_host_agents(&mut self, id: &str, sock: &Path, home: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_host_agents(&mut self, id: &str, endpoint: &daemon::Endpoint, home: String, window: &mut Window, cx: &mut Context<Self>) {
         self.host_agents.homes.insert(id.into(), home);
         if let Some(client) = hosts::remote::connected(id) {
             let registry = self.store.host_registry(id);
@@ -35,7 +34,7 @@ impl Desktop {
         if self.outbox.has(id) {
             return;
         }
-        let (outbox, mut rx) = agents::connect(sock);
+        let (outbox, mut rx) = agents::connect_with(&endpoint.path, endpoint.token.clone());
         self.outbox.add(id, outbox);
         let host = id.to_string();
         let task = cx.spawn_in(window, async move |this, cx| {
