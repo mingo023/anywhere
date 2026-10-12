@@ -1,6 +1,7 @@
 mod composer;
 
 use crate::desktop::Desktop;
+use crate::field::Field;
 use crate::terminals::link;
 use agents::CreateReply;
 use gpui_kit::component::input::{InputEvent, TextareaState};
@@ -16,6 +17,7 @@ pub(crate) struct EmptyPane {
     chosen: Option<(String, LaunchPick)>,
     menu: Option<Menu>,
     pub(crate) drawn: Drawn,
+    field: Field,
 }
 
 /// The composer chip whose menu is open.
@@ -110,7 +112,7 @@ impl EmptyPane {
             InputEvent::Change => cx.notify(),
             _ => {}
         })];
-        (Self { prompt, launch: Launch::default(), chosen: None, menu: None, drawn: Drawn::default() }, subs)
+        (Self { prompt, launch: Launch::default(), chosen: None, menu: None, drawn: Drawn::default(), field: Field::default() }, subs)
     }
 }
 

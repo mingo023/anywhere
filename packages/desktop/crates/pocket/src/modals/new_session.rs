@@ -5,6 +5,7 @@ use agents::{Agents, CreateReply, Event};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
+use crate::field::Field;
 use crate::modals::form::{default_base, home};
 use crate::terminals::link;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON};
@@ -61,6 +62,7 @@ pub struct NewForm {
     search: Entity<InputState>,
     pr: Entity<InputState>,
     draft: Draft,
+    field: Field,
 }
 
 /// Where a new worktree's branch comes from.
@@ -488,7 +490,7 @@ impl NewForm {
                 cx.notify()
             }),
         ];
-        (Self { shown: false, prompt, search, pr, draft: Draft::default() }, subs)
+        (Self { shown: false, prompt, search, pr, draft: Draft::default(), field: Field::default() }, subs)
     }
 }
 
@@ -505,6 +507,7 @@ impl Desktop {
         let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
         f.draft.seed = crate::util::now_ms() as usize;
+        f.field.hide();
         f.draft.taken.clear();
         f.draft.source = Source::New;
         f.prompt.update(cx, |s, cx| {
@@ -794,19 +797,15 @@ impl Desktop {
             .child(checkout)
             .children(branch)
             .child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("esc to cancel"));
-        let body = div()
-            .flex_1()
+        let content = div()
             .flex()
             .flex_col()
             .items_center()
-            .justify_center()
-            .pt(px(72.))
-            .px(px(24.))
-            .pb(px(56.))
             .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("What should we build next?"))
             .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
             .children(error)
             .child(footer);
+        let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx);
         div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
     }
 }

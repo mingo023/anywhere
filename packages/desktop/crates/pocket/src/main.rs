@@ -7,6 +7,7 @@ mod creating;
 mod desktop;
 mod empty_pane;
 mod explorer;
+mod field;
 mod git_ui;
 mod inbox;
 mod modals;
