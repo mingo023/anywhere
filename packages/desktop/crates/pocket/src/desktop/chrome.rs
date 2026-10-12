@@ -75,6 +75,7 @@ pub enum Confirm {
     ResetSection(Section),
     RevokeDevice { id: String, name: String },
     RemoveHost { id: String, name: String },
+    UpdateHost { id: String, name: String, windows: bool },
 }
 
 /// The sidebar row whose `⋯` menu is open.
