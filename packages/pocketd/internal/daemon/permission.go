@@ -36,6 +36,18 @@ func (in hookInput) updates(option string) []json.RawMessage {
 	return nil
 }
 
+// withAnswers is AskUserQuestion's input with answers, keyed by question, which
+// Claude takes in place of its own dialog's.
+func (in hookInput) withAnswers(answers map[string]string) json.RawMessage {
+	var input map[string]json.RawMessage
+	if in.ToolName != "AskUserQuestion" || len(answers) == 0 || json.Unmarshal(in.ToolInput, &input) != nil {
+		return nil
+	}
+	input["answers"], _ = json.Marshal(answers)
+	out, _ := json.Marshal(input)
+	return out
+}
+
 type suggestion struct {
 	Type  string `json:"type"`
 	Rules []struct {

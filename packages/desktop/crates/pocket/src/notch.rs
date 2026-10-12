@@ -1,10 +1,11 @@
 use crate::desktop::Desktop;
 use crate::desktop::alerts::Notice;
-use agents::{Decision, Permission};
+use agents::{Decision, Permission, Question};
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui_kit::*;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -21,6 +22,7 @@ pub struct Ask {
     pub subject: String,
     pub shell: bool,
     pub feedback: bool,
+    pub questions: Vec<Question>,
 }
 
 impl Ask {
@@ -36,6 +38,7 @@ impl Ask {
             subject,
             shell: p.detail.kind == "shell",
             feedback: p.feedback,
+            questions: p.questions(),
         }
     }
 
@@ -53,6 +56,7 @@ impl Ask {
             "subject": self.subject,
             "shell": self.shell,
             "feedback": self.feedback,
+            "questions": self.questions,
         })
     }
 }
@@ -62,6 +66,8 @@ pub enum Answer {
     Allow,
     Deny,
     Reply(String),
+    /// AskUserQuestion's answers, keyed by question.
+    Questions(HashMap<String, String>),
 }
 
 /// What the island asks of the desktop, a line at a time.
@@ -80,6 +86,7 @@ impl Said {
             "allow" => Answer::Allow,
             "deny" => Answer::Deny,
             "reply" => Answer::Reply(field("text")?),
+            "questions" => Answer::Questions(serde_json::from_value(v.get("answers")?.clone()).ok()?),
             _ => return None,
         };
         Some(Said::Answered { agent: field("agent")?, request: field("request")?, answer })
@@ -198,6 +205,7 @@ impl Desktop {
                         Answer::Allow => self.outbox.resolve(&request, Decision::Allow),
                         Answer::Deny => self.outbox.resolve(&request, Decision::Deny),
                         Answer::Reply(message) => self.outbox.reply(&request, &message),
+                        Answer::Questions(answers) => self.outbox.answer(&request, &answers),
                     }
                 }
                 cx.dismiss_system_notification(&agent);
@@ -225,6 +233,7 @@ mod tests {
             subject: "ls /tmp".into(),
             shell: true,
             feedback: true,
+            questions: vec![],
         }
     }
 
@@ -281,6 +290,10 @@ mod tests {
         assert_eq!(said(r#"{"answer":"allow","agent":"a1","request":"q1"}"#), answered(Answer::Allow));
         assert_eq!(said(r#"{"answer":"deny","agent":"a1","request":"q1"}"#), answered(Answer::Deny));
         assert_eq!(said(r#"{"answer":"reply","agent":"a1","request":"q1","text":"no"}"#), answered(Answer::Reply("no".into())));
+        assert_eq!(
+            said(r#"{"answer":"questions","agent":"a1","request":"q1","answers":{"Which color?":"Blue"}}"#),
+            answered(Answer::Questions([("Which color?".into(), "Blue".into())].into()))
+        );
         assert_eq!(said(r#"{"answer":"open","agent":"a1"}"#), Some(Said::Open("a1".into())));
     }
 
@@ -289,5 +302,6 @@ mod tests {
         assert_eq!(Said::parse("not json"), None);
         assert_eq!(Said::parse(r#"{"answer":"reply","agent":"a1","request":"q1"}"#), None);
         assert_eq!(Said::parse(r#"{"answer":"maybe","agent":"a1","request":"q1"}"#), None);
+        assert_eq!(Said::parse(r#"{"answer":"questions","agent":"a1","request":"q1","answers":{"Which color?":1}}"#), None);
     }
 }

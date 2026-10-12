@@ -72,14 +72,32 @@ final class Controller: ObservableObject {
     }
 
     func answer(_ answer: Answer) {
+        settle { $0.answer(answer) }
+    }
+
+    func pick(_ label: String) {
+        settle { $0.pick(label) }
+    }
+
+    func nextQuestion() {
+        settle { $0.nextQuestion() }
+    }
+
+    func previousQuestion() {
+        change { $0.previousQuestion() }
+    }
+
+    /// Takes `step`, telling the desktop of the ask it answered, if any.
+    private func settle(_ step: (inout Island) -> Ask?) {
         var answered: Ask?
-        change { answered = $0.answer(answer) }
-        guard let ask = answered else { return }
-        var message = ["agent": ask.agent, "request": ask.request]
+        change { answered = step(&$0) }
+        guard let ask = answered, case .done(let answer) = island.stage else { return }
+        var message: [String: Any] = ["agent": ask.agent, "request": ask.request]
         switch answer {
         case .allow: message["answer"] = "allow"
         case .deny: message["answer"] = "deny"
         case .reply(let text): (message["answer"], message["text"]) = ("reply", text)
+        case .questions(let answers): (message["answer"], message["answers"]) = ("questions", answers)
         }
         say(message)
         // Long enough to read how it went.
@@ -93,7 +111,7 @@ final class Controller: ObservableObject {
         change { $0.collapse() }
     }
 
-    private func say(_ message: [String: String]) {
+    private func say(_ message: [String: Any]) {
         guard var line = try? JSONSerialization.data(withJSONObject: message) else { return }
         line.append(0x0A)
         FileHandle.standardOutput.write(line)

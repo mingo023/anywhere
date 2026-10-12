@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Reads the desktop's pending asks from stdin, a JSON line `{"asks": [...]}` each time they change,
-/// and writes each answer to stdout as `{"answer": "allow" | "deny" | "reply" | "open", "agent", "request", "text"}`.
+/// and writes each answer to stdout as `{"answer": "allow" | "deny" | "reply" | "questions" | "open", "agent", "request", "text", "answers"}`.
 @main
 enum AnywhereNotch {
     static func main() {

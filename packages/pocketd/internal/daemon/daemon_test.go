@@ -83,6 +83,25 @@ func TestHookOffersDesktopChoices(t *testing.T) {
 	}
 }
 
+func TestAnsweringAQuestionAllowsItWithTheAnswers(t *testing.T) {
+	const payload = `{"hook_event_name":"PermissionRequest","session_id":"s1","tool_name":"AskUserQuestion",
+		"tool_input":{"questions":[{"question":"Which color?","header":"Color","options":[{"label":"Red"},{"label":"Blue"}],"multiSelect":false}]}}`
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	out := make(chan []byte, 1)
+	go func() { out <- hookFrom(d, pr, payload) }()
+	eventually(t, "open request", func() bool { return len(d.Broker.Open()) == 1 })
+	d.Broker.Resolve(d.Broker.Open()[0].RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Which color?": "Blue"}})
+	var got struct {
+		HookSpecificOutput struct{ Decision json.RawMessage }
+	}
+	json.Unmarshal(<-out, &got)
+	want := `{"behavior":"allow","updatedInput":{"answers":{"Which color?":"Blue"},"questions":[{"question":"Which color?","header":"Color","options":[{"label":"Red"},{"label":"Blue"}],"multiSelect":false}]}}`
+	if string(got.HookSpecificOutput.Decision) != want {
+		t.Errorf("got %s", got.HookSpecificOutput.Decision)
+	}
+}
+
 func TestARequestEndsWithItsAgent(t *testing.T) {
 	d := newDaemon(t)
 	_, pr := claudeIn(t, d)
