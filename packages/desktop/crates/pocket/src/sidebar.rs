@@ -73,7 +73,7 @@ fn tree_place(w: &git::Worktree) -> String {
 }
 
 /// A worktree row's label and hover tip: its given name over its `tree_place`.
-pub(crate) fn tree_label(w: &git::Worktree, agents: &Agents) -> (String, String) {
+fn tree_label(w: &git::Worktree, agents: &Agents) -> (String, String) {
     let place = tree_place(w);
     match agents.given_name(&w.path) {
         Some(title) => (title.to_string(), place),
