@@ -114,6 +114,11 @@ impl Notice {
 
 impl Desktop {
     pub(crate) fn on_agents(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
+        self.on_agents_from(None, ev, window, cx);
+    }
+
+    /// An agent event from this Mac's pocketd, or from `host`'s already tagged; a host's hello says nothing of this Mac's pocketd.
+    pub(crate) fn on_agents_from(&mut self, host: Option<&str>, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
             return self.on_pair(ev, cx);
         }
@@ -140,7 +145,7 @@ impl Desktop {
         let connected = matches!(ev, Event::Connected { .. });
         let automations = matches!(ev, Event::Automations { .. });
         let locals = matches!(ev, Event::Locals(_));
-        if let Event::Connected { version, .. } = &ev {
+        if let (Event::Connected { version, .. }, None) = (&ev, host) {
             self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
             if self.terminals.link.stale().is_some() {
                 cx.spawn(async |this, cx| {
@@ -151,17 +156,17 @@ impl Desktop {
             }
             cx.notify();
             self.pair.lost();
-            self.outbox.providers();
+            self.outbox.local.providers();
         }
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {
             self.outbox.view(ids);
         }
         let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
-        self.agents.apply(ev);
+        self.agents.apply_from(host, ev);
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.tab_of(t).is_some())) {
             self.close_pane(&term, cx);
         }
-        if connected {
+        if connected && host.is_none() {
             self.new_form.offer_locals(self.agents.locals_offered());
             self.leave_unoffered_automations();
         }

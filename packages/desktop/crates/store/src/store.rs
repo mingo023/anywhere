@@ -423,11 +423,32 @@ impl Store {
     }
 
     /// The folder `repo`'s new worktrees go in: its own setting, else a folder named for it under the root, else under `~/.worktrees`.
+    /// `home` is the home of the machine holding `repo`; a host's pocketd knows nothing of this Mac's root, so it uses `~/.worktrees`.
     pub fn worktrees_dir(&self, repo: &str, home: &str) -> String {
-        if let Some(dir) = self.repos.get(repo).map(|r| r.worktrees.as_str()).filter(|w| !w.is_empty()) {
-            return dir.to_string();
+        let own = self.repos.get(repo).map(|r| r.worktrees.as_str()).filter(|w| !w.is_empty());
+        match hosts::split(repo) {
+            (None, _) => own.map_or_else(|| format!("{}/{}", self.worktree_root(home), self.repo_name(repo)), str::to_string),
+            (Some(host), _) => match own.filter(|w| hosts::split(w).0 == Some(host)) {
+                Some(dir) => dir.to_string(),
+                None => hosts::place(host, &format!("{home}/.worktrees/{}", self.repo_name(repo))),
+            },
         }
-        format!("{}/{}", self.worktree_root(home), self.repo_name(repo))
+    }
+
+    /// What host `host`'s pocketd reads of its projects in its own `desktop.json`: their paths there and how to make their worktrees.
+    pub fn host_registry(&self, host: &str) -> serde_json::Value {
+        let on_host = |key: &str| match hosts::split(key) {
+            (Some(h), path) if h == host => Some(path.to_string()),
+            _ => None,
+        };
+        let mut repos = serde_json::Map::new();
+        for project in &self.projects {
+            let Some(path) = on_host(project) else { continue };
+            let r = self.repos.get(project).cloned().unwrap_or_default();
+            let worktrees = on_host(&r.worktrees).unwrap_or_default();
+            repos.insert(path, serde_json::json!({"name": self.repo_name(project), "base": r.base, "worktrees": worktrees, "setup": r.setup, "copy": r.copy}));
+        }
+        serde_json::json!({"projects": repos.keys().collect::<Vec<_>>(), "repos": repos})
     }
 
     /// The name `repo` was given, else its folder's.
@@ -804,6 +825,27 @@ mod tests {
         assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/h/.worktrees/Named", "/h/.worktrees/plain"]);
         s.worktree.root = "/wt/".into();
         assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/wt/Named", "/wt/plain"]);
+    }
+
+    #[test]
+    fn a_hosts_project_makes_worktrees_under_the_hosts_home_whatever_this_macs_root() {
+        let mut s = Store { worktree: WorktreeDefaults { root: "/wt".into(), ..Default::default() }, ..Default::default() };
+        s.repos.insert("//devbox/u/own".into(), RepoConfig { worktrees: "//devbox/srv/trees".into(), ..Default::default() });
+        s.repos.insert("//devbox/u/stray".into(), RepoConfig { worktrees: "/Users/me/trees".into(), ..Default::default() });
+        let dirs = ["//devbox/u/own", "//devbox/u/stray", "//devbox/u/app"].map(|r| s.worktrees_dir(r, "/home/me"));
+        assert_eq!(dirs, ["//devbox/srv/trees", "//devbox/home/me/.worktrees/stray", "//devbox/home/me/.worktrees/app"]);
+    }
+
+    #[test]
+    fn a_hosts_registry_lists_only_its_projects_in_its_own_paths() {
+        let mut s = Store::default();
+        for p in ["/src/here", "//devbox/u/app", "//other/u/x"] {
+            s.add(p);
+        }
+        s.repos.insert("//devbox/u/app".into(), RepoConfig { setup: "npm i".into(), worktrees: "//devbox/srv/trees".into(), copy: vec![".env".into()], ..Default::default() });
+        let r = s.host_registry("devbox");
+        assert_eq!(r["projects"], serde_json::json!(["/u/app"]));
+        assert_eq!(r["repos"]["/u/app"], serde_json::json!({"name": "app", "base": "", "worktrees": "/srv/trees", "setup": "npm i", "copy": [".env"]}));
     }
 
     #[test]

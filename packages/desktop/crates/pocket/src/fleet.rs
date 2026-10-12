@@ -170,10 +170,9 @@ impl Desktop {
             let probe = client.clone();
             let info = cx.background_executor().spawn(async move { probe.status() }).await;
             this.update_in(cx, |d, window, cx| {
-                if !d.fleet.links.online(&id) || !info.is_ok_and(|i| i.serves_projects()) {
-                    return;
-                }
+                let Some(info) = info.ok().filter(|i| i.serves_projects() && d.fleet.links.online(&id)) else { return };
                 hosts::remote::register(client);
+                d.open_host_agents(&id, &sock, info.user_home, window, cx);
                 if !d.daemon.has(&id) {
                     d.open_host_session(id, &sock, window, cx);
                 }
@@ -261,6 +260,7 @@ impl Desktop {
     pub(crate) fn remove_host(&mut self, id: &str, cx: &mut Context<Self>) {
         self.fleet.remove(id);
         self.daemon.remove(id);
+        self.close_host_agents(id);
         hosts::remote::forget(id);
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);

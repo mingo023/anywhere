@@ -284,7 +284,7 @@ impl Desktop {
     pub(crate) fn retry_create(&mut self, request: &str, cx: &mut Context<Self>) {
         let Some(c) = self.creates.get(request) else { return };
         let spec = c.again();
-        let request = self.outbox.create(spec.clone());
+        let request = self.outbox.create(spec.clone(), |h| self.store.host_registry(h));
         *c = Create::new(request, c.path.clone(), spec, Instant::now());
         cx.notify();
     }
