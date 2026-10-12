@@ -249,7 +249,7 @@ fn file_entries(words: &[String], root: &str, changed: &[String], files: &[Strin
         .collect()
 }
 
-fn action_entries(words: &[String], project: &str, sounds: Sounds, agents: &Agents) -> Vec<Entry> {
+fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Agents) -> Vec<Entry> {
     let sound = |cue: Cue| Entry {
         pick: Pick::Sound(cue),
         lead: Lead::Icon("bell"),
@@ -327,7 +327,7 @@ impl Desktop {
         let q = query(&self.palette.filter.read(cx).value());
         let words = q.words();
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
-        let actions = action_entries(words, &project, self.store.sounds, &self.agents);
+        let actions = action_entries(words, &project, &self.store.sounds, &self.agents);
         let groups = match q {
             Query::Actions(_) => vec![("Actions", actions)],
             Query::All(_) => {
@@ -693,14 +693,14 @@ mod tests {
 
     #[test]
     fn automations_is_listed_only_once_pocketd_offers_it() {
-        let listed = |a: &Agents| action_entries(&[], "app", Sounds::default(), a).iter().any(|e| e.pick == Pick::Automations);
+        let listed = |a: &Agents| action_entries(&[], "app", &Sounds::default(), a).iter().any(|e| e.pick == Pick::Automations);
         assert!(!listed(&Agents::default()));
         assert!(listed(&offering_automations()));
     }
 
     #[test]
     fn actions_match_on_their_titles() {
-        let all: Vec<_> = action_entries(&[], "app", Sounds::default(), &offering_automations()).into_iter().map(|e| (e.pick, e.title)).collect();
+        let all: Vec<_> = action_entries(&[], "app", &Sounds::default(), &offering_automations()).into_iter().map(|e| (e.pick, e.title)).collect();
         let want = [
             (Pick::New, "New session in app"),
             (Pick::Split, "Open selected in a split"),
@@ -713,7 +713,7 @@ mod tests {
             (Pick::Sound(Cue::Failed), "Failed sound: On"),
         ];
         assert_eq!(all, want.map(|(p, t)| (p, t.to_string())));
-        let session: Vec<_> = action_entries(&strings(&["session"]), "app", Sounds::default(), &offering_automations()).into_iter().map(|e| e.pick).collect();
+        let session: Vec<_> = action_entries(&strings(&["session"]), "app", &Sounds::default(), &offering_automations()).into_iter().map(|e| e.pick).collect();
         assert_eq!(session, vec![Pick::New]);
     }
 
@@ -722,7 +722,7 @@ mod tests {
         let picks = |scopes: &[&str]| {
             let mut a = Agents::default();
             a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into(), "automations.v1".into()], version: String::new() });
-            action_entries(&[], "app", Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
+            action_entries(&[], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
         assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::PairPhone, Pick::PhoneAccess]);
@@ -735,7 +735,7 @@ mod tests {
         let picks = |scopes: &[&str]| {
             let mut a = Agents::default();
             a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into()], version: String::new() });
-            action_entries(&["phone".to_string()], "app", Sounds::default(), &a).into_iter().map(|e| e.pick).collect::<Vec<_>>()
+            action_entries(&["phone".to_string()], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).collect::<Vec<_>>()
         };
         assert_eq!(picks(&["observe", "drive", "approve", "spawn", "owner"]), vec![Pick::PairPhone, Pick::PhoneAccess]);
         assert_eq!(picks(&["observe"]), vec![]);
@@ -745,7 +745,7 @@ mod tests {
     fn a_sound_toggle_shows_its_state_and_flips_it() {
         let mut sounds = Sounds::default();
         Cue::NeedsYou.flip(&mut sounds);
-        let got: Vec<_> = action_entries(&strings(&["sound"]), "app", sounds, &Agents::default()).into_iter().map(|e| e.title).collect();
+        let got: Vec<_> = action_entries(&strings(&["sound"]), "app", &sounds, &Agents::default()).into_iter().map(|e| e.title).collect();
         assert_eq!(got, vec!["Needs you sound: Off", "Done sound: On", "Failed sound: On"]);
     }
 

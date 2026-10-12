@@ -1,30 +1,18 @@
 mod permission;
+mod sounds;
 
-use super::catalog::{Look, Setting};
+use super::catalog::{self, Look, Setting};
 use super::{Section, action};
 use crate::desktop::Desktop;
+use crate::desktop::sounds::sound_name;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::prefs::terminal::Bell;
-use store::{DockBadge, Store, Tone};
+use store::DockBadge;
 use theme::*;
 
-/// "Off", then every tone a cue can play.
-const TONES: &[&str] = &["Off", "Anywhere", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"];
 const BADGES: [DockBadge; 3] = [DockBadge::Off, DockBadge::NeedsYou, DockBadge::Inbox];
-
-/// A cue's dropdown index: 0 when it is off, else its tone's place after "Off".
-fn tone_index(on: bool, tone: Tone) -> usize {
-    if on { Tone::ALL.iter().position(|t| *t == tone).map_or(1, |i| i + 1) } else { 0 }
-}
-
-/// Turns the cue off at 0, else on in the chosen tone; an off cue keeps its tone.
-fn pick_tone(on: &mut bool, tone: &mut Tone, i: usize) {
-    *on = i > 0;
-    if let Some(t) = i.checked_sub(1).and_then(|i| Tone::ALL.get(i)) {
-        *tone = *t;
-    }
-}
+const SOUND: &str = "Notification sound";
 
 fn show_badge(d: &mut Desktop, _: &mut Context<Desktop>) {
     if !d.capturing {
@@ -47,17 +35,14 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::switch("on-screen", "Banners", "Alert even when the session is on screen", |s| s.notifications.on_screen, |s, on| s.notifications.on_screen = on)
         .hint("Off: no banner or sound for the pane you are looking at"),
     Setting::switch("sounds", "Sounds", "Play sounds", |s| s.sounds.all, |s, on| s.sounds.all = on),
-    Setting::choice("sound-needs-you", "Sounds", "Needs you", TONES, Look::Dropdown, |s| tone_index(s.sounds.needs_you, s.sounds.needs_you_tone), |s: &mut Store, i| {
-        pick_tone(&mut s.sounds.needs_you, &mut s.sounds.needs_you_tone, i)
-    })
-    .under(|s| s.sounds.all),
-    Setting::choice("sound-failed", "Sounds", "Failed", TONES, Look::Dropdown, |s| tone_index(s.sounds.failed, s.sounds.failed_tone), |s: &mut Store, i| {
-        pick_tone(&mut s.sounds.failed, &mut s.sounds.failed_tone, i)
-    })
-    .under(|s| s.sounds.all),
-    Setting::choice("sound-done", "Sounds", "Done", TONES, Look::Dropdown, |s| tone_index(s.sounds.done, s.sounds.done_tone), |s: &mut Store, i| pick_tone(&mut s.sounds.done, &mut s.sounds.done_tone, i))
-        .under(|s| s.sounds.all),
+    Setting::switch("sound-needs-you", "Sounds", "Needs you", |s| s.sounds.needs_you, |s, on| s.sounds.needs_you = on).under(|s| s.sounds.all),
+    Setting::switch("sound-failed", "Sounds", "Failed", |s| s.sounds.failed, |s, on| s.sounds.failed = on).under(|s| s.sounds.all),
+    Setting::switch("sound-done", "Sounds", "Done", |s| s.sounds.done, |s, on| s.sounds.done = on).under(|s| s.sounds.all),
     Setting::stepper("volume", "Sounds", "Volume", (10, 100, 10), "%", |s| s.sounds.volume as i32, |s, n| s.sounds.volume = n as u32).under(|s| s.sounds.all),
+    Setting::custom("notification-sound", SOUND, SOUND, |d, _, cx| d.sound_list(cx))
+        .hint("Pick a sound or add your own. Custom audio supports .mp3, .wav, and .ogg.")
+        .under(|s| s.sounds.all)
+        .resets(|s| sound_name(&s.sounds.sound), |s, d| s.sounds.sound = d.sounds.sound.clone()),
     Setting::choice("dock-badge", "Dock & bell", "Dock badge", &["Off", "Needs you count", "Inbox count"], Look::Dropdown, |s| BADGES.iter().position(|b| *b == s.notifications.badge).unwrap_or(2), |s, i| {
         s.notifications.badge = BADGES[i]
     })
@@ -85,7 +70,7 @@ impl Desktop {
     }
 
     pub(super) fn notification_settings(&mut self, cx: &mut Context<Self>) -> Div {
-        let groups = self.setting_groups(Section::Notifications, cx);
+        let groups: Vec<Div> = catalog::groups(ROWS).into_iter().filter_map(|g| if g == SOUND { self.sound_group(cx) } else { self.setting_group(Section::Notifications, g, cx) }).collect();
         div().flex().flex_col().gap(px(22.)).when(self.settings.banners_denied, |d| d.child(denied_banner())).children(groups)
     }
 }
@@ -115,29 +100,4 @@ fn denied_banner() -> Div {
         .child(icon("bell", 16., WAITING))
         .child(text)
         .child(open)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{TONES, pick_tone, tone_index};
-    use store::Tone;
-
-    #[test]
-    fn the_dropdown_names_every_tone_in_order() {
-        assert_eq!(TONES[1..].to_vec(), Tone::ALL.map(|t| format!("{t:?}")));
-    }
-
-    #[test]
-    fn a_cue_reads_off_or_its_tone_after_off() {
-        assert_eq!([tone_index(false, Tone::Glass), tone_index(true, Tone::Anywhere), tone_index(true, Tone::Glass)], [0, 1, 7]);
-    }
-
-    #[test]
-    fn turning_a_cue_off_keeps_its_tone_for_when_it_comes_back() {
-        let (mut on, mut tone) = (true, Tone::Glass);
-        pick_tone(&mut on, &mut tone, 0);
-        assert_eq!((on, tone), (false, Tone::Glass));
-        pick_tone(&mut on, &mut tone, 2);
-        assert_eq!((on, tone), (true, Tone::Basso));
-    }
 }

@@ -81,8 +81,8 @@ impl LaunchPick {
     }
 }
 
-/// Which status changes play a sound; a key missing from `desktop.json` reads as on.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+/// Which status changes play a sound, and which sound; a key missing from `desktop.json` reads as on.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(default)]
 pub struct Sounds {
     /// Mutes every cue without forgetting which ones are on.
@@ -90,66 +90,50 @@ pub struct Sounds {
     pub needs_you: bool,
     pub done: bool,
     pub failed: bool,
+    /// Every cue plays it.
     #[serde(deserialize_with = "lenient")]
-    pub needs_you_tone: Tone,
-    #[serde(deserialize_with = "lenient")]
-    pub done_tone: Tone,
-    #[serde(deserialize_with = "lenient")]
-    pub failed_tone: Tone,
+    pub sound: Sound,
+    /// Audio files the user added, as copied into Pocket's folder.
+    pub custom: Vec<String>,
     /// Percent of full volume.
     pub volume: u32,
 }
 
 impl Default for Sounds {
     fn default() -> Self {
-        Self { all: true, needs_you: true, done: true, failed: true, needs_you_tone: Tone::Anywhere, done_tone: Tone::Anywhere, failed_tone: Tone::Anywhere, volume: 100 }
+        Self { all: true, needs_you: true, done: true, failed: true, sound: Sound::default(), custom: Vec::new(), volume: 100 }
     }
 }
 
-/// A cue's sound: the app's own for that cue, or one of macOS's.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
-pub enum Tone {
+impl Sounds {
+    /// Lists `path` once and picks it.
+    pub fn add(&mut self, path: String) {
+        if !self.custom.contains(&path) {
+            self.custom.push(path.clone());
+        }
+        self.sound = Sound::Custom(path);
+    }
+
+    /// Forgets `path`; if it was picked, the default plays instead.
+    pub fn remove(&mut self, path: &str) {
+        self.custom.retain(|p| p != path);
+        if self.sound == Sound::Custom(path.into()) {
+            self.sound = Sound::default();
+        }
+    }
+}
+
+/// One of the app's own sounds, or an audio file the user added.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub enum Sound {
     #[default]
-    Anywhere,
-    Basso,
-    Blow,
-    Bottle,
-    Frog,
-    Funk,
-    Glass,
-    Hero,
-    Morse,
+    Chime,
     Ping,
-    Pop,
-    Purr,
-    Sosumi,
-    Submarine,
-    Tink,
-}
-
-impl Tone {
-    pub const ALL: [Tone; 15] = [
-        Tone::Anywhere,
-        Tone::Basso,
-        Tone::Blow,
-        Tone::Bottle,
-        Tone::Frog,
-        Tone::Funk,
-        Tone::Glass,
-        Tone::Hero,
-        Tone::Morse,
-        Tone::Ping,
-        Tone::Pop,
-        Tone::Purr,
-        Tone::Sosumi,
-        Tone::Submarine,
-        Tone::Tink,
-    ];
-
-    /// Where macOS keeps it; `None` for the app's own.
-    pub fn system_path(self) -> Option<String> {
-        (self != Tone::Anywhere).then(|| format!("/System/Library/Sounds/{self:?}.aiff"))
-    }
+    Gasp,
+    HighDing,
+    Shimmer,
+    DingDong,
+    Custom(String),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -776,17 +760,31 @@ mod tests {
     }
 
     #[test]
-    fn a_desktop_json_from_before_tones_and_badges_keeps_todays_sounds_and_badge() {
-        let s: Store = serde_json::from_str(r#"{"sounds":{"done":false},"notifications":{"banners":false}}"#).unwrap();
-        assert_eq!((s.sounds.done_tone, s.sounds.volume, s.notifications.banners, s.notifications.done, s.notifications.badge), (Tone::Anywhere, 100, false, true, DockBadge::Inbox));
-        let s: Store = serde_json::from_str(r#"{"projects":["/w"],"sounds":{"done_tone":"Kazoo"},"notifications":{"badge":"everything"}}"#).unwrap();
-        assert_eq!((s.projects.len(), s.sounds.done_tone, s.notifications.badge), (1, Tone::Anywhere, DockBadge::Inbox));
+    fn a_desktop_json_from_before_the_sound_list_keeps_todays_sounds_and_badge() {
+        let s: Store = serde_json::from_str(r#"{"sounds":{"done":false,"done_tone":"Glass"},"notifications":{"banners":false}}"#).unwrap();
+        assert_eq!((s.sounds.done, s.sounds.sound, s.sounds.volume, s.notifications.banners, s.notifications.done, s.notifications.badge), (false, Sound::Chime, 100, false, true, DockBadge::Inbox));
+        let s: Store = serde_json::from_str(r#"{"projects":["/w"],"sounds":{"sound":"Kazoo"},"notifications":{"badge":"everything"}}"#).unwrap();
+        assert_eq!((s.projects.len(), s.sounds.sound, s.notifications.badge), (1, Sound::Chime, DockBadge::Inbox));
     }
 
     #[test]
-    fn a_macos_tone_plays_from_the_system_sounds_and_the_apps_own_from_its_bundle() {
-        assert_eq!(Tone::Glass.system_path().as_deref(), Some("/System/Library/Sounds/Glass.aiff"));
-        assert_eq!(Tone::Anywhere.system_path(), None);
+    fn an_added_sound_is_listed_once_and_picked() {
+        let mut s = Sounds::default();
+        s.add("/a.mp3".into());
+        s.sound = Sound::Ping;
+        s.add("/a.mp3".into());
+        assert_eq!((s.custom, s.sound), (vec!["/a.mp3".to_string()], Sound::Custom("/a.mp3".into())));
+    }
+
+    #[test]
+    fn removing_the_picked_sound_falls_back_to_the_default() {
+        let mut s = Sounds::default();
+        s.add("/a.mp3".into());
+        s.add("/b.mp3".into());
+        s.remove("/a.mp3");
+        assert_eq!(s.sound, Sound::Custom("/b.mp3".into()));
+        s.remove("/b.mp3");
+        assert_eq!((s.custom.is_empty(), s.sound), (true, Sound::Chime));
     }
 
     #[test]
