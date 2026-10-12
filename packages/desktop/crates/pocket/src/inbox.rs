@@ -146,9 +146,14 @@ impl Desktop {
     }
 
     fn project_name(&self, agent: &str) -> String {
+        basename(&self.project_path(agent))
+    }
+
+    /// The project the agent works in, else its own folder.
+    fn project_path(&self, agent: &str) -> String {
         let projects = self.projects();
         let cwd = self.cwd_of(agent).unwrap_or_default();
-        basename(self.project_of(&cwd, &projects).unwrap_or(&cwd))
+        self.project_of(&cwd, &projects).cloned().unwrap_or(cwd)
     }
 
     pub(crate) fn open_selected(&mut self, _: &OpenSession, window: &mut Window, cx: &mut Context<Self>) {

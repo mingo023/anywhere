@@ -2,7 +2,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::drag_area;
 use crate::status::Status;
 use crate::terminal_view::surface;
-use crate::util::now_ms;
+use crate::util::{basename, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -13,7 +13,8 @@ impl Desktop {
         let Some(n) = self.shown_notes().into_iter().nth(self.inbox.selected) else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("You're all caught up.");
         };
-        let project = self.project_name(&n.agent);
+        let path = self.project_path(&n.agent);
+        let project = basename(&path);
         let title = self.agents.get(&n.agent).map(|a| a.title.clone()).unwrap_or_default();
         let secs = (now_ms() - n.at).max(0) / 1000;
         let agent = n.agent.clone();
@@ -26,7 +27,7 @@ impl Desktop {
             .items_center()
             .gap(px(10.))
             .text_size(px(14.))
-            .child(ui::repo_mark(&project, false, None))
+            .child(ui::repo_mark(&self.project_mark(&path, ui::mark_letter(&project)), false, None))
             .child(div().text_color(TEXT_2).child(project))
             .child(div().text_color(TEXT_6).child("/"))
             .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(title))

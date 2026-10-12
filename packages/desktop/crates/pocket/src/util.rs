@@ -1,5 +1,6 @@
 use agents::locals::is_local;
 use std::path::{Path, PathBuf};
+use store::ProjectIcon;
 
 pub const LOCAL_ICON: &str = "laptop";
 pub const WORKTREE_ICON: &str = "worktree";
@@ -31,6 +32,15 @@ pub fn tilde(path: &str) -> String {
 pub fn initials(name: &str) -> String {
     let word = name.rsplit('-').find(|w| !w.is_empty()).unwrap_or(name);
     word.chars().filter(|c| c.is_alphanumeric()).take(2).collect::<String>().to_uppercase()
+}
+
+/// A project's tile mark: its icon, else `letters`.
+pub fn mark(icon: Option<&ProjectIcon>, letters: String) -> ui::Mark {
+    match icon {
+        Some(ProjectIcon::Emoji(e)) => ui::Mark::Emoji(e.clone()),
+        Some(ProjectIcon::Image(path)) => ui::Mark::Image { path: path.clone(), letters },
+        None => ui::Mark::Letters(letters),
+    }
 }
 
 /// Reads `.gitignore`s up to the repository root, so call it off the UI thread.

@@ -48,9 +48,10 @@ impl Desktop {
         let expand = rail_button("nav-expand", "sidebar-expand", false)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_sidebar(&crate::actions::ToggleSidebar, window, cx)));
         let open = self.sidebar.picker.open;
-        let name = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
+        let p = self.project.as_deref().unwrap_or_default();
+        let mark = self.project_mark(p, ui::mark_letter(&self.repo_name(p)));
         let button = rail_slot("nav-project", open)
-            .child(ui::repo_mark(&name, true, None).size(px(24.)).text_size(px(12.)))
+            .child(ui::repo_mark(&mark, true, None).size(px(24.)).text_size(px((24. * mark.scale(0.5)).round())))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
                 cx.stop_propagation();
                 this.toggle_project_picker(window, cx);

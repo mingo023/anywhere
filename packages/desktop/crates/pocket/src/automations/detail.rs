@@ -135,7 +135,7 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(14.))
-            .child(ui::repo_tile(&initials(&project), 40., false, None))
+            .child(ui::repo_tile(&self.project_mark(&auto.folder, initials(&project)), 40., false, None))
             .child(
                 div()
                     .flex_1()

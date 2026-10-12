@@ -14,7 +14,7 @@ fn worktree_count(n: usize) -> String {
 pub(super) const ROWS: &[Setting] = &[
     Setting::path("worktree-folder", "Locations", "Worktree folder", |s| s.worktree_root(&home()), |s, p| s.worktree.root = p).hint("New worktrees go in <folder>/<project>/<name>"),
     Setting::path("clone-folder", "Locations", "Clone folder", |s| s.clone_root(&home()), |s, p| s.worktree.clone_root = p).hint("Where Add project › Clone puts new repositories"),
-    Setting::custom("projects", "Projects", "Projects", |d, _, cx| d.project_list(cx)).hint("Open one to edit its setup script and dev server URL, or remove it"),
+    Setting::custom("projects", "Projects", "Projects", |d, _, cx| d.project_list(cx)).hint("Open one to edit its icon and setup script, or remove it"),
     Setting::switch("delete-branch", "Deleting a worktree", "Also delete its branch", |s| s.worktree.delete_branch, |s, on| s.worktree.delete_branch = on).hint("Local branch only. Remote branches are never deleted"),
     Setting::choice("worktree-files", "Deleting a worktree", "Worktree files", &["Move to Trash", "Delete permanently"], Look::Segmented, |s| usize::from(!s.worktree.trash), |s, i| s.worktree.trash = i == 0),
     Setting::stepper("teardown-timeout", "Deleting a worktree", "Teardown script timeout", (10, 600, 10), " s", |s| s.worktree.teardown_secs as i32, |s, n| s.worktree.teardown_secs = n as u32)
@@ -23,25 +23,27 @@ pub(super) const ROWS: &[Setting] = &[
 ];
 
 impl Desktop {
-    pub(super) fn project_tile(&self, p: &str) -> Div {
+    pub(super) fn project_tile(&self, p: &str, size: f32) -> Div {
+        let mark = self.project_mark(p, initials(&self.repo_name(p)));
+        let radius = size / 4.;
         div()
-            .size(px(24.))
+            .size(px(size))
             .flex()
             .flex_none()
             .items_center()
             .justify_center()
-            .rounded(px(6.))
+            .rounded(px(radius))
             .bg(rgba(self.repo_color(p)))
-            .text_size(px(10.))
+            .text_size(px(size * mark.scale(5. / 12.)))
             .font_weight(FontWeight::BOLD)
             .text_color(WHITE)
-            .child(initials(&self.repo_name(p)))
+            .child(mark.fill(radius))
     }
 
     fn project_list(&mut self, cx: &mut Context<Self>) -> Div {
         let rows = self.store.projects.clone().into_iter().enumerate().map(|(i, p)| {
             let name = self.repo_name(&p);
-            let tile = self.project_tile(&p);
+            let tile = self.project_tile(&p, 24.);
             let text = div()
                 .flex_1()
                 .min_w_0()

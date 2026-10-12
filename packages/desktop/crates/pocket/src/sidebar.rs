@@ -324,7 +324,8 @@ impl Desktop {
         let setup = setting_up.then(|| ui::busy(id(format!("aside-setup:{p}")), "Setting up…").into_any_element());
         let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu));
         let target = p.to_string();
-        let row = ui::repo_row(("aside-repo", i), chevron, &self.repo_name(p), selected, kept, state)
+        let name = self.repo_name(p);
+        let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, kept, state)
             .child(trail)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if git {
