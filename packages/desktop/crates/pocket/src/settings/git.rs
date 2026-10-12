@@ -11,6 +11,7 @@ use store::prefs::git::Style;
 use theme::*;
 use workspace::Place;
 
+pub(super) const ACCOUNT_MENU: &str = "gh-account";
 const AGENTS: [&str; 2] = ["claude", "codex"];
 const STYLES: [Style; 4] = [Style::Recent, Style::Conventional, Style::Plain, Style::Custom];
 
@@ -51,7 +52,8 @@ pub(super) const ROWS: &[Setting] = &[
 fn gh_line(status: Option<&GhStatus>) -> (Option<Token>, &'static str, String) {
     match status {
         None => (None, "Checking for GitHub CLI…", "Looking for gh on your PATH".into()),
-        Some(GhStatus::Ready { version, login }) => (Some(SUCCESS), "GitHub CLI is ready", format!("gh {version} · signed in as {login} on github.com")),
+        Some(GhStatus::Ready { version, login, accounts }) if accounts.len() > 1 => (Some(SUCCESS), "GitHub CLI is ready", format!("gh {version} · {} accounts on github.com, {login} active", accounts.len())),
+        Some(GhStatus::Ready { version, login, .. }) => (Some(SUCCESS), "GitHub CLI is ready", format!("gh {version} · signed in as {login} on github.com")),
         Some(GhStatus::SignedOut { version }) => (Some(WAITING_DOT), "GitHub CLI isn't signed in", format!("gh {version} · sign in once and Anywhere uses the same account")),
         Some(GhStatus::Missing) => (Some(FAILED), "GitHub CLI isn't installed", "Pull requests, checks and review status need gh. Git itself still works.".into()),
     }
@@ -116,7 +118,74 @@ impl Desktop {
             .children(fix.map(|f| f.mt(px(8.))));
         let checking = self.prs.gh == Some(None);
         let again = action("gh-check", "Check again").when(checking, |d| d.opacity(0.5)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.check_gh(cx)));
-        row(title, None, again)
+        div().flex().flex_col().child(row(title, None, again)).child(self.gh_accounts_rows(cx))
+    }
+
+    /// Each project's account, once `gh` has more than one.
+    fn gh_accounts_rows(&mut self, cx: &mut Context<Self>) -> Div {
+        if self.gh_accounts.accounts.len() < 2 {
+            return div();
+        }
+        let caption = div()
+            .px(px(14.))
+            .py(px(9.))
+            .border_t(px(0.5))
+            .border_b(px(0.5))
+            .border_color(SEPARATOR)
+            .text_size(px(12.))
+            .text_color(TEXT_3)
+            .child("Each project's pull requests and new terminals use its account. Anywhere picks the one with the most access to the repo.");
+        let rows: Vec<Div> = self.store.projects.clone().into_iter().enumerate().map(|(i, p)| self.gh_account_row(i, p, cx)).collect();
+        div().flex().flex_col().child(caption).children(rows)
+    }
+
+    fn gh_account_row(&mut self, i: usize, project: String, cx: &mut Context<Self>) -> Div {
+        let chosen = self.gh_accounts.chosen(&self.store.repos, &project).map(str::to_string);
+        let checking = chosen.is_none() && self.gh_accounts.detecting.as_deref() == Some(project.as_str());
+        let open = self.settings.menu == Some(ACCOUNT_MENU) && self.settings.account_menu.as_deref() == Some(project.as_str());
+        let shown = match (&chosen, checking) {
+            (Some(account), _) => div().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(account.clone()),
+            (None, true) => div().text_color(TEXT_3).child("Checking accounts…"),
+            (None, false) => div().text_color(TEXT_3).child(format!("Active account ({})", self.gh_accounts.active)),
+        };
+        let toggle = project.clone();
+        let button = action(("gh-account", i), "").gap(px(6.)).child(shown).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            (this.settings.menu, this.settings.account_menu) = if open { (None, None) } else { (Some(ACCOUNT_MENU), Some(toggle.clone())) };
+            cx.notify();
+        }));
+        let options = self.gh_accounts.accounts.clone().into_iter().enumerate().map(|(j, account)| {
+            let project = project.clone();
+            div()
+                .id(("gh-account-option", j))
+                .h(px(26.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(5.))
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_2))
+                .text_color(TEXT)
+                .child(div().w(px(14.)).flex_none().when(chosen.as_ref() == Some(&account), |d| d.child(icon("check", 13., TEXT))))
+                .child(div().font_family(MONO).text_size(px(12.)).child(account.clone()))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    (this.settings.menu, this.settings.account_menu) = (None, None);
+                    this.pick_gh_account(&project, account.clone(), cx);
+                    cx.notify();
+                }))
+        });
+        let menu = ui::menu_in(SharedString::from(format!("gh-account-menu-in-{i}")), ui::pop(div()).min_w(px(180.)).max_h(px(320.)).p(px(4.)).flex().flex_col().children(options));
+        div()
+            .px(px(14.))
+            .py(px(7.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .border_b(px(0.5))
+            .border_color(SEPARATOR)
+            .child(self.project_tile(&project, 20.))
+            .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(self.repo_name(&project)))
+            .child(div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(30., menu))))
     }
 
     /// A dropdown of the remotes the repository on screen has.
@@ -168,8 +237,9 @@ mod tests {
 
     #[test]
     fn the_gh_line_names_the_account_or_what_is_missing() {
-        let ready = GhStatus::Ready { version: "2.81.0".into(), login: "minh-ngo".into() };
-        assert_eq!(gh_line(Some(&ready)).2, "gh 2.81.0 · signed in as minh-ngo on github.com");
+        let ready = |accounts: &[&str]| GhStatus::Ready { version: "2.81.0".into(), login: "minh-ngo".into(), accounts: accounts.iter().map(|a| a.to_string()).collect() };
+        assert_eq!(gh_line(Some(&ready(&["minh-ngo"]))).2, "gh 2.81.0 · signed in as minh-ngo on github.com");
+        assert_eq!(gh_line(Some(&ready(&["minh-ngo", "work"]))).2, "gh 2.81.0 · 2 accounts on github.com, minh-ngo active");
         assert_eq!(gh_line(Some(&GhStatus::Missing)).1, "GitHub CLI isn't installed");
         assert_eq!(gh_line(None).1, "Checking for GitHub CLI…");
     }

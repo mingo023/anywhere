@@ -26,6 +26,7 @@ use crate::fleet::Fleet;
 use crate::git_ui::changes::ChangesState;
 use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::{At, DiffState};
+use crate::git_ui::gh_accounts::GhAccounts;
 use crate::git_ui::graph::GraphState;
 use crate::git_ui::pull_request::PullRequest;
 use crate::git_ui::pull_requests::PullRequests;
@@ -81,6 +82,7 @@ pub struct Desktop {
     pub(crate) chat: ChatComposer,
     pub(crate) changes: ChangesState,
     pub(crate) prs: PullRequests,
+    pub(crate) gh_accounts: GhAccounts,
     pub(crate) pr: PullRequest,
     pub(crate) graph: GraphState,
     pub(crate) commit: Commits,
@@ -192,6 +194,7 @@ impl Desktop {
             chat,
             changes,
             prs: PullRequests::default(),
+            gh_accounts: GhAccounts::default(),
             pr,
             graph,
             commit: Commits::default(),

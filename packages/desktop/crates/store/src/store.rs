@@ -24,6 +24,8 @@ pub struct RepoConfig {
     pub dev_url: String,
     /// Shown on its tile in place of its initials.
     pub icon: Option<ProjectIcon>,
+    /// The github.com account `gh` acts as here; empty, or one no longer signed in, uses the active one.
+    pub gh_account: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

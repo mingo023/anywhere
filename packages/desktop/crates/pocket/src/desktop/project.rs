@@ -190,6 +190,7 @@ impl Desktop {
                 let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.explorer.tree, d.initials, d.worktrees) = (tree, initials, worktrees);
                 d.poll_prs(cx);
+                d.detect_gh_account(cx);
                 for (pane, file) in files {
                     changed |= d.preview.apply(pane, file);
                 }

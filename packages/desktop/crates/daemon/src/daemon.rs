@@ -184,7 +184,14 @@ fn agent_args(shell: &str, argv: &[String]) -> Vec<String> {
 /// Runs `argv` in `cwd` under the login shell, so it finds the tools the user's terminal would, with `input` on stdin.
 /// Its output, or on failure what it printed.
 pub fn run_login(argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
-    run_in(login_shell(), terminal_env(), argv, cwd, input)
+    run_login_env(argv, cwd, input, Vec::new())
+}
+
+/// [`run_login`] with `extra` added to the environment.
+pub fn run_login_env(argv: &[&str], cwd: &str, input: &str, extra: Vec<(String, String)>) -> Result<String, String> {
+    let mut env = terminal_env();
+    env.extend(extra);
+    run_in(login_shell(), env, argv, cwd, input)
 }
 
 fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
