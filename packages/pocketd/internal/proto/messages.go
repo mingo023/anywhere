@@ -11,6 +11,7 @@ type ClientMessage struct {
 	Type            string
 	ID              string
 	Token           string
+	OwnerToken      string
 	ClientID        string
 	ProtocolVersion float64
 	AgentID         string
@@ -100,7 +101,7 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	switch {
 	case !ok:
 	case m.Type == "hello":
-		ok = optionalString("token", &m.Token) && get("clientId", &m.ClientID) && get("protocolVersion", &m.ProtocolVersion) &&
+		ok = optionalString("token", &m.Token) && optionalString("ownerToken", &m.OwnerToken) && get("clientId", &m.ClientID) && get("protocolVersion", &m.ProtocolVersion) &&
 			optionalList("caps", &m.Caps) && optionalRange("protocol", &m.Protocol)
 	case m.Type == "pair":
 		ok = get("code", &m.Code) && get("name", &m.Name) && get("platform", &m.Platform) &&

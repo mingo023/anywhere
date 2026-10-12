@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -35,6 +36,7 @@ import (
 	"pocketd/internal/logfile"
 	"pocketd/internal/names"
 	"pocketd/internal/ops"
+	"pocketd/internal/owners"
 	"pocketd/internal/pairing"
 	"pocketd/internal/proc"
 	"pocketd/internal/proto"
@@ -174,7 +176,8 @@ func serve(sock, handed string) error {
 		Start: func(runID string, a proto.Automation) launch.Result {
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		}}
-	ws := &wsserver.Server{Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals}
+	ownerTokens := &owners.Store{Path: owners.Path(home)}
+	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}
@@ -215,6 +218,13 @@ func serve(sock, handed string) error {
 	if err != nil {
 		return err
 	}
+	var ownerLn net.Listener
+	if cfg.OwnerListen != "off" {
+		if ownerLn, err = net.Listen("tcp", cfg.OwnerListen); err != nil {
+			ln.Close()
+			return fmt.Errorf("ownerListen: %w", err)
+		}
+	}
 	if watch != nil {
 		go watch.run(ctx, up.run)
 	}
@@ -222,10 +232,16 @@ func serve(sock, handed string) error {
 	go func() {
 		<-ctx.Done()
 		ln.Close()
+		if ownerLn != nil {
+			ownerLn.Close()
+		}
 	}()
 	writer := state.NewWriter(statePath, d.Snapshot)
 	go writer.Run(ctx)
 	fmt.Println("pocketd listening on", sock)
+	if ownerLn != nil {
+		fmt.Println("owner: tcp://" + ownerLn.Addr().String())
+	}
 	for _, a := range phones.Addrs() {
 		if !a.Addr().IsLoopback() {
 			fmt.Println("phone: ws://" + a.String())
@@ -250,7 +266,7 @@ func serve(sock, handed string) error {
 			Config: settings.Values(), Providers: l.Paths(),
 			HostID: hostID, OS: runtime.GOOS, Arch: runtime.GOARCH, UserHome: userHome, Shell: shellenv.LoginShell(), Name: ws.MacName, Caps: ops.HostCaps}
 	}
-	err = (&ops.Server{
+	srv := &ops.Server{
 		Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook,
 		Devices: devs, Kick: ws.CloseDevice,
 		Pairing: pairs, Host: pairHost, MacName: ws.MacName,
@@ -268,7 +284,12 @@ func serve(sock, handed string) error {
 		Upgrade:  up.run,
 		LoginEnv: d.LoginEnv,
 		TrashDir: filepath.Join(home, "trash"),
-	}).Serve(ln)
+		Owners:   ownerTokens,
+	}
+	if ownerLn != nil {
+		go srv.Serve(ownerLn)
+	}
+	err = srv.Serve(ln)
 	if ctx.Err() != nil {
 		writer.Freeze()
 		d.Terminals.CloseAll(terminal.CloseGrace)

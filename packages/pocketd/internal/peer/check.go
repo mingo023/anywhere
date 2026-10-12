@@ -62,6 +62,7 @@ var Needs = map[string]Scope{
 	"ops:fs.rename":         Own,
 	"ops:fs.remove":         Own,
 	"ops:fs.trash":          Own,
+	"ops:owner.revokeSelf":  Own,
 }
 
 var guarded = map[string]bool{

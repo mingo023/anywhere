@@ -70,6 +70,16 @@ func TestLoadRejectsAnUnknownListenMode(t *testing.T) {
 	}
 }
 
+func TestOwnerListenTakesOnlyALoopbackAddress(t *testing.T) {
+	t.Setenv("POCKET_HOME", t.TempDir())
+	for v, ok := range map[string]bool{`"off"`: true, `"127.0.0.1:4519"`: true, `"[::1]:4519"`: true, `"0.0.0.0:4519"`: false, `"localhost:4519"`: false, `"4519"`: false} {
+		os.WriteFile(filepath.Join(Home(), "config.json"), []byte(`{"port":1,"ownerListen":`+v+`}`), 0o600)
+		if c, err := Load(refuse); (err == nil) != ok || ok && `"`+c.OwnerListen+`"` != v {
+			t.Errorf("%s: %+v %v", v, c, err)
+		}
+	}
+}
+
 func release(t *testing.T) {
 	channel = "release"
 	t.Cleanup(func() { channel = "" })
