@@ -18,6 +18,7 @@ mod projects;
 mod provider;
 mod search;
 mod sidebar;
+mod ssh_hosts;
 mod terminal;
 
 pub(crate) use appearance::{forced, reduce_motion};
@@ -45,6 +46,7 @@ pub enum Section {
     Agents,
     Automations,
     Phone,
+    Hosts,
     Projects,
     Sidebar,
     Terminal,
@@ -58,7 +60,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 14] = [
+    pub const ALL: [Section; 15] = [
         Section::General,
         Section::Appearance,
         Section::Notifications,
@@ -66,6 +68,7 @@ impl Section {
         Section::Agents,
         Section::Automations,
         Section::Phone,
+        Section::Hosts,
         Section::Projects,
         Section::Sidebar,
         Section::Terminal,
@@ -84,6 +87,7 @@ impl Section {
             Section::Agents => "Agents",
             Section::Automations => "Automations",
             Section::Phone => "Phone & Remote",
+            Section::Hosts => "Hosts",
             Section::Projects => "Projects & Worktrees",
             Section::Sidebar => "Sidebar & Inbox",
             Section::Terminal => "Terminal",
@@ -106,6 +110,7 @@ impl Section {
             Section::Agents => "agents",
             Section::Automations => "automations",
             Section::Phone => "phone",
+            Section::Hosts => "hosts",
             Section::Projects => "projects",
             Section::Sidebar => "sidebar",
             Section::Terminal => "terminal",
@@ -121,7 +126,7 @@ impl Section {
     fn group(self) -> &'static str {
         match self {
             Section::General | Section::Appearance | Section::Notifications | Section::Keyboard => "App",
-            Section::Agents | Section::Automations | Section::Phone | Section::Claude | Section::Codex => "Agents",
+            Section::Agents | Section::Automations | Section::Phone | Section::Hosts | Section::Claude | Section::Codex => "Agents",
             Section::Projects | Section::Sidebar | Section::Terminal | Section::Files | Section::Browser => "Projects",
             Section::Git | Section::Diff => "Git",
         }
@@ -136,6 +141,7 @@ impl Section {
             Section::Agents => "The agent providers you use, and what a new session starts with.",
             Section::Automations => "Defaults for new automations, and what happens to runs the Mac missed.",
             Section::Phone => "Pair the iPhone app and decide how much it can approve, and from where.",
+            Section::Hosts => "Machines your agents run on: this Mac, and any machine you can sign in to over SSH.",
             Section::Projects => "Where code lives on disk, per-project setup, and what happens when a worktree is deleted.",
             Section::Sidebar => "How sessions are listed in the sidebar, the right panel and the Inbox.",
             Section::Terminal => "The terminal that every shell and agent runs in.",
@@ -156,6 +162,7 @@ impl Section {
             Section::Agents | Section::Claude | Section::Codex => "sparkle",
             Section::Automations => "clock",
             Section::Phone => "phone",
+            Section::Hosts => "server",
             Section::Projects => "folder",
             Section::Sidebar => "sidebar",
             Section::Terminal => "terminal",
@@ -175,6 +182,7 @@ impl Section {
             Section::Agents => agents::ROWS,
             Section::Automations => automations::ROWS,
             Section::Phone => phone::ROWS,
+            Section::Hosts => ssh_hosts::ROWS,
             Section::Projects => projects::ROWS,
             Section::Sidebar => sidebar::ROWS,
             Section::Terminal => terminal::ROWS,
@@ -478,6 +486,9 @@ impl Desktop {
 
     /// Esc clears a search before it closes Settings.
     pub(crate) fn escape_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.fleet.form.open {
+            return self.close_add_host(window, cx);
+        }
         if self.settings.search.read(cx).value().is_empty() {
             return self.close_settings(window, cx);
         }
@@ -806,13 +817,13 @@ mod tests {
     #[test]
     fn sections_follow_the_spec_order() {
         assert_eq!(Section::ALL.map(Section::label)[..5], ["General", "Appearance", "Notifications & Sounds", "Keyboard", "Agents"]);
-        assert_eq!(Section::ALL.len(), 14);
+        assert_eq!(Section::ALL.len(), 15);
     }
 
     #[test]
     fn the_nav_groups_sections_by_what_they_set() {
         let groups: Vec<_> = nav_groups().into_iter().map(|(g, s)| (g, s.len())).collect();
-        assert_eq!(groups, [("App", 4), ("Agents", 3), ("Projects", 5), ("Git", 2)]);
+        assert_eq!(groups, [("App", 4), ("Agents", 4), ("Projects", 5), ("Git", 2)]);
     }
 
     #[test]

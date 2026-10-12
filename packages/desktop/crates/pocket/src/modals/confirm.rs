@@ -114,6 +114,11 @@ impl ConfirmText {
         Self { title: format!("Revoke {name}?"), action: "Revoke", facts: vec!["It disconnects now and has to pair again".into()], dirty: 0, lost: 0, danger: true }
     }
 
+    fn remove_host(name: &str) -> Self {
+        let facts = vec!["It disconnects now".into(), format!("Anywhere and your files on {name} stay as they are")];
+        Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, lost: 0, danger: true }
+    }
+
     fn detail(&self) -> Option<String> {
         (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
@@ -148,6 +153,7 @@ impl Desktop {
             Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
             Some(Confirm::DeleteAutomation(id)) => ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str())),
             Some(Confirm::RevokeDevice { name, .. }) => ConfirmText::revoke_device(name),
+            Some(Confirm::RemoveHost { name, .. }) => ConfirmText::remove_host(name),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -224,6 +230,7 @@ impl Desktop {
             Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id),
             Some(Confirm::ResetSection(section)) => self.reset_section(section, window, cx),
             Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),
+            Some(Confirm::RemoveHost { id, .. }) => self.remove_host(&id, cx),
             None => {}
         }
         self.close_overlay(window, cx);

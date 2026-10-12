@@ -74,6 +74,7 @@ pub enum Confirm {
     DeleteAutomation(String),
     ResetSection(Section),
     RevokeDevice { id: String, name: String },
+    RemoveHost { id: String, name: String },
 }
 
 /// The sidebar row whose `⋯` menu is open.
