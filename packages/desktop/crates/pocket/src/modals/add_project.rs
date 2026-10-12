@@ -563,18 +563,28 @@ impl Desktop {
                 this.repo_form.draft.base = (this.repo_form.draft.base + 1) % count.max(1);
                 cx.notify();
             }));
+        let host = f.draft.path.as_deref().and_then(|p| hosts::split(p).0);
+        let on_host = host.is_some() || f.draft.source == Source::Host;
         let root = tilde(&self.store.worktree_root(&home()));
-        let folder = if f.draft.worktrees.is_empty() { format!("{root}/{name}") } else { tilde(&f.draft.worktrees) };
+        // A host's worktrees go under its own home; this Mac's folder picker can't reach there.
+        let folder = match (on_host, hosts::split(&f.draft.worktrees)) {
+            (true, (Some(h), path)) if Some(h) == host => path.to_string(),
+            (true, _) => format!("~/.worktrees/{name}"),
+            (false, _) if f.draft.worktrees.is_empty() => format!("{root}/{name}"),
+            (false, _) => tilde(&f.draft.worktrees),
+        };
         let worktrees = ui::field_box()
             .child(icon("folder", 13., TEXT_3))
             .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(13.)).child(folder))
-            .child(ui::link("repo-worktrees", "Change").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.pick_path(true, window, cx, |d, paths, _, _| {
-                    if let Some(p) = paths.into_iter().next() {
-                        d.repo_form.draft.worktrees = p.to_string_lossy().into_owned();
-                    }
-                })
-            })));
+            .when(!on_host, |d| {
+                d.child(ui::link("repo-worktrees", "Change").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.pick_path(true, window, cx, |d, paths, _, _| {
+                        if let Some(p) = paths.into_iter().next() {
+                            d.repo_form.draft.worktrees = p.to_string_lossy().into_owned();
+                        }
+                    })
+                })))
+            });
         let layout = div()
             .flex()
             .gap(px(14.))
@@ -598,7 +608,7 @@ impl Desktop {
             }));
             div().flex().items_center().gap(px(12.)).child(text).child(button)
         });
-        let repo = f.draft.path.clone().filter(|_| f.draft.source == Source::Local);
+        let repo = f.draft.path.clone().filter(|_| f.draft.source == Source::Local && !on_host);
         let copies = div()
             .flex()
             .flex_wrap()
