@@ -2,7 +2,8 @@
 # Installs pocketd as a user service on a host, or finds the one already running there.
 # The desktop fills the @@…@@ placeholders and pipes this into `sh -s` over ssh.
 # @@URL@@ is the release's download directory; it holds pocketd-<os>-<arch>.tar.gz and its .sha256.
-# ANYWHERE_ARCHIVE names a tarball already on the host to use instead (checked against ANYWHERE_SHA256 if set).
+# ANYWHERE_ARCHIVE names a tarball already on the host to use instead, checked against ANYWHERE_SHA256.
+# Downloads are https only; ANYWHERE_ALLOW_HTTP=1 lets scripts/test-bootstrap.sh serve them from this Mac.
 # ANYWHERE_FORCE=1 updates: installs the archive even over a running pocketd, which hands off to it in place.
 # Lines for the desktop: ANYWHERE step <name> | warn <msg> | error <msg> | running | done. Others are log.
 set -u
@@ -32,8 +33,13 @@ version_of() {
 }
 
 fetch() {
+  proto='=https'
+  case "$1" in
+    https://*) ;;
+    *) [ -n "${ANYWHERE_ALLOW_HTTP:-}" ] && proto='=http,https' || fail "won't download $1: not https" ;;
+  esac
   if command -v curl >/dev/null; then
-    curl -fsSL -o "$2" "$1"
+    curl --proto "$proto" --proto-redir "$proto" --tlsv1.2 -fsSL -o "$2" "$1"
   elif command -v wget >/dev/null; then
     wget -qO "$2" "$1"
   else
@@ -63,11 +69,10 @@ unpack() {
     fetch "$URL/pocketd-$os-$arch.tar.gz.sha256" "$tmp/sha256" || fail "download $URL/pocketd-$os-$arch.tar.gz.sha256 failed"
     want=$(cut -d' ' -f1 "$tmp/sha256")
   fi
-  if [ -n "$want" ]; then
-    say step verify
-    got=$(sha256 "$archive")
-    [ "$got" = "$want" ] || fail "checksum mismatch: got $got, want $want"
-  fi
+  say step verify
+  [ -n "$want" ] || fail "no checksum to verify $archive against"
+  got=$(sha256 "$archive")
+  [ "$got" = "$want" ] || fail "checksum mismatch: got $got, want $want"
   say step unpack
   mkdir -p "$tmp/x" "$DIR/runtime/$VERSION" || fail "can't create $DIR/runtime/$VERSION"
   tar -xzf "$archive" -C "$tmp/x" || fail "can't unpack $archive"
