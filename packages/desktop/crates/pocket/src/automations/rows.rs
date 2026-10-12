@@ -46,7 +46,7 @@ impl Desktop {
             .top(px(9.))
             .right(px(10.))
             .cursor_pointer()
-            .child(ui::toggle(enabled))
+            .child(ui::toggle("switch", enabled))
             .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.toggle_automation(&id, !enabled, cx);

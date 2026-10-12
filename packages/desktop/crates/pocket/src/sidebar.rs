@@ -338,7 +338,7 @@ impl Desktop {
             }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
             .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
-        let mut out = vec![row.into_any_element()];
+        let mut out = Vec::new();
         if open {
             let tip = trees.iter().flatten().find(|w| w.main).map(tree_place).unwrap_or_default();
             out.push(self.local_row(p, &main, None, &tip, current.as_deref(), cx));
@@ -391,13 +391,20 @@ impl Desktop {
                 out.push(Self::with_card(row, tree, card, cx).into_any_element());
             }
         }
+        // The rows are fixed-height, so the open height is known without measuring: top pad, rows, gaps between them, bottom pad.
+        let n = out.len() as f32;
+        let height = if out.is_empty() { 0. } else { 1. + n * ui::SIDEBAR_ROW_H + (n - 1.) + 6. };
+        let rows = div().flex().flex_col().gap(px(1.)).when(open, |d| d.pt(px(1.)).pb(px(6.))).children(out).with_spring(
+            id(format!("aside-fold:{p}")),
+            SpringAnimation::new(SPRING).to(open),
+            move |d, t| if t.0 < 1. { d.h(px(height * t.0)).overflow_hidden() } else { d },
+        );
         let to = p.to_string();
         div()
             .flex()
             .flex_col()
-            .gap(px(1.))
-            .when(open, |d| d.pb(px(6.)))
-            .children(out)
+            .child(row)
+            .child(rows)
             .when(kept, |d| {
                 d.drag_over::<DragProject>(move |s, d, _, _| if d.ix == i { s } else { s.shadow(ui::drop_line(d.ix < i)) }).on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
                     this.store.move_project(&d.path, &to);

@@ -126,9 +126,13 @@ impl Desktop {
                 }))
             });
         let card = div().flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(ui::row_shadow()).child(head);
-        let wrap = |card: Div| Some(div().flex_none().px(px(10.)).pb(px(8.)).child(card));
+        // The body's slot stays when folded, so its spring knows an unfold from the card first showing.
+        let wrap = |card: Div, body: Option<Div>| {
+            let body = div().children(body).with_spring("pr-body", SpringAnimation::new(SPRING).to(!folded), |d, t| d.opacity(t.0).mt(px(-4. * (1. - t.0))));
+            Some(div().flex_none().px(px(10.)).pb(px(8.)).child(card.child(body)))
+        };
         if folded {
-            return wrap(card);
+            return wrap(card, None);
         }
         let (checks, threads) = to_fix(pr, fixing);
         let resolving = fixing.is_some_and(|s| s.conflict);
@@ -158,7 +162,7 @@ impl Desktop {
                 .child(fact("Merge", self.pr_gate(pr, resolving, agent)))
         });
         let action = if open { self.pr_merge(&tree, pr, resolving, busy, agent, cx) } else { self.pr_merged(&tree, cx) };
-        wrap(card.child(div().px(px(12.)).pb(px(12.)).flex().flex_col().gap(px(10.)).children(callout).children(facts).child(action)))
+        wrap(card, Some(div().px(px(12.)).pb(px(12.)).flex().flex_col().gap(px(10.)).children(callout).children(facts).child(action)))
     }
 
     fn pr_checks(&self, pr: &Pr, can_send: bool, agent: &str, unsent: &[&Check], cx: &mut Context<Self>) -> Div {
