@@ -89,7 +89,8 @@ func invalidResume(detail string) *Failure {
 // resumeCmd is how Daemon.Resume runs saved's resume argv in a login shell,
 // or the reason it can't. find is where the provider's command is, which
 // config.json may point away from the bare name the argv starts with.
-func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, find func(provider string) (string, bool)) (string, []string, string) {
+// account is the env of the managed account saved ran on.
+func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, account []string, find func(provider string) (string, bool)) (string, []string, string) {
 	argv, f := Resume(saved, args)
 	if f != nil {
 		return "", nil, f.Code
@@ -99,5 +100,5 @@ func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, f
 		return "", nil, "resume_not_accepted"
 	}
 	argv[0] = path
-	return shell, Wrap(shell, exe, "", argv), ""
+	return shell, Wrap(shell, exe, "", argv, account), ""
 }

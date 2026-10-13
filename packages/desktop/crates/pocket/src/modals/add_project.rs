@@ -765,7 +765,7 @@ mod tests {
             dev_url: "localhost:3000".into(),
             base: "develop".into(),
             setup: "pnpm install".into(),
-            agent: LaunchPick { provider: "claude".into(), model: "opus".into(), effort: String::new(), access: String::new() },
+            agent: LaunchPick { provider: "claude".into(), model: "opus".into(), ..LaunchPick::default() },
             ..RepoConfig::default()
         };
         let changes = project_changes(&cfg, "main");

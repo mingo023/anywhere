@@ -353,7 +353,7 @@ mod tests {
     }
 
     fn card(id: &str, status: Status, kind: Kind) -> Card {
-        Card { id: id.into(), provider: "claude".into(), model: String::new(), title: format!("{id} title"), cwd: "/p".into(), local: String::new(), at: 0, created: 0, status, kind, notice: None, pinned: false }
+        Card { id: id.into(), provider: "claude".into(), model: String::new(), title: format!("{id} title"), cwd: "/p".into(), local: String::new(), at: 0, created: 0, status, kind, notice: None, pinned: false, account: String::new() }
     }
 
     fn choice(id: &str, note: &str, ready: bool) -> Choice {

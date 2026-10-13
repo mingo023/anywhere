@@ -33,6 +33,7 @@ export const LaunchSpec = Schema.Struct({
   plan: Schema.Boolean,
   prompt: Schema.optional(Schema.String),
   fork: Schema.optional(Schema.String),
+  account: Schema.optional(Schema.String),
 });
 export type LaunchSpec = typeof LaunchSpec.Type;
 
@@ -57,5 +58,6 @@ export const ErrorCode = Schema.Literal(
   "duplicate",
   "invalid_config",
   "unknown_local",
+  "unknown_account",
 );
 export type ErrorCode = typeof ErrorCode.Type;

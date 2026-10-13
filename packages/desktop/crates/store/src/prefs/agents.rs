@@ -181,7 +181,9 @@ impl Agents {
     /// A project sets no access, so what it last started with holds.
     pub fn pick(&self, project: &LaunchPick, remembered: LaunchPick) -> LaunchPick {
         if !project.provider.is_empty() {
-            return LaunchPick { access: remembered.access, ..project.switched(self.usable(&project.provider)) };
+            let pick = project.switched(self.usable(&project.provider));
+            let account = if remembered.provider == pick.provider { remembered.account } else { String::new() };
+            return LaunchPick { access: remembered.access, account, ..pick };
         }
         let provider = if remembered.provider.is_empty() { self.default_agent() } else { self.usable(&remembered.provider) };
         remembered.switched(provider)
@@ -289,6 +291,16 @@ mod tests {
         let own = LaunchPick { provider: "codex".into(), ..LaunchPick::default() };
         let last = LaunchPick { provider: "claude".into(), access: "auto".into(), ..LaunchPick::default() };
         assert_eq!(Agents::default().pick(&own, last).access, "auto");
+    }
+
+    #[test]
+    fn a_project_keeps_the_account_it_last_started_on_only_under_the_same_agent() {
+        let own = LaunchPick { provider: "codex".into(), ..LaunchPick::default() };
+        let last = LaunchPick { provider: "codex".into(), account: "work".into(), ..LaunchPick::default() };
+        assert_eq!(Agents::default().pick(&own, last.clone()).account, "work");
+        let claude = LaunchPick { provider: "claude".into(), ..LaunchPick::default() };
+        assert_eq!(Agents::default().pick(&claude, last.clone()).account, "");
+        assert_eq!(Agents::default().pick(&LaunchPick::default(), last).account, "work");
     }
 
     #[test]

@@ -1,3 +1,4 @@
+mod accounts;
 mod agents;
 mod appearance;
 mod automations;
@@ -44,6 +45,7 @@ pub enum Section {
     Notifications,
     Keyboard,
     Agents,
+    Accounts,
     Automations,
     Phone,
     Hosts,
@@ -60,12 +62,13 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 15] = [
+    pub const ALL: [Section; 16] = [
         Section::General,
         Section::Appearance,
         Section::Notifications,
         Section::Keyboard,
         Section::Agents,
+        Section::Accounts,
         Section::Automations,
         Section::Phone,
         Section::Hosts,
@@ -85,6 +88,7 @@ impl Section {
             Section::Notifications => "Notifications & Sounds",
             Section::Keyboard => "Keyboard",
             Section::Agents => "Agents",
+            Section::Accounts => "Accounts",
             Section::Automations => "Automations",
             Section::Phone => "Phone & Remote",
             Section::Hosts => "Hosts",
@@ -108,6 +112,7 @@ impl Section {
             Section::Notifications => "notifications",
             Section::Keyboard => "keyboard",
             Section::Agents => "agents",
+            Section::Accounts => "accounts",
             Section::Automations => "automations",
             Section::Phone => "phone",
             Section::Hosts => "hosts",
@@ -126,7 +131,7 @@ impl Section {
     fn group(self) -> &'static str {
         match self {
             Section::General | Section::Appearance | Section::Notifications | Section::Keyboard => "App",
-            Section::Agents | Section::Automations | Section::Phone | Section::Hosts | Section::Claude | Section::Codex => "Agents",
+            Section::Agents | Section::Accounts | Section::Automations | Section::Phone | Section::Hosts | Section::Claude | Section::Codex => "Agents",
             Section::Projects | Section::Sidebar | Section::Terminal | Section::Files | Section::Browser => "Projects",
             Section::Git | Section::Diff => "Git",
         }
@@ -139,6 +144,7 @@ impl Section {
             Section::Notifications => "How agents reach you, by urgency: Needs you, Failed, Done.",
             Section::Keyboard => "Every shortcut, grouped by what it does. Click one to change it.",
             Section::Agents => "The agent providers you use, and what a new session starts with.",
+            Section::Accounts => "Claude Code and Codex sign-ins on each machine. Every session runs on one, picked in the composer.",
             Section::Automations => "Defaults for new automations, and what happens to runs the Mac missed.",
             Section::Phone => "Pair the iPhone app and decide how much it can approve, and from where.",
             Section::Hosts => "Machines your agents run on: this Mac, and any machine you can sign in to over SSH.",
@@ -160,6 +166,7 @@ impl Section {
             Section::Notifications => "bell",
             Section::Keyboard => "keyboard",
             Section::Agents | Section::Claude | Section::Codex => "sparkle",
+            Section::Accounts => "shield",
             Section::Automations => "clock",
             Section::Phone => "phone",
             Section::Hosts => "server",
@@ -180,6 +187,7 @@ impl Section {
             Section::Notifications => notifications::ROWS,
             Section::Keyboard => keybindings::ROWS,
             Section::Agents => agents::ROWS,
+            Section::Accounts => accounts::ROWS,
             Section::Automations => automations::ROWS,
             Section::Phone => phone::ROWS,
             Section::Hosts => ssh_hosts::ROWS,
@@ -475,6 +483,9 @@ impl Desktop {
         }
         if matches!(self.settings.section, Section::Git | Section::Codex) {
             self.load_models(cx);
+        }
+        if self.settings.section == Section::Accounts {
+            self.refresh_accounts(cx);
         }
     }
 
@@ -781,6 +792,7 @@ impl Desktop {
                 Section::Keyboard => self.keybinding_settings(cx),
                 Section::Notifications => self.notification_settings(cx),
                 Section::Automations => self.automations_settings(cx),
+                Section::Accounts => self.accounts_settings(cx),
                 Section::Claude | Section::Codex => self.provider_page(section, cx),
                 _ => div().flex().flex_col().gap(px(22.)).children(self.setting_groups(section, cx)),
             };
@@ -819,13 +831,13 @@ mod tests {
     #[test]
     fn sections_follow_the_spec_order() {
         assert_eq!(Section::ALL.map(Section::label)[..5], ["General", "Appearance", "Notifications & Sounds", "Keyboard", "Agents"]);
-        assert_eq!(Section::ALL.len(), 15);
+        assert_eq!(Section::ALL.len(), 16);
     }
 
     #[test]
     fn the_nav_groups_sections_by_what_they_set() {
         let groups: Vec<_> = nav_groups().into_iter().map(|(g, s)| (g, s.len())).collect();
-        assert_eq!(groups, [("App", 4), ("Agents", 4), ("Projects", 5), ("Git", 2)]);
+        assert_eq!(groups, [("App", 4), ("Agents", 5), ("Projects", 5), ("Git", 2)]);
     }
 
     #[test]

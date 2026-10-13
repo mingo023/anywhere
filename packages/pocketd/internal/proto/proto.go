@@ -203,6 +203,8 @@ type AgentSummary struct {
 	ContextWindow     int64  `json:"contextWindow,omitempty"`
 	Origin            string `json:"origin"`
 	Activity          string `json:"activity,omitempty"`
+	// Account is the managed account the agent runs on; empty is the built-in login.
+	Account string `json:"account,omitempty"`
 }
 
 type PermissionRequest struct {

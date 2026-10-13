@@ -11,7 +11,9 @@ import (
 	"pocketd/internal/state"
 )
 
-func resumeOf(t state.Terminal) ([]string, *Failure) { return Resume(t, config.DefaultArgs(t.Provider)) }
+func resumeOf(t state.Terminal) ([]string, *Failure) {
+	return Resume(t, config.DefaultArgs(t.Provider))
+}
 
 func saved(provider string, l state.Launch) state.Terminal {
 	return state.Terminal{Provider: provider, ConversationID: "c-1", Launch: &l}
@@ -100,11 +102,11 @@ func TestAMissingBinaryIsNotAccepted(t *testing.T) {
 		path, err := resolve(p, []string{"PATH=" + dir, "SHELL=/bin/sh"})
 		return path, err == nil
 	}
-	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", onPath); reason != "resume_not_accepted" {
+	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, onPath); reason != "resume_not_accepted" {
 		t.Fatalf("reason = %q", reason)
 	}
 	os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755)
-	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", onPath)
+	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, onPath)
 	if reason != "" || cmd != "/bin/zsh" || !slices.Contains(args, "--resume") {
 		t.Fatalf("resumeCmd = %q %q %q", cmd, args, reason)
 	}
@@ -112,7 +114,7 @@ func TestAMissingBinaryIsNotAccepted(t *testing.T) {
 
 func TestAResumeRunsTheProvidersConfiguredCommand(t *testing.T) {
 	custom := func(string) (string, bool) { return "/opt/tools/my-claude", true }
-	_, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", custom)
+	_, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, custom)
 	if reason != "" || !slices.Contains(args, "/opt/tools/my-claude") || slices.Contains(args, "claude") {
 		t.Fatalf("resumeCmd = %q %q", args, reason)
 	}

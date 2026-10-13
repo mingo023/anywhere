@@ -269,6 +269,7 @@ impl Desktop {
                 self.error = Some(m.error);
             }
             ("exit", _) => {
+                self.sign_in_ended(&m.id, cx);
                 if self.terminals.exited(&m) {
                     self.close_pane(&m.id, cx);
                 }
@@ -330,7 +331,8 @@ impl Desktop {
     }
 
     /// Sends a create to the pocketd holding `spec`'s project; `None`, with the error shown, when that's a host that isn't connected.
-    pub(crate) fn send_create(&mut self, spec: serde_json::Value) -> Option<String> {
+    pub(crate) fn send_create(&mut self, mut spec: serde_json::Value) -> Option<String> {
+        self.accounts.offer(&mut spec);
         match self.outbox.create(spec, |h| self.store.host_registry(h)) {
             Ok(request) => Some(request),
             Err(host) => {

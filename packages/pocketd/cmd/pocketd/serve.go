@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"pocketd/internal/accounts"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -143,6 +144,11 @@ func serve(sock, handed string) error {
 		return err
 	}
 	userHome, _ := os.UserHomeDir()
+	// The same folder for dev and release builds, so both see one set of accounts.
+	d.Accounts = &accounts.Store{Root: filepath.Join(userHome, ".anywhere", "accounts"), Home: userHome}
+	if runtime.GOOS == "darwin" {
+		d.Accounts.Secret = accounts.Keychain
+	}
 	pairs := pairing.New(time.Now)
 	var live atomic.Pointer[reach.Listener]
 	pairHost := func() (string, bool) {
@@ -289,6 +295,7 @@ func serve(sock, handed string) error {
 		LoginEnv: d.LoginEnv,
 		TrashDir: filepath.Join(home, "trash"),
 		Owners:   ownerTokens,
+		Accounts: l.Accounts,
 	}
 	if ownerLn != nil {
 		go srv.Serve(ownerLn)

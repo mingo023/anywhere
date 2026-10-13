@@ -137,6 +137,12 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: fail("unknown_project", "This project isn't on your Mac anymore")}
 	}
 	env := l.d.LoginEnv()
+	account, fl := l.account(s.Provider, s.Account)
+	if fl != nil {
+		return Result{Err: fl}
+	}
+	// Before trust, the spawn and naming, so each reads the account's folder.
+	env = slices.Concat(env, account)
 	exe, ok := l.find(s.Provider, env)
 	if !ok {
 		return Result{Err: fail("provider_unavailable", s.Provider+" isn't installed on your Mac")}
@@ -179,7 +185,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		progress(proto.StepAgent, "")
 	}
 	local := s.Checkout.Local
-	t, err := l.d.Terminals.Spawn(terminal.Spec{ID: id, Cmd: shell, Args: Wrap(shell, l.d.Exe, setup, argv), Cwd: cwd,
+	t, err := l.d.Terminals.Spawn(terminal.Spec{ID: id, Cmd: shell, Args: Wrap(shell, l.d.Exe, setup, argv, account), Cwd: cwd,
 		Env: l.d.Env(l.d.GhEnv(env, cwd), id, local), Cols: 100, Rows: 30, Origin: origin, Local: local})
 	if err != nil {
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
@@ -435,7 +441,26 @@ func (l *Launcher) SetPhoneMaxAccess(v string) error { return l.set.SetPhoneMaxA
 
 func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 	env := l.d.LoginEnv()
-	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, func(p string) (string, bool) { return l.find(p, env) })
+	account := []string(nil)
+	if saved.Account != "" {
+		var fl *Failure
+		if account, fl = l.account(saved.Provider, saved.Account); fl != nil {
+			return "", nil, fl.Code
+		}
+	}
+	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, func(p string) (string, bool) { return l.find(p, env) })
+}
+
+// account is the env that runs provider on account id, "" being its default.
+func (l *Launcher) account(provider, id string) ([]string, *Failure) {
+	if l.d.Accounts == nil {
+		return nil, nil
+	}
+	id, err := l.d.Accounts.Resolve(provider, id)
+	if err != nil {
+		return nil, fail(proto.CodeUnknownAccount, err.Error())
+	}
+	return l.d.Accounts.Env(provider, id), nil
 }
 
 // find resolves provider's command from config.json, rechecking once it changes.

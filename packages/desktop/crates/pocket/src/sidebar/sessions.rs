@@ -71,8 +71,9 @@ impl Desktop {
         let row = if c.pinned {
             ui::pinned_row(("card", i), selected, when, c.title, c.notice, branch, Some(pill), details.diff)
         } else {
-            let model = if details.model { c.model } else { String::new() };
-            ui::session_row(("card", i), selected, ui::agent_label(&c.provider, model), when, c.title, c.notice, branch, Some(pill), details.diff)
+            let model = details.model.then_some(c.model).filter(|m| !m.is_empty());
+            let label = model.into_iter().chain(self.accounts.session_label(&c.id, &c.provider, &c.account)).collect::<Vec<_>>().join(" \u{b7} ");
+            ui::session_row(("card", i), selected, ui::agent_label(&c.provider, label), when, c.title, c.notice, branch, Some(pill), details.diff)
         };
         row.relative()
             .child(more)

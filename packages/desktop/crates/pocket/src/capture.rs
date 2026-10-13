@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 134] = [
+const STEPS: [(&str, Step); 137] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -194,6 +194,11 @@ const STEPS: [(&str, Step); 134] = [
     ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
     ("settings-claude", |d, _, _| d.settings.section = Section::Claude),
     ("settings-codex", |d, _, _| d.settings.section = Section::Codex),
+    ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
+    ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
+    ("account-menu", |d, _, _| {
+        d.accounts.menu = Some(crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() });
+    }),
     ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
         (Some(Overlay::AddRepo), _) => "project-model",
         (_, Section::Git) => "ai-model",
@@ -418,6 +423,19 @@ const STEPS: [(&str, Step); 134] = [
 pub struct Capture {
     dir: PathBuf,
     screens: Vec<(String, Vec<Step>)>,
+}
+
+/// Two Claude Code accounts on this Mac, one at its limit, and a Codex login nobody signed in to.
+fn accounts_sample() -> Vec<daemon::Account> {
+    use daemon::{Account, Usage, Window};
+    let now = crate::util::now_ms();
+    let usage = |session: f64, week: f64| Some(Usage { session: Some(Window { percent: session, resets_at: now + 2 * 3_600_000 }), week: Some(Window { percent: week, resets_at: now + 4 * 86_400_000 }), at: now, stale: false });
+    let claude = |id: &str| Account { id: id.into(), provider: "claude".into(), signed_in: true, ..Default::default() };
+    vec![
+        Account { email: "me@example.com".into(), plan: "Max".into(), default: true, usage: usage(42., 81.), ..claude("builtin") },
+        Account { label: "Work".into(), email: "work@example.com".into(), plan: "Team".into(), running: 2, usage: usage(100., 64.), ..claude("work") },
+        Account { id: "builtin".into(), provider: "codex".into(), default: true, ..Default::default() },
+    ]
 }
 
 fn fail(msg: &str) -> ! {

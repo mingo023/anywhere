@@ -1,3 +1,4 @@
+use crate::accounts::Key;
 use crate::actions::{ResetZoom, ToggleFocus, ToggleRail, ToggleSidebar, ZoomIn, ZoomOut};
 use crate::desktop::Desktop;
 use crate::removal::Removal;
@@ -76,6 +77,8 @@ pub enum Confirm {
     RevokeDevice { id: String, name: String },
     RemoveHost { id: String, name: String },
     UpdateHost { id: String, name: String, windows: bool },
+    RemoveAccount { key: Key, name: String },
+    SignOutAccount { key: Key, name: String },
 }
 
 /// The sidebar row whose `⋯` menu is open.

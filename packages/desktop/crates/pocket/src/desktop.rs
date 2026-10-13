@@ -9,6 +9,7 @@ pub(crate) mod quit;
 pub(crate) mod sounds;
 pub(crate) mod toast;
 
+use crate::accounts::Accounts;
 use crate::add_to_chat::ChatComposer;
 use crate::automations::AutomationsState;
 use crate::browser::Browsers;
@@ -103,6 +104,7 @@ pub struct Desktop {
     pub(crate) settings: SettingsState,
     pub(crate) fleet: Fleet,
     pub(crate) host_agents: HostAgents,
+    pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
     pub(crate) chips: Chips,
     pub(crate) overlay: Option<Overlay>,
@@ -216,6 +218,7 @@ impl Desktop {
             settings,
             fleet,
             host_agents: HostAgents::default(),
+            accounts: Accounts::default(),
             updates,
             chips,
             overlay: None,
@@ -416,7 +419,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -428,6 +431,7 @@ impl Desktop {
         self.sidebar.picker.open = false;
         self.sidebar.add_menu = false;
         self.automations.menu = None;
+        self.accounts.menu = None;
         self.explorer.close_menu();
         self.terminal.menu = None;
         open

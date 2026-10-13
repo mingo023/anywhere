@@ -515,7 +515,7 @@ mod tests {
     use store::Sounds;
 
     fn card(id: &str, title: &str, status: Status, at: i64) -> (String, Option<String>, Card) {
-        let c = Card { id: id.into(), provider: "claude".into(), model: String::new(), title: title.into(), cwd: String::new(), local: String::new(), at, created: at, status, kind: Kind::Agent, notice: None, pinned: false };
+        let c = Card { id: id.into(), provider: "claude".into(), model: String::new(), title: title.into(), cwd: String::new(), local: String::new(), at, created: at, status, kind: Kind::Agent, notice: None, pinned: false, account: String::new() };
         ("app".into(), Some("main".into()), c)
     }
 
