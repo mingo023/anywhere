@@ -360,7 +360,7 @@ fn args(host: &Host, paths: &Paths, command: &str) -> Vec<String> {
     if let Some(dir) = known_hosts.parent() {
         let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
     }
-    ssh::args(host, &known_hosts, &[], command)
+    ssh::args(host, &known_hosts, host.signed_in_key(&paths.home).as_deref(), &[], command)
 }
 
 /// `command`'s output on the host; `Err` only when ssh itself failed, which it says by exiting 255.

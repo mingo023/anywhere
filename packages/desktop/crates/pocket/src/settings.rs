@@ -235,6 +235,8 @@ pub struct SettingsState {
     pub(crate) fields: HashMap<&'static str, Entity<InputState>>,
     /// The dropdown row whose menu is open.
     pub(crate) menu: Option<&'static str>,
+    /// The project whose GitHub account menu is open, while `menu` is `git::ACCOUNT_MENU`.
+    pub(crate) account_menu: Option<String>,
     pub(crate) host: host::Host,
     pub(crate) banners_denied: bool,
     /// Each project's dev server field, by project path.
@@ -279,7 +281,7 @@ impl SettingsState {
         let (launch, launch_subs) = provider::LaunchFields::new(store, window, cx);
         subs.extend(launch_subs);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), launch, starting: None };
+        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), launch, starting: None };
         (state, subs)
     }
 

@@ -52,8 +52,8 @@ fn from_commits(commits: &[Commit]) -> (String, String) {
 }
 
 /// The last `n` lines of a review comment's hunk, which ends at the line it's on.
-/// Runs `argv` in `dir` through the login shell, so `gh` finds its auth as it does in a terminal.
-pub(crate) fn run(argv: &[String], dir: &str, input: &str) -> Result<String, String> {
+/// Runs `argv` in `dir` through the login shell, so the agent finds what it does in a terminal.
+fn run(argv: &[String], dir: &str, input: &str) -> Result<String, String> {
     crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), dir, input)
 }
 
@@ -434,10 +434,10 @@ impl Desktop {
         let (dir, push_argv, draft) = (tree.clone(), self.push_argv(), self.store.git.draft);
         self.pr.busy = Some(if draft { "Creating draft PR…" } else { "Creating PR…" });
         self.pr.error = None;
-        let argv = github::create_argv(&base, &title, draft);
+        let (argv, gh) = (github::create_argv(&base, &title, draft), self.gh_in(&dir));
         let task = cx.background_executor().spawn(async move {
             push(&dir, &push_argv)?;
-            run(&argv, &dir, &body)
+            gh.run(&argv, &dir, &body)
         });
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
@@ -493,7 +493,8 @@ impl Desktop {
         }
         self.pr.busy = Some(busy);
         self.pr.merge_menu = false;
-        let task = cx.background_executor().spawn(async move { run(&argv, &dir, "") });
+        let gh = self.gh_in(&dir);
+        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {
@@ -666,8 +667,10 @@ impl Desktop {
         if body.is_empty() {
             return;
         }
-        let me = match &self.prs.gh {
-            Some(Some(github::GhStatus::Ready { login, .. })) => login.clone(),
+        let gh = self.gh_in(&dir);
+        let me = match (gh.account(), &self.prs.gh) {
+            (Some(account), _) => account.to_string(),
+            (None, Some(Some(github::GhStatus::Ready { login, .. }))) => login.clone(),
             _ => "You".into(),
         };
         let at = crate::util::now_ms() as u64;
@@ -679,7 +682,7 @@ impl Desktop {
         self.cancel_reply(window, cx);
         let argv = github::reply_argv(&thread, &body);
         let tree = dir.clone();
-        let task = cx.background_executor().spawn(async move { run(&argv, &dir, "") });
+        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {
@@ -714,9 +717,9 @@ impl Desktop {
         } else {
             self.pr.notice = None;
         }
-        let argv = github::resolve_argv(&thread, resolved);
+        let (argv, gh) = (github::resolve_argv(&thread, resolved), self.gh_in(&dir));
         let tree = dir.clone();
-        let task = cx.background_executor().spawn(async move { run(&argv, &dir, "") });
+        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
         cx.spawn(async move |this, cx| {
             let res = task.await;
             this.update(cx, |d, cx| {

@@ -49,7 +49,7 @@ pub fn pair_command(home_dir_name: &str, name: &str) -> String {
 /// Pairs this Mac with the host's pocketd and keeps the token beside the host's other files here.
 pub fn pair(host: &Host, paths: &Paths) -> Result<Owner, Failure> {
     let command = pair_command(&paths.remote_dir, &mac_name());
-    let out = Command::new("ssh").args(ssh::args(host, &host.known_hosts(&paths.home), &[], &command)).stdin(Stdio::null()).output().map_err(|_| Failure::Other)?;
+    let out = Command::new("ssh").args(ssh::args(host, &host.known_hosts(&paths.home), host.signed_in_key(&paths.home).as_deref(), &[], &command)).stdin(Stdio::null()).output().map_err(|_| Failure::Other)?;
     if out.status.code() == Some(255) {
         return Err(ssh::classify(&String::from_utf8_lossy(&out.stderr)));
     }

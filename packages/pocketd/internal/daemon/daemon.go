@@ -70,7 +70,7 @@ func (d *Daemon) spawn(spec terminal.Spec) (*terminal.Terminal, error) {
 	if spec.Env == nil {
 		spec.Env = d.LoginEnv()
 	}
-	spec.Env = d.Env(spec.Env, spec.ID, spec.Local)
+	spec.Env = d.Env(d.GhEnv(spec.Env, spec.Cwd), spec.ID, spec.Local)
 	return d.Terminals.Spawn(spec)
 }
 

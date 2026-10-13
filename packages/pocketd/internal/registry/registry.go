@@ -20,6 +20,8 @@ type Repo struct {
 	Worktrees string   `json:"worktrees"`
 	Setup     string   `json:"setup"`
 	Copy      []string `json:"copy"`
+	// GhAccount is the github.com account gh acts as in the Project's terminals.
+	GhAccount string `json:"gh_account"`
 }
 
 type File struct {

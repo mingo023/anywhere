@@ -359,6 +359,7 @@ impl Desktop {
             launch: saved.map(|r| r.launch.clone()).unwrap_or_default(),
             agent: f.draft.agent.clone(),
             dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
+            gh_account: saved.map(|r| r.gh_account.clone()).unwrap_or_default(),
         }
     }
 
