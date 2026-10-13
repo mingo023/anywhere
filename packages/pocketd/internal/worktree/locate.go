@@ -69,18 +69,38 @@ type Place struct {
 // Find places cwd in a registered Project: the one sharing its repo, or, for
 // a folder that isn't a repo, the one holding it.
 func Find(f registry.File, cwd string) (Place, bool) {
-	if !filepath.IsAbs(cwd) {
+	p, at, ok := project(f, cwd)
+	switch {
+	case !ok:
 		return Place{}, false
+	case at.Root != "":
+		return Place{Project: f.Name(p), Worktree: filepath.Base(at.Root), Branch: at.Branch, Main: at.Main}, true
+	default:
+		return Place{Project: f.Name(p), Worktree: filepath.Base(p), Main: true}, true
+	}
+}
+
+// Project is the path of the registered Project holding cwd, as Find places it.
+func Project(f registry.File, cwd string) (string, bool) {
+	p, _, ok := project(f, cwd)
+	return p, ok
+}
+
+// project is the Project sharing cwd's repo, with cwd's checkout, or the
+// folder Project holding cwd, with no checkout.
+func project(f registry.File, cwd string) (string, Location, bool) {
+	if !filepath.IsAbs(cwd) {
+		return "", Location{}, false
 	}
 	at, inRepo := Locate(cwd)
 	for _, p := range f.Projects {
 		l, isRepo := Locate(p)
 		switch {
 		case isRepo && inRepo && l.Common == at.Common:
-			return Place{Project: f.Name(p), Worktree: filepath.Base(at.Root), Branch: at.Branch, Main: at.Main}, true
+			return p, at, true
 		case !isRepo && (cwd == p || strings.HasPrefix(cwd, p+"/")):
-			return Place{Project: f.Name(p), Worktree: filepath.Base(p), Main: true}, true
+			return p, Location{}, true
 		}
 	}
-	return Place{}, false
+	return "", Location{}, false
 }

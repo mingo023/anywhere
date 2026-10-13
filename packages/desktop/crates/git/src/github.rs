@@ -281,7 +281,8 @@ impl Thread {
 pub enum GhStatus {
     Missing,
     SignedOut { version: String },
-    Ready { version: String, login: String },
+    /// `login` is the active one of `accounts`.
+    Ready { version: String, login: String, accounts: Vec<String> },
 }
 
 /// `gh --version`, then `gh auth status` with stderr merged into its output.
@@ -293,26 +294,57 @@ pub fn status(version: Result<String, String>, auth: Result<String, String>) -> 
     let Some(version) = version.ok().and_then(|v| v.split_whitespace().nth(2).map(str::to_string)) else {
         return GhStatus::Missing;
     };
-    match auth.ok().and_then(|a| login(&a)) {
-        Some(login) => GhStatus::Ready { version, login },
-        None => GhStatus::SignedOut { version },
+    match auth.ok().map(|a| accounts(&a)) {
+        Some((accounts, Some(login))) => GhStatus::Ready { version, login, accounts },
+        _ => GhStatus::SignedOut { version },
     }
 }
 
-/// The active github.com account: newer gh lists every account and marks one active, older gh says "as <login>".
-fn login(auth: &str) -> Option<String> {
-    let mut found = None;
+/// Every github.com account and the active one: newer gh lists each and marks one active, older gh says "as <login>".
+fn accounts(auth: &str) -> (Vec<String>, Option<String>) {
+    let (mut all, mut active) = (Vec::new(), None);
     for line in auth.lines().map(str::trim) {
         if let Some(rest) = line.split("Logged in to github.com account ").nth(1).or_else(|| line.split("Logged in to github.com as ").nth(1)) {
-            found = rest.split_whitespace().next().map(str::to_string);
+            all.extend(rest.split_whitespace().next().map(str::to_string));
             if line.contains(" as ") {
-                return found;
+                active = all.last().cloned();
             }
-        } else if line.contains("Active account: true") && found.is_some() {
-            return found;
+        } else if line.contains("Active account: true") {
+            active = all.last().cloned();
         }
     }
-    None
+    (all, active)
+}
+
+/// The token `gh` keeps for `login`, which `GH_TOKEN` takes to act as that account.
+pub fn token_argv(login: &str) -> [&str; 7] {
+    ["gh", "auth", "token", "--hostname", "github.com", "--user", login]
+}
+
+/// GitHub refused the token, as it does one revoked by signing in again.
+pub fn unauthorized(err: &str) -> bool {
+    err.contains("HTTP 401")
+}
+
+/// What the account may do in the repo of the working directory.
+pub const PERMISSION: &[&str] = &["gh", "repo", "view", "--json", "viewerPermission"];
+
+/// Reads what [`PERMISSION`] returned: higher may do more, 0 can't see the repo.
+pub fn permission(out: Result<String, String>) -> u8 {
+    let v: Option<Value> = out.ok().and_then(|json| serde_json::from_str(&json).ok());
+    match v.as_ref().and_then(|v| v["viewerPermission"].as_str()) {
+        Some("ADMIN") => 5,
+        Some("MAINTAIN") => 4,
+        Some("WRITE") => 3,
+        Some("TRIAGE") => 2,
+        Some("READ") => 1,
+        _ => 0,
+    }
+}
+
+/// The account with the most access to a repo, the active one on a tie; none when no account can see it.
+pub fn best<'a>(ranks: &[(&'a str, u8)], active: &str) -> Option<&'a str> {
+    ranks.iter().filter(|(_, r)| *r > 0).max_by_key(|(login, r)| (*r, *login == active)).map(|(login, _)| *login)
 }
 
 /// Reads what [`VIEW`] returned through `daemon::run_login`. No PR, or any other failure, is `Ok(None)`.
@@ -601,12 +633,37 @@ mod tests {
 
     const VERSION_OUT: &str = "gh version 2.81.0 (2025-10-01)\nhttps://github.com/cli/cli/releases/tag/v2.81.0\n";
 
+    fn ready(login: &str, accounts: &[&str]) -> GhStatus {
+        GhStatus::Ready { version: "2.81.0".into(), login: login.into(), accounts: accounts.iter().map(|a| a.to_string()).collect() }
+    }
+
     #[test]
-    fn gh_status_reads_the_version_and_the_active_account() {
+    fn gh_status_reads_the_version_every_account_and_the_active_one() {
         let auth = "github.com\n  ✓ Logged in to github.com account old-me (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account minh-ngo (keyring)\n  - Active account: true\n  - Git operations protocol: https\n";
-        assert_eq!(status(Ok(VERSION_OUT.into()), Ok(auth.into())), GhStatus::Ready { version: "2.81.0".into(), login: "minh-ngo".into() });
+        assert_eq!(status(Ok(VERSION_OUT.into()), Ok(auth.into())), ready("minh-ngo", &["old-me", "minh-ngo"]));
         let old = "github.com\n  ✓ Logged in to github.com as minh-ngo (oauth_token)\n";
-        assert_eq!(status(Ok(VERSION_OUT.into()), Ok(old.into())), GhStatus::Ready { version: "2.81.0".into(), login: "minh-ngo".into() });
+        assert_eq!(status(Ok(VERSION_OUT.into()), Ok(old.into())), ready("minh-ngo", &["minh-ngo"]));
+    }
+
+    #[test]
+    fn gh_status_lists_three_accounts_with_the_first_active() {
+        let auth = "github.com\n  ✓ Logged in to github.com account mingo023 (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'\n\n  ✓ Logged in to github.com account hodfords-minhngo-be (keyring)\n  - Active account: false\n  - Git operations protocol: https\n  - Token: gho_************************************\n\n  ✓ Logged in to github.com account minhngovan-regask (keyring)\n  - Active account: false\n";
+        assert_eq!(status(Ok(VERSION_OUT.into()), Ok(auth.into())), ready("mingo023", &["mingo023", "hodfords-minhngo-be", "minhngovan-regask"]));
+    }
+
+    #[test]
+    fn a_repos_permission_ranks_admin_highest_and_no_access_as_none() {
+        let read = |p: &str| permission(Ok(format!(r#"{{"viewerPermission":"{p}"}}"#)));
+        assert_eq!(["ADMIN", "MAINTAIN", "WRITE", "TRIAGE", "READ"].map(read), [5, 4, 3, 2, 1]);
+        assert_eq!(permission(Err("GraphQL: Could not resolve to a Repository with the name 'acme/app'. (repository)".into())), 0);
+    }
+
+    #[test]
+    fn the_account_with_the_most_access_wins_and_the_active_one_breaks_a_tie() {
+        assert_eq!(best(&[("work", 3), ("me", 5), ("client", 0)], "work"), Some("me"));
+        assert_eq!(best(&[("work", 1), ("me", 1)], "me"), Some("me"));
+        assert_eq!(best(&[("work", 1), ("me", 1)], "work"), Some("work"));
+        assert_eq!(best(&[("work", 0), ("me", 0)], "me"), None);
     }
 
     #[test]

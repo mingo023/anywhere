@@ -32,8 +32,9 @@ pub fn parse_probe(stdout: &str) -> Option<Probe> {
 
 /// ssh's arguments for `command` on `host`, never prompting, with `extra` options before the destination.
 /// App options come first because ssh keeps the first value it reads for an option.
-pub fn args(host: &Host, known_hosts: &Path, extra: &[String], command: &str) -> Vec<String> {
-    let mut out: Vec<String> = [
+/// `key` is the app's own key for the host; with it, keys ssh wasn't named aren't offered, so the user's agent can't spend `MaxAuthTries` first.
+pub fn args(host: &Host, known_hosts: &Path, key: Option<&Path>, extra: &[String], command: &str) -> Vec<String> {
+    let mut out = options(&[
         "BatchMode=yes",
         "ConnectTimeout=10",
         "ServerAliveInterval=5",
@@ -44,13 +45,75 @@ pub fn args(host: &Host, known_hosts: &Path, extra: &[String], command: &str) ->
         // A user's `ControlMaster auto` would hand the forward to a background master and exit at once.
         "ControlMaster=no",
         "ControlPath=none",
-    ]
-    .iter()
-    .flat_map(|o| ["-o".to_string(), o.to_string()])
-    .collect();
-    // The app's file first, so a newly accepted key lands there and `~/.ssh/known_hosts` stays as it is.
-    out.extend(["-o".into(), format!("UserKnownHostsFile=\"{}\" ~/.ssh/known_hosts", known_hosts.display())]);
+    ]);
+    out.extend(known_hosts_option(known_hosts));
+    if let Some(key) = key {
+        out.extend(["-i".into(), key.display().to_string(), "-o".into(), "IdentitiesOnly=yes".into()]);
+    }
     out.extend(extra.iter().cloned());
+    out.extend(destination(host, command));
+    out
+}
+
+/// ssh's arguments for `command` on `host`, signing in by `method` with the password askpass gives it.
+/// Its own list rather than `args`', whose `BatchMode=yes` would win and refuse to ask.
+pub fn password_args(host: &Host, known_hosts: &Path, method: PasswordMethod, command: &str) -> Vec<String> {
+    let mut out = options(&[
+        "BatchMode=no",
+        "PubkeyAuthentication=no",
+        method.option(),
+        // Each wrong password adds to sshd's penalty, which also locks out good keys.
+        "NumberOfPasswordPrompts=1",
+        // The password goes only to the host key the key sign-in recorded, never to a new one.
+        "StrictHostKeyChecking=yes",
+        "ConnectTimeout=10",
+        "LogLevel=INFO",
+        "ControlMaster=no",
+        "ControlPath=none",
+    ]);
+    out.extend(known_hosts_option(known_hosts));
+    out.extend(destination(host, command));
+    out
+}
+
+/// One method per connection: after a wrong password, OpenSSH 9.6 on Ubuntu never answers a
+/// keyboard-interactive attempt in the same connection, so ssh hangs until the server's login grace ends.
+#[derive(Clone, Copy)]
+pub enum PasswordMethod {
+    Password,
+    KeyboardInteractive,
+}
+
+impl PasswordMethod {
+    fn option(self) -> &'static str {
+        match self {
+            PasswordMethod::Password => "PreferredAuthentications=password",
+            PasswordMethod::KeyboardInteractive => "PreferredAuthentications=keyboard-interactive",
+        }
+    }
+}
+
+/// Whether a refused ssh's stderr says the host takes plain passwords, so keyboard-interactive is only worth a try when it doesn't.
+pub fn takes_passwords(stderr: &str) -> bool {
+    let Some((_, rest)) = stderr.split_once("Permission denied (") else { return true };
+    rest.split(')').next().unwrap_or_default().split(',').any(|m| m == "password")
+}
+
+/// Adds the public key on stdin to the host's `authorized_keys` unless it's there, on a line of its own
+/// even when the file doesn't end in a newline. Wrapped in `sh -c` because the host's login shell may not be POSIX.
+pub const INSTALL_KEY: &str = r#"sh -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys && exit; [ -z "$(tail -c1 ~/.ssh/authorized_keys)" ] || echo >> ~/.ssh/authorized_keys; printf "%s\n" "$key" >> ~/.ssh/authorized_keys'"#;
+
+fn options(opts: &[&str]) -> Vec<String> {
+    opts.iter().flat_map(|o| ["-o".to_string(), o.to_string()]).collect()
+}
+
+/// The app's file first, so a newly accepted key lands there and `~/.ssh/known_hosts` stays as it is.
+fn known_hosts_option(known_hosts: &Path) -> [String; 2] {
+    ["-o".into(), format!("UserKnownHostsFile=\"{}\" ~/.ssh/known_hosts", known_hosts.display())]
+}
+
+fn destination(host: &Host, command: &str) -> Vec<String> {
+    let mut out = Vec::new();
     let destination = match &host.target {
         Target::Alias { name } => name.clone(),
         Target::Address { addr, port, user, key_file } => {
@@ -224,7 +287,7 @@ mod tests {
 
     #[test]
     fn ssh_never_prompts_and_keeps_new_host_keys_out_of_the_users_file() {
-        let args = args(&address(22, "", None), Path::new("/h/known_hosts"), &[], "true");
+        let args = args(&address(22, "", None), Path::new("/h/known_hosts"), None, &[], "true");
         let opts: Vec<&str> = args.iter().map(String::as_str).collect();
         assert!(opts.contains(&"BatchMode=yes") && opts.contains(&"StrictHostKeyChecking=accept-new") && opts.contains(&"ControlMaster=no"));
         assert!(opts.contains(&"UserKnownHostsFile=\"/h/known_hosts\" ~/.ssh/known_hosts"));
@@ -233,11 +296,55 @@ mod tests {
 
     #[test]
     fn an_address_passes_only_the_port_user_and_key_it_was_given() {
-        let tail = |h: &Host| args(h, Path::new("/k"), &[], "true").into_iter().skip_while(|a| !a.starts_with("UserKnownHostsFile")).skip(1).collect::<Vec<_>>();
+        let tail = |h: &Host| args(h, Path::new("/k"), None, &[], "true").into_iter().skip_while(|a| !a.starts_with("UserKnownHostsFile")).skip(1).collect::<Vec<_>>();
         assert_eq!(tail(&address(22, "", None)), ["--", "10.0.4.12", "true"]);
         assert_eq!(tail(&address(2222, "dev", Some("/k/id"))), ["-p", "2222", "-l", "dev", "-i", "/k/id", "-o", "IdentitiesOnly=yes", "--", "10.0.4.12", "true"]);
         let alias = Host::new(Target::Alias { name: "-oProxyCommand=x".into() }, &[]);
         assert_eq!(tail(&alias), ["--", "-oProxyCommand=x", "true"], "a saved name never becomes an option");
+    }
+
+    #[test]
+    fn the_apps_own_key_goes_first_and_the_users_agent_keys_not_at_all() {
+        let args = args(&address(22, "", Some("/k/id")), Path::new("/k"), Some(Path::new("/h/devbox.key")), &[], "true");
+        let at = |key: &str| args.iter().position(|a| a == key).unwrap();
+        assert!(at("/h/devbox.key") < at("/k/id"));
+        let no_key_file = super::args(&address(22, "", None), Path::new("/k"), Some(Path::new("/h/devbox.key")), &[], "true");
+        assert!(no_key_file.iter().any(|a| a == "IdentitiesOnly=yes"));
+    }
+
+    #[test]
+    fn installing_a_key_adds_it_once_on_its_own_line() {
+        let home = std::env::temp_dir().join(format!("pocket-install-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        std::fs::write(home.join(".ssh/authorized_keys"), "ssh-ed25519 AAAAold me").unwrap();
+        let install = || {
+            let mut sh = std::process::Command::new("sh").args(["-c", INSTALL_KEY]).env("HOME", &home).stdin(std::process::Stdio::piped()).spawn().unwrap();
+            std::io::Write::write_all(&mut sh.stdin.take().unwrap(), b"ssh-ed25519 AAAAnew anywhere\n").unwrap();
+            assert!(sh.wait().unwrap().success());
+        };
+        install();
+        install();
+        assert_eq!(std::fs::read_to_string(home.join(".ssh/authorized_keys")).unwrap(), "ssh-ed25519 AAAAold me\nssh-ed25519 AAAAnew anywhere\n");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_password_sign_in_asks_once_and_only_a_host_already_trusted() {
+        let args = password_args(&address(2222, "dev", Some("/k/id")), Path::new("/h/known_hosts"), PasswordMethod::Password, INSTALL_KEY);
+        let opts: Vec<&str> = args.iter().map(String::as_str).collect();
+        assert!(opts.contains(&"BatchMode=no") && opts.contains(&"PubkeyAuthentication=no") && opts.contains(&"NumberOfPasswordPrompts=1"));
+        assert!(opts.contains(&"PreferredAuthentications=password"), "one method, or a wrong password hangs on the next");
+        assert!(opts.contains(&"StrictHostKeyChecking=yes") && !opts.contains(&"StrictHostKeyChecking=accept-new") && !opts.contains(&"BatchMode=yes"));
+        assert!(opts.contains(&"UserKnownHostsFile=\"/h/known_hosts\" ~/.ssh/known_hosts"), "a host trusted from Terminal counts");
+        assert_eq!(&opts[opts.len() - 3..], ["--", "10.0.4.12", INSTALL_KEY]);
+    }
+
+    #[test]
+    fn keyboard_interactive_is_tried_only_on_a_host_without_plain_passwords() {
+        assert!(takes_passwords("dev@10.0.4.12: Permission denied (publickey,password,keyboard-interactive)."));
+        assert!(!takes_passwords("dev@10.0.4.12: Permission denied (publickey,keyboard-interactive)."));
+        assert!(takes_passwords("ssh: connect to host 10.0.4.12 port 22: Connection refused"), "a failure before sign-in isn't about the method");
     }
 
     #[test]

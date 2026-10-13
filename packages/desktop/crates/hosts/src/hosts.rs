@@ -7,6 +7,7 @@ pub mod link;
 pub mod owner;
 pub mod remote;
 pub mod session;
+pub mod sign_in;
 pub mod ssh;
 pub mod ssh_config;
 
@@ -66,6 +67,16 @@ impl Host {
     /// The host keys this app accepted for the host; removing the host forgets them.
     pub fn known_hosts(&self, home: &Path) -> PathBuf {
         home.join("hosts").join(format!("{}.known_hosts", self.id))
+    }
+
+    /// The key this app signs in with after a password sign-in put it on the host; its public half is `<key>.pub`.
+    pub fn app_key(&self, home: &Path) -> PathBuf {
+        home.join("hosts").join(format!("{}.key", self.id))
+    }
+
+    /// [`Host::app_key`] once a password sign-in has made it.
+    pub fn signed_in_key(&self, home: &Path) -> Option<PathBuf> {
+        Some(self.app_key(home)).filter(|k| k.exists())
     }
 
     /// `user@addr:port` as typed, or the alias.
