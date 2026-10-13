@@ -1,8 +1,8 @@
-# Orchestrator research: Zeron + MonoCode → Anywhere
+# Orchestrator research: Zeron → Anywhere
 
-Research, product decisions and implementable plans for bringing Zeron's and MonoCode's ideas and UI/UX into Pocket.
+Research, product decisions and implementable plans for bringing Zeron's ideas and UI/UX into Pocket.
 
-**Tóm tắt:** Nghiên cứu Zeron, MonoCode và các orchestrator khác (research 01–19), chọn chiến lược **C spine + A cockpit**: pocketd điều khiển cả fleet, desktop là buồng lái terminal (04). PRD, UX spec và roadmap 8 tuần nằm ở product 00–06. Mỗi epic plan_now có một design doc và một plan đã review, chạy thử PR độc lập đầu tiên trong worktree nếu có (07).
+**Tóm tắt:** Nghiên cứu Zeron và các orchestrator khác (research 01–19), chọn chiến lược **C spine + A cockpit**: pocketd điều khiển cả fleet, desktop là buồng lái terminal (04). PRD, UX spec và roadmap 8 tuần nằm ở product 00–06. Mỗi epic plan_now có một design doc và một plan đã review, chạy thử PR độc lập đầu tiên trong worktree nếu có (07).
 
 ## Reading order
 
@@ -17,7 +17,7 @@ Research, product decisions and implementable plans for bringing Zeron's and Mon
 | File | Contents |
 |---|---|
 | `product/00-prd.md` | PRD for the next 8 weeks, decisions log D1–D43 |
-| `product/01-feature-matrix.md` | Zeron, MonoCode and landscape features vs Pocket (362 ideas) |
+| `product/01-feature-matrix.md` | Zeron and landscape features vs Pocket (362 ideas) |
 | `product/02-ux-spec-desktop.md` | Desktop UX spec: tokens, layout, keymap, copy |
 | `product/03-ux-spec-phone.md` | Phone UX spec |
 | `product/04-strategy-decision.md` | Judge scores A 70 / B 58 / C 81, grafts, rejections |
@@ -40,11 +40,6 @@ Research, product decisions and implementable plans for bringing Zeron's and Mon
 | `research/06-zeron-git-files-ux.md` | Zeron git, diff, files, terminal |
 | `research/07-zeron-design-system.md` | Zeron tokens mapped to Pocket |
 | `research/08-zeron-mobile.md` | Zeron iOS app and push |
-| `research/09-monocode-product.md` | MonoCode product and features |
-| `research/10-monocode-architecture-harness.md` | MonoCode architecture and provider harness |
-| `research/11-monocode-orchestration.md` | MonoCode orchestration, automations, CLI, inbox |
-| `research/12-monocode-shell-design.md` | MonoCode shell and tokens |
-| `research/13-monocode-session-git-ux.md` | MonoCode session, composer, source control |
 | `research/14-pocket-baseline.md` | Pocket today |
 | `research/15-landscape.md` | Other orchestrators |
 | `research/16-terminal-surface.md` | Terminal selection, scrollback, tabs |

@@ -213,7 +213,7 @@ Each epic lists: goal · PRs (in scope) · out of scope · ideas · depends on (
 
 ### E16 `look` — M1 · L (6 d) · lane C (+ PR4 phone) · plan_now
 
-- **Goal.** The Zeron/MonoCode look on the desktop: token struct, AA contrast, radii, menus, palette v2 and the context meter. Light only; dark is S1 [UXD §7 Phases 1–2 subset].
+- **Goal.** The Zeron look on the desktop: token struct, AA contrast, radii, menus, palette v2 and the context meter. Light only; dark is S1 [UXD §7 Phases 1–2 subset].
 - **PRs.**
   1. Tokens [UXD §2.0, §2.5]. FR 16-1.
      - A `Palette` struct + `p(cx)`, light values only.
@@ -683,7 +683,7 @@ Plans copy the rows they touch verbatim. Where UXD or UXP disagrees with a row, 
 | UXD §2.0 Palette struct | `Palette` + `LIGHT`/`DARK` statics + `p(cx)` | Owner's dark-theme plan | `theme::Token { light, dark }` consts, read as `theme::X` (`Into<Hsla>`); `Token::pick(dark)` in tests. No `Palette`, no `p(cx)` |
 | UXD §2.0 WHITE split | ON_SOLID / ON_ACCENT / PAPER | Owner's dark-theme plan | ON_TEXT (text on TEXT fills), CUTOUT (badge rings), WHITE on coloured fills (count badge, Accent/Danger buttons), SURFACE on selected rows |
 | UXD §2.1 light values | Zeron light palette | Owner's dark-theme plan + E16 PR1 | Today's light values, except E16's AA changes: WAITING ad5700, FAILED cd2b31, new SUCCESS 2b9a66, SUCCESS_TEXT 18794e, FAILED_TEXT cd2b31 |
-| UXD §2.1 dark values | Zeron dark palette | Owner's dark-theme plan | The owner's MonoCode dark values. ACCENT 5b5bd6, agent colours and the status fills stay the same in both schemes; E16 tokens carry dark values (WAITING ffb224, FAILED e5484d, FAILED_TEXT ff9592, SUCCESS 30a46c, SUCCESS_TEXT 3dd68c) |
+| UXD §2.1 dark values | Zeron dark palette | Owner's dark-theme plan | The owner's dark values. ACCENT 5b5bd6, agent colours and the status fills stay the same in both schemes; E16 tokens carry dark values (WAITING ffb224, FAILED e5484d, FAILED_TEXT ff9592, SUCCESS 30a46c, SUCCESS_TEXT 3dd68c) |
 | UXD §2.1 chrome literals | FIELD / OVERLAY / DIALOG / SCRIM / PAPER / ACCENT_GLOW tokens | Owner's dark-theme plan | The owner's SIDE / GLASS / POPOVER / HIGHLIGHT / WELL / WINDOW_SOLID and inline `Token::new` literals; the Accent shadow 0x0a84ff59 and the 0x1111131a dims stay literal |
 | UXD §2.2 count badge | label in ON_SOLID | Owner's dark-theme plan | WHITE stays. White on dark WAITING (1.8:1) and FAILED (3.91:1) is a listed exemption in E16's contrast test |
 | UXD §2.7, §8 blur and shadows | "No blur anywhere"; dark drops shadows | Owner's dark-theme plan | The dark window is Blurred and translucent (WINDOW 171717d9); light stays opaque. Shadows are unchanged in both schemes |

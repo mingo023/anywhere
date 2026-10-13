@@ -496,7 +496,7 @@ pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
     }
 }
 
-/// Glass in dark, as monocode does; pale desktops make translucent light chrome illegible.
+/// Glass in dark; pale desktops make translucent light chrome illegible.
 /// Reads the last `set_appearance`, so a window opened before `init` stays opaque.
 pub fn window_background() -> WindowBackgroundAppearance {
     if is_dark() { WindowBackgroundAppearance::Blurred } else { WindowBackgroundAppearance::Opaque }

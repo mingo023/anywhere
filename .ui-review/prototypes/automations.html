@@ -228,7 +228,7 @@ button.stat:active{transform:scale(.98)}
 .chist{margin:0 -6px;border-top:.5px solid var(--hairline);padding-top:4px}
 .chist .hitem{padding:7px 6px}
 
-/* new automation page (monocode layout) */
+/* new automation page */
 .nhead{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:30px 24px 14px;border-bottom:.5px solid var(--sep)}
 .nhead .l{min-width:0;flex:1;display:flex;flex-direction:column;gap:12px}
 .ntitle{width:100%;border:0;outline:0;background:transparent;font:inherit;font-size:22px;font-weight:700;letter-spacing:-.02em;color:var(--text);padding:0;user-select:text;-webkit-user-select:text}
@@ -614,7 +614,7 @@ function sentences() {
   return `${head()}<div class="scroll" data-keep>${composer()}${tplRow()}${need()}<div class="cards">${cards}</div></div>`;
 }
 
-/* ---------- new automation page (monocode layout) ---------- */
+/* ---------- new automation page ---------- */
 const NOW = new Date(2026, 9, 7, 10, 12);
 const DNAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const ORDER = [1, 2, 3, 4, 5, 6, 0];

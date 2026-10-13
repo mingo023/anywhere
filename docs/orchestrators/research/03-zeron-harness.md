@@ -7,7 +7,7 @@ Sources:
 - Pocket: this worktree @ `86deb13`.
 - Installed CLIs on this Mac: Claude Code 2.1.285, codex-cli 0.159.0. Only `--help`, `--version` and flag-parse checks were run. No model calls.
 
-Citation legend: `Z path:L` is a file in the Zeron clone. `P path:L` is a file in this Pocket worktree, relative to its root. `M path:L` is the monocode clone (not used in this report). `CLI claude 2.1.285` / `CLI codex 0.159.0` is output of the installed binary. A URL is an official page. Code beats docs; every place where they disagree is flagged **(code ≠ docs)**.
+Citation legend: `Z path:L` is a file in the Zeron clone. `P path:L` is a file in this Pocket worktree, relative to its root. `CLI claude 2.1.285` / `CLI codex 0.159.0` is output of the installed binary. A URL is an official page. Code beats docs; every place where they disagree is flagged **(code ≠ docs)**.
 
 ## TL;DR
 

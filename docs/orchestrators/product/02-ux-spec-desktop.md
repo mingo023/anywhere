@@ -1,6 +1,6 @@
 # 02 — Desktop UX spec (macOS, `packages/desktop`)
 
-Date: 2026-09-30. Inputs: R04, R05, R06, R07, R12, R13, R14, R16, R17 (`docs/orchestrators/research/`), `CONTEXT.md`, PO decisions D1–D13, Zeron and MonoCode screenshots. Pocket @ 5bc8ea8; main is now `f8f7293` — resolve every path through 05-roadmap §0 Path map.
+Date: 2026-09-30. Inputs: R04, R05, R06, R07, R14, R16, R17 (`docs/orchestrators/research/`), `CONTEXT.md`, PO decisions D1–D13, Zeron screenshots. Pocket @ 5bc8ea8; main is now `f8f7293` — resolve every path through 05-roadmap §0 Path map.
 
 **Overrides.** Where this spec disagrees with 00-prd.md or 05-roadmap.md, the 05-roadmap §7.1 Spec overrides table wins (D42). Plans copy its rows verbatim.
 
@@ -26,12 +26,12 @@ Date: 2026-09-30. Inputs: R04, R05, R06, R07, R12, R13, R14, R16, R17 (`docs/orc
   | `pk/main.rs` `cards()` | `desktop/project.rs` |
 
 - **new** = a choice made here that no report settles. Each one is listed in §8.
-- **Z** = Zeron (GPUI), **M** = MonoCode (web), **P** = Pocket today.
+- **Z** = Zeron (GPUI), **P** = Pocket today.
 - Terms follow CONTEXT.md. UI copy says **Session** where the code says agent, and **Timeline view** for the rendered Conversation. Needs you, Working, Done, Failed, Idle, Seen and Attached are used exactly as CONTEXT.md defines them.
 - Scope: the macOS desktop app (D13). The terminal is in scope (D9). R16 supersedes R06 §9.
 - **Strategy-agnostic.** No strategy is picked yet. The spec therefore gives every attached agent session a Timeline view with a composer, and keeps its terminal one click away. Which one opens by default is a setting (§9 Q1). **Decided since:** strategy C spine + A cockpit (D14); Terminal is the default, no setting (D22).
-- **Token conflicts**, Zeron vs MonoCode, are resolved by these rules, in order:
-  1. GPUI-proven in Zeron beats web-only MonoCode.
+- **Token conflicts** between references are resolved by these rules, in order:
+  1. GPUI-proven in Zeron beats web-only references.
   2. Text meets WCAG AA (4.5:1) in both modes.
   3. Pocket's value stays when neither is clearly better.
   4. Every token has a light and a dark value.
@@ -61,7 +61,7 @@ Date: 2026-09-30. Inputs: R04, R05, R06, R07, R12, R13, R14, R16, R17 (`docs/orc
 
 ## 2. Tokens
 
-> **Owner's dark theme wins.** Where this section conflicts with the owner's dark-theme plan (`docs/plans/2026-09-30-dark-theme.md`), the plan wins; 05-roadmap §7.1 lists the rows. Tokens are the plan's `theme::Token { light, dark }` consts, not a `Palette` struct or `p(cx)`. WHITE splits into the plan's ON_TEXT, CUTOUT and WHITE on coloured fills, not ON_SOLID/PAPER. Dark uses the plan's MonoCode values, is Blurred and translucent, keeps its shadows, and ships with the plan rather than at S1. The Zeron chrome literals map to the plan's roles. What remains here for E16 is the status tokens and glyph shapes (§2.2), the AA fixes, radii (§2.5), motion (§2.8) and copy; see `docs/designs/2026-09-30-look.md`.
+> **Owner's dark theme wins.** Where this section conflicts with the owner's dark-theme plan (`docs/plans/2026-09-30-dark-theme.md`), the plan wins; 05-roadmap §7.1 lists the rows. Tokens are the plan's `theme::Token { light, dark }` consts, not a `Palette` struct or `p(cx)`. WHITE splits into the plan's ON_TEXT, CUTOUT and WHITE on coloured fills, not ON_SOLID/PAPER. Dark uses the plan's values, is Blurred and translucent, keeps its shadows, and ships with the plan rather than at S1. The Zeron chrome literals map to the plan's roles. What remains here for E16 is the status tokens and glyph shapes (§2.2), the AA fixes, radii (§2.5), motion (§2.8) and copy; see `docs/designs/2026-09-30-look.md`.
 
 ### 2.0 Mechanics (R07 idea 07-1, 07-2)
 

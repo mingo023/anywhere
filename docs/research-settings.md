@@ -278,4 +278,4 @@ Shared layout, from spec §3.10:
 - **Cursor:** a forced `cursor/` branch prefix that users can't turn off, and a prefix setting that was ignored in one create path. If we add a prefix: empty by default, applied in one place (pocketd). https://forum.cursor.com/t/allow-disabling-branch-prefix-cursor-for-cloud-agent/161901
 - **gpui-component 0.6.6 `setting::*`:** pages, groups, search and reset. Use it as a behaviour reference only (`~/.cargo/registry/src/*/gpui-component-0.6.6/src/setting/`).
 - **macOS HIG:** the app menu's "Settings…" item on ⌘, opens one surface for the whole app. https://support.apple.com/en-us/102650
-- **Internal:** `docs/orchestrators/product/02-ux-spec-desktop.md` §3.10, `05-roadmap.md:491` (S1), `docs/orchestrators/research/04-zeron-desktop-shell-ux.md`, `12-monocode-shell-design.md`.
+- **Internal:** `docs/orchestrators/product/02-ux-spec-desktop.md` §3.10, `05-roadmap.md:491` (S1), `docs/orchestrators/research/04-zeron-desktop-shell-ux.md`.

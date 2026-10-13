@@ -11,7 +11,6 @@ Sources:
 Citation legend:
 - `Z path:L` is a file and line in the Zeron clone, relative to its root.
 - `P path:L` is the same for the Pocket worktree.
-- `M` (monocode) is not used in this report.
 - `R vX.Y.Z` is the GitHub release note at `https://github.com/zeronsh/zeron/releases/tag/vX.Y.Z`.
 - A bare URL is the live site.
 - `:1` or a line range such as `:1-5` points at a module's doc header, where the feature is described by its implementer.

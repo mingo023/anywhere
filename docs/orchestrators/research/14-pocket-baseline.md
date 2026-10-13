@@ -5,13 +5,13 @@ Date: 2026-09-30.
 Sources:
 - Pocket worktree `/Users/mingo/.worktrees/anywhere/orchestrator-research` @ `86deb13` ("Desktop polish: top bar layout, motion, flat selection").
 - Pocket main checkout `/Users/mingo/Developer/self/anywhere` @ `b9d14a1` plus uncommitted work (F12).
-- Competitors, for context only: zeronsh/comet @ `ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5`, hardbeat920/monocode @ `cdc1441dc51e3709cd843e5c316608a123f323c6`. This report reads only Pocket code. It cites competitor facts through the earlier reports 04, 05 and 07.
+- Competitors, for context only: zeronsh/comet @ `ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5`. This report reads only Pocket code. It cites competitor facts through the earlier reports 04, 05 and 07.
 - In-repo docs: `CONTEXT.md`, `docs/adr/*`, `docs/designs/*`, `docs/plans/*`, `docs/wayfinder/*`, `docs/spike-*.md`, `docs/research-*.md`, `docs/orchestrators/research/0*.md`.
 
 Citation legend:
 - `P path:L` is a file and line (or range) in the Pocket worktree, path relative to its root.
 - `P@main path:L` is the same path in the main checkout's working tree, which is ahead of the worktree (F12).
-- `Z` / `M` would be zeron / monocode paths. This report cites none directly; report numbers like "report 05" point to sibling files in `docs/orchestrators/research/`.
+- `Z` would be zeron paths. This report cites none directly; report numbers like "report 05" point to sibling files in `docs/orchestrators/research/`.
 - "code≠doc" marks a place where code and docs disagree. The code wins.
 - Line counts come from `wc -l` and include tests.
 
@@ -85,7 +85,6 @@ Citation legend:
 | `2026-09-28-agent-sessions` (PR1-8) | Implemented | proc poller, hooks, codex watcher (P packages/pocketd/internal/daemon/{watch,plugin,codex}.go); v3 (P packages/pocketd/internal/proto/proto.go:10-15); notifications (P packages/desktop/crates/pocket/src/main.rs:314-328); inbox (P packages/desktop/crates/pocket/src/inbox.rs:29-45) |
 | `2026-09-28-zed-explore-diff` (PR1-5) | Implemented | syntax + word diff (P packages/desktop/crates/pocket/src/diff.rs:21-66); read-only `Editor` (P packages/desktop/crates/pocket/src/explore.rs:10, :286-391); md preview (P packages/desktop/crates/pocket/src/explore.rs:141-152); image/large-file limits (P packages/desktop/crates/pocket/src/explore.rs:21-57); in-process diff with folds (P packages/desktop/crates/git/src/git.rs:198-245; P packages/desktop/crates/pocket/src/diff.rs:172, :407-415) |
 | `2026-09-28-mermaid-preview` (PR1) | Implemented | `MarkdownPlugin` + merman + resvg, 64 MB budget (P packages/desktop/crates/pocket/src/mermaid.rs:12-16, :193-255) |
-| `2026-09-28-monocode-markdown-style` (PR1) | Implemented. Research §11.1 describes the pre-plan state (code≠doc, expected) | `markdown_style` with heading sizes 22/18/16/14, bordered code card r10 pt36, table styles, `code_actions` language + copy (P packages/desktop/crates/pocket/src/explore.rs:132-161); `Theme.muted = WINDOW` (P packages/desktop/crates/theme/src/theme.rs:171-172) |
 | `2026-09-29-sessions-are-agents` (PR1-4) | Implemented | `Registry.Close/Forget` (P packages/pocketd/internal/agent/agent.go:86-100); `Workspace::sync` (P packages/desktop/crates/workspace/src/workspace.rs:20-30); card = agent (P packages/desktop/crates/pocket/src/status.rs:63-81) |
 | `2026-09-30-projects-sidebar` (PR1-4) | Implemented | Store order/collapse/move (P packages/desktop/crates/store/src/store.rs:44-70); `git::worktrees`/`remove_worktree` (P packages/desktop/crates/git/src/git.rs:141, :172); ⋯ menus + Confirm + drag (P packages/desktop/crates/pocket/src/view.rs:281-425; P packages/desktop/crates/pocket/src/overlay.rs:268-307); `setup_op` (P packages/desktop/crates/daemon/src/daemon.rs:103-121) |
 
@@ -367,7 +366,7 @@ gpui-kit 0.6.6 limits found so far:
 - The Root binds tab/shift-tab to focus cycling (P packages/desktop/crates/keys/src/keys.rs:5-8).
 - `use super::*` in tests shadows `#[test]` (P docs/spike-zed-preview.md:77).
 - Markdown:
-  - Component `TextView` colours are global `Theme` fields; per-view colours need the base `TextView` (P docs/research-monocode-markdown-styles.md:283-302).
+  - Component `TextView` colours are global `Theme` fields; per-view colours need the base `TextView`.
   - Plugin `render` runs for every block on open (P docs/spike-mermaid.md:90).
   - The SVG fontdb has no Geist (:91).
 - Windows:
@@ -391,7 +390,7 @@ Build and test commands:
 | pocketd | `cd packages/pocketd && go vet ./... && go test -race -count=1 ./...`; goldens `go test ./internal/proto -update`; e2e with fakeclaude/fakecodex | P docs/plans/2026-09-25-pocketd-remote-sessions.md:10; P packages/pocketd/internal/proto/golden_test.go:12; P packages/pocketd/e2e/harness_test.go |
 | libghostty | `./scripts/build-ghostty.sh`, once, ~1.5 min | P docs/plans/2026-09-25-pocketd-remote-sessions.md:8 |
 | desktop | `cd packages/desktop && cargo test -p pocket -p workspace -p store -p agents -p ui -p daemon -p git && cargo build -p pocket -p storybook` | P docs/plans/2026-09-30-projects-sidebar.md:12 |
-| desktop lint | `cargo clippy -p git -p theme -p pocket`; baseline has one `double_ended_iterator_last` warning; don't run `cargo fmt` | P docs/plans/2026-09-28-mermaid-preview.md:12; P docs/plans/2026-09-28-monocode-markdown-style.md:28 |
+| desktop lint | `cargo clippy -p git -p theme -p pocket`; baseline has one `double_ended_iterator_last` warning; don't run `cargo fmt` | P docs/plans/2026-09-28-mermaid-preview.md:12 |
 | run | `go run ./cmd/pocketd serve`, then `cargo run --release -p pocket`; storybook `cargo run -p storybook`; screenshots `--features capture` + `--capture` | P docs/plans/2026-09-30-projects-sidebar.md:13-14; P packages/desktop/crates/pocket/src/capture.rs:36-48 |
 | CI | none (no `.github/`) | repo root listing |
 
@@ -453,7 +452,6 @@ Areas untouched there: pocketd, protocol, phone, `view.rs` (only 6 lines in b9d1
 
 - The remote-sessions plan Task 8.2 promised a composer under the selected tab (P docs/plans/2026-09-25-pocketd-remote-sessions.md:8298-8306). The code has none; the ops `prompt` is used only by diff comments.
 - The spike's protocol mapping lists `agent.create` and `agent.stream` for Claude (P docs/spike-remote-sessions.md:84-99). v3 dropped `agent.create` (P packages/pocketd/internal/proto/golden_test.go:102), and Claude has no stream.
-- Research §11.1 of the monocode-markdown-style doc describes the pre-plan style: inline code `FILL_2`, code block r8. The code now uses `HAIRLINE` and a bordered r10 card (P packages/desktop/crates/pocket/src/explore.rs:141-152). The doc is historical, not wrong.
 
 ## Ideas to clone into Pocket
 

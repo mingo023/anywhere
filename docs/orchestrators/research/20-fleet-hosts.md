@@ -64,8 +64,7 @@ Already in place and reusable:
 
 Prior research:
 - **02-13:** multi-host on the phone, with Zeron's presence model of 15s/45s and Dark after 5 min (r02:339).
-- **09-18:** MonoCode SSH hosts, sized XL (r09:586). The product question was left open as Q6 (r09:681).
-- **MonoCode's host pattern** (r10:289-319):
+- **A prior-art host pattern:**
   - loopback-only host
   - `ssh -L`
   - `pair --json` over SSH
@@ -107,7 +106,7 @@ Notes:
 - **`hostId`:** pocketd generates 128 random bits on first run and persists them in its home.
   - Unlike `serverId` (the hostname, S9), it survives renames and never collides.
   - Later it becomes the fingerprint of the Noise static key that R2 puts in the QR `fp` (r18:290).
-- **Pinning:** the client pins `hostId` per Host. A mismatch is "Host identity changed", the same pattern as MonoCode's environmentId (r10:289-319).
+- **Pinning:** the client pins `hostId` per Host. A mismatch is "Host identity changed", the same pattern as an environmentId pin.
 - **Name:** `computerName` on a Mac (P pd/cmd/pocketd/serve.go:350); `os.Hostname()` on Linux (:136). The user can rename it; the alias is stored client-side.
 
 ### 4.2 `hello.ok.host`
@@ -152,7 +151,7 @@ Extend `HostState` (P pd/internal/proto/messages.go:316-321) under `host.v2`. Ol
 ### 4.6 Trust
 - **Owner stays local to the host.**
   - Over SSH the forwarded socket is a local peer, so classification is unchanged (S11).
-  - Owner-scoped device tokens (`pair.v2`) are minted only through `pocketd pair --owner --json` run over SSH, the MonoCode pattern (r10:289-319), or through the one-time join code that the user typed into a shell on the host (§5.4). Never through the phone pairing QR.
+  - Owner-scoped device tokens (`pair.v2`) are minted only through `pocketd pair --owner --json` run over SSH, or through the one-time join code that the user typed into a shell on the host (§5.4). Never through the phone pairing QR.
 - **Tailnet scoping:** a tailnet grant can limit `tcp:4517` to the user's own devices (snippet at r18:255-300; grants [ts-grants]).
   - Optionally, bind a device token to the Tailscale node that first redeemed it by checking `WhoIs` on each connection [ts-tsnet]. This works in tsnet mode; with system tailscaled it needs the LocalAPI (UNVERIFIED for non-tsnet).
 - **Join codes:** one-time, 10-minute TTL, at least 128 bits when embedded in a command.

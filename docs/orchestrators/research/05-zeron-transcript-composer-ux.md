@@ -9,7 +9,6 @@ Sources:
 Citation legend:
 - `Z path:L` is a file and line in the Zeron clone, relative to its root.
 - `P path:L` is a file and line in this Pocket worktree, relative to its root.
-- `M` (monocode) is not cited.
 - "shot:" cites a PNG under `Z docs/screenshots/`.
 - Line numbers are for the SHAs above.
 - When a Zeron doc or screenshot disagrees with its code, the code is treated as truth and the gap is flagged **[doc≠code]**.

@@ -40,7 +40,7 @@
 | J6 | …send a prompt, know it was delivered or why it wasn't | E10 |
 | J7 | …pair a phone, trust that nothing else on the network or in a Terminal can drive my Mac | E02, E03 |
 | J8 | …read an Agent's history as a Timeline and drive it without the TUI | E13, E14 |
-| J9 | …work in a cockpit with the Zeron/MonoCode look, and see the same words, order and colours on the phone | E16, E17, E08 |
+| J9 | …work in a cockpit with the Zeron look, and see the same words, order and colours on the phone | E16, E17, E08 |
 | J10 | …let one Agent start or check another, within limits I set | E15 (stretch) |
 
 ## 3. Product principles
@@ -62,7 +62,6 @@
 | Rival | What it is | Pocket's answer | Source |
 |---|---|---|---|
 | Zeron | Native desktop + engine + iOS; drives 9 CLIs over structured protocols with its own transcript; auto-allows every tool except `AskUserQuestion`; TLS + WorkOS, no E2EE | Real TUIs the owner can still type into; human approval kept; self-hosted over Tailscale. Clone its look, attention and composer UX, not its trust model | [R01 TL;DR; R18 §F4] |
-| MonoCode | Free MIT Tauri GUI over 10 CLIs, headless; Dock badge, notification controls; ~1.5 releases/day | Terminal fidelity plus a phone. Clone the badge, sounds, stable order, access picker and launch flow | [R09 TL;DR; R17 §F14] |
 | First-party (`claude remote-control`, ChatGPT "Control this Mac") | One provider each, vendor relay, free with the plan | Both providers in one fleet, one attention model across desk and phone, no relay | [R15 TL;DR, §F16] |
 | Superset | Daemon with Resume Args; iPhone needs Pro at $20/user/mo; vendor relay; ELv2 | Restore (E09) and phone at no cost; no third-party hop except Expo push metadata | [R15 §F16] |
 | Happy | MIT, E2EE relay, free; `happy claude` wrapper; iOS/Android/web (Expo) | pocketd owns the PTY (no wrapper to start through); desktop cockpit; codex driven structurally. No E2EE relay this horizon: Tailscale only | [R15 §F16; R18 R4] |

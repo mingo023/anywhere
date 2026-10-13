@@ -30,7 +30,6 @@
    - the undocumented `--permission-prompt-tool stdio`;
    - plan terms for driving `claude --print` from a third-party GUI, which nobody has researched;
    - a CONTEXT and wire break, because `terminalId` becomes optional [R03 §9, R03 risks].
-   - For comparison, MonoCode kills and respawns claude on every model, effort or mode change [R10 TL;DR].
 4. **The TUI keeps what headless loses:** dialogs, slash commands and plugins [R03 risks].
 5. **Pocket's worst gaps are not the chat view:**
    - No session restore, which the landscape treats as table stakes [R15 TL;DR].
@@ -51,7 +50,6 @@
 | Rival | Their bet | Pocket wins on | Pocket loses on |
 |---|---|---|---|
 | Zeron | Headless structured protocols, its own transcript and composer, 9 agents [R01 TL;DR] | Real approvals: Zeron auto-allows every tool except AskUserQuestion, so its "Needs you" means questions only [R01 TL;DR]. TUI fidelity. | Claude token streaming; agent count; release pace of 162 releases in 70 days [R01 TL;DR] |
-| MonoCode | Headless over 10 CLIs; SQLite transcripts [R09 TL;DR; R10 TL;DR] | Sessions live in an always-on daemon; a mode change never respawns the agent [R10 TL;DR]; iPhone | Breadth; automations; quick composer [R09 TL;DR] |
 | Superset | Electron; 20+ agents; daemon terminals with Resume Args. The iPhone app needs Pro at $20/mo and iOS 26+, and runs through a relay with no documented E2EE [R15 F1] | Free phone app; no relay; status for any claude or codex started in a Pocket Terminal, where Superset reports status only for agents launched through its wrappers [R15 F1] | Agent breadth; PR and CI views; restore (E10 closes this) |
 | Happy | MIT; E2EE relay; the `happy claude` wrapper [R15 F2] | No wrapper: a plain `claude` or `codex` is detected by a 250 ms foreground poll (P packages/pocketd/internal/daemon/watch.go:13); desktop fleet view plus a real terminal | Reach off the tailnet; Android; voice |
 | First-party | `claude remote-control`: Pro+, a second client takes over the session, polls Anthropic [R15 F5]. ChatGPT "Control this Mac" [R15 F6] | Both providers in one fleet view; no vendor relay; terminal fidelity [R15 risks "Vendor squeeze"] | Included in the plan; nothing to install; push that the agent decides to send [R15 F5] |
