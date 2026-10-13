@@ -1,0 +1,18 @@
+# Groups the notes scripts/changelog-draft.sh asks GitHub for, by each PR's one `type:` label.
+changelog:
+  exclude:
+    labels:
+      - "type: internal"
+  categories:
+    - title: Features
+      labels:
+        - "type: feature"
+    - title: Bug fixes
+      labels:
+        - "type: fix"
+    - title: Docs
+      labels:
+        - "type: docs"
+    - title: Other
+      labels:
+        - "*"
