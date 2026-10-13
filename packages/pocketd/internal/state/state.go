@@ -38,6 +38,8 @@ type Terminal struct {
 	Pinned         bool    `json:"pinned,omitempty"`
 	Origin         string  `json:"origin,omitempty"`
 	Local          string  `json:"local,omitempty"`
+	// Account is the managed account the agent ran on; empty is the built-in login.
+	Account string `json:"account,omitempty"`
 }
 
 type File struct {

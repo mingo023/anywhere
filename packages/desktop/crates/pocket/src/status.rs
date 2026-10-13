@@ -64,6 +64,8 @@ pub struct Card {
     pub kind: Kind,
     pub notice: Option<&'static str>,
     pub pinned: bool,
+    /// The account it runs on; empty is the built-in login.
+    pub account: String,
 }
 
 /// An agent's card, placed by the folder its terminal started in.
@@ -82,6 +84,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         kind,
         notice: notice(a),
         pinned: a.pinned,
+        account: a.account.clone(),
     }
 }
 

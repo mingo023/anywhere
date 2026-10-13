@@ -39,6 +39,7 @@ pub struct Msg {
     pub text: String,
     pub status: Option<Status>,
     pub devices: Vec<Device>,
+    pub accounts: Vec<Account>,
 }
 
 /// The part of pocketd's `status` reply Settings reads.
@@ -67,6 +68,46 @@ pub struct Device {
     pub last_seen_at: i64,
     /// The shared token from before per-device pairing; it can't be renamed or revoked.
     pub legacy: bool,
+}
+
+/// A Claude Code or Codex sign-in, as pocketd's `accounts` op lists it.
+#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Account {
+    /// `builtin` for the login in `~/.claude` or `~/.codex`.
+    pub id: String,
+    pub provider: String,
+    /// Empty shows `email`.
+    pub label: String,
+    pub email: String,
+    pub plan: String,
+    pub signed_in: bool,
+    /// What new sessions of its provider start with.
+    pub default: bool,
+    pub running: usize,
+    pub usage: Option<Usage>,
+    /// Signing in; `error` says why that failed.
+    pub pending: bool,
+    pub error: String,
+}
+
+/// An account's 5-hour and weekly limits as of `at`; stale ones are the last known.
+#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Usage {
+    pub session: Option<Window>,
+    pub week: Option<Window>,
+    /// Milliseconds since the epoch.
+    pub at: i64,
+    pub stale: bool,
+}
+
+#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Window {
+    pub percent: f64,
+    /// Milliseconds since the epoch; 0 when the provider gave none.
+    pub resets_at: i64,
 }
 
 /// Sends one op on its own connection and returns pocketd's reply, so it never reaches the terminal stream.

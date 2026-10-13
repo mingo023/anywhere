@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"pocketd/internal/accounts"
 	"slices"
 	"sync"
 	"time"
@@ -59,6 +60,9 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	}
 	pr.a.SetTerminal(info.ID)
 	pr.a.SetEffort(pr.launch.Effort)
+	if d.Accounts != nil {
+		pr.a.SetAccount(d.Accounts.Of(provider, p.Env))
+	}
 	if o := t.TakeOrigin(); o != "" {
 		pr.a.SetOrigin(o)
 	}
@@ -71,6 +75,28 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	d.mu.Unlock()
 	d.catchUp(pr)
 	return pr
+}
+
+// Running counts the agents running on provider's account id.
+func (d *Daemon) Running(provider, id string) int {
+	if id == accounts.BuiltIn {
+		id = ""
+	}
+	d.mu.Lock()
+	var all []*presence
+	for _, pr := range d.present {
+		if pr.provider == provider {
+			all = append(all, pr)
+		}
+	}
+	d.mu.Unlock()
+	n := 0
+	for _, pr := range all {
+		if pr.a.Summary().Account == id {
+			n++
+		}
+	}
+	return n
 }
 
 // place names the Project and Worktree pr's Terminal was opened in. The
@@ -158,6 +184,7 @@ func (pr *presence) save(e *state.Terminal) {
 	pr.mu.Unlock()
 	e.Provider, e.ConversationID, e.Launch = pr.provider, s.ProviderSessionID, &launch
 	e.AgentID, e.CreatedAt, e.Status, e.Failed, e.Origin, e.Pinned = s.ID, s.CreatedAt, s.Status, s.Failed, s.Origin, s.Pinned
+	e.Account = s.Account
 }
 
 // endAgent ends pr once; the poller and a hook's observe can both find it gone.

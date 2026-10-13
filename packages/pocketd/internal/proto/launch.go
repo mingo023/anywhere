@@ -13,6 +13,11 @@ const CapOpen = "open.v1"
 // CapFork: a LaunchSpec may fork a provider session.
 const CapFork = "fork.v1"
 
+// CapAccounts: a LaunchSpec may name an account, and the accounts ops exist.
+const CapAccounts = "accounts.v1"
+
+const CodeUnknownAccount = "unknown_account"
+
 const MaxPrompt = 64 << 10
 
 var (
@@ -32,6 +37,8 @@ type LaunchSpec struct {
 	Prompt   string   `json:"prompt,omitempty"`
 	// Fork is the provider session id this one starts as a copy of.
 	Fork string `json:"fork,omitempty"`
+	// Account is an account id, or "builtin"; empty is the provider's default.
+	Account string `json:"account,omitempty"`
 }
 
 // Checkout is exactly one of Worktree, New and Local.
@@ -152,7 +159,7 @@ func strictObject(raw json.RawMessage, allowed ...string) (map[string]json.RawMe
 }
 
 func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
-	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork")
+	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account")
 	if !ok {
 		return false
 	}

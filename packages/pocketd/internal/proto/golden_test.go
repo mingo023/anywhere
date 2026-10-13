@@ -38,6 +38,7 @@ var serverGolden = map[string]any{
 	"agent_update_model":           NewAgentUpdate(with(func(s *AgentSummary) { s.Model, s.Effort = "claude-opus-5-5", "high" })),
 	"agent_update_pinned":          NewAgentUpdate(with(func(s *AgentSummary) { s.Pinned = true })),
 	"agent_update_activity":        NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Activity = "needsYou", "Approve Bash: rm marker" })),
+	"agent_update_account":         NewAgentUpdate(with(func(s *AgentSummary) { s.Account = "3f9a0c1b2d4e" })),
 	"agent_list_restored": NewAgentList("l1", []AgentSummary{
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),

@@ -63,6 +63,13 @@ var Needs = map[string]Scope{
 	"ops:fs.remove":         Own,
 	"ops:fs.trash":          Own,
 	"ops:owner.revokeSelf":  Own,
+	"ops:accounts":          Own,
+	"ops:accounts.usage":    Own,
+	"ops:accounts.signin":   Own,
+	"ops:accounts.rename":   Own,
+	"ops:accounts.default":  Own,
+	"ops:accounts.signout":  Own,
+	"ops:accounts.remove":   Own,
 }
 
 var guarded = map[string]bool{

@@ -129,6 +129,15 @@ impl ConfirmText {
         Self { title: format!("Update {name}?"), action: "Update", facts: vec![fact], dirty: 0, lost: 0, danger: windows }
     }
 
+    fn remove_account(name: &str, machine: &str) -> Self {
+        Self { title: format!("Remove {name}?"), action: "Remove", facts: vec![format!("Deletes its folder and its sign-in on {machine}")], dirty: 0, lost: 0, danger: true }
+    }
+
+    fn sign_out_account(name: &str) -> Self {
+        let facts = vec!["Its open sessions keep going until they need to refresh their sign-in".into(), "History stays, so signing back in picks up where you were".into()];
+        Self { title: format!("Sign out of {name}?"), action: "Sign out", facts, dirty: 0, lost: 0, danger: false }
+    }
+
     fn detail(&self) -> Option<String> {
         (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
@@ -168,6 +177,8 @@ impl Desktop {
                 ConfirmText::remove_host(name, projects)
             }
             Some(Confirm::UpdateHost { name, windows, .. }) => ConfirmText::update_host(name, *windows),
+            Some(Confirm::RemoveAccount { key, name }) => ConfirmText::remove_account(name, &self.machine_name(&key.host)),
+            Some(Confirm::SignOutAccount { name, .. }) => ConfirmText::sign_out_account(name),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -254,6 +265,8 @@ impl Desktop {
             Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),
             Some(Confirm::RemoveHost { id, .. }) => self.remove_host(&id, false, cx),
             Some(Confirm::UpdateHost { id, .. }) => self.install_host(&id, true, cx),
+            Some(Confirm::RemoveAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.remove"), cx),
+            Some(Confirm::SignOutAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.signout"), cx),
             None => {}
         }
         self.close_overlay(window, cx);
@@ -273,6 +286,13 @@ mod tests {
     fn close_confirm_mentions_the_turn_only_while_working() {
         assert_eq!(ConfirmText::close_session("Fix login", false), text("Close Fix login?", "Close", &["Closes its terminal"], 0));
         assert_eq!(ConfirmText::close_session("Fix login", true), text("Close Fix login?", "Close", &["Closes its terminal", "Stops its current turn"], 0));
+    }
+
+    #[test]
+    fn removing_an_account_names_the_machine_it_leaves_and_signing_out_keeps_its_history() {
+        assert_eq!(ConfirmText::remove_account("Work", "devbox"), text("Remove Work?", "Remove", &["Deletes its folder and its sign-in on devbox"], 0));
+        let out = ConfirmText::sign_out_account("Work");
+        assert_eq!((out.title.as_str(), out.action, out.danger), ("Sign out of Work?", "Sign out", false));
     }
 
     #[test]

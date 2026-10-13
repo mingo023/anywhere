@@ -107,6 +107,7 @@ export const AgentSummary = Schema.Struct({
   contextWindow: Schema.optional(Schema.Number),
   origin: Schema.optional(Schema.String),
   activity: Schema.optional(Schema.String),
+  account: Schema.optional(Schema.String),
 });
 export type AgentSummary = typeof AgentSummary.Type;
 export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;

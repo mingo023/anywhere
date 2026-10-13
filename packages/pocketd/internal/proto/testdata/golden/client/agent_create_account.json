@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"c1","requestId":"r1","spec":{"project":"/Users/me/pocket","checkout":{"worktree":"/Users/me/.worktrees/pocket/fix"},"provider":"codex","access":"edits","plan":false,"account":"3f9a0c1b2d4e"}}

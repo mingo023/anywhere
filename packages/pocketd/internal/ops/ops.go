@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"pocketd/internal/accounts"
 	"sync"
 	"time"
 
@@ -68,7 +69,8 @@ type Msg struct {
 	Truncated bool           `json:"truncated,omitempty"`
 	Trashed   string         `json:"trashed,omitempty"`
 	// Token is auth's owner token.
-	Token string `json:"token,omitempty"`
+	Token    string             `json:"token,omitempty"`
+	Accounts []accounts.Account `json:"accounts,omitempty"`
 }
 
 type Conn struct {
@@ -150,6 +152,8 @@ type Server struct {
 	TrashDir string
 	// Owners are the tokens a TCP peer sends in auth to become the owner.
 	Owners *owners.Store
+	// Accounts answers the accounts.* ops; nil refuses them.
+	Accounts func(ctx context.Context, m Msg) Msg
 }
 
 func (s *Server) asking(id string) string {
@@ -321,6 +325,14 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				continue
 			}
 			c.Send(Msg{Ev: "ok"})
+			continue
+		case "accounts", "accounts.usage", "accounts.signin", "accounts.rename", "accounts.default", "accounts.signout", "accounts.remove":
+			if s.Accounts == nil {
+				c.Send(Msg{Ev: "error", Error: "accounts unsupported"})
+				continue
+			}
+			// Usage and signing out wait on the network.
+			go func() { c.Send(s.Accounts(ctx, m)) }()
 			continue
 		case "devices", "devices.rename", "devices.revoke":
 			c.Send(s.deviceOp(m))

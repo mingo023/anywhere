@@ -1,3 +1,4 @@
+use crate::accounts;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, RowMenu, id};
 use crate::terminals::link;
@@ -41,9 +42,10 @@ fn session_items(s: &Summary, observe: bool, prefs: &Agents, fork: bool) -> Vec<
     [pin, Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), fork.then_some(SessionItem::Fork), close].into_iter().flatten().collect()
 }
 
-/// A create that starts a copy of `s` in its folder, with its model and effort.
+/// A create that starts a copy of `s` in its folder, with its model, effort and account.
 fn fork_spec(s: &Summary, project: &str, prefs: &Agents) -> Option<Value> {
-    let pick = LaunchPick { provider: s.provider.clone(), model: s.model.clone().unwrap_or_default(), effort: s.effort.clone().unwrap_or_default(), access: String::new() };
+    let account = if s.account.is_empty() { accounts::BUILT_IN.into() } else { s.account.clone() };
+    let pick = LaunchPick { provider: s.provider.clone(), model: s.model.clone().unwrap_or_default(), effort: s.effort.clone().unwrap_or_default(), access: String::new(), account };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), "");
     spec["fork"] = s.provider_session_id.clone()?.into();
     prefs.launch(&mut spec);
@@ -336,6 +338,14 @@ mod tests {
         assert_eq!((&spec["provider"], &spec["model"], &spec["effort"]), (&json!("claude"), &json!("opus"), &json!("high")));
         assert!(spec.get("prompt").is_none());
         assert_eq!(fork_spec(&Summary { provider_session_id: None, ..s }, "/w", &Agents::default()), None);
+    }
+
+    #[test]
+    fn a_fork_runs_on_the_account_its_session_runs_on() {
+        let s = Summary { provider: "codex".into(), cwd: "/w".into(), provider_session_id: Some("s1".into()), account: "work".into(), ..Default::default() };
+        assert_eq!(fork_spec(&s, "/w", &Agents::default()).unwrap()["account"], json!("work"));
+        let built_in = Summary { account: String::new(), ..s };
+        assert_eq!(fork_spec(&built_in, "/w", &Agents::default()).unwrap()["account"], json!("builtin"));
     }
 
     #[test]

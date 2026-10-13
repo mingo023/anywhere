@@ -1,5 +1,6 @@
 pub(crate) mod launch;
 
+use crate::accounts;
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::*;
@@ -34,6 +35,7 @@ impl Composer {
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Menu {
     Agent,
+    Account,
     Model,
     Access,
 }
@@ -208,6 +210,7 @@ impl Desktop {
                     .pb(px(10.))
                     .text_size(px(13.))
                     .child(self.agent_chip(c, &pick, project.clone(), cx))
+                    .children(self.account_chip(c, &pick, project.clone(), cx))
                     .child(self.model_chip(c, &pick, project.clone(), cx))
                     .child(self.access_chip(c, &pick, project, cx))
                     .child(div().flex_1())
@@ -249,6 +252,35 @@ impl Desktop {
             menu("composer-agent-menu", 260., rows.collect(), slot, cx)
         });
         div().relative().child(chip).children(menu)
+    }
+
+    /// Only while the provider has accounts to choose between on the project's machine.
+    fn account_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Option<Div> {
+        let list = self.accounts.on(project.as_deref());
+        if !accounts::shared(list, &pick.provider) {
+            return None;
+        }
+        let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Account));
+        let chosen = self.accounts.chosen(project.as_deref(), &pick.provider, &pick.account);
+        let chip = ui::menu_chip("composer-account", open)
+            .min_w_0()
+            .child(div().min_w_0().max_w(px(160.)).truncate().child(chosen.map_or("", accounts::short_name).to_string()))
+            .child(icon("chevron-down", 12., TEXT_4))
+            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.toggle_composer(slot, Menu::Account, cx);
+            }));
+        let menu = open.then(|| {
+            let rows = accounts::listed(list, &pick.provider).enumerate().map(|(i, a)| {
+                let meta = if a.default { Some("New sessions".to_string()) } else { (!a.signed_in).then(|| "Signed out".to_string()) };
+                let (project, picked) = (project.clone(), LaunchPick { account: a.id.clone(), ..pick.clone() });
+                ui::pick_row(("composer-account-row", i), chosen.is_some_and(|c| c.id == a.id), None::<Div>, div().truncate().child(accounts::name(a).to_string()), meta)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.choose_launch(slot, project.clone(), picked.clone(), cx)))
+                    .into_any_element()
+            });
+            menu("composer-account-menu", 260., rows.collect(), slot, cx)
+        });
+        Some(div().relative().min_w_0().child(chip).children(menu))
     }
 
     fn model_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {

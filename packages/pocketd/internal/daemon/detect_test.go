@@ -14,6 +14,7 @@ func TestProvider(t *testing.T) {
 		{[]string{"claude"}, "claude"},
 		{[]string{"/Users/me/.local/bin/claude", "--resume"}, "claude"},
 		{[]string{"claude", "-p", "fix the tests"}, "claude"},
+		{[]string{"claude", "auth", "login"}, ""},
 		{[]string{"claude", "mcp", "serve"}, ""},
 		{[]string{"claude", "doctor"}, ""},
 		{[]string{"claude", "--version"}, ""},

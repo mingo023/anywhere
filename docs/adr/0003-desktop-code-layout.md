@@ -31,13 +31,14 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `desktop` | `Desktop`, navigation, root render; `desktop/project` project and worktree lookups and the git refresh; `desktop/alerts` notifications and the seen set; `desktop/dock` the Dock badge; `desktop/quit` the quit confirm; `desktop/jump` walking and jumping between sessions; `desktop/sounds` sound cues; `desktop/chrome` layout enums and shared bars; `desktop/toast` the error toast; `desktop/locals` adding, naming and deleting Locals |
 | `terminals` | terminals mirrored from pocketd, spawn intents, closing; `terminals/bell`, `terminals/link` |
 | `panels` | the main area's pane tree: strips, dividers, drag and drop, saved layouts, shortcuts |
-| `composer` | the prompt box that starts an agent, shared by the new session page and the empty pane: its agent, model and access chips and pasted images; `composer/launch` the chips' rows and labels |
+| `composer` | the prompt box that starts an agent, shared by the new session page and the empty pane: its agent, account, model and access chips and pasted images; `composer/launch` the chips' rows and labels |
 | `empty_pane` | the prompt a focused pane with no tabs offers, starting an agent there |
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer; `terminal_view/menu` its right-click menu |
 | `browser` | browser tabs: pages, address bar, navigation |
 | `sidebar` | projects aside, compact rail, `sidebar/project_picker` the rail's project switcher, `sidebar/rename` inline worktree rename, `sidebar/column` the inbox and Automations column and the panel's body, `sidebar/panel` the right-hand panel: its rail and edge drag |
 | `removal` | deleting a worktree: its teardown script, its branch, the confirm and the row's "Deleting…" |
 | `git_ui` | `changes` panel and commit, `diff` view, `graph` commit graph, `commit` stacked commit diff |
+| `accounts` | each machine's Claude Code and Codex sign-ins as its pocketd lists them, their usage, the sign-in terminals, and the account a session starts on |
 | `add_to_chat` | quoting a selection into an agent's input: the composer, its agent menu, the selection pill |
 | `explorer` | file tree; `explorer/preview` code, markdown and image preview; `explorer/menu` its right-click menu, `explorer/edit` naming new and renamed items, `explorer/files` their disk writes, `explorer/toast` copy, trash and Mentioned notices |
 | `automations` | the Automations screen (⌘⇧A, offered only when pocketd has the capability): `automations/logic` the pure rules, `column` the tabs and lists, `rows`, `runs`, `detail` and `run_detail` the right pane, `editor` with `form` and `trigger` the full-page editor, `glyph`, `parts` |
@@ -46,5 +47,5 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `host_agents` | each host's pocketd agent channel, opened once the host serves projects |
 | `fs` | where a tree's files are read and changed: this Mac or a host |
 | `notch` | the island that grows out of the notch to answer permission asks: which asks it offers, and the `anywhere-notch` helper that draws it (a SwiftPM package in `packages/desktop/notch`), spoken to in JSON lines |
-| `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers and the project editor share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission` and `notifications/sounds` (the sound list), `keybindings`, `agents`, `provider` (each agent's own page), `automations`, `phone`, `ssh_hosts`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |
+| `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers and the project editor share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission` and `notifications/sounds` (the sound list), `keybindings`, `agents`, `provider` (each agent's own page), `accounts`, `automations`, `phone`, `ssh_hosts`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |
 | `modals` | overlays: new session, add project, confirm, more, pair phone |

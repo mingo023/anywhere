@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"pocketd/internal/accounts"
 	"sync"
 	"time"
 
@@ -41,6 +42,8 @@ type Daemon struct {
 	Capture func() shellenv.Result
 	// OnPrompt hears each prompt typed to a claude, with its environment.
 	OnPrompt func(a *agent.Agent, prompt string, env []string)
+	// Accounts are the sign-ins an agent may run on; nil runs each on its built-in login.
+	Accounts *accounts.Store
 
 	mu       sync.Mutex
 	env      *shellenv.Result

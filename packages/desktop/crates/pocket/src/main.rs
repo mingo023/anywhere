@@ -1,3 +1,4 @@
+mod accounts;
 mod actions;
 mod add_to_chat;
 mod automations;
@@ -123,6 +124,9 @@ fn main() {
                         let refresh = |d: &mut Desktop, cx: &mut Context<Desktop>| {
                             if tick % d.store.general.git_every() == 0 && d.git_done == d.git_run {
                                 d.refresh_git(cx);
+                            }
+                            if tick % accounts::CHECK_EVERY == 0 {
+                                d.refresh_accounts(cx);
                             }
                         };
                         if this.update(cx, refresh).is_err() {
