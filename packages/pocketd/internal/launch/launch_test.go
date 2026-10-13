@@ -17,6 +17,7 @@ import (
 	"pocketd/internal/locals"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 )
@@ -299,7 +300,11 @@ func TestATerminalThatCantStartFailsTheStepAfterTheWorktree(t *testing.T) {
 	l, s := newWorktree(t, "")
 	claude, _ := exec.LookPath("claude")
 	l.set.Set("claude.command", claude)
-	t.Setenv("SHELL", "/no/such/shell")
+	notAProgram := filepath.Join(t.TempDir(), "shell")
+	if err := os.WriteFile(notAProgram, []byte("not a program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", notAProgram)
 	var steps []string
 	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(step, note string) { steps = append(steps, step) }, func(Creating) {})
 	if r.Err == nil || r.Err.Message != "Couldn't start a terminal" {
@@ -354,5 +359,14 @@ func TestAPRWithoutGhAsksToInstallIt(t *testing.T) {
 	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(string, string) {}, func(Creating) {})
 	if r.Err == nil || r.Err.Code != "spawn_failed" || r.Err.Message != "Install GitHub CLI (gh) to open pull requests" {
 		t.Fatalf("got %+v", r.Err)
+	}
+}
+
+func TestASessionsShellThatIsntInstalledFallsBackToTheLoginShell(t *testing.T) {
+	if got := shellOf([]string{"SHELL=/no/such/fish"}); got != shellenv.LoginShell() {
+		t.Fatal(got)
+	}
+	if got := shellOf([]string{"SHELL=/bin/sh"}); got != "/bin/sh" {
+		t.Fatal(got)
 	}
 }

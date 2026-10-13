@@ -5,7 +5,6 @@ package launch
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -471,7 +470,7 @@ func resolve(cmd string, env []string) (string, error) {
 			return cmd, nil
 		}
 	}
-	if st, err := os.Stat(path); !filepath.IsAbs(path) || err != nil || st.IsDir() || st.Mode()&0o111 == 0 {
+	if !shellenv.IsExecutable(path) {
 		return "", &exec.Error{Name: cmd, Err: exec.ErrNotFound}
 	}
 	return path, nil
@@ -497,8 +496,8 @@ func probe(shell, name string, env []string) string {
 }
 
 func shellOf(env []string) string {
-	if shell := lookup(env, "SHELL"); shell != "" {
+	if shell := lookup(env, "SHELL"); shellenv.IsExecutable(shell) {
 		return shell
 	}
-	return "/bin/zsh"
+	return shellenv.LoginShell()
 }
