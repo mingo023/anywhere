@@ -458,7 +458,7 @@ impl Desktop {
         let header = self.file_header(pane, &path, cx);
         let Some(FilePane { views: Some(views), marks, .. }) = self.preview.pane(pane) else { return div() };
         let body = match self.preview.body(pane) {
-            Body::Markdown => offers_chat(pane, markdown_pane(views, cx), cx).into_any_element(),
+            Body::Markdown => offers_chat(pane, markdown_pane(views), cx).into_any_element(),
             Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone(), self.store.files.font_size as f32), cx).into_any_element(),
             Body::Image(bytes) => frame()
                 .p(px(24.))

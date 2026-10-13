@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpui::{HighlightStyle, Hsla, Pixels, Rems, StyleRefinement, px, rems};
+use gpui::{Edges, HighlightStyle, Hsla, Pixels, Rems, SharedString, StyleRefinement, px, rems};
 
 use crate::ColorTokens;
 
@@ -18,6 +18,11 @@ pub struct TextViewStyle {
     selection: Hsla,
     code_background: Hsla,
     border: Hsla,
+    code_border: Hsla,
+    aside_background: Hsla,
+    content_max_width: Option<Pixels>,
+    content_padding: Edges<Pixels>,
+    code_font: Option<SharedString>,
     paragraph_gap: Rems,
     heading_base_font_size: Pixels,
     heading_font_size: Option<Arc<dyn Fn(u8, Pixels) -> Pixels + Send + Sync + 'static>>,
@@ -38,6 +43,11 @@ impl PartialEq for TextViewStyle {
             && self.selection == other.selection
             && self.code_background == other.code_background
             && self.border == other.border
+            && self.code_border == other.code_border
+            && self.aside_background == other.aside_background
+            && self.content_max_width == other.content_max_width
+            && self.content_padding == other.content_padding
+            && self.code_font == other.code_font
             && self.heading_base_font_size == other.heading_base_font_size
             && match (&self.heading_font_size, &other.heading_font_size) {
                 (Some(left), Some(right)) => (1..=6).all(|level| {
@@ -84,6 +94,11 @@ impl TextViewStyle {
             selection: colors.selection,
             code_background: colors.accent,
             border: colors.border,
+            code_border: colors.border,
+            aside_background: colors.accent,
+            content_max_width: None,
+            content_padding: Edges::default(),
+            code_font: None,
             paragraph_gap: rems(1.),
             heading_base_font_size: px(14.),
             heading_font_size: None,
@@ -138,7 +153,38 @@ impl TextViewStyle {
         self
     }
 
-    /// Sets the gap between paragraphs. Defaults to 1 rem.
+    /// Sets the hairline around code blocks and inline code.
+    pub fn with_code_border(mut self, color: Hsla) -> Self {
+        self.code_border = color;
+        self
+    }
+
+    /// Sets the background of GitHub alerts.
+    pub fn with_aside_background(mut self, color: Hsla) -> Self {
+        self.aside_background = color;
+        self
+    }
+
+    /// Caps the width of the content column, which is then centered.
+    pub fn with_content_max_width(mut self, width: Pixels) -> Self {
+        self.content_max_width = Some(width);
+        self
+    }
+
+    /// Pads the content, inside the scroll area so the padding scrolls with it.
+    pub fn with_content_padding(mut self, padding: Edges<Pixels>) -> Self {
+        self.content_padding = padding;
+        self
+    }
+
+    /// Sets the font of code, in place of the theme's monospaced font.
+    pub fn with_code_font(mut self, font: impl Into<SharedString>) -> Self {
+        self.code_font = Some(font.into());
+        self
+    }
+
+    /// Sets the gap between paragraphs. Defaults to 1 rem; the other block
+    /// gaps are multiples of it.
     pub fn with_paragraph_gap(mut self, gap: Rems) -> Self {
         self.paragraph_gap = gap;
         self
@@ -240,6 +286,31 @@ impl TextViewStyle {
     /// The color of borders and horizontal rules.
     pub fn border(&self) -> Hsla {
         self.border
+    }
+
+    /// The hairline around code blocks and inline code.
+    pub fn code_border(&self) -> Hsla {
+        self.code_border
+    }
+
+    /// The background of GitHub alerts.
+    pub fn aside_background(&self) -> Hsla {
+        self.aside_background
+    }
+
+    /// The widest the content column grows.
+    pub fn content_max_width(&self) -> Option<Pixels> {
+        self.content_max_width
+    }
+
+    /// The padding around the content.
+    pub fn content_padding(&self) -> Edges<Pixels> {
+        self.content_padding
+    }
+
+    /// The font of code, when it isn't the theme's monospaced font.
+    pub fn code_font(&self) -> Option<&SharedString> {
+        self.code_font.as_ref()
     }
 
     /// The gap between paragraphs.

@@ -20,7 +20,8 @@ use crate::{GlobalState, TextSelection, text::TextViewStyle};
 pub(crate) type CodeBlockActionsFn =
     dyn Fn(&CodeBlock, &mut Window, &mut App) -> AnyElement + Send + Sync;
 
-pub(crate) type CodeBlockHighlighterFn =
+/// A syntax highlighter for fenced code blocks; see [`TextView::code_block_highlighter`].
+pub type CodeBlockHighlighterFn =
     dyn Fn(&CodeBlock) -> Vec<(Range<usize>, gpui::HighlightStyle)> + Send + Sync;
 
 /// Application-wide defaults for TextViews that do not provide explicit
@@ -308,6 +309,14 @@ impl TextView {
         F: Fn(&CodeBlock) -> Vec<(Range<usize>, gpui::HighlightStyle)> + Send + Sync + 'static,
     {
         self.code_block_highlighter = Some(Arc::new(highlighter));
+        self
+    }
+
+    /// Like [`Self::code_block_highlighter`], for a highlighter kept across
+    /// frames: code blocks cache their highlights per highlighter, so passing
+    /// the same `Arc` each render keeps them from highlighting again.
+    pub fn shared_code_block_highlighter(mut self, highlighter: Arc<CodeBlockHighlighterFn>) -> Self {
+        self.code_block_highlighter = Some(highlighter);
         self
     }
 
@@ -1961,7 +1970,7 @@ mod tests {
         cx.simulate_click(point(px(10.), px(10.)), Modifiers::default());
         assert_eq!(cx.opened_url(), Some("https://example.com".to_string()));
         cx.simulate_mouse_down(
-            point(px(3.), px(8.)),
+            point(px(6.), px(8.)),
             MouseButton::Left,
             Modifiers::default(),
         );
@@ -2357,7 +2366,7 @@ mod tests {
                             })
                         })
                         .render_with(|_, context, _, _| {
-                            assert_eq!(context.text_style().font_weight, gpui::FontWeight::BOLD);
+                            assert_eq!(context.text_style().font_weight, gpui::FontWeight::SEMIBOLD);
                             Some(super::super::InlineElement::new(div().child("formula")))
                         }),
                 );

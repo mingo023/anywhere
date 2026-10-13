@@ -7,8 +7,8 @@ use crate::text::{
     document::ParsedDocument,
     markdown_ext::MarkdownParseContext,
     node::{
-        self, BlockNode, CodeBlock, ImageNode, InlineNode, LinkMark, NodeContext, Paragraph, Span,
-        Table, TableRow, TextMark,
+        self, AlertKind, BlockNode, CodeBlock, FootnoteMark, ImageNode, InlineNode, LinkMark,
+        NodeContext, Paragraph, Span, Table, TableRow, TextMark,
     },
 };
 
@@ -326,11 +326,22 @@ fn parse_paragraph(
             }
         },
         Node::FootnoteReference(foot) => {
-            let prefix = format!("[{}]", foot.identifier);
-            paragraph.push(InlineNode::new(&prefix).marks(vec![(
-                0..prefix.len(),
+            let identifier = SharedString::from(foot.identifier.clone());
+            let number = match cx.footnotes.iter().position(|(id, _)| *id == identifier) {
+                Some(ix) => {
+                    cx.footnotes[ix].1 += 1;
+                    ix + 1
+                }
+                None => {
+                    cx.footnotes.push((identifier, 1));
+                    cx.footnotes.len()
+                }
+            };
+            text = superscript(number);
+            paragraph.push(InlineNode::new(&text).marks(vec![(
+                0..text.len(),
                 TextMark {
-                    italic: true,
+                    footnote: Some(FootnoteMark::Reference),
                     ..Default::default()
                 },
             )]));
@@ -369,15 +380,140 @@ fn ast_to_document(source: &str, root: mdast::Node, cx: &mut NodeContext) -> Par
         _ => panic!("expected root node"),
     };
 
-    let blocks = root
+    let mut definitions = Vec::new();
+    let mut blocks: Vec<BlockNode> = root
         .children
         .into_iter()
-        .map(|c| ast_to_node(source, c, cx))
+        .filter_map(|c| match c {
+            Node::FootnoteDefinition(def) => {
+                definitions.push(def);
+                None
+            }
+            c => Some(ast_to_node(source, c, cx)),
+        })
         .collect();
+    if let Some(footnotes) = footnotes(source, definitions, cx) {
+        blocks.push(footnotes);
+    }
     ParsedDocument {
         source: source.to_string().into(),
         blocks: Arc::new(blocks),
     }
+}
+
+/// The footnotes section: each referenced definition as a list item, in
+/// reference order, ending with one back arrow per reference.
+fn footnotes(
+    source: &str,
+    mut definitions: Vec<mdast::FootnoteDefinition>,
+    cx: &mut NodeContext,
+) -> Option<BlockNode> {
+    let mut children = Vec::new();
+    // A definition can reference a later footnote, which grows the list.
+    let mut ix = 0;
+    while let Some((identifier, _)) = cx.footnotes.get(ix).cloned() {
+        ix += 1;
+        let Some(pos) = definitions
+            .iter()
+            .position(|def| def.identifier == identifier.as_ref())
+        else {
+            continue;
+        };
+        let def = definitions.remove(pos);
+        let span = new_span(def.position, cx);
+        let mut blocks: Vec<BlockNode> = def
+            .children
+            .into_iter()
+            .map(|c| ast_to_node(source, c, cx))
+            .collect();
+        let backref = TextMark {
+            footnote: Some(FootnoteMark::Backref),
+            ..Default::default()
+        };
+        let mut paragraph = match blocks.pop() {
+            Some(BlockNode::Paragraph(paragraph)) => paragraph,
+            last => {
+                blocks.extend(last);
+                Paragraph::default()
+            }
+        };
+        for _ in 0..cx.footnotes[ix - 1].1 {
+            paragraph.push_str(" ");
+            paragraph.push(InlineNode::new("↩").marks(vec![(0.."↩".len(), backref.clone())]));
+        }
+        blocks.push(BlockNode::Paragraph(paragraph));
+        children.push(BlockNode::ListItem {
+            children: blocks,
+            spread: false,
+            checked: None,
+            span,
+        });
+    }
+    (!children.is_empty()).then_some(BlockNode::Footnotes { children })
+}
+
+fn superscript(number: usize) -> String {
+    number
+        .to_string()
+        .chars()
+        .map(|digit| "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().nth(digit as usize - '0' as usize).unwrap())
+        .collect()
+}
+
+/// Turns `children`, a blockquote's, into a GitHub alert's body when its first
+/// paragraph opens with an alert tag, returning the alert's kind and title.
+///
+/// The title is the rest of the tag's line, or the kind's name when that's
+/// blank; the paragraph's later lines stay as the body's first paragraph.
+fn take_alert_title(children: &mut Vec<Node>) -> Option<(AlertKind, Vec<Node>)> {
+    let Some(Node::Paragraph(paragraph)) = children.first_mut() else {
+        return None;
+    };
+    let Some(Node::Text(first)) = paragraph.children.first_mut() else {
+        return None;
+    };
+    let (kind, len) = AlertKind::parse(&first.value)?;
+    let rest = &first.value[len..];
+    first.value = rest.strip_prefix(' ').unwrap_or(rest).to_string();
+
+    let mut title = Vec::new();
+    let mut inlines = std::mem::take(&mut paragraph.children).into_iter();
+    for node in inlines.by_ref() {
+        match node {
+            Node::Break(_) => break,
+            Node::Text(mut text) if text.value.contains('\n') => {
+                let (line, after) = text.value.split_once('\n').unwrap();
+                title.push(Node::Text(mdast::Text {
+                    value: line.trim_end_matches('\r').to_string(),
+                    position: None,
+                }));
+                text.value = after.to_string();
+                text.position = None;
+                paragraph.children.push(Node::Text(text));
+                break;
+            }
+            node => title.push(node),
+        }
+    }
+    paragraph.children.extend(inlines);
+
+    if paragraph
+        .children
+        .iter()
+        .all(|node| matches!(node, Node::Text(text) if text.value.trim().is_empty()))
+    {
+        children.remove(0);
+    }
+    if title
+        .iter()
+        .all(|node| matches!(node, Node::Text(text) if text.value.trim().is_empty()))
+    {
+        title = vec![Node::Text(mdast::Text {
+            value: kind.title().to_string(),
+            position: None,
+        })];
+    }
+    Some((kind, title))
 }
 
 fn new_span(pos: Option<markdown::unist::Position>, cx: &NodeContext) -> Option<Span> {
@@ -407,14 +543,23 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
             paragraph.span = new_span(val.position, cx);
             BlockNode::Paragraph(paragraph)
         }
-        Node::Blockquote(val) => {
-            let children = val
+        Node::Blockquote(mut val) => {
+            let alert = take_alert_title(&mut val.children);
+            let mut children: Vec<BlockNode> = val
                 .children
                 .into_iter()
                 .map(|c| ast_to_node(source, c, cx))
                 .collect();
+            if let Some((_, title)) = &alert {
+                let mut paragraph = Paragraph::default();
+                for node in title {
+                    parse_paragraph(source, &mut paragraph, node, cx);
+                }
+                children.insert(0, BlockNode::Paragraph(paragraph));
+            }
             BlockNode::Blockquote {
                 children,
+                alert: alert.map(|(kind, _)| kind),
                 span: new_span(val.position, cx),
             }
         }
@@ -447,11 +592,21 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
             html: false,
             span: new_span(val.position, cx),
         },
-        Node::Code(raw) => BlockNode::CodeBlock(CodeBlock::new(
-            raw.value.into(),
-            raw.lang.map(|s| s.into()),
-            new_span(raw.position, cx),
-        )),
+        Node::Code(raw) => {
+            let fenced = raw.position.as_ref().is_some_and(|pos| {
+                source[pos.start.offset..]
+                    .trim_start()
+                    .starts_with(['`', '~'])
+            });
+            BlockNode::CodeBlock(
+                CodeBlock::new(
+                    raw.value.into(),
+                    raw.lang.map(|s| s.into()),
+                    new_span(raw.position, cx),
+                )
+                .fenced(fenced),
+            )
+        }
         Node::Heading(val) => {
             let mut paragraph = Paragraph::default();
             val.children.iter().for_each(|c| {
@@ -1057,5 +1212,90 @@ mod tests {
                 symbol: "TSLA.US".to_string()
             })
         );
+    }
+
+    fn alert(document: &ParsedDocument, ix: usize) -> (AlertKind, String, Vec<String>) {
+        let BlockNode::Blockquote {
+            children,
+            alert: Some(kind),
+            ..
+        } = &document.blocks[ix]
+        else {
+            panic!("expected alert, got {:?}", document.blocks[ix]);
+        };
+        let BlockNode::Paragraph(title) = &children[0] else {
+            panic!("expected title paragraph");
+        };
+        let body = children[1..]
+            .iter()
+            .map(|block| block.text().trim_end().to_string())
+            .collect();
+        (*kind, title.text(), body)
+    }
+
+    #[test]
+    fn an_alert_without_a_title_is_titled_by_its_kind() {
+        let mut cx = NodeContext::default();
+        let document = parse("> [!warning]\n> Mind the gap.", &mut cx).unwrap();
+
+        let (kind, title, body) = alert(&document, 0);
+        assert_eq!(kind, AlertKind::Warning);
+        assert_eq!(title, "Warning");
+        assert_eq!(body, vec!["Mind the gap."]);
+    }
+
+    #[test]
+    fn an_alert_takes_its_title_from_the_rest_of_the_tag_line() {
+        let mut cx = NodeContext::default();
+        let document = parse("> [!TIP] Shortcut\n> Press space.", &mut cx).unwrap();
+
+        let (kind, title, body) = alert(&document, 0);
+        assert_eq!(kind, AlertKind::Tip);
+        assert_eq!(title, "Shortcut");
+        assert_eq!(body, vec!["Press space."]);
+    }
+
+    #[test]
+    fn a_blockquote_with_an_unknown_tag_stays_a_quote() {
+        let mut cx = NodeContext::default();
+        let document = parse("> [!DANGER]\n> Careful.", &mut cx).unwrap();
+
+        assert!(matches!(
+            document.blocks[0],
+            BlockNode::Blockquote { alert: None, .. }
+        ));
+    }
+
+    #[test]
+    fn footnotes_are_numbered_in_reference_order_and_unreferenced_ones_dropped() {
+        let mut cx = NodeContext::default();
+        let source = "One[^b] two[^a] again[^b].\n\n[^a]: Alpha.\n[^b]: Beta.\n[^c]: Unused.";
+        let document = parse(source, &mut cx).unwrap();
+
+        assert_eq!(document.blocks[0].text().trim_end(), "One¹ two² again¹.");
+        let Some(BlockNode::Footnotes { children }) = document.blocks.last() else {
+            panic!("expected footnotes last");
+        };
+        let notes: Vec<String> = children
+            .iter()
+            .map(|note| note.text().trim_end().to_string())
+            .collect();
+        assert_eq!(notes, vec!["Beta. ↩ ↩", "Alpha. ↩"]);
+    }
+
+    #[test]
+    fn a_code_block_without_a_language_is_labelled_by_how_it_was_written() {
+        let mut cx = NodeContext::default();
+        let document = parse("```\nfenced\n```\n\n    indented", &mut cx).unwrap();
+
+        let labels: Vec<_> = document
+            .blocks
+            .iter()
+            .map(|block| match block {
+                BlockNode::CodeBlock(code) => code.label(),
+                other => panic!("expected code block, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(labels, vec!["code", "text"]);
     }
 }

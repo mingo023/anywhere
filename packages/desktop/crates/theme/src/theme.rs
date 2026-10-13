@@ -330,6 +330,68 @@ fn highlight_theme_with(dark: bool, palette: &Syntax) -> Arc<HighlightTheme> {
     Arc::new(serde_json::from_value(v).expect("theme deserializes"))
 }
 
+// The markdown preview copies pluk-inc/markdown-preview's Apple colours verbatim.
+pub const MD_TEXT: Token = Token::new(0x000000d9, 0xffffffd9);
+pub const MD_TEXT_2: Token = Token::new(0x00000080, 0xffffff8c);
+pub const MD_GRID: Token = Token::new(0x0000001a, 0xffffff1a);
+pub const MD_LINK: Token = Token::new(0x0068daff, 0x419cffff);
+pub const MD_ASIDE: Token = Token::new(0xf5f5f7ff, 0x323232ff);
+pub const MD_CODE_BG: Token = Token::new(0xf9f9f9ff, 0x262626ff);
+pub const MD_CODE_BORDER: Token = Token::new(0xf0f0f0ff, 0x323232ff);
+pub const MD_PAGE: Token = Token::new(0xffffffff, 0x1e1e1eff);
+
+/// Xcode's default syntax colours, which the markdown preview's code blocks use whatever the chosen syntax theme.
+pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {
+    let keyword = Token::new(0x9b2393ff, 0xfc5fa3ff);
+    let string = Token::new(0xc41a16ff, 0xfc6a5dff);
+    let comment = Token::new(0x5d6c79ff, 0x6c7986ff);
+    let number = Token::new(0x1c00cfff, 0xd0bf69ff);
+    let ty = Token::new(0x3900a0ff, 0xd0a8ffff);
+    let declaration = Token::new(0x0b4f79ff, 0x5dd8ffff);
+    let function = Token::new(0x0f68a0ff, 0x41a1c0ff);
+    let variable = Token::new(0x326d74ff, 0x67b7a4ff);
+    let preprocessor = Token::new(0x643820ff, 0xfd8f3fff);
+    let attribute = Token::new(0x815f03ff, 0xbf8555ff);
+    let url = Token::new(0x0e0effff, 0x5482ffff);
+    let hsla = |c: Token| serde_json::to_value(Hsla::from(rgba(c.pick(dark)))).expect("colour serializes");
+    let base = if dark { HighlightTheme::default_dark() } else { HighlightTheme::default_light() };
+    let mut v = serde_json::to_value(&*base).expect("theme serializes");
+    let syntax = v["style"]["syntax"].as_object_mut().expect("theme has syntax colours");
+    syntax.clear();
+    for name in [
+        "attribute", "boolean", "comment", "comment.doc", "constant", "constructor", "embedded", "emphasis", "emphasis.strong", "enum", "function", "hint", "keyword", "label",
+        "link_text", "link_uri", "number", "operator", "predictive", "preproc", "primary", "property", "punctuation", "punctuation.bracket", "punctuation.delimiter",
+        "punctuation.list_marker", "punctuation.special", "string", "string.escape", "string.regex", "string.special", "string.special.symbol", "tag", "tag.doctype",
+        "text.code.span", "text.literal", "title", "type", "variable", "variable.special", "variant",
+    ] {
+        let color = match name {
+            "keyword" | "boolean" | "variable.special" | "tag" => keyword,
+            _ if name.starts_with("string") => string,
+            "comment" | "comment.doc" => comment,
+            "number" => number,
+            "type" | "enum" | "constructor" | "variant" => ty,
+            "function" => function,
+            "property" | "constant" => variable,
+            "preproc" => preprocessor,
+            "attribute" => attribute,
+            "link_uri" => url,
+            "title" => declaration,
+            _ => MD_TEXT,
+        };
+        let mut style = serde_json::json!({ "color": hsla(color) });
+        match name {
+            "emphasis" => style["font_style"] = "italic".into(),
+            "emphasis.strong" => style["font_weight"] = 600.into(),
+            _ => {}
+        }
+        syntax.insert(name.into(), style);
+    }
+    for (key, c) in [("editor.background", MD_CODE_BG), ("editor.foreground", MD_TEXT)] {
+        v["style"][key] = hsla(c);
+    }
+    Arc::new(serde_json::from_value(v).expect("theme deserializes"))
+}
+
 /// Colours a repository can take in the rail, the menu and the new-session form.
 pub const PALETTE: [u32; 6] = [0xd97757ff, 0x0f9d8aff, 0x7b61ffff, 0xe8a317ff, 0x3b82f6ff, 0x8b8b94ff];
 

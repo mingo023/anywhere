@@ -16,8 +16,14 @@ const JSX_COMPONENTS: &str = r#"
 "#;
 
 /// Gives tsx the full TypeScript highlights plus JSX tags; gpui-kit ships it with only tree-sitter-typescript's small TS add-on query.
+/// Gives swift its grammar's own queries; gpui-kit ships it with none, so Swift came out uncoloured.
 pub fn init() {
     let registry = LanguageRegistry::singleton();
+    if let Some(mut swift) = registry.language("swift") {
+        swift.highlights = tree_sitter_swift::HIGHLIGHTS_QUERY.into();
+        swift.locals = tree_sitter_swift::LOCALS_QUERY.into();
+        registry.register("swift", &swift);
+    }
     let (Some(ts), Some(mut tsx)) = (registry.language("typescript"), registry.language("tsx")) else { return };
     tsx.highlights = format!("{}\n{}\n{JSX_COMPONENTS}", ts.highlights, tree_sitter_javascript::JSX_HIGHLIGHT_QUERY).into();
     tsx.injections = ts.injections;
@@ -97,6 +103,16 @@ mod tests {
         assert!(has(1, 8..11, SYN_FN) && has(1, 40..43, SYN_FN), "div tags");
         assert!(has(1, 12..21, SYN_KEYWORD), "className");
         assert!(has(1, 32..35, SYN_FN) && has(2, 1..4, SYN_FN) && has(2, 5..8, SYN_FN), "component tags");
+    }
+
+    #[test]
+    fn colours_swift_keywords_strings_and_comments() {
+        super::init();
+        let spans = line_spans("swift", "import SwiftUI\nlet s = \"hi\" // note\n");
+        let has = |line: usize, range: Range<usize>, c: Token| spans[line].iter().any(|(r, s)| *r == range && s.color == Some(c.into()));
+        assert!(has(0, 0..6, SYN_KEYWORD) && has(1, 0..3, SYN_KEYWORD), "import, let");
+        assert!(has(1, 9..11, SYN_STRING), "string");
+        assert!(has(1, 13..20, SYN_COMMENT), "comment");
     }
 
     #[test]

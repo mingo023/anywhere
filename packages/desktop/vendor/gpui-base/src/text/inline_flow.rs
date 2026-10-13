@@ -22,12 +22,23 @@ use super::{
 };
 
 const IMAGE_LEN: usize = 1;
-pub(super) const INLINE_CODE_PADDING: f32 = 2.;
+
+/// The space either side of an inline code span, at its own font size: CSS's
+/// `padding: 0.15em 0.3em`.
+pub(super) fn inline_code_padding(code_font_size: Pixels) -> Pixels {
+    code_font_size * 0.3
+}
+
+/// The space above and below an inline code span's glyphs that its chip covers.
+fn inline_code_vertical_padding(code_font_size: Pixels) -> Pixels {
+    code_font_size * 0.15
+}
 
 pub(super) struct InlineFlow {
     id: ElementId,
     items: Vec<InlineFlowItem>,
     link_click_handler: Option<Arc<LinkClickHandlerFn>>,
+    code_border: Option<gpui::Hsla>,
 }
 
 pub(super) type InlineRenderer = dyn Fn(&super::InlineRenderContext, &mut Window, &mut App) -> Option<super::InlineElement>
@@ -153,7 +164,14 @@ impl InlineFlow {
             id: id.into(),
             items,
             link_click_handler,
+            code_border: None,
         }
+    }
+
+    /// Outlines inline code chips in `color`.
+    pub(super) fn code_border(mut self, color: Option<gpui::Hsla>) -> Self {
+        self.code_border = color;
+        self
     }
 
     fn image_element(
@@ -168,6 +186,7 @@ impl InlineFlow {
             .id(ix)
             .object_fit(ObjectFit::Contain)
             .max_w(relative(1.))
+            .rounded(px(8.))
             .w(size.width)
             .h(size.height)
             .when_some(link.clone(), |this, link| {
@@ -395,9 +414,9 @@ impl Element for InlineFlow {
                         state.set_text(text.clone());
                     }
 
-                    let is_code = highlights.iter().any(|(_, h)| h.font_size_scale.is_some());
+                    let is_code = highlights.iter().any(|(_, h)| h.font_family.is_some());
                     let padding = if is_code {
-                        px(INLINE_CODE_PADDING)
+                        inline_code_padding(font_size)
                     } else {
                         Pixels::ZERO
                     };
@@ -406,16 +425,7 @@ impl Element for InlineFlow {
                         let line = shape_line(text.clone(), font_size, &runs, window);
                         let baseline =
                             (fragment_size.height - line.ascent - line.descent) / 2. + line.ascent;
-                        let cap_height = runs
-                            .iter()
-                            .map(|run| {
-                                let font = window.text_system().resolve_font(&run.font);
-                                window.text_system().cap_height(font, font_size)
-                            })
-                            .fold(Pixels::ZERO, Pixels::max);
-                        // Center the background on the capital-height body of the text.
-                        // Share descender room between both sides instead of adding it only below.
-                        let vertical_padding = font_size * 0.125 + line.descent / 2.;
+                        let vertical_padding = inline_code_vertical_padding(font_size);
                         let color = highlights
                             .iter()
                             .find_map(|(_, h)| h.style.background_color);
@@ -429,9 +439,12 @@ impl Element for InlineFlow {
                                         + origin
                                         + point(
                                             Pixels::ZERO,
-                                            baseline - cap_height - vertical_padding,
+                                            baseline - line.ascent - vertical_padding,
                                         ),
-                                    size(fragment_size.width, cap_height + vertical_padding * 2.),
+                                    size(
+                                        fragment_size.width,
+                                        line.ascent + line.descent + vertical_padding * 2.,
+                                    ),
                                 ),
                                 color,
                             )
@@ -533,10 +546,16 @@ impl Element for InlineFlow {
                 state.selection = None;
             }
         }
-        let radius = crate::Theme::global(cx).tokens.radius.sm;
         for (element, background) in prepaint {
             if let Some((bounds, color)) = background {
-                window.paint_quad(gpui::fill(*bounds, *color).corner_radii(radius));
+                window.paint_quad(gpui::quad(
+                    *bounds,
+                    px(5.),
+                    *color,
+                    px(if self.code_border.is_some() { 0.5 } else { 0. }),
+                    self.code_border.unwrap_or_default(),
+                    gpui::BorderStyle::Solid,
+                ));
             }
             element.paint(window, cx);
         }
@@ -762,9 +781,9 @@ fn layout_measured_flow(
                         let segment_font_size = font_size * scale;
                         let shaped_line =
                             shape_line(subtext.clone(), segment_font_size, &runs, window);
-                        let is_code = highlights.iter().any(|(_, h)| h.font_size_scale.is_some());
+                        let is_code = highlights.iter().any(|(_, h)| h.font_family.is_some());
                         let padding = if is_code {
-                            px(INLINE_CODE_PADDING * 2.)
+                            inline_code_padding(segment_font_size) * 2.
                         } else {
                             Pixels::ZERO
                         };
@@ -1008,6 +1027,7 @@ fn push_text_wrap_fragments<'a>(
             fragments.push(WrapLineFragment::text(&text[cursor..start]));
         }
         let span = &text[start..end];
+        let code_font_size = font_size * highlight.font_size_scale.unwrap_or(1.);
         let measure = |text: &str| {
             let runs = text_runs(
                 text.len(),
@@ -1016,19 +1036,10 @@ fn push_text_wrap_fragments<'a>(
             );
             window
                 .text_system()
-                .layout_line(
-                    text,
-                    font_size * highlight.font_size_scale.unwrap_or(1.),
-                    &runs,
-                    None,
-                )
+                .layout_line(text, code_font_size, &runs, None)
                 .width
         };
-        let padding = if highlight.font_size_scale.is_some() {
-            px(INLINE_CODE_PADDING * 2.)
-        } else {
-            Pixels::ZERO
-        };
+        let padding = inline_code_padding(code_font_size) * 2.;
         let width = measure(span) + padding;
         if width <= wrap_width {
             fragments.push(WrapLineFragment::element(width, span.len()));
@@ -1331,11 +1342,12 @@ mod tests {
         ];
         let image_size = size(px(10.), px(10.));
         let image_sizes = vec![None, Some(image_size), None];
-        // Body text, the image and the mono span fill the wrap width exactly;
-        // the trailing "end" only fits if the span is under-measured.
+        // Body text, the image and the padded mono span fill the wrap width
+        // exactly; the trailing "end" only fits if the span is under-measured.
         let wrap_width = WideMonoTextSystem::width_of("See  with  ", BODY, font_size)
             + image_size.width
-            + WideMonoTextSystem::width_of("code_span_here", MONO, font_size);
+            + WideMonoTextSystem::width_of("code_span_here", MONO, font_size)
+            + inline_code_padding(font_size) * 2.;
 
         let layout = window.update(|_, window, cx| {
             layout_flow(
@@ -1494,7 +1506,7 @@ mod tests {
                 assert_eq!(
                     text_fragments[1].3.width,
                     WideMonoTextSystem::width_of("code", MONO, px(body_size * 0.875))
-                        + px(INLINE_CODE_PADDING * 2.)
+                        + inline_code_padding(px(body_size * 0.875)) * 2.
                 );
 
                 // GPUI paints shaped lines with positive `LineLayout::descent`.

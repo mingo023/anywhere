@@ -1,5 +1,6 @@
 pub(crate) mod edit;
 pub(crate) mod files;
+pub(crate) mod frontmatter;
 pub(crate) mod menu;
 pub(crate) mod mermaid;
 pub(crate) mod preview;

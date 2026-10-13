@@ -587,6 +587,7 @@ fn parse_node(
                 let children = consume_children_nodes(node, paragraph, cx);
                 Some(BlockNode::Blockquote {
                     children,
+                    alert: None,
                     span: None,
                 })
             }
