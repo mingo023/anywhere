@@ -113,7 +113,7 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
     let base = if branch == "main" || branch == "master" {
         git(run, cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string())
     } else {
-        ["main", "master"].into_iter().find(|b| git(run, cwd, &["rev-parse", "--verify", "--quiet", b]).is_some()).map(str::to_string)
+        ["origin/main", "origin/master", "main", "master"].into_iter().find(|b| git(run, cwd, &["rev-parse", "--verify", "--quiet", b]).is_some()).map(str::to_string)
     };
     let (ahead, behind, commits) = match &base {
         Some(b) => {
@@ -954,6 +954,22 @@ mod tests {
         assert!(git(&Runner::Local, r, &["switch", "-qc", "feature"]).is_some());
         assert!(run_argv(&repo, PUSH, ""));
         assert_eq!(git(&Runner::Local, r, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap().trim(), "origin/feature");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_branch_counts_ahead_of_origin_main_not_a_stale_local_main() {
+        let dir = scratch_repo("stale-main");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "main"]);
+        sh(&repo, &["commit", "-q", "--allow-empty", "-m", "landed"]);
+        sh(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        sh(&repo, &["reset", "-q", "--hard", "HEAD~1"]);
+        sh(&repo, &["switch", "-qc", "feature", "--no-track", "origin/main"]);
+        let got = read(&Runner::Local, r, true).unwrap();
+        assert_eq!((got.base.as_deref(), got.ahead, got.behind, got.unpushed), (Some("origin/main"), 0, 0, None));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
