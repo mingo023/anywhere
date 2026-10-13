@@ -5592,6 +5592,7 @@ dependencies = [
  "term",
  "theme",
  "tree-sitter-javascript",
+ "tree-sitter-swift",
  "ui",
  "web",
  "workspace",

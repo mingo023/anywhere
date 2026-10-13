@@ -1,12 +1,13 @@
 use gpui::{
-    App, IntoElement, ListState, ParentElement as _, SharedString, Styled as _, Window, div,
+    AnyElement, App, IntoElement, ListState, ParentElement as _, Pixels, SharedString, Styled as _,
+    Window, div, prelude::FluentBuilder as _, px,
 };
 
 use std::{ops::RangeInclusive, sync::Arc};
 
 use crate::text::{
     SelectionFormat,
-    node::{BlockNode, NodeContext},
+    node::{BlockNode, NodeContext, margin_top},
 };
 
 /// The parsed document AST.
@@ -19,18 +20,6 @@ pub(crate) struct ParsedDocument {
 #[derive(Default, Clone, Copy)]
 pub(crate) struct NodeRenderOptions {
     pub(crate) ix: usize,
-    pub(crate) in_list: bool,
-    pub(crate) todo: bool,
-    pub(crate) ordered: bool,
-    pub(crate) depth: usize,
-    pub(crate) is_last: bool,
-}
-
-impl NodeRenderOptions {
-    pub(crate) fn is_last(mut self, is_last: bool) -> Self {
-        self.is_last = is_last;
-        self
-    }
 }
 
 impl ParsedDocument {
@@ -182,25 +171,11 @@ impl ParsedDocument {
         cx: &mut App,
     ) -> impl IntoElement {
         let Some(list_state) = list_state else {
-            let blocks_len = self.blocks.len();
-            return div().children(self.blocks.iter().enumerate().map(move |(ix, node)| {
-                let is_last = ix + 1 == blocks_len;
-                node.render_block(
-                    NodeRenderOptions {
-                        ix,
-                        is_last,
-                        ..Default::default()
-                    },
-                    node_cx,
-                    window,
-                    cx,
-                )
-            }));
-        };
-
-        let options = NodeRenderOptions {
-            is_last: true,
-            ..Default::default()
+            return div().w_full().children(
+                (0..self.blocks.len()).map(|ix| {
+                    render_page_block(&self.blocks, &self.source, ix, node_cx, window, cx)
+                }),
+            );
         };
 
         let blocks = &self.blocks;
@@ -212,23 +187,124 @@ impl ParsedDocument {
             gpui::list(list_state, {
                 let node_cx = node_cx.clone();
                 let blocks = blocks.clone();
-                move |ix, window, cx| {
-                    let is_last = ix + 1 == blocks.len();
-                    blocks[ix]
-                        .render_block(
-                            NodeRenderOptions {
-                                ix,
-                                is_last,
-                                ..options
-                            },
-                            &node_cx,
-                            window,
-                            cx,
-                        )
-                        .into_any_element()
-                }
+                let source = self.source.clone();
+                move |ix, window, cx| render_page_block(&blocks, &source, ix, &node_cx, window, cx)
             })
             .size_full(),
         )
+    }
+}
+
+/// Top-level block `ix` in the page: in the content column, below the
+/// space that keeps the blank lines written above it.
+fn render_page_block(
+    blocks: &[BlockNode],
+    source: &str,
+    ix: usize,
+    node_cx: &NodeContext,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let block = &blocks[ix];
+    let style = &node_cx.style;
+    let rem_size = window.rem_size();
+    let margin = margin_top(
+        block,
+        style,
+        window.text_style().font_size.to_pixels(rem_size),
+        style.paragraph_gap().to_pixels(rem_size),
+    );
+    let space = space_above(
+        margin,
+        ix == 0,
+        matches!(block, BlockNode::Heading { .. }),
+        block
+            .span()
+            .map_or(0, |span| blank_lines_before(source, span.start)),
+        window.line_height(),
+    );
+    let padding = style.content_padding();
+    div()
+        .w_full()
+        .pl(padding.left)
+        .pr(padding.right)
+        .pt(if ix == 0 { space + padding.top } else { space })
+        .when(ix + 1 == blocks.len(), |this| this.pb(padding.bottom))
+        .child(
+            div()
+                .w_full()
+                .when_some(style.content_max_width(), |this, width| {
+                    this.max_w(width).mx_auto()
+                })
+                .child(block.render_block(
+                    NodeRenderOptions {
+                        ix,
+                        ..Default::default()
+                    },
+                    node_cx,
+                    window,
+                    cx,
+                )),
+        )
+        .into_any_element()
+}
+
+/// The space above a top-level block with `margin`, keeping the blank lines
+/// written above it: each a line high but the last, which shrinks to a small
+/// gap. A heading's margin after a blank line is a line high.
+fn space_above(
+    margin: Pixels,
+    first: bool,
+    heading: bool,
+    blank_lines: usize,
+    line_height: Pixels,
+) -> Pixels {
+    const LAST_BLANK_LINE: Pixels = px(4.);
+    match blank_lines {
+        0 if first => Pixels::ZERO,
+        0 => margin,
+        n => {
+            line_height * (n - 1) as f32
+                + LAST_BLANK_LINE
+                + if heading { line_height } else { margin }
+        }
+    }
+}
+
+/// How many blank lines are right above the line holding `start`.
+fn blank_lines_before(source: &str, start: usize) -> usize {
+    let source = source.get(..start).unwrap_or_default();
+    let line_start = source.rfind('\n').map_or(0, |ix| ix + 1);
+    source[..line_start]
+        .lines()
+        .rev()
+        .take_while(|line| line.trim().is_empty())
+        .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blank_lines_are_counted_back_to_the_previous_text() {
+        let source = "# Title\n\n  \n\nBody";
+        assert_eq!(blank_lines_before(source, source.find("Body").unwrap()), 3);
+        assert_eq!(blank_lines_before(source, 0), 0);
+        assert_eq!(blank_lines_before("a\nb", 2), 0);
+    }
+
+    #[test]
+    fn blank_lines_add_a_line_each_but_the_last_adds_four_pixels() {
+        let (margin, lh) = (px(10.), px(21.));
+        assert_eq!(space_above(margin, true, false, 0, lh), px(0.));
+        assert_eq!(space_above(margin, false, false, 0, lh), margin);
+        assert_eq!(space_above(margin, false, false, 1, lh), px(14.));
+        assert_eq!(space_above(margin, false, false, 3, lh), px(56.));
+    }
+
+    #[test]
+    fn a_heading_after_a_blank_line_is_spaced_by_a_line_instead_of_its_margin() {
+        assert_eq!(space_above(px(30.), false, true, 1, px(21.)), px(25.));
     }
 }

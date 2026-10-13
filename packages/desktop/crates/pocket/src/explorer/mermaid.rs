@@ -24,7 +24,7 @@ static MERMAN: [LazyLock<Merman>; 2] = [LazyLock::new(|| merman(false)), LazyLoc
 
 fn merman(dark: bool) -> Merman {
     let roles = [
-        (ThemeRole::Canvas, WINDOW_SOLID),
+        (ThemeRole::Canvas, MD_CODE_BG),
         (ThemeRole::Surface, SURFACE_SUNKEN),
         (ThemeRole::SurfaceAlt, WINDOW_SOLID),
         (ThemeRole::Text, TEXT),
@@ -66,7 +66,7 @@ fn hex(c: u32, dark: bool) -> String {
 /// Mermaid source as SVG that resvg can draw: labels are plain `<text>`, not `<foreignObject>`.
 fn svg(source: &str, dark: bool) -> Result<String, String> {
     let merman = &*MERMAN[dark as usize];
-    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, root_background_color: Some(hex(WINDOW_SOLID.pick(dark), dark)), ..Default::default() }.pipeline();
+    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, root_background_color: Some(hex(MD_CODE_BG.pick(dark), dark)), ..Default::default() }.pipeline();
     let request = SvgRequest { pipeline: Some(pipeline), presentation: merman.presentation.render_policy(), ..Default::default() };
     match merman.renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
         Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.svg().to_string()),
@@ -225,7 +225,7 @@ impl MarkdownPlugin for Mermaid {
         let Fence { keys, source } = node.data::<Fence>().unwrap();
         let dark = theme::is_dark();
         let key = keys[dark as usize];
-        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).my(px(8.)).p(px(12.)).rounded(px(10.)).border_1().border_color(SEPARATOR).bg(WINDOW_SOLID);
+        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).p(px(16.)).rounded(px(15.)).bg(MD_CODE_BG);
         match self.0.update(cx, |d, cx| d.get(key, source, dark, cx)) {
             Diagram::Ready(tree) => {
                 let size = tree.size();
@@ -270,7 +270,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Instant;
-    use theme::WINDOW_SOLID;
+    use theme::MD_CODE_BG;
 
     fn image(w: u32, h: u32) -> Arc<RenderImage> {
         let buffer = image::ImageBuffer::from_raw(w, h, vec![0; (w * h * 4) as usize]).unwrap();
@@ -310,10 +310,10 @@ mod tests {
     }
 
     #[test]
-    fn paints_the_canvas_in_each_schemes_window_colour() {
+    fn paints_the_canvas_in_each_schemes_code_block_colour() {
         for dark in [false, true] {
             let t = tree("flowchart LR\n  A --> B\n", dark).unwrap();
-            let [r, g, b, a] = WINDOW_SOLID.pick(dark).to_be_bytes();
+            let [r, g, b, a] = MD_CODE_BG.pick(dark).to_be_bytes();
             assert_eq!(rasterize(&t, 1.).unwrap().as_bytes(0).unwrap()[..4], [b, g, r, a]);
         }
     }

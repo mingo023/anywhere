@@ -61,6 +61,7 @@ resvg = "0.46"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tree-sitter-javascript = "0.23.1"
+tree-sitter-swift = "0.7.3"
 tungstenite = "0.26"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
 
@@ -74,6 +75,7 @@ gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 # gpui-pre-macos 0.3.6 giving prompts the app icon explicitly, since macOS 26 sheet alerts drop the default one; drop once upstream does.
 gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # gpui-base 0.6.6 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass; drop once upstream does.
+# It also renders markdown like pluk-inc/markdown-preview: its block spacing, code blocks, lists, tables, GitHub alerts and footnotes; upstream has no equivalent.
 gpui-base = { path = "vendor/gpui-base" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.

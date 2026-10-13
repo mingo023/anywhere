@@ -770,6 +770,8 @@ impl Render for TextViewState {
             table_actions: self.table_actions.clone(),
             link_click_handler: self.link_click_handler.clone(),
             markdown_extensions: self.markdown_extensions.clone(),
+            footnotes: Vec::new(),
+            in_heading: false,
             stream_fade,
         };
 

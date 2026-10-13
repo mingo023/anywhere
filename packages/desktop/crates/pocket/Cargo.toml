@@ -34,6 +34,7 @@ store.workspace = true
 term.workspace = true
 theme.workspace = true
 tree-sitter-javascript.workspace = true
+tree-sitter-swift.workspace = true
 ui.workspace = true
 web.workspace = true
 workspace.workspace = true

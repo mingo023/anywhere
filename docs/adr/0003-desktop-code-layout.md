@@ -39,7 +39,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `removal` | deleting a worktree: its teardown script, its branch, the confirm and the row's "Deleting…" |
 | `git_ui` | `changes` panel and commit, `diff` view, `graph` commit graph, `commit` stacked commit diff |
 | `add_to_chat` | quoting a selection into an agent's input: the composer, its agent menu, the selection pill |
-| `explorer` | file tree; `explorer/preview` code, markdown and image preview; `explorer/menu` its right-click menu, `explorer/edit` naming new and renamed items, `explorer/files` their disk writes, `explorer/toast` copy, trash and Mentioned notices |
+| `explorer` | file tree; `explorer/preview` code, markdown and image preview; `explorer/menu` its right-click menu, `explorer/edit` naming new and renamed items, `explorer/files` their disk writes, `explorer/toast` copy, trash and Mentioned notices, `explorer/frontmatter` a markdown file's front matter table, `explorer/mermaid` its mermaid diagrams |
 | `automations` | the Automations screen (⌘⇧A, offered only when pocketd has the capability): `automations/logic` the pure rules, `column` the tabs and lists, `rows`, `runs`, `detail` and `run_detail` the right pane, `editor` with `form` and `trigger` the full-page editor, `glyph`, `parts` |
 | `inbox`, `palette` | their screens |
 | `fleet` | each SSH host's link, adding, installing, updating and removing hosts, signing in to one with a password |
