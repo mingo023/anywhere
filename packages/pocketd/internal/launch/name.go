@@ -13,8 +13,8 @@ import (
 
 // job names a new session from its prompt, and the Worktree it made when its Name was a placeholder.
 type job struct {
-	provider, exe, prompt, agent string
-	env                          []string
+	provider, exe, prompt string
+	env                   []string
 	// tree is "" unless naming may name the Worktree and rename its branch.
 	project, tree, branch string
 	// local is the Local the session started in, which naming names while its name is a placeholder.
@@ -36,11 +36,28 @@ func generate(provider, exe, prompt string, env []string) (naming.Result, error)
 	return naming.Generate(context.Background(), argv, env)
 }
 
-func (l *Launcher) name(j job) {
-	a, err := l.d.Agents.Get(j.agent)
-	if err != nil {
+// Prompted names a's session from a prompt typed into it. A create names
+// the session it starts itself, with the Worktree and Local it made.
+func (l *Launcher) Prompted(a *agent.Agent, prompt string, env []string) {
+	l.mu.Lock()
+	_, creating := l.pending[a.Summary().TerminalID]
+	l.mu.Unlock()
+	if creating {
 		return
 	}
+	claim, ok := a.ClaimNaming()
+	if !ok {
+		return
+	}
+	go func() {
+		if exe, ok := l.find(a.Provider(), env); ok {
+			l.name(a, claim, job{provider: a.Provider(), exe: exe, env: env, prompt: prompt})
+		}
+	}()
+}
+
+// name runs on claim, which a.ClaimNaming gave.
+func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 	renamable := j.tree != "" && worktree.Renamable(j.tree, j.branch)
 	var named *naming.Result
 	reply := ""
@@ -50,7 +67,7 @@ func (l *Launcher) name(j job) {
 			continue
 		}
 		named = &n
-		l.title(a, j, n.Title)
+		l.title(a, claim, j, n.Title)
 		if !n.Vague || reply != "" {
 			break
 		}
@@ -60,7 +77,7 @@ func (l *Launcher) name(j job) {
 	}
 	if named == nil {
 		if l.Names != nil {
-			l.Names.Failed(j.agent)
+			l.Names.Failed(a.ID())
 		}
 		return
 	}
@@ -79,11 +96,11 @@ func (l *Launcher) name(j job) {
 	}
 }
 
-func (l *Launcher) title(a *agent.Agent, j job, title string) {
+func (l *Launcher) title(a *agent.Agent, claim int, j job, title string) {
 	if title == "" {
 		return
 	}
-	a.SetNamed(title)
+	a.SetNamed(claim, title)
 	if j.tree != "" && l.Names != nil {
 		l.Names.Auto(j.tree, title)
 	}

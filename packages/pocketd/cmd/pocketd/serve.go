@@ -156,6 +156,7 @@ func serve(sock, handed string) error {
 	l.Names = worktreeNames
 	localStore := locals.Open(home)
 	l.Locals = localStore
+	d.OnPrompt = l.Prompted
 	if settings.ResumeAgents() {
 		d.Resume = l.ResumeCmd
 	}

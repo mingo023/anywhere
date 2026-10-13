@@ -189,11 +189,15 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	r := l.wait(t, id, exits, progress)
 	r.Cwd = cwd
 	if r.Err == nil && s.Prompt != "" {
-		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, agent: r.AgentID, local: local}
+		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, local: local}
 		if n := s.Checkout.New; n != nil && n.AutoName {
 			j.project, j.tree, j.branch = s.Project, cwd, n.Name
 		}
-		go l.name(j)
+		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
+			if claim, ok := a.ClaimNaming(); ok {
+				go l.name(a, claim, j)
+			}
+		}
 	}
 	return r
 }
