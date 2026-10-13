@@ -4,6 +4,7 @@ mod automations;
 mod browser;
 mod capture;
 mod creating;
+mod composer;
 mod desktop;
 mod empty_pane;
 mod explorer;

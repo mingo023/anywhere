@@ -1,5 +1,6 @@
 mod composer;
 
+use crate::composer::Composer;
 use crate::desktop::Desktop;
 use crate::field::Field;
 use crate::terminals::link;
@@ -11,21 +12,11 @@ use workspace::tree::PaneId;
 
 /// The prompt a focused pane with no tabs offers, which starts an agent in that pane.
 pub(crate) struct EmptyPane {
-    pub(crate) prompt: Entity<TextareaState>,
+    /// The agent picked here for a Project is remembered once a session starts, like the new session sheet's.
+    pub(crate) composer: Composer,
     pub(crate) launch: Launch,
-    /// The agent picked here for a Project; like the new session sheet's, it is remembered once a session starts.
-    chosen: Option<(String, LaunchPick)>,
-    menu: Option<Menu>,
     pub(crate) drawn: Drawn,
     field: Field,
-}
-
-/// The composer chip whose menu is open.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Menu {
-    Agent,
-    Model,
-    Access,
 }
 
 /// Whether the focused pane showed the prompt in the frame last drawn, and in the one before, so the prompt takes the keys only as it appears.
@@ -99,11 +90,6 @@ fn offers_prompt(project: Option<&str>, tree: Option<&str>, observe_only: bool) 
     project.is_some() && tree.is_some() && !observe_only
 }
 
-/// The agent picked here, if it was picked for this Project.
-fn chosen_for<'a>(chosen: &'a Option<(String, LaunchPick)>, project: Option<&str>) -> Option<&'a LaunchPick> {
-    chosen.as_ref().filter(|(p, _)| Some(p.as_str()) == project).map(|(_, pick)| pick)
-}
-
 impl EmptyPane {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe a task or paste an error").auto_grow(2, 8));
@@ -112,8 +98,13 @@ impl EmptyPane {
             InputEvent::Change => cx.notify(),
             _ => {}
         })];
-        (Self { prompt, launch: Launch::default(), chosen: None, menu: None, drawn: Drawn::default(), field: Field::default() }, subs)
+        let composer = Composer::new(prompt, slot, |_| {}, |d, (message, _)| d.error = Some(message));
+        (Self { composer, launch: Launch::default(), drawn: Drawn::default(), field: Field::default() }, subs)
     }
+}
+
+pub(crate) fn slot(d: &mut Desktop) -> &mut Composer {
+    &mut d.empty_pane.composer
 }
 
 impl Desktop {
@@ -122,34 +113,16 @@ impl Desktop {
     }
 
     pub(crate) fn focus_empty_prompt(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.empty_pane.prompt.update(cx, |s, cx| s.focus(window, cx));
+        self.empty_pane.composer.prompt.update(cx, |s, cx| s.focus(window, cx));
     }
 
     fn launch_pick(&self) -> LaunchPick {
-        chosen_for(&self.empty_pane.chosen, self.project.as_deref()).map_or_else(|| self.last_pick(), LaunchPick::clone)
-    }
-
-    pub(crate) fn toggle_empty_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
-        self.empty_pane.menu = (self.empty_pane.menu != Some(menu)).then_some(menu);
-        cx.notify();
-    }
-
-    fn close_empty_menu(&mut self, cx: &mut Context<Self>) {
-        self.empty_pane.menu = None;
-        cx.notify();
-    }
-
-    /// Changes the pick for this Project and closes the menu it came from.
-    fn pick_empty(&mut self, change: impl FnOnce(LaunchPick) -> LaunchPick, cx: &mut Context<Self>) {
-        if let Some(project) = self.project.clone() {
-            self.empty_pane.chosen = Some((project, change(self.launch_pick())));
-        }
-        self.close_empty_menu(cx);
+        self.empty_pane.composer.draft.pick(self.project.as_deref(), || self.last_pick())
     }
 
     /// The prompt clears at once; the terminal opens in this pane once pocketd lists it (`Terminals::arrived`).
     fn start_from_empty_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let prompt = self.empty_pane.prompt.read(cx).value().trim().to_string();
+        let prompt = self.empty_pane.composer.prompt.read(cx).value().trim().to_string();
         let (Some(project), Some(tree)) = (self.project.clone(), self.place()) else { return };
         if !self.offers_empty_prompt() || !self.empty_pane.launch.ready(&prompt) {
             return;
@@ -166,20 +139,20 @@ impl Desktop {
         self.save_soon(cx);
         let pane = self.workspace(&tree).tree.focused;
         self.empty_pane.launch.sent(request, tree, pane, prompt);
-        (self.empty_pane.chosen, self.empty_pane.menu) = (None, None);
-        self.empty_pane.prompt.update(cx, |s, cx| s.set_value("", window, cx));
+        self.empty_pane.composer.draft.clear();
+        self.empty_pane.composer.prompt.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
 
     /// Whether the failed create was this prompt's.
     pub(crate) fn empty_prompt_failed(&mut self, request: &str, message: &str, detail: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let typed = self.empty_pane.prompt.read(cx).value();
+        let typed = self.empty_pane.composer.prompt.read(cx).value();
         let tree = self.place();
         let Some(failed) = self.empty_pane.launch.failed(request, (message.into(), detail.into()), &typed, self.empty_pane.drawn.last, tree.as_deref()) else {
             return false;
         };
         if let Some(words) = failed.words {
-            self.empty_pane.prompt.update(cx, |s, cx| s.set_value(words, window, cx));
+            self.empty_pane.composer.prompt.update(cx, |s, cx| s.set_value(words, window, cx));
         }
         if failed.on_page {
             self.error = Some(message.into());
@@ -188,7 +161,7 @@ impl Desktop {
     }
 
     fn fill_empty_prompt(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
-        self.empty_pane.prompt.update(cx, |s, cx| {
+        self.empty_pane.composer.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
@@ -197,8 +170,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drawn, Failed, Launch, chosen_for, offers_prompt};
-    use store::LaunchPick;
+    use super::{Drawn, Failed, Launch, offers_prompt};
 
     fn failure() -> (String, String) {
         ("No such project".into(), String::new())
@@ -222,14 +194,6 @@ mod tests {
         drawn.begin_frame();
         drawn.begin_frame();
         assert!(drawn.draw());
-    }
-
-    #[test]
-    fn an_agent_picked_here_holds_only_for_the_project_it_was_picked_in() {
-        let chosen = Some(("/repo".to_string(), LaunchPick { provider: "codex".into(), ..LaunchPick::default() }));
-        assert_eq!(chosen_for(&chosen, Some("/repo")).map(|p| p.provider.as_str()), Some("codex"));
-        assert!(chosen_for(&chosen, Some("/other")).is_none());
-        assert!(chosen_for(&chosen, None).is_none());
     }
 
     #[test]

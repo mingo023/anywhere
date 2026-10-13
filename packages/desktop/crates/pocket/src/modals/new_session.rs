@@ -1,8 +1,8 @@
-pub(crate) mod launch;
 pub(crate) mod picker;
 
 use agents::locals::Local;
 use agents::{Agents, CreateReply, Event};
+use crate::composer::{self, Composer};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
@@ -18,8 +18,6 @@ use picker::Picker;
 use serde_json::{Value, json};
 use store::LaunchPick;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Instant;
 use theme::*;
 
@@ -59,7 +57,7 @@ impl Access {
 pub struct NewForm {
     /// The new-session page fills the main area.
     pub(crate) shown: bool,
-    prompt: Entity<TextareaState>,
+    composer: Composer,
     search: Entity<InputState>,
     pr: Entity<InputState>,
     draft: Draft,
@@ -109,19 +107,8 @@ struct Draft {
     want_base: Option<String>,
     copy_env: bool,
     run_setup: bool,
-    provider: &'static str,
-    model: String,
-    effort: String,
-    access: String,
     reply: CreateReply,
     picker: Option<Picker>,
-    images: Vec<Attachment>,
-}
-
-/// A pasted image and the file the agent reads it from.
-struct Attachment {
-    path: PathBuf,
-    image: Arc<Image>,
 }
 
 impl Default for Draft {
@@ -140,13 +127,8 @@ impl Default for Draft {
             want_base: None,
             copy_env: false,
             run_setup: false,
-            provider: "claude",
-            model: String::new(),
-            effort: String::new(),
-            access: String::new(),
             reply: CreateReply::default(),
             picker: None,
-            images: Vec::new(),
         }
     }
 }
@@ -241,32 +223,15 @@ impl Draft {
         }
     }
 
-    fn pick_provider(&mut self, provider: &'static str) {
-        let pick = self.pick().switched(provider);
-        (self.model, self.effort, self.access) = (pick.model, pick.effort, pick.access);
-        (self.provider, self.picker) = (provider, None);
-    }
-
     /// `local` is the new Local's id the session starts in; without one it gets a new worktree.
-    fn spec(&self, project: &str, local: Option<&str>, name: &str, prompt: &str) -> Value {
+    fn spec(&self, pick: &LaunchPick, project: &str, local: Option<&str>, name: &str, prompt: &str) -> Value {
         let checkout = match (local, &self.source) {
             (Some(id), _) => agents::locals::checkout(id),
             (None, Source::New) => json!({"new": {"name": name, "base": self.base_branch(), "copy": self.copy_env, "setup": self.run_setup}}),
             (None, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name), "copy": self.copy_env, "setup": self.run_setup}}),
             (None, Source::Pr(_)) => json!({"new": {"pr": name, "copy": self.copy_env, "setup": self.run_setup}}),
         };
-        self.pick().spec(project, checkout, &with_images(prompt.trim(), &self.images))
-    }
-
-    /// What to remember for the Project.
-    fn pick(&self) -> LaunchPick {
-        LaunchPick { provider: self.provider.to_string(), model: self.model.clone(), effort: self.effort.clone(), access: self.access.clone() }
-    }
-
-    fn open(&mut self, last: &LaunchPick) {
-        self.provider = LaunchPick::known_provider(&last.provider);
-        (self.model, self.effort, self.access) = (last.model.clone(), last.effort.clone(), last.access.clone());
-        self.reply = CreateReply::default();
+        pick.spec(project, checkout, prompt.trim())
     }
 
     /// Reopening the page clears its error row, so a failure that arrives while it is gone goes to the window's error line.
@@ -277,23 +242,6 @@ impl Draft {
         Some(message)
     }
 
-    /// Whether the image is new to this draft and its file still needs writing.
-    fn attach(&mut self, attachment: Attachment) -> bool {
-        let new = !self.images.iter().any(|a| a.path == attachment.path);
-        if new {
-            self.images.push(attachment);
-        }
-        new
-    }
-
-    /// Drops the image whose file couldn't be written, if this draft still holds it.
-    fn unsaved(&mut self, path: &Path, detail: String) {
-        let held = self.images.len();
-        self.images.retain(|a| a.path != path);
-        if self.images.len() < held {
-            self.reply.error = Some(("Couldn't save the pasted image".into(), detail));
-        }
-    }
 }
 
 /// A checkout choice as its chip and menu row show it.
@@ -331,16 +279,6 @@ fn listed_branches<'a>(branches: &'a [(String, Option<i64>)], remote: &'a [Strin
         return local.take(RECENT).collect();
     }
     local.chain(remote.iter().map(|b| (None, b.as_str()))).filter(|(_, b)| b.to_lowercase().contains(&search)).take(FOUND).collect()
-}
-
-/// The prompt goes to the agent as text, so images go in as paths it can read.
-fn with_images(prompt: &str, images: &[Attachment]) -> String {
-    if images.is_empty() {
-        return prompt.to_string();
-    }
-    let list: Vec<String> = images.iter().map(|a| format!("- {}", a.path.display())).collect();
-    let block = format!("# Attached images\n\n{}", list.join("\n"));
-    if prompt.is_empty() { block } else { format!("{prompt}\n\n{block}") }
 }
 
 /// The number in "123", "#123" or a pull request URL.
@@ -396,62 +334,6 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
     }
 }
 
-/// The image a paste carries when it has no text; text, copied files included, pastes as itself.
-fn pasted_image(item: &ClipboardItem) -> Option<Image> {
-    if item.text().is_some() {
-        return None;
-    }
-    item.entries().iter().find_map(|e| match e {
-        ClipboardEntry::Image(image) => Some(image.clone()),
-        _ => None,
-    })
-}
-
-fn attachment_path(image: &Image, dir: &Path) -> PathBuf {
-    dir.join(format!("{}.{}", image.id, image.format.extension()))
-}
-
-/// Owner-only, like the rest of Pocket's files: screenshots can hold secrets.
-fn save_image(image: &Image, path: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    if let Some(dir) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    }
-    std::fs::write(path, &image.bytes)
-}
-
-/// The image shows at once and its file is written behind it, so starting never waits on a write; the agent opens it long after.
-fn paste_image(desktop: &WeakEntity<Desktop>, item: &ClipboardItem, window: &mut Window, cx: &mut App) -> bool {
-    let (Some(image), Some(d)) = (pasted_image(item), desktop.upgrade()) else { return false };
-    let image = Arc::new(image);
-    let path = attachment_path(&image, &d.read(cx).store.home().join("attachments"));
-    let new = d.update(cx, |d, cx| {
-        cx.notify();
-        d.new_form.draft.attach(Attachment { path: path.clone(), image: image.clone() })
-    });
-    if !new {
-        return true;
-    }
-    let save = cx.background_executor().spawn({
-        let path = path.clone();
-        async move { save_image(&image, &path) }
-    });
-    let desktop = desktop.clone();
-    window
-        .spawn(cx, async move |cx| {
-            if let Err(e) = save.await {
-                desktop
-                    .update(cx, |d, cx| {
-                        d.new_form.draft.unsaved(&path, e.to_string());
-                        cx.notify();
-                    })
-                    .ok();
-            }
-        })
-        .detach();
-    true
-}
-
 pub(crate) fn may_start(agents: &Agents) -> bool {
     !agents.observe_only()
 }
@@ -471,6 +353,7 @@ impl NewForm {
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4));
+        let composer = Composer::new(prompt.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
         let subs = vec![
@@ -491,8 +374,12 @@ impl NewForm {
                 cx.notify()
             }),
         ];
-        (Self { shown: false, prompt, search, pr, draft: Draft::default(), field: Field::default() }, subs)
+        (Self { shown: false, composer, search, pr, draft: Draft::default(), field: Field::default() }, subs)
     }
+}
+
+pub(crate) fn slot(d: &mut Desktop) -> &mut Composer {
+    &mut d.new_form.composer
 }
 
 impl Desktop {
@@ -503,7 +390,6 @@ impl Desktop {
     }
 
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let last = self.last_pick();
         let worktree = worktree || self.store.agents.new_worktree;
         let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
@@ -511,14 +397,14 @@ impl Desktop {
         f.field.hide();
         f.draft.taken.clear();
         f.draft.source = Source::New;
-        f.prompt.update(cx, |s, cx| {
+        f.composer.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
         f.draft.picked_checkout = if worktree { Target::Worktree } else { Target::NewLocal };
         (f.draft.locals_offered, f.draft.local) = (self.agents.locals_offered(), None);
-        f.draft.images.clear();
-        f.draft.open(&last);
+        f.composer.draft.clear();
+        f.draft.reply = CreateReply::default();
         (f.draft.picker, f.draft.want_base) = (None, None);
         match self.project.clone() {
             Some(repo) => self.pick_repo(repo, window, cx),
@@ -567,6 +453,11 @@ impl Desktop {
         .detach();
     }
 
+    /// The agent the page starts, picked here or the Project's last.
+    fn new_form_pick(&self) -> LaunchPick {
+        self.new_form.composer.draft.pick(self.new_form.draft.repo.as_deref(), || self.last_pick())
+    }
+
     fn session_ready(&self) -> bool {
         self.new_form.draft.ready(&self.new_form.draft.name())
     }
@@ -586,7 +477,7 @@ impl Desktop {
             return cx.notify();
         }
         let name = self.new_form.draft.name();
-        let prompt = self.new_form.prompt.read(cx).value().to_string();
+        let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
         let Some(project) = self.new_form.draft.repo.clone() else { return };
         let local = match self.new_form.draft.target() {
             Target::NewLocal => {
@@ -598,13 +489,14 @@ impl Desktop {
             }
             Target::Worktree => None,
         };
+        let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt(&prompt));
         let f = &self.new_form.draft;
-        let (mut spec, worktree, folder) = (f.spec(&project, local.as_deref(), &name, &prompt), f.in_worktree(), f.folder(&name));
+        let (mut spec, worktree, folder) = (f.spec(&pick, &project, local.as_deref(), &name, &sent), f.in_worktree(), f.folder(&name));
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
         self.store.agents.launch(&mut spec);
-        self.store.repos.entry(project.clone()).or_default().launch = f.pick();
+        self.store.repos.entry(project.clone()).or_default().launch = pick;
         if worktree {
             self.store.collapsed.remove(&project);
         }
@@ -694,7 +586,7 @@ impl Desktop {
         let f = &mut self.new_form.draft;
         f.want_base = Some(c.base().to_string());
         f.source = Source::of(c.asked());
-        self.new_form.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
+        self.new_form.composer.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
     }
 
     pub fn new_session_page(&mut self, cx: &mut Context<Self>) -> Div {
@@ -702,9 +594,6 @@ impl Desktop {
         let repo = f.repo.clone().unwrap_or_default();
         let name = self.repo_name(&repo);
         let project = div().flex().flex_none().items_center().gap(px(6.)).px(px(6.)).text_color(TEXT_2).child(ui::repo_tile(&self.project_mark(&repo, crate::util::initials(&name)), 16., false, None)).child(name.clone());
-        let agent = self.agent_select(cx);
-        let model = self.model_select(cx);
-        let access = self.access_select(cx);
         let checkout = self.checkout_select(cx);
         let pr = f.linked_pr();
         let branch = match pr {
@@ -733,58 +622,11 @@ impl Desktop {
                     this.new_form.draft.unlink_pr();
                     cx.notify();
                 }));
-            div().h(px(26.)).pl(px(9.)).pr(px(4.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).bg(FILL_2).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(icon("pull-request", 13., TEXT_2)).child(format!("#{n}")).child(unlink)
+            div().h(px(26.)).pl(px(9.)).pr(px(4.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).bg(FILL_2).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(icon("pull-request", 13., TEXT_2)).child(format!("#{n}")).child(unlink).into_any_element()
         });
-        let attached = (pill.is_some() || !f.images.is_empty()).then(|| {
-            div().flex().items_center().gap(px(8.)).pt(px(14.)).px(px(16.)).children(pill).children(f.images.iter().enumerate().map(|(i, a)| {
-                let remove = div()
-                    .id(("image-remove", i))
-                    .absolute()
-                    .top(px(-6.))
-                    .right(px(-6.))
-                    .size(px(18.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(9.))
-                    .bg(POPOVER)
-                    .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
-                    .cursor_pointer()
-                    .active(|s| s.opacity(0.6))
-                    .child(icon("x", 10., TEXT_2))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.new_form.draft.images.remove(i);
-                        cx.notify();
-                    }));
-                div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(img(a.image.clone()).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover)).child(remove)
-            }))
-        });
-        let composer = div()
-            .flex()
-            .flex_col()
-            .rounded(px(14.))
-            .bg(SURFACE)
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.), ui::shadow(rgba(0x1111130d), 10., 30.)])
-            .children(attached)
-            // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
-            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(Textarea::new(&self.new_form.prompt).appearance(false).h(px(105.)).text_size(px(15.)).line_height(px(23.25)).on_paste(move |item, window, cx| paste_image(&desktop, item, window, cx))))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(2.))
-                    .pt(px(4.))
-                    .px(px(10.))
-                    .pb(px(10.))
-                    .text_size(px(13.))
-                    .child(agent)
-                    .child(model)
-                    .child(access)
-                    .child(div().flex_1())
-                    .children(link)
-                    .child(ui::kbd("⌘↵").mr(px(8.)))
-                    .child(send),
-            );
+        let textarea = Textarea::new(&self.new_form.composer.prompt).h(px(105.)).line_height(px(23.25)).on_paste(move |item, window, cx| composer::paste_image(&desktop, slot, item, window, cx));
+        let trailing = link.map(IntoElement::into_any_element).into_iter().chain([ui::kbd("⌘↵").mr(px(8.)).into_any_element(), send.into_any_element()]).collect();
+        let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, pill.into_iter().collect(), trailing, cx);
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
         let footer = div()
             .w_full()
@@ -814,9 +656,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Attachment, Draft, Local, Source, Target, attachment_path, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, pasted_image, save_image, taken_names};
+    use super::{Draft, Local, Source, Target, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, taken_names};
     use agents::CreateReply;
-    use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use serde_json::json;
     use store::LaunchPick;
     use std::collections::HashSet;
@@ -825,6 +666,10 @@ mod tests {
         let mut reply = CreateReply::default();
         reply.sent(request.into());
         reply
+    }
+
+    fn claude() -> LaunchPick {
+        LaunchPick { provider: "claude".into(), ..LaunchPick::default() }
     }
 
     #[test]
@@ -839,7 +684,7 @@ mod tests {
     #[test]
     fn a_session_in_a_local_names_it_and_a_new_local_needs_a_project_and_pocketd_taking_locals() {
         let mut draft = Draft::default();
-        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["checkout"], json!({"local": "local-1"}));
+        assert_eq!(draft.spec(&claude(), "/p", Some("local-1"), "", "")["checkout"], json!({"local": "local-1"}));
         draft.pick_checkout(Target::NewLocal);
         assert!(!draft.ready(""));
         draft.repo = Some("/p".into());
@@ -870,7 +715,7 @@ mod tests {
     fn a_local_session_sends_only_its_local_whatever_the_worktree_choices_were() {
         let draft = Draft { picked_checkout: Target::NewLocal, source: Source::Branch("fix/login".into()), repo: Some("/p".into()), branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         assert!(draft.ready(""));
-        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["checkout"], json!({"local": "local-1"}));
+        assert_eq!(draft.spec(&claude(), "/p", Some("local-1"), "", "")["checkout"], json!({"local": "local-1"}));
     }
 
     #[test]
@@ -916,34 +761,6 @@ mod tests {
     }
 
     #[test]
-    fn an_image_paste_is_saved_to_a_private_file_and_text_pastes_as_itself() {
-        use std::os::unix::fs::PermissionsExt;
-        let root = std::env::temp_dir().join(format!("pocket-paste-test-{}", std::process::id()));
-        let image = pasted_image(&ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, vec![1, 2, 3]))).unwrap();
-        let path = attachment_path(&image, &root.join("attachments"));
-        save_image(&image, &path).unwrap();
-        assert_eq!((path.extension().and_then(|e| e.to_str()), std::fs::read(&path).unwrap()), (Some("png"), vec![1, 2, 3]));
-        assert_eq!(std::fs::metadata(root.join("attachments")).unwrap().permissions().mode() & 0o777, 0o700);
-        assert!(pasted_image(&ClipboardItem::new_string("fix ci".into())).is_none());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn the_same_image_attaches_once_and_one_that_failed_to_save_is_dropped_with_why() {
-        let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
-        let at = |path: &str| Attachment { path: path.into(), image: image.clone() };
-        let mut draft = Draft::default();
-        assert!(draft.attach(at("/h/a.png")));
-        assert!(!draft.attach(at("/h/a.png")));
-        assert!(draft.attach(at("/h/b.png")));
-        draft.unsaved("/h/c.png".as_ref(), "disk full".into());
-        assert_eq!((draft.images.len(), draft.reply.error.is_none()), (2, true));
-        draft.unsaved("/h/a.png".as_ref(), "disk full".into());
-        assert_eq!(draft.images.iter().map(|a| a.path.to_str().unwrap()).collect::<Vec<_>>(), ["/h/b.png"]);
-        assert_eq!(draft.reply.error, Some(("Couldn't save the pasted image".to_string(), "disk full".to_string())));
-    }
-
-    #[test]
     fn a_name_must_be_free_and_valid_for_git() {
         let taken: HashSet<String> = ["main", "Foo", "fix/login"].map(String::from).into();
         assert_eq!(name_problem("fix-login_2.0", &taken), None);
@@ -956,22 +773,12 @@ mod tests {
     }
 
     #[test]
-    fn attached_images_follow_the_prompt_as_paths() {
-        let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
-        let at = |path: &str| Attachment { path: path.into(), image: image.clone() };
-        let draft = Draft { images: vec![at("/h/attachments/a.png"), at("/h/attachments/b.png")], ..Draft::default() };
-        let block = "# Attached images\n\n- /h/attachments/a.png\n- /h/attachments/b.png";
-        assert_eq!(draft.spec("/p", Some("local-1"), "", " Fix CI ")["prompt"], format!("Fix CI\n\n{block}"));
-        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["prompt"], block);
-    }
-
-    #[test]
     fn a_spec_leaves_access_to_the_app_without_planning_and_carries_no_argv() {
         let want = json!({"project": "/p", "checkout": {"local": "local-1"}, "provider": "claude", "plan": false, "prompt": "Fix CI"});
-        assert_eq!(Draft::default().spec("/p", Some("local-1"), "", "  Fix CI  "), want);
+        assert_eq!(Draft::default().spec(&claude(), "/p", Some("local-1"), "", "  Fix CI  "), want);
         let new = Draft { picked_checkout: Target::Worktree, branches: vec![("main".into(), None)], copy_env: true, ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
-        assert_eq!(new.spec("/p", None, "fix-ci", " \n "), want);
+        assert_eq!(new.spec(&claude(), "/p", None, "fix-ci", " \n "), want);
     }
 
     #[test]
@@ -986,8 +793,8 @@ mod tests {
     fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
         let draft = Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "copy": false, "setup": true}}, "provider": "claude", "plan": false});
-        assert_eq!(draft.spec("/p", None, "fix/login", ""), want);
-        assert_eq!(draft.spec("/p", None, "origin/fix/login", ""), want);
+        assert_eq!(draft.spec(&claude(), "/p", None, "fix/login", ""), want);
+        assert_eq!(draft.spec(&claude(), "/p", None, "origin/fix/login", ""), want);
         assert_eq!(draft.folder("fix/login"), "fix-login");
     }
 
@@ -1012,7 +819,7 @@ mod tests {
         let draft = Draft { picked_checkout: Target::Worktree, source: Source::Pr("#7".into()), repo: Some("/p".into()), copy_env: true, ..Draft::default() };
         assert!(draft.ready("#7") && !draft.ready("seven"));
         let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "copy": true, "setup": false}}, "provider": "claude", "plan": false});
-        assert_eq!(draft.spec("/p", None, "#7", ""), want);
+        assert_eq!(draft.spec(&claude(), "/p", None, "#7", ""), want);
         assert_eq!(draft.folder("#7"), "pr-7");
         assert_eq!(Source::of(&want["checkout"]["new"]), Source::Pr("#7".into()));
     }
@@ -1046,43 +853,12 @@ mod tests {
     }
 
     #[test]
-    fn picks_are_remembered_per_project() {
-        let draft = Draft { provider: "codex", model: "gpt-5".into(), effort: "high".into(), access: "auto".into(), ..Draft::default() };
-        let pick = draft.pick();
-        assert_eq!(pick, LaunchPick { provider: "codex".into(), model: "gpt-5".into(), effort: "high".into(), access: "auto".into() });
-        let mut next = Draft::default();
-        next.open(&pick);
-        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access.as_str()), ("codex", "gpt-5", "high", "auto"));
-        next.open(&LaunchPick::default());
-        assert_eq!((next.provider, next.model.as_str(), next.effort.as_str(), next.access.as_str()), ("claude", "", "", ""));
-    }
-
-    #[test]
-    fn a_remembered_model_and_effort_start_the_session_until_the_agent_changes() {
-        let mut draft = Draft { model: "opus".into(), effort: "high".into(), ..Draft::default() };
-        let spec = draft.spec("/p", Some("local-1"), "", "");
-        assert_eq!((&spec["model"], &spec["effort"]), (&json!("opus"), &json!("high")));
-        draft.pick_provider("claude");
-        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["model"], "opus");
-        draft.pick_provider("codex");
-        let spec = draft.spec("/p", Some("local-1"), "", "");
-        assert_eq!((spec.get("model"), spec.get("effort")), (None, None));
-    }
-
-    #[test]
-    fn a_picked_access_starts_the_session_whatever_the_agent() {
-        let mut draft = Draft { access: "edits".into(), ..Draft::default() };
-        draft.pick_provider("codex");
-        assert_eq!(draft.spec("/p", Some("local-1"), "", "")["access"], "edits");
-    }
-
-    #[test]
     fn a_create_error_keeps_the_draft() {
-        let mut draft = Draft { provider: "codex", repo: Some("/p".into()), reply: sent("r1"), ..Draft::default() };
+        let mut draft = Draft { repo: Some("/p".into()), reply: sent("r1"), ..Draft::default() };
         assert!(!draft.ready(""));
         assert!(!draft.reply.answer("r0", None));
         assert!(draft.reply.answer("r1", Some(("Setup exited 1".into(), "npm ERR!".into()))));
-        assert_eq!((draft.provider, draft.reply.waiting(), draft.ready("")), ("codex", false, true));
+        assert_eq!((draft.reply.waiting(), draft.ready("")), (false, true));
         assert_eq!(draft.reply.error, Some(("Setup exited 1".to_string(), "npm ERR!".to_string())));
     }
 
