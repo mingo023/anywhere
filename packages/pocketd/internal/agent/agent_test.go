@@ -470,11 +470,45 @@ func TestNamingsTitleOutranksTheProvidersUntilTheConversationChanges(t *testing.
 	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
 	a.SetConversation("c1")
 	a.SetTitle("Provider title")
-	a.SetNamed("Fix login")
+	claim, _ := a.ClaimNaming()
+	a.SetNamed(claim, "Fix login")
 	if got := a.Summary().Title; got != "Fix login" {
 		t.Fatal(got)
 	}
 	a.SetConversation("c2")
+	if got := a.Summary().Title; got != "" {
+		t.Fatal(got)
+	}
+}
+
+func TestNamingStartsOncePerConversation(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetConversation("c1")
+	if _, ok := a.ClaimNaming(); !ok {
+		t.Fatal("the first claim was refused")
+	}
+	if _, ok := a.ClaimNaming(); ok {
+		t.Fatal("a second claim on the same Conversation was taken")
+	}
+	a.SetConversation("c2")
+	if _, ok := a.ClaimNaming(); !ok {
+		t.Fatal("a new Conversation can't be named")
+	}
+}
+
+func TestARestoredNameIsNotNamedAgain(t *testing.T) {
+	a := NewRegistry(hub.New()).Restore(Restored{ID: "a1", Provider: "claude", Conversation: "c1", Named: "Fix login"}, fakeDriver{})
+	if _, ok := a.ClaimNaming(); ok {
+		t.Fatal("a named Conversation was claimed")
+	}
+}
+
+func TestANameForAnOlderConversationIsDropped(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetConversation("c1")
+	claim, _ := a.ClaimNaming()
+	a.SetConversation("c2")
+	a.SetNamed(claim, "Fix login")
 	if got := a.Summary().Title; got != "" {
 		t.Fatal(got)
 	}
