@@ -1,5 +1,6 @@
 #!/bin/sh
 # Builds a signed, notarized and stapled Anywhere.dmg in packages/desktop/target/release-mac (ADR 0004).
+# --publish also builds the standalone pocketd archives for hosts (scripts/package-pocketd.sh, package-pocketd-windows.sh) and uploads them with it.
 # Usage: scripts/release-mac.sh <version> [--publish]    e.g. 0.1.0
 # --publish needs CHANGELOG.md's section for the version, tag v<version> at HEAD, a clean tree, gh logged in
 # and the Sparkle private key (ANYWHERE_SPARKLE_KEY, or the login Keychain).
@@ -159,9 +160,15 @@ check_tag() {
 # Sparkle signs the stapled DMG, so this runs after notarize.
 publish() {
   tag="v$VERSION"
+  # The standalone pocketd archives a desktop installs on hosts.
+  rm -rf "$ROOT/packages/pocketd/dist"
+  "$ROOT/scripts/package-pocketd.sh" "$VERSION"
+  "$ROOT/scripts/package-pocketd-windows.sh" "$VERSION"
+  hosts=$(find "$ROOT/packages/pocketd/dist" -name 'pocketd-*.tar.gz*' -o -name 'pocketd-windows-*.zip*')
   case "$VERSION" in
     *-*)
-      gh release create "$tag" "$DMG" --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+      # shellcheck disable=SC2086
+      gh release create "$tag" "$DMG" $hosts --repo "$REPO" --verify-tag --prerelease --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
       return
       ;;
   esac
@@ -181,7 +188,8 @@ publish() {
   else
     "$ROOT/third_party/sparkle/bin/generate_appcast" "$@" "$feed"
   fi
-  gh release create "$tag" "$DMG" "$feed/appcast.xml" --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
+  # shellcheck disable=SC2086
+  gh release create "$tag" "$DMG" "$feed/appcast.xml" $hosts --repo "$REPO" --verify-tag --latest --title "Anywhere $VERSION" --notes-file "$OUT/Anywhere.md"
 }
 
 main() {

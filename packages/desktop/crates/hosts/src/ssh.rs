@@ -2,6 +2,7 @@
 //! The options and stderr patterns come from docs/orchestrators/research/21-ssh-connection-spike.md.
 
 use crate::{Host, Target};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use std::path::Path;
 use std::time::Duration;
 
@@ -133,6 +134,50 @@ fn destination(host: &Host, command: &str) -> Vec<String> {
     out
 }
 
+/// Runs `script` in Windows PowerShell whatever the account's ssh shell is: cmd.exe by default, whose quoting
+/// it never meets, encoded as `-EncodedCommand` wants it.
+pub fn powershell(script: &str) -> String {
+    let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    format!("powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {}", STANDARD.encode(utf16))
+}
+
+/// `text` as a PowerShell literal.
+pub fn ps_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
+/// Prints the host's home, then whether the app's pocketd is installed under it, from PowerShell.
+pub fn windows_probe_command(home_dir_name: &str) -> String {
+    let shim = ps_quote(&format!(r"{home_dir_name}\bin\pocketd.cmd"));
+    powershell(&format!("Write-Output $HOME; if (Test-Path (Join-Path $HOME {shim})) {{ 'installed' }} else {{ 'missing' }}"))
+}
+
+/// The Windows probe's answer; a home that isn't `X:\…` means this wasn't Windows.
+pub fn parse_windows_probe(stdout: &str) -> Option<Probe> {
+    let mut lines = stdout.lines().map(str::trim).filter(|l| !l.is_empty());
+    let (status, home) = (lines.next_back()?, lines.next_back()?);
+    let drive = matches!(home.as_bytes(), [d, b':', b'\\', ..] if d.is_ascii_alphabetic());
+    drive.then(|| Probe { home: home.into(), running: status == "installed" })
+}
+
+/// `TUNNEL_COMMAND` for Windows, where nothing like `cat` holds stdin.
+pub fn windows_tunnel_command() -> String {
+    powershell("[Console]::Out.WriteLine('READY'); [Console]::Out.Flush(); $null = [Console]::In.ReadToEnd()")
+}
+
+/// The options that forward `local` to pocketd's owner TCP port on the host: Windows' sshd can't forward to a socket.
+pub fn tcp_forward(local: &Path, port: u16) -> Result<Vec<String>, Failure> {
+    let local = local.display().to_string();
+    if local.len() > MAX_SOCKET_PATH {
+        return Err(Failure::PathTooLong);
+    }
+    Ok(["-o", "ExitOnForwardFailure=yes", "-o", "StreamLocalBindUnlink=yes", "-L"]
+        .iter()
+        .map(|s| s.to_string())
+        .chain([format!("{local}:127.0.0.1:{port}")])
+        .collect())
+}
+
 /// The options that forward `local` to pocketd's socket under the host's `home`.
 pub fn forward(local: &Path, home: &str, home_dir_name: &str) -> Result<Vec<String>, Failure> {
     let remote = format!("{}/{home_dir_name}/pocketd.sock", home.trim_end_matches('/'));
@@ -169,6 +214,8 @@ pub enum Failure {
     /// sshd's penalty for failed logins, which also blocks good ones for about 20 seconds.
     Throttled,
     NotRunning,
+    /// A Windows host's pocketd refused this Mac's owner token, even a newly paired one.
+    Unpaired,
     PathTooLong,
     Other,
 }
@@ -179,7 +226,7 @@ impl Failure {
         let backoff = |cap: u64| Duration::from_secs((1u64 << attempt.min(6)).min(cap));
         match self {
             // Retrying a refused login only extends sshd's penalty, and the rest won't change by waiting.
-            Failure::Auth | Failure::UnknownKey | Failure::KeyChanged | Failure::PathTooLong => None,
+            Failure::Auth | Failure::UnknownKey | Failure::KeyChanged | Failure::Unpaired | Failure::PathTooLong => None,
             Failure::Throttled => Some(Duration::from_secs(20)),
             // pocketd comes back after the host's sshd when the host restarts.
             Failure::NotRunning => Some(backoff(15).max(Duration::from_secs(2))),
@@ -202,6 +249,7 @@ impl Failure {
             Failure::Dropped => format!("Lost the connection to {name}."),
             Failure::Throttled => format!("{name} is limiting sign-ins after failed attempts. Trying again shortly."),
             Failure::NotRunning => format!("Anywhere is stopped on {name}."),
+            Failure::Unpaired => format!("Anywhere on {name} didn't accept this Mac. Reconnect to pair again."),
             Failure::PathTooLong => format!("The path to Anywhere on {name} is too long to forward."),
             Failure::Other => format!("Couldn't connect to {name}."),
         }
@@ -317,6 +365,35 @@ mod tests {
         assert_eq!(parse_probe("Welcome!\n/home/dev\nrunning\n"), Some(Probe { home: "/home/dev".into(), running: true }));
         assert_eq!(parse_probe("/Users/m\nstopped\n"), Some(Probe { home: "/Users/m".into(), running: false }));
         assert_eq!(parse_probe("stopped\n"), None);
+    }
+
+    fn decoded(command: &str) -> String {
+        let b64 = command.strip_prefix("powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ").unwrap();
+        let bytes = STANDARD.decode(b64).unwrap();
+        String::from_utf16(&bytes.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>()).unwrap()
+    }
+
+    #[test]
+    fn powershell_gets_the_script_as_utf16_so_cmds_quoting_never_touches_it() {
+        let command = windows_probe_command(".it's");
+        assert!(command.bytes().all(|b| b.is_ascii_alphanumeric() || b" -+/=".contains(&b)), "{command}");
+        assert_eq!(decoded(&command), r"Write-Output $HOME; if (Test-Path (Join-Path $HOME '.it''s\bin\pocketd.cmd')) { 'installed' } else { 'missing' }");
+        assert!(decoded(&windows_tunnel_command()).contains("ReadToEnd()"));
+    }
+
+    #[test]
+    fn the_windows_probe_wants_a_drive_home_so_a_unix_one_is_not_mistaken_for_it() {
+        assert_eq!(parse_windows_probe("Welcome\r\nC:\\Users\\me\r\ninstalled\r\n"), Some(Probe { home: r"C:\Users\me".into(), running: true }));
+        assert_eq!(parse_windows_probe("C:\\Users\\me\nmissing\n"), Some(Probe { home: r"C:\Users\me".into(), running: false }));
+        assert_eq!(parse_windows_probe("/home/dev\nmissing\n"), None);
+        assert_eq!(parse_windows_probe("'powershell' is not recognized\n"), None);
+    }
+
+    #[test]
+    fn a_windows_forward_goes_to_the_owner_port_on_the_hosts_loopback() {
+        let opts = tcp_forward(Path::new("/l/pc.sock"), 4519).unwrap();
+        assert_eq!(opts, ["-o", "ExitOnForwardFailure=yes", "-o", "StreamLocalBindUnlink=yes", "-L", "/l/pc.sock:127.0.0.1:4519"]);
+        assert_eq!(tcp_forward(&PathBuf::from(format!("/{}", "x".repeat(110))), 4519), Err(Failure::PathTooLong));
     }
 
     #[test]

@@ -1,8 +1,8 @@
-# Compact Rail (monocode-style) Implementation Plan
+# Compact Rail Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use /implement to execute this plan task-by-task.
 
-**Goal:** ⌘B collapses the projects sidebar into monocode's icon rail: a project switcher popover, Sessions/Explorer/Changes icons that drive a docked column, Search, Inbox and Settings.
+**Goal:** ⌘B collapses the projects sidebar into an icon rail: a project switcher popover, Sessions/Explorer/Changes icons that drive a docked column, Search, Inbox and Settings.
 
 **Architecture:** `Layout::Compact` keeps its name but changes shape. The rail (`pocket/src/sidebar/rail.rs`) is rewritten. A new `pocket/src/sidebar/project_picker.rs` owns the switcher popover (`ProjectPicker` state, held in `SidebarState`). In Compact the existing column (`sidebar/column.rs`) sits beside the rail without its tab strip, and `SidebarState::column_hidden` replaces `Desktop::panel`. The floating panel (`sidebar/panel.rs`) and its dimmed backdrop go. Decisions live in plain functions with tests: `sidebar_toggled`, `column_shown`, `rail_pick`, `listed`, `step`, `parent`.
 
@@ -24,7 +24,7 @@
 - `packages/desktop/crates/pocket/src/palette.rs:270-285, 367-391, 440-475`: a search `InputState` with arrow/enter handling in `capture_key_down`.
 - `packages/desktop/crates/pocket/src/sidebar/row_menu.rs:55-70`: why menu toggles use `capture_any_mouse_down` + `cx.stop_propagation()` (it stops the open menu's `on_mouse_down_out` from closing it before the toggle reopens it).
 
-**Spec (from monocode, `github.com/hardbeat920/monocode`, `src/app/shell/Sidebar.tsx` `CompactProjectRail` and `src/features/projects/ui/SearchableProjectPicker.tsx`):**
+**Spec:**
 - ⌘B: Sidebars → Compact; Compact or Focus → Sidebars. ⌘. still cycles Sidebars → Compact → Focus.
 - Rail top→bottom: expand-sidebar button, current project button, Sessions (`comment`), Explorer (`file`), Changes (`branch`, dot while the worktree has changes), Search (opens the palette), Inbox (count badge while unseen; clicking it while the inbox shows goes back), spacer, Settings, then the existing context-left bars and avatar.
 - Project popover: 286px wide, 4px under the button, search field "Search projects…", rows (check on the current project else its mark, name, `~`-shortened parent folder, status indicator), "No projects found" when empty, footer "New project" → `Overlay::AddRepo`. Current project first, the rest in sidebar order. Case-insensitive substring match on name or path. ↑/↓ move the highlight and stop at the ends, Enter picks, Esc or a click outside closes. Each project row is followed by its worktrees (added after review: Compact hides the aside, the only other worktree switcher); picking calls `select_tree`.
@@ -36,11 +36,11 @@
 - The column's hidden state isn't saved across restarts.
 - No per-tab keyboard shortcuts.
 - The compose button leaves the rail (the column header's `+` and ⌘N remain).
-- The context-left bars and avatar stay at the rail's foot (monocode has neither; dropping them would orphan `Desktop::initials` and the rail's usage view).
+- The context-left bars and avatar stay at the rail's foot (dropping them would orphan `Desktop::initials` and the rail's usage view).
 
 ---
 
-## PR 1: ⌘B collapses into a monocode-style rail
+## PR 1: ⌘B collapses into a compact rail
 
 **Scope:** The whole feature. Ships ⌘B, the new rail, the project switcher and the docked column; removes the floating panel.
 **Depends on:** nothing

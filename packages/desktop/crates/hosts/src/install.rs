@@ -1,92 +1,540 @@
-//! Signs in to a host once with a password, to give it a key of the app's own.
+//! Puts pocketd on a host over ssh as a user service, or finds the one already running there.
 
 use crate::Host;
-use crate::ssh::{self, Failure, PasswordMethod};
-use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-use std::os::unix::process::CommandExt;
+use crate::link::Paths;
+use crate::ssh::{self, Failure};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output, Stdio};
+use std::time::Duration;
 
-/// Askpass reads the password from here: an inherited fd doesn't reach it, and argv shows in `ps`.
-const PASSWORD_VAR: &str = "POCKET_SSH_PW";
+const BOOTSTRAP: &str = include_str!("bootstrap.sh");
+const BOOTSTRAP_PS1: &str = include_str!("bootstrap.ps1");
+const RELEASES: &str = "https://github.com/mingo023/anywhere/releases/download";
+/// Where an uploaded archive waits, in the app's folder on the host.
+const UPLOAD: &str = "upload.tar.gz";
+const UPLOAD_ZIP: &str = "upload.zip";
 
-/// ssh's `ConnectTimeout` doesn't bound a server that stops answering mid sign-in.
-const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Puts the app's key for `host` in its `authorized_keys`, signing in with `password`; blocks until ssh is done.
-/// The host's key must already be trusted, so the password never goes to a host nobody checked.
-pub fn with_password(host: &Host, home: &Path, password: &str) -> Result<(), Failure> {
-    let dir = home.join("hosts");
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|_| Failure::Other)?;
-    let key = host.app_key(home);
-    if !key.exists() {
-        keygen(&key)?;
-    }
-    let public = std::fs::read(public_key(&key)).map_err(|_| Failure::Other)?;
-    let askpass = dir.join("askpass");
-    std::fs::write(&askpass, format!("#!/bin/sh\nprintf '%s\\n' \"${PASSWORD_VAR}\"\n")).map_err(|_| Failure::Other)?;
-    std::fs::set_permissions(&askpass, std::fs::Permissions::from_mode(0o700)).map_err(|_| Failure::Other)?;
-    match sign_in(host, home, &askpass, password, &public, PasswordMethod::Password) {
-        Err(stderr) if !ssh::takes_passwords(&stderr) => sign_in(host, home, &askpass, password, &public, PasswordMethod::KeyboardInteractive),
-        signed_in => signed_in,
-    }
-    .map_err(|stderr| ssh::classify(&stderr))
+/// A line of the install checklist, in the order bootstrap.sh and bootstrap.ps1 report them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Step {
+    Detect,
+    Download,
+    Verify,
+    Unpack,
+    Link,
+    Service,
+    Start,
 }
 
-/// Runs the key install over one password sign-in; ssh's stderr when it fails.
-fn sign_in(host: &Host, home: &Path, askpass: &Path, password: &str, public: &[u8], method: PasswordMethod) -> Result<(), String> {
-    let mut child = Command::new("ssh")
-        .args(ssh::password_args(host, &host.known_hosts(home), method, ssh::INSTALL_KEY))
-        .env("SSH_ASKPASS", askpass)
-        // Askpass even when the app was started from a terminal, whose tty ssh would otherwise prompt on.
-        .env("SSH_ASKPASS_REQUIRE", "force")
-        .env(PASSWORD_VAR, password)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    let _ = child.stdin.take().map(|mut stdin| stdin.write_all(public));
-    let stderr = child.stderr.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = pipe.read_to_string(&mut text);
-            text
-        })
-    });
-    let deadline = Instant::now() + SIGN_IN_TIMEOUT;
-    let status = loop {
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(status) => break status,
-            None if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                // ssh's own wording, so `classify` calls it TimedOut.
-                return Err("Operation timed out".into());
-            }
-            None => std::thread::sleep(Duration::from_millis(50)),
+impl Step {
+    pub const ALL: [Step; 7] = [Step::Detect, Step::Download, Step::Verify, Step::Unpack, Step::Link, Step::Service, Step::Start];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Step::Detect => "Check the host",
+            Step::Download => "Download pocketd",
+            Step::Verify => "Verify the download",
+            Step::Unpack => "Unpack pocketd",
+            Step::Link => "Install pocketd",
+            Step::Service => "Set up the service",
+            Step::Start => "Start pocketd",
+        }
+    }
+
+    fn named(name: &str) -> Option<Step> {
+        Step::ALL.into_iter().find(|s| format!("{s:?}").eq_ignore_ascii_case(name))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Progress {
+    Step(Step),
+    Warn(String),
+    /// A pocketd already runs there; it's reused as it is.
+    Running,
+    Done,
+    Error(String),
+}
+
+/// What an `ANYWHERE …` line from bootstrap.sh reports; `None` for its other output.
+pub fn parse(line: &str) -> Option<Progress> {
+    let rest = line.trim_end().strip_prefix("ANYWHERE ")?;
+    let (word, text) = rest.split_once(' ').unwrap_or((rest, ""));
+    match word {
+        "step" => Step::named(text).map(Progress::Step),
+        "warn" => Some(Progress::Warn(text.into())),
+        "error" => Some(Progress::Error(text.into())),
+        "running" if text.is_empty() => Some(Progress::Running),
+        "done" if text.is_empty() => Some(Progress::Done),
+        _ => None,
+    }
+}
+
+/// What a host runs, named as pocketd's archives name it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Platform {
+    Unix { os: &'static str, arch: &'static str },
+    Windows { arch: &'static str },
+}
+
+/// The platform `uname -s` then `uname -m` printed, past any login noise.
+pub fn parse_uname(stdout: &str) -> Result<Platform, String> {
+    let mut lines = stdout.lines().map(str::trim).filter(|l| !l.is_empty());
+    let (Some(machine), Some(system)) = (lines.next_back(), lines.next_back()) else { return Err("uname printed nothing".into()) };
+    let windows = ["MINGW", "MSYS", "CYGWIN"].iter().any(|p| system.starts_with(p));
+    let os = match system {
+        _ if windows => "windows",
+        "Darwin" => "darwin",
+        "Linux" => "linux",
+        _ => return Err(format!("Anywhere doesn't run on {system}")),
+    };
+    let arch = match machine {
+        "arm64" | "aarch64" => "arm64",
+        "x86_64" | "amd64" => "amd64",
+        _ => return Err(format!("Anywhere doesn't run on {machine}")),
+    };
+    Ok(if windows { Platform::Windows { arch } } else { Platform::Unix { os, arch } })
+}
+
+/// Prints `windows <CPU>` from PowerShell; a 32-bit shell on a 64-bit CPU names the real one in the W6432 variable.
+fn windows_arch_command() -> String {
+    ssh::powershell("$cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }; Write-Output \"windows $cpu\"")
+}
+
+/// What `windows_arch_command` printed; `None` when it wasn't Windows that ran it.
+fn parse_windows_arch(stdout: &str) -> Option<Result<Platform, String>> {
+    let cpu = stdout.lines().map(str::trim).rev().find_map(|l| l.strip_prefix("windows "))?;
+    Some(match cpu {
+        "AMD64" => Ok(Platform::Windows { arch: "amd64" }),
+        "ARM64" => Ok(Platform::Windows { arch: "arm64" }),
+        _ => Err(format!("Anywhere doesn't run on {cpu}")),
+    })
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Error {
+    Ssh(Failure),
+    Failed(String),
+}
+
+impl Error {
+    pub fn message(&self, name: &str) -> String {
+        match self {
+            Error::Ssh(f) => f.message(name),
+            Error::Failed(text) => text.clone(),
+        }
+    }
+}
+
+/// What the host runs. Windows' shells have no `uname`, so a failed one asks PowerShell.
+pub fn probe(host: &Host, paths: &Paths) -> Result<Platform, Error> {
+    let out = ssh(host, paths, "uname -s; uname -m", Stdio::null())?;
+    if out.status.success() {
+        return parse_uname(&String::from_utf8_lossy(&out.stdout)).map_err(Error::Failed);
+    }
+    let ps = ssh(host, paths, &windows_arch_command(), Stdio::null())?;
+    if let Some(platform) = parse_windows_arch(&String::from_utf8_lossy(&ps.stdout)) {
+        return platform.map_err(Error::Failed);
+    }
+    Err(Error::Failed(format!("Couldn't tell what {} runs: {}", host.name, last_line(&out.stderr))))
+}
+
+/// Where pocketd comes from: the release's download folder, or an archive on this Mac that's uploaded first.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Source {
+    Release { version: String, url: String },
+    Archive(PathBuf),
+}
+
+/// The source for `platform`: an archive in `dist` when it has one, else the release `version`.
+/// A dev build has no release, so it needs the archive.
+pub fn source(platform: Platform, version: &str, dist: Option<&Path>) -> Result<Source, String> {
+    let (name, package) = match platform {
+        Platform::Unix { os, arch } => (format!("pocketd-{os}-{arch}.tar.gz"), format!("package-pocketd.sh dev {os}-{arch}")),
+        Platform::Windows { arch } => (format!("pocketd-windows-{arch}.zip"), format!("package-pocketd-windows.sh dev {arch}")),
+    };
+    if let Some(path) = dist.map(|d| d.join(&name)).filter(|p| p.is_file()) {
+        return Ok(Source::Archive(path));
+    }
+    if version == "dev" {
+        let dir = dist.map_or("packages/pocketd/dist".into(), |d| d.display().to_string());
+        return Err(format!("No {name} in {dir}. Build it with scripts/{package}"));
+    }
+    Ok(Source::Release { version: version.into(), url: format!("{RELEASES}/v{version}") })
+}
+
+/// The folder of pocketd archives this Mac can upload: `ANYWHERE_HOST_ARCHIVE_DIR`, or in a dev build the one
+/// scripts/package-pocketd.sh fills.
+pub fn dist_dir() -> Option<PathBuf> {
+    std::env::var_os("ANYWHERE_HOST_ARCHIVE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| (!channel::is_release()).then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../pocketd/dist")))
+}
+
+/// The service's name for the app's folder `remote_dir`. One per folder, so a test install never
+/// takes over the real one.
+pub fn label(remote_dir: &str) -> String {
+    let label = format!("{}.host.pocketd", channel::bundle_id());
+    if remote_dir == channel::home_dir_name() { label } else { format!("{label}.{}", remote_dir.trim_start_matches('.')) }
+}
+
+/// Installs pocketd on `host` and starts it, or finds it running and leaves it be.
+pub fn install(host: &Host, paths: &Paths, source: &Source, on: impl FnMut(Progress)) -> Result<(), Error> {
+    run(host, paths, source, false, on)
+}
+
+/// Installs `source` even over a running pocketd, which hands off to it in place, keeping its terminals.
+/// On Windows it restarts instead, closing them.
+pub fn update(host: &Host, paths: &Paths, source: &Source, on: impl FnMut(Progress)) -> Result<(), Error> {
+    run(host, paths, source, true, on)
+}
+
+/// Stops pocketd's service on `host` and removes it; pocketd's files and the host's projects stay.
+/// A Windows host's pocketd first forgets this Mac's owner token, through the link that's still up.
+pub fn uninstall(host: &Host, paths: &Paths) -> Result<(), Error> {
+    let dir = &paths.remote_dir;
+    // A host never reached since it was added may be Windows without this Mac knowing yet.
+    let windows = host.windows || matches!(probe(host, paths)?, Platform::Windows { .. });
+    if windows {
+        let _ = daemon::request_to(&host.endpoint(&paths.home), &serde_json::json!({"op": "owner.revokeSelf"}), Duration::from_secs(5));
+        let shim = ssh::ps_quote(&format!(r"{dir}\bin\pocketd.cmd"));
+        let script = format!("$p = Join-Path $HOME {shim}; if (Test-Path $p) {{ & $p service uninstall --label {}; exit $LASTEXITCODE }}", ssh::ps_quote(&label(dir)));
+        let out = ssh(host, paths, &ssh::powershell(&script), Stdio::null())?;
+        if !out.status.success() {
+            return Err(Error::Failed(format!("Couldn't uninstall pocketd: {}", last_line(&out.stderr))));
+        }
+        let _ = std::fs::remove_file(host.owner_file(&paths.home));
+        return Ok(());
+    }
+    let command = format!(r#"sh -c 'p="$HOME/{dir}/bin/pocketd"; [ -x "$p" ] || exit 0; POCKET_HOME="$HOME/{dir}" "$p" service uninstall --label {}'"#, label(dir));
+    let out = ssh(host, paths, &command, Stdio::null())?;
+    if !out.status.success() {
+        return Err(Error::Failed(format!("Couldn't uninstall pocketd: {}", last_line(&out.stderr))));
+    }
+    Ok(())
+}
+
+fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl FnMut(Progress)) -> Result<(), Error> {
+    let dir = &paths.remote_dir;
+    let (version, url, sum) = match source {
+        Source::Release { version, url } => (version.as_str(), url.as_str(), None),
+        Source::Archive(path) => {
+            let sum = checksum(path).ok_or_else(|| Error::Failed(format!("No checksum beside {}", path.display())))?;
+            (channel::version(), "", Some(sum))
         }
     };
-    let stderr = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
-    if status.success() { Ok(()) } else { Err(stderr) }
+    let filled = if host.windows { render_ps1(version, url, dir, &label(dir)) } else { render(version, url, dir, &label(dir)) };
+    let filled = filled.map_err(Error::Failed)?;
+    if let Source::Archive(path) = source {
+        upload(host, paths, path)?;
+    }
+    let uploaded = matches!(source, Source::Archive(_));
+    let (command, script) = if host.windows {
+        let mut env = Vec::new();
+        if uploaded {
+            env.push(format!("$env:ANYWHERE_ARCHIVE = Join-Path $HOME {}", ssh::ps_quote(&format!(r"{dir}\{UPLOAD_ZIP}"))));
+        }
+        env.extend(sum.map(|sum| format!("$env:ANYWHERE_SHA256 = '{sum}'")));
+        if force {
+            env.push("$env:ANYWHERE_FORCE = '1'".into());
+        }
+        let script = env.iter().map(|e| format!("{e}\r\n")).collect::<String>() + &filled;
+        // `-Command -` runs stdin line by line, which breaks the script's multi-line blocks.
+        (ssh::powershell("& ([ScriptBlock]::Create([Console]::In.ReadToEnd()))"), script)
+    } else {
+        let mut env = Vec::new();
+        if uploaded {
+            env.push(format!("ANYWHERE_ARCHIVE=\"$HOME/{dir}/{UPLOAD}\""));
+        }
+        env.extend(sum.map(|sum| format!("ANYWHERE_SHA256={sum}")));
+        if force {
+            env.push("ANYWHERE_FORCE=1".into());
+        }
+        (bootstrap_command(dir, &env, uploaded), filled)
+    };
+    let mut child = Command::new("ssh")
+        .args(args(host, paths, &command))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| Error::Failed(format!("Couldn't run ssh: {e}")))?;
+    // A host that refused the login has closed the pipe; ssh's exit says why.
+    let _ = child.stdin.take().unwrap().write_all(script.as_bytes());
+    let mut stderr = child.stderr.take().unwrap();
+    let errors = std::thread::spawn(move || {
+        let mut text = Vec::new();
+        let _ = stderr.read_to_end(&mut text);
+        text
+    });
+    let mut end = None;
+    for line in BufReader::new(child.stdout.take().unwrap()).lines().map_while(Result::ok) {
+        if let Some(progress) = parse(&line) {
+            if matches!(progress, Progress::Done | Progress::Running | Progress::Error(_)) {
+                end = Some(progress.clone());
+            }
+            on(progress);
+        }
+    }
+    let status = child.wait().map_err(|e| Error::Failed(e.to_string()))?;
+    let stderr = errors.join().unwrap_or_default();
+    match end {
+        Some(Progress::Done | Progress::Running) => Ok(()),
+        Some(Progress::Error(text)) => Err(Error::Failed(text)),
+        _ if status.code() == Some(255) => Err(Error::Ssh(ssh::classify(&String::from_utf8_lossy(&stderr)))),
+        _ => Err(Error::Failed(format!("The install stopped before it finished: {}", last_line(&stderr)))),
+    }
 }
 
-pub fn remove_key(host: &Host, home: &Path) {
-    let key = host.app_key(home);
-    let _ = std::fs::remove_file(public_key(&key));
-    let _ = std::fs::remove_file(key);
+/// Copies `archive` into the app's folder on the host.
+fn upload(host: &Host, paths: &Paths, archive: &Path) -> Result<(), Error> {
+    let file = std::fs::File::open(archive).map_err(|e| Error::Failed(format!("Can't read {}: {e}", archive.display())))?;
+    let dir = &paths.remote_dir;
+    let command = if host.windows {
+        ssh::powershell(&format!(
+            "$d = Join-Path $HOME {}; New-Item -ItemType Directory -Force -Path $d | Out-Null; $f = [IO.File]::Create((Join-Path $d '{UPLOAD_ZIP}')); try {{ [Console]::OpenStandardInput().CopyTo($f) }} finally {{ $f.Close() }}",
+            ssh::ps_quote(dir)
+        ))
+    } else {
+        format!(r#"sh -c 'umask 077; mkdir -p "$HOME/{dir}" && cat > "$HOME/{dir}/{UPLOAD}"'"#)
+    };
+    let out = ssh(host, paths, &command, file.into())?;
+    if !out.status.success() {
+        return Err(Error::Failed(format!("Couldn't upload pocketd: {}", last_line(&out.stderr))));
+    }
+    Ok(())
 }
 
-fn public_key(key: &Path) -> PathBuf {
-    let mut public = key.as_os_str().to_owned();
-    public.push(".pub");
-    public.into()
+/// The sha256 package-pocketd.sh wrote beside `archive`.
+fn checksum(archive: &Path) -> Option<String> {
+    let mut sums = archive.as_os_str().to_owned();
+    sums.push(".sha256");
+    let text = std::fs::read_to_string(sums).ok()?;
+    let sum = text.split_whitespace().next()?;
+    (sum.len() == 64 && sum.bytes().all(|b| b.is_ascii_hexdigit())).then(|| sum.into())
 }
 
-fn keygen(key: &Path) -> Result<(), Failure> {
-    let out = Command::new("ssh-keygen").args(["-q", "-t", "ed25519", "-N", "", "-C", "anywhere", "-f"]).arg(key).stdin(Stdio::null()).output();
-    out.ok().filter(|o| o.status.success()).map(|_| ()).ok_or(Failure::Other)
+/// Runs bootstrap.sh from stdin with `env`, under sh whatever the login shell is.
+fn bootstrap_command(dir: &str, env: &[String], uploaded: bool) -> String {
+    let mut inner = env.iter().map(|e| format!("{e} ")).collect::<String>() + "sh -s";
+    if uploaded {
+        inner += &format!(r#"; rc=$?; rm -f "$HOME/{dir}/{UPLOAD}"; exit $rc"#);
+    }
+    format!("sh -c '{inner}'")
+}
+
+fn render(version: &str, url: &str, dir: &str, label: &str) -> Result<String, String> {
+    fill(BOOTSTRAP, version, url, dir, label)
+}
+
+fn render_ps1(version: &str, url: &str, dir: &str, label: &str) -> Result<String, String> {
+    fill(BOOTSTRAP_PS1, version, url, dir, label)
+}
+
+/// The owner port a pocketd of this build's channel listens on, as pocketd's config.DefaultOwnerPort.
+fn owner_port() -> u16 {
+    if channel::is_release() { 4519 } else { 4520 }
+}
+
+/// `script` with its placeholders filled. They sit inside quoted shell and PowerShell literals, so a value
+/// holding anything but these characters is refused rather than escaped.
+fn fill(script: &str, version: &str, url: &str, dir: &str, label: &str) -> Result<String, String> {
+    let safe = |v: &str| v.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-+/:".contains(&b));
+    if let Some(bad) = [version, url, dir, label].into_iter().find(|v| !safe(v)) {
+        return Err(format!("Can't install with {bad:?}: it has characters a script can't quote"));
+    }
+    Ok(script
+        .replace("@@VERSION@@", version)
+        .replace("@@URL@@", url)
+        .replace("@@HOME_DIR@@", dir)
+        .replace("@@LABEL@@", label)
+        .replace("@@PORT@@", &owner_port().to_string()))
+}
+
+/// ssh's arguments for `command`, as the link connects. ssh adds an accepted key to the app's known_hosts,
+/// but not the folder holding it.
+fn args(host: &Host, paths: &Paths, command: &str) -> Vec<String> {
+    let known_hosts = host.known_hosts(&paths.home);
+    if let Some(dir) = known_hosts.parent() {
+        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
+    }
+    ssh::args(host, &known_hosts, host.signed_in_key(&paths.home).as_deref(), &[], command)
+}
+
+/// `command`'s output on the host; `Err` only when ssh itself failed, which it says by exiting 255.
+fn ssh(host: &Host, paths: &Paths, command: &str, stdin: Stdio) -> Result<Output, Error> {
+    let out = Command::new("ssh").args(args(host, paths, command)).stdin(stdin).output().map_err(|e| Error::Failed(format!("Couldn't run ssh: {e}")))?;
+    if out.status.code() == Some(255) {
+        return Err(Error::Ssh(ssh::classify(&String::from_utf8_lossy(&out.stderr))));
+    }
+    Ok(out)
+}
+
+fn last_line(text: &[u8]) -> String {
+    String::from_utf8_lossy(text).lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("no output").into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Target;
+
+    #[test]
+    fn bootstraps_lines_become_checklist_progress_and_the_rest_is_log() {
+        assert_eq!(parse("ANYWHERE step detect"), Some(Progress::Step(Step::Detect)));
+        assert_eq!(parse("ANYWHERE step service\n"), Some(Progress::Step(Step::Service)));
+        assert_eq!(parse("ANYWHERE warn linger is off"), Some(Progress::Warn("linger is off".into())));
+        assert_eq!(parse("ANYWHERE error checksum mismatch: got a, want b"), Some(Progress::Error("checksum mismatch: got a, want b".into())));
+        assert_eq!(parse("ANYWHERE running"), Some(Progress::Running));
+        assert_eq!(parse("ANYWHERE done"), Some(Progress::Done));
+        assert_eq!(parse(r#"{"label":"x","installed":true}"#), None);
+        assert_eq!(parse("ANYWHERE step teleport"), None);
+    }
+
+    #[test]
+    fn every_step_bootstrap_reports_has_a_checklist_line() {
+        for name in ["detect", "download", "verify", "unpack", "link", "service", "start"] {
+            assert!(BOOTSTRAP.contains(&format!("say step {name}")), "{name}");
+            assert!(BOOTSTRAP_PS1.contains(&format!("Step '{name}'")), "{name}");
+            assert!(Step::named(name).is_some(), "{name}");
+        }
+    }
+
+    #[test]
+    fn uname_names_the_archive_past_any_login_noise() {
+        assert_eq!(parse_uname("Welcome!\nLinux\naarch64\n"), Ok(Platform::Unix { os: "linux", arch: "arm64" }));
+        assert_eq!(parse_uname("Darwin\narm64\n"), Ok(Platform::Unix { os: "darwin", arch: "arm64" }));
+        assert_eq!(parse_uname("Linux\nx86_64\n"), Ok(Platform::Unix { os: "linux", arch: "amd64" }));
+        assert_eq!(parse_uname("MINGW64_NT-10.0-22631\nx86_64\n"), Ok(Platform::Windows { arch: "amd64" }));
+        assert_eq!(parse_uname("FreeBSD\namd64\n"), Err("Anywhere doesn't run on FreeBSD".into()));
+        assert_eq!(parse_uname("Linux\nriscv64\n"), Err("Anywhere doesn't run on riscv64".into()));
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hosts-install-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn an_archive_on_this_mac_wins_over_the_release() {
+        let dist = scratch("dist");
+        std::fs::write(dist.join("pocketd-linux-arm64.tar.gz"), b"").unwrap();
+        let linux = Platform::Unix { os: "linux", arch: "arm64" };
+        assert_eq!(source(linux, "1.2.0", Some(&dist)), Ok(Source::Archive(dist.join("pocketd-linux-arm64.tar.gz"))));
+        let mac = Platform::Unix { os: "darwin", arch: "arm64" };
+        let release = Source::Release { version: "1.2.0".into(), url: "https://github.com/mingo023/anywhere/releases/download/v1.2.0".into() };
+        assert_eq!(source(mac, "1.2.0", Some(&dist)), Ok(release));
+        std::fs::remove_dir_all(dist).unwrap();
+    }
+
+    #[test]
+    fn a_dev_build_without_an_archive_says_how_to_make_one() {
+        let err = source(Platform::Unix { os: "linux", arch: "amd64" }, "dev", None).unwrap_err();
+        assert!(err.contains("scripts/package-pocketd.sh dev linux-amd64"), "{err}");
+        let err = source(Platform::Windows { arch: "arm64" }, "dev", None).unwrap_err();
+        assert!(err.contains("No pocketd-windows-arm64.zip") && err.contains("scripts/package-pocketd-windows.sh dev arm64"), "{err}");
+    }
+
+    #[test]
+    fn powershell_names_a_windows_hosts_cpu_and_a_unix_shell_says_nothing() {
+        assert_eq!(parse_windows_arch("Welcome\r\nwindows AMD64\r\n"), Some(Ok(Platform::Windows { arch: "amd64" })));
+        assert_eq!(parse_windows_arch("windows x86\n"), Some(Err("Anywhere doesn't run on x86".into())));
+        assert_eq!(parse_windows_arch("sh: powershell: command not found\n"), None);
+    }
+
+    #[test]
+    fn the_windows_script_is_ascii_and_filled_in() {
+        let script = render_ps1("1.2.0", "https://x/v1.2.0", ".coding-pocket", "dev.mingo.anywhere.host.pocketd").unwrap();
+        assert!(BOOTSTRAP_PS1.is_ascii(), "PowerShell reads stdin in the console's code page");
+        assert!(["@@VERSION@@", "@@URL@@", "@@HOME_DIR@@", "@@LABEL@@", "@@PORT@@"].iter().all(|p| !script.contains(p)));
+        assert!(script.contains("$Version = '1.2.0'") && script.contains("$HomeDir = Join-Path $HOME '.coding-pocket'"));
+        assert!(script.contains(&format!("return {}", owner_port())));
+    }
+
+    #[test]
+    fn a_value_that_could_break_out_of_its_quotes_is_refused() {
+        assert!(render("1.2.0'; rm -rf ~; '", "https://x", ".cp", "l").is_err());
+        assert!(render_ps1("1.2.0", "https://x", ".cp", "l' + (iex 'calc') + '").is_err());
+        assert!(render("1.2.0", "https://x", "$(id)", "l").is_err());
+        assert!(render("0.0.0-e2e+1", "https://github.com/a/b/v0.0.0", ".coding-pocket-e2e", "dev.mingo.anywhere.host.pocketd").is_ok());
+    }
+
+    #[test]
+    fn the_rendered_script_has_no_placeholder_left() {
+        let script = render("1.2.0", "https://x/v1.2.0", ".coding-pocket", "dev.mingo.anywhere.host.pocketd").unwrap();
+        assert!(["@@VERSION@@", "@@URL@@", "@@HOME_DIR@@", "@@LABEL@@", "@@PORT@@"].iter().all(|p| !script.contains(p)));
+        assert!(script.contains("VERSION='1.2.0'") && script.contains(r#"DIR="$HOME/.coding-pocket""#));
+    }
+
+    #[test]
+    fn only_the_apps_own_folder_gets_the_apps_service_name() {
+        assert_eq!(label(channel::home_dir_name()), format!("{}.host.pocketd", channel::bundle_id()));
+        assert_eq!(label(".coding-pocket-e2e"), format!("{}.host.pocketd.coding-pocket-e2e", channel::bundle_id()));
+    }
+
+    #[test]
+    fn an_uploaded_archive_is_checked_then_removed_whatever_the_login_shell() {
+        let cmd = bootstrap_command(".cp", &["ANYWHERE_ARCHIVE=\"$HOME/.cp/upload.tar.gz\"".into(), "ANYWHERE_FORCE=1".into()], true);
+        assert_eq!(cmd, r#"sh -c 'ANYWHERE_ARCHIVE="$HOME/.cp/upload.tar.gz" ANYWHERE_FORCE=1 sh -s; rc=$?; rm -f "$HOME/.cp/upload.tar.gz"; exit $rc'"#);
+        assert_eq!(bootstrap_command(".cp", &[], false), "sh -c 'sh -s'");
+    }
+
+    #[test]
+    fn the_checksum_comes_from_the_file_beside_the_archive() {
+        let dir = scratch("sum");
+        let archive = dir.join("pocketd-linux-arm64.tar.gz");
+        let sum = "ab".repeat(32);
+        std::fs::write(dir.join("pocketd-linux-arm64.tar.gz.sha256"), format!("{sum}  pocketd-linux-arm64.tar.gz\n")).unwrap();
+        assert_eq!(checksum(&archive), Some(sum));
+        std::fs::write(dir.join("pocketd-linux-arm64.tar.gz.sha256"), "nope\n").unwrap();
+        assert_eq!(checksum(&archive), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Installs on the OrbStack VM through the loopback sshd (see scripts/test-bootstrap.sh), from the archive
+    /// `scripts/package-pocketd.sh e2e linux-arm64` builds. Run with `cargo test -p hosts -- --ignored`.
+    #[test]
+    #[ignore]
+    fn pocketd_installs_on_a_real_linux_host_then_is_found_running() {
+        const DIR: &str = ".coding-pocket-e2e2";
+        let host = Host::new(
+            Target::Address { addr: "127.0.0.1".into(), port: 2222, user: "mingo".into(), key_file: Some("/tmp/anywhere-e2e/id_ed25519".into()) },
+            &[],
+        );
+        let paths = Paths { home: scratch("e2e"), remote_dir: DIR.into() };
+        let sh = |cmd: &str| ssh(&host, &paths, cmd, Stdio::null()).unwrap();
+        let pocketd = format!(r#"POCKET_HOME="$HOME/{DIR}" "$HOME/{DIR}/bin/pocketd""#);
+        let cleanup = || sh(&format!(r#"{pocketd} service uninstall --label {}; rm -rf "$HOME/{DIR}""#, label(DIR)));
+        cleanup();
+
+        let platform = probe(&host, &paths).unwrap();
+        assert_eq!(platform, Platform::Unix { os: "linux", arch: "arm64" });
+        let dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../pocketd/dist");
+        let source = source(platform, "dev", Some(&dist)).unwrap();
+
+        let mut seen = Vec::new();
+        install(&host, &paths, &source, |p| seen.push(p)).unwrap();
+        assert_eq!(seen.last(), Some(&Progress::Done), "{seen:?}");
+        assert!(seen.contains(&Progress::Step(Step::Verify)) && !seen.contains(&Progress::Step(Step::Download)), "{seen:?}");
+        let status = sh(&format!("{pocketd} status --json"));
+        assert!(String::from_utf8_lossy(&status.stdout).contains(r#""os": "linux""#));
+        assert!(!sh(&format!(r#"test -e "$HOME/{DIR}/{UPLOAD}""#)).status.success(), "the upload is removed");
+
+        let mut again = Vec::new();
+        install(&host, &paths, &source, |p| again.push(p)).unwrap();
+        assert_eq!(again, [Progress::Step(Step::Detect), Progress::Running]);
+
+        let mut updated = Vec::new();
+        update(&host, &paths, &source, |p| updated.push(p)).unwrap();
+        assert_eq!(updated.last(), Some(&Progress::Done), "{updated:?}");
+        assert!(sh(&format!("{pocketd} status")).status.success(), "pocketd still answers after the update");
+
+        cleanup();
+        assert!(!sh(&format!("systemctl --user is-active {}", label(DIR))).status.success());
+        std::fs::remove_dir_all(&paths.home).unwrap();
+    }
 }

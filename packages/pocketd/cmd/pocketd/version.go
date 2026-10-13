@@ -1,6 +1,10 @@
 package main
 
-import "runtime/debug"
+import (
+	"encoding/json"
+	"runtime"
+	"runtime/debug"
+)
 
 // version is set by -ldflags "-X main.version=…"; otherwise the VCS stamp names the build.
 var version string
@@ -14,6 +18,12 @@ func versionString() string {
 		return "dev"
 	}
 	return fromSettings(info.Settings)
+}
+
+// versionJSON is what a desktop reads to pick the archive for this host.
+func versionJSON() []byte {
+	out, _ := json.Marshal(map[string]string{"version": versionString(), "os": runtime.GOOS, "arch": runtime.GOARCH})
+	return out
 }
 
 func fromSettings(settings []debug.BuildSetting) string {

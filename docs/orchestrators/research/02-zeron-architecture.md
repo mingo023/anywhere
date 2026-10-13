@@ -7,7 +7,7 @@ Sources:
 - Pocket: this worktree @ `86deb13`.
 - Expo push API: https://docs.expo.dev/push-notifications/sending-notifications/
 
-Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to its root. `P path:L` is a file and line in this Pocket worktree, relative to its root. `M` (monocode) is not cited in this report. A URL cites an external primary source. Where Zeron's docs and code disagree, the code is treated as truth and the gap is called out (see §F14). Line numbers are for the SHAs above.
+Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to its root. `P path:L` is a file and line in this Pocket worktree, relative to its root. A URL cites an external primary source. Where Zeron's docs and code disagree, the code is treated as truth and the gap is called out (see §F14). Line numbers are for the SHAs above.
 
 ## TL;DR
 

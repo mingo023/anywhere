@@ -6,8 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 
 	"pocketd/internal/atomicfile"
 )
@@ -33,12 +37,28 @@ func Label() string {
 	return "dev.mingo.anywhere.dev.pocketd"
 }
 
+// HostLabel names the service `pocketd service install` sets up on a host, apart from the app's.
+func HostLabel() string {
+	if Release() {
+		return "dev.mingo.anywhere.host.pocketd"
+	}
+	return "dev.mingo.anywhere.dev.host.pocketd"
+}
+
 // DefaultPort is the phone port a new config.json gets. Release and Dev differ so both can run.
 func DefaultPort() int {
 	if Release() {
 		return 4517
 	}
 	return 4518
+}
+
+// DefaultOwnerPort is the owner's TCP port where ownerListen is on by default.
+func DefaultOwnerPort() int {
+	if Release() {
+		return 4519
+	}
+	return 4520
 }
 
 func Home() string {
@@ -60,6 +80,10 @@ type Config struct {
 	Port int `json:"port"`
 	// Listen is "auto" (loopback and the tailnet) or "loopback".
 	Listen string `json:"listen,omitempty"`
+	// OwnerListen is "off" or the loopback ip:port where a peer that sends an
+	// owner token is the owner. It is on by default only on Windows, whose
+	// sockets can't prove a peer is the owner.
+	OwnerListen string `json:"ownerListen,omitempty"`
 }
 
 // Load reads config.json, creating it on first run. A token left there by an
@@ -82,6 +106,9 @@ func Load(adopt func(token string) error) (Config, error) {
 	if c.Listen != "auto" && c.Listen != "loopback" {
 		return Config{}, fmt.Errorf("invalid config %s: listen must be auto or loopback", path)
 	}
+	if c.OwnerListen, err = ownerListen(c.OwnerListen); err != nil {
+		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
+	}
 	var fields map[string]json.RawMessage
 	json.Unmarshal(raw, &fields)
 	var token string
@@ -96,11 +123,39 @@ func Load(adopt func(token string) error) (Config, error) {
 	return c, atomicfile.Write(path, append(out, '\n'), 0o600)
 }
 
+// OwnerListen is config.json's ownerListen, read without Load's migration.
+func OwnerListen() (string, error) {
+	var c Config
+	raw, err := os.ReadFile(filepath.Join(Home(), "config.json"))
+	if err == nil {
+		err = json.Unmarshal(raw, &c)
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	return ownerListen(c.OwnerListen)
+}
+
+func ownerListen(v string) (string, error) {
+	switch {
+	case v == "" && runtime.GOOS == "windows":
+		return net.JoinHostPort("127.0.0.1", strconv.Itoa(DefaultOwnerPort())), nil
+	case v == "", v == "off":
+		return "off", nil
+	}
+	host, _, err := net.SplitHostPort(v)
+	if ip, perr := netip.ParseAddr(host); err != nil || perr != nil || !ip.IsLoopback() {
+		return "", errors.New("ownerListen must be off or a loopback ip:port")
+	}
+	return v, nil
+}
+
 func create(path string) (Config, error) {
 	c := Config{Port: DefaultPort(), Listen: "auto"}
 	raw, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Config{}, err
 	}
+	c.OwnerListen, _ = ownerListen("")
 	return c, atomicfile.Write(path, append(raw, '\n'), 0o600)
 }

@@ -7,7 +7,8 @@ use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::field::Field;
-use crate::modals::form::{default_base, home};
+use crate::fs::fs_for;
+use crate::modals::form::default_base;
 use crate::terminals::link;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON};
 use git::github;
@@ -531,7 +532,7 @@ impl Desktop {
 
     fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let cfg = self.store.repos.get(&repo).cloned().unwrap_or_default();
-        let folders = self.store.worktrees_dir(&repo, &home());
+        let folders = self.store.worktrees_dir(&repo, &self.host_agents.home_of(&repo));
         let f = &mut self.new_form.draft;
         f.repo = Some(repo.clone());
         f.branches.clear();
@@ -540,11 +541,12 @@ impl Desktop {
         f.copy_env = !cfg.copy.is_empty();
         f.run_setup = !cfg.setup.is_empty();
         let dir = repo.clone();
+        let (runner, fs) = (hosts::runner_for(&dir), fs_for(&dir));
         let task = cx.background_executor().spawn(async move {
-            let current = git::read(&dir, true).map(|r| r.branch).unwrap_or_default();
-            let branches = git::dated_branches(&dir);
-            let entries = std::fs::read_dir(&folders).into_iter().flatten().flatten();
-            let remote = git::remote_branches(&dir);
+            let current = git::read(&runner, &dir, true).map(|r| r.branch).unwrap_or_default();
+            let branches = git::dated_branches(&runner, &dir);
+            let entries = fs.local().and_then(|()| std::fs::read_dir(&folders)).into_iter().flatten().flatten();
+            let remote = git::remote_branches(&runner, &dir);
             let taken = taken_names(&branches, &remote, entries.filter_map(|e| e.file_name().into_string().ok()));
             (current, branches, taken, remote)
         });
@@ -577,7 +579,7 @@ impl Desktop {
     }
 
     /// A new worktree's page leaves at once for its progress; a session's waits for pocketd.
-    fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn start_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.session_ready() {
             return;
         }
@@ -609,12 +611,12 @@ impl Desktop {
             self.store.collapsed.remove(&project);
         }
         self.store.save();
-        let request = self.outbox.create(spec.clone());
+        let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
         if !worktree {
             self.new_form.draft.reply.sent(request);
             return cx.notify();
         }
-        let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &home()));
+        let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &self.host_agents.home_of(&project)));
         self.creates.list.push(Create::new(request, path.clone(), spec, Instant::now()));
         self.leave_new_session(window, cx);
         self.select_tree(project, Some(path), cx);

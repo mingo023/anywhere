@@ -4,9 +4,13 @@ use agents::locals::{self, Local};
 use gpui_kit::*;
 
 impl Desktop {
-    /// A tree's name as its Local row shows it: a Local's own, else the project checkout's given name, else "Local".
+    /// A tree's name as its Local row shows it: a Local's own, else the project checkout's given name, else its host's name, else "Local".
     pub(crate) fn local_name(&self, key: &str) -> String {
-        self.agents.given_name(key).unwrap_or("Local").to_string()
+        match (self.agents.given_name(key), hosts::split(key).0) {
+            (Some(name), _) => name.to_string(),
+            (None, Some(host)) => self.host_name(host),
+            (None, None) => "Local".to_string(),
+        }
     }
 
     /// Adds a Local to `project`, named after the first free number, and returns its id.
@@ -14,7 +18,7 @@ impl Desktop {
         let main = self.tree_of(project).map(|t| self.local_name(&t));
         let taken: Vec<String> = self.agents.locals_in(project).map(|l| l.name.clone()).chain(main).collect();
         let local = Local { id: locals::new_id(), project: project.to_string(), name: locals::next_name(taken.iter().map(String::as_str)) };
-        self.outbox.local_create(&local);
+        self.outbox.local.local_create(&local);
         self.agents.add_local(local.clone());
         local.id
     }
@@ -37,7 +41,7 @@ impl Desktop {
         for term in self.tree_terminals(id) {
             self.close_pane(&term, cx);
         }
-        self.outbox.local_delete(id);
+        self.outbox.local.local_delete(id);
         self.agents.remove_local(id);
         self.workspaces.remove(id);
         self.store.layouts.remove(id);

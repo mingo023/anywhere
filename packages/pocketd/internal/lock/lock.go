@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -42,14 +41,14 @@ func Acquire(home string) (*Lock, error) {
 	}
 	var lockErr error
 	for try := 0; try < probeRetries; try++ {
-		if lockErr = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); lockErr == nil || !errors.Is(lockErr, syscall.EWOULDBLOCK) {
+		if lockErr = lockNB(f, true); lockErr == nil || !errors.Is(lockErr, errBusy) {
 			break
 		}
 		time.Sleep(probeWait)
 	}
 	if lockErr != nil {
 		f.Close()
-		if errors.Is(lockErr, syscall.EWOULDBLOCK) {
+		if errors.Is(lockErr, errBusy) {
 			pid, _ := Holder(home)
 			return nil, ErrRunning{PID: pid, Home: home}
 		}
@@ -69,6 +68,28 @@ func Acquire(home string) (*Lock, error) {
 
 func (l *Lock) Close() error { return l.f.Close() }
 
+// Wait blocks until it holds path's lock, for a read-modify-write that other
+// processes also do; Close drops it.
+func Wait(path string) (*Lock, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	// Polls rather than blocks: a blocking LockFileEx on a handle Go may have
+	// opened overlapped returns ERROR_IO_PENDING instead of waiting.
+	for {
+		err := lockNB(f, true)
+		if err == nil {
+			return &Lock{f}, nil
+		}
+		if !errors.Is(err, errBusy) {
+			f.Close()
+			return nil, err
+		}
+		time.Sleep(probeWait)
+	}
+}
+
 // Holder is the pid of the pocketd holding home's lock, if one does.
 func Holder(home string) (int, bool) {
 	f, err := os.Open(path(home))
@@ -76,7 +97,7 @@ func Holder(home string) (int, bool) {
 		return 0, false
 	}
 	defer f.Close()
-	if syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB) == nil {
+	if lockNB(f, false) == nil {
 		return 0, false
 	}
 	raw, err := os.ReadFile(path(home))

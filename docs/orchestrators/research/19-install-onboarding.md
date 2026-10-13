@@ -4,9 +4,8 @@ Date: 2026-09-30.
 
 Sources:
 - Zeron `zeronsh/comet` @ ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5 (tag v0.2.99, MIT). GitHub release v0.2.99 via `gh api` (published 2026-09-30).
-- MonoCode `hardbeat920/monocode` @ cdc1441dc51e3709cd843e5c316608a123f323c6 (v0.5.0, MIT). GitHub release v0.5.0 via `gh api` (2026-09-29).
 - Pocket worktree @ b9d14a19 (the task said 86deb13; HEAD is b9d14a1).
-- Earlier reports r01, r02, r08, r09, r14, r15 in this folder.
+- Earlier reports r01, r02, r08, r14, r15 in this folder.
 - Apple:
   - https://developer.apple.com/documentation/servicemanagement/smappservice (plus `/agent(plistname:)`, `/register()`, `/status-swift.enum/requiresapproval`, read via the docs JSON)
   - https://developer.apple.com/documentation/servicemanagement/updating-your-app-package-installer-to-use-the-new-service-management-api
@@ -25,7 +24,7 @@ Sources:
 
 Citation legend:
 - `Z path:L` = Zeron clone, path relative to the clone root.
-- `M path:L` = MonoCode clone.
+- `M path:L` = App M (another orchestrator) clone.
 - `P path:L` = Pocket worktree root.
 - `rNN:L` = report NN in `docs/orchestrators/research/`, at line L.
 - Bare URLs are official vendor pages.
@@ -40,7 +39,7 @@ Citation legend:
   3. Re-sign the phone app away from the author's Team ID.
   4. Type the host and token by hand. A wrong token shows "Disconnected — retrying" forever.
 - **Ship one signed, notarized, stapled `Anywhere.app`.** `Contents/MacOS/pocket` and `Contents/MacOS/pocketd` both link libghostty-vt as a static `.a` (P packages/desktop/crates/term/build.rs:2-14; P packages/pocketd/internal/vt/vt.go:4-5), so there is no dylib or framework to sign. Port Zeron's `package-macos.sh` and `release.yml` nearly line for line.
-- **The app registers pocketd as a LaunchAgent** through `SMAppService.agent(plistName:)` (macOS 13+). The plist ships in `Contents/Library/LaunchAgents`. It must never boot out a running pocketd, because that kills every Terminal. MonoCode gets this right (M host/service.ts:178,216-222); Zeron's `daemon install` boots out first (Z apps/zeron/src/daemon.rs:46).
+- **The app registers pocketd as a LaunchAgent** through `SMAppService.agent(plistName:)` (macOS 13+). The plist ships in `Contents/Library/LaunchAgents`. It must never boot out a running pocketd, because that kills every Terminal. App M gets this right (M host/service.ts:178,216-222); Zeron's `daemon install` boots out first (Z apps/zeron/src/daemon.rs:46).
 - **Updater: port Zeron's Rust `crates/update`.** Zeron's desktop is also GPUI. Keep its manifest + sha256, staged swap, relaunch-after-exit and install-on-quit. Add a codesign designated-requirement check, which Zeron lacks.
 - **pocketd restart policy:**
   - An app update never restarts pocketd. The running process keeps the old binary.
@@ -57,7 +56,7 @@ Citation legend:
   - No Pocket account.
   - No hook consent screen, because the Claude plugin goes in through env and no user file changes (P packages/pocketd/internal/daemon/plugin.go:65-82).
   - No login UI, because Claude and Codex sign in inside their own Terminal.
-- **Licence: add MIT now.** That matches Zeron, MonoCode and Ghostty, and lets Pocket port their code if the notices are kept. Price: free, no account. The fixed cost is Apple's $99/yr.
+- **Licence: add MIT now.** That matches Zeron, App M and Ghostty, and lets Pocket port their code if the notices are kept. Price: free, no account. The fixed cost is Apple's $99/yr.
 
 ## Findings
 
@@ -66,7 +65,7 @@ Citation legend:
 **M1. Download.**
 - Artifacts:
   - Zeron v0.2.99: `zeron-0.2.99-macos-arm64.dmg` (40,489,782 B), plus `…-macos-arm64-app.tar.gz` (34,780,985 B) for the updater, plus `manifest.json` `{version, files:{<name>:{sha256}}}` (gh api release v0.2.99).
-  - MonoCode: `MonoCode_0.5.0_aarch64.dmg` 13,963,539 B and `MonoCode.app.tar.gz.sig` 408 B (gh api release v0.5.0).
+  - App M: `<app>_0.5.0_aarch64.dmg` 13,963,539 B and `<app>.app.tar.gz.sig` 408 B (gh api release v0.5.0).
 - DMG window spec in UI/UX.
 
 **M2. Wrong-location gate.**
@@ -77,13 +76,13 @@ Citation legend:
 **M3. Terminal service (pocketd).**
 - Action:
   1. Call `SMAppService.agent(plistName: "dev.mingo.anywhere.pocketd.plist").register()`.
-  2. Poll `~/.coding-pocket/pocketd.sock` 50×200 ms, as MonoCode does (M host/service.ts:262-265).
+  2. Poll `~/.coding-pocket/pocketd.sock` 50×200 ms, as App M does (M host/service.ts:262-265).
 - Apple: a registered LaunchAgent "is immediately bootstrapped and may begin running", and again at each login (`register()` doc). Status `requiresApproval` means the user must act in System Settings, including after revoking consent there.
 - States and copy:
   - Starting: "Starting Pocket's terminal service…"
   - `requiresApproval`: title "Allow Pocket in the background". Body: "Pocket's terminal service keeps your terminals and agents running when this window is closed, so your phone can reach them." Button: "Open Login Items".
   - Did not start: "Pocket's terminal service didn't start. Check ~/.coding-pocket/logs/pocketd.log." Button: "Retry". Adapted from M host/service.ts:273 "The host service was installed but did not start. Check {log}."; Retry style from Z crates/ui/src/shell.rs:11395-11430.
-  - Already running: reuse it and send no kill. MonoCode: "Never replace a running host: connecting must not interrupt agent turns." (M host/service.ts:178). For a loaded service it runs `kickstart` without `-k` (M host/service.ts:216-222).
+  - Already running: reuse it and send no kill. App M: "Never replace a running host: connecting must not interrupt agent turns." (M host/service.ts:178). For a loaded service it runs `kickstart` without `-k` (M host/service.ts:216-222).
 - Contrast with Zeron:
   - The Mac app never installs the LaunchAgent; `zeron daemon install` is CLI-only (Z apps/zeron/src/main.rs:272).
   - The headed app embeds the engine when no daemon listens (Z apps/zeron/src/main.rs:275-293).
@@ -97,7 +96,7 @@ Citation legend:
 - Probe:
   - Run `run_login(["command","-v",cli])`, then `<cli> --version`, under the account's login shell. This reuses P packages/desktop/crates/daemon/src/daemon.rs:126-128, which already strips the launcher's env (:76-92).
   - Cache the result 30 s (M src/integrations/harness/core/availability.ts:64,77).
-  - Check existence only. MonoCode never probes auth (r09).
+  - Check existence only. App M never probes auth.
 - Row states and copy:
   - Found: "Claude Code · v{x}", with the path muted.
   - Missing: "Install the claude CLI to enable. Install with `curl -fsSL https://claude.ai/install.sh | bash`" plus an "Install" button (Z crates/ui/src/settings/harnesses.rs:71-93,1020-1031).
@@ -109,7 +108,7 @@ Citation legend:
   - Not on PATH (adapted from Z crates/harness/src/install.rs:206-213): "The installer finished, but `claude` isn't on your PATH. Open a new terminal or add ~/.local/bin to PATH." Directories come from :165-177.
   - Login: no Pocket UI. The CLI's own sign-in runs in its Terminal.
     - Copy: "Claude Code and Codex sign in inside their terminal the first time you run them."
-    - MonoCode needs "Authentication required" / "Sign in to continue using {X}." (M src/features/sessions/ui/ProviderSignInDialog.tsx:41-47) because it runs CLIs headless and detects auth errors by regex (M src/integrations/harness/core/authSupport.ts:28-36).
+    - App M needs "Authentication required" / "Sign in to continue using {X}." (M src/features/sessions/ui/ProviderSignInDialog.tsx:41-47) because it runs CLIs headless and detects auth errors by regex (M src/integrations/harness/core/authSupport.ts:28-36).
 - Continue is always enabled. The secondary action is "Skip — use terminals only".
 
 **M5. How Pocket sees agents.** Informational, a footnote under M4; no consent is needed.
@@ -123,7 +122,7 @@ Citation legend:
 **M6. Add a project.**
 - Copy: "Add a project to get started" / "A project is a folder on one of your devices." Button: "Add a project" (Z crates/ui/src/shell.rs:9958-9976).
 - code≠screenshot: Z docs/media/registry-sync/01-empty.png still says "space".
-- TCC: the first access to Desktop, Documents or Downloads shows a system prompt with the Info.plist purpose string. MonoCode's: "MonoCode opens project folders you choose, including Desktop." (likewise Documents, Downloads; M src-tauri/Info.plist:7-12). Pocket's desktop has no Info.plist yet (no bundle); the new one needs the same three keys.
+- TCC: the first access to Desktop, Documents or Downloads shows a system prompt with the Info.plist purpose string. App M's: "{app} opens project folders you choose, including Desktop." (likewise Documents, Downloads; M src-tauri/Info.plist:7-12). Pocket's desktop has no Info.plist yet (no bundle); the new one needs the same three keys.
 
 **M7. First attached agent.**
 - `cmd-n` (P packages/desktop/crates/pocket/src/main.rs:1064) runs `$SHELL -l -c '"$@"; exec $SHELL -l' claude` (P packages/desktop/crates/daemon/src/daemon.rs:109-122).
@@ -131,7 +130,7 @@ Citation legend:
 - Not-attached banners (P packages/desktop/crates/pocket/src/status.rs:106-107):
   - "Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."
   - "This codex runs without the app-server, so Pocket can't see its status."
-- MonoCode plays a decorative 7000–7600 ms first-use welcome, skipped under reduced motion (M src/features/sessions/ui/AstraWelcome.tsx:4,32-37; M src/features/sessions/ui/OpusWelcome.tsx:12,117-122). Not worth copying.
+- App M plays a decorative 7000–7600 ms first-use welcome, skipped under reduced motion (M src/features/sessions/ui/AstraWelcome.tsx:4,32-37; M src/features/sessions/ui/OpusWelcome.tsx:12,117-122). Not worth copying.
 
 **M8. Pair your phone.** Shown after M7 and in Settings → Phone.
 - A QR code of `anywhere://pair?host=<ip>:<port>&token=<token>` (r08:603-606), the host text, and "Copy token".
@@ -190,7 +189,7 @@ Citation legend:
   - Zeron copies font licences into Resources (:31-32).
   - The icon set is 16/32/128/256/512 @1x/@2x, built from `icon-1024.png` with sips and iconutil (:37-45).
 - **libghostty:** static in both binaries. build.rs copies only `libghostty-vt.a` because "next to the .dylib the linker would pick the dylib" (P packages/desktop/crates/term/build.rs:4-5,12). cgo also links the `.a` (P packages/pocketd/internal/vt/vt.go:5). Pinned at 4ae9f1a2 and built with `zig build -Demit-lib-vt -Doptimize=ReleaseFast` (P scripts/build-ghostty.sh:4,11). There is nothing extra to sign; no Frameworks/.
-- **Entitlements: none planned.** Inference: GPUI (Metal) and Go need no JIT. MonoCode needs `allow-jit` and `allow-unsigned-executable-memory` only for its WebView and JS runtime (M src-tauri/Entitlements.plist:5-8).
+- **Entitlements: none planned.** Inference: GPUI (Metal) and Go need no JIT. App M needs `allow-jit` and `allow-unsigned-executable-memory` only for its WebView and JS runtime (M src-tauri/Entitlements.plist:5-8).
 - **Signing:**
   - Sign `MacOS/pocketd` first, then the app, with `codesign --force --options runtime --timestamp --sign "$IDENTITY"`. No `--deep`: "Apple deprecated it" (Z scripts/package-macos.sh:47-55).
   - Verify with `codesign --verify --deep --strict --verbose=2` (M .github/workflows/release.yml:137).
@@ -203,10 +202,10 @@ Citation legend:
   - Secrets `MACOS_CERT_P12`/`_PASSWORD` and `AC_API_KEY_P8`/`_ID`/`_ISSUER_ID` (:59-73), imported into a temp keychain with `set-key-partition-list` (:79-98).
   - Guard that the tag matches the version (:159-169).
   - Write `manifest.json` with sha256 (:170-178), create the GitHub Release (:179-184), upload with `manifest.json` before `latest.txt` (:185-199).
-  - Zeron silently falls back to ad-hoc signing when secrets are missing (:59-73). MonoCode refuses: "APPLE_SIGNING_IDENTITY is required and must not be ad-hoc '-'" (M .github/workflows/release.yml:76-78). Copy MonoCode.
-  - MonoCode caching: immutable `public,max-age=31536000,immutable` for versioned keys, `no-store,max-age=0,must-revalidate` for latest (M .github/workflows/release.yml:269-282,390-392).
+  - Zeron silently falls back to ad-hoc signing when secrets are missing (:59-73). App M refuses: "APPLE_SIGNING_IDENTITY is required and must not be ad-hoc '-'" (M .github/workflows/release.yml:76-78). Copy App M.
+  - App M caching: immutable `public,max-age=31536000,immutable` for versioned keys, `no-store,max-age=0,must-revalidate` for latest (M .github/workflows/release.yml:269-282,390-392).
   - Extra build deps: Zig 0.16.0, the Ghostty checkout (~1.5 min, r14), Go, Rust. Cache `third_party/ghostty/zig-out`.
-- **Architecture:** arm64 first, as Zeron's CI does (Z .github/workflows/release.yml:67). MonoCode ships x64 as well and lipo-checks it (M .github/workflows/release.yml:132).
+- **Architecture:** arm64 first, as Zeron's CI does (Z .github/workflows/release.yml:67). App M ships x64 as well and lipo-checks it (M .github/workflows/release.yml:132).
 - **Apple prerequisites:**
   - "Mac software notarization" is a Program-only benefit (compare-memberships).
   - The Program costs 99 USD per membership year (programs/enroll).
@@ -224,13 +223,13 @@ Citation legend:
   <key>ThrottleInterval</key><integer>30</integer>
   ```
   - Zeron's template has Label = bundle id, ProgramArguments `[exe,"headless"]`, captured EnvironmentVariables, RunAtLoad, `KeepAlive{SuccessfulExit=false}`, ThrottleInterval 30, and StandardOut/ErrPath `{data_dir}/daemon.log` (Z apps/zeron/src/daemon.rs:262-301).
-  - MonoCode uses `KeepAlive true`, ThrottleInterval 10, a PATH-only env and a 0600 file (M host/service.ts:61-84,220).
+  - App M uses `KeepAlive true`, ThrottleInterval 10, a PATH-only env and a 0600 file (M host/service.ts:61-84,220).
   - `SuccessfulExit=false` lets a clean stop stay stopped. ThrottleInterval 30 damps crash loops.
 - **No PATH in the plist.** Zeron captures PATH because a service's PATH can't find `claude` (Z apps/zeron/src/daemon.rs:20-36). Pocket's desktop already sends each spawn a minimal Terminal.app-style env (PATH `/usr/bin:/bin:/usr/sbin:/sbin`) and runs it under `$SHELL -l`, so the login shell builds the real PATH (P packages/desktop/crates/daemon/src/daemon.rs:76-92,98-122), and pocketd resolves commands against the caller's PATH (P packages/pocketd/internal/terminal/terminal.go:87-107).
   - Gap: a spawn with nil Env falls back to pocketd's `os.Environ()` (P packages/pocketd/internal/daemon/daemon.go:34-40), which under launchd has a minimal PATH. Future phone-started sessions would hit this.
 - **Logs:** pocketd should write `~/.coding-pocket/logs/pocketd.log` itself, rotating to `.old` under flock, the way Zeron's `zeron-{mode}.log` works (Z apps/zeron/src/main.rs:458-613). Inference: a bundle plist can't carry per-user absolute log paths.
 - **Service detection:** Zeron's process knows it is the service when `XPC_SERVICE_NAME == label` (Z crates/update/src/lib.rs:766-772). It restarts via `launchctl kickstart -k gui/<uid>/<label>` (:791-808) and stops via `bootout`, "not `kill`: with KeepAlive the job would otherwise respawn" (Z apps/zeron/src/daemon.rs:140-141).
-- **Session scope:** the `gui/<uid>` domain runs only while the user is logged in. MonoCode's copy: "keep the Mac signed in and awake" (M host/service.ts:202). Logout closes every Terminal.
+- **Session scope:** the `gui/<uid>` domain runs only while the user is logged in. App M's copy: "keep the Mac signed in and awake" (M host/service.ts:202). Logout closes every Terminal.
 - **Visibility:** helpers registered this way appear in System Settings → General → Login Items under the app's name (Apple sample article).
 - **Rust binding:** `objc2-service-management` 0.3.2 (crates.io), the same objc2 0.3 family as `objc2-app-kit` (P packages/desktop/Cargo.toml:46).
 - **Single instance:** pocketd has no lock today. Zeron flocks `{data_dir}/engine.lock` with a pid stamp and 40×25 ms retries, and fails with "another zeron engine is already running on {dir} (pid {pid}); stop it or use a different data dir (ZERON_DATA_DIR)" (Z crates/engine/src/instance_lock.rs:1-120). Pocket needs this so a dev `go run … serve` and the service can't fight over `pocketd.sock` and :4517.
@@ -257,9 +256,9 @@ Citation legend:
   - "restart to apply", or install on quit (:1-14).
 - **Add authenticity.**
   - Zeron checks only a same-origin sha256, warns when a checksum is missing (Z crates/update/src/lib.rs:594-639), and its `latest.txt` fallback skips verification (r02).
-  - MonoCode ships minisign `.sig` files (M .github/workflows/release.yml:116-117,273).
+  - App M ships minisign `.sig` files (M .github/workflows/release.yml:116-117,273).
   - Proposal: after staging, require `codesign --verify --strict -R 'anchor apple generic and certificate leaf[subject.OU] = "<TEAM>"'` and a stapled ticket. This reuses the Developer ID, so there is no second key to guard (inference).
-- **MonoCode contrast:** it relaunches right after `downloadAndInstall` (M src/app/model/updater.ts:135-158). Its quit confirmation while chats run is described in r09.
+- **App M contrast:** it relaunches right after `downloadAndInstall` (M src/app/model/updater.ts:135-158).
 - **pocketd restart policy.** A restart kills every PTY, because Terminals live inside pocketd (P packages/pocketd/cmd/pocketd/serve.go:34; r02).
   1. The app swap renames bundles, so the running pocketd keeps executing its old inode, and the LaunchAgent's `BundleProgram` resolves to the new binary on its next start (inference from Z crates/update/src/lib.rs:886-920).
   2. pocketd reads its bundle's `CFBundleShortVersionString` (Z crates/update/src/lib.rs:576-585) every 5 min (:72). If newer and 0 Terminals are open, it runs `kickstart -k` (:791-808), at most once per version (`SupersededRestart`, :1360-1405).
@@ -327,14 +326,14 @@ Citation legend:
 ### F8. Licence and pricing stance
 
 - **Peers** (r15 matrix):
-  - MIT: Zeron, MonoCode, Happy, Nimbalyst.
+  - MIT: Zeron, App M, Happy, Nimbalyst.
   - Apache-2.0: herdr, Emdash.
   - ELv2: Superset. GPL-3.0+ app with BSL 1.1 server: cmux. AGPL: Claude Squad. Proprietary: Conductor.
   - Clone headers: "MIT License / Copyright (c) 2026 Wing" (Z LICENSE:1-3) and "Copyright (c) 2026 Nick" (M LICENSE:1-3).
 - **Notices Pocket must carry:**
   - Ghostty is MIT, "Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors" (github.com/ghostty-org/ghostty LICENSE). It is vendored at `third_party/ghostty` in the author's main checkout, not in this worktree.
   - Geist is OFL, already shipped (P packages/desktop/crates/theme/assets/fonts/OFL.txt).
-  - Any ported Zeron or MonoCode code must keep their MIT notice.
+  - Any ported Zeron or App M code must keep their MIT notice.
 - **Stance: MIT** for pocketd, protocol, desktop and app.
   - There is no hosted service to protect. ELv2 and BSL exist to protect one.
   - MIT allows the ports proposed across r01-r15.
@@ -372,11 +371,11 @@ Citation legend:
 | 19-13 | Notification pre-prompt card + denied alert | Asked at the right moment; recoverable when denied | Z apps/ios/Zeron/App/PushNotifications.swift:76-97; Z apps/ios/Zeron/Shell/MoreViewController.swift:132,155-160 | **new** in `packages/app/src/screens/AgentsScreen.tsx` | S | 19-12 |
 | 19-14 | TestFlight via EAS Build + Submit (fallback: Zeron's Actions workflow) | Phone install without Xcode | Z .github/workflows/testflight.yml:5-292; developer.apple.com/testflight; expo.dev/pricing | **new** `packages/app/eas.json`, workflow | M | Paid ADP; ASC app record |
 | 19-15 | Self-build: team and bundle id from env/app config, not the pbxproj; BUILD.md with prerequisites | Contributors can build without editing Xcode files | P packages/app/ios/Anywhere.xcodeproj/project.pbxproj:375,382; P scripts/build-ghostty.sh | **adapt** `packages/app` config; **new** doc | S | 19-16 |
-| 19-16 | MIT LICENSE + THIRD_PARTY_NOTICES (Ghostty, Geist OFL, ported Zeron/MonoCode code) | Legal to use, fork and contribute | r15:326; Z LICENSE:1-3; M LICENSE:1-3; P packages/desktop/crates/theme/assets/fonts/OFL.txt | **new** repo-root files; copy into `Resources/` | S | author decision |
+| 19-16 | MIT LICENSE + THIRD_PARTY_NOTICES (Ghostty, Geist OFL, ported Zeron/App M code) | Legal to use, fork and contribute | r15:326; Z LICENSE:1-3; M LICENSE:1-3; P packages/desktop/crates/theme/assets/fonts/OFL.txt | **new** repo-root files; copy into `Resources/` | S | author decision |
 | 19-17 | Pairing screen detects Tailscale and warns on LAN fallback | Users don't pair to `localhost` or leak the token on Wi-Fi | P packages/pocketd/cmd/pocketd/serve.go:46,63-69; r08 open q | **adapt** pocketd `pair` + desktop Settings → Phone | S | 19-11; pairs with 15-13 |
 | 19-18 | TCC purpose strings for Desktop/Documents/Downloads | Clear system prompts; fewer denials | M src-tauri/Info.plist:7-12 | **new** keys in the desktop Info.plist | S | 19-1 |
 | 19-19 | Dev isolation: "Pocket Dev" bundle id, `POCKET_HOME`, port and label | Dev builds don't fight the installed service | Z dist/macos/Info-dev.plist; Z scripts/run-macos-dev.sh:43-68; P packages/pocketd/internal/config/config.go:14-27,55 | **adapt** `config.create` (port), dev plist | S | 19-2 |
-| 19-20 | "Stop terminal service" / uninstall with MonoCode's copy | A clean exit path; trust | M host/cli.ts:103-118; M host/service.ts:129-167 | **new** desktop menu item (SMAppService `unregister`) | S | 19-2 |
+| 19-20 | "Stop terminal service" / uninstall with App M's copy | A clean exit path; trust | M host/cli.ts:103-118; M host/service.ts:129-167 | **new** desktop menu item (SMAppService `unregister`) | S | 19-2 |
 | 19-21 | Demo mode for App Review / external beta review | Makes an App Store listing possible | Z apps/ios/Zeron/App/PushNotifications.swift:79 (`isDemo`) | **new** in `packages/app` | M | only if going to the App Store |
 | 19-22 | Direct APNs from pocketd (08-1) | — | r08:472 | — | L | superseded by 19-12 |
 
@@ -474,7 +473,7 @@ Citation legend:
 
 ## Verification
 
-Date: 2026-09-30. Claims checked: 15 (static libghostty link, SMAppService/LaunchAgent contrast with Zeron bootout and MonoCode kickstart, desktop `exit(1)` and one-shot ops reader, hello `== 3` check, plugin via `CLAUDE_CODE_PLUGIN_DIRS`, Zeron translocation gate, quiescence gate + `SupersededRestart`, updater timings and bundle swap, installer commands and env, package-macos.sh sign/notarize/staple/DMG geometry, release.yml secrets/manifest/order, MonoCode ad-hoc refusal, phone ConnectScreen/client/entitlements/package.json, pocketd config/port/lock, release asset sizes via `gh api`). Ideas-table mappings all point at existing Pocket paths or are marked **new**. Corrected: 6.
+Date: 2026-09-30. Claims checked: 15 (static libghostty link, SMAppService/LaunchAgent contrast with Zeron bootout and App M kickstart, desktop `exit(1)` and one-shot ops reader, hello `== 3` check, plugin via `CLAUDE_CODE_PLUGIN_DIRS`, Zeron translocation gate, quiescence gate + `SupersededRestart`, updater timings and bundle swap, installer commands and env, package-macos.sh sign/notarize/staple/DMG geometry, release.yml secrets/manifest/order, App M ad-hoc refusal, phone ConnectScreen/client/entitlements/package.json, pocketd config/port/lock, release asset sizes via `gh api`). Ideas-table mappings all point at existing Pocket paths or are marked **new**. Corrected: 6.
 
 - P2: the client does receive the `error` "Rejected" (session stores it, P packages/app/src/session.tsx:67-69); ConnectScreen just never renders it. Reworded.
 - App.tsx citations moved to :22-26 / :26 (the `online` check).

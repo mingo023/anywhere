@@ -68,7 +68,7 @@ impl Desktop {
         let projects = self.projects();
         let Some(s) = self.agents.get(id) else { return };
         let Some(spec) = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents)) else { return };
-        self.outbox.create(spec);
+        self.send_create(spec);
         cx.notify();
     }
 

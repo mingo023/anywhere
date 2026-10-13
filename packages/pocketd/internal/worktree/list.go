@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -56,14 +55,6 @@ func parse(porcelain string) []Worktree {
 		ws[0].Main = true
 	}
 	return ws
-}
-
-func born(path string) int64 {
-	var st syscall.Stat_t
-	if syscall.Stat(path, &st) != nil {
-		return 0
-	}
-	return st.Birthtimespec.Nano()
 }
 
 // Projects is the registry as clients see it. A folder that is gone is left out.

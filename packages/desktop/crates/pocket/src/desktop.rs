@@ -23,6 +23,7 @@ use crate::empty_pane::EmptyPane;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::fleet::Fleet;
+use crate::host_agents::HostAgents;
 use crate::git_ui::changes::ChangesState;
 use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::{At, DiffState};
@@ -43,8 +44,8 @@ use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use crate::terminals::link::Hint;
 use crate::updates::Updates;
-use agents::{Agents, Outbox};
-use daemon::Daemon;
+use agents::Agents;
+use hosts::session::{Daemons, Outboxes};
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -59,8 +60,8 @@ use workspace::{Doc, Tab, Workspace};
 pub(crate) const MAIN: PaneId = 0;
 
 pub struct Desktop {
-    pub(crate) daemon: Daemon,
-    pub(crate) outbox: Outbox,
+    pub(crate) daemon: Daemons,
+    pub(crate) outbox: Outboxes,
     pub(crate) alerts: Alerts,
     pub(crate) notch: Notch,
     pub(crate) chime: Chime,
@@ -101,6 +102,7 @@ pub struct Desktop {
     pub(crate) sidebar: SidebarState,
     pub(crate) settings: SettingsState,
     pub(crate) fleet: Fleet,
+    pub(crate) host_agents: HostAgents,
     pub(crate) updates: Updates,
     pub(crate) chips: Chips,
     pub(crate) overlay: Option<Overlay>,
@@ -119,7 +121,7 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub(crate) fn new(daemon: Daemon, outbox: Outbox, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
@@ -213,6 +215,7 @@ impl Desktop {
             sidebar,
             settings,
             fleet,
+            host_agents: HostAgents::default(),
             updates,
             chips,
             overlay: None,
@@ -413,7 +416,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -423,6 +426,7 @@ impl Desktop {
         (self.pr.ship_menu, self.pr.merge_menu) = (false, false);
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;
+        self.sidebar.add_menu = false;
         self.automations.menu = None;
         self.explorer.close_menu();
         self.terminal.menu = None;

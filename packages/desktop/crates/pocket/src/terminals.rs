@@ -10,6 +10,7 @@ use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
 use agents::locals::is_local;
 use daemon::{Info, Msg};
+use hosts::session::{Lists, untag};
 use gpui_kit::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -49,6 +50,7 @@ pub struct Terminals {
     pub(crate) bell: Bell,
     /// Terminals ended from their pane, which stays open on its last screen.
     killed: HashSet<String>,
+    pub(crate) lists: Lists,
 }
 
 /// A created terminal's worktree, and the pane it opens in if one was asked for.
@@ -60,7 +62,7 @@ pub(crate) struct Created {
 
 impl Terminals {
     pub fn new(config: term::Config) -> Self {
-        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default(), killed: HashSet::new() }
+        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default(), killed: HashSet::new(), lists: Lists::default() }
     }
 
     /// The listed terminals closed here that still run, because their close never reached pocketd.
@@ -82,13 +84,24 @@ impl Terminals {
     /// pocketd went away: the spawns it never answered will never be.
     pub(crate) fn disconnected(&mut self, now: Instant) {
         self.link.down(now);
-        self.intents.clear();
+        self.intents.retain(|i| hosts::split(&i.0).0.is_some());
     }
 
     /// pocketd answered again: its terminals may have changed, so forget the screens.
     pub(crate) fn reconnected(&mut self) {
         self.link.up();
-        for s in self.sessions.items.iter_mut().filter(|s| s.exit.is_none()) {
+        self.forget_screens(None);
+    }
+
+    /// A host's pocketd went away: its spawns go unanswered, and its terminals' screens are gone until it lists them again.
+    pub(crate) fn host_down(&mut self, host: &str) {
+        self.intents.retain(|i| hosts::split(&i.0).0 != Some(host));
+        self.forget_screens(Some(host));
+    }
+
+    /// Drops the screens of the running terminals pocketd `host` holds, to attach again once it lists them.
+    pub(crate) fn forget_screens(&mut self, host: Option<&str>) {
+        for s in self.sessions.items.iter_mut().filter(|s| s.exit.is_none() && untag(&s.info.id).0 == host) {
             s.term = None;
             self.reattach.insert(s.info.id.clone());
         }
@@ -101,9 +114,10 @@ impl Terminals {
         }
     }
 
-    /// Matches a spawned terminal to the oldest pending intent.
-    pub(crate) fn spawned(&mut self) -> Option<Intent> {
-        self.intents.pop_front()
+    /// Matches a terminal pocketd `host` spawned to the oldest intent sent to it.
+    pub(crate) fn spawned(&mut self, host: Option<&str>) -> Option<Intent> {
+        let at = self.intents.iter().position(|i| hosts::split(&i.0).0 == host)?;
+        self.intents.remove(at)
     }
 
     pub(crate) fn created(&mut self, request: &str, id: String, tree: String, setup: bool) {
@@ -202,26 +216,35 @@ impl Terminals {
         pending.into_iter().filter(|(id, (cols, rows))| self.resize(id, *cols, *rows)).map(|(id, (cols, rows))| (id, cols, rows)).collect()
     }
 
-    /// An error without a terminal id is pocketd refusing the oldest spawn.
-    pub(crate) fn errored(&mut self, id: &str) {
+    /// An error without a terminal id is pocketd `host` refusing the oldest spawn sent to it.
+    pub(crate) fn errored(&mut self, host: Option<&str>, id: &str) {
         if id.is_empty() {
-            self.intents.pop_front();
+            self.spawned(host);
         }
     }
 }
 
 impl Desktop {
     pub(crate) fn on_msg(&mut self, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
-        match m.ev.as_str() {
-            "terminals" => {
-                for id in self.terminals.unclosed(&m.items) {
+        self.on_msg_from(None, m, window, cx);
+    }
+
+    /// A message from this Mac's pocketd, or for `Some` a host's with its ids already tagged.
+    pub(crate) fn on_msg_from(&mut self, host: Option<&str>, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
+        match (m.ev.as_str(), host) {
+            ("terminals", _) => {
+                let items = self.terminals.lists.listed(host, m.items);
+                for id in self.terminals.unclosed(&items) {
                     self.daemon.send(json!({"op": "close", "id": id}));
                 }
-                for id in self.terminals.listed(m.items) {
+                for id in self.terminals.listed(items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
                 let restoring = !self.panels.restored;
-                self.restore_layouts();
+                match host {
+                    None => self.restore_layouts(),
+                    Some(h) => self.restore_host_layouts(h),
+                }
                 for (id, c) in self.terminals.arrived() {
                     let local = self.terminals.sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
                     self.adopt(id, local.unwrap_or(c.tree), Place::Pane(c.pane), window, cx);
@@ -234,28 +257,33 @@ impl Desktop {
                     self.load_active(cx);
                 }
             }
-            "spawned" => {
+            ("spawned", _) => {
                 self.error = None;
-                if let Some(Intent(tree, place)) = self.terminals.spawned() {
+                if let Some(Intent(tree, place)) = self.terminals.spawned(host) {
                     self.adopt(m.id, tree, place, window, cx);
                 }
-                self.daemon.send(json!({"op": "list"}));
+                self.daemon.send_to(host, json!({"op": "list"}));
             }
-            "error" => {
-                self.terminals.errored(&m.id);
+            ("error", _) => {
+                self.terminals.errored(host, &m.id);
                 self.error = Some(m.error);
             }
-            "exit" => {
+            ("exit", _) => {
                 if self.terminals.exited(&m) {
                     self.close_pane(&m.id, cx);
                 }
             }
-            "up" => {
+            ("up", Some(h)) => {
+                self.terminals.forget_screens(Some(h));
+                self.daemon.send_to(host, json!({"op": "list"}));
+            }
+            ("down", Some(h)) => self.terminals.host_down(h),
+            ("up", None) => {
                 self.terminals.reconnected();
                 self.terminal.selection = None;
                 self.daemon.send(json!({"op": "list"}));
             }
-            "down" => {
+            ("down", None) => {
                 self.terminals.disconnected(Instant::now());
                 if channel::is_release() {
                     cx.spawn(async |this, cx| {
@@ -294,10 +322,22 @@ impl Desktop {
         if self.agents.observe_only() {
             return;
         }
-        let sent = self.daemon.send(op);
+        let host = hosts::split(&intent.0).0.map(str::to_string);
+        let sent = self.daemon.send_to(host.as_deref(), op);
         self.terminals.spawn_sent(sent, intent);
-        self.error = None;
+        self.error = host.filter(|_| !sent).map(|h| format!("{} isn't connected", self.host_name(&h)));
         cx.notify();
+    }
+
+    /// Sends a create to the pocketd holding `spec`'s project; `None`, with the error shown, when that's a host that isn't connected.
+    pub(crate) fn send_create(&mut self, spec: serde_json::Value) -> Option<String> {
+        match self.outbox.create(spec, |h| self.store.host_registry(h)) {
+            Ok(request) => Some(request),
+            Err(host) => {
+                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                None
+            }
+        }
     }
 
     /// Opens the shell Settings › Terminal names in the worktree's folder, its tab at `place`.
@@ -305,7 +345,7 @@ impl Desktop {
         let t = &self.store.terminal;
         let (shell, args) = t.shell_command(daemon::login_shell(), store::prefs::terminal::runs);
         let missing = t.skipped(&shell).map(|p| p.trim().to_string());
-        self.run_in_tree(place, |cwd| daemon::shell_op(&shell, args, cwd), cx);
+        self.run_in_tree(place, &[], |cwd| daemon::shell_op(&shell, args, cwd), cx);
         if let Some(missing) = missing {
             self.error = Some(format!("Can't run {missing}, so this terminal opened your login shell"));
         }
@@ -321,13 +361,17 @@ impl Desktop {
 
     pub fn new_agent_tab(&mut self, provider: &str, place: Place, cx: &mut Context<Self>) {
         let argv = [provider.to_string()];
-        self.run_in_tree(place, |cwd| daemon::agent_op(&argv, cwd), cx);
+        self.run_in_tree(place, &argv, |cwd| daemon::agent_op(&argv, cwd), cx);
     }
 
-    pub(crate) fn run_in_tree(&mut self, place: Place, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
+    /// Spawns `op` in the worktree's folder; a host's folder gets its login shell running `argv` instead.
+    pub(crate) fn run_in_tree(&mut self, place: Place, argv: &[String], op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
         let Some(tree) = self.place() else { return };
         let Some(cwd) = self.folder_of(&tree) else { return };
-        let mut op = op(&cwd);
+        let mut op = match hosts::split(&cwd) {
+            (Some(_), path) => hosts::session::spawn_op(path, argv),
+            (None, _) => op(&cwd),
+        };
         if is_local(&tree) {
             op["local"] = tree.clone().into();
         }
@@ -451,7 +495,7 @@ mod tests {
     fn spawned_terminals_open_as_the_tab_asked_for() {
         let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
-        assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Pane(None))));
+        assert_eq!(t.spawned(None), Some(Intent("/w".into(), Place::Pane(None))));
     }
 
     #[test]
@@ -459,14 +503,14 @@ mod tests {
         let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Split(0, Edge::Bottom)));
         t.intents.push_back(Intent("/v".into(), Place::Split(0, Edge::Right)));
-        assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Split(0, Edge::Bottom))));
-        assert_eq!(t.spawned(), Some(Intent("/v".into(), Place::Split(0, Edge::Right))));
+        assert_eq!(t.spawned(None), Some(Intent("/w".into(), Place::Split(0, Edge::Bottom))));
+        assert_eq!(t.spawned(None), Some(Intent("/v".into(), Place::Split(0, Edge::Right))));
     }
 
     #[test]
     fn a_terminal_spawned_with_nothing_pending_is_left_alone() {
         let mut t = Terminals::new(Default::default());
-        assert_eq!(t.spawned(), None);
+        assert_eq!(t.spawned(None), None);
         assert!(t.setups.is_empty());
     }
 
@@ -475,9 +519,40 @@ mod tests {
         let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
         t.intents.push_back(Intent("/v".into(), Place::Pane(None)));
-        t.errored("a");
-        t.errored("");
-        assert_eq!(t.spawned(), Some(Intent("/v".into(), Place::Pane(None))));
+        t.errored(None, "a");
+        t.errored(None, "");
+        assert_eq!(t.spawned(None), Some(Intent("/v".into(), Place::Pane(None))));
+    }
+
+    #[test]
+    fn each_pocketd_answers_only_the_spawns_sent_to_it() {
+        let mut t = Terminals::new(Default::default());
+        t.intents.push_back(Intent("//devbox/app".into(), Place::Pane(None)));
+        t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
+        assert_eq!(t.spawned(None), Some(Intent("/w".into(), Place::Pane(None))));
+        assert_eq!(t.spawned(Some("gpu")), None);
+        assert_eq!(t.spawned(Some("devbox")), Some(Intent("//devbox/app".into(), Place::Pane(None))));
+    }
+
+    #[test]
+    fn a_host_going_down_forgets_only_its_own_spawns_and_screens() {
+        let mut t = Terminals::new(Default::default());
+        t.intents.push_back(Intent("//devbox/app".into(), Place::Pane(None)));
+        t.intents.push_back(Intent("//gpu/app".into(), Place::Pane(None)));
+        t.listed(vec![info("devbox/1"), info("2")]);
+        t.host_down("devbox");
+        assert_eq!(t.intents.iter().map(|i| i.0.as_str()).collect::<Vec<_>>(), ["//gpu/app"]);
+        assert_eq!(t.listed(vec![info("devbox/1"), info("2")]), vec!["devbox/1"]);
+    }
+
+    #[test]
+    fn this_macs_pocketd_going_away_keeps_the_hosts_spawns() {
+        let mut t = Terminals::new(Default::default());
+        t.intents.push_back(Intent("//devbox/app".into(), Place::Pane(None)));
+        t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
+        t.disconnected(std::time::Instant::now());
+        assert_eq!(t.spawned(Some("devbox")), Some(Intent("//devbox/app".into(), Place::Pane(None))));
+        assert_eq!(t.spawned(None), None);
     }
 
     #[test]
@@ -639,7 +714,7 @@ mod tests {
         let mut t = Terminals::new(Default::default());
         t.intents.push_back(Intent("/w".into(), Place::Pane(None)));
         t.disconnected(std::time::Instant::now());
-        assert_eq!(t.spawned(), None);
+        assert_eq!(t.spawned(None), None);
     }
 
     #[test]
@@ -648,7 +723,7 @@ mod tests {
         t.disconnected(std::time::Instant::now());
         t.spawn_sent(true, Intent("/w".into(), Place::Pane(None)));
         t.reconnected();
-        assert_eq!(t.spawned(), Some(Intent("/w".into(), Place::Pane(None))));
+        assert_eq!(t.spawned(None), Some(Intent("/w".into(), Place::Pane(None))));
     }
 
     #[test]
@@ -664,7 +739,7 @@ mod tests {
         let mut t = Terminals::new(Default::default());
         t.spawn_sent(false, Intent("/w".into(), Place::Pane(None)));
         t.spawn_sent(true, Intent("/v".into(), Place::Pane(None)));
-        assert_eq!(t.spawned(), Some(Intent("/v".into(), Place::Pane(None))));
+        assert_eq!(t.spawned(None), Some(Intent("/v".into(), Place::Pane(None))));
     }
 
     #[test]

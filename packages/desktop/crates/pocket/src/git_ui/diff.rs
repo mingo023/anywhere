@@ -59,10 +59,11 @@ pub struct DiffLoad {
 /// Reads and diffs `path` as `at` compares it, colouring it only when the lines differ from `shown`. Run off the UI thread.
 pub fn read_diff(cwd: &str, path: String, at: At, open: HashSet<usize>, options: git::Options, shown: &[Line]) -> DiffLoad {
     let dark = theme::is_dark();
+    let runner = hosts::runner_for(cwd);
     let (old, new) = match &at {
-        At::Working => git::texts(cwd, &path),
-        At::Commit(sha) => git::texts_at(cwd, sha, &path),
-        At::Base(base) => git::texts_between(cwd, base, &path),
+        At::Working => git::texts(&runner, cwd, &path),
+        At::Commit(sha) => git::texts_at(&runner, cwd, sha, &path),
+        At::Base(base) => git::texts_between(&runner, cwd, base, &path),
     };
     let lines = git::diff_texts(&old, &new, &open, options);
     let colors = (lines != shown).then(|| {

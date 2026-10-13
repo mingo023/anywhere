@@ -47,14 +47,13 @@
 | Rival | Their model (cited) | Where C wins |
 |---|---|---|
 | Zeron | Headless chat engine on undocumented `--permission-prompt-tool stdio`. It runs yolo: Claude `can_use_tool` is always allowed, and Codex runs `never` / `danger-full-access` [R03 TL;DR]. "Every signed-in device is fully trusted", with no E2EE [R18 TL;DR] | Real TUIs plus human approvals for every tool. Per-device scopes. No undocumented CLI surface (§8) |
-| MonoCode | The control plane lives in the app. The scheduler and inbox poll "run in the webview, so the app must be open", and events while it's closed never fire [R11 TL;DR]. Worker approvals go to the lead, "never to the user". The write-scope check runs after the fact [R11 TL;DR] | Daemon automations that run with the app quit (E11). Approvals always reach the human. A preventive `PreToolUse` deny (11-7) |
 | Superset | iPhone needs Pro at $20/user/mo. Traffic goes through a vendor relay with no documented E2EE. Automations are Pro. ELv2 license [R15 §F1] | Free, self-hosted, tailnet-only, no relay |
 | Happy | `happy claude` wrapper. Push via Happy's server. Vendor server with E2EE [R15 §F2] | No wrapper and no server beyond Expo's push hop, which carries fixed copy only (E9). Spawn from the phone into worktrees, schedules, orchestration |
 | Claude Remote Control / ChatGPT "Control this Mac" | Single provider, vendor relay, Pro+/plan. "Another connection took over this session". Gives up after about 10 min offline [R15 §F5, §F6] | One fleet across claude and codex. Desktop and phone both attached. Survives restarts (E5). Vendors can't offer the other vendor's agent [R15 risks: "vendor squeeze"] |
 
 ### What C trades away (honest)
 
-- **No GUI chat on the desktop.** A user who wants Zeron's or MonoCode's transcript UI won't get it (R05, R10 idea 10-12 deferred).
+- **No GUI chat on the desktop.** A user who wants Zeron's transcript UI won't get it (R05).
 - **Claude stays a TUI.**
   - No live Claude deltas on the phone; the transcript tail updates every 100 ms per item [R03 §timeline].
   - Structured AskUserQuestion stays TUI-side (14-11 deferred).
@@ -462,7 +461,7 @@ All additions are additive and gated by `hello.caps` (E4).
     |---|---|---|
     | `sessions list` | observe | AgentSummary v2 |
     | `sessions read <id> [--since seq] [--limit ≤200]` | observe | Assistant text and tool summaries. Each item is truncated to 4,000 chars [R11 TL;DR] |
-    | `sessions wait <id> --until needs_you\|done\|idle [--timeout ≤25s]` | observe | Re-callable, like MonoCode's `wait` 0–25 s [R11] |
+    | `sessions wait <id> --until needs_you\|done\|idle [--timeout ≤25s]` | observe | Re-callable, 0–25 s |
     | `sessions send <id> <text>` / `sessions interrupt <id>` | drive | Agent-sourced: sanitized, with no leading `!` or `/`. Returns the E8 ack |
     | `sessions start --input -` (LaunchSpec) | spawn | `grants` must be empty. `access` is at most the caller's own |
     | `worktrees list` / `worktrees create` | observe / spawn | E6 |
@@ -511,7 +510,7 @@ All additions are additive and gated by `hello.caps` (E4).
     - Phone: `automation.list`, `automation.run` and `automation.pause` (spawn scope), on a list screen with Run now and Pause.
     - No desktop editor.
     - No agent verbs, so an injected agent can't plant a recurring job.
-  - **Templates:** 3 prompts ported from MonoCode's 14: dependency audit, failing-test triage, PR review [R11 idea 11-14]. Attribution per [R19 idea 19-16].
+  - **Templates:** 3 prompts: dependency audit, failing-test triage, PR review.
   - **Stretch:** `gh` polling for new PRs, with a persistent seen set [R11 idea 11-11].
 - **Done when:**
   - A daily automation fires with the desktop quit.
@@ -534,7 +533,7 @@ All additions are additive and gated by `hello.caps` (E4).
 - **Scope:**
   - **Terms:** add Run, Lead, Worker, Assignment and Automation to CONTEXT.md before any code. "Inbox" keeps its current meaning [R11 idea 11-18].
   - **Grant:** `orchestrate` via LaunchSpec `grants`. It's owner-set, as a second option on the "Pocket control" row.
-  - **`pocketd agent run propose --input -`:** `{goal, tasks[≤12] {title ≤160, prompt ≤30,000, scope[] (required), provider, access ≤ acceptEdits}, concurrency 1–4 (default 2)}`. MonoCode allows 40 tasks [R11 idea 11-5]; v1 caps at 12.
+  - **`pocketd agent run propose --input -`:** `{goal, tasks[≤12] {title ≤160, prompt ≤30,000, scope[] (required), provider, access ≤ acceptEdits}, concurrency 1–4 (default 2)}`. v1 caps at 12.
   - **Human gate:** pocketd raises a broker request on the Lead session, which shows as Needs you.
     - Existing permission UI renders it on desktop and phone: tool "Pocket run", detail = the task table, options Start / Cancel, plus feedback.
     - Answering needs approve. E9 pushes it.
@@ -549,7 +548,7 @@ All additions are additive and gated by `hello.caps` (E4).
     - Add a reply path (today only `PermissionRequest` replies, P packages/pocketd/internal/daemon/daemon.go:90-120).
     - Deny `Edit`, `Write`, `MultiEdit` and `NotebookEdit` on canonical paths outside scope, and report each denial to the Lead [R11 idea 11-7].
   - **Codex Workers:** scope is checked at integration only.
-  - **Approvals:** Worker permission requests are ordinary Needs you plus push for the human. They never go to the Lead, which deviates from MonoCode [R11 TL;DR].
+  - **Approvals:** Worker permission requests are ordinary Needs you plus push for the human. They never go to the Lead.
   - **Lead verbs:**
     - `run status`
     - `run wait [--timeout ≤25s]`
@@ -600,7 +599,7 @@ All additions are additive and gated by `hello.caps` (E4).
 | Headless Claude (stream-json + `--permission-prompt-tool stdio`) | Undocumented flag. Account-terms question. Claude stays a TUI | [R03 idea 03-2, risks; R10 idea 10-1, open questions] |
 | Private Codex app-server | D4: only if headless is adopted | [R10 idea 10-2] |
 | Desktop chat pane or composer, full timeline decode in Rust | D9 terminal surface. Collision with in-flight desktop work | [R14 ideas 14-2, 14-3; R05 idea 05-23; R10 idea 10-12] |
-| Zeron/MonoCode visual cloning, dark theme, hero composer, model card | UI only where a feature needs it | [R14 idea 14-20; R17 ideas 17-4, 17-7] |
+| Zeron visual cloning, dark theme, hero composer, model card | UI only where a feature needs it | [R14 idea 14-20; R17 ideas 17-4, 17-7] |
 | Relay, E2EE relay, LAN TLS | Tailscale covers the owner. The relay is L | [R18 ideas 18-16, 18-17; R02 idea 02-1; R08 idea 08-22] |
 | Lock-screen Allow/Deny, Live Activities, HUD | L each. Lock-screen auth timing is open | [R08 idea 08-19; R15 ideas 15-5, 15-6; R18 open] |
 | Devices sheet, automation editor, run card | CLI plus the existing permission UI suffice | [R18 idea 18-5; R11 idea 11-5] |
@@ -639,7 +638,7 @@ All additions are additive and gated by `hello.caps` (E4).
 | Codex app-server is experimental and drifts | `[experimental]`. Originator side effects of `turn/start` from `codex_app_server_daemon` are unverified. Approvals across clients [R03 risks] | Capability probe at attach. `codexDriver` falls back to typing on any RPC error. fakecodex fixtures pinned per CLI version. Spike evidence (P docs/spike-remote-sessions.md:75) |
 | Resume argv runs something unintended | Restored commands run automatically [R15 risks] | Built from a structured record. Provider allowlist. herdr rules. No env. Full never restored. Toggle (E5) |
 | PTY typing is fragile | `errNotForeground` (P packages/pocketd/internal/daemon/presence.go:119) | Coded acks (E8). Codex bypasses typing. Never type into an agent that isn't Attached |
-| Agents driving agents amplify prompt injection | The ops socket is open today [R18 TL;DR]. MonoCode lets the Lead approve Workers [R11] | Grants default off and are owner-set. No approve for any agent. No transitive grants. Sanitation. Origin labels. Run caps (≤4 Workers, ≤12 tasks, 20 auto-wakes). `PreToolUse` scope deny. Worktree isolation |
+| Agents driving agents amplify prompt injection | The ops socket is open today [R18 TL;DR]. | Grants default off and are owner-set. No approve for any agent. No transitive grants. Sanitation. Origin labels. Run caps (≤4 Workers, ≤12 tasks, 20 auto-wakes). `PreToolUse` scope deny. Worktree isolation |
 | Reparenting escape | A daemonized PTY descendant looks like an outside process [R18 open] | Layered defenses: the bind limits reach to the tailnet, so a forged pairing code is useless outside it. Owner ops also check the peer's executable path. Residual risk documented |
 | Claude folder-trust dialog answered by a remote `\r` | [R18 open] | Phone creates only in registered projects. Prompts go in argv. No typing into agents that aren't Attached |
 | Mac asleep: phone unreachable, schedule missed | [R11 open; R15 idea 15-7] | IOPM assertion while Working or a phone is connected. 720-min grace. `pmset` check in E4 |

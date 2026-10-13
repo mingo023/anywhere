@@ -1,3 +1,6 @@
+use crate::fs::{Fs, fs_at};
+use git::Exec;
+use hosts::remote::Client;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::MetadataExt;
@@ -7,6 +10,10 @@ use std::path::{Path, PathBuf};
 pub fn create(parent: &Path, name: &str, folder: bool) -> io::Result<PathBuf> {
     let folder = folder || name.ends_with('/');
     let path = parent.join(name.trim_matches('/'));
+    if let Fs::Remote(host) = fs_at(parent) {
+        return create_on(&host, &path, folder).map(|()| path);
+    }
+    fs_at(parent).local()?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -21,6 +28,14 @@ pub fn create(parent: &Path, name: &str, folder: bool) -> io::Result<PathBuf> {
 /// Renames `path` to `name` in its folder, refusing to replace anything but itself under another case.
 pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
     let to = path.with_file_name(name);
+    if let Fs::Remote(host) = fs_at(path) {
+        let (from, onto) = (text(path), text(&to));
+        if from.to_lowercase() != onto.to_lowercase() && host.stat(&onto)?.is_some() {
+            return Err(io::Error::new(ErrorKind::AlreadyExists, format!("“{name}” already exists")));
+        }
+        return host.rename(&from, &onto).map(|()| to);
+    }
+    fs_at(path).local()?;
     let inode = |p: &Path| p.symlink_metadata().map(|m| m.ino());
     if let Ok(taken) = inode(&to)
         && inode(path).ok() != Some(taken)
@@ -33,10 +48,28 @@ pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
 
 /// Moves `trashed` back to `to`, unless something took its place meanwhile.
 pub fn restore(trashed: &Path, to: &Path) -> io::Result<()> {
+    if let Fs::Remote(host) = fs_at(to) {
+        if host.stat(&text(to))?.is_some() {
+            return Err(io::Error::new(ErrorKind::AlreadyExists, "taken"));
+        }
+        return host.rename(&text(trashed), &text(to));
+    }
+    fs_at(to).local()?;
     if to.symlink_metadata().is_ok() {
         return Err(io::Error::new(ErrorKind::AlreadyExists, "taken"));
     }
     fs::rename(trashed, to)
+}
+
+fn create_on(host: &Client, path: &Path, folder: bool) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        host.mkdir(&text(dir), true)?;
+    }
+    if folder { host.mkdir(&text(path), false) } else { host.write(&text(path), b"", true) }
+}
+
+fn text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
@@ -59,6 +92,15 @@ mod tests {
         let made = create(&dir, "a/b/c.rs", false).unwrap();
         assert_eq!(made, dir.join("a/b/c.rs"));
         assert!(made.is_file());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn nothing_is_made_on_this_mac_for_a_folder_on_a_host() {
+        let dir = temp("host");
+        let on_host = PathBuf::from(hosts::place("devbox", &dir.to_string_lossy()));
+        assert_eq!(create(&on_host, "a.rs", false).unwrap_err().kind(), ErrorKind::NotConnected);
+        assert!(!dir.join("a.rs").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 

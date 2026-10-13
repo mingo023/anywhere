@@ -88,16 +88,6 @@ func TestKeeperKeepsHoldingWhenWorkResumesWithinTheLinger(t *testing.T) {
 	r.none(t)
 }
 
-func TestIOKitHoldsThenReleases(t *testing.T) {
-	s := &IOKit{}
-	if err := s.Hold("pocketd test"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Release(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestKeeperLetsTheMacSleepOnceKeepingAwakeIsTurnedOff(t *testing.T) {
 	r := start(t)
 	r.set(true)

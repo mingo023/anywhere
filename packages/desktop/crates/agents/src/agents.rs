@@ -285,8 +285,30 @@ impl Agents {
     }
 
     pub fn apply(&mut self, ev: Event) {
+        self.apply_from(None, ev);
+    }
+
+    /// Drops all that host `source` sent, once it's taken off this Mac.
+    pub fn forget(&mut self, source: &str) {
+        self.apply_from(Some(source), Event::Agents(Vec::new()));
+        self.apply_from(Some(source), Event::Connected { scopes: Vec::new(), caps: Vec::new(), version: String::new() });
+        self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
+    }
+
+    /// Applies an event, already tagged, from this Mac's pocketd (`None`) or host `source`'s:
+    /// what one pocketd sends whole replaces only its own share.
+    pub fn apply_from(&mut self, source: Option<&str>, ev: Event) {
+        let mine = |id: &str| id.split_once('/').map(|(h, _)| h) == source;
+        let my_name = |path: &str| path.strip_prefix("//").and_then(|p| p.split_once('/')).map(|(h, _)| h) == source;
         match ev {
-            Event::Agents(list) => self.list = list,
+            Event::Agents(list) => {
+                self.list.retain(|a| !mine(&a.id));
+                self.list.extend(list);
+            }
+            Event::Connected { .. } if source.is_some() => {
+                self.pending.retain(|p| !mine(&p.request_id));
+                self.names.retain(|path, _| !my_name(path));
+            }
             Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
             Event::Agent(a) => match self.list.iter_mut().find(|x| x.id == a.id) {
                 Some(x) => *x = a,
@@ -309,19 +331,22 @@ impl Agents {
             }
             Event::Resolved(id) => self.pending.retain(|p| p.request_id != id),
             Event::Connected { scopes, caps, version } => {
-                self.pending.clear();
+                self.pending.retain(|p| !mine(&p.request_id));
                 self.host = None;
                 self.scopes = scopes;
                 self.caps = caps;
                 self.version = version;
-                self.names.clear();
+                self.names.retain(|path, _| !my_name(path));
                 self.locals.clear();
             }
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
             Event::Providers { phone_max } => self.phone_max = phone_max,
             Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::NamingFailed(_) => {}
-            Event::Names(names) => self.names = names,
+            Event::Names(names) => {
+                self.names.retain(|path, _| !my_name(path));
+                self.names.extend(names);
+            }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
             Event::AutomationError(_) => {}
@@ -530,9 +555,25 @@ fn automation_event(f: &Frame) -> Option<Event> {
     }
 }
 
+/**
+ * A new create's requestId. It starts with the clock because pocketd replays the receipt of a
+ * requestId it has seen, even from before a restart. Each reconnect resends the create under the
+ * same requestId until its final reply, which joins the first create.
+ */
+pub fn request_id() -> String {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    format!("{nanos:x}-{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
 /// Client messages for pocketd. They wait in a queue while it is unreachable.
 #[derive(Clone)]
 pub struct Outbox(Sender<Value>);
+
+impl From<Sender<Value>> for Outbox {
+    fn from(tx: Sender<Value>) -> Self {
+        Self(tx)
+    }
+}
 
 impl Outbox {
     pub fn view(&self, ids: &[String]) {
@@ -569,16 +610,16 @@ impl Outbox {
         self.send(json!({"type": "pair.begin", "id": PAIR}));
     }
 
-    /**
-     * Sends `agent.create` and returns its requestId. It starts with the clock because pocketd
-     * replays the receipt of a requestId it has seen, even from before a restart. Each reconnect
-     * resends it under the same requestId until its final reply, which joins the first create.
-     */
+    /// Sends `agent.create` and returns its requestId.
     pub fn create(&self, spec: Value) -> String {
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let request = format!("{nanos:x}-{}", NEXT.fetch_add(1, Ordering::Relaxed));
-        self.send(json!({"type": "agent.create", "id": format!("{CREATE}{request}"), "requestId": request, "spec": spec}));
+        let request = request_id();
+        self.create_as(&request, spec);
         request
+    }
+
+    /// Sends `agent.create` under `request`, one from `request_id`.
+    pub fn create_as(&self, request: &str, spec: Value) {
+        self.send(json!({"type": "agent.create", "id": format!("{CREATE}{request}"), "requestId": request, "spec": spec}));
     }
 
     pub fn providers(&self) {
@@ -633,13 +674,18 @@ impl Outbox {
 /// Follows pocketd's phone protocol over its unix socket, where pocketd tells
 /// the owner from a process inside a Terminal: the agent list and every agent's timeline.
 pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
+    connect_with(sock, None)
+}
+
+/// `connect` to a socket behind which pocketd wants an owner token: a Windows host's forwarded TCP port.
+pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedReceiver<Event>) {
     let (tx, rx) = unbounded();
     let (out, queue) = channel();
     let sock = sock.to_path_buf();
     std::thread::spawn(move || {
         let mut unanswered = Vec::new();
         loop {
-            let _ = run(&sock, &tx, &queue, &mut unanswered);
+            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered);
             if tx.is_closed() {
                 return;
             }
@@ -652,13 +698,20 @@ pub fn connect(sock: &Path) -> (Outbox, UnboundedReceiver<Event>) {
 /// What this client understands beyond protocol 3.
 const CAPS: [&str; 9] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP];
 
-fn run(sock: &Path, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
+fn hello(token: Option<&str>) -> Value {
+    let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
+    if let Some(token) = token {
+        hello["ownerToken"] = token.into();
+    }
+    hello
+}
+
+fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
     let (mut ws, _) = tungstenite::client("ws://localhost/", stream).ok()?;
     // Reads time out so the loop gets to send the queue even while pocketd is quiet.
     ws.get_ref().set_read_timeout(Some(Duration::from_millis(100))).ok()?;
-    let hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
-    ws.send(Message::text(hello.to_string())).ok()?;
+    ws.send(Message::text(hello(token).to_string())).ok()?;
     for m in unanswered.iter() {
         ws.send(Message::text(m.to_string())).ok()?;
     }
@@ -762,6 +815,12 @@ mod tests {
 
     fn summary(provider: &str, model: Option<&str>) -> Summary {
         Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() }
+    }
+
+    #[test]
+    fn the_hello_carries_an_owner_token_only_when_there_is_one() {
+        assert!(hello(None).get("ownerToken").is_none());
+        assert_eq!(hello(Some("t1"))["ownerToken"], "t1");
     }
 
     #[test]
@@ -1362,5 +1421,36 @@ mod tests {
         assert!(!a.automations_offered());
         a.apply(Event::Connected { scopes: vec![], caps: vec!["automations.v1".into()], version: String::new() });
         assert!(a.automations_offered());
+    }
+
+    #[test]
+    fn each_pocketds_agents_asks_and_names_survive_the_others_snapshots_and_reconnects() {
+        let agent = |id: &str| Summary { id: id.into(), ..Default::default() };
+        let ask = |id: &str| Permission { request_id: id.into(), ..Default::default() };
+        let mut a = Agents::default();
+        a.apply(Event::Agents(vec![agent("a1")]));
+        a.apply(Event::Asked(ask("q1")));
+        a.apply(Event::Names(HashMap::from([("/src/app".into(), "App".into())])));
+        a.apply_from(Some("devbox"), Event::Agents(vec![agent("devbox/b1")]));
+        a.apply_from(Some("devbox"), Event::Asked(ask("devbox/q2")));
+        a.apply_from(Some("devbox"), Event::Names(HashMap::from([("//devbox/home/me/app".into(), "Box".into())])));
+
+        a.apply(Event::Agents(vec![agent("a2")]));
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: vec![], version: "v1".into() });
+        assert_eq!(a.list.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["devbox/b1", "a2"]);
+        assert_eq!(a.pending.iter().map(|p| p.request_id.as_str()).collect::<Vec<_>>(), ["devbox/q2"]);
+        assert_eq!(a.names.keys().collect::<Vec<_>>(), ["//devbox/home/me/app"]);
+
+        a.apply(Event::Asked(ask("q3")));
+        a.apply_from(Some("devbox"), Event::Connected { scopes: vec![], caps: vec![], version: "v0".into() });
+        a.apply_from(Some("devbox"), Event::Agents(vec![]));
+        assert_eq!(a.list.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["a2"]);
+        assert_eq!(a.pending.iter().map(|p| p.request_id.as_str()).collect::<Vec<_>>(), ["q3"]);
+        assert!(a.names.is_empty());
+        assert_eq!((a.owner(), a.version.as_str()), (true, "v1"), "a host's hello says nothing about this Mac's");
+
+        a.apply_from(Some("devbox"), Event::Agents(vec![agent("devbox/b2")]));
+        a.forget("devbox");
+        assert_eq!(a.list.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["a2"]);
     }
 }

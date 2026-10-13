@@ -3,14 +3,13 @@
 - Date: 2026-09-30
 - Sources:
   - Zeron `zeronsh/comet` @ ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5 (MIT), https://zeron.sh
-  - MonoCode `hardbeat920/monocode` @ cdc1441dc51e3709cd843e5c316608a123f323c6 (MIT), https://usemono.dev
   - Pocket `orchestrator-research` worktree @ b9d14a1
   - Local CLIs: `claude` 2.1.285, `codex-cli` 0.159.0
-  - Prior reports 03, 08, 10, 12, 13, 14 in this folder
+  - Prior reports 03, 08, 14 in this folder
 
 **Legend.**
 - `Z path:L` is Zeron, relative to `/Users/mingo/tmp/orchestrators/zeron`.
-- `M path:L` is MonoCode, relative to `/Users/mingo/tmp/orchestrators/monocode`.
+- `M path:L` is App M, another orchestrator, relative to its clone root.
 - `P path:L` is Pocket, relative to the worktree root at b9d14a1. `P docs/orchestrators/research/NN-*.md:L` points at a prior report.
 - `$ cmd` is output of a command run locally on 2026-09-30 against the CLI versions above.
 - Where code and docs or screenshots disagree, the code is taken as truth and the disagreement is listed in F12.
@@ -30,7 +29,7 @@
   - Device and project chips sit top-right above the pill. Checkout and ref chips sit in a 24 px slot below it.
   - There is no permission picker: the sandbox is fixed at `WorkspaceWrite` (Z crates/ui/src/pickers.rs:152).
   - Picks live in `composer-defaults.json`.
-- **MonoCode:**
+- **App M:**
   - A new session is a new blank tab that inherits the active session's cwd and access mode (M src/app/App.tsx:2250-2262).
   - The headline reads "What should we work on in {project}?".
   - Folder, workspace and branch pickers sit in the composer's top bar. Model and access pickers sit in its bottom bar.
@@ -245,7 +244,7 @@ let mut args: Vec<String> = match (f.provider, f.perm) {
 - The hero→dock glide lasts 0.420 s when docking and 0.470 s when returning, times `speed_scale` (Z crates/ui/src/composer_dock.rs:468-470). It uses a critically damped spring (the `Glide` struct at L19). `hero_limit` is at L572.
 - The target and git chrome fade with `new_thread_chrome_opacity` (composer.rs:9644-9760).
 
-### F8. MonoCode: new-session surface
+### F8. App M: new-session surface
 
 - **New session = new tab**
   - `onNew` opens a new blank session in a new tab, takes the cwd from the active session, inherits its `runtimeMode` and focuses the composer (M src/app/App.tsx:2250-2262).
@@ -284,7 +283,7 @@ let mut args: Vec<String> = match (f.provider, f.perm) {
   - Right-click opens "Recently used models": h-10 rows with a harness icon, 13 px name and 11 px "Harness · Provider"; unavailable rows at content/30 (L870-948).
   - Search placeholder "Search models". Empty states "No favorite models" / "Loading Codex models…" / "No matching models" (L1361-1384).
 
-### F9. MonoCode: access modes
+### F9. App M: access modes
 
 | RuntimeMode | Label | Hint | Claude `--permission-mode` | Codex approvalPolicy / sandbox / reviewer (app-server) |
 |---|---|---|---|---|
@@ -303,11 +302,11 @@ Sources: M src/features/sessions/model/session.ts:355-388 (default at L373); M s
   - Footnote while busy: "Access changes apply to the next turn. Stop and resend to apply them now." (L169-173).
   - Keys: ArrowUp/Down clamp without wrapping; Enter picks (L68-84).
 
-### F10. MonoCode: states and memory
+### F10. App M: states and memory
 
 - **Availability** (M src/integrations/harness/core/availability.ts)
   - CLI names and install commands are listed at L36-53. Probe TTL is 30 s (`PROBE_TTL_MS = 30_000`, L64, L77).
-  - Copy: "${name} not found${how}. Install it, or restart MonoCode if it is already installed." (L66-70).
+  - Copy: "${name} not found${how}. Install it, or restart {app} if it is already installed." (L66-70).
 - **Sign-in** (M src/features/sessions/ui/ProviderSignInDialog.tsx)
   - Dialog: "Authentication required" / "Sign in to continue using ${HARNESS_TITLE}.", action "Continue", size sm (L43-54).
   - Failure: "Could not sign in to X." (L34).
@@ -358,11 +357,11 @@ Sources: M src/features/sessions/model/session.ts:355-388 (default at L373); M s
 | Setup / copy env | `setup_op` / file copy (forms.rs:431-448) | `spec.copyEnv`, `spec.runSetup` | Same |
 | Prompt | Trailing positional arg; empty is allowed (forms.rs:415) | `spec.prompt` | First `agent.prompt` |
 | Name | `claude -n <name>` (optional, 17-12) | `spec.name` | Session title |
-| Change after start | Only through the CLI's TUI (`/model`, mode cycling). The chips lock once the terminal exists | Same | `agent.configure`; show MonoCode's "applies to the next turn" footnote (AccessPicker.tsx:169-173) |
+| Change after start | Only through the CLI's TUI (`/model`, mode cycling). The chips lock once the terminal exists | Same | `agent.configure`; show App M's "applies to the next turn" footnote (AccessPicker.tsx:169-173) |
 
-- Stage B lets the phone start terminal sessions through `agent.create` before any headless driver exists (08 F10 phone canvas: P docs/orchestrators/research/08-zeron-mobile.md:328-341; 10-3: P docs/orchestrators/research/10-monocode-architecture-harness.md:415).
+- Stage B lets the phone start terminal sessions through `agent.create` before any headless driver exists (08 F10 phone canvas: P docs/orchestrators/research/08-zeron-mobile.md:328-341).
 - Stage B also moves argv building from the desktop (forms.rs:402-459) into one pocketd function. That function then serves the phone, the desktop sheet and the tab-menu quick rows (main.rs:595-599).
-- Model and effort discovery is 03-7 (P docs/orchestrators/research/03-zeron-harness.md:372) and 10-11 (10-monocode-architecture-harness.md:423). Not redone here. Until then the model chip shows the provider's name alone or the last-seen label, never "Default model" (Z pickers.rs:158).
+- Model and effort discovery is 03-7 (P docs/orchestrators/research/03-zeron-harness.md:372). Not redone here. Until then the model chip shows the provider's name alone or the last-seen label, never "Default model" (Z pickers.rs:158).
 
 ### F14. One permission picker, reconciled with 10-4
 
@@ -378,14 +377,14 @@ Sources: M src/features/sessions/model/session.ts:355-388 (default at L373); M s
   - Every spawn sends both axes explicitly. Ask is never "no flag" (10-4; M claudeProtocol.ts:105-126).
   - The default is Ask.
   - Full access is never persisted. Reopening falls back to the last non-Full value.
-  - Full access from the phone needs an explicit per-session opt-in (P docs/orchestrators/research/10-monocode-architecture-harness.md:444).
+  - Full access from the phone needs an explicit per-session opt-in.
   - Claude's `dontAsk` and `manual` are not exposed. `manual` stays as the fallback if `default` stops being accepted.
 - **Deviations from 10-4**
   - Codex Ask in terminal mode uses `-a on-request`, because the CLI rejects `untrusted` (F11).
-  - Full access uses `-a never`. MonoCode's reason for avoiding `never` ("never rejects escalations before the client handler", M codexProtocol.ts:62-95) only applies to app-server, where a client handler exists.
+  - Full access uses `-a never`. App M's reason for avoiding `never` ("never rejects escalations before the client handler", M codexProtocol.ts:62-95) only applies to app-server, where a client handler exists.
 - **Labels**
-  - "Ask" keeps Pocket's existing word (forms.rs:507) and its "Needs you" idiom, instead of MonoCode's "Supervised".
-  - "Auto-accept edits" replaces "Auto-edit". "Plan only" becomes a toggle, because in MonoCode and 10-16 plan is an intent, not an access level.
+  - "Ask" keeps Pocket's existing word (forms.rs:507) and its "Needs you" idiom, instead of App M's "Supervised".
+  - "Auto-accept edits" replaces "Auto-edit". "Plan only" becomes a toggle, because in App M and 10-16 plan is an intent, not an access level.
 
 ### F15. Recommendation: the hero composer replaces the modal
 
@@ -399,7 +398,7 @@ Sources: M src/features/sessions/model/session.ts:355-388 (default at L373); M s
   - The canvas replaces the main pane while it is a draft, like Zeron's `select_chat(None)`.
   - On a successful spawn, the new terminal tab takes over. On failure, the canvas stays with the error inline.
   - Navigating away keeps the draft. Esc discards it and returns to the previous session.
-- **P2 (headless).** The same canvas docks into the transcript with Zeron's glide (0.420 s) or MonoCode's (480 ms `cubic-bezier(0.22,1,0.36,1)`), respecting `follow_reduce_motion` (P packages/desktop/crates/pocket/src/main.rs:1041-1044).
+- **P2 (headless).** The same canvas docks into the transcript with Zeron's glide (0.420 s) or App M's (480 ms `cubic-bezier(0.22,1,0.36,1)`), respecting `follow_reduce_motion` (P packages/desktop/crates/pocket/src/main.rs:1041-1044).
 - **Minimal alternative** if 17-4 is deferred: keep the sheet, but land 17-1, 17-2, 17-3 and 17-5 in `forms.rs`. Every chip spec below applies to the sheet unchanged.
 
 ## Ideas to clone into Pocket
@@ -413,7 +412,7 @@ Sources: M src/features/sessions/model/session.ts:355-388 (default at L373); M s
 | 17-5 | Persist picks in `desktop.json` `composer {provider, model_by_provider, effort_by_provider, access}` | The next session starts the way the last one did | Z …/settings/composer.rs:20,46-71; P …/store/src/store.rs:8-28; P forms.rs:234-235,321 | `crates/store` new field; atomic write is also new (`Store::save` is a plain `std::fs::write`, store.rs:38-42), port | S | — |
 | 17-6 | Checkout chip (Current checkout / Current worktree / New worktree), base chip "From {base}" with search, inline branch name | See and edit where work lands without reading footer prose | Z …/proto/src/view.rs:540-586; M …/WorkspacePicker.tsx:137-631; P forms.rs:520-541,622-629 | forms.rs `branch_picker` + new chips, adapt | M | 17-4 for placement |
 | 17-7 | Agent/model card: provider sections, effort submenu, "Default" badge, selected-only row, dimmed missing CLIs | Pick model and effort at start without typing `/model` | Z …/pickers.rs:158,179-190,1961,4911,5427; M …/ModelPicker.tsx:83-96,1361-1384; P forms.rs:491-517 | forms.rs `agent_picker` rewrite, adapt | M | 03-7 / 10-11 catalog |
-| 17-8 | CLI availability probe (proposed: `command -v` in the login shell; MonoCode instead stats ~100 resolver paths) with a 30 s TTL with install hints and "No agents available" | No dead "Codex" row on a Mac without Codex | M …/availability.ts:36-77; Z …/settings/harnesses.rs:64-97; Z pickers.rs:3647-3655 | desktop, or a pocketd `agents` op; `terminal.LookPath` PATH (P packages/pocketd/internal/terminal/terminal.go:87-101), new | S | 10-6 for PATH parity |
+| 17-8 | CLI availability probe (proposed: `command -v` in the login shell; App M instead stats ~100 resolver paths) with a 30 s TTL with install hints and "No agents available" | No dead "Codex" row on a Mac without Codex | M …/availability.ts:36-77; Z …/settings/harnesses.rs:64-97; Z pickers.rs:3647-3655 | desktop, or a pocketd `agents` op; `terminal.LookPath` PATH (P packages/pocketd/internal/terminal/terminal.go:87-101), new | S | 10-6 for PATH parity |
 | 17-9 | pocketd-offline state on the canvas; surface spawn and worktree failures before closing | No silent no-op when pocketd is down or git fails | P …/daemon/src/daemon.rs:183,190; P forms.rs:436,449,459; Z composer.rs:7600-7610 | `crates/daemon` send result + canvas error row, adapt | S | — |
 | 17-10 | `LaunchSpec` in `packages/protocol`, argv built in pocketd; phone `agent.create` starts terminal sessions | Start sessions from the phone now, without headless | P forms.rs:402-459; P packages/pocketd/internal/wsserver/wsserver_test.go:157-160; P packages/app/src/screens/AgentsScreen.tsx:24; 10-3; 08 F10 | `packages/protocol` + pocketd + desktop, new | M | 17-2 |
 | 17-11 | Tab-menu Claude Code / Codex quick rows spawn with the remembered picks | Quick tabs stop ignoring access and model | P …/pocket/src/main.rs:595-599; P view.rs:950-980 | main.rs `new_agent_tab`, adapt | S | 17-5 |
@@ -580,11 +579,11 @@ Sources: M src/features/sessions/model/session.ts:355-388 (default at L373); M s
 ## Verification
 
 - Date: 2026-09-30
-- Claims checked: 40 (Pocket argv/perm match, `agent_op` shell hand-off, silent `writeln!`, sync overlay close, keybindings, store fields, chip/menu tokens, phone `agent.create` rejection; `claude`/`codex` flags re-run locally incl. `--full-auto` and `-a untrusted` rejections and the F14 argv; Zeron hero Y, 0.420/0.470 s glide, fixed `WorkspaceWrite`, composer constants, target row/bottom slot, shortcuts, `composer-defaults.json` fields, `CheckoutKind`, picker copy, keys, reasoning default, harness filtering, auth detection; MonoCode `onNew`, headline, dock motion, access modes and Codex/Claude mappings, AccessPicker, WorkspacePicker, ModelPicker, availability TTL, models.ts memory; prior-report line refs; projectless screenshot).
+- Claims checked: 40 (Pocket argv/perm match, `agent_op` shell hand-off, silent `writeln!`, sync overlay close, keybindings, store fields, chip/menu tokens, phone `agent.create` rejection; `claude`/`codex` flags re-run locally incl. `--full-auto` and `-a untrusted` rejections and the F14 argv; Zeron hero Y, 0.420/0.470 s glide, fixed `WorkspaceWrite`, composer constants, target row/bottom slot, shortcuts, `composer-defaults.json` fields, `CheckoutKind`, picker copy, keys, reasoning default, harness filtering, auth detection; App M `onNew`, headline, dock motion, access modes and Codex/Claude mappings, AccessPicker, WorkspacePicker, ModelPicker, availability TTL, models.ts memory; prior-report line refs; projectless screenshot).
 - Corrected: 6
   - S7: Pocket picker menus have no fade; ui.rs:135 is a glyph-swap animation, not a menu fade. Re-cited to `picker_menu`/`ui::pop`.
   - F4: Zeron footer chip hover brightens to `text` at 0.8, not `text_muted`.
-  - F9: MonoCode tints only the Full access icon amber, not the label.
-  - 17-8 / S5: MonoCode's probe stats resolver paths; `command -v` in the login shell is a Pocket proposal, now labelled as such.
+  - F9: App M tints only the Full access icon amber, not the label.
+  - 17-8 / S5: App M's probe stats resolver paths; `command -v` in the login shell is a Pocket proposal, now labelled as such.
   - F14 / open questions: report 10 L444 asks for a per-session opt-in, not a "Mac-side" one; wording aligned.
   - 17-5: Pocket's `Store::save` is not atomic today; mapping now says so.

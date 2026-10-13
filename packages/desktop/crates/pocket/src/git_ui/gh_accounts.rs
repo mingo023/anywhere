@@ -103,7 +103,8 @@ impl Gh {
     /// Runs `argv` in `dir` with `input` on stdin; a token GitHub refuses is asked of `gh` again once.
     pub(crate) fn run(&self, argv: &[impl AsRef<str>], dir: &str, input: &str) -> Result<String, String> {
         let argv: Vec<&str> = argv.iter().map(AsRef::as_ref).collect();
-        let Some(account) = &self.account else { return daemon::run_login(&argv, dir, input) };
+        // A host's gh signs in on the host, where this Mac's accounts mean nothing.
+        let Some(account) = self.account.as_ref().filter(|_| hosts::split(dir).0.is_none()) else { return crate::util::run_login(&argv, dir, input) };
         let run = || daemon::run_login_env(&argv, dir, input, self.tokens.get(account).map(|t| ("GH_TOKEN".to_string(), t)).into_iter().collect());
         match run() {
             Err(e) if github::unauthorized(&e) => {

@@ -3271,8 +3271,12 @@ dependencies = [
 name = "hosts"
 version = "0.0.0"
 dependencies = [
+ "agents",
+ "base64",
+ "channel",
  "daemon",
  "futures",
+ "git",
  "serde",
  "serde_json",
 ]

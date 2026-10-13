@@ -114,9 +114,19 @@ impl ConfirmText {
         Self { title: format!("Revoke {name}?"), action: "Revoke", facts: vec!["It disconnects now and has to pair again".into()], dirty: 0, lost: 0, danger: true }
     }
 
-    fn remove_host(name: &str) -> Self {
-        let facts = vec!["It disconnects now".into(), format!("Anywhere and your files on {name} stay as they are")];
-        Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, lost: 0, danger: true }
+    /// "Uninstall and remove" sits beside the action.
+    fn remove_host(name: &str, projects: usize) -> Self {
+        let facts = std::iter::once("It disconnects now".to_string())
+            .chain(counted(projects, "Its project leaves this Mac's list", |n| format!("Its {n} projects leave this Mac's list")))
+            .chain([format!("Projects and files on {name} aren't touched"), "Uninstall and remove also stops Anywhere's service there".into()])
+            .collect();
+        Self { title: format!("Remove {name}?"), action: "Remove from this Mac", facts, dirty: 0, lost: 0, danger: true }
+    }
+
+    /// Windows' pocketd restarts to update; elsewhere it hands its terminals to the new one.
+    fn update_host(name: &str, windows: bool) -> Self {
+        let fact = if windows { format!("pocketd restarts, so terminals on {name} close") } else { format!("Terminals on {name} stay open") };
+        Self { title: format!("Update {name}?"), action: "Update", facts: vec![fact], dirty: 0, lost: 0, danger: windows }
     }
 
     fn detail(&self) -> Option<String> {
@@ -153,7 +163,11 @@ impl Desktop {
             Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
             Some(Confirm::DeleteAutomation(id)) => ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str())),
             Some(Confirm::RevokeDevice { name, .. }) => ConfirmText::revoke_device(name),
-            Some(Confirm::RemoveHost { name, .. }) => ConfirmText::remove_host(name),
+            Some(Confirm::RemoveHost { id, name }) => {
+                let projects = self.projects().iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).count();
+                ConfirmText::remove_host(name, projects)
+            }
+            Some(Confirm::UpdateHost { name, windows, .. }) => ConfirmText::update_host(name, *windows),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -195,11 +209,19 @@ impl Desktop {
         let action = ui::button("confirm-go", variant, None, text.action).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
         let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_)))
             .then(|| ui::button("confirm-dont-save", Variant::Secondary, None, "Don't save").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_unsaved(window, cx))));
+        let uninstall = matches!(self.confirm, Some(Confirm::RemoveHost { .. })).then(|| {
+            ui::button("confirm-uninstall", Variant::Danger, None, "Uninstall and remove").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                if let Some(Confirm::RemoveHost { id, .. }) = this.confirm.take() {
+                    this.remove_host(&id, true, cx);
+                }
+                this.close_overlay(window, cx);
+            }))
+        });
         let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         if worktree {
             return ui::dialog(&text.title, body, [cancel, action]);
         }
-        ui::alert(&text.title, body, std::iter::once(action).chain(dont_save).chain([cancel]))
+        ui::alert(&text.title, body, std::iter::once(action).chain(dont_save).chain(uninstall).chain([cancel]))
     }
 
     fn close_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -230,7 +252,8 @@ impl Desktop {
             Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id),
             Some(Confirm::ResetSection(section)) => self.reset_section(section, window, cx),
             Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),
-            Some(Confirm::RemoveHost { id, .. }) => self.remove_host(&id, cx),
+            Some(Confirm::RemoveHost { id, .. }) => self.remove_host(&id, false, cx),
+            Some(Confirm::UpdateHost { id, .. }) => self.install_host(&id, true, cx),
             None => {}
         }
         self.close_overlay(window, cx);
@@ -350,6 +373,24 @@ mod tests {
     fn opening_another_app_shows_the_link_and_is_not_destructive() {
         let got = ConfirmText::open_external("zoommtg://zoom.us/join");
         assert_eq!((got.detail(), got.danger), (Some("The page asks to open zoommtg://zoom.us/join.".into()), false));
+    }
+
+    #[test]
+    fn removing_a_host_takes_its_projects_off_this_mac_only() {
+        let got = ConfirmText::remove_host("devbox", 2);
+        assert_eq!((got.title.as_str(), got.action), ("Remove devbox?", "Remove from this Mac"));
+        assert_eq!(
+            got.detail(),
+            Some("It disconnects now. Its 2 projects leave this Mac's list. Projects and files on devbox aren't touched. Uninstall and remove also stops Anywhere's service there.".into())
+        );
+        assert_eq!(ConfirmText::remove_host("devbox", 0).facts[1], "Projects and files on devbox aren't touched");
+    }
+
+    #[test]
+    fn updating_a_windows_host_warns_its_terminals_close() {
+        assert_eq!(ConfirmText::update_host("pc", true), text("Update pc?", "Update", &["pocketd restarts, so terminals on pc close"], 0));
+        let mac = ConfirmText::update_host("devbox", false);
+        assert_eq!((mac.facts[0].as_str(), mac.danger), ("Terminals on devbox stay open", false));
     }
 
     #[test]

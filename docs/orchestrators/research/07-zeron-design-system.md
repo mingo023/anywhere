@@ -19,7 +19,6 @@ Citation legend:
   - `P pk/` = `packages/desktop/crates/pocket/src/`
   - `P app/` = `packages/app/src/`
 - `R gpui/` = `gpui-pre-0.3.6/src/`; `R gc/` = `gpui-component-0.6.6/src/`.
-- `M` is unused (MonoCode is out of scope).
 - Hex values marked **(c)** are computed. I re-ran Zeron's own color math (Z th/lib.rs:107-185, Z th/builtins.rs:97-169) on the cited seeds, so these values never appear literally in the source.
 - Contrast ratios use the WCAG 2.x formula.
 - `[code≠doc]` marks places where code and comments/docs disagree. The code value is the one reported.

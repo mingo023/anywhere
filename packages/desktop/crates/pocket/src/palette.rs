@@ -31,6 +31,7 @@ pub enum Pick {
     Automations,
     PairPhone,
     PhoneAccess,
+    HostFolder,
     Sound(Cue),
 }
 
@@ -266,6 +267,7 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         Entry { pick: Pick::Automations, lead: Lead::Icon("bolt"), title: "Go to Automations".into(), detail: String::new(), keys: Some("⌘ ⇧ A") },
         Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::PhoneAccess, lead: Lead::Icon("shield"), title: "Phone access level…".into(), detail: String::new(), keys: None },
+        Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new(), keys: None },
     ]
     .into_iter()
     .chain(Cue::ALL.map(sound))
@@ -311,7 +313,8 @@ impl Desktop {
             s.focus(window, cx);
         });
         let Some(root) = self.explore_root() else { return };
-        let task = cx.background_executor().spawn(async move { git::ls_files(&root) });
+        let runner = hosts::runner_for(&root);
+        let task = cx.background_executor().spawn(async move { git::ls_files(&runner, &root) });
         cx.spawn(async move |this, cx| {
             let files = task.await;
             this.update(cx, |d, cx| {
@@ -381,6 +384,7 @@ impl Desktop {
             Pick::Automations => self.open_automations(&crate::actions::OpenAutomations, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
             Pick::PhoneAccess => self.open(Overlay::PhoneAccess, window, cx),
+            Pick::HostFolder => self.open_host_folder(window, cx),
             Pick::Sound(cue) => {
                 cue.flip(&mut self.store.sounds);
                 self.store.save();
@@ -708,6 +712,7 @@ mod tests {
             (Pick::UpNext, "Go to Up next"),
             (Pick::Browser, "Open browser"),
             (Pick::Automations, "Go to Automations"),
+            (Pick::HostFolder, "Open folder on a host…"),
             (Pick::Sound(Cue::NeedsYou), "Needs you sound: On"),
             (Pick::Sound(Cue::Done), "Done sound: On"),
             (Pick::Sound(Cue::Failed), "Failed sound: On"),
@@ -725,9 +730,9 @@ mod tests {
             action_entries(&[], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
-        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::PairPhone, Pick::PhoneAccess]);
-        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations]);
-        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations]);
+        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::PairPhone, Pick::PhoneAccess, Pick::HostFolder]);
+        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::HostFolder]);
+        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::HostFolder]);
     }
 
     #[test]

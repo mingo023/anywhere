@@ -62,6 +62,11 @@ impl ProjectRow {
     }
 }
 
+/// A host's project shows a globe, with its link's dot.
+fn host_mark(link: Option<&hosts::link::Link>) -> Div {
+    div().flex().flex_none().items_center().gap(px(3.)).child(icon("globe", 12., TEXT_3)).child(ui::dot(6., crate::settings::ssh_hosts::link_color(link)))
+}
+
 /// Whether a terminal is setting up `tree`; `setups` maps terminals to the worktree they set up.
 fn setting_up(setups: &HashMap<String, String>, tree: &str) -> bool {
     setups.values().any(|t| t == tree)
@@ -105,6 +110,8 @@ pub struct SidebarState {
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: ProjectPicker,
+    /// The Projects + menu shows.
+    pub(crate) add_menu: bool,
     /// The right-hand panel shows; collapsed at launch.
     pub(crate) panel_open: bool,
     /// The worktree row being renamed.
@@ -119,11 +126,38 @@ impl SidebarState {
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
-        (Self { search, menu_at: None, picker, panel_open, rename: None, hover: Hover::default() }, subs)
+        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default() }, subs)
     }
 }
 
 impl Desktop {
+    /// The Projects + button and its menu: add a project, or open a folder on a host.
+    fn add_menu(&self, cx: &mut Context<Self>) -> Div {
+        let open = self.sidebar.add_menu;
+        let button = icon_button_sized("aside-add", "plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.close_menus();
+            this.sidebar.add_menu = !open;
+            cx.notify();
+        }));
+        div().relative().child(button).when(open, |d| {
+            let add = ui::menu_row("aside-add-project", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx)));
+            let host = ui::menu_row("aside-add-host-folder", "globe", "Open folder on a host…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
+            let menu = ui::pop(div().id("aside-add-menu"))
+                .w(px(220.))
+                .p(px(6.))
+                .flex()
+                .flex_col()
+                .occlude()
+                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.sidebar.add_menu = false;
+                    cx.notify();
+                }))
+                .child(add)
+                .child(host);
+            d.child(ui::dropdown_right(26., ui::menu_in("aside-add-menu-in", menu)))
+        })
+    }
+
     /// The expanded sidebar: projects with their worktrees.
     pub(crate) fn aside(&self, cx: &mut Context<Self>) -> Div {
         let unseen = crate::inbox::count(&self.agents);
@@ -162,11 +196,7 @@ impl Desktop {
             .font_weight(FontWeight::BOLD)
             .text_color(TEXT_3)
             .child(div().flex_1().child("PROJECTS"))
-            .child(
-                icon_button_sized("aside-add", "plus", 22., TEXT_3)
-                    .rounded(px(6.))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx))),
-            );
+            .child(self.add_menu(cx));
         let mut repos = Vec::new();
         for (i, p) in self.projects().into_iter().enumerate() {
             repos.push(self.project_block(i, &p, cx));
@@ -207,7 +237,8 @@ impl Desktop {
         };
         let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
         let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
-        let row = ui::worktree_row(id(format!("aside-tree:{key}")), LOCAL_ICON, label, selected, mark)
+        let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
+        let row = ui::worktree_row(id(format!("aside-tree:{key}")), glyph, label, selected, mark)
             .children(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 if this.sidebar.renaming(&path) {
@@ -325,8 +356,12 @@ impl Desktop {
         let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu));
         let target = p.to_string();
         let name = self.repo_name(p);
+        let host = hosts::split(p).0;
+        let offline = host.is_some_and(|h| !self.fleet.links.online(h));
         let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, kept, state)
+            .children(host.map(|h| host_mark(self.fleet.links.get(h))))
             .child(trail)
+            .when(offline, |row| row.opacity(0.5))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if git {
                     this.store.toggle(&target);

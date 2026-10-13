@@ -7,8 +7,7 @@
 
 ## 1. Thesis
 
-- **Pocket copies the best of Zeron and MonoCode only if it drives agents over their structured protocols.** The reports show why:
-  - MonoCode: "Pocket runs real PTYs, so transcript-level features do not port directly" [R09 TL;DR].
+- **Pocket copies the best of Zeron only if it drives agents over their structured protocols.** The reports show why:
   - Zeron's unit of work "is a chat, not a terminal" [R01 TL;DR].
   - The headline UX pieces need structured control:
     - Steer, Send next and Send now [R05 F6; R03 idea 03-5].
@@ -31,7 +30,6 @@
 | Rival | Their model | Where B wins |
 |---|---|---|
 | Zeron | Chat-first headless engine with the terminal as a drawer [R01 TL;DR]. "Every signed-in device is fully trusted", no E2EE [R18 TL;DR]. Codex forced to yolo [R03 risks] | The same chat UX (E8–E10), plus real TUIs as sessions. Tailnet only, per-device tokens, explicit access on both axes [R17 F14] |
-| MonoCode | Headless GUI over 10 CLIs [R09 TL;DR]. Remote access is an SSH host, "very early" [R09 TL;DR]. No phone push. Automations run only while the app runs [R11 idea 11-9] | The same headless kernel and Undo/Keep, plus an iPhone app with push and daemon automations that run with the desktop closed |
 | Superset | Terminals plus wrappers. iPhone needs $20/mo Pro, through a vendor relay with no documented E2EE [R15 F1] | Free and self-hosted. The phone can start chat sessions |
 | Happy | A `happy claude` wrapper that switches local/remote mode in one process; vendor server with E2EE [R15 F2] | The same terminal↔chat idea, but as a per-session kind in one fleet view, with no wrapper and no server |
 | Claude Remote Control / ChatGPT "Control this Mac" | Single provider, vendor relay, Pro+. "Another connection took over this session" [R15 F5, F6] | Multi-provider, one fleet. The same exclusivity rule, made explicit (§3) |
@@ -278,7 +276,7 @@
 
 ### E8 desktop-chat-pane (M2, XL, B)
 
-- **Goal.** The Zeron/MonoCode chat pane on the desktop, for chat sessions. Terminal sessions keep their terminal on the desktop; the phone shows the timeline for both.
+- **Goal.** The Zeron chat pane on the desktop, for chat sessions. Terminal sessions keep their terminal on the desktop; the phone shows the timeline for both.
 - **Ideas**
   - 14-1 / 03-4 / 10-12 / 05-23: the pane on workspace leaf `Chat`.
   - 05-1 / 03-15: tool-group summary "Ran 3 commands · edited 2 files · 1 failed".
@@ -371,7 +369,7 @@
 
 ### E13 checkpoints (M3, L, A+B)
 
-- **Goal.** J5: MonoCode's "Changed N files" card with Undo/Keep.
+- **Goal.** J5: a "Changed N files" card with Undo/Keep.
 - **Ideas**
   - 10-14 / 13-1: per-session file checkpoints. Snapshot before the first edit of a turn from tool events (chat) or a PreToolUse matcher for `Edit|Write|MultiEdit|NotebookEdit` (Claude terminal; widens P packages/pocketd/internal/daemon/plugin.go:13).
     - Limit 500 files.

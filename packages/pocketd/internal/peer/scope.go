@@ -34,16 +34,23 @@ var (
 )
 
 // Principal is who sits on the other end of a conn. Terminal is set for a
-// PTY peer, Device for a paired phone.
+// PTY peer, Device for a paired phone, TokenID for an owner that sent an owner
+// token over TCP.
 type Principal struct {
 	Kind     Kind
 	Pid      int
 	Terminal string
 	Device   string
+	TokenID  string
 	Scopes   []Scope
 }
 
 func OwnerOf(pid int) Principal { return Principal{Kind: Owner, Pid: pid, Scopes: OwnerScopes} }
+
+// OwnerByToken is the owner on a conn that sent the owner token with this id.
+func OwnerByToken(id string) Principal {
+	return Principal{Kind: Owner, TokenID: id, Scopes: OwnerScopes}
+}
 
 func FromDevice(d devices.Device) Principal {
 	return Principal{Kind: Device, Device: d.ID, Scopes: d.Scopes}

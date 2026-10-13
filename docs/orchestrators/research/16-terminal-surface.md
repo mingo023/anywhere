@@ -1,14 +1,13 @@
-# 16. Terminal surface: selection, scrollback, tabs, dock (Zeron GPUI terminal, MonoCode xterm)
+# 16. Terminal surface: selection, scrollback, tabs, dock (Zeron GPUI terminal, App M xterm)
 
 Date: 2026-09-30
 
 Sources:
 - Zeron: zeronsh/comet@ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5 (MIT), https://zeron.sh. Releases: https://github.com/zeronsh/comet/releases/tag/v0.2.99 ("Fix slow trackpad scrolling in terminals", PR 615; "Prevent terminal overlap with the composer", PR 620) and v0.2.91 (projectless-terminal regression coverage, PR 457).
-- MonoCode: hardbeat920/monocode@cdc1441dc51e3709cd843e5c316608a123f323c6 (MIT), https://usemono.dev. No release note mentions the terminal.
 - Pocket: worktree `orchestrator-research`@b9d14a19cefd1805656e0aecb9446f3349c57346.
 - libghostty-vt: ghostty-org/ghostty@4ae9f1a2de5484de3d6a13fe03676b8853b9c41c (https://github.com/ghostty-org/ghostty/tree/4ae9f1a2de5484de3d6a13fe03676b8853b9c41c). This is the commit pinned by `P scripts/build-ghostty.sh:4`, read from the main checkout's `third_party/ghostty`. Its `include/ghostty` is identical to `zig-out/include/ghostty`.
 
-Legend. `Z path:L` = Zeron clone, `M path:L` = MonoCode clone, `P path:L` = Pocket worktree, `G path:L` = ghostty repo at the pin; all paths are repo-relative. Shorthands:
+Legend. `Z path:L` = Zeron clone, `M path:L` = App M (another orchestrator) clone, `P path:L` = Pocket worktree, `G path:L` = ghostty repo at the pin; all paths are repo-relative. Shorthands:
 - Z `t/` = `crates/ui/src/terminal/`.
 - M `ft/` = `src/features/terminal/`.
 - P `d/` = `packages/desktop/crates/`, `pd/` = `packages/pocketd/internal/`, `app/` = `packages/app/src/`.
@@ -40,10 +39,10 @@ Legend. `Z path:L` = Zeron clone, `M path:L` = MonoCode clone, `P path:L` = Pock
   - Scrollbar: 3→5px thumb, 24px minimum, 1400ms linger, 260ms fade.
   - Tabs: 118×28 in a 40px bar, drag reorder with a 150ms slide, middle-click close, exited tabs at 0.55 opacity.
   - Dock: 160px minimum, 55% of the viewport maximum, 280px default.
-- The Zeron and MonoCode terminals are unequal: xterm.js (MonoCode) gets mouse modes, IME and bracketed paste for free. Zeron's alacritty port has no mouse reporting, IME, links or search.
-- Pocket is ahead of Zeron on IME wiring (it has `EntityInputHandler`; xterm.js handles IME for MonoCode) but paints no preedit and returns no candidate bounds (`P d/pocket/src/main.rs:996-1043`).
+- The Zeron and App M terminals are unequal: xterm.js (App M) gets mouse modes, IME and bracketed paste for free. Zeron's alacritty port has no mouse reporting, IME, links or search.
+- Pocket is ahead of Zeron on IME wiring (it has `EntityInputHandler`; xterm.js handles IME for App M) but paints no preedit and returns no candidate bounds (`P d/pocket/src/main.rs:996-1043`).
 - Likely live bug: Pocket paints Geist Mono with ligatures on, the exact cause of Zeron's `codex --yolo → codex--yolo` render bug (`Z t/view.rs:430-442`).
-- Key clashes: Pocket's ⌘J is NextWaiting and ⌘K is the palette (`P d/pocket/src/main.rs:1062-1071`), where Zeron uses ⌘J for the terminal toggle and MonoCode uses ⌘K to clear. Keep Pocket's bindings.
+- Key clashes: Pocket's ⌘J is NextWaiting and ⌘K is the palette (`P d/pocket/src/main.rs:1062-1071`), where Zeron uses ⌘J for the terminal toggle and App M uses ⌘K to clear. Keep Pocket's bindings.
 - Phone: ship a read-only terminal first. pocketd renders styled rows from its own VT render state and pushes them over a new WS `terminal.watch`. Don't put a VT on the phone, and never resize the PTY from the phone. Raw input (a key bar) comes second. This refines 14-17 and wires the dead "Open raw terminal" button (`P app/screens/ChatScreen.tsx:155-159`).
 - Must-dos, all S except 16-4 (M):
   - 16-1: scrollback wrap plus a 10k-line cap
@@ -178,7 +177,7 @@ Legend. `Z path:L` = Zeron clone, `M path:L` = MonoCode clone, `P path:L` = Pock
   - no search
   - no cursor blink
 
-### F4. MonoCode terminal behaviour (xterm.js 6)
+### F4. App M terminal behaviour (xterm.js 6)
 
 - **Options.**
   - `cursorBlink: true`, `cursorStyle: "bar"`, `fontSize: 13`, `lineHeight: 1`, `scrollback: 5000`, `smoothScrollDuration: 0`, `macOptionIsMeta` on Mac (`M ft/ui/TerminalView.tsx:156-168`).
@@ -195,7 +194,7 @@ Legend. `Z path:L` = Zeron clone, `M path:L` = MonoCode clone, `P path:L` = Pock
 - **Title.** OSC 7 cwd (`:219-244`) plus a 1000ms `ps` poll for the tab title (`:378-412`, `M ft/model/terminalTab.ts`).
 - **Colour queries.** Replies to OSC 10/11/12 (`M ft/ui/TerminalView.tsx:267-284`).
 - **Not implemented** (rg finds no `linkHandler`, web-links, search, `onBell` or `onTitleChange`): link handling, search, bell.
-- **PTY.** 32KiB reads, 8ms coalescing, `TERM_PROGRAM=MonoCode` (`M src-tauri/src/pty.rs:19`, `:22`, `:267-270`).
+- **PTY.** 32KiB reads, 8ms coalescing, `TERM_PROGRAM=<app>` (`M src-tauri/src/pty.rs:19`, `:22`, `:267-270`).
 - **Dock.**
   - Four sides via "Move Terminal" → "Dock Bottom"/Top/Left/Right (`M ft/ui/ProjectTerminalDock.tsx:54`, `:228`).
   - Sash `h-1.5`/`w-1.5` (6px): content/10 on hover, /15 while dragging; double-click resets (`:170-203`).
@@ -236,7 +235,7 @@ Legend. `Z path:L` = Zeron clone, `M path:L` = MonoCode clone, `P path:L` = Pock
   - Edge autoscroll: Zeron's 24ms timer and 1-3 lines per tick. Ghostty's 1px zone is too thin for a pane with 20px padding, so Rust computes the edge and sends AUTOSCROLL_TICK or `scroll_viewport` DELTA.
   - Highlight: the per-cell `SELECTED` flag becomes a run background of text at 0.16 alpha (the light theme; `P d/theme/src/theme.rs` defines no dark palette).
   - A selection survives output. It is cleared on input and on a snapshot rebuild.
-- **Copy.** ⌘C with a selection copies PLAIN with unwrap+trim and swallows the key. Without a selection ⌘C does nothing and is not sent (as in MonoCode). Ctrl+C stays ^C.
+- **Copy.** ⌘C with a selection copies PLAIN with unwrap+trim and swallows the key. Without a selection ⌘C does nothing and is not sent (as in App M). Ctrl+C stays ^C.
 - **Paste.**
   - ⌘V: read the clipboard, then `ghostty_paste_encode(bracketed = mode 2004)`, then `daemon.input`.
   - If `!ghostty_paste_is_safe` and 2004 is off, confirm with "Paste N lines into {title}?" and buttons "Paste" / "Cancel".
@@ -305,7 +304,7 @@ Legend. `Z path:L` = Zeron clone, `M path:L` = MonoCode clone, `P path:L` = Pock
 | 16-19 | Port Zeron's per-cell glyph pinning for non-ASCII/wide glyphs if StyledText drifts | CJK, emoji and box-drawing stay on the grid | `Z t/view.rs:633-744` | `P d/pocket/src/termview.rs` (port) | M | Observed drift |
 | 16-20 | Snapshot fidelity: add `scrolling_region`/`tabstops`/`charsets`/`kitty_keyboard`/`hyperlink`/`pwd`/`palette`, or switch to the GHOSTSNP binary snapshot (both screens) | Re-attach mid-TUI restores exactly; primary history kept under the alt screen | `P pd/vt/vt.go:22-40`; `G h/formatter.h:41-94`; `G zt/formatter.zig:486`; `G h/snapshot.h:24-90` | `P pd/vt/vt.go`; `P d/pocket/src/sessions.rs:44-57` (adapt) | S (flags) / M (binary) | None |
 
-Related, not redone: 13-12 (Mac editing keys ⌥←/→, ⌘←/→, ⌘⌫; `docs/orchestrators/research/13-monocode-session-git-ux.md:365`) and 13-13 (close-tab confirm when busy; `:366`, `:490`). 14-16 is split here into 16-1/2/4/8/9/14; its prerequisite, "libghostty scrollback API check", is resolved by F2.
+Related, not redone: Mac editing keys ⌥←/→, ⌘←/→, ⌘⌫, and a close-tab confirm when busy. 14-16 is split here into 16-1/2/4/8/9/14; its prerequisite, "libghostty scrollback API check", is resolved by F2.
 
 ## UI/UX spec to copy
 
@@ -318,7 +317,7 @@ Related, not redone: 13-12 (Mac editing keys ⌥←/→, ⌘←/→, ⌘⌫; `do
   - Cols = ⌊(w−40)/advance⌋.
 - **Tokens (Pocket light theme).**
   - Text is TEXT #111113 on WHITE (`P d/theme/src/theme.rs:9`, `:16`).
-  - Selection: TEXT at α0.16 (Zeron light), inactive pane α0.08 (MonoCode).
+  - Selection: TEXT at α0.16 (Zeron light), inactive pane α0.08 (App M).
   - Cursor: TEXT at α0.55, filled; hollow 1px when unfocused.
   - Links: ACCENT #5b5bd6 underline on ⌘-hover (`:30`).
   - Scrollbar thumb: TEXT_4 at α0.5, 0.68 when dragging, 0.85 on hover.
@@ -336,7 +335,7 @@ Related, not redone: 13-12 (Mac editing keys ⌥←/→, ⌘←/→, ⌘⌫; `do
   - Scrollbar linger 1400ms, then fade 260ms.
   - Tab slide 150ms.
   - Sash snap-back on double-click 200ms (`Z crates/ui/src/motion.rs:389`).
-  - No smooth scroll (MonoCode `smoothScrollDuration: 0`).
+  - No smooth scroll (App M `smoothScrollDuration: 0`).
   - Reduced motion: no fades or slides, cursor steady.
 - **Shortcuts.**
   - ⌘C copy (only with a selection), ⌘V paste, ⌘A select all (`ghostty_terminal_select_all`), ⌘F find.
@@ -352,7 +351,7 @@ Related, not redone: 13-12 (Mac editing keys ⌥←/→, ⌘←/→, ⌘⌫; `do
 ## Open questions / risks
 
 - Do the Claude Code and Codex TUIs use the alt screen, DECSTBM or mouse tracking? The answer decides wheel routing and the phone's default mode. Test with `printf` probes or read `DATA_MOUSE_TRACKING` live.
-- Does a 22px line leave gaps in box-drawing (╭─╮) at 13px? Zeron uses 18; MonoCode uses 1.0. Compare screenshots before changing.
+- Does a 22px line leave gaps in box-drawing (╭─╮) at 13px? Zeron uses 18; App M uses 1.0. Compare screenshots before changing.
 - Do Pocket's 22px line and the default CoreText ligatures actually reproduce Zeron's `--` bug in StyledText rows? Pocket paints the cursor as an inverted cell inside the run, so the symptom may differ.
 - GPUI drift: Zeron's element code targets the zui fork. `TouchPhase`, `ScrollDelta` and `click_count` need checking in gpui-kit 0.6.6.
 - Snapshot rebuilds the local Term (`P d/pocket/src/sessions.rs:44-57`). Scroll position and selection reset on every re-attach. Re-attaching mid-TUI loses primary history (`G zt/formatter.zig:486`); 16-20 fixes it.
@@ -367,7 +366,7 @@ Related, not redone: 13-12 (Mac editing keys ⌥←/→, ⌘←/→, ⌘⌫; `do
 
 Date: 2026-09-30. Claims checked: 15. Corrected: 6.
 
-Confirmed against source: Pocket metrics, paint path, no font features, shim `pt_new` without options, `Term` API, ⌘C test, IME stubs, ⌘J/⌘K bindings, no clipboard outside `explore.rs`, snapshot rebuild, pocketd VT options and `Plain()` doc mismatch, dead "Open raw terminal" button; libghostty defaults (10_000 bytes, null lines), `scroll_viewport`, `DATA_SCROLLBAR`, selection gesture events and 15ms/1px/60% values, `paste_encode`/`is_safe`, mode 1007 default on; Zeron 13/18/12 metrics, ligature comment, 2px threshold, 24ms tick and 1-3 line speed, wheel remainder with `TouchPhase::Started`, copy/paste keys and `paste_bytes`, tab 118×28 / bar 40 / 0.55 exited / middle-click / 150ms slide, dock 160/0.55/2000/280, `mod-j`, scrollbar 3→5/24/1400/260; MonoCode xterm options, selection colours, ⌘C/⌘K handling, wheel handler, 8ms/32KiB PTY, dock sizes, tab sizes, 5px reorder arm.
+Confirmed against source: Pocket metrics, paint path, no font features, shim `pt_new` without options, `Term` API, ⌘C test, IME stubs, ⌘J/⌘K bindings, no clipboard outside `explore.rs`, snapshot rebuild, pocketd VT options and `Plain()` doc mismatch, dead "Open raw terminal" button; libghostty defaults (10_000 bytes, null lines), `scroll_viewport`, `DATA_SCROLLBAR`, selection gesture events and 15ms/1px/60% values, `paste_encode`/`is_safe`, mode 1007 default on; Zeron 13/18/12 metrics, ligature comment, 2px threshold, 24ms tick and 1-3 line speed, wheel remainder with `TouchPhase::Started`, copy/paste keys and `paste_bytes`, tab 118×28 / bar 40 / 0.55 exited / middle-click / 150ms slide, dock 160/0.55/2000/280, `mod-j`, scrollbar 3→5/24/1400/260; App M xterm options, selection colours, ⌘C/⌘K handling, wheel handler, 8ms/32KiB PTY, dock sizes, tab sizes, 5px reorder arm.
 
 - "Pocket is ahead of both on IME" contradicted the xterm.js IME claim; narrowed to Zeron.
 - Zeron cols formula citation `view.rs:447-452` → `:447-457`.

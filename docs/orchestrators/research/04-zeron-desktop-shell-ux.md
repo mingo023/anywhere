@@ -4,10 +4,9 @@ Date: 2026-09-30.
 
 Sources:
 - Zeron: zeronsh/comet @ ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5 (MIT, Rust + GPUI fork). https://github.com/zeronsh/comet, https://zeron.sh. Latest releases: v0.2.99 (2026-09-30), v0.2.98 (2026-09-29), v0.2.97 (2026-09-28), via `gh api repos/zeronsh/comet/releases`.
-- MonoCode: hardbeat920/monocode @ cdc1441dc51e3709cd843e5c316608a123f323c6. Not used; this topic covers Zeron's shell only.
 - Pocket: worktree `orchestrator-research` @ 86deb13.
 
-Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to its root. `P path:L` is the same in the Pocket worktree. `M` would mark MonoCode; it is unused here. A range `A-B` covers the whole construct. Where the code disagrees with a README or screenshot, the code wins and the finding says so. Quoted strings are exact UI copy. Sizes are GPUI logical px, and times are ms.
+Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to its root. `P path:L` is the same in the Pocket worktree. A range `A-B` covers the whole construct. Where the code disagrees with a README or screenshot, the code wins and the finding says so. Quoted strings are exact UI copy. Sizes are GPUI logical px, and times are ms.
 
 ## TL;DR
 

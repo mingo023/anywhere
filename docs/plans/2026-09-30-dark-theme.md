@@ -2,12 +2,12 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use /implement to execute this plan task-by-task.
 
-**Goal:** The desktop app follows the macOS appearance. Light looks exactly as today and stays opaque. Dark uses monocode's palette over a blurred, translucent window.
+**Goal:** The desktop app follows the macOS appearance. Light looks exactly as today and stays opaque. Dark uses a neutral ink palette over a blurred, translucent window.
 
 **Architecture:**
 - Colour tokens change from `const u32` to `const Token { light, dark }`. A process-wide `AtomicBool` picks the value when a token is turned into `Hsla`/`Fill`, so call sites pass tokens straight to GPUI with no `rgba(..)` wrapper.
 - `theme::set_appearance` flips the flag and re-points gpui-kit's theme. A window-appearance observer in `Desktop` calls it, switches the window to `Blurred`, and recolours cached diff spans.
-- Dark fills are ink-over-transparent (monocode §1), so they stay right over the 0.85-alpha window background.
+- Dark fills are ink-over-transparent, so they stay right over the 0.85-alpha window background.
 
 **Toolset** (run everything from `packages/desktop`):
 - Build: `cargo build --workspace`
@@ -20,7 +20,6 @@
 
 **Read first:**
 - `CLAUDE.md` (repo root): layout rules, test style, and the pre-commit commands.
-- `docs/research-monocode-dark-theme.md`: where the palette and the translucency model come from.
 - `packages/desktop/crates/theme/src/theme.rs`: every token lives here.
 - `packages/desktop/crates/ui/src/ui.rs`: the shared helpers. Most colour signatures change here.
 
@@ -255,7 +254,7 @@ Run each command, from `packages/desktop`:
 - Modify: `packages/desktop/crates/theme/src/theme.rs` (token block, tests)
 
 **Context:**
-- Dark is monocode's defaults: bg `#171717`, ink `#ebebeb`, and fills made of ink at a percentage over transparent.
+- Dark defaults: bg `#171717`, ink `#ebebeb`, and fills made of ink at a percentage over transparent.
 - The window paints bg at alpha 0.85 (`0xd9`) over the blurred desktop, so dark panes and pages are transparent and show it.
 - Status text colours are brightened for contrast on dark.
 - Accent, the status dots and backgrounds, the agent colours and the diff backgrounds are the same in both schemes.
@@ -662,7 +661,7 @@ pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
     t.highlight_theme = highlight_theme(dark);
 }
 
-/// Glass in dark, as monocode does; pale desktops make translucent light chrome illegible.
+/// Glass in dark; pale desktops make translucent light chrome illegible.
 pub fn window_background() -> WindowBackgroundAppearance {
     if is_dark() { WindowBackgroundAppearance::Blurred } else { WindowBackgroundAppearance::Opaque }
 }

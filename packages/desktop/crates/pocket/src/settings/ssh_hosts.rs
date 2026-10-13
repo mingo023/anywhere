@@ -3,17 +3,19 @@ use super::host::{service_line, uptime};
 use super::{field_box, row};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
+use crate::fleet::needs_update;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use hosts::Host;
+use hosts::checklist::{Checklist, Mark, Outcome};
 use hosts::link::Link;
 use hosts::ssh::Failure;
 use theme::*;
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("hosts", "Hosts", "Hosts", |d, _, cx| d.host_rows(cx)),
-    Setting::custom("add-host", "Hosts", "Add a host", |d, s, cx| d.add_host_row(s, cx)).hint("A machine with Anywhere installed that you can reach over SSH"),
+    Setting::custom("add-host", "Hosts", "Add a host", |d, s, cx| d.add_host_row(s, cx)).hint("A Mac, Linux or Windows machine you can reach over SSH"),
 ];
 
 /// What a host's row says about its link.
@@ -37,7 +39,7 @@ fn host_line(host: &Host, link: Option<&Link>) -> String {
     if address == host.name { link_line(link, &host.name) } else { format!("{address} \u{b7} {}", link_line(link, &host.name)) }
 }
 
-fn link_color(link: Option<&Link>) -> Token {
+pub(crate) fn link_color(link: Option<&Link>) -> Token {
     match link {
         Some(Link::Online { .. }) => SUCCESS,
         Some(Link::Failed(_)) => FAILED,
@@ -65,7 +67,20 @@ impl Desktop {
             .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
         let remotes = self.store.hosts.clone().into_iter().enumerate().map(|(i, h)| {
             let link = self.fleet.links.get(&h.id);
-            let line = host_line(&h, link);
+            let list = self.fleet.installs.get(&h.id);
+            let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, link));
+            let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
+            let install = (not_running && list.is_none()).then(|| {
+                let id = h.id.clone();
+                super::action(("host-install", i), "Install").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, false, cx)))
+            });
+            let update = (list.is_none() && needs_update(link, channel::version())).then(|| {
+                let (id, name, windows) = (h.id.clone(), h.name.clone(), h.windows);
+                super::action(("host-update", i), "Update").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }), Some(Overlay::Confirm));
+                    cx.notify();
+                }))
+            });
             let typing = self.fleet.password.host.as_ref() == Some(&h.id);
             // A reconnect while a password sign-in runs would spend sshd's penalty budget twice.
             let reconnect = link.filter(|l| !matches!(l, Link::Connecting) && !(typing && self.fleet.password.signing_in)).map(|_| {
@@ -81,10 +96,54 @@ impl Desktop {
                 (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
                 cx.notify();
             }));
-            let row = host_row(i + 1, "server", h.name.clone(), line, link_color(link)).children(password).children(reconnect).child(remove);
-            div().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx)))
+            let row = host_row(i + 1, "server", h.name.clone(), line, link_color(link)).children(password).children(install).children(update).children(reconnect).child(remove);
+            let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &list, cx));
+            div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
         });
         div().flex().flex_col().child(here).children(remotes.collect::<Vec<_>>())
+    }
+
+    /// The install's steps under the host's row, with Retry once it failed and Done once pocketd runs.
+    fn checklist_panel(&mut self, i: usize, id: &str, list: &Checklist, cx: &mut Context<Self>) -> Div {
+        let title = match (&list.outcome, list.update) {
+            (None, false) => "Installing pocketd",
+            (None, true) => "Updating pocketd",
+            (Some(Outcome::Failed(_)), false) => "Couldn't install pocketd",
+            (Some(Outcome::Failed(_)), true) => "Couldn't update pocketd",
+            (Some(_), false) => "pocketd is installed",
+            (Some(_), true) => "pocketd is updated",
+        };
+        let rows = list.rows().map(|(step, mark)| {
+            let lead = match mark {
+                Mark::Done => icon("check", 13., SUCCESS).into_any_element(),
+                Mark::Active => spinner(("host-step", i * 8 + step as usize), 13., TEXT_3).into_any_element(),
+                Mark::Failed => icon("x-bold", 11., FAILED).into_any_element(),
+                Mark::Pending | Mark::Skipped => div().size(px(5.)).rounded_full().bg(TEXT_5).into_any_element(),
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(px(22.))
+                .child(div().size(px(14.)).flex().flex_none().items_center().justify_center().child(lead))
+                .child(div().text_size(px(12.5)).text_color(if mark == Mark::Pending { TEXT_4 } else { TEXT }).child(step.label()))
+        });
+        let warnings = list.warnings.iter().map(|w| div().text_size(px(12.)).text_color(TEXT_3).child(w.clone()));
+        let error = match &list.outcome {
+            Some(Outcome::Failed(e)) => Some(div().text_size(px(12.)).text_color(FAILED_TEXT).child(e.clone())),
+            _ => None,
+        };
+        let (id, update) = (id.to_string(), list.update);
+        let button = match &list.outcome {
+            Some(Outcome::Failed(_)) => Some(super::action(("host-install-retry", i), "Retry").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx)))),
+            Some(_) => Some(super::action(("host-install-done", i), "Done").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.fleet.installs.remove(&id);
+                cx.notify();
+            }))),
+            None => None,
+        };
+        let head = div().flex().items_center().child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title)).children(button);
+        div().ml(px(54.)).mr(px(14.)).mb(px(10.)).px(px(12.)).py(px(8.)).flex().flex_col().gap(px(4.)).rounded(px(8.)).bg(FILL_2).child(head).children(rows.collect::<Vec<_>>()).children(warnings).children(error)
     }
 
     /// Signs in once with a password to put the app's own key on a host that refused the user's keys.

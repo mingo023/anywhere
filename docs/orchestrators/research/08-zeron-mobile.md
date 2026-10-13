@@ -7,7 +7,7 @@ Sources:
 - Expo docs: https://docs.expo.dev/versions/latest/sdk/notifications/ and https://docs.expo.dev/versions/latest/sdk/application/.
 - Pocket worktree `/Users/mingo/.worktrees/anywhere/orchestrator-research` @ `86deb13`.
 
-Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to its root. Unless stated otherwise, Swift paths are under `apps/ios/Zeron/`, so `Z Shell/MainTabController.swift:24` means `apps/ios/Zeron/Shell/MainTabController.swift`. `P path:L` is a file and line in the Pocket worktree, relative to its root. `M` (monocode) is not used here. A URL is a vendor doc. When code, docs and screenshots disagree, code wins; §F1 flags every disagreement. "Screenshot" means a PNG under `Z docs/screenshots/`, which I viewed.
+Citation legend: `Z path:L` is a file and line in the Zeron clone, relative to its root. Unless stated otherwise, Swift paths are under `apps/ios/Zeron/`, so `Z Shell/MainTabController.swift:24` means `apps/ios/Zeron/Shell/MainTabController.swift`. `P path:L` is a file and line in the Pocket worktree, relative to its root. A URL is a vendor doc. When code, docs and screenshots disagree, code wins; §F1 flags every disagreement. "Screenshot" means a PNG under `Z docs/screenshots/`, which I viewed.
 
 ## TL;DR
 

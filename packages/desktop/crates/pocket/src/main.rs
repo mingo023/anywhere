@@ -9,6 +9,8 @@ mod empty_pane;
 mod explorer;
 mod field;
 mod fleet;
+mod fs;
+mod host_agents;
 mod git_ui;
 mod inbox;
 mod modals;
@@ -42,6 +44,7 @@ fn main() {
     let capture = capture::Capture::from_args();
     let path = daemon::sock_path();
     let (daemon, mut rx) = Daemon::spawn(&path);
+    let daemon = hosts::session::Daemons::new(daemon);
     let home = path.parent().unwrap_or(&path).to_path_buf();
     let (outbox, mut agent_rx) = agents::connect(&path);
     let store = Store::load(&home);
@@ -139,9 +142,9 @@ fn main() {
                         let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
                     }
                 });
-                let mut desktop = Desktop::new(daemon, outbox, store, window, cx);
+                let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, window, cx);
                 if !capturing {
-                    desktop.connect_hosts(cx);
+                    desktop.connect_hosts(window, cx);
                 }
                 desktop
             });

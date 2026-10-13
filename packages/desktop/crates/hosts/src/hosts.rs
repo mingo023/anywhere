@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+pub mod checklist;
 pub mod install;
 pub mod link;
+pub mod owner;
+pub mod remote;
+pub mod session;
+pub mod sign_in;
 pub mod ssh;
 pub mod ssh_config;
 
@@ -28,6 +33,9 @@ pub struct Host {
     pub id: String,
     pub name: String,
     pub target: Target,
+    /// Its pocketd is reached on its owner TCP port with a token, not on its socket.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub windows: bool,
 }
 
 impl Host {
@@ -38,12 +46,22 @@ impl Host {
             Target::Address { addr, .. } => short_name(addr),
         };
         let id = unique(&slug(&name), taken);
-        Self { id, name, target }
+        Self { id, name, target, windows: false }
     }
 
     /// Where this Mac's end of the tunnel to the host's pocketd listens.
     pub fn socket(&self, home: &Path) -> PathBuf {
         home.join("hosts").join(format!("{}.sock", self.id))
+    }
+
+    /// The owner token a Windows host's pocketd gave this Mac; removing the host forgets it.
+    pub fn owner_file(&self, home: &Path) -> PathBuf {
+        home.join("hosts").join(format!("{}.token", self.id))
+    }
+
+    /// The tunnel's socket, with the owner token when there is one. Reads a file.
+    pub fn endpoint(&self, home: &Path) -> daemon::Endpoint {
+        daemon::Endpoint { path: self.socket(home), token: owner::load(&self.owner_file(home)).map(|o| o.token) }
     }
 
     /// The host keys this app accepted for the host; removing the host forgets them.
@@ -54,6 +72,11 @@ impl Host {
     /// The key this app signs in with after a password sign-in put it on the host; its public half is `<key>.pub`.
     pub fn app_key(&self, home: &Path) -> PathBuf {
         home.join("hosts").join(format!("{}.key", self.id))
+    }
+
+    /// [`Host::app_key`] once a password sign-in has made it.
+    pub fn signed_in_key(&self, home: &Path) -> Option<PathBuf> {
+        Some(self.app_key(home)).filter(|k| k.exists())
     }
 
     /// `user@addr:port` as typed, or the alias.
@@ -111,6 +134,40 @@ fn unique(base: &str, taken: &[Host]) -> String {
         return base.into();
     }
     (2..).map(|n| format!("{base}-{n}")).find(|id| free(id)).unwrap()
+}
+
+/// The desktop's key for `path` on host `id`: `//<id>/<path>`, with a Windows path's `\` as `/`.
+pub fn place(id: &str, path: &str) -> String {
+    let path = path.replace('\\', "/");
+    if path.starts_with('/') { format!("//{id}{path}") } else { format!("//{id}/{path}") }
+}
+
+/// The host id and the path on it that `key` names; `None` and the key itself for a path on this Mac.
+pub fn split(key: &str) -> (Option<&str>, &str) {
+    let Some((id, path)) = key.strip_prefix("//").and_then(|rest| rest.find('/').map(|i| rest.split_at(i))) else { return (None, key) };
+    let drive = path.get(1..).filter(|p| on_windows(p));
+    (Some(id), drive.unwrap_or(path))
+}
+
+/// Whether a host's `path` starts with a drive, as only Windows paths do.
+pub fn on_windows(path: &str) -> bool {
+    matches!(path.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic())
+}
+
+/// The command that runs a project's `script` on the host holding `key`, in its own shell: PowerShell on Windows, else sh.
+pub fn script_argv<'a>(key: &str, script: &'a str) -> Vec<&'a str> {
+    if on_windows(split(key).1) { vec!["powershell", "-NoProfile", "-NonInteractive", "-Command", script] } else { vec!["sh", "-c", script] }
+}
+
+/// Where git for the tree at `key` runs: this Mac, its host while linked, else a runner that only fails.
+pub fn runner_for(key: &str) -> git::Runner {
+    match split(key) {
+        (None, _) => git::Runner::Local,
+        (Some(id), _) => match remote::connected(id) {
+            Some(client) => git::Runner::Remote(client),
+            None => git::Runner::Remote(std::sync::Arc::new(git::NotConnected)),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -174,5 +231,37 @@ mod tests {
         ];
         let raw = serde_json::to_string(&hosts).unwrap();
         assert_eq!(serde_json::from_str::<Vec<Host>>(&raw).unwrap(), hosts);
+    }
+
+    #[test]
+    fn a_host_path_is_keyed_under_the_host_id() {
+        assert_eq!(place("devbox", "/home/me/app"), "//devbox/home/me/app");
+        assert_eq!(split("//devbox/home/me/app"), (Some("devbox"), "/home/me/app"));
+    }
+
+    #[test]
+    fn a_windows_path_is_keyed_with_forward_slashes_and_comes_back_without_a_leading_one() {
+        assert_eq!(place("win", "C:\\Users\\me\\app"), "//win/C:/Users/me/app");
+        assert_eq!(split("//win/C:/Users/me/app"), (Some("win"), "C:/Users/me/app"));
+    }
+
+    #[test]
+    fn a_path_on_this_mac_names_no_host() {
+        assert_eq!(split("/Users/me/app"), (None, "/Users/me/app"));
+        assert_eq!(split("local-1"), (None, "local-1"));
+    }
+
+    #[test]
+    fn a_script_runs_in_powershell_on_a_windows_host_and_in_sh_elsewhere() {
+        assert_eq!(script_argv("//pc/C:/Users/me/app", "npm ci")[0], "powershell");
+        assert_eq!(script_argv("//devbox/home/me/app", "npm ci"), ["sh", "-c", "npm ci"]);
+    }
+
+    #[test]
+    fn git_for_a_host_key_never_runs_on_this_mac() {
+        assert!(matches!(runner_for("/Users/me/app"), git::Runner::Local));
+        let remote = runner_for("//devbox/Users/me/app");
+        assert!(matches!(remote, git::Runner::Remote(_)));
+        assert_eq!(remote.stat("/").unwrap_err().kind(), std::io::ErrorKind::NotConnected);
     }
 }

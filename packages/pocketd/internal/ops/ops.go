@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"pocketd/internal/devices"
+	"pocketd/internal/hostop"
+	"pocketd/internal/owners"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -43,6 +45,30 @@ type Msg struct {
 	Status    *Status          `json:"status,omitempty"`
 	// Local is the Local a spawned Terminal belongs to.
 	Local string `json:"local,omitempty"`
+	// Login spawns the host's login shell in its login env, running Argv in it when set.
+	Login bool     `json:"login,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	// The rest are exec's and fs.*'s.
+	Stdin     []byte         `json:"stdin,omitempty"`
+	TimeoutMs int            `json:"timeoutMs,omitempty"`
+	Stdout    []byte         `json:"stdout,omitempty"`
+	Stderr    []byte         `json:"stderr,omitempty"`
+	Path      string         `json:"path,omitempty"`
+	From      string         `json:"from,omitempty"`
+	To        string         `json:"to,omitempty"`
+	Max       int64          `json:"max,omitempty"`
+	Create    bool           `json:"create,omitempty"`
+	Parents   bool           `json:"parents,omitempty"`
+	Recursive bool           `json:"recursive,omitempty"`
+	Entries   []hostop.Entry `json:"entries,omitempty"`
+	Exists    bool           `json:"exists,omitempty"`
+	Dir       bool           `json:"dir,omitempty"`
+	Size      int64          `json:"size,omitempty"`
+	Mtime     int64          `json:"mtime,omitempty"`
+	Truncated bool           `json:"truncated,omitempty"`
+	Trashed   string         `json:"trashed,omitempty"`
+	// Token is auth's owner token.
+	Token string `json:"token,omitempty"`
 }
 
 type Conn struct {
@@ -118,6 +144,12 @@ type Server struct {
 	// Upgrade execs pocketd's binary on disk. It returns only on failure;
 	// on success the caller sees the socket close.
 	Upgrade func() error
+	// LoginEnv is what exec and fs.list run git with; nil means pocketd's own.
+	LoginEnv func() []string
+	// TrashDir is where fs.trash puts things on an OS without a trash.
+	TrashDir string
+	// Owners are the tokens a TCP peer sends in auth to become the owner.
+	Owners *owners.Store
 }
 
 func (s *Server) asking(id string) string {
@@ -131,7 +163,7 @@ func (s *Server) Serve(ln net.Listener) error {
 	ws := newChanListener(ln.Addr())
 	defer ws.Close()
 	if s.WS != nil {
-		hs := &http.Server{Handler: s.WS, ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+		hs := &http.Server{Handler: s.WS, ReadHeaderTimeout: authWindow, ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			return peer.With(ctx, c.(*sniffed).who)
 		}}
 		go hs.Serve(ws)
@@ -152,22 +184,34 @@ func (s *Server) route(c net.Conn, ws *chanListener) {
 		c.Close()
 	case first == 'G' && s.WS != nil:
 		ws.hand(sc)
+	case sc.who.Kind == peer.None:
+		s.handle(newConn(newPreauth(sc)), sc.who)
 	default:
 		s.handle(newConn(sc), sc.who)
 	}
 }
 
-// principal fails closed: a peer it can't identify is a PTY peer of no Terminal.
+// principal fails closed: a socket peer it can't identify is a PTY peer of no
+// Terminal, and a TCP peer is no one until it sends an owner token.
 func (s *Server) principal(c net.Conn) peer.Principal {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
-		return peer.Principal{Kind: peer.PTY, Scopes: peer.PTYScopes}
+		return peer.Principal{}
 	}
 	pid, err := peer.PID(uc)
 	if err != nil {
 		return peer.Principal{Kind: peer.PTY, Scopes: peer.PTYScopes}
 	}
 	return peer.Classify(pid, s.Terminals.Roots())
+}
+
+// owner is the id of token, for a conn that is no one yet.
+func (s *Server) owner(who peer.Principal, token string) (string, bool) {
+	if who.Kind != peer.None || s.Owners == nil {
+		return "", false
+	}
+	o, ok := s.Owners.Lookup(token)
+	return o.ID, ok
 }
 
 func refused(id string, err error) Msg {
@@ -196,6 +240,20 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 		if err != nil {
 			return
 		}
+		if m.Op == "auth" {
+			o, ok := s.owner(who, m.Token)
+			if !ok {
+				c.Send(Msg{Ev: "error", Error: "not an owner token", ErrorCode: proto.CodeNotPaired})
+				return
+			}
+			who = peer.OwnerByToken(o)
+			if p, ok := c.conn.(*preauth); ok {
+				p.authed()
+			}
+			go s.Owners.Watch(ctx, o, func() { c.Close() })
+			c.Send(Msg{Ev: "ok"})
+			continue
+		}
 		if r := who.Check("ops:"+m.Op, s.asking(m.ID), m.Text); r != nil {
 			c.Send(refused(m.ID, r))
 			continue
@@ -214,11 +272,11 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 			continue
 		case "status":
 			if s.Status == nil {
-				c.Send(Msg{Ev: "error", Error: "status unsupported"})
+				c.Send(Msg{Ev: "error", ID: m.ID, Error: "status unsupported"})
 				continue
 			}
 			st := s.Status()
-			c.Send(Msg{Ev: "status", Status: &st})
+			c.Send(Msg{Ev: "status", ID: m.ID, Status: &st})
 			continue
 		case "hook":
 			if s.Hook == nil {
@@ -269,6 +327,20 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 			continue
 		case "pair.begin":
 			s.pairBegin(ctx, c, m)
+			continue
+		case "owner.revokeSelf":
+			if who.TokenID == "" {
+				c.Send(Msg{Ev: "error", Error: "only a conn that sent an owner token can revoke it"})
+				continue
+			}
+			if _, err := s.Owners.Revoke(who.TokenID); err != nil {
+				c.Send(Msg{Ev: "error", Error: err.Error()})
+				continue
+			}
+			c.Send(Msg{Ev: "ok"})
+			return
+		case "exec", "fs.list", "fs.stat", "fs.read", "fs.write", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
+			go func() { c.Send(s.hostOp(ctx, m)) }()
 			continue
 		}
 		t := s.Terminals.Get(m.ID)

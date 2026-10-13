@@ -18,7 +18,7 @@ mod projects;
 mod provider;
 mod search;
 mod sidebar;
-mod ssh_hosts;
+pub(crate) mod ssh_hosts;
 mod terminal;
 
 pub(crate) use appearance::{forced, reduce_motion};

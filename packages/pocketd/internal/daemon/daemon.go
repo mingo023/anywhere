@@ -54,8 +54,12 @@ type Daemon struct {
 // installed after pocketd started is found.
 func (d *Daemon) Spawn(m ops.Msg) (*terminal.Terminal, error) {
 	spec := terminal.Spec{ID: terminal.NewID(), Cmd: m.Cmd, Args: m.Args, Cwd: m.Cwd, Env: m.Env, Cols: m.Cols, Rows: m.Rows, Local: m.Local}
+	if m.Login {
+		home, _ := os.UserHomeDir()
+		spec = loginSpec(spec, shellenv.LoginShell(), home, m.Argv)
+	}
 	t, err := d.spawn(spec)
-	if errors.Is(err, exec.ErrNotFound) && m.Env == nil && d.Capture != nil {
+	if errors.Is(err, exec.ErrNotFound) && spec.Env == nil && d.Capture != nil {
 		d.Recapture()
 		t, err = d.spawn(spec)
 	}

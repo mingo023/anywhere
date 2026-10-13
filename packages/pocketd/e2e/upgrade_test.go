@@ -1,7 +1,10 @@
+//go:build unix
+
 package e2e
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -73,6 +76,32 @@ func TestAnUpgradeKeepsTheShellRunning(t *testing.T) {
 		if after[i] != after[i-1]+1 {
 			t.Fatalf("output was lost: %v", after)
 		}
+	}
+}
+
+func TestAnUpgradeKeepsTheShellWhenTheOwnerPortIsTaken(t *testing.T) {
+	h := Start(t, ownerOverTCP)
+	_, shell := counting(h)
+	pid := h.Status().PID
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	path := filepath.Join(h.Home, "config.json")
+	raw, _ := os.ReadFile(path)
+	raw = []byte(strings.Replace(string(raw), fmt.Sprintf("127.0.0.1:%d", h.OwnerPort), busy.Addr().String(), 1))
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	h.Upgrade()
+
+	if s := h.Status(); s.PID != pid {
+		t.Fatalf("pocketd pid %d, was %d", s.PID, pid)
+	}
+	if syscall.Kill(shell, 0) != nil {
+		t.Fatal("the shell died")
 	}
 }
 

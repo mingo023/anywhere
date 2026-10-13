@@ -1,3 +1,4 @@
+use crate::fs::fs_at;
 use agents::locals::is_local;
 use std::path::{Path, PathBuf};
 use store::ProjectIcon;
@@ -45,6 +46,10 @@ pub fn mark(icon: Option<&ProjectIcon>, letters: String) -> ui::Mark {
 
 /// Reads `.gitignore`s up to the repository root, so call it off the UI thread.
 pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, PathBuf)> {
+    let fs = fs_at(dir);
+    if fs.local().is_err() {
+        return fs.list(dir, files).unwrap_or_default();
+    }
     let git = files.hide_ignored;
     let walk = ignore::WalkBuilder::new(dir).standard_filters(false).max_depth(Some(1)).parents(git).git_ignore(git).git_exclude(git).git_global(git).build();
     let mut entries: Vec<(bool, PathBuf)> = walk
@@ -58,6 +63,10 @@ pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, Pa
 
 /// Moves `path` to the Trash, returning where it landed; `None` when it couldn't.
 pub fn trash(path: &Path) -> Option<PathBuf> {
+    if let crate::fs::Fs::Remote(host) = fs_at(path) {
+        return host.trash(&path.to_string_lossy()).ok().map(PathBuf::from);
+    }
+    fs_at(path).local().ok()?;
     #[cfg(target_os = "macos")]
     {
         use objc2_foundation::{NSFileManager, NSString, NSURL};
@@ -71,6 +80,20 @@ pub fn trash(path: &Path) -> Option<PathBuf> {
         let _ = path;
         None
     }
+}
+
+/// How long a commit, push or `gh` call on a host gets.
+const ON_HOST: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// `daemon::run_login` in `cwd`, on the host holding it when it's a host's.
+pub fn run_login(argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
+    let git::Runner::Remote(host) = hosts::runner_for(cwd) else { return daemon::run_login(argv, cwd, input) };
+    let out = host.exec(cwd, argv, Some(input.as_bytes()), ON_HOST).map_err(|e| e.to_string())?;
+    let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
+    if out.success() {
+        return Ok(text(&out.stdout));
+    }
+    Err(Some(text(&out.stderr)).filter(|e| !e.is_empty()).unwrap_or_else(|| text(&out.stdout)))
 }
 
 pub fn now_ms() -> i64 {

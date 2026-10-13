@@ -1,11 +1,30 @@
 #!/bin/sh
 # libghostty's C API has no stable version yet, so the commit is pinned.
+# Usage: build-ghostty.sh [linux-arm64|linux-amd64|windows-arm64|windows-amd64]; no target builds the macOS lib.
 set -eu
 REV=4ae9f1a2de5484de3d6a13fe03676b8853b9c41c
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="$ROOT/third_party/ghostty"
-LIB="$DIR/zig-out/lib/ghostty-vt.xcframework/macos-arm64_x86_64/libghostty-vt.a"
-STAMP="$DIR/zig-out/.rev"
+TARGET="${1:-}"
+case "$TARGET" in
+  "")
+    OUT="$DIR/zig-out"
+    LIB="$OUT/lib/ghostty-vt.xcframework/macos-arm64_x86_64/libghostty-vt.a"
+    ;;
+  linux-arm64|linux-amd64)
+    OUT="$DIR/zig-out-$TARGET"
+    LIB="$OUT/lib/libghostty-vt.a"
+    ;;
+  windows-arm64|windows-amd64)
+    OUT="$DIR/zig-out-$TARGET"
+    LIB="$OUT/lib/ghostty-vt-static.lib"
+    ;;
+  *)
+    echo "build-ghostty: unknown target $TARGET (want linux-arm64, linux-amd64, windows-arm64 or windows-amd64)" >&2
+    exit 2
+    ;;
+esac
+STAMP="$OUT/.rev"
 SHORT=$(echo "$REV" | cut -c1-7)
 if [ -f "$LIB" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$REV" ]; then
   echo "ghostty ok (cached $SHORT)"
@@ -17,7 +36,7 @@ if [ -L "$ROOT/third_party" ]; then
     echo "ghostty ok (shared $SHORT)"
     exit 0
   fi
-  echo "build-ghostty: $(readlink "$ROOT/third_party")/ghostty isn't built at $SHORT; run scripts/build-ghostty.sh in that checkout" >&2
+  echo "build-ghostty: $(readlink "$ROOT/third_party")/ghostty isn't built at $SHORT; run scripts/build-ghostty.sh $TARGET in that checkout" >&2
   exit 1
 fi
 if [ ! -d "$DIR/.git" ]; then
@@ -25,6 +44,12 @@ if [ ! -d "$DIR/.git" ]; then
 fi
 git -C "$DIR" checkout --quiet "$REV"
 cd "$DIR"
-# The xcframework's macOS lib is universal (arm64 + x86_64); it needs xcodebuild.
-zig build -Demit-lib-vt -Demit-xcframework=true -Doptimize=ReleaseFast
+case "$TARGET" in
+  # The xcframework's macOS lib is universal (arm64 + x86_64); it needs xcodebuild.
+  "") zig build -Demit-lib-vt -Demit-xcframework=true -Doptimize=ReleaseFast ;;
+  linux-arm64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu --prefix "$OUT" ;;
+  linux-amd64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu --prefix "$OUT" ;;
+  windows-arm64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=aarch64-windows-gnu --prefix "$OUT" ;;
+  windows-amd64) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$OUT" ;;
+esac
 echo "$REV" > "$STAMP"

@@ -6,7 +6,6 @@ Date: 2026-09-30.
 
 - Pocket @ b9d14a1 (orchestrator-research worktree).
 - zeronsh/comet @ ed3b1aae4a5189eef67143db7b8c5c3ee7a933c5 (MIT).
-- hardbeat920/monocode @ cdc1441dc51e3709cd843e5c316608a123f323c6 (MIT).
 - Installed deps:
   - react-native@0.86.3, from Pocket's pnpm store;
   - github.com/coder/websocket v1.8.15, from the Go module cache;
@@ -22,7 +21,7 @@ Date: 2026-09-30.
 **Citation legend.**
 
 - `P path:L` is Pocket, relative to the worktree root.
-- `Z path:L` is Zeron (comet); `M path:L` is MonoCode. Both are relative to their clone roots.
+- `Z path:L` is Zeron (comet); `M path:L` is App M, another orchestrator. Both are relative to their clone roots.
 - `RN path:L` is `node_modules/.pnpm/react-native@0.86.3…/node_modules/react-native/<path>`.
 - `WS path:L` is `github.com/coder/websocket@v1.8.15/<path>`.
 - `SDK path:L` is `MacOSX.sdk/usr/include/<path>`.
@@ -36,7 +35,7 @@ Date: 2026-09-30.
   - `agent.prompt` types raw text into the PTY (P packages/pocketd/internal/terminal/terminal.go:278-287).
   - In Claude, a leading `!` runs a shell command directly (https://code.claude.com/docs/en/interactive-mode, "Shell mode with `!` prefix").
   - The phone can answer "Yes, and switch to auto mode" (P packages/pocketd/internal/daemon/permission.go:15,24-26).
-  - Every future rule must assume "device token = shell". MonoCode says the same: "Tokens grant control of the host as its OS user" (M docs/remote-access.md:55).
+  - Every future rule must assume "device token = shell". App M says the same: "Tokens grant control of the host as its OS user" (M docs/remote-access.md:55).
 - **Biggest current gap: an agent can approve its own permission requests.**
   - The phone-grade token sits in plaintext in `~/.coding-pocket/config.json` (P packages/pocketd/internal/config/config.go:52-60). The desktop reads it too (P packages/desktop/crates/agents/src/agents.rs:198-200,248).
   - Claude runs read-only Bash such as `cat` without asking (https://code.claude.com/docs/en/security, "Permission-based architecture").
@@ -56,7 +55,7 @@ Date: 2026-09-30.
   4. QR pairing with a one-time code, never the long-lived token (18-4).
   5. Move the desktop off the phone token (18-6).
   6. Per-terminal agent grants plus a peer-PID check, so no approving or pairing from inside a PTY (18-8).
-- **Copy MonoCode's credential model:**
+- **Copy App M's credential model:**
   - 32-byte base64url tokens, shown once, stored as sha256 (M host/store.ts:278-313);
   - the 403 and 401 handshake checks (M host/server.ts:203-225);
   - Revoke copy (M src/features/connections/ui/ConnectionsSettings.tsx:222-231).
@@ -122,7 +121,7 @@ Date: 2026-09-30.
 - **Same-UID is not a security boundary.**
   - Same-UID malware can already edit shell rc files.
   - The goal is narrower: no single low-friction agent tool call should grant approval or remote-shell powers.
-  - MonoCode takes the same stance: "Treat a bad prompt like running those CLIs yourself" (M SECURITY.md:7).
+  - App M takes the same stance: "Treat a bad prompt like running those CLIs yourself" (M SECURITY.md:7).
 - **Zero-prompt reads:**
   - Claude, in Manual mode, runs a built-in set of read-only commands without asking, including `cat` (https://code.claude.com/docs/en/security).
   - Read/Grep/Glob outside the working directory prompt, but read-only Bash is bounded only by opt-in sandbox `denyRead` (same page, "Working directory boundary").
@@ -135,12 +134,12 @@ Date: 2026-09-30.
   - pocketd owns every PTY, so it can tell whether a client descends from a Pocket terminal.
   - Double-fork or `launchctl` reparenting escapes this check; treat it as raising the bar, not a boundary.
 
-### F3. MonoCode model (copy most of it)
+### F3. App M model (copy most of it)
 
 - **Loopback only:**
   - The host binds only `127.0.0.1:3774` (M docs/remote-access.md:57).
   - Remote desktops reach it through an SSH local forward bound to loopback (:24).
-  - Pairing runs `monocode-host pair --name <quoted> --json` over the SSH-authenticated channel (M src-tauri/src/remote_ssh.rs:417-420).
+  - Pairing runs `<app>-host pair --name <quoted> --json` over the SSH-authenticated channel (M src-tauri/src/remote_ssh.rs:417-420).
 - **SSH hardening** (M src-tauri/src/remote_ssh.rs:165-215):
   - `ForwardAgent=no`, `ForwardX11=no`, `ControlMaster=no`, `PermitLocalCommand=no`;
   - `StrictHostKeyChecking=ask`, `ExitOnForwardFailure=yes`, `ConnectTimeout=15`;
@@ -284,7 +283,7 @@ Date: 2026-09-30.
   - Serve adds `Tailscale-User-Login` and `Tailscale-User-Name` headers (https://tailscale.com/kb/1312/serve). Record them as device metadata only: any local process can send them to loopback.
 - **Phone manual entry:**
   - Allow `ws://` only for loopback and the Tailscale IP ranges.
-  - Everything else must be `wss://`. This follows MonoCode's HTTPS-or-loopback rule (M src-tauri/src/remote.rs:72-91).
+  - Everything else must be `wss://`. This follows App M's HTTPS-or-loopback rule (M src-tauri/src/remote.rs:72-91).
 - **Off the tailnet (02-1, 08-22, 14-8):**
   - E2EE is mandatory, and the relay sees only ciphertext.
   - Use Noise IK: the phone pins the Mac's static key from the QR `fp`, and the Mac records the phone's static key at pairing (Noise patterns: https://noiseprotocol.org/noise.html). This gives per-device revoke and forward secrecy.
@@ -298,8 +297,8 @@ Date: 2026-09-30.
 - **Origin and Host:** drop `InsecureSkipVerify` (P wsserver.go:53).
   - coder/websocket then allows an absent Origin, or an Origin whose host equals the request Host (WS accept.go:228-241).
   - Also require `Host` to be one of: loopback, the bound Tailscale IPs, or the MagicDNS name. The same-host check alone lets a DNS-rebinding page through.
-- **Why not reject every Origin (Zeron/MonoCode style):**
-  - Zeron and MonoCode reject any Origin (Z crates/rpc/src/server.rs:154-183; M host/server.ts:203-213).
+- **Why not reject every Origin (Zeron/App M style):**
+  - Zeron and App M reject any Origin (Z crates/rpc/src/server.rs:154-183; M host/server.ts:203-213).
   - Pocket can't: RN Android adds a default `origin: http(s)://host:port` (RN ReactAndroid/…/websocket/WebSocketModule.kt:104-127,387-407).
 - **Pre-auth limits:**
   - Read limit 4 KiB until authenticated (today 1 MiB, P wsserver.go:57). Keep the 10 s hello deadline (:22-27).
@@ -352,17 +351,17 @@ Scopes: `observe`, `drive` (prompt, interrupt, compact, close), `approve`, `spaw
   - Scope is set by `LOCAL_PEERPID` ancestry (SDK sys/un.h:89), not by whether a token is present. An agent that omits its token still gets terminal scope.
   - Reparenting (e.g. `nohup` or `launchctl`) escapes the check; this is a residual risk.
 - **Grants:**
-  - Off by default. Enable one per terminal from the desktop tab menu, or with a MonoCode-style opt-in turn (M control.rs:15).
+  - Off by default. Enable one per terminal from the desktop tab menu, or with a App M-style opt-in turn (M control.rs:15).
   - The grant token exists in the child env only while granted.
 - **Hooks:** accept only from a peer PID that descends from the Claude PID the hook claims.
   - Closes forged hook events and fake permission prompts (P hook.go:14-37; P claude.go:14-24).
-- **Limits (copy MonoCode, M control.rs:196-266):** 8 workers, queue 32, ≤24 pending, 3 s I/O, 35 s reply.
+- **Limits (copy App M, M control.rs:196-266):** 8 workers, queue 32, ≤24 pending, 3 s I/O, 35 s reply.
 - **UI:** a "Driven by {agent}" badge on sessions an agent is driving.
 
 **R10. File-viewer path rules (02-16)**
 
 - **Request:** `{rootId, relPath}`. Roots are registered project and worktree roots only; never absolute paths. Do not copy Zeron's `AbsoluteRead::Outside`.
-- **Grammar** (Z workspace_files.rs:29-44,150-196; MonoCode only checks length, NUL, escape and `.git`, M host/workspace.ts:28-46):
+- **Grammar** (Z workspace_files.rs:29-44,150-196; App M only checks length, NUL, escape and `.git`, M host/workspace.ts:28-46):
   - ≤4096 bytes, ≤256 components;
   - no empty, `.` or `..` components, no NUL or control characters;
   - `.git` blocked in any case.
@@ -416,7 +415,7 @@ Scopes: `observe`, `drive` (prompt, interrupt, compact, close), `approve`, `spaw
 | r08-19 lock-screen Allow/Deny | R12 | **Unblocked**, with auth on both actions and no escalation options. |
 | r08-21 phone spawn ("needs security review") | R7, R11 | **Unblocked**, allowlisted: claude/codex, registered roots, no cmd/env/cwd. Needs a project registry in pocketd. |
 | r08-22 hosted relay; r08 push-privacy risk (r08:615) | R4, R12 | Relay blocked without E2EE; push privacy settled as fixed copy by default. |
-| r10-19 SSH remote host | — | Out of scope. MonoCode's SSH-channel pairing is its analogue of R2. |
+| r10-19 SSH remote host | — | Out of scope. App M's SSH-channel pairing is its analogue of R2. |
 | r11-1 agent CLI verbs | R8, R9 | **Unblocked** behind grants; `sessions.send` sanitized. |
 | r11-2 per-terminal token plus scopes | R6, R9 | Adopted, plus the peer-PID ancestry check that makes it enforceable. |
 | r11-3 `agent.start` / `terminal.spawn` over ws | R7, R6 | Phone: `agent.spawn` allowlist only. `terminal.spawn`: owner-only. |
@@ -482,7 +481,7 @@ This is new. Cmd-, is already taken by Project settings (P packages/desktop/crat
 - **Remove confirm:** an inline panel under the row, adapted from M ConnectionsSettings.tsx:331-368 (border-top, bg wash, px 16, py 16, 12 px).
   - "Remove {name}? It disconnects now and needs a new pairing to come back."
   - Buttons "Remove" (danger) and "Cancel".
-  - MonoCode's three-way choice (:361-368) doesn't apply, because Pocket's desktop is the host.
+  - App M's three-way choice (:361-368) doesn't apply, because Pocket's desktop is the host.
 - **Notices:**
   - Emerald, after removal: "{name} was removed. Your agents keep running."
   - Error strip on failure (Z widgets.rs:1562-1584; mt 16, px 16, py 12, radius 12, red border @0.2, bg @0.06, 12.5 px, DangerTriangle 16): "Could not remove {name}: {reason}".
@@ -545,16 +544,16 @@ This is new. Cmd-, is already taken by Project settings (P packages/desktop/crat
 
 Date: 2026-09-30. Claims checked: 40. Corrected: 11.
 
-Confirmed against source: pocketd `:4517` all-interface bind, 24-byte token, 0700/0600 config, `InsecureSkipVerify`, 1 MiB read limit, shared "Rejected", open-request replay on hello, no per-message authz, `perm-N` IDs, 10 min timeout, `setMode auto` option, ops socket 0600 with unrestricted spawn/input/screen/close, `POCKETD_SOCK`/`POCKETD_PTY` injection, desktop reading config.json and using only view/seen/close, `clientId "pocket-app"`, SecureStore default options, `.env*` copy list with `std::fs::copy`, `desktop.json` default perms, `cmd-,` = Project settings, scheme `anywhere`; MonoCode tokens, hash store, 403/401 checks, revokeSelf, SSH options, askpass, endpoint rule, control-socket limits and env-only grants; Zeron Origin rejection, loopback IPC, TOFU room, `?token=`, `AbsoluteRead::Outside`, path grammar and caps, project-action import gating and 50-entry rule, 70 s online window, last-seen strings, widget metrics; RN Android default Origin; coder/websocket same-host Origin rule; `LOCAL_PEERPID`/`LOCAL_PEERTOKEN`; Claude `!` shell mode, Shift+Tab, read-only `cat`, curl/wget approval, trust verification; Expo SecureStore and NotificationAction options; Tailscale Serve certs and identity headers; default ACL wording.
+Confirmed against source: pocketd `:4517` all-interface bind, 24-byte token, 0700/0600 config, `InsecureSkipVerify`, 1 MiB read limit, shared "Rejected", open-request replay on hello, no per-message authz, `perm-N` IDs, 10 min timeout, `setMode auto` option, ops socket 0600 with unrestricted spawn/input/screen/close, `POCKETD_SOCK`/`POCKETD_PTY` injection, desktop reading config.json and using only view/seen/close, `clientId "pocket-app"`, SecureStore default options, `.env*` copy list with `std::fs::copy`, `desktop.json` default perms, `cmd-,` = Project settings, scheme `anywhere`; App M tokens, hash store, 403/401 checks, revokeSelf, SSH options, askpass, endpoint rule, control-socket limits and env-only grants; Zeron Origin rejection, loopback IPC, TOFU room, `?token=`, `AbsoluteRead::Outside`, path grammar and caps, project-action import gating and 50-entry rule, 70 s online window, last-seen strings, widget metrics; RN Android default Origin; coder/websocket same-host Origin rule; `LOCAL_PEERPID`/`LOCAL_PEERTOKEN`; Claude `!` shell mode, Shift+Tab, read-only `cat`, curl/wget approval, trust verification; Expo SecureStore and NotificationAction options; Tailscale Serve certs and identity headers; default ACL wording.
 
 - F1 hooks: the hook caller supplies the Claude ancestor's pid, not "its own" pid.
 - F1 prompt path: Shift+Tab reaches `bypassPermissions`/`auto` only "when available".
 - F2: "Many users allow-list `Bash(node:*)`" was unsupported; reworded and marked unverified.
-- F3: MonoCode does not reject absolute paths; it accepts absolute inputs inside the root and rejects escapes.
+- F3: App M does not reject absolute paths; it accepts absolute inputs inside the root and rejects escapes.
 - F3: lifecycle secret is M host/cli.ts:241, not :244.
 - F4: 4409 supersede is at Z device-room.ts:163-170; citation widened to 150-170.
 - F4: Zeron push body is fixed, but the title is the chat title (Z push-notify.ts:62-69), not fixed copy.
 - F5: r08:615 raised tool/command in push as a question and proposed fixed copy by default; it did not propose including them.
 - UI spec: Zeron device rows have no leading icon; "icon size 20" was unsupported. `row_tile` is 24×32 with a 16 px glyph.
 - UI spec: Zeron's Devices page uses label mt 28 and card mt 8, overriding the generic section metrics; section names are Zeron's "This device"/"Other devices".
-- R10: MonoCode's grammar lacks the `.`/`..`-component and component-count rules; citation qualified.
+- R10: App M's grammar lacks the `.`/`..`-component and component-count rules; citation qualified.

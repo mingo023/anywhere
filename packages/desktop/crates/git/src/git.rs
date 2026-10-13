@@ -2,10 +2,12 @@ use imara_diff::{Algorithm, Diff, InternedInput};
 use std::collections::HashSet;
 use std::ops::Range;
 use std::path::Path;
-use std::process::Command;
+use std::time::Duration;
 
 pub mod github;
 pub mod graph;
+mod runner;
+pub use runner::{Exec, MAX_READ, NotConnected, Output, Runner, Stat, too_large};
 use graph::LaneColor;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,9 +46,34 @@ impl Repo {
     }
 }
 
-fn git(cwd: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+/// How long a git command may take on a host.
+const TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a clone or a worktree's removal may take on a host: they move a whole tree.
+const LONG: Duration = Duration::from_secs(10 * 60);
+
+/// `-C` rather than the exec's `cwd`, so a missing folder fails with git's message; `-C ""` stays put.
+fn output(run: &Runner, cwd: &str, args: &[&str]) -> std::io::Result<Output> {
+    output_within(run, cwd, args, TIMEOUT)
+}
+
+fn output_within(run: &Runner, cwd: &str, args: &[&str], timeout: Duration) -> std::io::Result<Output> {
+    let argv: Vec<&str> = ["git", "-C", cwd].into_iter().chain(args.iter().copied()).collect();
+    run.exec("", &argv, None, timeout)
+}
+
+fn git(run: &Runner, cwd: &str, args: &[&str]) -> Option<String> {
+    let out = output(run, cwd, args).ok()?;
+    out.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// `git` for a command whose failure the user reads.
+fn git_result(run: &Runner, cwd: &str, args: &[&str]) -> Result<(), String> {
+    git_result_within(run, cwd, args, TIMEOUT)
+}
+
+fn git_result_within(run: &Runner, cwd: &str, args: &[&str], timeout: Duration) -> Result<(), String> {
+    let out = output_within(run, cwd, args, timeout).map_err(|e| e.to_string())?;
+    if out.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
 }
 
 fn lines(s: Option<String>) -> Vec<String> {
@@ -65,33 +92,34 @@ fn numstat(out: &str) -> Vec<(String, usize, usize)> {
 }
 
 /// The worktree's branch and changes; untracked files only with `untracked`.
-pub fn read(cwd: &str, untracked: bool) -> Option<Repo> {
-    let branch = git(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).or_else(|| git(cwd, &["symbolic-ref", "--short", "HEAD"]))?.trim().to_string();
-    let staged = lines(git(cwd, &["diff", "--cached", "--name-only"]));
-    let unstaged = lines(git(cwd, &["diff", "--name-only"]));
-    let statuses = name_status(&git(cwd, &["diff", "HEAD", "--name-status"]).unwrap_or_default());
-    let mut files: Vec<FileStat> = numstat(&git(cwd, &["diff", "HEAD", "--numstat", "--histogram"]).unwrap_or_default())
+pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
+    let branch = git(run, cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).or_else(|| git(run, cwd, &["symbolic-ref", "--short", "HEAD"]))?.trim().to_string();
+    let staged = lines(git(run, cwd, &["diff", "--cached", "--name-only"]));
+    let unstaged = lines(git(run, cwd, &["diff", "--name-only"]));
+    let statuses = name_status(&git(run, cwd, &["diff", "HEAD", "--name-status"]).unwrap_or_default());
+    let mut files: Vec<FileStat> = numstat(&git(run, cwd, &["diff", "HEAD", "--numstat", "--histogram"]).unwrap_or_default())
         .into_iter()
         .map(|(path, added, removed)| {
             let status = statuses.iter().find(|(p, _)| *p == path).map_or('M', |(_, s)| *s);
             FileStat { staged: staged.contains(&path), unstaged: unstaged.contains(&path), path, added, removed, status }
         })
         .collect();
-    let new = if untracked { lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) } else { Vec::new() };
+    let new = if untracked { lines(git(run, cwd, &["ls-files", "--others", "--exclude-standard"])) } else { Vec::new() };
     for path in new {
-        let added = std::fs::read_to_string(std::path::Path::new(cwd).join(&path)).map(|s| s.lines().count()).unwrap_or(0);
+        let full = Path::new(cwd).join(&path);
+        let added = run.read(&full.to_string_lossy(), MAX_READ).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
         files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A' });
     }
     let base = if branch == "main" || branch == "master" {
-        git(cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string())
+        git(run, cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string())
     } else {
-        ["main", "master"].into_iter().find(|b| git(cwd, &["rev-parse", "--verify", "--quiet", b]).is_some()).map(str::to_string)
+        ["main", "master"].into_iter().find(|b| git(run, cwd, &["rev-parse", "--verify", "--quiet", b]).is_some()).map(str::to_string)
     };
     let (ahead, behind, commits) = match &base {
         Some(b) => {
             let range = format!("{b}..HEAD");
-            let (ahead, behind) = ahead_behind(cwd, b);
-            let commits = lines(git(cwd, &["log", "--format=%h\t%s", "-n", "20", &range]))
+            let (ahead, behind) = ahead_behind(run, cwd, b);
+            let commits = lines(git(run, cwd, &["log", "--format=%h\t%s", "-n", "20", &range]))
                 .into_iter()
                 .filter_map(|l| l.split_once('\t').map(|(sha, subject)| Commit { sha: sha.into(), subject: subject.into() }))
                 .collect();
@@ -99,8 +127,8 @@ pub fn read(cwd: &str, untracked: bool) -> Option<Repo> {
         }
         None => (0, 0, Vec::new()),
     };
-    let unpushed = git(cwd, &["rev-list", "--count", "@{u}..HEAD"]).and_then(|n| n.trim().parse().ok());
-    Some(Repo { branch, base, ahead, behind, unpushed, files, commits, remotes: remote_names(cwd) })
+    let unpushed = git(run, cwd, &["rev-list", "--count", "@{u}..HEAD"]).and_then(|n| n.trim().parse().ok());
+    Some(Repo { branch, base, ahead, behind, unpushed, files, commits, remotes: remote_names(run, cwd) })
 }
 
 fn name_status(out: &str) -> Vec<(String, char)> {
@@ -114,8 +142,8 @@ fn name_status(out: &str) -> Vec<(String, char)> {
 }
 
 /// Commits HEAD has that `base` doesn't, and the reverse.
-pub fn ahead_behind(cwd: &str, base: &str) -> (usize, usize) {
-    let out = git(cwd, &["rev-list", "--left-right", "--count", &format!("{base}...HEAD")]).unwrap_or_default();
+pub fn ahead_behind(run: &Runner, cwd: &str, base: &str) -> (usize, usize) {
+    let out = git(run, cwd, &["rev-list", "--left-right", "--count", &format!("{base}...HEAD")]).unwrap_or_default();
     let mut n = out.split_whitespace().map(|w| w.parse().unwrap_or(0));
     let behind = n.next().unwrap_or(0);
     (n.next().unwrap_or(0), behind)
@@ -150,47 +178,49 @@ fn parse_worktrees(out: &str) -> Vec<Worktree> {
 }
 
 /// The repository's checkouts: the main one, then the rest oldest first.
-pub fn worktrees(cwd: &str) -> Vec<Worktree> {
-    let mut out = parse_worktrees(&git(cwd, &["worktree", "list", "--porcelain"]).unwrap_or_default());
-    out.sort_by_cached_key(|w| (!w.main, std::fs::metadata(&w.path).and_then(|m| m.created()).ok()));
+pub fn worktrees(run: &Runner, cwd: &str) -> Vec<Worktree> {
+    let mut out = parse_worktrees(&git(run, cwd, &["worktree", "list", "--porcelain"]).unwrap_or_default());
+    for w in &mut out {
+        w.path = run.place(&w.path);
+    }
+    out.sort_by_cached_key(|w| (!w.main, run.stat(&w.path).ok().flatten().and_then(|s| s.created)));
     out
 }
 
 /// Local branches, most recently committed first.
-pub fn branches(cwd: &str) -> Vec<String> {
-    lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]))
+pub fn branches(run: &Runner, cwd: &str) -> Vec<String> {
+    lines(git(run, cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]))
 }
 
 /// Branches on origin that have no local twin, most recently committed first.
-pub fn remote_branches(cwd: &str) -> Vec<String> {
-    let local: HashSet<String> = branches(cwd).into_iter().collect();
-    let remote = lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:lstrip=3)", "refs/remotes/origin"]));
+pub fn remote_branches(run: &Runner, cwd: &str) -> Vec<String> {
+    let local: HashSet<String> = branches(run, cwd).into_iter().collect();
+    let remote = lines(git(run, cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:lstrip=3)", "refs/remotes/origin"]));
     remote.into_iter().filter(|b| b != "HEAD" && !local.contains(b)).collect()
 }
 
-pub fn remotes(cwd: &str) -> usize {
-    lines(git(cwd, &["remote"])).len()
+pub fn remotes(run: &Runner, cwd: &str) -> usize {
+    lines(git(run, cwd, &["remote"])).len()
 }
 
 /// Local branches with their last commit's time in seconds since the epoch, most recently committed first.
-pub fn dated_branches(cwd: &str) -> Vec<(String, Option<i64>)> {
-    let refs = lines(git(cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(committerdate:unix) %(refname:short)", "refs/heads"]));
+pub fn dated_branches(run: &Runner, cwd: &str) -> Vec<(String, Option<i64>)> {
+    let refs = lines(git(run, cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(committerdate:unix) %(refname:short)", "refs/heads"]));
     refs.into_iter().filter_map(|l| l.split_once(' ').map(|(at, b)| (b.to_string(), at.parse().ok()))).collect()
 }
 
 /// Tracked and untracked files, relative to `cwd`.
-pub fn ls_files(cwd: &str) -> Vec<String> {
-    lines(git(cwd, &["ls-files", "--cached", "--others", "--exclude-standard"]))
+pub fn ls_files(run: &Runner, cwd: &str) -> Vec<String> {
+    lines(git(run, cwd, &["ls-files", "--cached", "--others", "--exclude-standard"]))
 }
 
 /// Deletes the worktree's folder, uncommitted changes included; its branch stays.
-pub fn remove_worktree(repo: &str, path: &str) -> Result<(), String> {
-    let out = Command::new("git").arg("-C").arg(repo).args(["worktree", "remove", "--force", path]).output().map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+pub fn remove_worktree(run: &Runner, repo: &str, path: &str) -> Result<(), String> {
+    git_result_within(run, repo, &["worktree", "remove", "--force", path], LONG)
 }
 
 /// Commits that deleting `branch` would lose, or with no branch the detached HEAD of `cwd`: those no other branch, remote or tag holds.
-pub fn lost_commits(cwd: &str, branch: Option<&str>) -> usize {
+pub fn lost_commits(run: &Runner, cwd: &str, branch: Option<&str>) -> usize {
     let (tip, exclude) = match branch {
         // `--exclude` matches the names `--branches` lists, which lack `refs/heads/`.
         Some(b) => (format!("refs/heads/{b}"), Some(format!("--exclude={b}"))),
@@ -199,38 +229,36 @@ pub fn lost_commits(cwd: &str, branch: Option<&str>) -> usize {
     let mut args = vec!["rev-list", "--count", tip.as_str(), "--not"];
     args.extend(exclude.as_deref());
     args.extend(["--branches", "--remotes", "--tags"]);
-    git(cwd, &args).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
+    git(run, cwd, &args).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
 }
 
 /// Deletes `branch`, merged or not; git refuses while a worktree has it checked out.
-pub fn delete_branch(repo: &str, branch: &str) -> Result<(), String> {
-    let out = Command::new("git").arg("-C").arg(repo).args(["branch", "-D", "--", branch]).output().map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+pub fn delete_branch(run: &Runner, repo: &str, branch: &str) -> Result<(), String> {
+    git_result(run, repo, &["branch", "-D", "--", branch])
 }
 
-pub fn clone(url: &str, dest: &str) -> Result<(), String> {
-    let out = Command::new("git").args(["clone", "--", url, dest]).output().map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
+pub fn clone(run: &Runner, url: &str, dest: &str) -> Result<(), String> {
+    git_result_within(run, "", &["clone", "--", url, dest], LONG)
 }
 
 fn with_paths<'a>(args: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
     args.iter().copied().chain(["--"]).chain(paths.iter().map(String::as_str)).collect()
 }
 
-pub fn set_staged(cwd: &str, paths: &[String], staged: bool) {
+pub fn set_staged(run: &Runner, cwd: &str, paths: &[String], staged: bool) {
     let args: &[&str] = if staged { &["add", "-A"] } else { &["reset", "-q"] };
-    git(cwd, &with_paths(args, paths));
+    git(run, cwd, &with_paths(args, paths));
 }
 
 /// Throws away the unstaged edits to `paths`, deleting the untracked ones.
-pub fn discard(cwd: &str, paths: &[String]) {
-    let untracked = lines(git(cwd, &with_paths(&["ls-files", "--others", "--exclude-standard"], paths)));
+pub fn discard(run: &Runner, cwd: &str, paths: &[String]) {
+    let untracked = lines(git(run, cwd, &with_paths(&["ls-files", "--others", "--exclude-standard"], paths)));
     let tracked: Vec<String> = paths.iter().filter(|p| !untracked.contains(p)).cloned().collect();
     if !untracked.is_empty() {
-        git(cwd, &with_paths(&["clean", "-fq"], &untracked));
+        git(run, cwd, &with_paths(&["clean", "-fq"], &untracked));
     }
     if !tracked.is_empty() {
-        git(cwd, &with_paths(&["checkout", "-q"], &tracked));
+        git(run, cwd, &with_paths(&["checkout", "-q"], &tracked));
     }
 }
 
@@ -258,17 +286,17 @@ pub fn push_argv(remote: Option<&str>, lease: bool) -> Vec<String> {
 }
 
 /// The repository's remotes by name.
-fn remote_names(cwd: &str) -> Vec<String> {
-    lines(git(cwd, &["remote"]))
+fn remote_names(run: &Runner, cwd: &str) -> Vec<String> {
+    lines(git(run, cwd, &["remote"]))
 }
 
 const MAX_CONTEXT: usize = 60_000;
 
 /// What a commit message is written from: recent subjects for style, then the diff to commit (only the staged part when `staged`, new files only with `untracked`).
-pub fn commit_context(cwd: &str, staged: bool, untracked: bool) -> String {
-    let subjects = lines(git(cwd, &["log", "-n", "10", "--format=%s"])).join("\n");
-    let diff = git(cwd, if staged { &["diff", "--cached"] } else { &["diff", "HEAD"] }).unwrap_or_default();
-    let new = if staged || !untracked { Vec::new() } else { lines(git(cwd, &["ls-files", "--others", "--exclude-standard"])) };
+pub fn commit_context(run: &Runner, cwd: &str, staged: bool, untracked: bool) -> String {
+    let subjects = lines(git(run, cwd, &["log", "-n", "10", "--format=%s"])).join("\n");
+    let diff = git(run, cwd, if staged { &["diff", "--cached"] } else { &["diff", "HEAD"] }).unwrap_or_default();
+    let new = if staged || !untracked { Vec::new() } else { lines(git(run, cwd, &["ls-files", "--others", "--exclude-standard"])) };
     let mut out = format!("Recent commit subjects:\n{subjects}\n\nDiff:\n{diff}");
     out.extend(new.iter().map(|p| format!("\nNew file: {p}")));
     if out.len() > MAX_CONTEXT {
@@ -278,9 +306,9 @@ pub fn commit_context(cwd: &str, staged: bool, untracked: bool) -> String {
 }
 
 /// What a PR's title and description are written from: the commits on top of `base`, then their diff.
-pub fn pr_context(cwd: &str, base: &str) -> String {
-    let log = git(cwd, &["log", "--format=- %s%n%b", &format!("{base}..HEAD")]).unwrap_or_default();
-    let diff = git(cwd, &["diff", &format!("{base}...HEAD")]).unwrap_or_default();
+pub fn pr_context(run: &Runner, cwd: &str, base: &str) -> String {
+    let log = git(run, cwd, &["log", "--format=- %s%n%b", &format!("{base}..HEAD")]).unwrap_or_default();
+    let diff = git(run, cwd, &["diff", &format!("{base}...HEAD")]).unwrap_or_default();
     let mut out = format!("Commits:\n{}\n\nDiff:\n{diff}", log.trim());
     if out.len() > MAX_CONTEXT {
         out.truncate(out.floor_char_boundary(MAX_CONTEXT));
@@ -289,20 +317,20 @@ pub fn pr_context(cwd: &str, base: &str) -> String {
 }
 
 /// `path` where the branch left `base`, and at HEAD: what a PR shows for it.
-pub fn texts_between(cwd: &str, base: &str, path: &str) -> (String, String) {
-    let at = |rev: &str| git(cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
-    let fork = git(cwd, &["merge-base", base, "HEAD"]).map(|s| s.trim().to_string()).unwrap_or_default();
+pub fn texts_between(run: &Runner, cwd: &str, base: &str, path: &str) -> (String, String) {
+    let at = |rev: &str| git(run, cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
+    let fork = git(run, cwd, &["merge-base", base, "HEAD"]).map(|s| s.trim().to_string()).unwrap_or_default();
     (if fork.is_empty() { String::new() } else { at(&fork) }, at("HEAD"))
 }
 
-pub fn user_initials(cwd: &str) -> String {
-    let name = git(cwd, &["config", "user.name"]).unwrap_or_default();
+pub fn user_initials(run: &Runner, cwd: &str) -> String {
+    let name = git(run, cwd, &["config", "user.name"]).unwrap_or_default();
     let initials: String = name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
     if initials.is_empty() { "ME".into() } else { initials.to_uppercase() }
 }
 
-pub fn file_diff(cwd: &str, path: &str) -> Vec<Line> {
-    let (old, new) = texts(cwd, path);
+pub fn file_diff(run: &Runner, cwd: &str, path: &str) -> Vec<Line> {
+    let (old, new) = texts(run, cwd, path);
     diff_texts(&old, &new, &HashSet::new(), Options::default())
 }
 
@@ -320,11 +348,11 @@ impl Default for Options {
 }
 
 /// The file at HEAD (empty when untracked) and in the working tree (empty when deleted); `path` is relative to `cwd` or absolute.
-pub fn texts(cwd: &str, path: &str) -> (String, String) {
+pub fn texts(run: &Runner, cwd: &str, path: &str) -> (String, String) {
     let full = Path::new(cwd).join(path);
     let rel = full.strip_prefix(cwd).unwrap_or(&full).to_string_lossy().into_owned();
-    let old = git(cwd, &["show", &format!("HEAD:./{rel}")]).unwrap_or_default();
-    let new = std::fs::read(&full).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+    let old = git(run, cwd, &["show", &format!("HEAD:./{rel}")]).unwrap_or_default();
+    let new = run.read(&full.to_string_lossy(), MAX_READ).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
     (old, new)
 }
 
@@ -497,12 +525,12 @@ pub struct GraphCommit {
 }
 
 /// `n` commits reachable from `revs`, children before parents, after skipping `skip`.
-pub fn log_graph(cwd: &str, revs: &[String], skip: usize, n: usize) -> Vec<GraphCommit> {
+pub fn log_graph(run: &Runner, cwd: &str, revs: &[String], skip: usize, n: usize) -> Vec<GraphCommit> {
     let (skip, n) = (format!("--skip={skip}"), format!("-n{n}"));
     let mut args = vec!["log", "--format=%H%x00%P%x00%aN%x00%s", "--topo-order", skip.as_str(), n.as_str()];
     args.extend(revs.iter().map(String::as_str));
     args.push("--");
-    lines(git(cwd, &args))
+    lines(git(run, cwd, &args))
         .into_iter()
         .filter_map(|l| {
             let mut p = l.splitn(4, '\0');
@@ -562,9 +590,9 @@ impl Tips {
 }
 
 /// The worktree's tips, with every branch and remote branch when `all`; `None` before its first commit.
-pub fn tips(cwd: &str, all: bool) -> Option<Tips> {
-    let head = git(cwd, &["rev-parse", "--verify", "-q", "HEAD"])?.trim().to_string();
-    let refs: Vec<(String, String, String)> = lines(git(cwd, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads", "refs/remotes"]))
+pub fn tips(run: &Runner, cwd: &str, all: bool) -> Option<Tips> {
+    let head = git(run, cwd, &["rev-parse", "--verify", "-q", "HEAD"])?.trim().to_string();
+    let refs: Vec<(String, String, String)> = lines(git(run, cwd, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads", "refs/remotes"]))
         .into_iter()
         .filter_map(|l| {
             let mut p = l.splitn(3, '\0');
@@ -577,7 +605,7 @@ pub fn tips(cwd: &str, all: bool) -> Option<Tips> {
             Tip { name: short.to_string(), sha: sha.clone(), remote: r.starts_with("refs/remotes/") }
         })
     };
-    let current = git(cwd, &["symbolic-ref", "-q", "HEAD"]).map(|s| s.trim().to_string());
+    let current = git(run, cwd, &["symbolic-ref", "-q", "HEAD"]).map(|s| s.trim().to_string());
     let branch = current.as_deref().and_then(tip);
     let upstream = current.as_deref().and_then(|c| refs.iter().find(|(r, ..)| r == c)).and_then(|(.., u)| tip(u));
     let base = match current.as_deref() {
@@ -596,18 +624,18 @@ pub struct CommitFile {
     pub status: char,
 }
 
-pub fn first_parent(cwd: &str, sha: &str) -> Option<String> {
-    git(cwd, &["rev-parse", "--verify", "-q", &format!("{sha}^")]).map(|s| s.trim().to_string())
+pub fn first_parent(run: &Runner, cwd: &str, sha: &str) -> Option<String> {
+    git(run, cwd, &["rev-parse", "--verify", "-q", &format!("{sha}^")]).map(|s| s.trim().to_string())
 }
 
 /// The files `sha` changed against `parent`, or every file it holds when it is a root commit.
-pub fn commit_files(cwd: &str, sha: &str, parent: Option<&str>) -> Vec<CommitFile> {
+pub fn commit_files(run: &Runner, cwd: &str, sha: &str, parent: Option<&str>) -> Vec<CommitFile> {
     let mut args = vec!["diff-tree", "-r", "-z", "-M", "--name-status", "--no-commit-id"];
     match parent {
         Some(p) => args.extend([p, sha]),
         None => args.extend(["--root", sha]),
     }
-    let out = git(cwd, &args).unwrap_or_default();
+    let out = git(run, cwd, &args).unwrap_or_default();
     let mut tokens = out.split('\0').filter(|t| !t.is_empty());
     let mut files = Vec::new();
     while let Some(status) = tokens.next().and_then(|s| s.chars().next()) {
@@ -625,8 +653,8 @@ pub fn commit_files(cwd: &str, sha: &str, parent: Option<&str>) -> Vec<CommitFil
 }
 
 /// `file` before and after commit `sha`.
-pub fn commit_texts(cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile) -> (String, String) {
-    let show = |rev: &str, path: &str| git(cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
+pub fn commit_texts(run: &Runner, cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile) -> (String, String) {
+    let show = |rev: &str, path: &str| git(run, cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
     let old = match parent {
         Some(p) if file.status != 'A' => show(p, file.old_path.as_deref().unwrap_or(&file.path)),
         _ => String::new(),
@@ -636,9 +664,9 @@ pub fn commit_texts(cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFil
 }
 
 /// The file at `path` before and after commit `sha`, following a rename back to the old name.
-pub fn texts_at(cwd: &str, sha: &str, path: &str) -> (String, String) {
-    let parent = first_parent(cwd, sha);
-    commit_files(cwd, sha, parent.as_deref()).into_iter().find(|f| f.path == path).map(|f| commit_texts(cwd, sha, parent.as_deref(), &f)).unwrap_or_default()
+pub fn texts_at(run: &Runner, cwd: &str, sha: &str, path: &str) -> (String, String) {
+    let parent = first_parent(run, cwd, sha);
+    commit_files(run, cwd, sha, parent.as_deref()).into_iter().find(|f| f.path == path).map(|f| commit_texts(run, cwd, sha, parent.as_deref(), &f)).unwrap_or_default()
 }
 
 pub fn short_sha(sha: &str) -> &str {
@@ -648,6 +676,7 @@ pub fn short_sha(sha: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     const DIFF: &str = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -45,4 +45,5 @@ fn a() {\n ctx\n-old\n+new1\n+new2\n ctx2\n\\ No newline at end of file\n";
 
@@ -714,8 +743,63 @@ mod tests {
         for name in ["zeta", "alpha", "mid"] {
             add_worktree(r, dir.join(name).to_str().unwrap(), name, "HEAD").unwrap();
         }
-        let names: Vec<String> = worktrees(r).iter().map(|w| w.path.rsplit('/').next().unwrap().to_string()).collect();
+        let names: Vec<String> = worktrees(&Runner::Local, r).iter().map(|w| w.path.rsplit('/').next().unwrap().to_string()).collect();
         assert_eq!(names, ["repo", "zeta", "alpha", "mid"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_host_that_is_not_connected_never_touches_the_same_path_here() {
+        let dir = scratch_repo("offline");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        let offline = Runner::Remote(std::sync::Arc::new(NotConnected));
+        assert_eq!(read(&offline, r, true), None);
+        assert!(worktrees(&offline, r).is_empty());
+        assert_eq!(texts(&offline, r, "a"), (String::new(), String::new()));
+        assert!(remove_worktree(&offline, r, r).unwrap_err().contains("not connected"));
+        assert!(repo.join("a").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A host that answers every command with success and keeps the timeout each was given.
+    #[derive(Default)]
+    struct Timeouts(std::sync::Mutex<Vec<Duration>>);
+
+    impl Exec for Timeouts {
+        fn exec(&self, _: &str, _: &[&str], _: Option<&[u8]>, timeout: Duration) -> std::io::Result<Output> {
+            self.0.lock().unwrap().push(timeout);
+            Ok(Output::default())
+        }
+        fn read(&self, _: &str, _: usize) -> std::io::Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+        fn stat(&self, _: &str) -> std::io::Result<Option<Stat>> {
+            Ok(None)
+        }
+        fn place(&self, path: &str) -> String {
+            path.into()
+        }
+    }
+
+    #[test]
+    fn a_clone_or_a_worktrees_removal_on_a_host_gets_longer_than_a_quick_command() {
+        let host = std::sync::Arc::new(Timeouts::default());
+        let run = Runner::Remote(host.clone());
+        clone(&run, "https://x/r.git", "/home/me/r").unwrap();
+        remove_worktree(&run, "/home/me/r", "/home/me/w").unwrap();
+        delete_branch(&run, "/home/me/r", "fix").unwrap();
+        assert_eq!(*host.0.lock().unwrap(), [LONG, LONG, TIMEOUT]);
+    }
+
+    #[test]
+    fn a_file_over_the_read_limit_is_refused_not_cut_short() {
+        let dir = scratch_repo("big");
+        let file = dir.join("big.txt");
+        std::fs::write(&file, "abcdef").unwrap();
+        let path = file.to_str().unwrap();
+        assert_eq!(Runner::Local.read(path, 6).unwrap(), b"abcdef");
+        assert_eq!(Runner::Local.read(path, 5).unwrap_err().kind(), std::io::ErrorKind::FileTooLarge);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -727,10 +811,10 @@ mod tests {
         let tree = dir.join("fix");
         add_worktree(r, tree.to_str().unwrap(), "fix", "HEAD").unwrap();
         std::fs::write(tree.join("draft"), "unsaved\n").unwrap();
-        remove_worktree(r, tree.to_str().unwrap()).unwrap();
+        remove_worktree(&Runner::Local, r, tree.to_str().unwrap()).unwrap();
         assert!(!tree.exists());
-        assert!(branches(r).contains(&"fix".to_string()));
-        assert_eq!(worktrees(r).len(), 1);
+        assert!(branches(&Runner::Local, r).contains(&"fix".to_string()));
+        assert_eq!(worktrees(&Runner::Local, r).len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -741,18 +825,18 @@ mod tests {
         let r = repo.to_str().unwrap();
         std::fs::write(repo.join("a"), "edited\n").unwrap();
         std::fs::write(repo.join("new"), "fresh\n").unwrap();
-        let flags = |path: &str| read(r, true).unwrap().files.iter().find(|f| f.path == path).map(|f| (f.staged, f.unstaged));
+        let flags = |path: &str| read(&Runner::Local, r, true).unwrap().files.iter().find(|f| f.path == path).map(|f| (f.staged, f.unstaged));
         assert_eq!((flags("a"), flags("new")), (Some((false, true)), Some((false, true))));
-        set_staged(r, &["a".into(), "new".into()], true);
+        set_staged(&Runner::Local, r, &["a".into(), "new".into()], true);
         assert_eq!((flags("a"), flags("new")), (Some((true, false)), Some((true, false))));
         std::fs::write(repo.join("a"), "edited twice\n").unwrap();
         assert_eq!(flags("a"), Some((true, true)));
-        discard(r, &["a".into()]);
+        discard(&Runner::Local, r, &["a".into()]);
         assert_eq!(std::fs::read_to_string(repo.join("a")).unwrap(), "edited\n");
-        set_staged(r, &["a".into(), "new".into()], false);
+        set_staged(&Runner::Local, r, &["a".into(), "new".into()], false);
         assert_eq!(flags("a"), Some((false, true)));
-        discard(r, &["a".into(), "new".into()]);
-        assert!(read(r, true).unwrap().files.is_empty());
+        discard(&Runner::Local, r, &["a".into(), "new".into()]);
+        assert!(read(&Runner::Local, r, true).unwrap().files.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -762,13 +846,13 @@ mod tests {
         let repo = dir.join("repo");
         let r = repo.to_str().unwrap();
         std::fs::write(repo.join("a"), "staged\n").unwrap();
-        set_staged(r, &["a".into()], true);
+        set_staged(&Runner::Local, r, &["a".into()], true);
         std::fs::write(repo.join("b"), "loose\n").unwrap();
-        let staged = commit_context(r, true, true);
+        let staged = commit_context(&Runner::Local, r, true, true);
         assert!(staged.starts_with("Recent commit subjects:\ninit\n"));
         assert!(staged.contains("+staged") && !staged.contains("New file: b"));
-        assert!(commit_context(r, false, true).contains("New file: b"));
-        assert!(!commit_context(r, false, false).contains("New file: b"));
+        assert!(commit_context(&Runner::Local, r, false, true).contains("New file: b"));
+        assert!(!commit_context(&Runner::Local, r, false, false).contains("New file: b"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -791,10 +875,10 @@ mod tests {
         let repo = dir.join("repo");
         let r = repo.to_str().unwrap();
         committer(&repo);
-        let base = git(r, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap().trim().to_string();
-        git(r, &["checkout", "-qb", "cap-retries"]).unwrap();
+        let base = git(&Runner::Local, r, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap().trim().to_string();
+        git(&Runner::Local, r, &["checkout", "-qb", "cap-retries"]).unwrap();
         std::fs::write(repo.join("a"), "capped\n").unwrap();
-        git(r, &["commit", "-qam", "Cap retries"]).unwrap();
+        git(&Runner::Local, r, &["commit", "-qam", "Cap retries"]).unwrap();
         std::fs::write(repo.join("a"), "uncommitted\n").unwrap();
         (dir, base)
     }
@@ -803,7 +887,7 @@ mod tests {
     fn a_pr_is_written_from_the_branch_s_commits_and_their_diff() {
         let (dir, base) = branched("pr-context");
         let r = dir.join("repo");
-        let context = pr_context(r.to_str().unwrap(), &base);
+        let context = pr_context(&Runner::Local, r.to_str().unwrap(), &base);
         assert!(context.starts_with("Commits:\n- Cap retries"), "{context}");
         assert!(context.contains("+capped") && !context.contains("uncommitted") && !context.contains("init"));
         std::fs::remove_dir_all(&dir).unwrap();
@@ -813,8 +897,8 @@ mod tests {
     fn a_pr_shows_a_file_from_where_the_branch_left_its_base_to_head() {
         let (dir, base) = branched("between");
         let r = dir.join("repo");
-        assert_eq!(texts_between(r.to_str().unwrap(), &base, "a"), ("a\n".into(), "capped\n".into()));
-        assert_eq!(texts_between(r.to_str().unwrap(), &base, "missing"), (String::new(), String::new()));
+        assert_eq!(texts_between(&Runner::Local, r.to_str().unwrap(), &base, "a"), ("a\n".into(), "capped\n".into()));
+        assert_eq!(texts_between(&Runner::Local, r.to_str().unwrap(), &base, "missing"), (String::new(), String::new()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -823,9 +907,9 @@ mod tests {
         let (dir, base) = branched("unpushed");
         let r = dir.join("repo");
         let r = r.to_str().unwrap();
-        assert_eq!(read(r, false).unwrap().unpushed, None);
-        git(r, &["branch", "--set-upstream-to", &base]).unwrap();
-        assert_eq!(read(r, false).unwrap().unpushed, Some(1));
+        assert_eq!(read(&Runner::Local, r, false).unwrap().unpushed, None);
+        git(&Runner::Local, r, &["branch", "--set-upstream-to", &base]).unwrap();
+        assert_eq!(read(&Runner::Local, r, false).unwrap().unpushed, Some(1));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -836,10 +920,10 @@ mod tests {
         let r = repo.to_str().unwrap();
         committer(&repo);
         std::fs::write(repo.join("a"), "edited\n").unwrap();
-        set_staged(r, &["a".into()], true);
+        set_staged(&Runner::Local, r, &["a".into()], true);
         assert!(run_argv(&repo, &commit_argv(false, "Edit a"), "Edit a"));
-        assert_eq!(lines(git(r, &["log", "--format=%s"])), ["Edit a", "init"]);
-        assert!(read(r, true).unwrap().files.is_empty());
+        assert_eq!(lines(git(&Runner::Local, r, &["log", "--format=%s"])), ["Edit a", "init"]);
+        assert!(read(&Runner::Local, r, true).unwrap().files.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -850,12 +934,12 @@ mod tests {
         let r = repo.to_str().unwrap();
         committer(&repo);
         std::fs::write(repo.join("a"), "edited\n").unwrap();
-        set_staged(r, &["a".into()], true);
+        set_staged(&Runner::Local, r, &["a".into()], true);
         assert!(run_argv(&repo, &commit_argv(true, ""), ""));
-        assert_eq!(lines(git(r, &["log", "--format=%s"])), ["init"]);
-        assert!(read(r, true).unwrap().files.is_empty());
+        assert_eq!(lines(git(&Runner::Local, r, &["log", "--format=%s"])), ["init"]);
+        assert!(read(&Runner::Local, r, true).unwrap().files.is_empty());
         assert!(run_argv(&repo, &commit_argv(true, "Start"), "Start"));
-        assert_eq!(lines(git(r, &["log", "--format=%s"])), ["Start"]);
+        assert_eq!(lines(git(&Runner::Local, r, &["log", "--format=%s"])), ["Start"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -866,10 +950,10 @@ mod tests {
         let r = repo.to_str().unwrap();
         let remote = dir.join("remote.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).status().unwrap().success());
-        assert!(git(r, &["remote", "add", "origin", remote.to_str().unwrap()]).is_some());
-        assert!(git(r, &["switch", "-qc", "feature"]).is_some());
+        assert!(git(&Runner::Local, r, &["remote", "add", "origin", remote.to_str().unwrap()]).is_some());
+        assert!(git(&Runner::Local, r, &["switch", "-qc", "feature"]).is_some());
         assert!(run_argv(&repo, PUSH, ""));
-        assert_eq!(git(r, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap().trim(), "origin/feature");
+        assert_eq!(git(&Runner::Local, r, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap().trim(), "origin/feature");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -899,10 +983,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pocket-git-unborn-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let d = dir.to_str().unwrap();
-        assert!(read(d, true).is_none());
+        assert!(read(&Runner::Local, d, true).is_none());
         assert!(Command::new("git").arg("-C").arg(d).args(["init", "-q", "-b", "trunk"]).output().unwrap().status.success());
         std::fs::write(dir.join("a.txt"), "x\n").unwrap();
-        let r = read(d, true).unwrap();
+        let r = read(&Runner::Local, d, true).unwrap();
         assert_eq!(r.branch, "trunk");
         assert_eq!(r.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["a.txt"]);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -920,11 +1004,11 @@ mod tests {
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "init"]);
         std::fs::write(dir.join("src/a.rs"), "new\n").unwrap();
         std::fs::write(dir.join("b.rs"), "fresh\n").unwrap();
-        assert_eq!(texts(d, "src/a.rs"), ("old\n".into(), "new\n".into()));
-        assert_eq!(texts(&format!("{d}/src"), &format!("{d}/src/a.rs")), ("old\n".into(), "new\n".into()));
-        assert_eq!(texts(d, "b.rs"), (String::new(), "fresh\n".into()));
+        assert_eq!(texts(&Runner::Local, d, "src/a.rs"), ("old\n".into(), "new\n".into()));
+        assert_eq!(texts(&Runner::Local, &format!("{d}/src"), &format!("{d}/src/a.rs")), ("old\n".into(), "new\n".into()));
+        assert_eq!(texts(&Runner::Local, d, "b.rs"), (String::new(), "fresh\n".into()));
         std::fs::write(dir.join("src/a.rs"), b"\x89PNG\0\xff").unwrap();
-        assert!(file_diff(d, "src/a.rs").is_empty());
+        assert!(file_diff(&Runner::Local, d, "src/a.rs").is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1000,7 +1084,7 @@ mod tests {
         let r = repo.to_str().unwrap();
         std::fs::write(repo.join("a"), "edited\n").unwrap();
         std::fs::write(repo.join("new"), "fresh\n").unwrap();
-        let paths = |untracked| read(r, untracked).unwrap().files.into_iter().map(|f| f.path).collect::<Vec<_>>();
+        let paths = |untracked| read(&Runner::Local, r, untracked).unwrap().files.into_iter().map(|f| f.path).collect::<Vec<_>>();
         assert_eq!((paths(true), paths(false)), (vec!["a".to_string(), "new".into()], vec!["a".to_string()]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1013,13 +1097,13 @@ mod tests {
         for name in ["origin", "fork"] {
             let bare = dir.join(format!("{name}.git"));
             assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&bare).status().unwrap().success());
-            assert!(git(r, &["remote", "add", name, bare.to_str().unwrap()]).is_some());
+            assert!(git(&Runner::Local, r, &["remote", "add", name, bare.to_str().unwrap()]).is_some());
         }
-        assert!(git(r, &["switch", "-qc", "feature"]).is_some());
+        assert!(git(&Runner::Local, r, &["switch", "-qc", "feature"]).is_some());
         let argv = push_argv(Some("fork"), false);
         assert!(run_argv(&repo, &argv.iter().map(String::as_str).collect::<Vec<_>>(), ""));
-        assert_eq!(git(r, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap().trim(), "fork/feature");
-        assert_eq!(read(r, true).unwrap().remotes, ["fork", "origin"]);
+        assert_eq!(git(&Runner::Local, r, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap().trim(), "fork/feature");
+        assert_eq!(read(&Runner::Local, r, true).unwrap().remotes, ["fork", "origin"]);
         assert_eq!(push_argv(None, false), PUSH);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1032,21 +1116,21 @@ mod tests {
         committer(&repo);
         let bare = dir.join("origin.git");
         assert!(Command::new("git").args(["init", "-q", "--bare"]).arg(&bare).status().unwrap().success());
-        assert!(git(r, &["remote", "add", "origin", bare.to_str().unwrap()]).is_some());
+        assert!(git(&Runner::Local, r, &["remote", "add", "origin", bare.to_str().unwrap()]).is_some());
         let push = |lease| run_argv(&repo, &push_argv(None, lease).iter().map(String::as_str).collect::<Vec<_>>(), "");
         assert!(push(true));
-        assert!(git(r, &["commit", "-q", "--amend", "-m", "amended"]).is_some());
+        assert!(git(&Runner::Local, r, &["commit", "-q", "--amend", "-m", "amended"]).is_some());
         assert!(!push(false));
         assert!(push(true));
         let other = dir.join("other");
         assert!(Command::new("git").args(["clone", "-q"]).arg(&bare).arg(&other).status().unwrap().success());
         committer(&other);
         let o = other.to_str().unwrap();
-        assert!(git(o, &["commit", "-q", "--allow-empty", "-m", "theirs"]).is_some());
-        assert!(git(o, &["push", "-q"]).is_some());
-        assert!(git(r, &["commit", "-q", "--amend", "-m", "again"]).is_some());
+        assert!(git(&Runner::Local, o, &["commit", "-q", "--allow-empty", "-m", "theirs"]).is_some());
+        assert!(git(&Runner::Local, o, &["push", "-q"]).is_some());
+        assert!(git(&Runner::Local, r, &["commit", "-q", "--amend", "-m", "again"]).is_some());
         assert!(!push(true));
-        assert!(git(r, &["fetch", "-q"]).is_some());
+        assert!(git(&Runner::Local, r, &["fetch", "-q"]).is_some());
         assert!(!push(true), "fetched but not integrated");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1056,7 +1140,7 @@ mod tests {
     }
 
     fn sha(r: &str, rev: &str) -> String {
-        git(r, &["rev-parse", rev]).unwrap().trim().to_string()
+        git(&Runner::Local, r, &["rev-parse", rev]).unwrap().trim().to_string()
     }
 
     #[test]
@@ -1071,7 +1155,7 @@ mod tests {
         sh(&repo, &["checkout", "-q", "main"]);
         commit_at("@1000000000 +0000");
         let want = [("main".to_string(), Some(1000000000)), ("old".to_string(), Some(978307200))];
-        assert_eq!(dated_branches(repo.to_str().unwrap()), want);
+        assert_eq!(dated_branches(&Runner::Local, repo.to_str().unwrap()), want);
     }
 
     #[test]
@@ -1090,7 +1174,7 @@ mod tests {
         sh(&repo, &["add", "."]);
         sh(&repo, &["commit", "-qm", "b"]);
         let (head, main) = (sha(r, "HEAD"), sha(r, "main"));
-        let t = tips(r, false).unwrap();
+        let t = tips(&Runner::Local, r, false).unwrap();
         assert_eq!(t.head, head);
         assert_eq!(t.branch, Some(Tip { name: "feature".into(), sha: head.clone(), remote: false }));
         assert_eq!(t.upstream, Some(Tip { name: "origin/feature".into(), sha: main.clone(), remote: true }));
@@ -1106,7 +1190,7 @@ mod tests {
         let repo = dir.join("repo");
         let r = repo.to_str().unwrap();
         sh(&repo, &["branch", "-M", "main"]);
-        let t = tips(r, false).unwrap();
+        let t = tips(&Runner::Local, r, false).unwrap();
         assert_eq!(t.revs(), vec![sha(r, "HEAD")]);
         assert_eq!(t.branch.map(|b| b.name).as_deref(), Some("main"));
         assert_eq!((t.upstream, t.base), (None, None));
@@ -1124,8 +1208,8 @@ mod tests {
         sh(&repo, &["commit", "-q", "--allow-empty", "-m", "side"]);
         sh(&repo, &["checkout", "-q", "main"]);
         let side = sha(r, "side");
-        assert_eq!(tips(r, false).unwrap().revs(), vec![sha(r, "HEAD")]);
-        assert_eq!(tips(r, true).unwrap().revs(), vec![sha(r, "HEAD"), side]);
+        assert_eq!(tips(&Runner::Local, r, false).unwrap().revs(), vec![sha(r, "HEAD")]);
+        assert_eq!(tips(&Runner::Local, r, true).unwrap().revs(), vec![sha(r, "HEAD"), side]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1141,13 +1225,13 @@ mod tests {
             sh(&repo, &["commit", "-qm", name]);
         }
         let head = vec![sha(r, "HEAD")];
-        let all = log_graph(r, &head, 0, 50);
+        let all = log_graph(&Runner::Local, r, &head, 0, 50);
         assert_eq!(all.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["c", "b", "init"]);
         assert_eq!(all[0].sha, head[0]);
         assert_eq!(all[0].parents, vec![all[1].sha.clone()]);
         assert_eq!(all[0].author, "t");
         assert!(all[2].parents.is_empty());
-        assert_eq!(log_graph(r, &head, 1, 1), all[1..2].to_vec());
+        assert_eq!(log_graph(&Runner::Local, r, &head, 1, 1), all[1..2].to_vec());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1168,12 +1252,12 @@ mod tests {
         sh(&repo, &["add", "-A"]);
         sh(&repo, &["commit", "-qm", "three"]);
         let head = sha(r, "HEAD");
-        let parent = first_parent(r, &head);
+        let parent = first_parent(&Runner::Local, r, &head);
         assert_eq!(parent, Some(sha(r, "HEAD^")));
         let file = |path: &str, old: Option<&str>, status| CommitFile { path: path.into(), old_path: old.map(str::to_string), status };
-        assert_eq!(commit_files(r, &head, parent.as_deref()), vec![file("b", Some("a"), 'R'), file("gone", None, 'D'), file("new", None, 'A')]);
-        assert_eq!(texts_at(r, &head, "b"), ("one\ntwo\nthree\nfour\nfive\n".into(), "one\ntwo\nthree\nfour\nfive\nsix\n".into()));
-        assert_eq!(texts_at(r, &head, "gone"), ("x\n".into(), String::new()));
+        assert_eq!(commit_files(&Runner::Local, r, &head, parent.as_deref()), vec![file("b", Some("a"), 'R'), file("gone", None, 'D'), file("new", None, 'A')]);
+        assert_eq!(texts_at(&Runner::Local, r, &head, "b"), ("one\ntwo\nthree\nfour\nfive\n".into(), "one\ntwo\nthree\nfour\nfive\nsix\n".into()));
+        assert_eq!(texts_at(&Runner::Local, r, &head, "gone"), ("x\n".into(), String::new()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1183,9 +1267,9 @@ mod tests {
         let repo = dir.join("repo");
         let r = repo.to_str().unwrap();
         let root = sha(r, "HEAD");
-        assert_eq!(first_parent(r, &root), None);
-        assert_eq!(commit_files(r, &root, None), vec![CommitFile { path: "a".into(), old_path: None, status: 'A' }]);
-        assert_eq!(texts_at(r, &root, "a"), (String::new(), "a\n".into()));
+        assert_eq!(first_parent(&Runner::Local, r, &root), None);
+        assert_eq!(commit_files(&Runner::Local, r, &root, None), vec![CommitFile { path: "a".into(), old_path: None, status: 'A' }]);
+        assert_eq!(texts_at(&Runner::Local, r, &root, "a"), (String::new(), "a\n".into()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1199,7 +1283,7 @@ mod tests {
             sh(&repo, &["update-ref", &format!("refs/remotes/origin/{b}"), "HEAD"]);
         }
         sh(&repo, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
-        assert_eq!(remote_branches(r), ["feat/x"]);
+        assert_eq!(remote_branches(&Runner::Local, r), ["feat/x"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1218,17 +1302,17 @@ mod tests {
         sh(&repo, &["branch", "-M", "main"]);
         let tree = dir.join("fix");
         add_worktree(r, tree.to_str().unwrap(), "fix/a", "HEAD").unwrap();
-        assert_eq!(lost_commits(r, Some("fix/a")), 0);
+        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
         commit_file(&tree, "b");
         commit_file(&tree, "c");
-        assert_eq!(lost_commits(r, Some("fix/a")), 2);
+        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 2);
         sh(&repo, &["update-ref", "refs/remotes/origin/fix/a", "fix/a~1"]);
-        assert_eq!(lost_commits(r, Some("fix/a")), 1);
+        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 1);
         sh(&repo, &["update-ref", "refs/remotes/origin/fix/a", "fix/a"]);
-        assert_eq!(lost_commits(r, Some("fix/a")), 0);
+        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
         sh(&repo, &["update-ref", "-d", "refs/remotes/origin/fix/a"]);
         sh(&repo, &["merge", "-q", "--ff-only", "fix/a"]);
-        assert_eq!(lost_commits(r, Some("fix/a")), 0);
+        assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1240,9 +1324,9 @@ mod tests {
         let tree = dir.join("look");
         sh(&repo, &["worktree", "add", "-q", "--detach", tree.to_str().unwrap()]);
         let t = tree.to_str().unwrap();
-        assert_eq!(lost_commits(t, None), 0);
+        assert_eq!(lost_commits(&Runner::Local, t, None), 0);
         commit_file(&tree, "b");
-        assert_eq!(lost_commits(t, None), 1);
+        assert_eq!(lost_commits(&Runner::Local, t, None), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1253,11 +1337,11 @@ mod tests {
         let r = repo.to_str().unwrap();
         let tree = dir.join("fix");
         add_worktree(r, tree.to_str().unwrap(), "fix", "HEAD").unwrap();
-        assert!(delete_branch(r, "fix").unwrap_err().contains("fix"));
-        remove_worktree(r, tree.to_str().unwrap()).unwrap();
-        delete_branch(r, "fix").unwrap();
-        assert!(!branches(r).contains(&"fix".to_string()));
-        assert!(delete_branch(r, "fix").is_err());
+        assert!(delete_branch(&Runner::Local, r, "fix").unwrap_err().contains("fix"));
+        remove_worktree(&Runner::Local, r, tree.to_str().unwrap()).unwrap();
+        delete_branch(&Runner::Local, r, "fix").unwrap();
+        assert!(!branches(&Runner::Local, r).contains(&"fix".to_string()));
+        assert!(delete_branch(&Runner::Local, r, "fix").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

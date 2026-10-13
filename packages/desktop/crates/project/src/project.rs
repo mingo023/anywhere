@@ -61,6 +61,16 @@ pub fn vanished(known: impl IntoIterator<Item = String>, worktrees: &Worktrees, 
     known.into_iter().filter(|t| !listed.contains(t.as_str()) && !exists(t)).collect()
 }
 
+/// What git listed now, with what `old` had for the projects it couldn't read: a host offline keeps its worktrees on screen.
+pub fn refreshed(mut listed: Worktrees, old: &Worktrees, unread: &[String]) -> Worktrees {
+    for p in unread {
+        if let Some(trees) = old.get(p) {
+            listed.insert(p.clone(), trees.clone());
+        }
+    }
+    listed
+}
+
 /// The worktree a folder belongs to: the listed worktree holding it, else the project it is in.
 /// `projects` runs only when no worktree holds `cwd`, as listing them walks every terminal.
 pub fn tree_of(cwd: &str, worktrees: &Worktrees, tracked: impl Fn(&str) -> bool, projects: impl FnOnce() -> Vec<String>) -> Option<String> {
@@ -89,6 +99,16 @@ mod tests {
     }
 
     #[test]
+    fn an_offline_hosts_worktrees_stay_until_it_can_be_read_again() {
+        let old = trees("//devbox/app", &["//devbox/app", "//devbox/wt/feat"]);
+        let listed = trees("/a/foo", &["/a/foo"]);
+        let kept = refreshed(listed, &old, &list(&["//devbox/app"]));
+        assert_eq!(kept.get("//devbox/app"), old.get("//devbox/app"));
+        assert!(kept.contains_key("/a/foo"));
+        assert!(!refreshed(Worktrees::new(), &old, &[]).contains_key("//devbox/app"), "a project read again shows what git lists now");
+    }
+
+    #[test]
     fn a_project_does_not_hold_a_sibling_sharing_its_prefix() {
         let projects = list(&["/a/foo"]);
         assert_eq!(project_of("/a/foobar", &projects, &Worktrees::new()), None);
@@ -102,6 +122,16 @@ mod tests {
         assert_eq!(project_of("/a/foo/", &projects, &none), Some(&projects[0]));
         assert_eq!(project_of("/a/foo", &projects, &none), None);
         assert_eq!(project_of("/a/foo/src", &projects, &none), None);
+    }
+
+    #[test]
+    fn a_project_on_a_host_holds_neither_this_macs_path_nor_another_hosts() {
+        let projects = list(&["//devbox/a/foo"]);
+        let none = Worktrees::new();
+        assert_eq!(project_of("//devbox/a/foo/src", &projects, &none), Some(&projects[0]));
+        assert_eq!(project_of("/a/foo/src", &projects, &none), None);
+        assert_eq!(project_of("//devbox-2/a/foo", &projects, &none), None);
+        assert_eq!(project_of("//devbox/a/foo", &list(&["/a/foo"]), &none), None);
     }
 
     #[test]

@@ -23,7 +23,7 @@ phone (chat UI) ───────────────┘                
   - Giữ PTY của từng session, và mỗi session có một libghostty-vt headless.
   - Session vẫn sống khi client đóng.
   - Khi client attach, gửi snapshot VT rồi stream các byte tiếp theo.
-- **Desktop:** gpui-kit, vai trò Dashboard + host, tham khảo MonoCode (mỗi tab là một session, có composer để nhập). Render bằng libghostty-vt qua C shim.
+- **Desktop:** gpui-kit, vai trò Dashboard + host (mỗi tab là một session, có composer để nhập). Render bằng libghostty-vt qua C shim.
 - **Phone:** giữ nguyên chat UI và protocol hiện tại. Phone không cần biết gì về terminal.
 
 ## Kết quả
