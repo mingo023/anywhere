@@ -728,6 +728,7 @@ pub fn git_color(letter: char) -> Token {
     }
 }
 
+/// `git` tints the name; only a file also shows the letter, as a folder's is drawn from what's inside it.
 #[allow(clippy::too_many_arguments)]
 pub fn tree_row(
     id: impl Into<ElementId>,

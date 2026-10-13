@@ -39,8 +39,8 @@ pub fn status_of(files: &[FileStat], root: &str, path: &str) -> Option<char> {
 
 /// The letter a folder at `dir` takes from the changed `files` inside it: theirs when they agree, else M.
 pub fn folder_status(files: &[FileStat], root: &str, dir: &str) -> Option<char> {
-    let prefix = format!("{}/", dir.strip_prefix(root)?.trim_start_matches('/'));
-    let mut inside = files.iter().filter(|f| f.path.starts_with(&prefix)).map(|f| f.status);
+    let rel = dir.strip_prefix(root)?.trim_start_matches('/');
+    let mut inside = files.iter().filter(|f| f.path.strip_prefix(rel).is_some_and(|r| r.starts_with('/'))).map(|f| f.status);
     let first = inside.next()?;
     Some(if inside.all(|s| s == first) { first } else { 'M' })
 }
