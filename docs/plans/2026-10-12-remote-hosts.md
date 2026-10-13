@@ -1,14 +1,14 @@
-# Remote hosts (MonoCode "machines" for Anywhere)
+# Remote hosts
 
 Goal: projects can live on another Mac, a Linux box or a Windows PC reached over SSH. Their terminals and agents run in that host's pocketd; Explorer, Changes and git work on the host's checkout. Desktop only; the phone is out of scope.
 
-Reference: MonoCode `docs/remote-access.md` (clone at `/tmp/monocode-research/monocode`), research `docs/orchestrators/research/20-fleet-hosts.md`.
+Research: `docs/orchestrators/research/20-fleet-hosts.md`.
 
 ## Decisions
 
 - Hosts: macOS, Linux, Windows. The desktop stays macOS-only.
 - A session on a host is a terminal in that host's pocketd, as locally.
-- UI copy says **Host** (Settings › Hosts, "Open folder on a host…"). Layout follows MonoCode: a host's projects sit in the normal project list with a globe and the host's link dot.
+- UI copy says **Host** (Settings › Hosts, "Open folder on a host…"). Layout: a host's projects sit in the normal project list with a globe and the host's link dot.
 - Mac and Linux: the desktop forwards the host's `pocketd.sock` over `ssh -L` (existing `hosts` crate). A forwarded unix peer is owner; no token.
 - Windows: pocketd also listens on `127.0.0.1:<port>`; the desktop forwards that TCP port and authenticates with an owner token minted by `pocketd pair --json` over SSH. Any process of that user can mint one, so the port trusts the user's processes as much as their shell does; other users on the host can reach the port, but the token file sits in the user's profile, which they can't read.
 - The desktop installs pocketd over SSH when the host has none: download the release archive for the host's os/arch on the host, verify its `.sha256`, unpack to `~/<home>/runtime/<version>/`, install a user service (LaunchAgent, systemd user unit + linger, Task Scheduler). A pocketd already running is reused, never replaced, except by **Update host**.
