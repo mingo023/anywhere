@@ -37,6 +37,14 @@ pub fn status_of(files: &[FileStat], root: &str, path: &str) -> Option<char> {
     files.iter().find(|f| f.path == rel).map(|f| f.status)
 }
 
+/// The letter a folder at `dir` takes from the changed `files` inside it: theirs when they agree, else M.
+pub fn folder_status(files: &[FileStat], root: &str, dir: &str) -> Option<char> {
+    let prefix = format!("{}/", dir.strip_prefix(root)?.trim_start_matches('/'));
+    let mut inside = files.iter().filter(|f| f.path.starts_with(&prefix)).map(|f| f.status);
+    let first = inside.next()?;
+    Some(if inside.all(|s| s == first) { first } else { 'M' })
+}
+
 /// The changed `files` that `edited` says an agent wrote, as absolute paths.
 pub fn touched(files: &[FileStat], root: &str, edited: impl Fn(&str) -> bool) -> Vec<String> {
     files.iter().map(|f| format!("{root}/{}", f.path)).filter(|p| edited(p)).collect()
@@ -127,6 +135,12 @@ impl Desktop {
     pub fn file_status(&self, path: &str) -> Option<char> {
         let root = self.explore_root()?;
         status_of(&self.repos.get(&root)?.files, &root, path)
+    }
+
+    /// The letter a folder under the explore root takes from the changes inside it.
+    pub fn folder_status(&self, path: &str) -> Option<char> {
+        let root = self.explore_root()?;
+        folder_status(&self.repos.get(&root)?.files, &root, path)
     }
 
     fn touched(&self) -> Vec<String> {
@@ -271,7 +285,7 @@ impl Desktop {
             ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
                 .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)))
         } else {
-            ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
+            ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, self.folder_status(&key)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
         };
         let row = row.on_mouse_down(MouseButton::Right, menu).when(targeted, |d| d.shadow(outline(ACCENT)));
         let Some(flash) = flash else { return row.into_any_element() };
@@ -302,7 +316,7 @@ fn outline(color: impl Into<Hsla>) -> Vec<BoxShadow> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, list_dir, merge_tree, seek, status_of, touched};
+    use super::{ExplorerState, Row, folder_status, list_dir, merge_tree, seek, status_of, touched};
     use store::prefs::files::Files;
     use git::FileStat;
     use std::collections::HashMap;
@@ -325,6 +339,21 @@ mod tests {
         assert_eq!(status_of(&files, "/r", "/r/src/b.rs"), None);
         assert_eq!(status_of(&files, "/r", "/r/src"), None);
         assert_eq!(status_of(&files, "/r", "/elsewhere/src/a.rs"), None);
+    }
+
+    #[test]
+    fn a_folder_takes_the_letter_its_changes_share_or_else_m() {
+        let files = [stat("new/a.rs", 'A'), stat("new/deep/b.rs", 'A'), stat("src/a.rs", 'A'), stat("src/b.rs", 'D')];
+        assert_eq!(folder_status(&files, "/r", "/r/new"), Some('A'));
+        assert_eq!(folder_status(&files, "/r", "/r/new/deep"), Some('A'));
+        assert_eq!(folder_status(&files, "/r", "/r/src"), Some('M'));
+    }
+
+    #[test]
+    fn a_folder_with_no_changes_inside_takes_no_letter_even_beside_a_like_named_one() {
+        let files = [stat("src2/a.rs", 'M')];
+        assert_eq!(folder_status(&files, "/r", "/r/src"), None);
+        assert_eq!(folder_status(&files, "/r", "/elsewhere/src2"), None);
     }
 
     #[test]

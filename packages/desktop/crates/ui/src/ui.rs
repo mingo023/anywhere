@@ -755,9 +755,9 @@ pub fn tree_row(
         .when(!selected, |d| d.font_weight(FontWeight(450.)).hover(|s| s.bg(FILL_2)))
         .child(div().w(px(12.)).flex().when(folder, |d| d.child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))))
         .child(file_icon(&label, folder, open, 16.))
-        .child(div().flex_1().truncate().child(label))
+        .child(div().flex_1().truncate().when_some(git, |d, g| d.text_color(git_color(g))).child(label))
         .when(touched, |d| d.child(dot(6., AGENT_CODEX)))
-        .children(git.map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
+        .children(git.filter(|_| !folder).map(|g| div().font_family(MONO).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(git_color(g)).child(g.to_string())))
 }
 
 /// An on/off control that turns green when on. Its knob slides when `on` flips, and sits still when it first shows.
