@@ -122,7 +122,7 @@ impl Desktop {
 
     /// The prompt clears at once; the terminal opens in this pane once pocketd lists it (`Terminals::arrived`).
     fn start_from_empty_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let prompt = self.empty_pane.composer.prompt.read(cx).value().trim().to_string();
+        let prompt = self.empty_pane.composer.draft.prompt(&self.empty_pane.composer.prompt.read(cx).value());
         let (Some(project), Some(tree)) = (self.project.clone(), self.place()) else { return };
         if !self.offers_empty_prompt() || !self.empty_pane.launch.ready(&prompt) {
             return;
@@ -171,6 +171,8 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Drawn, Failed, Launch, offers_prompt};
+    use crate::composer::{Attachment, Draft};
+    use gpui_kit::{Image, ImageFormat};
 
     fn failure() -> (String, String) {
         ("No such project".into(), String::new())
@@ -203,6 +205,14 @@ mod tests {
         assert!(launch.ready("Fix the failing tests"));
         launch.sent("r1".into(), "/repo".into(), 1, "Fix the failing tests".into());
         assert!(!launch.ready("Fix the failing tests"));
+    }
+
+    #[test]
+    fn attached_images_alone_are_something_to_ask() {
+        let mut draft = Draft::default();
+        assert!(!Launch::default().ready(&draft.prompt(" ")));
+        draft.images.push(Attachment { path: "/h/a.png".into(), image: std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1])) });
+        assert!(Launch::default().ready(&draft.prompt(" ")));
     }
 
     #[test]

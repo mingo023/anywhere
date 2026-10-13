@@ -49,8 +49,8 @@ pub(crate) struct Draft {
 
 /// A pasted image and the file the agent reads it from.
 pub(crate) struct Attachment {
-    path: PathBuf,
-    image: Arc<Image>,
+    pub(crate) path: PathBuf,
+    pub(crate) image: Arc<Image>,
 }
 
 impl Draft {
@@ -126,7 +126,7 @@ fn save_image(image: &Image, path: &Path) -> std::io::Result<()> {
 }
 
 /// The image shows at once and its file is written behind it, so starting never waits on a write; the agent opens it long after.
-pub(crate) fn paste_image(desktop: &WeakEntity<Desktop>, slot: Slot, item: &ClipboardItem, window: &mut Window, cx: &mut App) -> bool {
+fn paste_image(desktop: &WeakEntity<Desktop>, slot: Slot, item: &ClipboardItem, window: &mut Window, cx: &mut App) -> bool {
     let (Some(image), Some(d)) = (pasted_image(item), desktop.upgrade()) else { return false };
     let image = Arc::new(image);
     let path = attachment_path(&image, &d.read(cx).store.home().join("attachments"));
@@ -164,7 +164,7 @@ impl Desktop {
     /// The box around `textarea`; `pills` lead the attachments above it, `trailing` follows the chips.
     pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick());
-        let slot = c.slot;
+        let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let attached = (!pills.is_empty() || !c.draft.images.is_empty()).then(|| {
             div().flex().items_center().gap(px(8.)).pt(px(14.)).px(px(16.)).children(pills).children(c.draft.images.iter().enumerate().map(|(i, a)| {
                 let remove = div()
@@ -197,7 +197,7 @@ impl Desktop {
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.), ui::shadow(rgba(0x1111130d), 10., 30.)])
             .children(attached)
             // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
-            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(textarea.appearance(false).text_size(px(15.))))
+            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(textarea.appearance(false).text_size(px(15.)).on_paste(move |item, window, cx| paste_image(&desktop, slot, item, window, cx))))
             .child(
                 div()
                     .flex()

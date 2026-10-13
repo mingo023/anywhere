@@ -2,7 +2,7 @@ pub(crate) mod picker;
 
 use agents::locals::Local;
 use agents::{Agents, CreateReply, Event};
-use crate::composer::{self, Composer};
+use crate::composer::Composer;
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
@@ -606,7 +606,6 @@ impl Desktop {
             .child(icon("arrow-up", 16., ON_PRIMARY))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
-        let desktop = cx.entity().downgrade();
         let pill = pr.map(|n| {
             let unlink = div()
                 .id("pr-unlink")
@@ -624,7 +623,7 @@ impl Desktop {
                 }));
             div().h(px(26.)).pl(px(9.)).pr(px(4.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).bg(FILL_2).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(icon("pull-request", 13., TEXT_2)).child(format!("#{n}")).child(unlink).into_any_element()
         });
-        let textarea = Textarea::new(&self.new_form.composer.prompt).h(px(105.)).line_height(px(23.25)).on_paste(move |item, window, cx| composer::paste_image(&desktop, slot, item, window, cx));
+        let textarea = Textarea::new(&self.new_form.composer.prompt).h(px(105.)).line_height(px(23.25));
         let trailing = link.map(IntoElement::into_any_element).into_iter().chain([ui::kbd("⌘↵").mr(px(8.)).into_any_element(), send.into_any_element()]).collect();
         let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, pill.into_iter().collect(), trailing, cx);
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));

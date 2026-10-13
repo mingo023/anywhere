@@ -54,14 +54,15 @@ impl Desktop {
     }
 
     fn empty_input(&self, cx: &mut Context<Self>) -> Div {
-        let ready = self.empty_pane.launch.ready(&self.empty_pane.composer.prompt.read(cx).value());
+        let c = &self.empty_pane.composer;
+        let ready = self.empty_pane.launch.ready(&c.draft.prompt(&c.prompt.read(cx).value()));
         let send = ui::primary(div().id("empty-start").size(px(30.)).flex().flex_none().items_center().justify_center().rounded(px(15.)))
             .child(icon("arrow-up", 15., ON_PRIMARY))
             .when(ready, |d| d.cursor_pointer().on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_from_empty_pane(window, cx))))
             .when(!ready, |d| d.opacity(0.25));
-        let textarea = Textarea::new(&self.empty_pane.composer.prompt).line_height(px(23.));
+        let textarea = Textarea::new(&c.prompt).line_height(px(23.));
         let trailing = vec![ui::kbd("⌘↵").mr(px(8.)).into_any_element(), send.into_any_element()];
-        div().w_full().max_w(px(600.)).mt(px(20.)).child(self.composer(&self.empty_pane.composer, self.project.clone(), textarea, vec![], trailing, cx))
+        div().w_full().max_w(px(600.)).mt(px(20.)).child(self.composer(c, self.project.clone(), textarea, vec![], trailing, cx))
     }
 }
 
