@@ -1,0 +1,21 @@
+# Every PR carries exactly one `type:` label, which files it under a heading in CHANGELOG.md (.github/release.yml).
+name: PR type label
+
+on:
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled, synchronize]
+
+permissions: {}
+
+jobs:
+  type-label:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          n=$(printf '%s' "$LABELS" | jq '[.[] | select(startswith("type: "))] | length')
+          if [ "$n" != 1 ]; then
+            echo "::error::Add exactly one label of type: feature, type: fix, type: docs or type: internal (found $n)"
+            exit 1
+          fi
