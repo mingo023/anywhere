@@ -102,12 +102,6 @@ impl Terminal {
     }
 }
 
-/// An absolute path to a file someone may execute.
-pub fn runs(path: &str) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::path::Path::new(path).is_absolute() && std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
 /// Which Option keys act as Meta in a terminal.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -274,11 +268,5 @@ mod tests {
         let mut t = Terminal::default();
         t.set_color(16, 0xff00ff);
         assert_eq!(t, Terminal::default());
-    }
-
-    #[test]
-    fn only_an_absolute_executable_file_runs() {
-        assert!(runs("/bin/sh"));
-        assert!(!runs("sh") && !runs("/bin") && !runs("/etc/hosts") && !runs("/no/such/shell"));
     }
 }

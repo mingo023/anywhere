@@ -182,8 +182,19 @@ pub fn login_shell() -> &'static str {
     SHELL.get_or_init(|| {
         let pw = unsafe { libc::getpwuid(libc::getuid()) };
         let shell = (!pw.is_null()).then(|| unsafe { (*pw).pw_shell }).filter(|s| !s.is_null());
-        shell.map(|s| unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into())
+        first_that_runs(shell.map(|s| unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()), runs)
     })
+}
+
+/// The account's shell, or macOS's own when it's unset or was uninstalled after `chsh`.
+fn first_that_runs(account: Option<String>, can_run: impl Fn(&str) -> bool) -> String {
+    account.into_iter().chain(["/bin/zsh", "/bin/bash"].map(String::from)).find(|s| can_run(s)).unwrap_or_else(|| "/bin/sh".into())
+}
+
+/// An absolute path to a file someone may execute.
+pub fn runs(path: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    Path::new(path).is_absolute() && std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 /// A new terminal's env, as Terminal.app gives it: the account's basics, nothing from the terminal that launched the app.
@@ -393,6 +404,21 @@ mod tests {
     use futures::StreamExt;
     use futures::executor::block_on;
     use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn an_uninstalled_login_shell_falls_back_to_one_that_runs() {
+        let installed = |s: &str| s != "/opt/homebrew/bin/fish";
+        assert_eq!(first_that_runs(Some("/opt/homebrew/bin/fish".into()), installed), "/bin/zsh");
+        assert_eq!(first_that_runs(Some("/bin/bash".into()), installed), "/bin/bash");
+        assert_eq!(first_that_runs(None, |s| s == "/bin/bash"), "/bin/bash");
+        assert_eq!(first_that_runs(Some("".into()), |_| false), "/bin/sh");
+    }
+
+    #[test]
+    fn only_an_absolute_executable_file_runs() {
+        assert!(runs("/bin/sh"));
+        assert!(!runs("sh") && !runs("/bin") && !runs("/etc/hosts") && !runs("/no/such/shell"));
+    }
 
     #[test]
     fn a_status_from_an_older_pocketd_has_no_config() {
