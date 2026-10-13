@@ -21,14 +21,23 @@ import (
 	"time"
 )
 
-// LoginShell is the shell set with chsh; $SHELL is whatever launched pocketd.
+// LoginShell is the shell set with chsh, or the system's own when that's unset
+// or was uninstalled; $SHELL is whatever launched pocketd.
 func LoginShell() string {
+	account := ""
 	if pw := C.getpwuid(C.getuid()); pw != nil && pw.pw_shell != nil {
-		if s := C.GoString(pw.pw_shell); s != "" {
+		account = C.GoString(pw.pw_shell)
+	}
+	return firstThatRuns(append([]string{account}, fallbackShells...))
+}
+
+func firstThatRuns(shells []string) string {
+	for _, s := range shells {
+		if IsExecutable(s) {
 			return s
 		}
 	}
-	return fallbackShell
+	return "/bin/sh"
 }
 
 // Base is the env a new Terminal.app window starts from, as the desktop

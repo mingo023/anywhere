@@ -1,8 +1,8 @@
 use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
 use crate::add_to_chat::Quote;
+use crate::composer::Menu;
 use crate::creating::Create;
 use crate::desktop::Desktop;
-use crate::empty_pane::Menu;
 use crate::explorer::menu::{Arrow, TreeMenu};
 use crate::explorer::toast::Notice;
 use crate::modals::new_session::picker::Picker;
@@ -215,10 +215,10 @@ const STEPS: [(&str, Step); 134] = [
     }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
-    ("form-model", |d, _, cx| d.toggle_picker(Picker::Model, cx)),
-    ("form-access", |d, _, cx| d.toggle_picker(Picker::Access, cx)),
-    ("empty-model", |d, _, cx| d.toggle_empty_menu(Menu::Model, cx)),
-    ("empty-access", |d, _, cx| d.toggle_empty_menu(Menu::Access, cx)),
+    ("form-model", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Model, cx)),
+    ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
+    ("empty-model", |d, _, cx| d.toggle_composer(crate::empty_pane::slot, Menu::Model, cx)),
+    ("empty-access", |d, _, cx| d.toggle_composer(crate::empty_pane::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),

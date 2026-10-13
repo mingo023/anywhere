@@ -10,10 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"pocketd/internal/agent"
 	"pocketd/internal/broker"
 	"pocketd/internal/ops"
 	"pocketd/internal/peer"
@@ -124,12 +126,12 @@ func TestACompactKeepsTheTranscriptWhereItWas(t *testing.T) {
 func TestAnEndingClaudeKeepsItsLastTitle(t *testing.T) {
 	d := newDaemon(t)
 	_, pr := claudeIn(t, d)
-	path := transcript(t, "hi")
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(path, nil, 0o600)
 	hookFrom(d, pr, sessionStart("s1", path))
-	eventually(t, "the transcript", func() bool { return pr.a.Summary().Title == "hi" })
-	appendLine(t, path, strings.Repeat(`{"type":"progress"}`+"\n", 20000)+`{"type":"ai-title","aiTitle":"Fix the login bug"}`)
+	appendLine(t, path, strings.Repeat(`{"type":"progress"}`+"\n", 20000)+userLine("fix the login bug"))
 	d.endAgent(pr)
-	if s := pr.a.Summary(); s.Status != "closed" || s.Title != "Fix the login bug" {
+	if s := pr.a.Summary(); s.Status != "closed" || s.Title != "fix the login bug" {
 		t.Fatalf("summary = %+v", s)
 	}
 }
@@ -140,10 +142,13 @@ func TestAnInterruptInTheTranscriptClearsNeedsYou(t *testing.T) {
 	_, pr := claudeIn(t, d)
 	path := transcript(t, "hi")
 	appendLine(t, path, interrupt)
-	appendLine(t, path, `{"type":"ai-title","aiTitle":"Old"}`)
+	appendLine(t, path, `{"type":"assistant","message":{"content":[{"type":"text","text":"Old"}]}}`)
 	hookFrom(d, pr, `{"hook_event_name":"PreToolUse"}`)
 	hookFrom(d, pr, sessionStart("s1", path))
-	eventually(t, "the transcript", func() bool { return pr.a.Summary().Title == "Old" })
+	eventually(t, "the transcript", func() bool {
+		items, _ := pr.a.Timeline.Page(0, 10)
+		return len(items) > 0 && items[len(items)-1].Text == "Old"
+	})
 	if s := pr.a.Summary().Status; s != "needsYou" {
 		t.Fatalf("an old interrupt left %s", s)
 	}
@@ -340,6 +345,23 @@ func TestAHookWhoseNearestClaudeIsNotInThatTerminalIsRefusedAsHookForged(t *test
 	}
 	if s := pr.a.Summary().Status; s == "needsYou" {
 		t.Fatal("a refused hook changed the agent")
+	}
+}
+
+func TestEachTypedPromptIsHeardEvenWhenReportsDriveTheStatus(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	var heard []string
+	d.OnPrompt = func(a *agent.Agent, prompt string, env []string) {
+		if a == pr.a && slices.Equal(env, pr.env) {
+			heard = append(heard, prompt)
+		}
+	}
+	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit","prompt":"fix the login"}`)
+	reportState(d, pr, "working")
+	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit","prompt":"/review 12"}`)
+	if !slices.Equal(heard, []string{"fix the login", "/review 12"}) {
+		t.Fatalf("heard %q", heard)
 	}
 }
 

@@ -343,7 +343,7 @@ impl Desktop {
     /// Opens the shell Settings › Terminal names in the worktree's folder, its tab at `place`.
     pub fn new_shell(&mut self, place: Place, cx: &mut Context<Self>) {
         let t = &self.store.terminal;
-        let (shell, args) = t.shell_command(daemon::login_shell(), store::prefs::terminal::runs);
+        let (shell, args) = t.shell_command(daemon::login_shell(), daemon::runs);
         let missing = t.skipped(&shell).map(|p| p.trim().to_string());
         self.run_in_tree(place, &[], |cwd| daemon::shell_op(&shell, args, cwd), cx);
         if let Some(missing) = missing {

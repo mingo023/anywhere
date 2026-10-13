@@ -36,6 +36,8 @@ type Agent struct {
 	title           string
 	fallback        string
 	named           string // from naming; outranks title until the Conversation changes
+	naming          bool   // naming has started on this Conversation
+	conversations   int    // Conversations so far, so a late name for an older one is dropped
 	model           string
 	effort          string
 	phase           string // idle, working or needsYou
@@ -383,6 +385,8 @@ func (a *Agent) SetConversation(id string) {
 			a.Timeline.Clear()
 			a.title = ""
 			a.named = ""
+			a.naming = false
+			a.conversations++
 			a.tokensUsed = 0
 		}
 		a.conversation = id
@@ -394,9 +398,26 @@ func (a *Agent) SetTitle(title string) {
 	a.update(false, func() { a.title = title })
 }
 
-// SetNamed takes naming's title for the session.
-func (a *Agent) SetNamed(title string) {
-	a.update(false, func() { a.named = title })
+// ClaimNaming starts naming the Conversation unless it has a name or naming
+// already started on it. The claim is what SetNamed takes.
+func (a *Agent) ClaimNaming() (claim int, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.named != "" || a.naming {
+		return 0, false
+	}
+	a.naming = true
+	return a.conversations, true
+}
+
+// SetNamed takes naming's title for the session, unless the Conversation it
+// was claimed on has since changed.
+func (a *Agent) SetNamed(claim int, title string) {
+	a.update(false, func() {
+		if claim == a.conversations {
+			a.named = title
+		}
+	})
 }
 
 func (a *Agent) SetModel(model string) {

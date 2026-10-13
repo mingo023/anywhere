@@ -39,6 +39,8 @@ type Daemon struct {
 	Registry  *registry.Registry // the Projects an agent is placed in
 	// Capture reads the user's login-shell environment. Nil keeps pocketd's own.
 	Capture func() shellenv.Result
+	// OnPrompt hears each prompt typed to a claude, with its environment.
+	OnPrompt func(a *agent.Agent, prompt string, env []string)
 
 	mu       sync.Mutex
 	env      *shellenv.Result
@@ -138,6 +140,7 @@ type hookInput struct {
 	TranscriptPath        string            `json:"transcript_path"`
 	Cwd                   string            `json:"cwd"`
 	Model                 string            `json:"model"`
+	Prompt                string            `json:"prompt"`
 	Source                string            `json:"source"`
 	ToolName              string            `json:"tool_name"`
 	ToolInput             json.RawMessage   `json:"tool_input"`
@@ -194,6 +197,10 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 		return d.permission(ctx, pr, in), nil
 	case "PreCompact":
 		pr.a.SetCompacting()
+	case "UserPromptSubmit":
+		if d.OnPrompt != nil && in.Prompt != "" {
+			d.OnPrompt(pr.a, in.Prompt, pr.env)
+		}
 	}
 	if reported {
 		return nil, nil

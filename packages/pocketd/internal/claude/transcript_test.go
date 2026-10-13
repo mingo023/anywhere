@@ -29,6 +29,8 @@ func TestMap(t *testing.T) {
 		{"interrupt", `{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}`, []string{"result"}},
 		{"slash command", `{"type":"user","message":{"content":"<command-name>/compact</command-name>"}}`, nil},
 		{"local command", `{"type":"user","message":{"content":"<local-command-stdout>ok</local-command-stdout>"}}`, nil},
+		{"task notification", `{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}`, nil},
+		{"typed prompt", `{"type":"user","origin":{"kind":"human"},"message":{"content":"hi"}}`, []string{"user"}},
 		{"meta", `{"type":"user","isMeta":true,"message":{"content":"x"}}`, nil},
 		{"subagent", `{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"x"}]}}`, nil},
 		{"compact summary", `{"type":"user","isCompactSummary":true,"message":{"content":"x"}}`, nil},
@@ -40,7 +42,7 @@ func TestMap(t *testing.T) {
 		{"junk", `{"type":"summary"}`, nil},
 	}
 	for _, c := range cases {
-		got, _ := Map([]byte(c.line))
+		got := Map([]byte(c.line))
 		if !reflect.DeepEqual(kinds(got), c.want) {
 			t.Errorf("%s: got %v want %v", c.name, kinds(got), c.want)
 		}
@@ -48,23 +50,17 @@ func TestMap(t *testing.T) {
 }
 
 func TestMapDetails(t *testing.T) {
-	ev, _ := Map([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"out","is_error":true}]}}`))
+	ev := Map([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"out","is_error":true}]}}`))
 	if ev[0].ToolUseID != "t1" || ev[0].OK || *ev[0].Output != "out" {
 		t.Errorf("tool_end: %+v", ev[0])
 	}
-	ev, _ = Map([]byte(`{"type":"user","message":{"content":"[Request interrupted by user for tool use]"}}`))
+	ev = Map([]byte(`{"type":"user","message":{"content":"[Request interrupted by user for tool use]"}}`))
 	if ev[0].OK || ev[0].Error != "interrupted" {
 		t.Errorf("interrupt: %+v", ev[0])
 	}
-	ev, _ = Map([]byte(`{"type":"system","subtype":"turn_duration","durationMs":7}`))
+	ev = Map([]byte(`{"type":"system","subtype":"turn_duration","durationMs":7}`))
 	if !ev[0].OK || ev[0].DurationMs != 7 {
 		t.Errorf("result: %+v", ev[0])
-	}
-	if _, title := Map([]byte(`{"type":"ai-title","aiTitle":"Fix tests"}`)); title != "Fix tests" {
-		t.Errorf("title: %q", title)
-	}
-	if _, title := Map([]byte(`{"type":"summary","summary":"Fix tests","leafUuid":"u1"}`)); title != "Fix tests" {
-		t.Errorf("summary title: %q", title)
 	}
 }
 

@@ -4,10 +4,11 @@ use super::{action, field_box, row};
 use crate::desktop::Desktop;
 use crate::terminal_view::surface::Metrics;
 use crate::terminals::sessions::config;
+use daemon::runs;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use store::prefs::terminal::{Cursor, Meta, Scheme, Shell, runs};
+use store::prefs::terminal::{Cursor, Meta, Scheme, Shell};
 use theme::*;
 
 const CURSORS: [Cursor; 3] = [Cursor::Block, Cursor::Bar, Cursor::Underline];

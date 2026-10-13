@@ -16,7 +16,8 @@ func TestHandoffDescribesEachTerminalAndItsAgent(t *testing.T) {
 	term, pr := claudeIn(t, d)
 	hookFrom(d, pr, sessionStart("c1", transcript(t, "hi")))
 	eventually(t, "the transcript", func() bool { return pr.a.Summary().MaxSeq > 0 })
-	pr.a.SetNamed("Fix login")
+	claim, _ := pr.a.ClaimNaming()
+	pr.a.SetNamed(claim, "Fix login")
 
 	terms, err := d.Handoff()
 	if err != nil {

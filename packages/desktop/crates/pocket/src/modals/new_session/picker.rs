@@ -1,17 +1,13 @@
-use super::launch::{self, Pick};
 use super::{Checkout, Source, checkout_choice, listed_branches, parse_pr};
+use crate::composer::launch::access_row;
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use std::rc::Rc;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Picker {
-    Agent,
-    Model,
-    Access,
     Checkout,
     Branch,
     Pr,
@@ -54,42 +50,18 @@ fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
         .child(div().flex_1().text_size(px(13.)).child(Input::new(input).appearance(false).p_0().text_size(px(13.))))
 }
 
-/// A choice titled `label` over its `hint`, after an optional `lead` glyph.
-pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, lead: Option<&str>, label: &str, hint: &str, color: Token) -> Stateful<Div> {
-    div()
-        .id(id)
-        .px(px(8.))
-        .py(px(7.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(9.))
-        .rounded(px(6.))
-        .cursor_pointer()
-        .when(selected, |d| d.bg(FILL_2))
-        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
-        .children(lead.map(|glyph| div().self_start().pt(px(1.)).child(icon(glyph, 14., TEXT_2))))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(color).child(label.to_string()))
-                .child(div().text_size(px(11.5)).text_color(TEXT_3).child(hint.to_string())),
-        )
-        .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
-}
-
 impl Desktop {
     pub fn close_picker(&mut self) -> bool {
-        self.new_form.draft.picker.take().is_some()
+        let picker = self.new_form.draft.picker.take().is_some();
+        let menu = self.new_form.composer.draft.menu.take().is_some();
+        picker || menu
     }
 
+    /// One menu at a time, the composer's included.
     pub(crate) fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
         let f = &mut self.new_form.draft;
         f.picker = (f.picker != Some(picker)).then_some(picker);
+        self.new_form.composer.draft.menu = None;
         cx.notify();
     }
 
@@ -102,22 +74,6 @@ impl Desktop {
                 s.focus(window, cx);
             });
         }
-    }
-
-    fn agent_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let f = &self.new_form.draft;
-        let mut rows = Vec::new();
-        for provider in self.store.agents.enabled() {
-            rows.push(
-                ui::pick_row(provider, f.provider == provider, Some(provider_icon(provider, 13., TEXT)), div().child(self.agent_name(provider)), None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.new_form.draft.pick_provider(provider);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        picker_menu("agent-menu", 260., rows, cx)
     }
 
     fn checkout_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -215,55 +171,6 @@ impl Desktop {
         }));
         let menu = (self.new_form.draft.picker == Some(Picker::Pr)).then(|| ui::dropdown_right(38., ui::menu_in("pr-menu-in", self.pr_picker(cx))));
         div().relative().child(button).children(menu)
-    }
-
-    pub(super) fn agent_select(&self, cx: &mut Context<Self>) -> Div {
-        let f = &self.new_form.draft;
-        let agent = ui::menu_chip("form-agent", f.picker == Some(Picker::Agent))
-            .child(provider_icon(f.provider, 13., TEXT))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(self.agent_name(f.provider)))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_picker(Picker::Agent, cx);
-            }));
-        let agent_menu = (f.picker == Some(Picker::Agent)).then(|| ui::dropdown(36., ui::menu_in("agent-menu-in", self.agent_picker(cx))));
-        div().relative().child(agent).children(agent_menu)
-    }
-
-    pub(super) fn model_select(&self, cx: &mut Context<Self>) -> Div {
-        let f = &self.new_form.draft;
-        let app = self.store.agents.provider(f.provider).model;
-        let open = f.picker == Some(Picker::Model);
-        let chip = launch::chip("form-model", open, "sparkle", launch::model_shown(&f.model, &app), TEXT, |this, cx| {
-            this.load_models(cx);
-            this.toggle_picker(Picker::Model, cx);
-        }, cx);
-        let menu = open.then(|| {
-            let pick: Pick = Rc::new(|this, model, cx| {
-                (this.new_form.draft.model, this.new_form.draft.picker) = (model, None);
-                cx.notify();
-            });
-            let rows = launch::model_rows("form-model-row", launch::model_choices(f.provider, self.codex_models(), &f.model, &app), &f.model, pick, cx);
-            ui::dropdown(36., ui::menu_in("model-menu-in", picker_menu("model-menu", 220., rows, cx)))
-        });
-        div().relative().child(chip).children(menu)
-    }
-
-    pub(super) fn access_select(&self, cx: &mut Context<Self>) -> Div {
-        let f = &self.new_form.draft;
-        let app = self.store.agents.access();
-        let open = f.picker == Some(Picker::Access);
-        let chip = launch::access_chip("form-access", open, &f.access, app, |this, cx| this.toggle_picker(Picker::Access, cx), cx);
-        let menu = open.then(|| {
-            let pick: Pick = Rc::new(|this, access, cx| {
-                (this.new_form.draft.access, this.new_form.draft.picker) = (access, None);
-                cx.notify();
-            });
-            let rows = launch::access_rows("form-access-row", launch::access_choices(app), &f.access, pick, cx);
-            ui::dropdown(36., ui::menu_in("access-menu-in", picker_menu("access-menu", 300., rows, cx)))
-        });
-        div().relative().child(chip).children(menu)
     }
 
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {

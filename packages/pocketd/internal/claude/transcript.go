@@ -19,8 +19,6 @@ type line struct {
 	IsMeta           bool   `json:"isMeta"`
 	IsSidechain      bool   `json:"isSidechain"`
 	IsCompactSummary bool   `json:"isCompactSummary"`
-	AITitle          string `json:"aiTitle"`
-	Summary          string `json:"summary"`
 	DurationMs       int64  `json:"durationMs"`
 	CompactMetadata  struct {
 		Trigger string `json:"trigger"`
@@ -34,6 +32,9 @@ type line struct {
 			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
+	Origin struct {
+		Kind string `json:"kind"`
+	} `json:"origin"`
 }
 
 // Model returns the model an assistant line was written by, or "".
@@ -57,24 +58,19 @@ type block struct {
 	IsError   bool            `json:"is_error"`
 }
 
-// Map returns the events one transcript line adds, and the session title if
-// the line sets one.
-func Map(raw []byte) (events []timeline.Event, title string) {
+// Map returns the events one transcript line adds.
+func Map(raw []byte) (events []timeline.Event) {
 	var l line
 	if json.Unmarshal(raw, &l) != nil || l.IsMeta || l.IsSidechain || l.IsCompactSummary {
-		return nil, ""
+		return nil
 	}
 	switch l.Type {
-	case "ai-title":
-		return nil, l.AITitle
-	case "summary":
-		return nil, l.Summary
 	case "system":
 		switch l.Subtype {
 		case "turn_duration":
-			return []timeline.Event{{Kind: "result", OK: true, DurationMs: l.DurationMs}}, ""
+			return []timeline.Event{{Kind: "result", OK: true, DurationMs: l.DurationMs}}
 		case "compact_boundary":
-			return []timeline.Event{{Kind: "compacted", Trigger: l.CompactMetadata.Trigger}}, ""
+			return []timeline.Event{{Kind: "compacted", Trigger: l.CompactMetadata.Trigger}}
 		}
 	case "assistant":
 		for _, b := range blocks(l.Message.Content) {
@@ -88,9 +84,13 @@ func Map(raw []byte) (events []timeline.Event, title string) {
 			}
 		}
 	case "user":
-		return userEvents(l.Message.Content), ""
+		// Claude writes harness input, like task notifications, as user lines; only a human's is a prompt.
+		if l.Origin.Kind != "" && l.Origin.Kind != "human" {
+			return nil
+		}
+		return userEvents(l.Message.Content)
 	}
-	return events, ""
+	return events
 }
 
 func userEvents(content json.RawMessage) []timeline.Event {

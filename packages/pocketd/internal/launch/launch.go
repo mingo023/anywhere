@@ -5,7 +5,6 @@ package launch
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -189,11 +188,15 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	r := l.wait(t, id, exits, progress)
 	r.Cwd = cwd
 	if r.Err == nil && s.Prompt != "" {
-		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, agent: r.AgentID, local: local}
+		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, local: local}
 		if n := s.Checkout.New; n != nil && n.AutoName {
 			j.project, j.tree, j.branch = s.Project, cwd, n.Name
 		}
-		go l.name(j)
+		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
+			if claim, ok := a.ClaimNaming(); ok {
+				go l.name(a, claim, j)
+			}
+		}
 	}
 	return r
 }
@@ -471,7 +474,7 @@ func resolve(cmd string, env []string) (string, error) {
 			return cmd, nil
 		}
 	}
-	if st, err := os.Stat(path); !filepath.IsAbs(path) || err != nil || st.IsDir() || st.Mode()&0o111 == 0 {
+	if !shellenv.IsExecutable(path) {
 		return "", &exec.Error{Name: cmd, Err: exec.ErrNotFound}
 	}
 	return path, nil
@@ -497,8 +500,8 @@ func probe(shell, name string, env []string) string {
 }
 
 func shellOf(env []string) string {
-	if shell := lookup(env, "SHELL"); shell != "" {
+	if shell := lookup(env, "SHELL"); shellenv.IsExecutable(shell) {
 		return shell
 	}
-	return "/bin/zsh"
+	return shellenv.LoginShell()
 }

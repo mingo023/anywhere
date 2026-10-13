@@ -23,6 +23,14 @@ func TestPhonePromptStreamsTranscript(t *testing.T) {
 	h.WaitScreen(term, "echo: hello")
 }
 
+func TestAClaudeTypedInATerminalIsNamedFromItsFirstPrompt(t *testing.T) {
+	_, phone, _, id := StartClaude(t)
+	phone.Send(map[string]any{"type": "agent.prompt", "id": "p1", "agentId": id, "text": "hello"})
+	phone.WaitFor("the generated name", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Title == "Say hello"
+	})
+}
+
 func TestPlainCommandIsNotAnAgent(t *testing.T) {
 	h := Start(t)
 	phone := h.Phone()
