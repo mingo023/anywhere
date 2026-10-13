@@ -1,5 +1,6 @@
 mod composer;
 
+use crate::composer::{Attachment, Composer};
 use crate::desktop::Desktop;
 use crate::field::Field;
 use crate::terminals::link;
@@ -11,21 +12,11 @@ use workspace::tree::PaneId;
 
 /// The prompt a focused pane with no tabs offers, which starts an agent in that pane.
 pub(crate) struct EmptyPane {
-    pub(crate) prompt: Entity<TextareaState>,
+    /// Its agent pick is remembered for the Project once a session starts, like the new session sheet's.
+    pub(crate) composer: Composer,
     pub(crate) launch: Launch,
-    /// The agent picked here for a Project; like the new session sheet's, it is remembered once a session starts.
-    chosen: Option<(String, LaunchPick)>,
-    menu: Option<Menu>,
     pub(crate) drawn: Drawn,
     field: Field,
-}
-
-/// The composer chip whose menu is open.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Menu {
-    Agent,
-    Model,
-    Access,
 }
 
 /// Whether the focused pane showed the prompt in the frame last drawn, and in the one before, so the prompt takes the keys only as it appears.
@@ -48,13 +39,14 @@ impl Drawn {
     }
 }
 
-/// The create this prompt sent, and where from: its worktree, the pane its terminal opens in, and the words to give back if it fails.
+/// The create this prompt sent, and where from: its worktree, the pane its terminal opens in, and the words and images to give back if it fails.
 #[derive(Default)]
 pub(crate) struct Launch {
     pub(crate) reply: CreateReply,
     worktree: String,
     pub(crate) pane: PaneId,
     prompt: String,
+    images: Vec<Attachment>,
 }
 
 /// What a failed create of this prompt's changes on screen.
@@ -72,9 +64,9 @@ impl Launch {
         !self.reply.waiting() && !prompt.trim().is_empty()
     }
 
-    fn sent(&mut self, request: String, worktree: String, pane: PaneId, prompt: String) {
+    fn sent(&mut self, request: String, worktree: String, pane: PaneId, prompt: String, images: Vec<Attachment>) {
         self.reply.sent(request);
-        (self.worktree, self.pane, self.prompt) = (worktree, pane, prompt);
+        (self.worktree, self.pane, self.prompt, self.images) = (worktree, pane, prompt, images);
     }
 
     fn starting_in(&self, worktree: &str) -> bool {
@@ -99,11 +91,6 @@ fn offers_prompt(project: Option<&str>, tree: Option<&str>, observe_only: bool) 
     project.is_some() && tree.is_some() && !observe_only
 }
 
-/// The agent picked here, if it was picked for this Project.
-fn chosen_for<'a>(chosen: &'a Option<(String, LaunchPick)>, project: Option<&str>) -> Option<&'a LaunchPick> {
-    chosen.as_ref().filter(|(p, _)| Some(p.as_str()) == project).map(|(_, pick)| pick)
-}
-
 impl EmptyPane {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe a task or paste an error").auto_grow(2, 8));
@@ -112,8 +99,13 @@ impl EmptyPane {
             InputEvent::Change => cx.notify(),
             _ => {}
         })];
-        (Self { prompt, launch: Launch::default(), chosen: None, menu: None, drawn: Drawn::default(), field: Field::default() }, subs)
+        let composer = Composer::new(prompt, slot, |_| {}, |d, (message, _)| d.error = Some(message));
+        (Self { composer, launch: Launch::default(), drawn: Drawn::default(), field: Field::default() }, subs)
     }
+}
+
+pub(crate) fn slot(d: &mut Desktop) -> &mut Composer {
+    &mut d.empty_pane.composer
 }
 
 impl Desktop {
@@ -122,34 +114,17 @@ impl Desktop {
     }
 
     pub(crate) fn focus_empty_prompt(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.empty_pane.prompt.update(cx, |s, cx| s.focus(window, cx));
+        self.empty_pane.composer.prompt.update(cx, |s, cx| s.focus(window, cx));
     }
 
     fn launch_pick(&self) -> LaunchPick {
-        chosen_for(&self.empty_pane.chosen, self.project.as_deref()).map_or_else(|| self.last_pick(), LaunchPick::clone)
-    }
-
-    pub(crate) fn toggle_empty_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
-        self.empty_pane.menu = (self.empty_pane.menu != Some(menu)).then_some(menu);
-        cx.notify();
-    }
-
-    fn close_empty_menu(&mut self, cx: &mut Context<Self>) {
-        self.empty_pane.menu = None;
-        cx.notify();
-    }
-
-    /// Changes the pick for this Project and closes the menu it came from.
-    fn pick_empty(&mut self, change: impl FnOnce(LaunchPick) -> LaunchPick, cx: &mut Context<Self>) {
-        if let Some(project) = self.project.clone() {
-            self.empty_pane.chosen = Some((project, change(self.launch_pick())));
-        }
-        self.close_empty_menu(cx);
+        self.empty_pane.composer.draft.pick(self.project.as_deref(), || self.last_pick())
     }
 
     /// The prompt clears at once; the terminal opens in this pane once pocketd lists it (`Terminals::arrived`).
     fn start_from_empty_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let prompt = self.empty_pane.prompt.read(cx).value().trim().to_string();
+        let typed = self.empty_pane.composer.prompt.read(cx).value().trim().to_string();
+        let prompt = self.empty_pane.composer.draft.prompt(&typed);
         let (Some(project), Some(tree)) = (self.project.clone(), self.place()) else { return };
         if !self.offers_empty_prompt() || !self.empty_pane.launch.ready(&prompt) {
             return;
@@ -165,21 +140,23 @@ impl Desktop {
         self.store.repos.entry(project).or_default().launch = pick;
         self.save_soon(cx);
         let pane = self.workspace(&tree).tree.focused;
-        self.empty_pane.launch.sent(request, tree, pane, prompt);
-        (self.empty_pane.chosen, self.empty_pane.menu) = (None, None);
-        self.empty_pane.prompt.update(cx, |s, cx| s.set_value("", window, cx));
+        let images = std::mem::take(&mut self.empty_pane.composer.draft.images);
+        self.empty_pane.launch.sent(request, tree, pane, typed, images);
+        self.empty_pane.composer.draft.clear();
+        self.empty_pane.composer.prompt.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
 
     /// Whether the failed create was this prompt's.
     pub(crate) fn empty_prompt_failed(&mut self, request: &str, message: &str, detail: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let typed = self.empty_pane.prompt.read(cx).value();
+        let typed = self.empty_pane.composer.prompt.read(cx).value();
         let tree = self.place();
         let Some(failed) = self.empty_pane.launch.failed(request, (message.into(), detail.into()), &typed, self.empty_pane.drawn.last, tree.as_deref()) else {
             return false;
         };
         if let Some(words) = failed.words {
-            self.empty_pane.prompt.update(cx, |s, cx| s.set_value(words, window, cx));
+            self.empty_pane.composer.prompt.update(cx, |s, cx| s.set_value(words, window, cx));
+            self.empty_pane.composer.draft.images = std::mem::take(&mut self.empty_pane.launch.images);
         }
         if failed.on_page {
             self.error = Some(message.into());
@@ -188,7 +165,7 @@ impl Desktop {
     }
 
     fn fill_empty_prompt(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
-        self.empty_pane.prompt.update(cx, |s, cx| {
+        self.empty_pane.composer.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
@@ -197,8 +174,9 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drawn, Failed, Launch, chosen_for, offers_prompt};
-    use store::LaunchPick;
+    use super::{Drawn, Failed, Launch, offers_prompt};
+    use crate::composer::{Attachment, Draft};
+    use gpui_kit::{Image, ImageFormat};
 
     fn failure() -> (String, String) {
         ("No such project".into(), String::new())
@@ -225,26 +203,26 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_picked_here_holds_only_for_the_project_it_was_picked_in() {
-        let chosen = Some(("/repo".to_string(), LaunchPick { provider: "codex".into(), ..LaunchPick::default() }));
-        assert_eq!(chosen_for(&chosen, Some("/repo")).map(|p| p.provider.as_str()), Some("codex"));
-        assert!(chosen_for(&chosen, Some("/other")).is_none());
-        assert!(chosen_for(&chosen, None).is_none());
-    }
-
-    #[test]
     fn a_prompt_starts_once_and_only_with_something_to_ask() {
         let mut launch = Launch::default();
         assert!(!launch.ready("  \n"));
         assert!(launch.ready("Fix the failing tests"));
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix the failing tests".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix the failing tests".into(), vec![]);
         assert!(!launch.ready("Fix the failing tests"));
+    }
+
+    #[test]
+    fn attached_images_alone_are_something_to_ask() {
+        let mut draft = Draft::default();
+        assert!(!Launch::default().ready(&draft.prompt(" ")));
+        draft.images.push(Attachment { path: "/h/a.png".into(), image: std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1])) });
+        assert!(Launch::default().ready(&draft.prompt(" ")));
     }
 
     #[test]
     fn a_prompt_shows_it_is_starting_only_in_its_worktree_until_answered() {
         let mut launch = Launch::default();
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert!(launch.starting_in("/repo"));
         assert!(!launch.starting_in("/repo/.worktrees/fix"));
         launch.reply.answer("r1", None);
@@ -254,11 +232,11 @@ mod tests {
     #[test]
     fn only_its_own_request_is_answered_and_a_failure_stays_until_the_next_send() {
         let mut launch = Launch::default();
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert_eq!(launch.failed("r2", failure(), "", true, Some("/repo")), None);
         assert!(launch.failed("r1", failure(), "", true, Some("/repo")).is_some());
         assert!(launch.error_in("/repo").is_some() && launch.ready("again"));
-        launch.sent("r3".into(), "/repo".into(), 1, "again".into());
+        launch.sent("r3".into(), "/repo".into(), 1, "again".into(), vec![]);
         assert!(launch.error_in("/repo").is_none());
     }
 
@@ -266,7 +244,7 @@ mod tests {
     fn a_failure_shows_on_the_prompt_only_while_its_worktree_shows_it() {
         let fail = |shown, cwd| {
             let mut launch = Launch::default();
-            launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+            launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
             let failed = launch.failed("r1", failure(), "", shown, cwd).unwrap();
             (failed.on_page, launch.error_in("/repo/.worktrees/fix").is_some())
         };
@@ -278,9 +256,18 @@ mod tests {
     #[test]
     fn a_failure_gives_its_words_back_only_if_nothing_new_was_typed() {
         let mut launch = Launch::default();
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert_eq!(launch.failed("r1", failure(), "", true, Some("/repo")), Some(Failed { words: Some("Fix it".into()), on_page: false }));
-        launch.sent("r2".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r2".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert_eq!(launch.failed("r2", failure(), "Something else", true, Some("/repo")).and_then(|f| f.words), None);
+    }
+
+    #[test]
+    fn a_failure_keeps_the_images_apart_from_the_words_it_gives_back() {
+        let mut launch = Launch::default();
+        let image = Attachment { path: "/h/a.png".into(), image: std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1])) };
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![image]);
+        assert_eq!(launch.failed("r1", failure(), "", true, Some("/repo")).and_then(|f| f.words), Some("Fix it".into()));
+        assert_eq!(launch.images.iter().map(|a| a.path.to_str().unwrap()).collect::<Vec<_>>(), ["/h/a.png"]);
     }
 }

@@ -3,6 +3,7 @@ mod add_to_chat;
 mod automations;
 mod browser;
 mod capture;
+mod composer;
 mod creating;
 mod desktop;
 mod empty_pane;

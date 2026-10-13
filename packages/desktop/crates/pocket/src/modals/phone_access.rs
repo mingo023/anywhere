@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::modals::new_session::Access;
-use crate::modals::new_session::picker::access_row;
+use crate::composer::launch::access_row;
 use gpui_kit::*;
 use theme::*;
 

@@ -1,6 +1,6 @@
-use super::picker::access_row;
 use crate::desktop::Desktop;
 use crate::settings::models::{model_label, model_options};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::rc::Rc;
 use store::prefs::agents::ACCESSES;
@@ -97,6 +97,34 @@ pub(crate) fn access_rows(id: &'static str, choices: Vec<(String, String, String
                 .into_any_element()
         })
         .collect()
+}
+
+/// A choice titled `label` over its `hint`, after an optional `lead` glyph.
+pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, lead: Option<&str>, label: &str, hint: &str, color: Token) -> Stateful<Div> {
+    div()
+        .id(id)
+        .px(px(8.))
+        .py(px(7.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(9.))
+        .rounded(px(6.))
+        .cursor_pointer()
+        .when(selected, |d| d.bg(FILL_2))
+        .when(!selected, |d| d.hover(|s| s.bg(FILL_2)))
+        .children(lead.map(|glyph| div().self_start().pt(px(1.)).child(icon(glyph, 14., TEXT_2))))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(color).child(label.to_string()))
+                .child(div().text_size(px(11.5)).text_color(TEXT_3).child(hint.to_string())),
+        )
+        .child(div().w(px(16.)).flex().flex_none().justify_end().when(selected, |d| d.child(icon("check", 14., TEXT))))
 }
 
 #[cfg(test)]
