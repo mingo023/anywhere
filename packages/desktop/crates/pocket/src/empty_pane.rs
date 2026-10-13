@@ -1,6 +1,6 @@
 mod composer;
 
-use crate::composer::Composer;
+use crate::composer::{Attachment, Composer};
 use crate::desktop::Desktop;
 use crate::field::Field;
 use crate::terminals::link;
@@ -12,7 +12,7 @@ use workspace::tree::PaneId;
 
 /// The prompt a focused pane with no tabs offers, which starts an agent in that pane.
 pub(crate) struct EmptyPane {
-    /// The agent picked here for a Project is remembered once a session starts, like the new session sheet's.
+    /// Its agent pick is remembered for the Project once a session starts, like the new session sheet's.
     pub(crate) composer: Composer,
     pub(crate) launch: Launch,
     pub(crate) drawn: Drawn,
@@ -39,13 +39,14 @@ impl Drawn {
     }
 }
 
-/// The create this prompt sent, and where from: its worktree, the pane its terminal opens in, and the words to give back if it fails.
+/// The create this prompt sent, and where from: its worktree, the pane its terminal opens in, and the words and images to give back if it fails.
 #[derive(Default)]
 pub(crate) struct Launch {
     pub(crate) reply: CreateReply,
     worktree: String,
     pub(crate) pane: PaneId,
     prompt: String,
+    images: Vec<Attachment>,
 }
 
 /// What a failed create of this prompt's changes on screen.
@@ -63,9 +64,9 @@ impl Launch {
         !self.reply.waiting() && !prompt.trim().is_empty()
     }
 
-    fn sent(&mut self, request: String, worktree: String, pane: PaneId, prompt: String) {
+    fn sent(&mut self, request: String, worktree: String, pane: PaneId, prompt: String, images: Vec<Attachment>) {
         self.reply.sent(request);
-        (self.worktree, self.pane, self.prompt) = (worktree, pane, prompt);
+        (self.worktree, self.pane, self.prompt, self.images) = (worktree, pane, prompt, images);
     }
 
     fn starting_in(&self, worktree: &str) -> bool {
@@ -122,7 +123,8 @@ impl Desktop {
 
     /// The prompt clears at once; the terminal opens in this pane once pocketd lists it (`Terminals::arrived`).
     fn start_from_empty_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let prompt = self.empty_pane.composer.draft.prompt(&self.empty_pane.composer.prompt.read(cx).value());
+        let typed = self.empty_pane.composer.prompt.read(cx).value().trim().to_string();
+        let prompt = self.empty_pane.composer.draft.prompt(&typed);
         let (Some(project), Some(tree)) = (self.project.clone(), self.place()) else { return };
         if !self.offers_empty_prompt() || !self.empty_pane.launch.ready(&prompt) {
             return;
@@ -138,7 +140,8 @@ impl Desktop {
         self.store.repos.entry(project).or_default().launch = pick;
         self.save_soon(cx);
         let pane = self.workspace(&tree).tree.focused;
-        self.empty_pane.launch.sent(request, tree, pane, prompt);
+        let images = std::mem::take(&mut self.empty_pane.composer.draft.images);
+        self.empty_pane.launch.sent(request, tree, pane, typed, images);
         self.empty_pane.composer.draft.clear();
         self.empty_pane.composer.prompt.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
@@ -153,6 +156,7 @@ impl Desktop {
         };
         if let Some(words) = failed.words {
             self.empty_pane.composer.prompt.update(cx, |s, cx| s.set_value(words, window, cx));
+            self.empty_pane.composer.draft.images = std::mem::take(&mut self.empty_pane.launch.images);
         }
         if failed.on_page {
             self.error = Some(message.into());
@@ -203,7 +207,7 @@ mod tests {
         let mut launch = Launch::default();
         assert!(!launch.ready("  \n"));
         assert!(launch.ready("Fix the failing tests"));
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix the failing tests".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix the failing tests".into(), vec![]);
         assert!(!launch.ready("Fix the failing tests"));
     }
 
@@ -218,7 +222,7 @@ mod tests {
     #[test]
     fn a_prompt_shows_it_is_starting_only_in_its_worktree_until_answered() {
         let mut launch = Launch::default();
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert!(launch.starting_in("/repo"));
         assert!(!launch.starting_in("/repo/.worktrees/fix"));
         launch.reply.answer("r1", None);
@@ -228,11 +232,11 @@ mod tests {
     #[test]
     fn only_its_own_request_is_answered_and_a_failure_stays_until_the_next_send() {
         let mut launch = Launch::default();
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert_eq!(launch.failed("r2", failure(), "", true, Some("/repo")), None);
         assert!(launch.failed("r1", failure(), "", true, Some("/repo")).is_some());
         assert!(launch.error_in("/repo").is_some() && launch.ready("again"));
-        launch.sent("r3".into(), "/repo".into(), 1, "again".into());
+        launch.sent("r3".into(), "/repo".into(), 1, "again".into(), vec![]);
         assert!(launch.error_in("/repo").is_none());
     }
 
@@ -240,7 +244,7 @@ mod tests {
     fn a_failure_shows_on_the_prompt_only_while_its_worktree_shows_it() {
         let fail = |shown, cwd| {
             let mut launch = Launch::default();
-            launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+            launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
             let failed = launch.failed("r1", failure(), "", shown, cwd).unwrap();
             (failed.on_page, launch.error_in("/repo/.worktrees/fix").is_some())
         };
@@ -252,9 +256,18 @@ mod tests {
     #[test]
     fn a_failure_gives_its_words_back_only_if_nothing_new_was_typed() {
         let mut launch = Launch::default();
-        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert_eq!(launch.failed("r1", failure(), "", true, Some("/repo")), Some(Failed { words: Some("Fix it".into()), on_page: false }));
-        launch.sent("r2".into(), "/repo".into(), 1, "Fix it".into());
+        launch.sent("r2".into(), "/repo".into(), 1, "Fix it".into(), vec![]);
         assert_eq!(launch.failed("r2", failure(), "Something else", true, Some("/repo")).and_then(|f| f.words), None);
+    }
+
+    #[test]
+    fn a_failure_keeps_the_images_apart_from_the_words_it_gives_back() {
+        let mut launch = Launch::default();
+        let image = Attachment { path: "/h/a.png".into(), image: std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1])) };
+        launch.sent("r1".into(), "/repo".into(), 1, "Fix it".into(), vec![image]);
+        assert_eq!(launch.failed("r1", failure(), "", true, Some("/repo")).and_then(|f| f.words), Some("Fix it".into()));
+        assert_eq!(launch.images.iter().map(|a| a.path.to_str().unwrap()).collect::<Vec<_>>(), ["/h/a.png"]);
     }
 }
