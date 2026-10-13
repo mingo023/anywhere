@@ -58,13 +58,14 @@ fn glyph_slot(glyph: impl IntoElement) -> Div {
 fn callout(lead: impl IntoElement, bg: Token, title: String, sub: String, action: Option<Stateful<Div>>) -> Div {
     let text = div()
         .flex_1()
-        .min_w_0()
+        .min_w(px(120.))
         .flex()
         .flex_col()
         .gap(px(1.))
         .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
         .child(div().text_size(px(12.)).text_color(TEXT_3).child(sub));
-    div().p(px(10.)).flex().items_center().gap(px(10.)).rounded(px(10.)).bg(bg).child(lead).child(text).children(action)
+    // The text's floor makes a narrow panel wrap the action to its own line instead of squeezing the text to a letter a line.
+    div().p(px(10.)).flex().flex_wrap().items_center().gap(px(10.)).rounded(px(10.)).bg(bg).child(lead).child(text).children(action)
 }
 
 impl Desktop {
