@@ -18,6 +18,11 @@ fn highlighter(dark: bool) -> Arc<CodeBlockHighlighterFn> {
     let theme = markdown_highlight_theme(dark);
     Arc::new(move |block: &CodeBlock| {
         let Some(lang) = block.lang() else { return Vec::new() };
+        // The reference reads these fence names as bash too.
+        let lang = match lang.to_lowercase().as_str() {
+            "shell" | "zsh" | "console" => "bash".to_string(),
+            lang => lang.to_string(),
+        };
         let code = block.code();
         let mut hl = SyntaxHighlighter::new(&lang);
         hl.update(None, &Rope::from(code.as_ref()), None);

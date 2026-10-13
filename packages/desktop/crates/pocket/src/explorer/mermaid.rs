@@ -225,7 +225,7 @@ impl MarkdownPlugin for Mermaid {
         let Fence { keys, source } = node.data::<Fence>().unwrap();
         let dark = theme::is_dark();
         let key = keys[dark as usize];
-        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).p(px(12.)).rounded(px(15.)).bg(MD_CODE_BG);
+        let frame = div().id(SharedString::from(format!("mermaid-{key}"))).p(px(16.)).rounded(px(15.)).bg(MD_CODE_BG);
         match self.0.update(cx, |d, cx| d.get(key, source, dark, cx)) {
             Diagram::Ready(tree) => {
                 let size = tree.size();

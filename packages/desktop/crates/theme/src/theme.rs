@@ -303,7 +303,7 @@ fn syntax_color(palette: &Syntax, name: &str) -> Token {
     }
 }
 
-/// gpui-kit's highlight theme recoloured with the chosen syntax theme, for the code editor, markdown and diff rows.
+/// gpui-kit's highlight theme recoloured with the chosen syntax theme, for the code editor and diff rows.
 pub fn highlight_theme(dark: bool) -> Arc<HighlightTheme> {
     highlight_theme_with(dark, &syntax())
 }

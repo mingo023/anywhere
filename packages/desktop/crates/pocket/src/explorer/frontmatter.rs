@@ -30,12 +30,29 @@ fn fields(yaml: &str) -> Option<Vec<(String, Value)>> {
             "" => Value::Text(nested.join("\n")),
             "|" | "|-" | "|+" => Value::Text(nested.join("\n")),
             ">" | ">-" | ">+" => Value::Text(nested.join(" ")),
-            _ if rest.starts_with('[') && rest.ends_with(']') => Value::List(rest[1..rest.len() - 1].split(',').map(|s| unquote(s.trim())).filter(|s| !s.is_empty()).collect()),
-            _ => Value::Text(unquote(rest)),
+            _ => scalar_or_list(rest),
         };
         fields.push((key.trim().to_string(), value));
     }
     Some(fields)
+}
+
+/// A TOML front matter's `key = value` lines, skipping comments and table headers as the reference does.
+fn toml_fields(toml: &str) -> Vec<(String, Value)> {
+    toml.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with(['#', '[']))
+        .filter_map(|line| line.split_once('='))
+        .filter(|(key, _)| !key.trim().is_empty())
+        .map(|(key, value)| (key.trim().to_string(), scalar_or_list(value.trim())))
+        .collect()
+}
+
+fn scalar_or_list(value: &str) -> Value {
+    match value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+        Some(items) => Value::List(items.split(',').map(|s| unquote(s.trim())).filter(|s| !s.is_empty()).collect()),
+        None => Value::Text(unquote(value)),
+    }
 }
 
 fn unquote(s: &str) -> String {
@@ -43,7 +60,7 @@ fn unquote(s: &str) -> String {
     if quoted { s[1..s.len() - 1].to_string() } else { s.to_string() }
 }
 
-/// Renders a markdown file's YAML front matter as a table of its fields, like the reference preview.
+/// Renders a markdown file's YAML or TOML front matter as a table of its fields, like the reference preview.
 pub struct Frontmatter;
 
 impl MarkdownPlugin for Frontmatter {
@@ -56,9 +73,15 @@ impl MarkdownPlugin for Frontmatter {
     }
 
     fn parse(&self, node: &mdast::Node, cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
-        let mdast::Node::Yaml(yaml) = node else { return None };
-        let fields = fields(&yaml.value).filter(|f| !f.is_empty())?;
-        Some(MarkdownNode::new("frontmatter", fields).text(yaml.value.clone()).markdown(cx.node_source(node).unwrap_or(&yaml.value).to_string()))
+        let (fields, raw) = match node {
+            mdast::Node::Yaml(yaml) => (fields(&yaml.value)?, &yaml.value),
+            mdast::Node::Toml(toml) => (toml_fields(&toml.value), &toml.value),
+            _ => return None,
+        };
+        if fields.is_empty() {
+            return None;
+        }
+        Some(MarkdownNode::new("frontmatter", fields).text(raw.clone()).markdown(cx.node_source(node).unwrap_or(raw).to_string()))
     }
 
     fn render(&self, node: &MarkdownNode, _: &mut Window, _: &mut App) -> impl IntoElement {
@@ -73,6 +96,7 @@ impl MarkdownPlugin for Frontmatter {
                     .px(px(em * 0.95 * 0.7))
                     .py(px(em * 0.95 * 0.08))
                     .mr(px(em * 0.95 * 0.4))
+                    .mb(px(em * 0.95 * 0.2))
                     .rounded_full()
                     .bg(Hsla::from(MD_LINK).opacity(0.12))
                     .text_color(MD_LINK)
@@ -92,7 +116,7 @@ impl MarkdownPlugin for Frontmatter {
 
 #[cfg(test)]
 mod tests {
-    use super::{Value, fields};
+    use super::{Value, fields, toml_fields};
 
     fn text(s: &str) -> Value {
         Value::Text(s.into())
@@ -123,6 +147,12 @@ mod tests {
     #[test]
     fn a_nested_mapping_keeps_its_lines() {
         assert_eq!(fields("author:\n  name: Ann\n  mail: a@b").unwrap(), [("author".into(), text("name: Ann\nmail: a@b"))]);
+    }
+
+    #[test]
+    fn toml_keeps_its_top_level_keys_and_lists() {
+        let list = Value::List(vec!["a".into(), "b".into()]);
+        assert_eq!(toml_fields("# c\ntitle = \"Hi\"\ntags = [\"a\", 'b']\n\n[extra]\nnote"), [("title".into(), text("Hi")), ("tags".into(), list)]);
     }
 
     #[test]

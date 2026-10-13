@@ -65,6 +65,8 @@ pub(crate) enum BlockNode {
         /// Only contains ListItem, others will be ignored
         children: Vec<BlockNode>,
         ordered: bool,
+        /// The first item's number, when ordered.
+        start: u64,
         span: Option<Span>,
     },
     ListItem {
@@ -189,12 +191,15 @@ impl BlockNode {
                 }
             }
             BlockNode::List {
-                children, ordered, ..
+                children,
+                ordered,
+                start,
+                ..
             } => {
                 if matches!(kind, BlockTextKind::SelectedSource) {
                     // Reconstruct the list source, indenting nested lists and
                     // restoring list markers and task-list checkboxes.
-                    text.push_str(&list_selected_source(children, *ordered, ""));
+                    text.push_str(&list_selected_source(children, *ordered, *start, ""));
                 } else {
                     text.push_str(&Self::children_text(children, kind));
                 }
@@ -934,7 +939,7 @@ fn table_selected_source(table: &Table) -> String {
 /// and sub-list lines align under the item text. Items with no selected content
 /// are skipped but still consume an ordered number, so the remaining items keep
 /// their original numbering.
-fn list_selected_source(children: &[BlockNode], ordered: bool, indent: &str) -> String {
+fn list_selected_source(children: &[BlockNode], ordered: bool, start: u64, indent: &str) -> String {
     let mut out = String::new();
     let mut item_ix = 0usize;
 
@@ -949,7 +954,7 @@ fn list_selected_source(children: &[BlockNode], ordered: bool, indent: &str) -> 
         };
 
         let marker = if ordered {
-            format!("{}. ", item_ix + 1)
+            format!("{}. ", start + item_ix as u64)
         } else {
             "- ".to_string()
         };
@@ -968,12 +973,14 @@ fn list_selected_source(children: &[BlockNode], ordered: bool, indent: &str) -> 
             if let BlockNode::List {
                 children: sub_children,
                 ordered: sub_ordered,
+                start: sub_start,
                 ..
             } = sub
             {
                 nested.push_str(&list_selected_source(
                     sub_children,
                     *sub_ordered,
+                    *sub_start,
                     &child_indent,
                 ));
             } else {
@@ -1540,11 +1547,11 @@ impl CodeBlock {
         self.lang.clone()
     }
 
-    /// The name its header shows: the language, else `code` for a fence
+    /// The name its header shows: the language in lowercase, else `code` for a fence
     /// without one and `text` for an indented block.
     pub fn label(&self) -> SharedString {
         match &self.lang {
-            Some(lang) => lang.clone(),
+            Some(lang) => lang.to_lowercase().into(),
             None if self.fenced => "code".into(),
             None => "text".into(),
         }
@@ -2426,6 +2433,7 @@ struct ListMetrics {
 fn render_list(
     items: &[BlockNode],
     ordered: bool,
+    start: u64,
     metrics: ListMetrics,
     node_cx: &NodeContext,
     window: &mut Window,
@@ -2475,7 +2483,7 @@ fn render_list(
                     .pr(font_size * 0.26)
                     .whitespace_nowrap()
                     .text_color(style.link())
-                    .child(format!("{}.", n + 1)),
+                    .child(format!("{}.", start + n as u64)),
                 None => div()
                     .absolute()
                     .left(-(font_size * 1.15))
@@ -2693,13 +2701,16 @@ impl BlockNode {
                     .join("\n")
             }
             BlockNode::List {
-                children, ordered, ..
+                children,
+                ordered,
+                start,
+                ..
             } => children
                 .iter()
                 .enumerate()
                 .map(|(i, child)| {
                     let prefix = if *ordered {
-                        format!("{}. ", i + 1)
+                        format!("{}. ", start + i as u64)
                     } else {
                         "- ".to_string()
                     };
@@ -3162,6 +3173,7 @@ impl BlockNode {
                     .child(render_list(
                         children,
                         true,
+                        1,
                         ListMetrics {
                             indent: font_size * 1.45,
                             item_gap: font_size * 0.72,
@@ -3176,10 +3188,14 @@ impl BlockNode {
                     .into_any_element()
             }
             BlockNode::List {
-                children, ordered, ..
+                children,
+                ordered,
+                start,
+                ..
             } => render_list(
                 children,
                 *ordered,
+                *start,
                 ListMetrics {
                     indent: font_size * 2.1,
                     item_gap: style.paragraph_gap().to_pixels(rem_size) * 0.25,
@@ -3629,6 +3645,7 @@ mod tests {
     fn unordered_list_selected_source_prefixes_dash() {
         let list = BlockNode::List {
             ordered: false,
+            start: 1,
             span: None,
             children: vec![
                 BlockNode::ListItem {
@@ -3655,6 +3672,7 @@ mod tests {
     fn ordered_list_selected_source_prefixes_numbers() {
         let list = BlockNode::List {
             ordered: true,
+            start: 1,
             span: None,
             children: vec![
                 BlockNode::ListItem {
@@ -3684,6 +3702,7 @@ mod tests {
         // - two
         let nested = BlockNode::List {
             ordered: false,
+            start: 1,
             span: None,
             children: vec![BlockNode::ListItem {
                 children: vec![BlockNode::Paragraph(selected_paragraph("nested"))],
@@ -3694,6 +3713,7 @@ mod tests {
         };
         let list = BlockNode::List {
             ordered: false,
+            start: 1,
             span: None,
             children: vec![
                 BlockNode::ListItem {
@@ -3720,6 +3740,7 @@ mod tests {
     fn task_list_selected_source_restores_checkboxes() {
         let list = BlockNode::List {
             ordered: false,
+            start: 1,
             span: None,
             children: vec![
                 BlockNode::ListItem {
@@ -3998,6 +4019,7 @@ mod tests {
                 BlockNode::Paragraph(selected_paragraph("start")),
                 BlockNode::List {
                     ordered: true,
+                    start: 1,
                     children: vec![],
                     span: Some(Span {
                         start: list_start,
@@ -4140,6 +4162,7 @@ mod tests {
                 selected_code_block("let x = 1;\n", Some("rust")),
                 BlockNode::List {
                     ordered: true,
+                    start: 1,
                     span: None,
                     children: vec![
                         BlockNode::ListItem {

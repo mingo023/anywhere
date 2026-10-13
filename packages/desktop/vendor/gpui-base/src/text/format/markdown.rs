@@ -456,7 +456,12 @@ fn superscript(number: usize) -> String {
     number
         .to_string()
         .chars()
-        .map(|digit| "⁰¹²³⁴⁵⁶⁷⁸⁹".chars().nth(digit as usize - '0' as usize).unwrap())
+        .map(|digit| {
+            "⁰¹²³⁴⁵⁶⁷⁸⁹"
+                .chars()
+                .nth(digit as usize - '0' as usize)
+                .unwrap()
+        })
         .collect()
 }
 
@@ -571,6 +576,7 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
                 .collect();
             BlockNode::List {
                 ordered: list.ordered,
+                start: list.start.map_or(1, u64::from),
                 children,
                 span: new_span(list.position, cx),
             }
@@ -1297,5 +1303,28 @@ mod tests {
             })
             .collect();
         assert_eq!(labels, vec!["code", "text"]);
+    }
+
+    #[test]
+    fn a_code_block_is_labelled_by_its_language_in_lowercase() {
+        let mut cx = NodeContext::default();
+        let document = parse("```Swift\nlet a = 1\n```", &mut cx).unwrap();
+
+        match &document.blocks[0] {
+            BlockNode::CodeBlock(code) => assert_eq!(code.label(), "swift"),
+            other => panic!("expected code block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_ordered_list_counts_from_its_first_number() {
+        let mut cx = NodeContext::default();
+        let document = parse("3. three\n4. four", &mut cx).unwrap();
+
+        let markdown = document.blocks[0].to_markdown();
+        assert!(
+            markdown.starts_with("3. three") && markdown.contains("\n4. four"),
+            "{markdown:?}"
+        );
     }
 }
