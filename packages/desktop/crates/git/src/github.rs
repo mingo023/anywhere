@@ -1,4 +1,6 @@
 use serde_json::Value;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Pr {
@@ -411,8 +413,10 @@ fn author(author: &Value) -> String {
     author["login"].as_str().unwrap_or("ghost").to_string()
 }
 
+/// The latest run of each check: re-running one, as a label change does, adds a run on the same head and leaves the old one in the rollup.
 fn runs(rollup: &Value) -> Vec<Check> {
     let mut runs = Vec::new();
+    let mut latest: HashMap<(String, String), (usize, u64)> = HashMap::new();
     for check in rollup.as_array().into_iter().flatten() {
         let field = |k: &str| check[k].as_str().unwrap_or("");
         // Commit statuses carry `state`; check runs carry `status` and `conclusion`.
@@ -432,7 +436,20 @@ fn runs(rollup: &Value) -> Vec<Check> {
             };
             (outcome, field("name"), field("detailsUrl"))
         };
-        runs.push(Check { name: name.to_string(), outcome, url: url.to_string() });
+        // A queued run has no start yet and is the newest.
+        let started = epoch_ms(field("startedAt")).unwrap_or(u64::MAX);
+        let run = Check { name: name.to_string(), outcome, url: url.to_string() };
+        match latest.entry((field("workflowName").to_string(), name.to_string())) {
+            Entry::Occupied(mut e) if started >= e.get().1 => {
+                runs[e.get().0] = run;
+                e.get_mut().1 = started;
+            }
+            Entry::Occupied(_) => {}
+            Entry::Vacant(e) => {
+                e.insert((runs.len(), started));
+                runs.push(run);
+            }
+        }
     }
     runs
 }
@@ -502,6 +519,24 @@ mod tests {
         assert_eq!(pr.reviews, [("babakks".to_string(), Review::Approved), ("andyfeller".to_string(), Review::ChangesRequested)]);
         assert_eq!(pr.requested, ["williammartin", "cli"]);
         assert_eq!((pr.base.as_str(), pr.head.as_str()), ("bagtoad/artifact-skill-docs", "5f85ec828f6d2fe28d81ba71a61b8a2181edfb6a"));
+    }
+
+    /// `gh pr view` on mingo023/anywhere#53 after adding a label re-ran `type-label` on the same head.
+    const RERUN: &str = r#"{"isDraft":false,"number":53,"state":"OPEN","title":"t","url":"u","statusCheckRollup":[
+        {"__typename":"CheckRun","completedAt":"2026-10-14T14:44:07Z","conclusion":"FAILURE","detailsUrl":"https://github.com/mingo023/anywhere/actions/runs/38583145528/job/115918020001","name":"type-label","startedAt":"2026-10-14T14:44:04Z","status":"COMPLETED","workflowName":"PR type label"},
+        {"__typename":"CheckRun","completedAt":"2026-10-14T14:45:01Z","conclusion":"SUCCESS","detailsUrl":"https://github.com/mingo023/anywhere/actions/runs/38583280097/job/115918493199","name":"type-label","startedAt":"2026-10-14T14:44:58Z","status":"COMPLETED","workflowName":"PR type label"},
+        {"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"","name":"build","startedAt":"2026-10-14T14:44:04Z","status":"COMPLETED","workflowName":"CI"},
+        {"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"","name":"build","startedAt":"0001-01-01T00:00:00Z","status":"QUEUED","workflowName":"CI"},
+        {"__typename":"CheckRun","completedAt":"2026-10-14T14:44:07Z","conclusion":"FAILURE","detailsUrl":"","name":"build","startedAt":"2026-10-14T14:44:04Z","status":"COMPLETED","workflowName":"Release"}
+    ]}"#;
+
+    #[test]
+    fn a_rerun_check_counts_only_its_latest_run() {
+        let pr = view_result(Ok(RERUN.into())).unwrap().unwrap();
+        let runs: Vec<_> = pr.runs.iter().map(|r| (r.name.as_str(), r.outcome)).collect();
+        assert_eq!(runs, [("type-label", Outcome::Passed), ("build", Outcome::Pending), ("build", Outcome::Failed)]);
+        assert_eq!(pr.runs[0].url, "https://github.com/mingo023/anywhere/actions/runs/38583280097/job/115918493199");
+        assert_eq!(pr.checks, Checks { passed: 1, failed: 1, pending: 1 });
     }
 
     #[test]
