@@ -105,12 +105,12 @@ pub(crate) fn runs(text: &str, words: &[String]) -> Vec<Range<usize>> {
     merged
 }
 
-fn marked(text: String, words: &[String]) -> StyledText {
+pub(crate) fn marked(text: String, words: &[String]) -> StyledText {
     let marks: Vec<(Range<usize>, HighlightStyle)> = runs(&text, words).into_iter().map(|r| (r, HighlightStyle { color: Some(ACCENT.into()), ..Default::default() })).collect();
     StyledText::new(text).with_highlights(marks)
 }
 
-fn hint(keys: &str, label: &str) -> Div {
+pub(crate) fn hint(keys: &str, label: &str) -> Div {
     div().flex().items_center().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).child(keys.to_string())).child(label.to_string())
 }
 

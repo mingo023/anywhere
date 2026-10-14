@@ -338,7 +338,8 @@ pub const MD_LINK: Token = Token::new(0x0068daff, 0x419cffff);
 pub const MD_ASIDE: Token = Token::new(0xf5f5f7ff, 0x323232ff);
 pub const MD_CODE_BG: Token = Token::new(0xf9f9f9ff, 0x262626ff);
 pub const MD_CODE_BORDER: Token = Token::new(0xf0f0f0ff, 0x323232ff);
-pub const MD_PAGE: Token = Token::new(0xffffffff, 0x1e1e1eff);
+/// Clear in dark, unlike the reference, so the window's glass shows through as it does behind every other pane.
+pub const MD_PAGE: Token = Token::new(0xffffffff, 0x00000000);
 
 /// Xcode's default syntax colours, which the markdown preview's code blocks use whatever the chosen syntax theme.
 pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {

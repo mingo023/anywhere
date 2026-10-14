@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 137] = [
+const STEPS: [(&str, Step); 138] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -73,7 +73,8 @@ const STEPS: [(&str, Step); 137] = [
             d.open_file(path, false, cx);
         }
     }),
-    ("pill", |d, _, _| d.chat.pill = Some((d.focused_pane(), point(px(420.), px(260.))))),
+    ("pill", |d, _, _| d.chat.pill = Quote::prose("README.md", "", "Add to chat").map(|q| (point(px(420.), px(260.)), q))),
+    ("chat-menu", |d, window, cx| d.open_chat_menu(window, cx)),
     ("ask-file", |d, _, _| {
         let pane = d.focused_pane();
         let Some((path, text)) = d.preview.pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };

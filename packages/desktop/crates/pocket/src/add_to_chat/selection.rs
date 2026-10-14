@@ -22,19 +22,10 @@ impl Desktop {
         if self.chat.file.is_some() {
             return;
         }
-        let pill = self.has_selection(pane, cx).then_some((pane, at));
+        let pill = self.selection_quote(pane, cx).map(|(quote, _)| (at, quote));
         if pill != self.chat.pill {
             self.chat.pill = pill;
             cx.notify();
-        }
-    }
-
-    fn has_selection(&self, pane: PaneId, cx: &App) -> bool {
-        let Some(views) = self.preview.pane(pane).and_then(|f| f.views.as_ref()) else { return false };
-        match self.preview.body(pane) {
-            View::Code => !views.code.read(cx).selected_range().is_empty(),
-            View::Markdown => !views.md.read(cx).selected_text().trim().is_empty(),
-            _ => false,
         }
     }
 
@@ -42,15 +33,19 @@ impl Desktop {
     fn selection_quote(&self, pane: PaneId, cx: &App) -> Option<(Quote, Option<Point<Pixels>>)> {
         let f = self.preview.pane(pane)?;
         let (file, views) = (f.file.as_deref()?, f.views.as_ref()?);
-        let path = self.cwd().map_or_else(|| file.to_string(), |root| relative(file, &root));
+        let path = || self.cwd().map_or_else(|| file.to_string(), |root| relative(file, &root));
         match self.preview.body(pane) {
             View::Code => {
                 let code = views.code.read(cx);
                 let range = code.selected_range();
+                // Every click lands here, and `value` copies the whole file.
+                if range.is_empty() {
+                    return None;
+                }
                 let near = code.range_to_bounds(&range).map(|b| b.bottom_left());
-                Some((Quote::code(&path, &code.value(), range)?, near))
+                Some((Quote::code(&path(), &code.value(), range)?, near))
             }
-            View::Markdown => Some((Quote::prose(&path, f.text()?, &views.md.read(cx).selected_text())?, None)),
+            View::Markdown => Some((Quote::prose(&path(), f.text()?, &views.md.read(cx).selected_text())?, None)),
             _ => None,
         }
     }
@@ -58,7 +53,11 @@ impl Desktop {
     pub(crate) fn ask_about_text(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         let pill = self.chat.pill.take();
         let Some((quote, near)) = self.selection_quote(pane, cx) else { return cx.notify() };
-        let at = pill.map(|(_, at)| at).or(near).unwrap_or_else(|| window.mouse_position());
+        let at = pill.map(|(at, _)| at).or(near).unwrap_or_else(|| window.mouse_position());
+        self.ask_about(at, quote, window, cx);
+    }
+
+    fn ask_about(&mut self, at: Point<Pixels>, quote: Quote, window: &mut Window, cx: &mut Context<Self>) {
         self.diff.cancel_draft();
         (self.chat.file, self.chat.menu) = (Some((at, quote)), false);
         self.chat.input.update(cx, |s, cx| {
@@ -69,7 +68,7 @@ impl Desktop {
     }
 
     pub(crate) fn chat_pill(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (pane, at) = self.chat.pill?;
+        let at = self.chat.pill.as_ref()?.0;
         let pill = div()
             .id("chat-pill")
             .h(px(36.))
@@ -86,7 +85,11 @@ impl Desktop {
             .child(ui::kbd("⌘L"))
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.ask_about_text(pane, window, cx)))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                if let Some((at, quote)) = this.chat.pill.take() {
+                    this.ask_about(at, quote, window, cx);
+                }
+            }))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.chat.pill = None;
                 cx.notify();
@@ -96,7 +99,7 @@ impl Desktop {
 
     pub(crate) fn chat_popover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (at, quote) = self.chat.file.as_ref()?;
-        let card = self.chat_card(quote, true, cx).w(px(420.)).bg(POPOVER).occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| {
+        let card = self.chat_card(quote, true, cx).w(px(420.)).occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| {
             // The agent menu floats outside the card, so a press in it lands here too.
             if !this.chat.menu {
                 this.cancel_chat(window, cx);

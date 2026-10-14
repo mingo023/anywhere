@@ -12,11 +12,10 @@ use crate::sidebar::in_tree;
 use crate::status::{Card, Kind, Status};
 use crate::syntax::language_for;
 use crate::util::basename;
-use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
 use std::ops::Range;
 use std::time::Duration;
-use workspace::tree::PaneId;
 use workspace::{Doc, Tab};
 
 const ADDED_TOAST: Duration = Duration::from_millis(2600);
@@ -194,8 +193,12 @@ pub struct ChatComposer {
     /// The agent picked in the menu; the default applies while it can't take a quote.
     pub(crate) target: Option<String>,
     pub(crate) menu: bool,
-    /// The pane whose file has text selected, and where the "Add to chat" pill shows.
-    pub(crate) pill: Option<(PaneId, Point<Pixels>)>,
+    /// The menu's filter, the row its arrows are on, and its list's scroll.
+    pub(crate) search: Entity<InputState>,
+    pub(crate) highlight: usize,
+    pub(crate) scroll: ScrollHandle,
+    /// Where the "Add to chat" pill shows, and the selection it quotes: pressing the pill clears a markdown selection.
+    pub(crate) pill: Option<(Point<Pixels>, Quote)>,
     /// A file selection being asked about, and where its composer floats.
     pub(crate) file: Option<(Point<Pixels>, Quote)>,
     /// The provider last added to, confirmed in a toast until its timer hides it.
@@ -205,12 +208,21 @@ pub struct ChatComposer {
 impl ChatComposer {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Ask about this selection…").rows(2));
-        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
-            if let InputEvent::PressEnter { secondary: true, .. } = ev {
-                this.add_to_input(window, cx);
-            }
-        })];
-        (Self { input, target: None, menu: false, pill: None, file: None, added: None }, subs)
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Send to…"));
+        let subs = vec![
+            cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { secondary: true, .. } = ev {
+                    this.add_to_input(window, cx);
+                }
+            }),
+            cx.subscribe(&search, |this, _, ev: &InputEvent, cx| {
+                if let InputEvent::Change = ev {
+                    this.reset_chat_highlight(cx);
+                    cx.notify();
+                }
+            }),
+        ];
+        (Self { input, target: None, menu: false, search, highlight: 0, scroll: ScrollHandle::new(), pill: None, file: None, added: None }, subs)
     }
 }
 
