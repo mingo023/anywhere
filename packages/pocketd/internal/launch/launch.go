@@ -5,6 +5,7 @@ package launch
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -452,6 +453,7 @@ func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 }
 
 // account is the env that runs provider on account id, "" being its default.
+// It first links a managed account to the user's own config.
 func (l *Launcher) account(provider, id string) ([]string, *Failure) {
 	if l.d.Accounts == nil {
 		return nil, nil
@@ -459,6 +461,9 @@ func (l *Launcher) account(provider, id string) ([]string, *Failure) {
 	id, err := l.d.Accounts.Resolve(provider, id)
 	if err != nil {
 		return nil, fail(proto.CodeUnknownAccount, err.Error())
+	}
+	if err := l.d.Accounts.Share(provider, id); err != nil {
+		log.Printf("accounts: sharing %s config with %s: %v", provider, id, err)
 	}
 	return l.d.Accounts.Env(provider, id), nil
 }

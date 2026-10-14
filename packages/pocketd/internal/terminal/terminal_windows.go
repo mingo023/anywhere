@@ -87,10 +87,16 @@ func (s *Terminal) group() (int, error) { return s.proc.Pid, nil }
 // stop hangs up the console, so its programs get CTRL_CLOSE_EVENT, then
 // kills the whole tree after grace.
 func (s *Terminal) stop(grace time.Duration) {
-	s.pty.Hangup()
+	s.mu.Lock()
+	c := s.pty
+	s.mu.Unlock()
+	c.Hangup()
 	select {
 	case <-s.done:
 	case <-time.After(grace):
-		s.pty.Kill()
+		c.Kill()
 	}
 }
+
+// endSession ends the console a Replace left behind.
+func endSession(c console, _ *os.Process) { c.Kill() }

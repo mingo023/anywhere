@@ -72,6 +72,7 @@ type Terminal struct {
 	osc    scanner
 	last   *Report
 	report func(id string, r Report)
+	exit   func() // forgets the Terminal once its process ends
 }
 
 type Manager struct {
@@ -135,11 +136,12 @@ func (m *Manager) start(s *Terminal) {
 	m.mu.Lock()
 	m.terminals[s.info.ID] = s
 	m.mu.Unlock()
-	go s.pump(func() {
+	s.exit = func() {
 		m.mu.Lock()
 		delete(m.terminals, s.info.ID)
 		m.mu.Unlock()
-	})
+	}
+	go s.pump(s.pty, s.proc)
 }
 
 // Adopted is a Terminal the image before exec handed down.
@@ -220,13 +222,19 @@ func (s *Terminal) replyToQuery(b []byte) {
 	s.pty.Write(b)
 }
 
-func (s *Terminal) pump(onExit func()) {
+// pump reads f until it ends. A Replace that swapped f out makes it stop
+// quietly: the Terminal lives on in the new process.
+func (s *Terminal) pump(f console, p *os.Process) {
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := s.pty.Read(buf)
+		n, err := f.Read(buf)
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
 			s.mu.Lock()
+			if s.pty != f {
+				s.mu.Unlock()
+				break
+			}
 			reports, query := s.osc.feed(chunk)
 			for _, r := range reports {
 				if r.State == "clear" {
@@ -256,12 +264,20 @@ func (s *Terminal) pump(onExit func()) {
 		}
 	}
 	code := -1
-	if st, err := s.proc.Wait(); err == nil {
+	if st, err := p.Wait(); err == nil {
 		code = st.ExitCode()
 	}
-	onExit()
 	s.mu.Lock()
+	if s.pty != f {
+		s.mu.Unlock()
+		f.Close()
+		return
+	}
 	s.closed = true
+	// exit takes Manager.mu, which Roots holds while it reads Pid under s.mu.
+	s.mu.Unlock()
+	s.exit()
+	s.mu.Lock()
 	s.code = code
 	s.broadcast(Event{Kind: "exit", Code: s.code})
 	s.vt.Free()
@@ -383,7 +399,11 @@ func (s *Terminal) TakeOrigin() string {
 	return o
 }
 
-func (s *Terminal) Pid() int { return s.proc.Pid }
+func (s *Terminal) Pid() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.proc.Pid
+}
 
 func (s *Terminal) Pgrp() (int, error) {
 	s.mu.Lock()
@@ -425,8 +445,44 @@ func (s *Terminal) Write(b []byte) error {
 	if s.input != nil {
 		s.input(s.info.ID, b)
 	}
-	_, err := s.pty.Write(b)
+	s.mu.Lock()
+	f := s.pty
+	s.mu.Unlock()
+	_, err := f.Write(b)
 	return err
+}
+
+// Replace ends the Terminal's session and runs cmd in its place, keeping the
+// id, the size and whoever is attached. Attached screens are reset, and no
+// exit is reported for the old process. A closed or paused Terminal refuses,
+// and the old session stays as it was when cmd doesn't start.
+func (s *Terminal) Replace(cmd string, args, env []string) error {
+	bin, err := LookPath(cmd, env)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosed
+	}
+	if s.resume != nil {
+		return fmt.Errorf("terminal %s: paused", s.info.ID)
+	}
+	f, p, err := start(bin, Spec{Cmd: cmd, Args: args, Cwd: s.info.Cwd, Env: env, Cols: s.info.Cols, Rows: s.info.Rows})
+	if err != nil {
+		return err
+	}
+	oldPty, oldProc := s.pty, s.proc
+	s.pty, s.proc = f, p
+	s.info.Cmd, s.info.Args = cmd, args
+	s.last, s.osc = nil, scanner{}
+	reset := []byte("\x1bc") // RIS: the new process starts on a blank screen
+	s.vt.Write(reset)
+	s.broadcast(Event{Kind: "output", Data: reset})
+	go endSession(oldPty, oldProc)
+	go s.pump(f, p)
+	return nil
 }
 
 // Prompt types text, then Enter. TUIs treat a fast "text\r" burst as a paste

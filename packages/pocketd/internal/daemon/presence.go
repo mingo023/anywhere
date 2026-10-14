@@ -106,9 +106,16 @@ func (d *Daemon) place(pr *presence) {
 	pr.a.SetLocation(p.Project, p.Worktree, p.Branch, p.Main)
 }
 
+// cleared is a turn the user stopped: it ends like any other, so the agent may move.
+func (d *Daemon) cleared(pr *presence) {
+	pr.a.Clear()
+	go d.Follow(pr.provider)
+}
+
 func (d *Daemon) turnEnded(pr *presence, failed bool) {
 	pr.a.TurnEnded(failed)
 	d.place(pr)
+	go d.Follow(pr.provider)
 }
 
 // ClaudeAttachWait is how long a new claude has to send its SessionStart.
@@ -198,6 +205,7 @@ func (d *Daemon) endAgent(pr *presence) {
 	delete(d.present, id)
 	d.unwatch(pr.sock)
 	h := d.restoring[id]
+	moving := h != nil && h.moved && h.pr == nil && h.a == pr.a
 	if h != nil && h.pr == pr {
 		h.pr = nil
 	} else {
@@ -205,7 +213,9 @@ func (d *Daemon) endAgent(pr *presence) {
 	}
 	d.mu.Unlock()
 	pr.cancel()
-	pr.t.ClearProgram()
+	if !moving {
+		pr.t.ClearProgram()
+	}
 	pr.mu.Lock()
 	if pr.stopTail != nil {
 		pr.stopTail()
@@ -214,6 +224,9 @@ func (d *Daemon) endAgent(pr *presence) {
 		pr.unfollow()
 	}
 	pr.mu.Unlock()
+	if moving {
+		return
+	}
 	d.Broker.DenyAll(pr.a.ID())
 	if h == nil {
 		d.Agents.Remove(pr.a.ID())

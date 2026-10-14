@@ -72,11 +72,17 @@ func (d *Daemon) Spawn(m ops.Msg) (*terminal.Terminal, error) {
 }
 
 func (d *Daemon) spawn(spec terminal.Spec) (*terminal.Terminal, error) {
-	if spec.Env == nil {
-		spec.Env = d.LoginEnv()
-	}
-	spec.Env = d.Env(d.GhEnv(spec.Env, spec.Cwd), spec.ID, spec.Local)
+	spec.Env = d.terminalEnv(spec)
 	return d.Terminals.Spawn(spec)
+}
+
+// terminalEnv is the environment a process in spec's Terminal starts with.
+func (d *Daemon) terminalEnv(spec terminal.Spec) []string {
+	env := spec.Env
+	if env == nil {
+		env = d.LoginEnv()
+	}
+	return d.Env(d.GhEnv(env, spec.Cwd), spec.ID, spec.Local)
 }
 
 func (d *Daemon) Recapture() {

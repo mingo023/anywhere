@@ -119,8 +119,13 @@ func (s *Terminal) group() (int, error) { return proc.Foreground(s.pty) }
 // stop signals every process group in the shell's session: job-control jobs
 // get their own groups, and nohup'd children ignore the pty's SIGHUP.
 // SIGHUP goes with SIGTERM because an interactive shell ignores SIGTERM.
-func (s *Terminal) stop(grace time.Duration) {
-	sid := s.Pid()
+func (s *Terminal) stop(grace time.Duration) { stopSession(s.Pid(), grace) }
+
+// endSession ends the session a Replace left behind, without a grace period:
+// its shell must not get to report the agent's exit.
+func endSession(_ console, p *os.Process) { stopSession(p.Pid, 0) }
+
+func stopSession(sid int, grace time.Duration) {
 	signal := func(sigs ...syscall.Signal) {
 		pgids, err := proc.Session(sid)
 		if err != nil {

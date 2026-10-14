@@ -76,7 +76,7 @@ impl Desktop {
             .text_size(px(12.))
             .line_height(px(16.))
             .text_color(TEXT_3)
-            .child("New agents start on the selected account. Usage is checked every 5 minutes while Anywhere is open.");
+            .child("Agents start on the selected account, and running ones move to it when idle. Usage is checked every 5 minutes while Anywhere is open.");
         div().flex().flex_col().gap(px(22.)).child(toolbar).children(groups.collect::<Vec<_>>()).child(caption)
     }
 
@@ -144,7 +144,8 @@ impl Desktop {
         };
         let open = self.accounts.menu.as_ref() == Some(&key);
         let toggle = key.clone();
-        let more = ui::icon_button_sized(SharedString::from(format!("{id}-more")), "more", 26., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let more = ui::icon_button_sized(SharedString::from(format!("{id}-more")), "more", 26., TEXT_3).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+            cx.stop_propagation();
             this.accounts.menu = (!open).then(|| toggle.clone());
             cx.notify();
         }));
@@ -189,7 +190,11 @@ impl Desktop {
         };
         let why = why.map(|w| div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child(w));
         let rows = div().children(rename).when(a.id != BUILT_IN, |d| d.child(ui::menu_divider())).child(sign).child(remove).children(why);
-        ui::menu_in(SharedString::from(format!("{id}-menu-in")), ui::pop(div()).min_w(px(220.)).p(px(4.)).flex().flex_col().child(rows))
+        let menu = ui::pop(div()).min_w(px(220.)).p(px(4.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.accounts.menu = None;
+            cx.notify();
+        }));
+        ui::menu_in(SharedString::from(format!("{id}-menu-in")), menu.child(rows))
     }
 
     /// A sign-in still running in its terminal, or the reason it failed.

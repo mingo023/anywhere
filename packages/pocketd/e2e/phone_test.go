@@ -35,6 +35,7 @@ type Message struct {
 		Title             string `json:"title"`
 		Branch            string `json:"branch"`
 		Attached          bool   `json:"attached"`
+		Account           string `json:"account"`
 	} `json:"agent"`
 	Agents []struct {
 		ID      string `json:"id"`

@@ -35,6 +35,9 @@ type session struct {
 func start() *session {
 	cwd, _ := os.Getwd()
 	s := &session{id: uuid(), cwd: cwd, hooks: pluginHooks()}
+	if i := slices.Index(os.Args, "--resume"); i > 0 && i+1 < len(os.Args) {
+		s.id = os.Args[i+1]
+	}
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
 		slug := regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cwd, "-")
 		s.transcript = filepath.Join(dir, "projects", slug, s.id+".jsonl")
