@@ -252,6 +252,7 @@ impl Desktop {
         self.save_soon(cx);
         self.refresh_git(cx);
         self.load_shown_repo(cx);
+        self.load_explorer_root(cx);
     }
 
     pub(crate) fn set_appearance(&mut self, appearance: WindowAppearance, window: &mut Window, cx: &mut Context<Self>) {
@@ -298,6 +299,7 @@ impl Desktop {
             self.worktree = tree;
             self.refresh_git(cx);
             self.load_shown_repo(cx);
+            self.load_explorer_root(cx);
             self.load_active(cx);
         }
         cx.notify();
