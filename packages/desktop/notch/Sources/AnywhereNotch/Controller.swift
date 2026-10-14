@@ -75,6 +75,10 @@ final class Controller: ObservableObject {
         settle { $0.answer(answer) }
     }
 
+    func send(_ text: String) {
+        settle { $0.send(text) }
+    }
+
     func pick(_ label: String) {
         settle { $0.pick(label) }
     }

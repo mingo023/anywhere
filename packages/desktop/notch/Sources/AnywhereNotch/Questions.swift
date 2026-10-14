@@ -67,7 +67,7 @@ struct Questions: View {
     private func footer(_ question: Question) -> some View {
         HStack(spacing: 6) {
             if ask.feedback {
-                Button("Reply instead…", action: controller.reply)
+                Button("Other…", action: controller.reply)
                     .buttonStyle(Pill(fill: .clear, hover: .clear, ink: .ink2, hoverInk: .ink, padding: 6))
             }
             Spacer(minLength: 0)

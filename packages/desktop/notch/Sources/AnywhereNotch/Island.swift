@@ -65,6 +65,13 @@ struct Picks: Equatable {
         }
     }
 
+    /// Answers the showing question with `text` in place of its options, as Claude's own dialog's "Other" does, and moves on.
+    mutating func type(_ text: String) {
+        guard question != nil else { return }
+        chosen[page] = [text]
+        next()
+    }
+
     mutating func next() {
         if isAnswered { page += 1 }
     }
@@ -73,11 +80,12 @@ struct Picks: Equatable {
         if page > 0 { page -= 1 }
     }
 
-    /// Keyed by question; a multi-select's labels in the options' order, joined as Claude's own dialog does.
+    /// Keyed by question; a multi-select's labels in the options' order, then any typed answer, joined as Claude's own dialog does.
     var answers: [String: String] {
         var out: [String: String] = [:]
         for (q, labels) in zip(questions, chosen) {
-            out[q.question] = q.options.map(\.label).filter(labels.contains).joined(separator: ", ")
+            let options = q.options.map(\.label)
+            out[q.question] = (options.filter(labels.contains) + labels.filter { !options.contains($0) }).joined(separator: ", ")
         }
         return out
     }
@@ -149,6 +157,17 @@ struct Island: Equatable {
     mutating func pick(_ label: String) -> Ask? {
         guard stage == .open else { return nil }
         picks.pick(label)
+        return answerIfDone()
+    }
+
+    /// Sends the reply field's `text`: on a question, its answer, answering the ask, returning it, past the last; otherwise a reply in place of allowing.
+    mutating func send(_ text: String) -> Ask? {
+        guard stage == .reply else { return nil }
+        if picks.question == nil {
+            return answer(.reply(text))
+        }
+        picks.type(text)
+        stage = .open
         return answerIfDone()
     }
 

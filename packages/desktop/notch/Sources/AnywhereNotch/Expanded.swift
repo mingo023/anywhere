@@ -22,7 +22,7 @@ struct Expanded: View {
                 Text(question.question).font(.system(size: 13, weight: .semibold)).foregroundColor(.ink).fixedSize(horizontal: false, vertical: true)
             }
             if replying {
-                ReplyField(ask: ask, send: { controller.answer(.reply($0)) }, back: controller.back)
+                ReplyField(ask: ask, send: controller.send, back: controller.back)
             } else if ask.questions.isEmpty {
                 buttons
             } else {
