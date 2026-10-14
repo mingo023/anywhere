@@ -137,7 +137,7 @@ where
     Tz::Offset: Display,
 {
     let built_in = (a.id == BUILT_IN).then(|| ("Built-in".to_string(), Tone::Plain));
-    let default = (a.default && shared).then(|| ("New sessions".to_string(), Tone::Accent));
+    let default = (a.default && shared).then(|| ("New agents".to_string(), Tone::Accent));
     let limited = limited(a).map(|at| (format!("Limited \u{b7} back {}", when(at, now, tz)), Tone::Bad));
     let out = (!a.signed_in && !never_signed_in(a)).then(|| ("Signed out".to_string(), Tone::Plain));
     let stale = a.usage.as_ref().filter(|u| a.signed_in && u.stale).map(|u| (format!("As of {}", when(u.at, now, tz)), Tone::Warn));
@@ -381,11 +381,11 @@ mod tests {
     }
 
     #[test]
-    fn new_sessions_is_tagged_only_while_there_is_another_account_to_pick() {
+    fn new_agents_is_tagged_only_while_there_is_another_account_to_pick() {
         let a = Account { default: true, ..account("claude", BUILT_IN) };
         let tags = |shared| tags(&a, shared, NOW, &Utc).into_iter().map(|(t, _)| t).collect::<Vec<_>>();
         assert_eq!(tags(false), ["Built-in"]);
-        assert_eq!(tags(true), ["Built-in", "New sessions"]);
+        assert_eq!(tags(true), ["Built-in", "New agents"]);
     }
 
     #[test]

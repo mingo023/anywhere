@@ -144,7 +144,7 @@ impl Section {
             Section::Notifications => "How agents reach you, by urgency: Needs you, Failed, Done.",
             Section::Keyboard => "Every shortcut, grouped by what it does. Click one to change it.",
             Section::Agents => "The agent providers you use, and what a new session starts with.",
-            Section::Accounts => "Claude Code and Codex sign-ins on each machine. Every session runs on one, picked in the composer.",
+            Section::Accounts => "Claude Code and Codex sign-ins on each machine, and the one new agents start on.",
             Section::Automations => "Defaults for new automations, and what happens to runs the Mac missed.",
             Section::Phone => "Pair the iPhone app and decide how much it can approve, and from where.",
             Section::Hosts => "Machines your agents run on: this Mac, and any machine you can sign in to over SSH.",

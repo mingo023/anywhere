@@ -783,6 +783,19 @@ pub fn checkbox(on: bool) -> Div {
         .when(!on, |d| d.bg(SURFACE).shadow(vec![ring(SEPARATOR_STRONG, 1.)]))
 }
 
+/// One of a set where only one is on: a filled disc with a dot when on, a ring when off.
+pub fn radio(on: bool) -> Div {
+    div()
+        .size(px(16.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .when(on, |d| d.bg(TEXT).child(div().size(px(6.)).rounded_full().bg(ON_TEXT)))
+        .when(!on, |d| d.border(px(1.5)).border_color(TEXT_5))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn change_row(
     id: impl Into<ElementId>,

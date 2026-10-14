@@ -76,7 +76,7 @@ impl Desktop {
             .text_size(px(12.))
             .line_height(px(16.))
             .text_color(TEXT_3)
-            .child("\u{201c}New sessions\u{201d} is what a project starts with until you pick another account in the composer. Usage is checked every 5 minutes while Anywhere is open.");
+            .child("New agents start on the selected account. Usage is checked every 5 minutes while Anywhere is open.");
         div().flex().flex_col().gap(px(22.)).child(toolbar).children(groups.collect::<Vec<_>>()).child(caption)
     }
 
@@ -140,8 +140,12 @@ impl Desktop {
             this.accounts.menu = (!open).then(|| toggle.clone());
             cx.notify();
         }));
-        let menu = open.then(|| self.account_menu(&id, key, a, name, cx));
-        div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(16.)).child(who).child(side).child(div().relative().flex_none().child(more).children(menu.map(|m| ui::dropdown_right(30., m))))
+        let menu = open.then(|| self.account_menu(&id, key.clone(), a, name, cx));
+        let can_default = !a.default && a.signed_in;
+        let radio = div().id(SharedString::from(format!("{id}-default"))).flex_none().child(ui::radio(a.default)).when(!a.signed_in, |d| d.opacity(0.35)).when(can_default, |d| {
+            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.account_op(key.host.clone(), key.op("accounts.default"), cx)))
+        });
+        div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(16.)).child(radio).child(who).child(side).child(div().relative().flex_none().child(more).children(menu.map(|m| ui::dropdown_right(30., m))))
     }
 
     fn account_menu(&mut self, id: &SharedString, key: Key, a: &Account, name: String, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -149,14 +153,6 @@ impl Desktop {
             let (key, name) = (key.clone(), name.clone());
             ui::menu_row(SharedString::from(format!("{id}-rename")), "pencil", "Rename", None)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_account_rename(key.clone(), name.clone(), window, cx)))
-        });
-        let can_default = !a.default && a.signed_in;
-        let default = menu_row(SharedString::from(format!("{id}-default")), "pin", if a.default { "Used for new sessions" } else { "Use for new sessions" }, can_default).when(can_default, |d| {
-            let key = key.clone();
-            d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.accounts.menu = None;
-                this.account_op(key.host.clone(), key.op("accounts.default"), cx);
-            }))
         });
         let sign = if a.signed_in {
             let (key, name) = (key.clone(), name.clone());
@@ -184,7 +180,7 @@ impl Desktop {
             })),
         };
         let why = why.map(|w| div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child(w));
-        let rows = div().children(rename).child(default).child(ui::menu_divider()).child(sign).child(remove).children(why);
+        let rows = div().children(rename).when(a.id != BUILT_IN, |d| d.child(ui::menu_divider())).child(sign).child(remove).children(why);
         ui::menu_in(SharedString::from(format!("{id}-menu-in")), ui::pop(div()).min_w(px(220.)).p(px(4.)).flex().flex_col().child(rows))
     }
 
