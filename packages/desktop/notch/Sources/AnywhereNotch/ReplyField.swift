@@ -9,7 +9,7 @@ struct ReplyField: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            TextField("Tell \(ask.name) what to do instead", text: $text)
+            TextField(ask.questions.isEmpty ? "Tell \(ask.name) what to do instead" : "Your answer", text: $text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundColor(.ink)

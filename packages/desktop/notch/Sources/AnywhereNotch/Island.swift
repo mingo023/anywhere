@@ -40,16 +40,19 @@ struct Picks: Equatable {
     let questions: [Question]
     private(set) var page = 0
     private var chosen: [[String]]
+    /// A question's typed answer, which stands in for its picks.
+    private var typed: [String?]
 
     init(_ questions: [Question]) {
         self.questions = questions
         chosen = questions.map { _ in [] }
+        typed = questions.map { _ in nil }
     }
 
     /// The question showing; nil once the last is answered.
     var question: Question? { questions.indices.contains(page) ? questions[page] : nil }
     var isLast: Bool { page == questions.count - 1 }
-    var isAnswered: Bool { question != nil && !chosen[page].isEmpty }
+    var isAnswered: Bool { question != nil && (!chosen[page].isEmpty || typed[page] != nil) }
     var isDone: Bool { !questions.isEmpty && page == questions.count }
 
     func isChosen(_ label: String) -> Bool { question != nil && chosen[page].contains(label) }
@@ -57,12 +60,21 @@ struct Picks: Equatable {
     /// Toggles `label` on a multi-select question; on another, chooses it and moves on.
     mutating func pick(_ label: String) {
         guard let question else { return }
+        typed[page] = nil
         if question.multiSelect {
             chosen[page] = chosen[page].contains(label) ? chosen[page].filter { $0 != label } : chosen[page] + [label]
         } else {
             chosen[page] = [label]
             next()
         }
+    }
+
+    /// Answers the showing question with `text` in place of its picks, as Claude's own dialog's "Other" does, and moves on.
+    mutating func write(_ text: String) {
+        guard question != nil else { return }
+        chosen[page] = []
+        typed[page] = text
+        next()
     }
 
     mutating func next() {
@@ -73,11 +85,11 @@ struct Picks: Equatable {
         if page > 0 { page -= 1 }
     }
 
-    /// Keyed by question; a multi-select's labels in the options' order, joined as Claude's own dialog does.
+    /// Keyed by question; a typed answer, or a multi-select's labels in the options' order, joined as Claude's own dialog does.
     var answers: [String: String] {
         var out: [String: String] = [:]
-        for (q, labels) in zip(questions, chosen) {
-            out[q.question] = q.options.map(\.label).filter(labels.contains).joined(separator: ", ")
+        for (i, q) in questions.enumerated() {
+            out[q.question] = typed[i] ?? q.options.map(\.label).filter(chosen[i].contains).joined(separator: ", ")
         }
         return out
     }
@@ -149,6 +161,17 @@ struct Island: Equatable {
     mutating func pick(_ label: String) -> Ask? {
         guard stage == .open else { return nil }
         picks.pick(label)
+        return answerIfDone()
+    }
+
+    /// Sends the reply field's `text` as the showing question's answer, or as a reply to a permission ask; returns the ask once answered.
+    mutating func send(_ text: String) -> Ask? {
+        guard stage == .reply else { return nil }
+        if picks.question == nil {
+            return answer(.reply(text))
+        }
+        picks.write(text)
+        stage = .open
         return answerIfDone()
     }
 

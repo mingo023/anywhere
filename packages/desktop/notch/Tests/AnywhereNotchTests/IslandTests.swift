@@ -135,6 +135,42 @@ final class IslandTests: XCTestCase {
         XCTAssertEqual(island.stage, .done(.questions(["Tools?": "Go, Swift"])))
     }
 
+    func testTypedTextAnswersTheShowingQuestion() {
+        var island = Island()
+        island.show([ask("q1", questions: [question("Color?", ["Red", "Blue"]), question("Tools?", ["Go", "Rust"], multi: true)])])
+        island.open()
+        island.reply()
+        XCTAssertNil(island.send("Green"))
+        XCTAssertEqual(island.stage, .open)
+        _ = island.pick("Go")
+        island.reply()
+        let answered = island.send("Zig")
+        XCTAssertEqual(answered?.request, "q1")
+        XCTAssertEqual(island.stage, .done(.questions(["Color?": "Green", "Tools?": "Zig"])))
+    }
+
+    func testTickingAfterTypingReplacesTheTypedAnswer() {
+        var island = Island()
+        island.show([ask("q1", questions: [question("Tools?", ["Go", "Rust"], multi: true), question("Size?", ["S"])])])
+        island.open()
+        island.reply()
+        _ = island.send("Zig")
+        island.previousQuestion()
+        _ = island.pick("Go")
+        _ = island.nextQuestion()
+        _ = island.pick("S")
+        XCTAssertEqual(island.stage, .done(.questions(["Tools?": "Go", "Size?": "S"])))
+    }
+
+    func testTypedTextOnAPermissionAskReplies() {
+        var island = Island()
+        island.show([ask("q1")])
+        island.open()
+        island.reply()
+        _ = island.send("Use pnpm")
+        XCTAssertEqual(island.stage, .done(.reply("Use pnpm")))
+    }
+
     func testGoingBackKeepsTheEarlierPick() {
         var island = Island()
         island.show([ask("q1", questions: [question("Color?", ["Red", "Blue"]), question("Size?", ["S", "M"])])])
