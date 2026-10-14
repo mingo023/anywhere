@@ -448,7 +448,7 @@ impl Agents {
     /// The agent whose timeline last edited or wrote `path`, and when; tool paths may be absolute or relative to its cwd.
     pub fn last_edit(&self, path: &str) -> Option<(&Summary, i64)> {
         let touches = |d: &Detail, cwd: &str| {
-            (d.kind == "edit" || d.kind == "write") && !d.path.is_empty() && (d.path == path || path.strip_prefix(cwd).and_then(|p| p.strip_prefix('/')) == Some(d.path.as_str()))
+            (d.kind == "edit" || d.kind == "write") && !d.path.is_empty() && (d.path == path || path.strip_prefix(cwd).and_then(|p| p.strip_prefix('/')).is_some_and(|rel| rel == d.path))
         };
         self.list
             .iter()

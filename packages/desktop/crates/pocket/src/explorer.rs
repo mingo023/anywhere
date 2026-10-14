@@ -91,6 +91,15 @@ impl ExplorerState {
         rows
     }
 
+    /// Lists `dir` as `listing`; false when it already was.
+    pub fn set_listing(&mut self, dir: PathBuf, listing: Vec<(bool, PathBuf)>) -> bool {
+        if self.tree.get(&dir) == Some(&listing) {
+            return false;
+        }
+        self.tree.insert(dir, listing);
+        true
+    }
+
     /// Folds `dir`, keeping its open subfolders; false when it wasn't open.
     pub fn fold(&mut self, dir: &Path) -> bool {
         self.tree.remove(dir).is_some()
@@ -184,8 +193,7 @@ impl Desktop {
             });
             let listing = listing.await;
             this.update(cx, |d, cx| {
-                if d.store.files == files && d.explore_root().as_deref().map(Path::new) == Some(root.as_path()) && d.explorer.tree.get(&root) != Some(&listing) {
-                    d.explorer.tree.insert(root, listing);
+                if d.store.files == files && d.explore_root().as_deref().map(Path::new) == Some(root.as_path()) && d.explorer.set_listing(root, listing) {
                     cx.notify();
                 }
             })
@@ -400,6 +408,16 @@ mod tests {
         assert!(!explorer.fold(&dir));
         assert_eq!(explorer.tree.keys().collect::<Vec<_>>(), [&dir.join("sub")]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn listing_a_folder_as_it_already_is_changes_nothing() {
+        let mut explorer = ExplorerState::new();
+        explorer.tree.insert("/r/sub".into(), Vec::new());
+        assert!(explorer.set_listing("/r".into(), vec![entry(false, "/r/a.rs")]));
+        assert!(!explorer.set_listing("/r".into(), vec![entry(false, "/r/a.rs")]));
+        assert!(explorer.set_listing("/r".into(), Vec::new()));
+        assert!(explorer.tree.contains_key(Path::new("/r/sub")));
     }
 
     #[test]
