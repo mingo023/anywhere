@@ -177,14 +177,8 @@ impl Agents {
         Some(self.provider(provider).command).filter(|c| !c.is_empty()).unwrap_or_else(|| provider.into())
     }
 
-    /// The project's own agent where it set one, else what it last started, else the default agent; a provider now off falls back too.
-    /// A project sets no access, so what it last started with holds.
-    pub fn pick(&self, project: &LaunchPick, remembered: LaunchPick) -> LaunchPick {
-        if !project.provider.is_empty() {
-            let pick = project.switched(self.usable(&project.provider));
-            let account = if remembered.provider == pick.provider { remembered.account } else { String::new() };
-            return LaunchPick { access: remembered.access, account, ..pick };
-        }
+    /// What the project last started, else the default agent; a provider now off falls back too.
+    pub fn pick(&self, remembered: LaunchPick) -> LaunchPick {
         let provider = if remembered.provider.is_empty() { self.default_agent() } else { self.usable(&remembered.provider) };
         remembered.switched(provider)
     }
@@ -270,37 +264,16 @@ mod tests {
     #[test]
     fn a_project_without_a_pick_starts_the_default_agent() {
         let a = Agents { default: "codex".into(), ..Agents::default() };
-        let none = LaunchPick::default();
-        assert_eq!(a.pick(&none, LaunchPick::default()).provider, "codex");
+        assert_eq!(a.pick(LaunchPick::default()).provider, "codex");
         let opus = LaunchPick { provider: "claude".into(), model: "opus".into(), ..LaunchPick::default() };
-        assert_eq!(a.pick(&none, opus.clone()), opus);
+        assert_eq!(a.pick(opus.clone()), opus);
     }
 
     #[test]
-    fn a_project_s_own_agent_wins_over_what_it_last_started() {
-        let a = Agents::default();
-        let own = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), ..LaunchPick::default() };
-        let last = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), ..LaunchPick::default() };
-        assert_eq!(a.pick(&own, last.clone()), own);
+    fn what_a_project_last_started_with_falls_back_when_its_agent_is_off() {
+        let last = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), access: "auto".into(), ..LaunchPick::default() };
         let off = Agents { disabled: ["codex".to_string()].into(), ..Agents::default() };
-        assert_eq!(off.pick(&own, last), LaunchPick { provider: "claude".into(), ..LaunchPick::default() });
-    }
-
-    #[test]
-    fn the_access_a_project_last_started_with_holds_under_its_own_agent() {
-        let own = LaunchPick { provider: "codex".into(), ..LaunchPick::default() };
-        let last = LaunchPick { provider: "claude".into(), access: "auto".into(), ..LaunchPick::default() };
-        assert_eq!(Agents::default().pick(&own, last).access, "auto");
-    }
-
-    #[test]
-    fn a_project_keeps_the_account_it_last_started_on_only_under_the_same_agent() {
-        let own = LaunchPick { provider: "codex".into(), ..LaunchPick::default() };
-        let last = LaunchPick { provider: "codex".into(), account: "work".into(), ..LaunchPick::default() };
-        assert_eq!(Agents::default().pick(&own, last.clone()).account, "work");
-        let claude = LaunchPick { provider: "claude".into(), ..LaunchPick::default() };
-        assert_eq!(Agents::default().pick(&claude, last.clone()).account, "");
-        assert_eq!(Agents::default().pick(&LaunchPick::default(), last).account, "work");
+        assert_eq!(off.pick(last), LaunchPick { provider: "claude".into(), access: "auto".into(), ..LaunchPick::default() });
     }
 
     #[test]

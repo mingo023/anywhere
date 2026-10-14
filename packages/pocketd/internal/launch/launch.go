@@ -300,7 +300,7 @@ func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step
 	n := s.Checkout.New
 	if on(n.Copy) {
 		progress(proto.StepCopy, "")
-		worktree.CopyInto(f, s.Project, path)
+		worktree.CopyInto(s.Project, path)
 	}
 	setup := ""
 	if on(n.Setup) {

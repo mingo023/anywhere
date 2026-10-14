@@ -5,8 +5,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-
-	"pocketd/internal/registry"
 )
 
 func TestParseViewReadsWhatGhPrints(t *testing.T) {
@@ -50,7 +48,7 @@ func pulled(t *testing.T) (p, bare string, pr PR) {
 
 func preparedPR(t *testing.T, p string, pr PR) (*Open, error) {
 	t.Helper()
-	return PreparePR(registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")}), p, "", pr, os.Environ())
+	return PreparePR(worktreesIn(p, filepath.Join(t.TempDir(), "wt")), p, "", pr, os.Environ())
 }
 
 func openedPR(t *testing.T, p string, pr PR) (*Open, Created) {

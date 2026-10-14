@@ -75,9 +75,9 @@ struct Removed {
     kept: Option<(String, String)>,
 }
 
-/// Whether "Delete worktree and branch" may take `branch`: not a detached tree, nor a branch the project builds on.
-pub(crate) fn branch_deletable(branch: &str, base: &str) -> bool {
-    !["", "detached", "main", "master", base].contains(&branch)
+/// Whether "Delete worktree and branch" may take `branch`: not a detached tree, nor a trunk branch.
+pub(crate) fn branch_deletable(branch: &str) -> bool {
+    !["", "detached", "main", "master"].contains(&branch)
 }
 
 /// Moves `tree` into a folder of its own in the temp folder, an instant rename where deleting a `target/` takes seconds.
@@ -147,8 +147,7 @@ impl Desktop {
         if self.removals.running(&tree) {
             return;
         }
-        let base = self.store.repos.get(&project).map_or("", |r| r.base.as_str());
-        let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b, base));
+        let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b));
         let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
         let job = removal.clone();
         let task = cx.background_executor().spawn(async move { (git::read(&hosts::runner_for(&job.tree), &job.tree, true).map_or(0, |r| r.files.len()), job.lost()) });
@@ -269,10 +268,10 @@ mod tests {
     }
 
     #[test]
-    fn only_a_branch_the_project_does_not_build_on_can_go_with_its_worktree() {
-        assert!(branch_deletable("feat", "dev"));
-        for kept in ["dev", "main", "master", "detached", ""] {
-            assert!(!branch_deletable(kept, "dev"), "{kept}");
+    fn only_a_branch_that_is_not_a_trunk_can_go_with_its_worktree() {
+        assert!(branch_deletable("feat"));
+        for kept in ["main", "master", "detached", ""] {
+            assert!(!branch_deletable(kept), "{kept}");
         }
     }
 
