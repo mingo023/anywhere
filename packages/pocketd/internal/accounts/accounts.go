@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -424,8 +425,29 @@ func (s *Store) claudeToken(id string) claudeOAuth {
 // Keychain reads a macOS Keychain item's password with the security tool,
 // which the items Claude Code writes trust.
 func Keychain(service string) (string, bool) {
-	out, err := exec.Command("/usr/bin/security", "find-generic-password", "-s", service, "-w").Output()
+	return findPassword(service, keychainAccount())
+}
+
+// findPassword reads the item for service under account, in keychains or
+// else the user's search list. Without the account, security returns
+// whichever item with that service it finds first, which may be a stale one
+// that holds no login.
+func findPassword(service, account string, keychains ...string) (string, bool) {
+	args := append([]string{"find-generic-password", "-s", service, "-a", account, "-w"}, keychains...)
+	out, err := exec.Command("/usr/bin/security", args...).Output()
 	return strings.TrimSpace(string(out)), err == nil
+}
+
+// keychainAccount is the account Claude Code files its credentials under: the user's name.
+func keychainAccount() string {
+	if name := os.Getenv("USER"); name != "" {
+		return name
+	}
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Username
 }
 
 // KeychainService mirrors Claude Code 2.1.296: a CLAUDE_CONFIG_DIR adds the
