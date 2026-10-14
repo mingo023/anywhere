@@ -70,16 +70,6 @@ impl Accounts {
         self.lists.get(host).map_or(&[], Vec::as_slice)
     }
 
-    /// The accounts on the machine holding `project`.
-    pub(crate) fn on(&self, project: Option<&str>) -> &[Account] {
-        self.list(&host_of(project))
-    }
-
-    /// The account a session on `project` would start on: the one picked if the machine still lists it, else the provider's default.
-    pub(crate) fn chosen(&self, project: Option<&str>, provider: &str, picked: &str) -> Option<&Account> {
-        chosen(self.on(project), provider, picked)
-    }
-
     /// The account a session row names, while its provider has more than one on the session's machine.
     pub(crate) fn session_label(&self, session: &str, provider: &str, account: &str) -> Option<String> {
         let host = hosts::session::untag(session).0.map(str::to_string);
@@ -112,10 +102,6 @@ pub(crate) fn shared(list: &[Account], provider: &str) -> bool {
     listed(list, provider).nth(1).is_some()
 }
 
-fn chosen<'a>(list: &'a [Account], provider: &str, picked: &str) -> Option<&'a Account> {
-    listed(list, provider).find(|a| a.id == picked).or_else(|| listed(list, provider).find(|a| a.default))
-}
-
 fn session_label(list: &[Account], provider: &str, account: &str) -> Option<String> {
     let id = if account.is_empty() { BUILT_IN } else { account };
     shared(list, provider).then(|| listed(list, provider).find(|a| a.id == id)).flatten().map(|a| name(a).to_string())
@@ -124,11 +110,6 @@ fn session_label(list: &[Account], provider: &str, account: &str) -> Option<Stri
 /// What an account is called: its label, else its email.
 pub(crate) fn name(a: &Account) -> &str {
     [&a.label, &a.email].into_iter().find(|s| !s.is_empty()).map_or("Not signed in", String::as_str)
-}
-
-/// The composer chip's name: its label, else its email up to the @.
-pub(crate) fn short_name(a: &Account) -> &str {
-    if a.label.is_empty() { a.email.split('@').next().filter(|s| !s.is_empty()).unwrap_or("Not signed in") } else { &a.label }
 }
 
 /// A built-in login nobody signed in to here.
@@ -374,7 +355,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, chosen, checked, meter, name, session_label, short_name, shared, subline, tags};
+    use super::{Accounts, BUILT_IN, Tone, checked, meter, name, session_label, shared, subline, tags};
     use chrono::Utc;
     use daemon::Account;
     use serde_json::json;
@@ -397,10 +378,6 @@ mod tests {
         a.label = "Work".into();
         assert_eq!(name(&a), "Work");
         assert_eq!(name(&Account::default()), "Not signed in");
-        assert_eq!(short_name(&a), "Work");
-        a.label.clear();
-        assert_eq!(short_name(&a), "a");
-        assert_eq!(short_name(&Account::default()), "Not signed in");
     }
 
     #[test]
@@ -446,10 +423,8 @@ mod tests {
     }
 
     #[test]
-    fn a_session_starts_on_the_account_picked_while_it_is_listed_else_the_default() {
-        let list = [account("claude", BUILT_IN), Account { default: true, ..account("claude", "work") }, account("codex", "x")];
-        let id = |picked| chosen(&list, "claude", picked).map(|a| a.id.as_str());
-        assert_eq!((id(BUILT_IN), id(""), id("gone")), (Some(BUILT_IN), Some("work"), Some("work")));
+    fn a_provider_shares_only_when_it_has_several_accounts() {
+        let list = [account("claude", BUILT_IN), account("claude", "work"), account("codex", "x")];
         assert!(shared(&list, "claude") && !shared(&list, "codex"));
     }
 
@@ -472,7 +447,6 @@ mod tests {
         let unused = Account { signed_in: false, email: String::new(), ..account("claude", BUILT_IN) };
         let list = [unused, account("claude", "work")];
         assert!(!shared(&list, "claude"));
-        assert_eq!(chosen(&list, "claude", BUILT_IN).map(|a| a.id.as_str()), None);
     }
 
     #[test]

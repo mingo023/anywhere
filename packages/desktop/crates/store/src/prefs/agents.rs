@@ -178,15 +178,14 @@ impl Agents {
     }
 
     /// The project's own agent where it set one, else what it last started, else the default agent; a provider now off falls back too.
-    /// A project sets no access, so what it last started with holds.
+    /// A project sets no access, so what it last started with holds. The account is always the provider's default, whatever an older pick remembered.
     pub fn pick(&self, project: &LaunchPick, remembered: LaunchPick) -> LaunchPick {
         if !project.provider.is_empty() {
             let pick = project.switched(self.usable(&project.provider));
-            let account = if remembered.provider == pick.provider { remembered.account } else { String::new() };
-            return LaunchPick { access: remembered.access, account, ..pick };
+            return LaunchPick { access: remembered.access, account: String::new(), ..pick };
         }
         let provider = if remembered.provider.is_empty() { self.default_agent() } else { self.usable(&remembered.provider) };
-        remembered.switched(provider)
+        LaunchPick { account: String::new(), ..remembered.switched(provider) }
     }
 
     /// A create spec with plan mode where its agent has one, and this permission mode and its provider's model and effort where it names none.
@@ -294,13 +293,11 @@ mod tests {
     }
 
     #[test]
-    fn a_project_keeps_the_account_it_last_started_on_only_under_the_same_agent() {
+    fn a_new_agent_starts_on_the_default_account_whatever_the_project_last_started_on() {
         let own = LaunchPick { provider: "codex".into(), ..LaunchPick::default() };
         let last = LaunchPick { provider: "codex".into(), account: "work".into(), ..LaunchPick::default() };
-        assert_eq!(Agents::default().pick(&own, last.clone()).account, "work");
-        let claude = LaunchPick { provider: "claude".into(), ..LaunchPick::default() };
-        assert_eq!(Agents::default().pick(&claude, last.clone()).account, "");
-        assert_eq!(Agents::default().pick(&LaunchPick::default(), last).account, "work");
+        assert_eq!(Agents::default().pick(&own, last.clone()).account, "");
+        assert_eq!(Agents::default().pick(&LaunchPick::default(), last).account, "");
     }
 
     #[test]
