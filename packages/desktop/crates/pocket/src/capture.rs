@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 139] = [
+const STEPS: [(&str, Step); 140] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -379,6 +379,12 @@ const STEPS: [(&str, Step); 139] = [
         let now = Instant::now();
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);
+    }),
+    ("pr-sent", |d, _, _| {
+        let Some((tree, pr)) = d.shown_pr() else { return };
+        let pr = pr.clone();
+        let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
+        d.pr.track.send(&tree, &pr, &[], &failed, false);
     }),
     ("pr-comments", |d, _, _| d.pr.track.comments = true),
     ("pr-fold", |d, _, _| d.pr.track.folded = true),

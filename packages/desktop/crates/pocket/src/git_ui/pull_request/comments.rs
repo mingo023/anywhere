@@ -158,7 +158,7 @@ impl Desktop {
             .text_size(px(11.5))
             .text_color(TEXT_3)
             .child(div().min_w_0().truncate().child(place(t)))
-            .children(thread_chip(state, agent))
+            .children(thread_chip(state))
             .when(t.outdated, |d| d.child(pill("Outdated", FILL_3, TEXT_3)));
         let said = t.comments.iter().map(|c| {
             let name = div().flex().items_center().gap(px(6.)).text_size(px(12.)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(c.author.clone())).child(div().text_color(TEXT_4).child(ago(c.at as i64, now)));
