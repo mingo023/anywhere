@@ -46,11 +46,6 @@ pub fn folder_status(files: &[FileStat], root: &str, dir: &str) -> Option<char> 
     Some(if inside.all(|s| s == first) { first } else { 'M' })
 }
 
-/// The changed `files` that `edited` says an agent wrote, as absolute paths.
-pub fn touched(files: &[FileStat], root: &str, edited: impl Fn(&str) -> bool) -> Vec<String> {
-    files.iter().map(|f| format!("{root}/{}", f.path)).filter(|p| edited(p)).collect()
-}
-
 pub fn status_word(status: Option<char>) -> (Token, &'static str) {
     match status {
         Some('A') => (SUCCESS, "Added"),
@@ -94,6 +89,15 @@ impl ExplorerState {
         let mut rows = Vec::new();
         self.push_rows(root, 0, &mut rows);
         rows
+    }
+
+    /// Lists `dir` as `listing`; false when it already was.
+    pub fn set_listing(&mut self, dir: PathBuf, listing: Vec<(bool, PathBuf)>) -> bool {
+        if self.tree.get(&dir) == Some(&listing) {
+            return false;
+        }
+        self.tree.insert(dir, listing);
+        true
     }
 
     /// Folds `dir`, keeping its open subfolders; false when it wasn't open.
@@ -144,12 +148,6 @@ impl Desktop {
         folder_status(&self.repos.get(&root)?.files, &root, path)
     }
 
-    fn touched(&self) -> Vec<String> {
-        let Some(root) = self.explore_root() else { return Vec::new() };
-        let files = self.repos.get(&root).map(|r| r.files.as_slice()).unwrap_or_default();
-        touched(files, &root, |p| self.agents.last_edit(p).is_some())
-    }
-
     /// Rings `path`'s row for a moment and scrolls to it: what a create, rename or undo just made.
     pub(crate) fn flash_row(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let fade = cx.spawn(async |this, cx| {
@@ -178,6 +176,26 @@ impl Desktop {
                 }
                 d.explorer.tree = merge_tree(fresh, &d.explorer.tree, d.explore_root().as_deref().map(Path::new));
                 cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Lists only the folder on screen, so a switch shows it without waiting for `refresh_git` to read every tree.
+    pub(crate) fn load_explorer_root(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.explore_root().map(PathBuf::from) else { return };
+        let files = self.store.files.clone();
+        cx.spawn(async move |this, cx| {
+            let listing = cx.background_executor().spawn({
+                let (root, files) = (root.clone(), files.clone());
+                async move { list_dir(&root, &files) }
+            });
+            let listing = listing.await;
+            this.update(cx, |d, cx| {
+                if d.store.files == files && d.explore_root().as_deref().map(Path::new) == Some(root.as_path()) && d.explorer.set_listing(root, listing) {
+                    cx.notify();
+                }
             })
             .ok();
         })
@@ -218,7 +236,6 @@ impl Desktop {
     }
 
     pub fn explorer(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let touched = self.touched();
         let go = ui::trigger_field("go-to-file", "search", "Go to file…", "⌘P")
             .mx(px(8.))
             .mt(px(8.))
@@ -243,8 +260,8 @@ impl Desktop {
                     .map(|ix| {
                         let line = match new_row {
                             Some((at, depth)) if ix == at => this.edit_row(depth, cx).unwrap_or_else(|| div().into_any_element()),
-                            Some((at, _)) if ix > at => this.tree_row(rows[ix - 1].clone(), &touched, cx),
-                            _ => this.tree_row(rows[ix].clone(), &touched, cx),
+                            Some((at, _)) if ix > at => this.tree_row(rows[ix - 1].clone(), cx),
+                            _ => this.tree_row(rows[ix].clone(), cx),
                         };
                         div().w_full().pb(px(1.)).flex().flex_col().child(line)
                     })
@@ -268,7 +285,7 @@ impl Desktop {
         div().id("explore-side").flex_1().min_h_0().flex().flex_col().child(go).child(list).children(self.tree_menu(cx))
     }
 
-    fn tree_row(&self, Row { path, depth, is_dir, open }: Row, touched: &[String], cx: &mut Context<Self>) -> AnyElement {
+    fn tree_row(&self, Row { path, depth, is_dir, open }: Row, cx: &mut Context<Self>) -> AnyElement {
         if self.explorer.renaming(&path)
             && let Some(row) = self.edit_row(depth, cx)
         {
@@ -282,7 +299,7 @@ impl Desktop {
         let selected = !is_dir && self.preview.file(self.focused_pane()) == Some(key.as_str());
         let row = if !is_dir {
             let git = self.file_status(&key);
-            let touched = touched.contains(&key);
+            let touched = git.is_some() && self.agents.last_edit(&key).is_some();
             ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
                 .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)))
         } else {
@@ -317,7 +334,7 @@ fn outline(color: impl Into<Hsla>) -> Vec<BoxShadow> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, folder_status, list_dir, merge_tree, seek, status_of, touched};
+    use super::{ExplorerState, Row, folder_status, list_dir, merge_tree, seek, status_of};
     use store::prefs::files::Files;
     use git::FileStat;
     use std::collections::HashMap;
@@ -357,13 +374,6 @@ mod tests {
         assert_eq!(folder_status(&files, "/r", "/elsewhere/src2"), None);
     }
 
-    #[test]
-    fn touched_are_the_changed_files_an_agent_edited() {
-        let files = [stat("a.rs", 'M'), stat("src/b.rs", 'A'), stat("c.rs", 'D')];
-        let edited = |p: &str| p != "/r/c.rs";
-        assert_eq!(touched(&files, "/r", edited), ["/r/a.rs", "/r/src/b.rs"]);
-    }
-
     fn entry(is_dir: bool, path: &str) -> (bool, PathBuf) {
         (is_dir, PathBuf::from(path))
     }
@@ -398,6 +408,16 @@ mod tests {
         assert!(!explorer.fold(&dir));
         assert_eq!(explorer.tree.keys().collect::<Vec<_>>(), [&dir.join("sub")]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn listing_a_folder_as_it_already_is_changes_nothing() {
+        let mut explorer = ExplorerState::new();
+        explorer.tree.insert("/r/sub".into(), Vec::new());
+        assert!(explorer.set_listing("/r".into(), vec![entry(false, "/r/a.rs")]));
+        assert!(!explorer.set_listing("/r".into(), vec![entry(false, "/r/a.rs")]));
+        assert!(explorer.set_listing("/r".into(), Vec::new()));
+        assert!(explorer.tree.contains_key(Path::new("/r/sub")));
     }
 
     #[test]

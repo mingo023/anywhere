@@ -448,7 +448,7 @@ impl Agents {
     /// The agent whose timeline last edited or wrote `path`, and when; tool paths may be absolute or relative to its cwd.
     pub fn last_edit(&self, path: &str) -> Option<(&Summary, i64)> {
         let touches = |d: &Detail, cwd: &str| {
-            (d.kind == "edit" || d.kind == "write") && !d.path.is_empty() && (d.path == path || format!("{cwd}/{}", d.path) == path)
+            (d.kind == "edit" || d.kind == "write") && !d.path.is_empty() && (d.path == path || path.strip_prefix(cwd).and_then(|p| p.strip_prefix('/')).is_some_and(|rel| rel == d.path))
         };
         self.list
             .iter()
@@ -1455,5 +1455,17 @@ mod tests {
         a.apply_from(Some("devbox"), Event::Agents(vec![agent("devbox/b2")]));
         a.forget("devbox");
         assert_eq!(a.list.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["a2"]);
+    }
+
+    #[test]
+    fn an_edit_is_found_by_absolute_path_or_by_one_relative_to_the_agents_cwd() {
+        let mut a = Agents::default();
+        a.list.push(Summary { id: "a".into(), cwd: "/r".into(), ..Default::default() });
+        let edit = |path: &str| Item { ts: 1, call: Some(Call { detail: Detail { kind: "edit".into(), path: path.into(), ..Default::default() } }), ..Default::default() };
+        a.timelines.insert("a".into(), vec![edit("src/a.rs"), edit("/elsewhere/b.rs")]);
+        assert!(a.last_edit("/r/src/a.rs").is_some());
+        assert!(a.last_edit("/elsewhere/b.rs").is_some());
+        assert!(a.last_edit("/r/src/b.rs").is_none());
+        assert!(a.last_edit("/rr/src/a.rs").is_none());
     }
 }
