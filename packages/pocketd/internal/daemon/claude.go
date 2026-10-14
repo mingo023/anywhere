@@ -59,7 +59,7 @@ func (d *Daemon) Input(id string, b []byte) {
 	switch string(b) {
 	case "\x1b", "\x1b[27u", "\x03", "\x1b[99;5u":
 		if pr := d.presentIn(id); pr != nil && pr.provider == "claude" && !pr.isReported() {
-			pr.a.Clear()
+			d.cleared(pr)
 		}
 	case "\r", "\x1b[13u":
 		if pr := d.presentIn(id); pr != nil && pr.provider == "codex" {
@@ -112,7 +112,7 @@ func (d *Daemon) applyLocked(pr *presence, r terminal.Report) {
 	case "error":
 		d.turnEnded(pr, true)
 	case "idle", "clear":
-		pr.a.Clear()
+		d.cleared(pr)
 	}
 	if r.State == "clear" {
 		r.Msg = ""
@@ -186,7 +186,7 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 				pr.a.Record(e)
 				// Rejecting Claude's own dialog at the desk interrupts the turn without a hook.
 				if e.Error == "interrupted" && read > replay && pr.a.Summary().Status == "needsYou" {
-					pr.a.Clear()
+					d.cleared(pr)
 				}
 			}
 		})

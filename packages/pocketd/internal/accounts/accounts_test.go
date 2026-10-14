@@ -161,6 +161,22 @@ func TestALaunchFallsBackToTheDefaultThenTheBuiltInLogin(t *testing.T) {
 	}
 }
 
+func TestASignedOutAccountCannotBecomeTheDefault(t *testing.T) {
+	s := store(t)
+	id, err := s.Add("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SetDefault("claude", id); err != ErrSignedOut {
+		t.Fatalf("err = %v", err)
+	}
+
+	if got, _ := s.Resolve("claude", ""); got != BuiltIn {
+		t.Fatalf("default = %q", got)
+	}
+}
+
 func TestRemoveSignsOutAndDeletesTheFolderButNotWhileRunning(t *testing.T) {
 	s := store(t)
 	id := add(t, s, "codex", "b@x.com")

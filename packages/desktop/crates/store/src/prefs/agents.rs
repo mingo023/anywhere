@@ -180,7 +180,7 @@ impl Agents {
     /// What the project last started, else the default agent; a provider now off falls back too.
     pub fn pick(&self, remembered: LaunchPick) -> LaunchPick {
         let provider = if remembered.provider.is_empty() { self.default_agent() } else { self.usable(&remembered.provider) };
-        remembered.switched(provider)
+        LaunchPick { account: String::new(), ..remembered.switched(provider) }
     }
 
     /// A create spec with plan mode where its agent has one, and this permission mode and its provider's model and effort where it names none.
@@ -274,6 +274,12 @@ mod tests {
         let last = LaunchPick { provider: "codex".into(), model: "gpt-5".into(), access: "auto".into(), ..LaunchPick::default() };
         let off = Agents { disabled: ["codex".to_string()].into(), ..Agents::default() };
         assert_eq!(off.pick(last), LaunchPick { provider: "claude".into(), access: "auto".into(), ..LaunchPick::default() });
+    }
+
+    #[test]
+    fn a_new_agent_starts_on_the_default_account_whatever_the_project_last_started_on() {
+        let last = LaunchPick { provider: "codex".into(), account: "work".into(), ..LaunchPick::default() };
+        assert_eq!(Agents::default().pick(last).account, "");
     }
 
     #[test]

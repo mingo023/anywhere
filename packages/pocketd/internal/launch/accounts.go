@@ -27,7 +27,9 @@ func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 	case "accounts.rename":
 		err = s.Rename(m.Key, m.ID, m.Text)
 	case "accounts.default":
-		err = s.SetDefault(m.Key, m.ID)
+		if err = s.SetDefault(m.Key, m.ID); err == nil {
+			go l.d.Follow(m.Key)
+		}
 	case "accounts.signout":
 		var id string
 		if id, err = s.Resolve(m.Key, m.ID); err == nil {

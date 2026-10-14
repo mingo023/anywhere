@@ -61,23 +61,33 @@ pub(crate) struct Accounts {
     /// The account whose ⋯ menu is open.
     pub(crate) menu: Option<Key>,
     pub(crate) rename: Option<Rename>,
-    /// Sign-in terminals, by desktop terminal id, and the machine they sign in on.
-    signins: HashMap<String, Host>,
+    pub(crate) signins: Vec<SignIn>,
+}
+
+/// A sign-in running in a terminal on its machine, shown under its provider's accounts rather than in a tab.
+pub(crate) struct SignIn {
+    /// The machine and provider; the id is empty when it adds an account.
+    pub(crate) key: Key,
+    /// pocketd's terminal, tagged with its host, once it answers.
+    pub(crate) terminal: Option<String>,
+    /// The account pocketd made for a new sign-in, to drop if it's cancelled.
+    added: String,
+    cancelled: bool,
+    /// A code the browser shows, typed back into the terminal.
+    pub(crate) code: Entity<InputState>,
+    pub(crate) output_open: bool,
+    _sub: Subscription,
+}
+
+impl SignIn {
+    pub(crate) fn on(&self, host: &Host, provider: &str) -> bool {
+        &self.key.host == host && self.key.provider == provider
+    }
 }
 
 impl Accounts {
     fn list(&self, host: &Host) -> &[Account] {
         self.lists.get(host).map_or(&[], Vec::as_slice)
-    }
-
-    /// The accounts on the machine holding `project`.
-    pub(crate) fn on(&self, project: Option<&str>) -> &[Account] {
-        self.list(&host_of(project))
-    }
-
-    /// The account a session on `project` would start on: the one picked if the machine still lists it, else the provider's default.
-    pub(crate) fn chosen(&self, project: Option<&str>, provider: &str, picked: &str) -> Option<&Account> {
-        chosen(self.on(project), provider, picked)
     }
 
     /// The account a session row names, while its provider has more than one on the session's machine.
@@ -102,6 +112,38 @@ fn host_of(project: Option<&str>) -> Host {
     project.and_then(|p| hosts::split(p).0).map(str::to_string)
 }
 
+/// A terminal's screen as lines, with the rows a long line wraps onto joined to it.
+pub(crate) fn screen_lines(cells: &[term::Cell], cols: u16) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for row in cells.chunks(cols.max(1) as usize) {
+        line.extend(row.iter().map(term::Cell::ch));
+        // Wrapping fills a row to its last cell, so a row ending blank ends its line.
+        if row.last().is_none_or(|c| c.ch() == ' ') {
+            lines.push(std::mem::take(&mut line).trim_end().to_string());
+        }
+    }
+    lines.push(line.trim_end().to_string());
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines
+}
+
+/// The first web link a sign-in prints: the page that approves it.
+pub(crate) fn sign_in_link(lines: &[String]) -> Option<String> {
+    lines.iter().find_map(|l| {
+        let at = l.find("https://")?;
+        web::link_at(l, l[..at].chars().count())
+    })
+}
+
+/// The one-time code Codex's device sign-in prints on the line after asking for it.
+pub(crate) fn device_code(lines: &[String]) -> Option<String> {
+    let asked = lines.iter().position(|l| l.contains("one-time code"))?;
+    lines[asked + 1..].iter().map(|l| l.trim()).find(|l| !l.is_empty()).map(str::to_string)
+}
+
 /// A provider's accounts on a machine that a session can start on: past the sign-ins still running and a built-in login nobody uses.
 pub(crate) fn listed<'a>(list: &'a [Account], provider: &str) -> impl Iterator<Item = &'a Account> {
     list.iter().filter(move |a| a.provider == provider && !a.pending && !never_signed_in(a))
@@ -112,10 +154,6 @@ pub(crate) fn shared(list: &[Account], provider: &str) -> bool {
     listed(list, provider).nth(1).is_some()
 }
 
-fn chosen<'a>(list: &'a [Account], provider: &str, picked: &str) -> Option<&'a Account> {
-    listed(list, provider).find(|a| a.id == picked).or_else(|| listed(list, provider).find(|a| a.default))
-}
-
 fn session_label(list: &[Account], provider: &str, account: &str) -> Option<String> {
     let id = if account.is_empty() { BUILT_IN } else { account };
     shared(list, provider).then(|| listed(list, provider).find(|a| a.id == id)).flatten().map(|a| name(a).to_string())
@@ -124,11 +162,6 @@ fn session_label(list: &[Account], provider: &str, account: &str) -> Option<Stri
 /// What an account is called: its label, else its email.
 pub(crate) fn name(a: &Account) -> &str {
     [&a.label, &a.email].into_iter().find(|s| !s.is_empty()).map_or("Not signed in", String::as_str)
-}
-
-/// The composer chip's name: its label, else its email up to the @.
-pub(crate) fn short_name(a: &Account) -> &str {
-    if a.label.is_empty() { a.email.split('@').next().filter(|s| !s.is_empty()).unwrap_or("Not signed in") } else { &a.label }
 }
 
 /// A built-in login nobody signed in to here.
@@ -156,7 +189,7 @@ where
     Tz::Offset: Display,
 {
     let built_in = (a.id == BUILT_IN).then(|| ("Built-in".to_string(), Tone::Plain));
-    let default = (a.default && shared).then(|| ("New sessions".to_string(), Tone::Accent));
+    let default = (a.default && shared).then(|| ("New agents".to_string(), Tone::Accent));
     let limited = limited(a).map(|at| (format!("Limited \u{b7} back {}", when(at, now, tz)), Tone::Bad));
     let out = (!a.signed_in && !never_signed_in(a)).then(|| ("Signed out".to_string(), Tone::Plain));
     let stale = a.usage.as_ref().filter(|u| a.signed_in && u.stale).map(|u| (format!("As of {}", when(u.at, now, tz)), Tone::Warn));
@@ -297,7 +330,6 @@ impl Desktop {
             let reply = reply.await;
             _ = this.update(cx, |d, cx| {
                 match reply {
-                    Ok(m) if m.ev == "spawned" => d.open_sign_in(host, m.id, cx),
                     Ok(m) => _ = d.accounts.lists.insert(host, m.accounts),
                     Err(e) => d.error = Some(e),
                 }
@@ -307,28 +339,92 @@ impl Desktop {
         .detach();
     }
 
-    /// Signs in to `key`, or adds an account when its id is empty, in a terminal on its machine.
-    pub(crate) fn sign_in_account(&mut self, key: Key, cx: &mut Context<Self>) {
+    /// Signs in to `key`, or adds an account when its id is empty, in a terminal on its machine; one per provider there at a time.
+    pub(crate) fn sign_in_account(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) {
         self.accounts.menu = None;
-        if self.place().is_none() {
-            self.error = Some("Open a project to sign in from".into());
-            return cx.notify();
+        if self.accounts.signins.iter().any(|s| s.on(&key.host, &key.provider)) {
+            return;
         }
-        self.account_op(key.host.clone(), key.op("accounts.signin"), cx);
+        let Some(reach) = self.machine(&key.host) else { return };
+        let msg = key.op("accounts.signin");
+        let signin = self.new_sign_in(key.clone(), window, cx);
+        self.accounts.signins.push(signin);
+        let reply = cx.background_executor().spawn(async move { daemon::request_to(&endpoint(&reach), &msg, TIMEOUT) });
+        cx.spawn(async move |this, cx| {
+            let reply = reply.await;
+            _ = this.update(cx, |d, cx| {
+                match reply {
+                    Ok(m) if m.ev == "spawned" => d.sign_in_spawned(&key, m.id, m.text, cx),
+                    Ok(m) => {
+                        d.accounts.signins.retain(|s| !s.on(&key.host, &key.provider));
+                        d.accounts.lists.insert(key.host.clone(), m.accounts);
+                    }
+                    Err(e) => {
+                        d.accounts.signins.retain(|s| !s.on(&key.host, &key.provider));
+                        d.error = Some(e);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
-    /// Opens a sign-in's terminal as a tab in the tree on screen; the account is read again once it ends.
-    fn open_sign_in(&mut self, host: Host, theirs: String, cx: &mut Context<Self>) {
-        let Some(tree) = self.place() else { return };
-        let id = match &host {
+    pub(crate) fn new_sign_in(&mut self, key: Key, window: &mut Window, cx: &mut Context<Self>) -> SignIn {
+        let code = cx.new(|cx| InputState::new(window, cx).placeholder("Code from the page, if any"));
+        let (host, provider) = (key.host.clone(), key.provider.clone());
+        let sub = cx.subscribe_in(&code, window, move |this, _, ev: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { .. } = ev {
+                this.send_sign_in_code(&host, &provider, window, cx);
+            }
+        });
+        SignIn { key, terminal: None, added: String::new(), cancelled: false, code, output_open: false, _sub: sub }
+    }
+
+    /// Attaches to the sign-in's terminal without showing it; one cancelled before it started is closed straight away.
+    fn sign_in_spawned(&mut self, key: &Key, theirs: String, added: String, cx: &mut Context<Self>) {
+        let id = match &key.host {
             Some(h) => hosts::session::tag(h, &theirs),
             None => theirs,
         };
-        self.terminals.created(&format!("account-{id}"), id.clone(), tree.clone(), false);
-        self.daemon.send_to(host.as_deref(), json!({"op": "list"}));
-        self.accounts.signins.insert(id, host.clone());
-        self.show_tree(&tree);
-        self.check_accounts(host, false, cx);
+        let Some(s) = self.accounts.signins.iter_mut().find(|s| s.on(&key.host, &key.provider) && s.terminal.is_none()) else {
+            self.daemon.send(json!({"op": "close", "id": id}));
+            return self.check_accounts(key.host.clone(), false, cx);
+        };
+        (s.terminal, s.added) = (Some(id), added);
+        self.daemon.send_to(key.host.as_deref(), json!({"op": "list"}));
+        self.check_accounts(key.host.clone(), false, cx);
+    }
+
+    /// Ends the sign-in; an account it was adding is dropped rather than left failed.
+    pub(crate) fn cancel_sign_in(&mut self, host: &Host, provider: &str, cx: &mut Context<Self>) {
+        let Some(s) = self.accounts.signins.iter_mut().find(|s| s.on(host, provider)) else { return };
+        s.cancelled = true;
+        match s.terminal.clone() {
+            Some(id) => {
+                if self.terminals.close(&id) {
+                    self.daemon.send(json!({"op": "close", "id": id}));
+                }
+                self.sign_in_ended(&id, cx);
+            }
+            None => self.accounts.signins.retain(|s| !s.on(host, provider)),
+        }
+        cx.notify();
+    }
+
+    /// Types the code from the browser into the sign-in's terminal, as a paste followed by Return.
+    pub(crate) fn send_sign_in_code(&mut self, host: &Host, provider: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = self.accounts.signins.iter().find(|s| s.on(host, provider)) else { return };
+        let (Some(id), text) = (s.terminal.clone(), s.code.read(cx).value().trim().to_string()) else { return };
+        let Some(bracketed) = self.terminals.sessions.term(&id).map(|t| t.mode(2004)) else { return };
+        if text.is_empty() {
+            return;
+        }
+        let mut bytes = term::paste_bytes(&text, bracketed);
+        bytes.push(b'\r');
+        self.daemon.input(&id, &bytes);
+        s.code.update(cx, |c, cx| c.set_value("", window, cx));
     }
 
     /// Edits the account's name in its row, starting from the one shown, all selected.
@@ -362,19 +458,27 @@ impl Desktop {
 
     /// pocketd keeps or drops an account once its sign-in's terminal ends.
     pub(crate) fn sign_in_ended(&mut self, terminal: &str, cx: &mut Context<Self>) {
-        let Some(host) = self.accounts.signins.remove(terminal) else { return };
+        let Some(at) = self.accounts.signins.iter().position(|s| s.terminal.as_deref() == Some(terminal)) else { return };
+        let s = self.accounts.signins.remove(at);
+        self.terminals.close(terminal);
+        let host = s.key.host.clone();
+        let dismiss = (s.cancelled && !s.added.is_empty()).then(|| Key { id: s.added.clone(), ..s.key.clone() }.op("accounts.remove"));
         // pocketd reads the sign-in only after it has told us the terminal exited.
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_secs(1)).await;
-            _ = this.update(cx, |d, cx| d.check_accounts(host, true, cx));
+            _ = this.update(cx, |d, cx| match dismiss {
+                Some(op) => d.account_op(host, op, cx),
+                None => d.check_accounts(host, true, cx),
+            });
         })
         .detach();
+        cx.notify();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, chosen, checked, meter, name, session_label, short_name, shared, subline, tags};
+    use super::{Accounts, BUILT_IN, Tone, checked, device_code, meter, name, screen_lines, session_label, shared, sign_in_link, subline, tags};
     use chrono::Utc;
     use daemon::Account;
     use serde_json::json;
@@ -397,18 +501,14 @@ mod tests {
         a.label = "Work".into();
         assert_eq!(name(&a), "Work");
         assert_eq!(name(&Account::default()), "Not signed in");
-        assert_eq!(short_name(&a), "Work");
-        a.label.clear();
-        assert_eq!(short_name(&a), "a");
-        assert_eq!(short_name(&Account::default()), "Not signed in");
     }
 
     #[test]
-    fn new_sessions_is_tagged_only_while_there_is_another_account_to_pick() {
+    fn new_agents_is_tagged_only_while_there_is_another_account_to_pick() {
         let a = Account { default: true, ..account("claude", BUILT_IN) };
         let tags = |shared| tags(&a, shared, NOW, &Utc).into_iter().map(|(t, _)| t).collect::<Vec<_>>();
         assert_eq!(tags(false), ["Built-in"]);
-        assert_eq!(tags(true), ["Built-in", "New sessions"]);
+        assert_eq!(tags(true), ["Built-in", "New agents"]);
     }
 
     #[test]
@@ -446,10 +546,8 @@ mod tests {
     }
 
     #[test]
-    fn a_session_starts_on_the_account_picked_while_it_is_listed_else_the_default() {
-        let list = [account("claude", BUILT_IN), Account { default: true, ..account("claude", "work") }, account("codex", "x")];
-        let id = |picked| chosen(&list, "claude", picked).map(|a| a.id.as_str());
-        assert_eq!((id(BUILT_IN), id(""), id("gone")), (Some(BUILT_IN), Some("work"), Some("work")));
+    fn a_provider_shares_only_when_it_has_several_accounts() {
+        let list = [account("claude", BUILT_IN), account("claude", "work"), account("codex", "x")];
         assert!(shared(&list, "claude") && !shared(&list, "codex"));
     }
 
@@ -472,7 +570,6 @@ mod tests {
         let unused = Account { signed_in: false, email: String::new(), ..account("claude", BUILT_IN) };
         let list = [unused, account("claude", "work")];
         assert!(!shared(&list, "claude"));
-        assert_eq!(chosen(&list, "claude", BUILT_IN).map(|a| a.id.as_str()), None);
     }
 
     #[test]
@@ -485,6 +582,29 @@ mod tests {
         let mut here = json!({"project": "/src/app", "provider": "claude", "account": "work"});
         accounts.offer(&mut here);
         assert!(here.get("account").is_none());
+    }
+
+    fn screen(output: &str) -> Vec<String> {
+        let mut t = term::Term::new(24, 8);
+        t.write(output.as_bytes());
+        let (f, cells) = t.frame();
+        screen_lines(cells, f.cols)
+    }
+
+    #[test]
+    fn a_sign_in_link_wrapped_across_rows_reads_whole() {
+        let lines = screen("Opening browser\r\nvisit: https://claude.com/oauth?code=true&state=abc\r\nPaste code here >");
+        assert_eq!(lines[1], "visit: https://claude.com/oauth?code=true&state=abc");
+        assert_eq!(sign_in_link(&lines).as_deref(), Some("https://claude.com/oauth?code=true&state=abc"));
+        assert_eq!(device_code(&lines), None);
+    }
+
+    #[test]
+    fn codex_s_device_code_is_the_line_after_it_is_asked_for() {
+        let lines = screen("1. Open this link\r\n   https://auth.openai.com/codex/device\r\n2. Enter this one-time code\r\n\r\n   ABCD-1234");
+        assert_eq!(sign_in_link(&lines).as_deref(), Some("https://auth.openai.com/codex/device"));
+        assert_eq!(device_code(&lines).as_deref(), Some("ABCD-1234"));
+        assert_eq!(device_code(&screen("2. Enter this one-time code")), None);
     }
 
     #[test]

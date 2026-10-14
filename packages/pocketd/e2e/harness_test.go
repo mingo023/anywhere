@@ -59,6 +59,7 @@ type Harness struct {
 	Port      int
 	OwnerPort int
 	ownerTCP  bool
+	resume    bool
 	Token     string
 	Env       []string
 	Repo      string
@@ -132,13 +133,13 @@ func (h *Harness) Restart() {
 func (h *Harness) serve() bool {
 	log := &bytes.Buffer{}
 	h.Port, h.log = freePort(h.t), log
-	// resumeAgents is off: a resumed agent would run from the login shell's PATH, where the real claude is.
+	// resumeAgents is off unless a test asks: a resumed agent would run from the login shell's PATH, where the real claude is.
 	owner := ""
 	if h.ownerTCP {
 		h.OwnerPort = freePort(h.t)
 		owner = fmt.Sprintf(`,"ownerListen":"127.0.0.1:%d"`, h.OwnerPort)
 	}
-	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback","restore":{"resumeAgents":false}%s}`, h.Token, h.Port, owner)
+	config := fmt.Sprintf(`{"token":%q,"port":%d,"listen":"loopback","restore":{"resumeAgents":%t}%s}`, h.Token, h.Port, h.resume, owner)
 	if err := os.WriteFile(filepath.Join(h.Home, "config.json"), []byte(config), 0o600); err != nil {
 		h.t.Fatal(err)
 	}

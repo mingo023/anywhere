@@ -12,6 +12,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/handoff"
+	"pocketd/internal/proto"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
@@ -38,6 +39,7 @@ type hint struct {
 	over    bool
 	timer   *time.Timer
 	handoff bool // handed down by the pocketd before exec; its agent never stopped
+	moved   bool // follow restarted the agent on another account; it stayed listed throughout
 }
 
 // pending drives an Agent whose provider hasn't come back.
@@ -240,6 +242,10 @@ func (d *Daemon) finish(h *hint, reason string) {
 		h.a.SetDriver(h.live)
 	}
 	d.mu.Unlock()
+	if reason == "" {
+		// The default may have changed while the agent was settling.
+		go d.Follow(h.saved.Provider)
+	}
 	if h.handoff && reason == "" {
 		return
 	}
@@ -248,6 +254,13 @@ func (d *Daemon) finish(h *hint, reason string) {
 	}
 	status := h.a.Summary().Status
 	outcome := state.Outcome(h.saved, status, reason != "")
+	if h.moved && reason == "" {
+		// Moving is no restart worth a notice, but losing full access is.
+		if outcome == proto.RestoreAccessLowered {
+			h.a.SetRestore(outcome)
+		}
+		return
+	}
 	// A turn already running has had the Working that clears the notice.
 	if reason != "" || status != "working" {
 		h.a.SetRestore(outcome)

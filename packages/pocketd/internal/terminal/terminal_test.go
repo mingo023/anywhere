@@ -370,6 +370,81 @@ func TestPausingAnExitedTerminalSaysItIsClosed(t *testing.T) {
 	}
 }
 
+func TestReplaceRunsAnotherProcessInTheSameTerminalWithoutAnExit(t *testing.T) {
+	m := NewManager()
+	s := spawn(t, m, `echo old; sleep 100`)
+	waitScreen(t, s, "old")
+	oldPid := s.Pid()
+	events := make(chan Event, 64)
+	_, detach, err := s.Attach(false, func(e Event) { events <- e })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach()
+
+	if err := s.Replace("sh", []string{"-c", "echo new; sleep 100"}, os.Environ()); err != nil {
+		t.Fatal(err)
+	}
+
+	waitScreen(t, s, "new")
+	if strings.Contains(s.Screen(), "old") {
+		t.Fatalf("screen kept the old process's output:\n%s", s.Screen())
+	}
+	waitGone(t, oldPid)
+	select {
+	case <-s.Done():
+		t.Fatal("terminal ended with its old process")
+	default:
+	}
+	if m.Get(s.Info().ID) != s {
+		t.Fatal("terminal left the manager")
+	}
+	if s.Pid() == oldPid {
+		t.Fatal("still the old process")
+	}
+	for len(events) > 0 {
+		if e := <-events; e.Kind == "exit" {
+			t.Fatal("old process's exit reached the attached screen")
+		}
+	}
+	s.Close()
+	<-s.Done()
+	if m.Get(s.Info().ID) != nil {
+		t.Fatal("terminal still listed after the new process ended")
+	}
+}
+
+func TestReplaceThatCannotStartLeavesTheTerminalAlone(t *testing.T) {
+	s := spawn(t, NewManager(), `echo old; sleep 100`)
+	waitScreen(t, s, "old")
+
+	if err := s.Replace("/no/such/binary", nil, os.Environ()); err == nil {
+		t.Fatal("replaced with a binary that is not there")
+	}
+
+	select {
+	case <-s.Done():
+		t.Fatal("terminal ended")
+	case <-time.After(200 * time.Millisecond):
+	}
+	if !strings.Contains(s.Screen(), "old") {
+		t.Fatalf("screen = %q", s.Screen())
+	}
+}
+
+func TestAPausedTerminalRefusesToBeReplaced(t *testing.T) {
+	s := spawn(t, NewManager(), `echo ready; sleep 100`)
+	waitScreen(t, s, "ready")
+	if err := s.Pause(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Resume()
+
+	if err := s.Replace("sh", []string{"-c", "true"}, os.Environ()); err == nil {
+		t.Fatal("replaced a paused terminal")
+	}
+}
+
 func TestHandoffNeedsAPausedTerminal(t *testing.T) {
 	s := spawn(t, NewManager(), `sleep 5`)
 	if _, err := s.Handoff(); err == nil {

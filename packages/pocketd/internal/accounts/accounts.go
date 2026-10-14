@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -28,9 +29,10 @@ var Providers = []string{"claude", "codex"}
 var Unset = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
 
 var (
-	ErrUnknown = errors.New("That account isn't on this machine anymore")
-	ErrRunning = errors.New("Sessions are running on this account. Stop them first, then remove it.")
-	ErrBuiltIn = errors.New("The built-in login stays. Sign out instead.")
+	ErrUnknown   = errors.New("That account isn't on this machine anymore")
+	ErrRunning   = errors.New("Sessions are running on this account. Stop them first, then remove it.")
+	ErrSignedOut = errors.New("Sign in to this account before making it the default")
+	ErrBuiltIn   = errors.New("The built-in login stays. Sign out instead.")
 )
 
 type Account struct {
@@ -71,6 +73,7 @@ type Store struct {
 	Secret func(service string) (string, bool)
 
 	mu      sync.Mutex
+	share   sync.Mutex // one Share at a time: launches and moves can overlap
 	usage   map[string]Usage
 	pending map[string]pending
 }
@@ -151,7 +154,7 @@ func (s *Store) List(running func(provider, id string) int) []Account {
 			}
 		}
 		for _, e := range rows {
-			a := Account{ID: e.ID, Provider: p, Label: e.Label, Email: e.Email, Plan: e.Plan, SignedIn: s.signedIn(p, e.ID), Default: e.ID == def, Running: running(p, e.ID)}
+			a := Account{ID: e.ID, Provider: p, Label: e.Label, Email: e.Email, Plan: e.Plan, SignedIn: s.SignedIn(p, e.ID), Default: e.ID == def, Running: running(p, e.ID)}
 			if u, ok := s.usage[p+"/"+e.ID]; ok {
 				a.Usage = &u
 			}
@@ -263,6 +266,9 @@ func (s *Store) Rename(provider, id, label string) error {
 
 // SetDefault makes id start provider's sessions that name no account.
 func (s *Store) SetDefault(provider, id string) error {
+	if id != BuiltIn && id != "" && !s.SignedIn(provider, id) {
+		return ErrSignedOut
+	}
 	return s.edit(provider, id, func(x *index, _ int) error {
 		if x.Defaults == nil {
 			x.Defaults = map[string]string{}
@@ -287,7 +293,7 @@ func (s *Store) Remove(provider, id string, running int, signOut func()) error {
 	if _, err := s.Resolve(provider, id); err != nil {
 		return err
 	}
-	if s.signedIn(provider, id) {
+	if s.SignedIn(provider, id) {
 		signOut()
 	}
 	return s.edit(provider, id, func(x *index, i int) error {
@@ -392,7 +398,8 @@ func jwtClaims(token string) claims {
 	return c
 }
 
-func (s *Store) signedIn(provider, id string) bool {
+// SignedIn is whether account id of provider holds a login.
+func (s *Store) SignedIn(provider, id string) bool {
 	if provider == "codex" {
 		return s.codexAuth(id).Tokens.AccessToken != ""
 	}
@@ -405,13 +412,15 @@ type claudeOAuth struct {
 }
 
 // claudeToken is Claude Code's OAuth token for account id: in the Keychain
-// item named after its folder on macOS, else in .credentials.json.
+// item named after its folder on macOS, else in .credentials.json, where
+// Claude Code keeps it when it has no Keychain.
 func (s *Store) claudeToken(id string) claudeOAuth {
 	var raw []byte
 	if s.Secret != nil {
 		v, _ := s.Secret(KeychainService(s.Dir("claude", id), id == BuiltIn))
 		raw = []byte(v)
-	} else {
+	}
+	if len(raw) == 0 {
 		raw, _ = os.ReadFile(filepath.Join(s.Dir("claude", id), ".credentials.json"))
 	}
 	var c struct {
@@ -424,8 +433,29 @@ func (s *Store) claudeToken(id string) claudeOAuth {
 // Keychain reads a macOS Keychain item's password with the security tool,
 // which the items Claude Code writes trust.
 func Keychain(service string) (string, bool) {
-	out, err := exec.Command("/usr/bin/security", "find-generic-password", "-s", service, "-w").Output()
+	return findPassword(service, keychainAccount())
+}
+
+// findPassword reads the item for service under account, in keychains or
+// else the user's search list. Without the account, security returns
+// whichever item with that service it finds first, which may be a stale one
+// that holds no login.
+func findPassword(service, account string, keychains ...string) (string, bool) {
+	args := append([]string{"find-generic-password", "-s", service, "-a", account, "-w"}, keychains...)
+	out, err := exec.Command("/usr/bin/security", args...).Output()
 	return strings.TrimSpace(string(out)), err == nil
+}
+
+// keychainAccount is the account Claude Code files its credentials under: the user's name.
+func keychainAccount() string {
+	if name := os.Getenv("USER"); name != "" {
+		return name
+	}
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Username
 }
 
 // KeychainService mirrors Claude Code 2.1.296: a CLAUDE_CONFIG_DIR adds the
