@@ -15,6 +15,13 @@ func registered(p string, r registry.Repo) registry.File {
 	return registry.File{Projects: []string{p}, Repos: map[string]registry.Repo{p: r}}
 }
 
+// worktreesIn registers p with its new worktrees going straight into dir.
+func worktreesIn(p, dir string) registry.File {
+	f := registered(p, registry.Repo{Name: filepath.Base(dir)})
+	f.Worktree.Root = filepath.Dir(dir)
+	return f
+}
+
 func TestANameMustBeFreeAndValidForGit(t *testing.T) {
 	taken := []string{"main", "Foo", "fix/login"}
 	if err := Validate("fix-login_2.0", taken); err != nil {
@@ -44,16 +51,15 @@ func TestTakenNamesAreBranchesRemoteBranchesAndFolders(t *testing.T) {
 	}
 }
 
-func TestWorktreesGoWhereTheRepoSaysElseUnderTheRootElseHome(t *testing.T) {
+func TestWorktreesGoUnderTheRootElseUnderAnywhereInHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	for _, c := range []struct {
 		repo registry.Repo
 		want string
 	}{
-		{registry.Repo{Worktrees: "/wt"}, "/wt"},
-		{registry.Repo{Name: "Pocket"}, filepath.Join(home, ".worktrees", "Pocket")},
-		{registry.Repo{}, filepath.Join(home, ".worktrees", "pocket")},
+		{registry.Repo{Name: "Pocket"}, filepath.Join(home, ".anywhere", "worktrees", "Pocket")},
+		{registry.Repo{}, filepath.Join(home, ".anywhere", "worktrees", "pocket")},
 	} {
 		if got := Dir(registered("/w/pocket", c.repo), "/w/pocket"); got != c.want {
 			t.Errorf("%+v: got %s", c.repo, got)
@@ -64,15 +70,12 @@ func TestWorktreesGoWhereTheRepoSaysElseUnderTheRootElseHome(t *testing.T) {
 	if got := Dir(rooted, "/w/pocket"); got != "/wt/Pocket" {
 		t.Errorf("under the root: got %s", got)
 	}
-	rooted.Repos["/w/pocket"] = registry.Repo{Worktrees: "/own"}
-	if got := Dir(rooted, "/w/pocket"); got != "/own" {
-		t.Errorf("the repo's own folder beats the root: got %s", got)
-	}
 }
 
 func TestTheDeepestRegisteredFolderContainsADir(t *testing.T) {
-	f := registry.File{Projects: []string{"/w", "/w/pocket"}, Repos: map[string]registry.Repo{"/w/pocket": {Worktrees: "/wt/pocket"}}}
-	for dir, want := range map[string]string{"/w/pocket/src": "/w/pocket", "/w/other": "/w", "/wt/pocket/calm-otter": "/w/pocket"} {
+	f := registry.File{Projects: []string{"/w", "/w/pocket"}, Worktree: registry.Worktree{Root: "/wt"}}
+	t.Setenv("HOME", "/home/me")
+	for dir, want := range map[string]string{"/w/pocket/src": "/w/pocket", "/w/other": "/w", "/wt/pocket/calm-otter": "/w/pocket", "/home/me/.worktrees/pocket/calm-otter": "/w/pocket"} {
 		if got, ok := Containing(f, dir); !ok || got != want {
 			t.Errorf("%s: got %q", dir, got)
 		}
@@ -82,28 +85,27 @@ func TestTheDeepestRegisteredFolderContainsADir(t *testing.T) {
 	}
 }
 
-func TestCreateBranchesFromTheRepoBaseIntoItsWorktreesFolder(t *testing.T) {
+func TestCreateBranchesFromMainIntoItsWorktreesFolder(t *testing.T) {
 	p := repo(t)
 	git(t, p, "switch", "-q", "-c", "dev")
 	git(t, p, "commit", "-q", "--allow-empty", "-m", "dev")
-	git(t, p, "switch", "-q", "main")
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	wt := filepath.Join(root, "wt")
-	c, err := Create(registered(p, registry.Repo{Base: "dev", Worktrees: wt}), p, "fix-login", "")
-	if err != nil || c.Path != filepath.Join(wt, "fix-login") || c.Branch != "fix-login" || c.Base != "dev" {
+	c, err := Create(worktreesIn(p, wt), p, "fix-login", "")
+	if err != nil || c.Path != filepath.Join(wt, "fix-login") || c.Branch != "fix-login" || c.Base != "main" {
 		t.Fatalf("%+v, %v", c, err)
 	}
-	if head, dev := git(t, c.Path, "rev-parse", "HEAD"), git(t, p, "rev-parse", "dev"); head != dev {
-		t.Fatalf("HEAD %s, dev %s", head, dev)
+	if head, main := git(t, c.Path, "rev-parse", "HEAD"), git(t, p, "rev-parse", "main"); head != main {
+		t.Fatalf("HEAD %s, main %s", head, main)
 	}
 }
 
-func TestCreateTakesAnExplicitBaseAndDefaultsUnderHome(t *testing.T) {
+func TestCreateTakesAnExplicitBaseAndDefaultsUnderAnywhereInHome(t *testing.T) {
 	home, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("HOME", home)
 	p := repo(t)
 	c, err := Create(registered(p, registry.Repo{}), p, "calm-otter", "main")
-	if want := filepath.Join(os.Getenv("HOME"), ".worktrees", "pocket", "calm-otter"); err != nil || c.Path != want || c.Base != "main" {
+	if want := filepath.Join(os.Getenv("HOME"), ".anywhere", "worktrees", "pocket", "calm-otter"); err != nil || c.Path != want || c.Base != "main" {
 		t.Fatalf("%+v, %v", c, err)
 	}
 }
@@ -114,7 +116,7 @@ func TestAWorktreesFolderBehindASymlinkGivesThePathListReports(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), link); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Create(registered(p, registry.Repo{Worktrees: link}), p, "calm-otter", "")
+	c, err := Create(worktreesIn(p, link), p, "calm-otter", "")
 	ws, _ := List(p)
 	if err != nil || len(ws) != 2 || c.Path != ws[1].Path {
 		t.Fatalf("created %q, listed %+v, %v", c.Path, ws, err)
@@ -125,7 +127,7 @@ func TestARepoWithoutBranchesBranchesFromHEAD(t *testing.T) {
 	p := repo(t)
 	git(t, p, "checkout", "-q", "--detach")
 	git(t, p, "branch", "-q", "-D", "main")
-	c, err := Create(registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")}), p, "calm-otter", "")
+	c, err := Create(worktreesIn(p, filepath.Join(t.TempDir(), "wt")), p, "calm-otter", "")
 	if err != nil || c.Base != "HEAD" {
 		t.Fatalf("%+v, %v", c, err)
 	}
@@ -137,7 +139,7 @@ func TestARepoWithoutBranchesBranchesFromHEAD(t *testing.T) {
 func TestCreateRefusesATakenNameBeforeGitRuns(t *testing.T) {
 	p := repo(t)
 	wt := filepath.Join(t.TempDir(), "wt")
-	if _, err := Create(registered(p, registry.Repo{Worktrees: wt}), p, "MAIN", ""); Code(err) != "worktree_exists" {
+	if _, err := Create(worktreesIn(p, wt), p, "MAIN", ""); Code(err) != "worktree_exists" {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
@@ -161,7 +163,7 @@ func TestCreateRefusesAProjectThatIsNotRegistered(t *testing.T) {
 
 func TestRemoveKeepsTheBranchAndRefusesTheMainWorktree(t *testing.T) {
 	p := repo(t)
-	f := registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")})
+	f := worktreesIn(p, filepath.Join(t.TempDir(), "wt"))
 	c, err := Create(f, p, "calm-otter", "")
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +189,7 @@ func TestRemoveKeepsTheBranchAndRefusesTheMainWorktree(t *testing.T) {
 func TestABaseThatLooksLikeAFlagIsNotAnOption(t *testing.T) {
 	p := repo(t)
 	wt := filepath.Join(t.TempDir(), "wt")
-	if _, err := Add(registered(p, registry.Repo{Worktrees: wt}), p, "calm-otter", "--lock"); err == nil {
+	if _, err := Add(worktreesIn(p, wt), p, "calm-otter", "--lock"); err == nil {
 		t.Fatal("git took the base as an option")
 	}
 	if _, err := os.Stat(filepath.Join(wt, "calm-otter")); !os.IsNotExist(err) {
@@ -212,7 +214,7 @@ func pushed(t *testing.T) (p string, advance func() string) {
 
 func planned(t *testing.T, p string) Plan {
 	t.Helper()
-	plan, err := Prepare(registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")}), p, "calm-otter", "")
+	plan, err := Prepare(worktreesIn(p, filepath.Join(t.TempDir(), "wt")), p, "calm-otter", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +297,7 @@ func TestFetchFallsBackToLocalWithANoteWhenOriginCantHelp(t *testing.T) {
 func TestFetchLeavesABaseThatIsNotALocalBranchAlone(t *testing.T) {
 	p, advance := pushed(t)
 	advance()
-	plan, err := Prepare(registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")}), p, "calm-otter", "HEAD")
+	plan, err := Prepare(worktreesIn(p, filepath.Join(t.TempDir(), "wt")), p, "calm-otter", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}

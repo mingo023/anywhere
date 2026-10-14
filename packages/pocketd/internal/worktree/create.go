@@ -87,24 +87,23 @@ func branches(project string) ([]string, error) {
 	return strings.Fields(string(out)), err
 }
 
-// Dir is the folder project's new Worktrees go in.
+// Dir is the folder project's new Worktrees go in: under the root setting, else
+// ~/.anywhere/worktrees.
 func Dir(f registry.File, project string) string {
-	if d := f.Repos[project].Worktrees; d != "" {
-		return d
-	}
 	if r := f.Worktree.Root; r != "" {
 		return filepath.Join(r, f.Name(project))
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".worktrees", f.Name(project))
+	return filepath.Join(home, ".anywhere", "worktrees", f.Name(project))
 }
 
 // Containing is the registered Project whose folder or worktrees folder holds
-// dir; the deepest wins.
+// dir; the deepest wins. Worktrees under ~/.worktrees, the former default, still count.
 func Containing(f registry.File, dir string) (string, bool) {
+	home, _ := os.UserHomeDir()
 	best, depth := "", 0
 	for _, p := range f.Projects {
-		for _, root := range []string{p, Dir(f, p)} {
+		for _, root := range []string{p, Dir(f, p), filepath.Join(home, ".worktrees", f.Name(p))} {
 			if (dir == root || strings.HasPrefix(dir, root+"/")) && len(root) > depth {
 				best, depth = p, len(root)
 			}
@@ -125,7 +124,7 @@ func Create(f registry.File, project, name, base string) (Created, error) {
 	if err != nil {
 		return c, err
 	}
-	c.Copied, c.Skipped = CopyInto(f, project, c.Path)
+	c.Copied, c.Skipped = CopyInto(project, c.Path)
 	return c, nil
 }
 
@@ -162,7 +161,7 @@ func Prepare(f registry.File, project, name, base string) (Plan, error) {
 		return Plan{}, err
 	}
 	if base == "" {
-		base = defaultBase(project, f.Repos[project].Base)
+		base = defaultBase(project)
 	}
 	return Plan{Project: project, Path: filepath.Join(dir, name), Branch: name, Base: base, from: base}, nil
 }
@@ -218,12 +217,12 @@ func (p Plan) Add() (Created, error) {
 }
 
 // defaultBase is the desktop's pick (default_base in pocket/src/modals/form.rs):
-// the repo's base, main, master, the current branch, the newest branch, else
-// HEAD when the repo has no branch at all.
-func defaultBase(project, preferred string) string {
+// main, master, the current branch, the newest branch, else HEAD when the repo
+// has no branch at all.
+func defaultBase(project string) string {
 	all, _ := branches(project)
 	current, _ := exec.Command("git", "-C", project, "branch", "--show-current").Output()
-	for _, b := range []string{preferred, "main", "master", strings.TrimSpace(string(current))} {
+	for _, b := range []string{"main", "master", strings.TrimSpace(string(current))} {
 		if b != "" && slices.Contains(all, b) {
 			return b
 		}

@@ -34,7 +34,7 @@ func scratch(t *testing.T) string {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	f := registry.File{Projects: []string{p}, Repos: map[string]registry.Repo{p: {Worktrees: filepath.Join(dir, "wt")}}}
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: filepath.Join(dir, "wt")}}
 	raw, _ := json.Marshal(f)
 	os.WriteFile(filepath.Join(dir, "desktop.json"), raw, 0o600)
 	os.WriteFile(filepath.Join(p, ".env"), []byte("A=1"), 0o600)
@@ -50,7 +50,7 @@ func worktreeCLI(args ...string) (code int, stdout, stderr string) {
 
 func TestAWorktreeTheCLICreatesIsListedThenRemoved(t *testing.T) {
 	p := scratch(t)
-	wt := filepath.Join(filepath.Dir(p), "wt", "calm-otter")
+	wt := filepath.Join(filepath.Dir(p), "wt", "pocket", "calm-otter")
 	if code, out, errs := worktreeCLI("create", "--project", p, "calm-otter"); code != 0 || out != wt+"\n" || errs != "" {
 		t.Fatalf("create: %d %q %q", code, out, errs)
 	}

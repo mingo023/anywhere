@@ -76,7 +76,7 @@ impl Desktop {
             .text_size(px(12.))
             .line_height(px(16.))
             .text_color(TEXT_3)
-            .child("Agents start on the selected account, and running ones move to it when idle. Usage is checked every 5 minutes while Anywhere is open.");
+            .child("Agents start on the selected account, and move to it when idle. Usage is checked every 5 minutes while Anywhere is open.");
         div().flex().flex_col().gap(px(22.)).child(toolbar).children(groups.collect::<Vec<_>>()).child(caption)
     }
 

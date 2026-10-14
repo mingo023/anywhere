@@ -315,7 +315,7 @@ func launchReady(setup string) func(*Harness) {
 			}
 		}
 		h.Repo = repo
-		reg, _ := json.Marshal(registry.File{Projects: []string{repo}, Repos: map[string]registry.Repo{repo: {Worktrees: filepath.Join(h.Home, "wt"), Setup: setup}}})
+		reg, _ := json.Marshal(registry.File{Projects: []string{repo}, Repos: map[string]registry.Repo{repo: {Name: "wt", Setup: setup}}, Worktree: registry.Worktree{Root: h.Home}})
 		os.WriteFile(filepath.Join(h.Home, "desktop.json"), reg, 0o600)
 		os.MkdirAll(h.ClaudeDir, 0o755)
 		os.WriteFile(filepath.Join(h.ClaudeDir, ".claude.json"), []byte(`{"projects":{"`+repo+`":{"hasTrustDialogAccepted":true}}}`), 0o600)

@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"pocketd/internal/registry"
 )
 
 // commitOn adds a commit to ref in the bare repo, starting ref at main when
@@ -29,7 +27,7 @@ func origin(p string) string { return filepath.Join(filepath.Dir(p), "origin.git
 // opened opens branch of p in a fresh worktrees folder and adds it.
 func opened(t *testing.T, p, branch string) (*Open, Created) {
 	t.Helper()
-	o, err := PrepareBranch(registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")}), p, "", branch, os.Environ())
+	o, err := PrepareBranch(worktreesIn(p, filepath.Join(t.TempDir(), "wt")), p, "", branch, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +97,7 @@ func TestABranchAlreadyOpenIsAdoptedMainIncluded(t *testing.T) {
 	p := repo(t)
 	tree := filepath.Join(filepath.Dir(p), "feat")
 	git(t, p, "worktree", "add", "-q", "-b", "feat", tree)
-	f := registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")})
+	f := worktreesIn(p, filepath.Join(t.TempDir(), "wt"))
 	for branch, want := range map[string]string{"feat": tree, "main": p} {
 		o, err := PrepareBranch(f, p, "", branch, os.Environ())
 		if err != nil || o.Adopt != want || o.Path != want || o.Note != "Already open in "+filepath.Base(want) {
@@ -120,7 +118,7 @@ func TestADeletedWorktreeFolderNoLongerHoldsItsBranch(t *testing.T) {
 
 func TestOpeningABranchNobodyHasFails(t *testing.T) {
 	p := repo(t)
-	f := registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")})
+	f := worktreesIn(p, filepath.Join(t.TempDir(), "wt"))
 	for _, b := range []string{"nope", "-x", "a..b"} {
 		if _, err := PrepareBranch(f, p, "", b, os.Environ()); err == nil || err.Error() != "No branch "+b || Code(err) != "spawn_failed" {
 			t.Errorf("%s: %v", b, err)
@@ -130,7 +128,7 @@ func TestOpeningABranchNobodyHasFails(t *testing.T) {
 
 func TestABranchOriginLacksIsNoBranch(t *testing.T) {
 	p, _ := pushed(t)
-	f := registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")})
+	f := worktreesIn(p, filepath.Join(t.TempDir(), "wt"))
 	if _, err := PrepareBranch(f, p, "", "nope", os.Environ()); err == nil || err.Error() != "No branch nope" || Code(err) != "spawn_failed" {
 		t.Fatal(err)
 	}
@@ -139,7 +137,7 @@ func TestABranchOriginLacksIsNoBranch(t *testing.T) {
 func TestAnUnreachableOriginSaysTheFetchFailed(t *testing.T) {
 	p, _ := pushed(t)
 	git(t, p, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
-	f := registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")})
+	f := worktreesIn(p, filepath.Join(t.TempDir(), "wt"))
 	_, err := PrepareBranch(f, p, "", "nope", os.Environ())
 	if err == nil || !strings.HasPrefix(err.Error(), "Couldn't fetch nope from origin: ") || !strings.Contains(err.Error(), "gone.git") || Code(err) != "spawn_failed" {
 		t.Fatal(err)
@@ -150,7 +148,7 @@ func TestAFailedAddDeletesOnlyTheBranchItMade(t *testing.T) {
 	p, _ := pushed(t)
 	commitOn(t, origin(p), "refs/heads/feat")
 	git(t, p, "branch", "mine")
-	f := registered(p, registry.Repo{Worktrees: filepath.Join(t.TempDir(), "wt")})
+	f := worktreesIn(p, filepath.Join(t.TempDir(), "wt"))
 	for _, b := range []string{"feat", "mine"} {
 		o, err := PrepareBranch(f, p, "", b, os.Environ())
 		if err != nil {

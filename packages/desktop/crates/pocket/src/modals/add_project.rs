@@ -3,17 +3,14 @@ pub(crate) mod icon;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
-use crate::modals::form::{default_base, footer, home, typed_or};
-use crate::settings::dropdown::dropdown;
-use crate::settings::models::{effort_label, effort_options, model_label, model_options};
+use crate::modals::form::{footer, home, typed_or};
 use crate::util::{basename, tilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use host_folder::Browse;
 use std::path::{Path, PathBuf};
-use store::prefs::agents::efforts;
-use store::{LaunchPick, ProjectIcon, RepoConfig};
+use store::{ProjectIcon, RepoConfig};
 use theme::*;
 use ui::{Segment, Variant};
 
@@ -47,13 +44,6 @@ struct RepoDraft {
     probe: Option<Probe>,
     color: u32,
     icon: Option<ProjectIcon>,
-    branches: Vec<String>,
-    base: usize,
-    worktrees: String,
-    copy: Vec<String>,
-    agent: LaunchPick,
-    /// The base branch the repository starts on, which Reset goes back to.
-    default_base: usize,
     /// Reset is asking to be confirmed.
     resetting: bool,
     editing: Option<String>,
@@ -70,12 +60,6 @@ impl Default for RepoDraft {
             probe: None,
             color: PALETTE[0],
             icon: None,
-            branches: Vec::new(),
-            base: 0,
-            worktrees: String::new(),
-            copy: Vec::new(),
-            agent: LaunchPick::default(),
-            default_base: 0,
             resetting: false,
             editing: None,
             busy: false,
@@ -106,16 +90,6 @@ impl RepoDraft {
     fn plain_folder(&self) -> bool {
         self.source != Source::Clone && matches!(self.probe, Some(Probe::NotGit))
     }
-
-    fn add_copies(&mut self, repo: &str, paths: Vec<PathBuf>) {
-        for p in paths {
-            let Ok(rel) = p.strip_prefix(repo) else { continue };
-            let rel = rel.to_string_lossy().into_owned();
-            if !self.copy.contains(&rel) {
-                self.copy.push(rel);
-            }
-        }
-    }
 }
 
 fn repo_from_url(url: &str) -> String {
@@ -123,40 +97,13 @@ fn repo_from_url(url: &str) -> String {
     tail.strip_suffix(".git").unwrap_or(tail).to_string()
 }
 
-/// The project's agent with a model or effort chosen; one chosen under App default keeps that agent.
-fn pinned(mut pick: LaunchPick, app: &str, set: impl FnOnce(&mut LaunchPick)) -> LaunchPick {
-    set(&mut pick);
-    if pick.provider.is_empty() && !(pick.model.is_empty() && pick.effort.is_empty()) {
-        pick.provider = app.into();
-    }
-    pick
-}
-
 /// What Reset would put back, as (setting, now, default); name, colour and icon are the project's own.
-fn project_changes(cfg: &RepoConfig, default_base: &str) -> Vec<(&'static str, String, String)> {
-    let or = |value: String, none: &str| if value.is_empty() { none.to_string() } else { value };
+fn project_changes(cfg: &RepoConfig) -> Vec<(&'static str, String, String)> {
     let script = |s: &str| if s.is_empty() { "empty" } else { "edited" }.to_string();
-    let copies = match cfg.copy.len() {
-        0 => "none".to_string(),
-        1 => "1 file".to_string(),
-        n => format!("{n} files"),
-    };
-    let agent = if cfg.agent.provider.is_empty() { "App default".to_string() } else { theme::provider_name(&cfg.agent.provider).to_string() };
-    let model = or(cfg.agent.model.is_empty().then(String::new).unwrap_or_else(|| model_label(&cfg.agent.model)), "App default");
-    let effort = or(cfg.agent.effort.is_empty().then(String::new).unwrap_or_else(|| effort_label(&cfg.agent.effort)), "App default");
-    [
-        ("Default base branch", cfg.base.clone(), default_base.to_string()),
-        ("Worktrees folder", or(tilde(&cfg.worktrees), "Default"), "Default".into()),
-        ("When a worktree is created", script(&cfg.setup), script("")),
-        ("When a worktree is deleted", script(&cfg.teardown), script("")),
-        ("Copy into each worktree", copies, "none".into()),
-        ("Agent", agent, "App default".into()),
-        ("Model", model, "App default".into()),
-        ("Effort", effort, "App default".into()),
-    ]
-    .into_iter()
-    .filter(|(_, now, default)| now != default)
-    .collect()
+    [("When a worktree is created", script(&cfg.setup), script("")), ("When a worktree is deleted", script(&cfg.teardown), script(""))]
+        .into_iter()
+        .filter(|(_, now, default)| now != default)
+        .collect()
 }
 
 fn field(label: &str, body: impl IntoElement) -> Div {
@@ -240,7 +187,6 @@ impl Desktop {
         f.source = v;
         f.path = (v == Source::Clone).then_some(root).filter(|p| Path::new(p).is_dir());
         f.probe = None;
-        f.branches.clear();
         f.browse = None;
     }
 
@@ -251,11 +197,8 @@ impl Desktop {
             None => PALETTE[self.projects().len() % PALETTE.len()],
         };
         self.settings.menu = None;
-        if editing.is_some() {
-            self.load_models(cx);
-        }
         let f = &mut self.repo_form;
-        f.draft = RepoDraft { color, icon: cfg.icon, worktrees: cfg.worktrees, copy: cfg.copy, agent: cfg.agent, editing: editing.clone(), ..RepoDraft::default() };
+        f.draft = RepoDraft { color, icon: cfg.icon, editing: editing.clone(), ..RepoDraft::default() };
         f.url.update(cx, |s, cx| s.set_value("", window, cx));
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
@@ -269,7 +212,6 @@ impl Desktop {
     }
 
     fn set_repo_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
-        let base = self.store.repos.get(&path).map(|r| r.base.clone()).unwrap_or_default();
         let f = &mut self.repo_form;
         f.draft.path = Some(path.clone());
         if f.draft.source == Source::Clone {
@@ -280,23 +222,19 @@ impl Desktop {
         let dir = path.clone();
         let task = cx.background_executor().spawn(async move {
             let runner = hosts::runner_for(&dir);
-            (git::read(&runner, &dir, true), git::branches(&runner, &dir), git::remotes(&runner, &dir))
+            (git::read(&runner, &dir, true), git::remotes(&runner, &dir))
         });
         cx.spawn(async move |this, cx| {
-            let (repo, branches, remotes) = task.await;
+            let (repo, remotes) = task.await;
             this.update(cx, |d, cx| {
                 let f = &mut d.repo_form.draft;
                 if f.path.as_ref() != Some(&path) {
                     return;
                 }
-                let current = repo.as_ref().map(|r| r.branch.as_str()).unwrap_or_default();
-                f.base = default_base(branches.iter().map(String::as_str), &base, current);
-                f.default_base = default_base(branches.iter().map(String::as_str), "", current);
                 f.probe = Some(match repo {
                     Some(r) => Probe::Git { clean: r.files.is_empty(), branch: r.branch, remotes },
                     None => Probe::NotGit,
                 });
-                f.branches = branches;
                 cx.notify();
             })
             .ok();
@@ -351,13 +289,9 @@ impl Desktop {
             name,
             color: f.draft.color,
             icon: f.draft.icon.clone(),
-            base: f.draft.branches.get(f.draft.base).cloned().unwrap_or_default(),
-            worktrees: f.draft.worktrees.clone(),
             setup: f.setup.read(cx).value().trim().to_string(),
             teardown: f.teardown.read(cx).value().trim().to_string(),
-            copy: f.draft.copy.clone(),
             launch: saved.map(|r| r.launch.clone()).unwrap_or_default(),
-            agent: f.draft.agent.clone(),
             dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
             gh_account: saved.map(|r| r.gh_account.clone()).unwrap_or_default(),
         }
@@ -366,43 +300,11 @@ impl Desktop {
     /// Puts the form back on the app's defaults; Save keeps it.
     fn reset_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let f = &mut self.repo_form;
-        let d = &mut f.draft;
-        (d.base, d.agent, d.resetting) = (d.default_base, LaunchPick::default(), false);
-        d.worktrees.clear();
-        d.copy.clear();
+        f.draft.resetting = false;
         for input in [&f.setup, &f.teardown] {
             input.update(cx, |s, cx| s.set_value("", window, cx));
         }
         cx.notify();
-    }
-
-    fn agent_fields(&self, cx: &mut Context<Self>) -> Div {
-        let agent = self.repo_form.draft.agent.clone();
-        let app = self.store.agents.default_agent();
-        let provider = if agent.provider.is_empty() { app } else { agent.provider.as_str() };
-        let trigger = |id: &'static str, label: String| {
-            ui::field_box().id(id).cursor_pointer().child(div().flex_1().min_w_0().truncate().text_size(px(13.)).child(label)).child(icon("chevron-down", 12., TEXT_4))
-        };
-        let app_label = format!("App default ({})", self.agent_name(app));
-        let agents: Vec<(String, String)> = std::iter::once((String::new(), app_label.clone())).chain(LaunchPick::PROVIDERS.map(|p| (p.to_string(), self.agent_name(p).to_string()))).collect();
-        let shown = agents.iter().find(|(v, _)| *v == agent.provider).map_or(app_label, |(_, l)| l.clone());
-        let pick_agent = dropdown("project-agent", trigger("project-agent", shown), agents, &agent.provider, self, |d, v, _| {
-            let draft = &mut d.repo_form.draft;
-            draft.agent = draft.agent.switched(&v);
-        }, cx);
-        let models = model_options(provider, self.codex_models(), &agent.model, "App default");
-        let shown = models.iter().find(|(v, _)| *v == agent.model).map_or_else(|| model_label(&agent.model), |(_, l)| l.clone());
-        let pick_model = dropdown("project-model", trigger("project-model", shown), models, &agent.model, self, move |d, v, _| {
-            d.repo_form.draft.agent = pinned(d.repo_form.draft.agent.clone(), app, |p| p.model = v);
-        }, cx);
-        let pick_effort = (!efforts(provider).is_empty()).then(|| {
-            let shown = if agent.effort.is_empty() { "App default".to_string() } else { effort_label(&agent.effort) };
-            let pick = dropdown("project-effort", trigger("project-effort", shown), effort_options(provider, "App default"), &agent.effort, self, move |d, v, _| {
-                d.repo_form.draft.agent = pinned(d.repo_form.draft.agent.clone(), app, |p| p.effort = v);
-            }, cx);
-            field("Effort", pick)
-        });
-        div().flex().gap(px(14.)).child(field("Agent", pick_agent).flex_none().w(px(210.))).child(field("Model", pick_model)).children(pick_effort)
     }
 
     /// The Reset line under an edited project, or the list it asks to confirm.
@@ -415,8 +317,7 @@ impl Desktop {
             }));
             return div().flex().justify_end().text_size(px(12.5)).child(link);
         }
-        let base = f.branches.get(f.default_base).cloned().unwrap_or_default();
-        let changes = project_changes(&self.repo_config(path, name.into(), cx), &base);
+        let changes = project_changes(&self.repo_config(path, name.into(), cx));
         let lead = match changes.len() {
             0 => "Every setting here is already at its default.".to_string(),
             1 => "Only this project changes. 1 setting will go back:".to_string(),
@@ -517,7 +418,6 @@ impl Desktop {
 
     pub fn repo_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
         let name = self.repo_form_name(cx);
-        let agent = self.agent_fields(cx);
         let reset = self.repo_form.draft.editing.clone().map(|p| self.reset_line(&p, &name, cx));
         let f = &self.repo_form;
         let source = div().id("repo-source").child(ui::segmented(
@@ -538,67 +438,11 @@ impl Desktop {
         let url = (f.draft.source == Source::Clone).then(|| {
             ui::field_box().child(icon("external", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.url).appearance(false).p_0().text_size(px(13.))))
         });
-        let colors = div().h(px(38.)).flex().items_center().gap(px(4.)).children(PALETTE.iter().enumerate().map(|(i, &c)| {
-            div()
-                .id(("repo-color", i))
-                .size(px(28.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(9.))
-                .cursor_pointer()
-                .when(c == f.draft.color, |d| d.shadow(vec![ui::ring(rgba(c), 1.5)]))
-                .child(ui::swatch(c, 22., 7.))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.repo_form.draft.color = c;
-                    cx.notify();
-                }))
-        }));
         let identity = div()
             .flex()
             .gap(px(14.))
             .child(field("Name", ui::field_box().child(div().flex_1().child(Input::new(&f.name).appearance(false).p_0().text_size(px(14.))))))
-            .child(field("Colour", colors).flex_none())
             .child(field("Icon", self.icon_choices(&name, cx)).flex_none());
-        let count = f.draft.branches.len();
-        let base_name = f.draft.branches.get(f.draft.base).cloned().unwrap_or_else(|| "Default branch".into());
-        let base = ui::field_box()
-            .id("repo-base")
-            .when(count > 1, |d| d.cursor_pointer())
-            .child(icon("branch", 13., TEXT_3))
-            .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(13.)).child(base_name))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.repo_form.draft.base = (this.repo_form.draft.base + 1) % count.max(1);
-                cx.notify();
-            }));
-        let host = f.draft.path.as_deref().and_then(|p| hosts::split(p).0);
-        let on_host = host.is_some() || f.draft.source == Source::Host;
-        let root = tilde(&self.store.worktree_root(&home()));
-        // A host's worktrees go under its own home; this Mac's folder picker can't reach there.
-        let folder = match (on_host, hosts::split(&f.draft.worktrees)) {
-            (true, (Some(h), path)) if Some(h) == host => path.to_string(),
-            (true, _) => format!("~/.worktrees/{name}"),
-            (false, _) if f.draft.worktrees.is_empty() => format!("{root}/{name}"),
-            (false, _) => tilde(&f.draft.worktrees),
-        };
-        let worktrees = ui::field_box()
-            .child(icon("folder", 13., TEXT_3))
-            .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(13.)).child(folder))
-            .when(!on_host, |d| {
-                d.child(ui::link("repo-worktrees", "Change").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.pick_path(true, window, cx, |d, paths, _, _| {
-                        if let Some(p) = paths.into_iter().next() {
-                            d.repo_form.draft.worktrees = p.to_string_lossy().into_owned();
-                        }
-                    })
-                })))
-            });
-        let layout = div()
-            .flex()
-            .gap(px(14.))
-            .child(field("Default base branch", base).child(div().text_size(px(12.)).text_color(TEXT_4).child("New worktrees branch off this unless you pick another.")))
-            .child(field("Worktrees folder", worktrees));
         let setup = field(
             "When a worktree is created",
             ui::field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.setup).appearance(false).p_0().text_size(px(13.)))),
@@ -617,32 +461,6 @@ impl Desktop {
             }));
             div().flex().items_center().gap(px(12.)).child(text).child(button)
         });
-        let repo = f.draft.path.clone().filter(|_| f.draft.source == Source::Local && !on_host);
-        let copies = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(6.))
-            .child(div().mr(px(2.)).text_size(px(12.5)).text_color(TEXT_3).child("Copy into each worktree"))
-            .children(f.draft.copy.iter().enumerate().map(|(i, rel)| {
-                ui::tag(rel.clone())
-                    .id(("repo-copy", i))
-                    .gap(px(4.))
-                    .cursor_pointer()
-                    .font_family(MONO)
-                    .text_color(TEXT)
-                    .child(icon("x", 9., TEXT_4))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.repo_form.draft.copy.remove(i);
-                        cx.notify();
-                    }))
-            }))
-            .when_some(repo, |d, repo| {
-                d.child(ui::link("repo-add-file", "+ Add file").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    let repo = repo.clone();
-                    this.pick_path(false, window, cx, move |d, paths, _, _| d.repo_form.draft.add_copies(&repo, paths))
-                })))
-            });
         let editing = f.draft.editing.is_some();
         let note = match &f.draft.error {
             Some(e) => div().truncate().text_color(FAILED).child(e.clone()),
@@ -672,9 +490,8 @@ impl Desktop {
         }
         body.extend([self.folder_card(cx).into_any_element(), identity.into_any_element()]);
         if !f.draft.plain_folder() {
-            body.extend([layout.into_any_element(), div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).child(copies).into_any_element()]);
+            body.push(div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).into_any_element());
         }
-        body.push(agent.into_any_element());
         body.extend(remove.map(IntoElement::into_any_element));
         body.extend(reset.map(IntoElement::into_any_element));
         body.push(footer(note, cancel, submit).into_any_element());
@@ -684,9 +501,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Probe, RepoDraft, Source, pinned, project_changes, repo_from_url};
-    use std::path::PathBuf;
-    use store::{LaunchPick, ProjectIcon, RepoConfig};
+    use super::{Probe, RepoDraft, Source, project_changes, repo_from_url};
+    use store::{ProjectIcon, RepoConfig};
 
     #[test]
     fn repo_name_comes_from_the_url() {
@@ -740,37 +556,17 @@ mod tests {
     }
 
     #[test]
-    fn picked_files_are_copied_by_their_repository_path_once_and_outside_files_are_skipped() {
-        let mut draft = RepoDraft { copy: vec![".env".into()], ..RepoDraft::default() };
-        let picked = ["/src/app/.env", "/src/app/config/local.toml", "/elsewhere/key", "/src/app/config/local.toml"].map(PathBuf::from);
-        draft.add_copies("/src/app", picked.into());
-        assert_eq!(draft.copy, [".env", "config/local.toml"]);
-    }
-
-    #[test]
-    fn a_model_chosen_under_app_default_keeps_the_agent_it_was_chosen_for() {
-        let pick = pinned(LaunchPick::default(), "codex", |p| p.model = "gpt-6-sol".into());
-        assert_eq!((pick.provider.as_str(), pick.model.as_str()), ("codex", "gpt-6-sol"));
-        assert_eq!(pinned(LaunchPick::default(), "claude", |p| p.model.clear()), LaunchPick::default());
-        let own = LaunchPick { provider: "claude".into(), ..LaunchPick::default() };
-        assert_eq!(pinned(own, "codex", |p| p.effort = "high".into()).provider, "claude");
-    }
-
-    #[test]
-    fn reset_lists_what_differs_from_the_app_s_defaults_but_not_the_name_colour_icon_or_dev_server() {
+    fn reset_lists_the_scripts_set_but_not_the_name_colour_icon_or_dev_server() {
         let cfg = RepoConfig {
             name: "app".into(),
             color: 1,
             icon: Some(ProjectIcon::Emoji("🚀".into())),
             dev_url: "localhost:3000".into(),
-            base: "develop".into(),
             setup: "pnpm install".into(),
-            agent: LaunchPick { provider: "claude".into(), model: "opus".into(), ..LaunchPick::default() },
             ..RepoConfig::default()
         };
-        let changes = project_changes(&cfg, "main");
-        let lines: Vec<_> = changes.iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
-        assert_eq!(lines, ["Default base branch: develop > main", "When a worktree is created: edited > empty", "Agent: Claude Code > App default", "Model: Opus > App default"]);
-        assert!(project_changes(&RepoConfig { base: "main".into(), ..RepoConfig::default() }, "main").is_empty());
+        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        assert_eq!(lines, ["When a worktree is created: edited > empty"]);
+        assert!(project_changes(&RepoConfig::default()).is_empty());
     }
 }
