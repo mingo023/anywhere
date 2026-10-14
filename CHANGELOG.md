@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.1.3
+
+- Run projects on remote hosts (Mac, Linux, Windows) over SSH; add, connect, retry and remove hosts in Settings, and sign in once with a password
+- Use several Claude Code and Codex accounts per machine, picked per session; each project's pull requests and terminals use its own gh account
+- Set each agent's label and launch args, fork sessions, and run shell-defined agent commands
+- Answer Claude's questions and permission asks from the notch
+- Follow a pull request in Changes: a PR card folds to its verdict, and the agent fixes failing checks
+- Show a worktree's changes in the pane strip and the changes count on the git rail icon
+- Start sessions from a main-area page; the new-session picker offers a new Worktree or a new Local
+- Open a project's Local home from its +, rename a Local and add more beside it
+- Add a project with only a name, icon and the two scripts; worktrees default to `~/.anywhere/worktrees`
+- Give projects custom icons, emoji or image
+- Add a file to a chat from a searchable session panel, also from markdown
+- Render markdown previews like pluk-inc/markdown-preview
+- Colour Explorer files and folders by git status, and add a right-click menu to the file tree
+- Right-click a terminal to copy, paste, clear, close or kill it
+- Paste images into the Local home prompt, with one composer for both prompts
+- Pick a notification sound from a list, or add your own
+- Zoom the whole window with ⌘= ⌘- ⌘0
+- Take icons from Lucide, with their own Sessions and Explorer icons on the right rail
+- Show a hover card on sidebar rows, with a working sweep and a PR-state icon
+- Draw a dot field behind the prompt pages; slide toggles and unfold projects and the PR card into place
+- Name new worktrees from petname, skipping origin's branches
+- Name every Claude session from its first prompt, always in English
+- Count commits to push against origin/main, not a stale local main
+- Keep the view where it is when a new worktree's terminal arrives in another workspace
+- Forget worktrees deleted outside the app
+- Close a terminal's tab on any exit except a failed setup
+- Let Claude Code open links on click in terminals
+- Focus a pane on its first click
+- Fall back to a login shell that runs when the configured one isn't installed
+- Keep a pasted portrait image inside its thumbnail
+- Scroll the Explorer smoothly and fill it at once on a project or worktree switch
+- Stop the PR card showing a check as fixing once its rerun passes, and dim a merge button that can't merge
+- Fix the PR card's callout spacing and wrapping in a narrow panel
+- Answer Claude's question from text typed in the notch instead of rejecting it
+- Remove the faint box inside the composer in dark mode
+
 ## 0.1.2
 
 - Pick a session's model and permission mode beside its agent; a project remembers the permission it last used
