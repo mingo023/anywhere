@@ -78,7 +78,7 @@ impl Desktop {
         let listed: Vec<&Thread> = pr.threads.iter().filter(|t| all || !t.resolved).take(THREADS_SHOWN).collect();
         let empty = listed.is_empty().then(|| row().justify_center().py(px(16.)).text_color(TEXT_3).child(icon("check", 13., SUCCESS)).child("All conversations resolved"));
         let threads: Vec<AnyElement> = listed.into_iter().enumerate().map(|(i, t)| self.pr_thread(i, &shown, t, false, cx)).collect();
-        let (_, open) = to_fix(pr, fixing);
+        let (_, open) = to_fix(pr, fixing.as_ref());
         let bulk = (can_send && open.len() > 1).then(|| {
             let ids: Vec<String> = open.iter().map(|t| t.id.clone()).collect();
             ui::button("pr-send-open", Variant::Primary, None, format!("Send {} open comments to {agent}", ids.len()))

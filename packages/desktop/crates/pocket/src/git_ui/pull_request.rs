@@ -8,7 +8,7 @@ use crate::git_ui::changes::push;
 use crate::git_ui::diff::At;
 use crate::git_ui::pull_requests::PrItem;
 use crate::removal::Removal;
-use git::github::{self, Check, Gate, Method, Outcome, Pr, PrState, Review, Thread, ThreadState};
+use git::github::{self, Check, Gate, Mergeable, Method, Outcome, Pr, PrState, Review, Thread, ThreadState};
 use git::{Commit, Repo};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
@@ -241,9 +241,21 @@ impl Track {
         sent.conflict |= conflict;
     }
 
-    /// What the agent still works on: it pushes when done, which moves the head.
-    pub(crate) fn fixing(&self, tree: &str, pr: &Pr) -> Option<&Sent> {
-        self.sent.get(tree).filter(|s| s.head == pr.head && (s.items() > 0 || s.conflict))
+    /// What the agent still works on: what it was sent since the head last moved, less what `pr` already shows done, as a fix that needed no push leaves the head where it was.
+    pub(crate) fn fixing(&self, tree: &str, pr: &Pr) -> Option<Sent> {
+        let sent = self.sent.get(tree).filter(|s| s.head == pr.head)?;
+        let passed = |name: &String| {
+            let mut runs = pr.runs.iter().filter(|c| c.name == *name).peekable();
+            runs.peek().is_some() && runs.all(|c| matches!(c.outcome, Outcome::Passed | Outcome::Skipped))
+        };
+        let resolved = |id: &String| pr.threads.iter().any(|t| t.id == *id && t.resolved);
+        let left = Sent {
+            head: sent.head.clone(),
+            threads: sent.threads.iter().filter(|id| !resolved(id)).cloned().collect(),
+            checks: sent.checks.iter().filter(|name| !passed(name)).cloned().collect(),
+            conflict: sent.conflict && pr.mergeable != Mergeable::Clean,
+        };
+        (left.items() > 0 || left.conflict).then_some(left)
     }
 
     pub(crate) fn thread_sent(&self, tree: &str, pr: &Pr, thread: &str) -> bool {
@@ -348,7 +360,7 @@ impl Desktop {
     /// Where the PR of `tree` stands, in its colour, as its card's header says it.
     pub(crate) fn pr_verdict(&self, tree: &str, pr: &Pr) -> (Token, String) {
         let busy = self.pr.busy.filter(|_| self.pr.composing.is_none());
-        verdict(pr, self.pr.track.fixing(tree, pr), busy, self.fix_agent())
+        verdict(pr, self.pr.track.fixing(tree, pr).as_ref(), busy, self.fix_agent())
     }
 
     /// Opens the composer for the worktree on screen, filled by the agent picked for commit messages or from the commits.
@@ -849,6 +861,33 @@ mod tests {
     }
 
     #[test]
+    fn what_github_shows_done_stops_being_fixed_without_a_push() {
+        let pr = Pr { runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed)], threads: vec![thread("T1")], mergeable: Mergeable::Conflicting, ..pr() };
+        let mut track = Track::default();
+        track.send("/a", &pr, &[&pr.threads[0]], &[&pr.runs[0], &pr.runs[1]], true);
+        assert_eq!(track.fixing("/a", &pr).map(|s| s.items()), Some(3));
+        let later = Pr {
+            runs: vec![check("lint", Outcome::Passed), check("test", Outcome::Pending)],
+            threads: vec![Thread { resolved: true, ..thread("T1") }],
+            mergeable: Mergeable::Clean,
+            ..pr.clone()
+        };
+        let sent = track.fixing("/a", &later).unwrap();
+        assert_eq!((sent.checks.iter().map(String::as_str).collect::<Vec<_>>(), sent.threads.len(), sent.conflict), (vec!["test"], 0, false));
+        let green = Pr { runs: vec![check("lint", Outcome::Passed), check("test", Outcome::Skipped)], ..later };
+        assert!(track.fixing("/a", &green).is_none());
+    }
+
+    #[test]
+    fn a_check_stays_fixing_while_any_run_of_it_still_fails() {
+        let pr = Pr { runs: vec![check("test", Outcome::Failed)], ..pr() };
+        let mut track = Track::default();
+        track.send("/a", &pr, &[], &[&pr.runs[0]], false);
+        let rerun = Pr { runs: vec![check("test", Outcome::Passed), check("test", Outcome::Failed)], ..pr.clone() };
+        assert!(track.fixing("/a", &rerun).is_some());
+    }
+
+    #[test]
     fn worktrees_are_deleted_after_merging_unless_unticked() {
         assert!(Track::default().delete_after);
     }
@@ -863,7 +902,7 @@ mod tests {
         let pr = Pr { runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed), check("build", Outcome::Passed)], threads: vec![open("T1"), thread("T2"), open("T3")], ..pr() };
         let mut track = Track::default();
         track.send("/a", &pr, &[&pr.threads[0]], &[&pr.runs[0]], false);
-        let (checks, threads) = to_fix(&pr, track.fixing("/a", &pr));
+        let (checks, threads) = to_fix(&pr, track.fixing("/a", &pr).as_ref());
         assert_eq!(checks.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["test"]);
         assert_eq!(threads.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["T3"]);
     }
@@ -907,11 +946,12 @@ mod tests {
         let pr = open(Checks { failed: 2, ..Checks::default() }, Review::None);
         let mut track = Track::default();
         track.send("/a", &pr, &[], &[&check("lint", Outcome::Failed), &check("test", Outcome::Failed)], false);
-        assert_eq!(verdict(&pr, track.fixing("/a", &pr), None, "Claude"), (WAITING_TEXT, "Claude is fixing 2 items".into()));
+        assert_eq!(verdict(&pr, track.fixing("/a", &pr).as_ref(), None, "Claude"), (WAITING_TEXT, "Claude is fixing 2 items".into()));
         assert_eq!(verdict(&pr, None, Some("Merging…"), "Claude"), (WAITING_TEXT, "Merging…".into()));
+        let conflicting = Pr { mergeable: Mergeable::Conflicting, ..pr };
         let mut track = Track::default();
-        track.send("/a", &pr, &[], &[], true);
-        assert_eq!(verdict(&pr, track.fixing("/a", &pr), None, "Claude").1, "Claude is resolving the conflict");
+        track.send("/a", &conflicting, &[], &[], true);
+        assert_eq!(verdict(&conflicting, track.fixing("/a", &conflicting).as_ref(), None, "Claude").1, "Claude is resolving the conflict");
     }
 
     #[test]

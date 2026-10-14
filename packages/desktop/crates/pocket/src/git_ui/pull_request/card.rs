@@ -75,6 +75,7 @@ impl Desktop {
         let agent = self.fix_agent();
         let can_send = !self.agents.observe_only();
         let fixing = self.pr.track.fixing(&tree, pr);
+        let fixing = fixing.as_ref();
         let busy = self.pr.busy.filter(|_| self.pr.composing.is_none());
         let (color, said) = self.pr_verdict(&tree, pr);
         let open = pr.state == PrState::Open;
