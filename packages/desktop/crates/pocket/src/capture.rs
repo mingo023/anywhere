@@ -201,7 +201,6 @@ const STEPS: [(&str, Step); 138] = [
         d.accounts.menu = Some(crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() });
     }),
     ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
-        (Some(Overlay::AddRepo), _) => "project-model",
         (_, Section::Git) => "ai-model",
         (_, Section::Codex) => "codex-model",
         _ => "claude-model",

@@ -8,15 +8,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"pocketd/internal/registry"
 )
 
 // CopyInto copies project's copy set into the new Worktree at path. It never
 // overwrites, and skips symlinks, folders and anything outside the project.
 // Skipped entries read "{rel}: {reason}".
-func CopyInto(f registry.File, project, path string) (copied, skipped []string) {
-	for _, rel := range copySet(f, project) {
+func CopyInto(project, path string) (copied, skipped []string) {
+	for _, rel := range copySet(project) {
 		if reason := copyFile(project, path, rel); reason != "" {
 			skipped = append(skipped, rel+": "+reason)
 		} else {
@@ -26,16 +24,13 @@ func CopyInto(f registry.File, project, path string) (copied, skipped []string) 
 	return copied, skipped
 }
 
-// copySet is the repo's copy list, else its root .env* files, plus the lines
-// of .worktreeinclude.
-func copySet(f registry.File, project string) []string {
-	set := slices.Clone(f.Repos[project].Copy)
-	if len(set) == 0 {
-		entries, _ := os.ReadDir(project)
-		for _, e := range entries {
-			if strings.HasPrefix(e.Name(), ".env") {
-				set = append(set, e.Name())
-			}
+// copySet is the repo's root .env* files plus the lines of .worktreeinclude.
+func copySet(project string) []string {
+	var set []string
+	entries, _ := os.ReadDir(project)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".env") {
+			set = append(set, e.Name())
 		}
 	}
 	if raw, err := os.ReadFile(filepath.Join(project, ".worktreeinclude")); err == nil {

@@ -15,11 +15,8 @@ import (
 )
 
 type Repo struct {
-	Name      string   `json:"name"`
-	Base      string   `json:"base"`
-	Worktrees string   `json:"worktrees"`
-	Setup     string   `json:"setup"`
-	Copy      []string `json:"copy"`
+	Name  string `json:"name"`
+	Setup string `json:"setup"`
 	// GhAccount is the github.com account gh acts as in the Project's terminals.
 	GhAccount string `json:"gh_account"`
 }
@@ -30,7 +27,7 @@ type File struct {
 	Worktree Worktree        `json:"worktree"`
 }
 
-// Worktree is where new worktrees go when a project doesn't say.
+// Worktree is where new worktrees go.
 type Worktree struct {
 	Root string `json:"root"`
 }

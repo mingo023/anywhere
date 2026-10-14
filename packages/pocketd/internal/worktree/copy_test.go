@@ -5,22 +5,16 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"pocketd/internal/registry"
 )
 
-func TestTheCopySetIsTheRepoListElseRootEnvFilesPlusWorktreeinclude(t *testing.T) {
+func TestTheCopySetIsRootEnvFilesPlusWorktreeinclude(t *testing.T) {
 	p := t.TempDir()
 	for _, name := range []string{".env", ".env.local", "README.md"} {
 		os.WriteFile(filepath.Join(p, name), nil, 0o600)
 	}
 	os.WriteFile(filepath.Join(p, ".worktreeinclude"), []byte("# local config\n\nconfig/local.json\n./.env\n"), 0o600)
-	if got, want := copySet(registry.File{}, p), []string{".env", ".env.local", "config/local.json"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("default: %v", got)
-	}
-	f := registered(p, registry.Repo{Copy: []string{"secrets.json"}})
-	if got, want := copySet(f, p), []string{"secrets.json", "config/local.json", ".env"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("listed: %v", got)
+	if got, want := copySet(p), []string{".env", ".env.local", "config/local.json"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v", got)
 	}
 }
 
@@ -37,7 +31,7 @@ func TestCopyNeverOverwritesAndTakesOnlyPlainFilesInsideTheProject(t *testing.T)
 	os.WriteFile(filepath.Join(p, ".worktreeinclude"), []byte("sub/deep.txt\n../x\n/etc/hosts\nlinked/secret\ngone.txt\n"), 0o600)
 	os.WriteFile(filepath.Join(dst, ".env.local"), []byte("mine"), 0o600)
 
-	copied, skipped := CopyInto(registry.File{}, p, dst)
+	copied, skipped := CopyInto(p, dst)
 	if want := []string{".env", "sub/deep.txt"}; !reflect.DeepEqual(copied, want) {
 		t.Errorf("copied %v", copied)
 	}
@@ -59,7 +53,8 @@ func TestCopyWritesNothingThroughASymlinkedFolderInTheWorktree(t *testing.T) {
 	os.MkdirAll(filepath.Join(p, "sub", "deeper"), 0o755)
 	os.WriteFile(filepath.Join(p, "sub", "deeper", "deep.txt"), []byte("deep"), 0o644)
 	os.Symlink(outside, filepath.Join(dst, "sub"))
-	copied, skipped := CopyInto(registered(p, registry.Repo{Copy: []string{"sub/deeper/deep.txt"}}), p, dst)
+	os.WriteFile(filepath.Join(p, ".worktreeinclude"), []byte("sub/deeper/deep.txt\n"), 0o600)
+	copied, skipped := CopyInto(p, dst)
 	entries, _ := os.ReadDir(outside)
 	if len(copied) != 0 || !reflect.DeepEqual(skipped, []string{"sub/deeper/deep.txt: outside the project"}) || len(entries) != 0 {
 		t.Fatalf("copied %v, skipped %q, outside holds %d", copied, skipped, len(entries))

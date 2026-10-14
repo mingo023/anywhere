@@ -5,21 +5,19 @@ use workspace::Workspace;
 
 pub mod prefs;
 
+/// Under the home of the machine holding the project; pocketd makes the same folder.
+const DEFAULT_WORKTREES: &str = ".anywhere/worktrees";
+
 /// How a repository shows in the rail and how new worktrees of it are made.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
 #[serde(default)]
 pub struct RepoConfig {
     pub name: String,
     pub color: u32,
-    pub base: String,
-    pub worktrees: String,
     pub setup: String,
     pub teardown: String,
-    pub copy: Vec<String>,
-    /// What its last session started with; `agent` wins where it names a provider.
+    /// What its last session started with.
     pub launch: LaunchPick,
-    /// The agent, model and effort set for this project; empty uses the app's.
-    pub agent: LaunchPick,
     /// The dev server the browser's home page opens for this project.
     pub dev_url: String,
     /// Shown on its tile in place of its initials.
@@ -262,11 +260,11 @@ pub enum DiffColors {
     BlueOrange,
 }
 
-/// Where new worktrees and clones go when a project doesn't say, and what deleting a worktree takes with it.
+/// Where new worktrees and clones go, and what deleting a worktree takes with it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct WorktreeDefaults {
-    /// Empty means `~/.worktrees`; each project gets a folder in it.
+    /// Empty means `~/.anywhere/worktrees`; each project gets a folder in it.
     pub root: String,
     /// Empty means `~/code`.
     pub clone_root: String,
@@ -426,16 +424,13 @@ impl Store {
         self.sidebar.external_worktrees || self.is_tracked(tree)
     }
 
-    /// The folder `repo`'s new worktrees go in: its own setting, else a folder named for it under the root, else under `~/.worktrees`.
-    /// `home` is the home of the machine holding `repo`; a host's pocketd knows nothing of this Mac's root, so it uses `~/.worktrees`.
+    /// The folder `repo`'s new worktrees go in: a folder named for it under the root.
+    /// `home` is the home of the machine holding `repo`; a host's pocketd knows nothing of this Mac's root, so it uses `~/.anywhere/worktrees`.
     pub fn worktrees_dir(&self, repo: &str, home: &str) -> String {
-        let own = self.repos.get(repo).map(|r| r.worktrees.as_str()).filter(|w| !w.is_empty());
+        let name = self.repo_name(repo);
         match hosts::split(repo) {
-            (None, _) => own.map_or_else(|| format!("{}/{}", self.worktree_root(home), self.repo_name(repo)), str::to_string),
-            (Some(host), _) => match own.filter(|w| hosts::split(w).0 == Some(host)) {
-                Some(dir) => dir.to_string(),
-                None => hosts::place(host, &format!("{home}/.worktrees/{}", self.repo_name(repo))),
-            },
+            (None, _) => format!("{}/{name}", self.worktree_root(home)),
+            (Some(host), _) => hosts::place(host, &format!("{home}/{DEFAULT_WORKTREES}/{name}")),
         }
     }
 
@@ -448,9 +443,8 @@ impl Store {
         let mut repos = serde_json::Map::new();
         for project in &self.projects {
             let Some(path) = on_host(project) else { continue };
-            let r = self.repos.get(project).cloned().unwrap_or_default();
-            let worktrees = on_host(&r.worktrees).unwrap_or_default();
-            repos.insert(path, serde_json::json!({"name": self.repo_name(project), "base": r.base, "worktrees": worktrees, "setup": r.setup, "copy": r.copy}));
+            let setup = self.repos.get(project).map(|r| r.setup.clone()).unwrap_or_default();
+            repos.insert(path, serde_json::json!({"name": self.repo_name(project), "setup": setup}));
         }
         serde_json::json!({"projects": repos.keys().collect::<Vec<_>>(), "repos": repos})
     }
@@ -461,9 +455,9 @@ impl Store {
         named.unwrap_or_else(|| repo.trim_end_matches('/').rsplit('/').next().unwrap_or_default().to_string())
     }
 
-    /// The folder new worktrees go under, one subfolder per project: the chosen root, else `~/.worktrees`.
+    /// The folder new worktrees go under, one subfolder per project: the chosen root, else `~/.anywhere/worktrees`.
     pub fn worktree_root(&self, home: &str) -> String {
-        if self.worktree.root.is_empty() { format!("{home}/.worktrees") } else { self.worktree.root.trim_end_matches('/').to_string() }
+        if self.worktree.root.is_empty() { format!("{home}/{DEFAULT_WORKTREES}") } else { self.worktree.root.trim_end_matches('/').to_string() }
     }
 
     /// The folder Add project › Clone starts in: the chosen one, else `~/code`.
@@ -549,7 +543,7 @@ mod tests {
         s.projects.push("/w".into());
         s.collapsed.insert("/w".into());
         let launch = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: "ask".into(), ..LaunchPick::default() };
-        s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, copy: vec![".env".into()], launch, ..Default::default() });
+        s.repos.insert("/w".into(), RepoConfig { name: "w".into(), color: 0xd97757ff, setup: "make".into(), launch, ..Default::default() });
         s.window = Some(WindowGeometry { display: Some("D1".into()), x: 40., y: 60., width: 1200., height: 800. });
         s.layout = Layout::Compact;
         s.widths = ColumnWidths { projects: Some(260.), sessions: None };
@@ -686,7 +680,8 @@ mod tests {
     #[test]
     fn an_old_desktop_json_loads_with_empty_launch_picks() {
         let old: Store = serde_json::from_str(r#"{"projects":["/w"],"repos":{"/w":{"name":"w","color":0,"base":"main","worktrees":"","setup":"make","copy":[".env"]}}}"#).unwrap();
-        assert_eq!((&old.repos["/w"].launch, &old.repos["/w"].agent), (&LaunchPick::default(), &LaunchPick::default()));
+        assert_eq!(old.repos["/w"].launch, LaunchPick::default());
+        assert_eq!(old.repos["/w"].setup, "make");
         let picked = RepoConfig { launch: LaunchPick { provider: "codex".into(), ..Default::default() }, ..Default::default() };
         assert!(serde_json::to_string(&picked).unwrap().contains(r#""launch":{"provider":"codex","model":"","effort":"","access":"","account":""}"#));
     }
@@ -822,22 +817,19 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_dir_prefers_the_repo_then_the_root_then_home() {
+    fn worktrees_dir_is_a_folder_named_for_the_repo_under_the_root_else_under_anywhere_in_home() {
         let mut s = Store::default();
-        s.repos.insert("/w/own".into(), RepoConfig { worktrees: "/elsewhere".into(), ..Default::default() });
         s.repos.insert("/w/named".into(), RepoConfig { name: "Named".into(), ..Default::default() });
-        assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/h/.worktrees/Named", "/h/.worktrees/plain"]);
+        assert_eq!(["/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/h/.anywhere/worktrees/Named", "/h/.anywhere/worktrees/plain"]);
         s.worktree.root = "/wt/".into();
-        assert_eq!(["/w/own", "/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/elsewhere", "/wt/Named", "/wt/plain"]);
+        assert_eq!(["/w/named", "/w/plain"].map(|r| s.worktrees_dir(r, "/h")), ["/wt/Named", "/wt/plain"]);
     }
 
     #[test]
     fn a_hosts_project_makes_worktrees_under_the_hosts_home_whatever_this_macs_root() {
-        let mut s = Store { worktree: WorktreeDefaults { root: "/wt".into(), ..Default::default() }, ..Default::default() };
-        s.repos.insert("//devbox/u/own".into(), RepoConfig { worktrees: "//devbox/srv/trees".into(), ..Default::default() });
-        s.repos.insert("//devbox/u/stray".into(), RepoConfig { worktrees: "/Users/me/trees".into(), ..Default::default() });
-        let dirs = ["//devbox/u/own", "//devbox/u/stray", "//devbox/u/app"].map(|r| s.worktrees_dir(r, "/home/me"));
-        assert_eq!(dirs, ["//devbox/srv/trees", "//devbox/home/me/.worktrees/stray", "//devbox/home/me/.worktrees/app"]);
+        let s = Store { worktree: WorktreeDefaults { root: "/wt".into(), ..Default::default() }, ..Default::default() };
+        assert_eq!(s.worktrees_dir("//devbox/u/app", "/home/me"), "//devbox/home/me/.anywhere/worktrees/app");
+        assert_eq!(s.worktrees_dir("//win/C:/code/app", r"C:\Users\me"), "//win/C:/Users/me/.anywhere/worktrees/app");
     }
 
     #[test]
@@ -846,10 +838,10 @@ mod tests {
         for p in ["/src/here", "//devbox/u/app", "//other/u/x"] {
             s.add(p);
         }
-        s.repos.insert("//devbox/u/app".into(), RepoConfig { setup: "npm i".into(), worktrees: "//devbox/srv/trees".into(), copy: vec![".env".into()], ..Default::default() });
+        s.repos.insert("//devbox/u/app".into(), RepoConfig { setup: "npm i".into(), ..Default::default() });
         let r = s.host_registry("devbox");
         assert_eq!(r["projects"], serde_json::json!(["/u/app"]));
-        assert_eq!(r["repos"]["/u/app"], serde_json::json!({"name": "app", "base": "", "worktrees": "/srv/trees", "setup": "npm i", "copy": [".env"]}));
+        assert_eq!(r["repos"]["/u/app"], serde_json::json!({"name": "app", "setup": "npm i"}));
     }
 
     #[test]

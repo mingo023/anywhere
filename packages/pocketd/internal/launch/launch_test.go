@@ -268,7 +268,7 @@ func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
 	git(t, project, "init", "-q", "-b", "main")
 	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
 	path := filepath.Join(root, "desktop.json")
-	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"worktrees":"`+filepath.Join(root, "wt")+`","setup":"`+setup+`"}}}`), 0o600)
+	os.WriteFile(path, []byte(`{"projects":["`+project+`"],"repos":{"`+project+`":{"name":"wt","setup":"`+setup+`"}},"worktree":{"root":"`+root+`"}}`), 0o600)
 	l := New(&daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}, registry.New(path), config.NewSettings(root), nil)
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout = project, proto.Checkout{New: &proto.NewWorktree{Name: "calm-otter"}}
