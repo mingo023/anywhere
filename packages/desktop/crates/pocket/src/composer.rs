@@ -194,7 +194,7 @@ impl Desktop {
             .flex_col()
             .rounded(px(14.))
             .bg(SURFACE)
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.), ui::shadow(rgba(0x1111130d), 10., 30.)])
+            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
             .children(attached)
             // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
             .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(textarea.appearance(false).text_size(px(15.)).on_paste(move |item, window, cx| paste_image(&desktop, slot, item, window, cx))))
