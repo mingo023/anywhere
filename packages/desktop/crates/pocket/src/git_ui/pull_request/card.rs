@@ -75,6 +75,7 @@ impl Desktop {
         let agent = self.fix_agent();
         let can_send = !self.agents.observe_only();
         let fixing = self.pr.track.fixing(&tree, pr);
+        let fixing = fixing.as_ref();
         let busy = self.pr.busy.filter(|_| self.pr.composing.is_none());
         let (color, said) = self.pr_verdict(&tree, pr);
         let open = pr.state == PrState::Open;
@@ -163,7 +164,7 @@ impl Desktop {
                 .child(fact("Merge", self.pr_gate(pr, resolving, agent)))
         });
         let action = if open { self.pr_merge(&tree, pr, resolving, busy, agent, cx) } else { self.pr_merged(&tree, cx) };
-        wrap(card, Some(div().px(px(12.)).pb(px(12.)).flex().flex_col().gap(px(10.)).children(callout).children(facts).child(action)))
+        wrap(card, Some(div().px(px(12.)).pt(px(6.)).pb(px(12.)).flex().flex_col().gap(px(10.)).children(callout).children(facts).child(action)))
     }
 
     fn pr_checks(&self, pr: &Pr, can_send: bool, agent: &str, unsent: &[&Check], cx: &mut Context<Self>) -> Div {
