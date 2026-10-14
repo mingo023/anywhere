@@ -27,7 +27,6 @@ pub(crate) fn split_button(id: &'static str, lead: impl IntoElement, label: impl
         .child(lead)
         .child(label)
         .when(ready, |d| d.cursor_pointer().hover(|s| s.bg(wash)))
-        .when(!ready, |d| d.text_color(Token::new(0xffffff8c, 0x1717178c)))
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| main(this, window, cx)));
     let chevron = div()
         .id((id, 1u32))
@@ -50,7 +49,7 @@ pub(crate) fn split_button(id: &'static str, lead: impl IntoElement, label: impl
             toggle(this, window, cx);
             cx.notify();
         }));
-    let button = ui::primary(div().h(px(30.)).flex().rounded(px(9.))).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ON_PRIMARY).child(primary).child(chevron);
+    let button = ui::primary(div().h(px(30.)).flex().rounded(px(9.))).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ON_PRIMARY).when(!ready, |d| d.opacity(0.5)).child(primary).child(chevron);
     let menu = ui::pop(menu).w(px(232.)).p(px(6.)).flex().flex_col().occlude();
     div().relative().child(button).when(open, |d| d.child(ui::dropdown(34., ui::menu_in((id, 2u32), menu))))
 }

@@ -1,4 +1,4 @@
-use super::{CheckRows, check_rows, fix_summary, fixing_text, gate_text, place, resolving_text, review_lines, tally, to_fix};
+use super::{CheckRows, check_rows, fix_summary, gate_text, place, resolving_text, review_lines, tally, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
 use git::github::{Check, Gate, Method, Outcome, Pr, PrState, Review, ThreadState};
@@ -18,10 +18,15 @@ pub(super) fn pill(label: impl Into<SharedString>, bg: Token, fg: Token) -> Div 
     div().h(px(18.)).px(px(6.)).flex().flex_none().items_center().rounded(px(5.)).bg(bg).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(label.into())
 }
 
+/// Marks an item handed to the agent; the card's header carries who and the spinner.
+fn fixing_mark() -> Div {
+    div().flex().flex_none().items_center().gap(px(5.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(WAITING_TEXT).child(ui::dot(6., WAITING)).child("Fixing")
+}
+
 /// How far a thread has got, beside where it is; nothing while it's open.
-pub(super) fn thread_chip(state: ThreadState, agent: &str) -> Option<Div> {
+pub(super) fn thread_chip(state: ThreadState) -> Option<Div> {
     match state {
-        ThreadState::Sent => Some(pill(format!("{agent} fixing"), WAITING_BG, WAITING_TEXT)),
+        ThreadState::Sent => Some(fixing_mark()),
         ThreadState::Replied => Some(pill("Replied", ACCENT_BG, TEXT)),
         ThreadState::Resolved => Some(pill("Resolved", SUCCESS_BG, SUCCESS_TEXT)),
         ThreadState::Open => None,
@@ -94,6 +99,7 @@ impl Desktop {
             .whitespace_nowrap()
             .child(div().flex_none().font_family(MONO).text_color(color).child(format!("#{}", pr.number)))
             .child("·")
+            .when(fixing.is_some(), |d| d.child(spinner("pr-fixing", 11., WAITING)))
             .child(div().min_w_0().truncate().child(said));
         let title = div()
             .text_size(px(13.))
@@ -139,35 +145,30 @@ impl Desktop {
         let (checks, threads) = to_fix(pr, fixing);
         let resolving = fixing.is_some_and(|s| s.conflict);
         let items = fixing.map_or(0, |s| s.items());
-        let callout = match pr.state {
-            PrState::Open if items > 0 => {
-                Some(callout(spinner("pr-fixing", 14., WAITING), WAITING_BG, fixing_text(agent, items), "Its session shows Working until it pushes".into(), None))
-            }
-            PrState::Open if !checks.is_empty() || !threads.is_empty() => {
-                let (title, sub) = fix_summary(checks.len(), threads.len());
-                let names: Vec<String> = checks.iter().map(|c| c.name.clone()).collect();
-                let ids: Vec<String> = threads.iter().map(|t| t.id.clone()).collect();
-                let send = can_send.then(|| {
-                    small("pr-send-all", Variant::Primary, format!("Send all to {agent}")).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&names, &ids, cx)))
-                });
-                Some(callout(icon("warning", 16., FAILED), FAILED_BG, title, sub, send))
-            }
-            _ => None,
-        };
+        // While the agent works, the header says so; the callout only asks for what's still unsent.
+        let callout = (open && items == 0 && (!checks.is_empty() || !threads.is_empty())).then(|| {
+            let (title, sub) = fix_summary(checks.len(), threads.len());
+            let names: Vec<String> = checks.iter().map(|c| c.name.clone()).collect();
+            let ids: Vec<String> = threads.iter().map(|t| t.id.clone()).collect();
+            let send = can_send.then(|| {
+                small("pr-send-all", Variant::Primary, format!("Send all to {agent}")).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&names, &ids, cx)))
+            });
+            callout(icon("warning", 16., FAILED), FAILED_BG, title, sub, send)
+        });
         let facts = open.then(|| {
             div()
                 .flex()
                 .flex_col()
                 .gap(px(2.))
-                .child(fact("Checks", self.pr_checks(pr, can_send, agent, &checks, cx)))
-                .child(fact("Review", self.pr_review(&tree, pr, can_send && fixing.is_none(), agent, cx)))
+                .child(fact("Checks", self.pr_checks(pr, can_send, &checks, cx)))
+                .child(fact("Review", self.pr_review(&tree, pr, can_send && fixing.is_none(), cx)))
                 .child(fact("Merge", self.pr_gate(pr, resolving, agent)))
         });
-        let action = if open { self.pr_merge(&tree, pr, resolving, busy, agent, cx) } else { self.pr_merged(&tree, cx) };
+        let action = if open { self.pr_merge(&tree, pr, resolving, busy, agent, cx).mt(px(6.)) } else { self.pr_merged(&tree, cx) };
         wrap(card, Some(div().px(px(12.)).pt(px(6.)).pb(px(12.)).flex().flex_col().gap(px(10.)).children(callout).children(facts).child(action)))
     }
 
-    fn pr_checks(&self, pr: &Pr, can_send: bool, agent: &str, unsent: &[&Check], cx: &mut Context<Self>) -> Div {
+    fn pr_checks(&self, pr: &Pr, can_send: bool, unsent: &[&Check], cx: &mut Context<Self>) -> Div {
         if pr.runs.is_empty() {
             return row().text_color(TEXT_3).child(glyph_slot(ui::dot(6., TEXT_4))).child("No checks on this branch");
         }
@@ -189,7 +190,7 @@ impl Desktop {
                 .flex()
                 .flex_none()
                 .gap(px(4.))
-                .when(sent, |d| d.child(pill(format!("{agent} fixing"), WAITING_BG, WAITING_TEXT)))
+                .when(sent, |d| d.child(fixing_mark()))
                 .when(!sent && !log.is_empty(), |d| d.child(small(("pr-check-log", i), Variant::Secondary, "Log").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(log.clone(), window, cx)))))
                 .children(send);
             row()
@@ -204,7 +205,7 @@ impl Desktop {
         div().flex().flex_col().children(rows).children(more).children(quiet)
     }
 
-    fn pr_review(&self, tree: &str, pr: &Pr, can_send: bool, agent: &str, cx: &mut Context<Self>) -> Div {
+    fn pr_review(&self, tree: &str, pr: &Pr, can_send: bool, cx: &mut Context<Self>) -> Div {
         let unresolved = pr.unresolved().count();
         let all = (!pr.threads.is_empty()).then(|| {
             let label = if unresolved > 0 { format!("{unresolved} unresolved · All comments") } else { "All comments".into() };
@@ -228,7 +229,7 @@ impl Desktop {
                     this.send_fix(&[], std::slice::from_ref(&id), cx);
                 }))
             });
-            let at = div().flex().items_center().gap(px(6.)).font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(div().min_w_0().truncate().child(place(t))).children(thread_chip(state, agent));
+            let at = div().flex().items_center().gap(px(6.)).font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(div().min_w_0().truncate().child(place(t))).children(thread_chip(state));
             div()
                 .id(("pr-comment", i))
                 .px(px(6.))
