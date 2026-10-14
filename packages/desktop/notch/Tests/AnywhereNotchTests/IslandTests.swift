@@ -149,6 +149,19 @@ final class IslandTests: XCTestCase {
         XCTAssertEqual(island.stage, .done(.questions(["Color?": "Green", "Tools?": "Zig"])))
     }
 
+    func testTickingAfterTypingReplacesTheTypedAnswer() {
+        var island = Island()
+        island.show([ask("q1", questions: [question("Tools?", ["Go", "Rust"], multi: true), question("Size?", ["S"])])])
+        island.open()
+        island.reply()
+        _ = island.send("Zig")
+        island.previousQuestion()
+        _ = island.pick("Go")
+        _ = island.nextQuestion()
+        _ = island.pick("S")
+        XCTAssertEqual(island.stage, .done(.questions(["Tools?": "Go", "Size?": "S"])))
+    }
+
     func testTypedTextOnAPermissionAskReplies() {
         var island = Island()
         island.show([ask("q1")])
