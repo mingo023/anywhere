@@ -34,7 +34,7 @@ fn next_ready(ready: &[bool], ix: usize, down: bool) -> usize {
     i
 }
 
-/// The session ⌘`n` picks: the `n`th row, for the first nine that can take a quote.
+/// The session ⌘`n` picks: the `n`th of the first nine rows, if it can take a quote.
 fn jump_target<'a>(rows: &[&'a Choice], n: usize) -> Option<&'a Choice> {
     rows.get(n.checked_sub(1)?).copied().filter(|c| c.ready && n <= 9)
 }
@@ -73,10 +73,10 @@ impl Desktop {
         });
         self.chat.scroll.set_offset(Point::default());
         self.reset_chat_highlight(cx);
-        // A scroll asked for before the list's first draw is dropped, since its bounds aren't known yet.
+        // A scroll is dropped until the list has been laid out once: the next frame lays it out, the one after can scroll it.
         cx.on_next_frame(window, |_, window, cx| {
             cx.on_next_frame(window, |this, _, cx| {
-                this.chat.scroll.scroll_to_item(this.chat.highlight);
+                this.chat.highlight_row(this.chat.highlight);
                 cx.notify();
             })
         });
@@ -139,7 +139,7 @@ impl Desktop {
             .hover(|s| s.bg(FILL_4))
             .when(open, |d| d.bg(FILL_4))
             .text_size(px(13.))
-            // On press, with whether it was open as drawn: the menu's own press-outside has already closed it by now.
+            // On press, not click: by the click, the menu's own press-outside has already closed it.
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _: &MouseDownEvent, window, cx| {
@@ -263,9 +263,10 @@ impl Desktop {
                         .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| {
                             this.chat.menu = false;
                             cx.notify();
-                            // The press then focuses what it lands on; take focus back only when that's the window itself.
+                            // The press then focuses what it lands on; take focus back unless that's something else, like a terminal.
                             cx.defer_in(window, |this, window, cx| {
-                                if this.root.is_focused(window) {
+                                let stayed = this.root.is_focused(window) || this.chat.search.focus_handle(cx).is_focused(window);
+                                if stayed && this.chat_quote().is_some() {
                                     this.chat.input.update(cx, |s, cx| s.focus(window, cx));
                                 }
                             });
