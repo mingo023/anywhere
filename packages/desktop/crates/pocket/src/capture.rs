@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 138] = [
+const STEPS: [(&str, Step); 139] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -197,6 +197,15 @@ const STEPS: [(&str, Step); 138] = [
     ("settings-codex", |d, _, _| d.settings.section = Section::Codex),
     ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
+    ("account-signin", |d, window, cx| {
+        let id = "fx-signin".to_string();
+        let mut term = term::Term::new(100, 30);
+        term.write(b"Opening browser to sign in\xe2\x80\xa6\r\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&scope=user%3Ainference&state=Nwd_oVnDKfPnpygUrKjXPJ00\r\nPaste code here if prompted > ");
+        d.terminals.sessions.items.push(crate::terminals::sessions::Session { info: daemon::Info { id: id.clone(), ..Default::default() }, term: Some(term), exit: None });
+        let mut signin = d.new_sign_in(crate::accounts::Key { host: None, provider: "claude".into(), id: String::new() }, window, cx);
+        (signin.terminal, signin.output_open) = (Some(id), true);
+        d.accounts.signins.push(signin);
+    }),
     ("account-menu", |d, _, _| {
         d.accounts.menu = Some(crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() });
     }),
