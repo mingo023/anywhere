@@ -9,6 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde_json::{Value, json};
 use store::LaunchPick;
+use store::sections::Pin;
 use store::prefs::agents::{Agents, Args};
 use theme::*;
 use ui::{self, icon_button_sized};
@@ -94,28 +95,105 @@ impl Desktop {
                 cx.notify();
             },
         ));
-        let at = self.sidebar.menu_at;
-        div()
-            .relative()
-            .child(button)
-            .when(open, |d| {
-                let menu = ui::menu_in(
-                    "aside-menu-in",
-                    ui::pop(div().id("aside-menu")).w(px(210.)).p(px(6.)).flex().flex_col()
-                        .occlude()
-                        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                            this.row_menu = None;
-                            this.sidebar.menu_at = None;
-                            cx.notify();
-                        }))
-                        .children(self.row_menu_items(&menu, cx)),
-                );
-                match at {
-                    Some(at) => d.child(deferred(anchored().position(at).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1)),
-                    None => d.child(ui::dropdown(26., menu)),
-                }
-            })
+        div().relative().child(button).when(open, |d| d.child(self.row_menu_pop(&menu, cx))).into_any_element()
+    }
+
+    /// `menu`, at the right-click that opened it, else under its `···` button.
+    pub(super) fn row_menu_pop(&self, menu: &RowMenu, cx: &mut Context<Self>) -> AnyElement {
+        let pop = ui::menu_in(
+            "aside-menu-in",
+            ui::pop(div().id("aside-menu")).w(px(210.)).p(px(6.)).flex().flex_col()
+                .occlude()
+                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.row_menu = None;
+                    this.sidebar.menu_at = None;
+                    cx.notify();
+                }))
+                .children(self.row_menu_items(menu, cx)),
+        );
+        match self.sidebar.menu_at {
+            Some(at) => deferred(anchored().position(at).snap_to_window_with_margin(px(8.)).child(pop)).with_priority(1).into_any_element(),
+            None => ui::dropdown(26., pop).into_any_element(),
+        }
+    }
+
+    fn pin_item(&self, pin: Pin, cx: &mut Context<Self>) -> AnyElement {
+        let label = if self.store.sections.is_pinned(&pin) { "Unpin" } else { "Pin to top" };
+        ui::menu_row("aside-menu-pin", "pin", label, None)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.row_menu = None;
+                this.store.sections.toggle_pin(pin.clone());
+                this.store.save();
+                cx.notify();
+            }))
             .into_any_element()
+    }
+
+    /// Moves `p` into a group, out of every group, or into a new one.
+    fn group_items(&self, p: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let sections = &self.store.sections;
+        let current = sections.group_of(p);
+        let mut rows = vec![ui::menu_label("Move to group").into_any_element()];
+        let picks = sections.groups.iter().map(|g| (Some(g.id), Some(g.color), g.name.clone())).chain([(None, None, "No group".to_string())]);
+        for (group, color, name) in picks {
+            let target = p.to_string();
+            let lead = color.map(|c| ui::dot(8., super::sections::color(c)));
+            rows.push(
+                ui::menu_pick(SharedString::from(format!("aside-menu-group:{group:?}")), div().children(lead), &name, current == group)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.row_menu = None;
+                        this.store.sections.set_group(&target, group);
+                        this.store.save();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        let target = p.to_string();
+        rows.push(
+            ui::menu_row("aside-menu-new-group", "folder-plus", "New group…", None)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.row_menu = None;
+                    this.new_group(Some(target.clone()), window, cx);
+                }))
+                .into_any_element(),
+        );
+        rows
+    }
+
+    /// A group's rename, colours and delete.
+    fn group_menu_items(&self, id: u32, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(group) = self.store.sections.group(id) else { return vec![] };
+        let rename = ui::menu_row("aside-menu-rename", "compose", "Rename…", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_group_rename(id, window, cx)));
+        let swatches = ACCENT_SWATCHES.iter().enumerate().map(|(i, &c)| {
+            div()
+                .id(("aside-menu-color", i))
+                .size(px(22.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(11.))
+                .cursor_pointer()
+                .when(c == group.color, |d| d.border(px(1.5)).border_color(TEXT_3))
+                .child(ui::swatch((c << 8) | 0xff, 14., 7.))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.store.sections.recolor_group(id, c);
+                    this.store.save();
+                    cx.notify();
+                }))
+        });
+        let delete = ui::danger_row("aside-menu-delete", "trash", "Delete group").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.row_menu = None;
+            this.store.sections.delete_group(id);
+            this.store.save();
+            cx.notify();
+        }));
+        vec![
+            rename.into_any_element(),
+            div().px(px(8.)).py(px(4.)).flex().gap(px(2.)).children(swatches).into_any_element(),
+            ui::menu_divider().into_any_element(),
+            delete.into_any_element(),
+        ]
     }
 
     fn row_menu_items(&self, menu: &RowMenu, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -135,6 +213,9 @@ impl Desktop {
                     }))
                 };
                 let mut rows = vec![first.into_any_element()];
+                if kept {
+                    rows.push(self.pin_item(Pin::Project(p.clone()), cx));
+                }
                 if kept && self.agents.locals_offered() && self.listed_trees(&p).is_some_and(|t| !t.is_empty()) {
                     let target = p.clone();
                     rows.push(
@@ -159,6 +240,10 @@ impl Desktop {
                             .into_any_element(),
                     );
                 }
+                if kept {
+                    rows.push(ui::menu_divider().into_any_element());
+                    rows.extend(self.group_items(&p, cx));
+                }
                 rows.extend([
                     ui::menu_divider().into_any_element(),
                     ui::danger_row("aside-menu-remove", "x", if kept { "Remove from Pocket" } else { "Remove" })
@@ -172,6 +257,9 @@ impl Desktop {
             }
             RowMenu::Tree { project, tree } => {
                 let mut rows = vec![];
+                if self.store.projects.contains(&project) {
+                    rows.push(self.pin_item(Pin::Tree { project: project.clone(), tree: tree.clone() }, cx));
+                }
                 if self.agents.names_offered() {
                     let rename = tree.clone();
                     rows.push(
@@ -182,6 +270,8 @@ impl Desktop {
                             }))
                             .into_any_element(),
                     );
+                }
+                if !rows.is_empty() {
                     rows.push(ui::menu_divider().into_any_element());
                 }
                 rows.push(
@@ -194,8 +284,11 @@ impl Desktop {
                 );
                 rows
             }
-            RowMenu::Local(local) => {
+            RowMenu::Local { project, local } => {
                 let mut rows = vec![];
+                if self.store.projects.contains(&project) {
+                    rows.push(self.pin_item(Pin::Tree { project, tree: local.clone() }, cx));
+                }
                 if self.agents.renames_offered(&local) {
                     let rename = local.clone();
                     rows.push(
@@ -270,6 +363,7 @@ impl Desktop {
                 }
                 rows
             }
+            RowMenu::Group(id) => self.group_menu_items(id, cx),
         }
     }
 }

@@ -9,7 +9,7 @@ One PTY that pocketd owns. A terminal the desktop opens runs the user's login sh
 _Avoid_: pane, PTY session, pocketd session
 
 **Project**:
-A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order. Selecting it selects its main worktree, the repository's own checkout, which the project's own row stands for. A terminal launched outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves its folder on disk.
+A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order, by name or by recent activity, under Pinned, a Group or Other. Selecting it selects its main worktree, the repository's own checkout, which the project's own row stands for. A terminal launched outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves its folder on disk.
 _Avoid_: repository, repo, folder
 
 **Worktree**:
@@ -19,6 +19,14 @@ _Avoid_: workspace, branch
 **Local**:
 A named place over a project's own checkout, listed under the project with its worktrees. Its Locals share files, index and branch; each has its own terminals, tabs and sessions. Every project has one, the main worktree's row, which can't be deleted; deleting another closes its terminals and leaves the files alone.
 _Avoid_: workspace, branch workspace
+
+**Group**:
+A named, coloured box of projects on the sidebar that the user makes, folds and drags projects into. Deleting it leaves its projects in Other, the projects in no group.
+_Avoid_: folder, section
+
+**Pinned**:
+The sidebar's top box of the projects, worktrees and Locals the user pinned. A pinned project leaves its group until it's unpinned or moved.
+_Avoid_: favorite, starred
 
 **Login shell**:
 The shell set on the user's macOS account with `chsh`, such as fish. It stays the same no matter how the app was launched.

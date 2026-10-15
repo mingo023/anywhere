@@ -1,7 +1,6 @@
 use super::action;
 use super::catalog::{Look, Setting};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::Overlay;
 use crate::modals::form::home;
 use crate::util::{initials, tilde};
 use gpui_kit::*;
@@ -62,7 +61,7 @@ impl Desktop {
             .gap(px(6.))
             .child(icon("plus", 13., TEXT_2))
             .child("Add project…")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx)));
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
         let clone = ui::link("settings-clone-project", "Clone…").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
         let foot = div().px(px(14.)).py(px(8.)).flex().items_center().gap(px(12.)).bg(FILL_1).child(add).child(clone);
         div().flex().flex_col().children(rows).child(foot)

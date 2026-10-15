@@ -45,6 +45,7 @@ impl Desktop {
         self.agents.remove_local(id);
         self.workspaces.remove(id);
         self.store.layouts.remove(id);
+        self.store.sections.unpin_tree(id);
         self.leave_gone_local(cx);
         self.save_soon(cx);
         cx.notify();

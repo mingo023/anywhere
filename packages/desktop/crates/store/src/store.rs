@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use workspace::Workspace;
 
 pub mod prefs;
+pub mod sections;
 
 /// Under the home of the machine holding the project; pocketd makes the same folder.
 const DEFAULT_WORKTREES: &str = ".anywhere/worktrees";
@@ -361,6 +362,9 @@ pub struct Store {
     /// Machines reached over SSH, in the order they were added.
     #[serde(deserialize_with = "lenient")]
     pub hosts: Vec<hosts::Host>,
+    /// The sidebar's pins and project groups.
+    #[serde(deserialize_with = "lenient")]
+    pub sections: sections::Sections,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -399,6 +403,7 @@ impl Store {
     pub fn remove(&mut self, path: &str) {
         self.projects.retain(|p| p != path);
         self.collapsed.remove(path);
+        self.sections.forget(path);
     }
 
     pub fn toggle(&mut self, path: &str) {
@@ -550,6 +555,10 @@ mod tests {
         s.graph_share = Some(0.3);
         s.track("/t/fix");
         s.hosts.push(hosts::Host::new(hosts::Target::Alias { name: "devbox".into() }, &[]));
+        let work = s.sections.add_group("Work", 0x3e8ef7);
+        s.sections.set_group("/w", Some(work));
+        s.sections.toggle_pin(sections::Pin::Tree { project: "/w".into(), tree: "/t/fix".into() });
+        s.sections.sort = sections::Sort::Recent;
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);

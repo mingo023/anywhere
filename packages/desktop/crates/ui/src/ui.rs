@@ -648,19 +648,34 @@ pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoEleme
 
 /// The box holding the pinned sessions, headed by a pin and their count.
 pub fn pinned_group(rows: Vec<Stateful<Div>>) -> Div {
-    let header = div()
-        .h(px(32.))
-        .px(px(10.))
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .text_size(px(14.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(TEXT)
-        .child(icon("pin", 14., TEXT))
-        .child(div().flex_1().child("Pinned"))
-        .child(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(rows.len().to_string()));
-    div().flex_none().mb(px(8.)).p(px(4.)).rounded(px(10.)).bg(FILL_1).flex().flex_col().gap(px(2.)).child(header).children(rows)
+    let header = group_head().child(icon("pin", 14., TEXT)).child(div().flex_1().child("Pinned")).child(group_count(rows.len()));
+    group_box().child(header).children(rows)
+}
+
+/// A filled box of sidebar rows under a `group_head`.
+pub fn group_box() -> Div {
+    div().flex_none().mb(px(8.)).p(px(4.)).rounded(px(10.)).bg(FILL_1).flex().flex_col().gap(px(2.))
+}
+
+pub fn group_head() -> Div {
+    div().h(px(32.)).px(px(10.)).flex().flex_none().items_center().gap(px(8.)).text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT)
+}
+
+pub fn group_count(n: usize) -> Div {
+    div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(n.to_string())
+}
+
+/// A folding `group_head` on the sidebar: `lead`, `name`, the rows' count and a chevron.
+pub fn section_head(id: impl Into<ElementId>, lead: impl IntoElement, name: impl IntoElement, count: usize, open: bool) -> Stateful<Div> {
+    group_head()
+        .id(id)
+        .rounded(px(8.))
+        .cursor_pointer()
+        .child(lead)
+        .child(div().min_w_0().truncate().child(name))
+        .child(group_count(count))
+        .child(div().flex_1())
+        .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
 }
 
 fn session_line() -> Div {
@@ -1097,6 +1112,30 @@ pub fn menu_row(id: impl Into<ElementId>, icon_name: &str, label: &str, keys: Op
 /// A menu row that destroys something; menus keep it last, behind a divider.
 pub fn danger_row(id: impl Into<ElementId>, icon_name: &str, label: &str) -> Stateful<Div> {
     menu_item(id, icon_name, label, FAILED, FAILED_BG).text_color(FAILED)
+}
+
+/// A menu row choosing `label`, led by `lead`; the chosen one is checked.
+pub fn menu_pick(id: impl Into<ElementId>, lead: impl IntoElement, label: &str, chosen: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(32.))
+        .px(px(10.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(10.))
+        .rounded(px(8.))
+        .cursor_pointer()
+        .text_size(px(13.5))
+        .hover(|s| s.bg(FILL_2))
+        .child(div().w(px(14.)).flex().flex_none().justify_center().child(lead))
+        .child(div().flex_1().min_w_0().truncate().child(label.to_string()))
+        .when(chosen, |d| d.child(icon("check", 13., TEXT_2)))
+}
+
+/// A menu's small heading over the rows under it.
+pub fn menu_label(label: &str) -> Div {
+    div().px(px(10.)).pt(px(6.)).pb(px(2.)).flex_none().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(label.to_string())
 }
 
 pub fn menu_divider() -> Div {

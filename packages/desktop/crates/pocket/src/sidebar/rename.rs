@@ -17,26 +17,33 @@ impl SidebarState {
         self.rename.as_ref().is_some_and(|r| r.tree == tree)
     }
 
-    /// Drops an open rename unsaved; true when there was one.
+    /// Drops an open rename, a row's or a group's, unsaved; true when there was one.
     pub(crate) fn cancel_rename(&mut self) -> bool {
-        self.rename.take().is_some()
+        // `|`, not `||`: both must drop.
+        self.rename.take().is_some() | self.organize.rename.take().is_some()
     }
+}
+
+/// A field holding `text`, focused and all selected, that calls `done` on Enter or blur.
+pub(crate) fn rename_field(text: String, window: &mut Window, cx: &mut Context<Desktop>, done: fn(&mut Desktop, &mut Context<Desktop>)) -> (Entity<InputState>, Subscription) {
+    let input = cx.new(|cx| InputState::new(window, cx));
+    input.update(cx, |s, cx| {
+        s.set_value(text, window, cx);
+        s.focus(window, cx);
+        s.select_all(window, cx);
+    });
+    let sub = cx.subscribe_in(&input, window, move |this, _, ev: &InputEvent, _, cx| match ev {
+        InputEvent::PressEnter { .. } | InputEvent::Blur => done(this, cx),
+        _ => {}
+    });
+    (input, sub)
 }
 
 impl Desktop {
     /// Edits `tree`'s display name in its row, starting from the current one, all selected. `tree` is a worktree's path or a Local's id.
     pub(crate) fn start_rename(&mut self, tree: String, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.agents.given_name(&tree).unwrap_or_default().to_string();
-        let input = cx.new(|cx| InputState::new(window, cx));
-        input.update(cx, |s, cx| {
-            s.set_value(current, window, cx);
-            s.focus(window, cx);
-            s.select_all(window, cx);
-        });
-        let sub = cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, _, cx| match ev {
-            InputEvent::PressEnter { .. } | InputEvent::Blur => this.save_rename(cx),
-            _ => {}
-        });
+        let (input, sub) = rename_field(current, window, cx, Self::save_rename);
         self.row_menu = None;
         self.sidebar.rename = Some(Rename { tree, input, _sub: sub });
         cx.notify();

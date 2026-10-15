@@ -3,21 +3,20 @@ pub(crate) mod icon;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
-use crate::modals::form::{footer, home, typed_or};
+use crate::modals::form::{footer, typed_or};
 use crate::util::{basename, tilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use host_folder::Browse;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use store::{ProjectIcon, RepoConfig};
 use theme::*;
-use ui::{Segment, Variant};
+use ui::Variant;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Source {
     Local,
-    Clone,
     Host,
 }
 
@@ -28,7 +27,6 @@ enum Probe {
 }
 
 pub struct RepoForm {
-    url: Entity<InputState>,
     name: Entity<InputState>,
     setup: Entity<InputState>,
     teardown: Entity<InputState>,
@@ -47,8 +45,6 @@ struct RepoDraft {
     /// Reset is asking to be confirmed.
     resetting: bool,
     editing: Option<String>,
-    busy: bool,
-    error: Option<String>,
     browse: Option<Browse>,
 }
 
@@ -62,39 +58,24 @@ impl Default for RepoDraft {
             icon: None,
             resetting: false,
             editing: None,
-            busy: false,
-            error: None,
             browse: None,
         }
     }
 }
 
 impl RepoDraft {
-    fn fallback_name(&self, url: &str) -> String {
-        match self.source {
-            Source::Local | Source::Host => self.path.as_deref().map(basename).unwrap_or_default(),
-            Source::Clone => repo_from_url(url),
-        }
+    fn fallback_name(&self) -> String {
+        self.path.as_deref().map(basename).unwrap_or_default()
     }
 
-    fn ready(&self, name: &str, url: &str) -> bool {
-        let named = !name.is_empty();
-        match self.source {
-            _ if self.busy => false,
-            Source::Local | Source::Host => named && matches!(self.probe, Some(Probe::Git { .. } | Probe::NotGit)),
-            Source::Clone => named && self.path.is_some() && !url.trim().is_empty(),
-        }
+    fn ready(&self, name: &str) -> bool {
+        !name.is_empty() && matches!(self.probe, Some(Probe::Git { .. } | Probe::NotGit))
     }
 
-    /// A local folder that isn't a repository, so it never gets worktrees.
+    /// A folder that isn't a repository, so it never gets worktrees.
     fn plain_folder(&self) -> bool {
-        self.source != Source::Clone && matches!(self.probe, Some(Probe::NotGit))
+        matches!(self.probe, Some(Probe::NotGit))
     }
-}
-
-fn repo_from_url(url: &str) -> String {
-    let tail = url.trim().trim_end_matches('/').rsplit(['/', ':']).next().unwrap_or_default();
-    tail.strip_suffix(".git").unwrap_or(tail).to_string()
 }
 
 /// What Reset would put back, as (setting, now, default); name, colour and icon are the project's own.
@@ -112,7 +93,6 @@ fn field(label: &str, body: impl IntoElement) -> Div {
 
 impl RepoForm {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let url = cx.new(|cx| InputState::new(window, cx).placeholder("https://github.com/org/repo.git"));
         let name = cx.new(|cx| InputState::new(window, cx));
         let setup = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm install"));
         let teardown = cx.new(|cx| InputState::new(window, cx).placeholder("docker compose down"));
@@ -124,16 +104,9 @@ impl RepoForm {
                     this.browse_to(typed, window, cx);
                 }
             }),
-            cx.subscribe_in(&url, window, |this, url, ev: &InputEvent, window, cx| {
-                if let InputEvent::Change = ev {
-                    let name = repo_from_url(&url.read(cx).value());
-                    this.repo_form.name.update(cx, |n, cx| n.set_placeholder(name, window, cx));
-                }
-                cx.notify();
-            }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { url, name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), draft: RepoDraft::default() }, subs)
+        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -153,7 +126,7 @@ impl Desktop {
 
     fn repo_form_name(&self, cx: &App) -> String {
         let f = &self.repo_form;
-        typed_or(&f.name, || f.draft.fallback_name(&f.url.read(cx).value()), cx)
+        typed_or(&f.name, || f.draft.fallback_name(), cx)
     }
 
     pub fn project_settings(&mut self, _: &crate::actions::ProjectSettings, window: &mut Window, cx: &mut Context<Self>) {
@@ -167,11 +140,23 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Opens Add project on Clone, into the clone folder.
-    pub(crate) fn clone_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.open(Overlay::AddRepo, window, cx);
-        self.set_repo_source(Source::Clone);
-        cx.notify();
+    /// Adds the folder picked in Finder as a project, with the settings it had if it was one before.
+    pub(crate) fn add_local_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menus();
+        self.pick_path(true, window, cx, |d, paths, window, cx| {
+            let Some(path) = paths.into_iter().next().map(|p| p.to_string_lossy().into_owned()) else { return };
+            let cfg = d.new_repo_config(&path);
+            d.add_repo(path, cfg, window, cx);
+        });
+    }
+
+    /// The settings `path` had if it was a project before, else the defaults in the next colour.
+    pub(crate) fn new_repo_config(&self, path: &str) -> RepoConfig {
+        self.store.repos.get(path).cloned().unwrap_or(RepoConfig { color: self.next_color(), ..RepoConfig::default() })
+    }
+
+    fn next_color(&self) -> u32 {
+        PALETTE[self.projects().len() % PALETTE.len()]
     }
 
     /// Opens Add project on Folder on a host.
@@ -182,10 +167,9 @@ impl Desktop {
     }
 
     pub(crate) fn set_repo_source(&mut self, v: Source) {
-        let root = self.store.clone_root(&home());
         let f = &mut self.repo_form.draft;
         f.source = v;
-        f.path = (v == Source::Clone).then_some(root).filter(|p| Path::new(p).is_dir());
+        f.path = None;
         f.probe = None;
         f.browse = None;
     }
@@ -194,12 +178,11 @@ impl Desktop {
         let cfg = editing.as_ref().and_then(|p| self.store.repos.get(p)).cloned().unwrap_or_default();
         let color = match &editing {
             Some(p) => self.repo_color(p),
-            None => PALETTE[self.projects().len() % PALETTE.len()],
+            None => self.next_color(),
         };
         self.settings.menu = None;
         let f = &mut self.repo_form;
         f.draft = RepoDraft { color, icon: cfg.icon, editing: editing.clone(), ..RepoDraft::default() };
-        f.url.update(cx, |s, cx| s.set_value("", window, cx));
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
             s.set_placeholder("", window, cx);
@@ -214,9 +197,6 @@ impl Desktop {
     fn set_repo_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let f = &mut self.repo_form;
         f.draft.path = Some(path.clone());
-        if f.draft.source == Source::Clone {
-            return;
-        }
         f.draft.probe = Some(Probe::Loading);
         f.name.update(cx, |s, cx| s.set_placeholder(basename(&path), window, cx));
         let dir = path.clone();
@@ -243,42 +223,16 @@ impl Desktop {
     }
 
     fn repo_ready(&self, cx: &App) -> bool {
-        let f = &self.repo_form;
-        f.draft.ready(&self.repo_form_name(cx), &f.url.read(cx).value())
+        self.repo_form.draft.ready(&self.repo_form_name(cx))
     }
 
     pub(crate) fn save_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.repo_ready(cx) {
             return;
         }
-        let f = &self.repo_form;
-        let Some(path) = f.draft.path.clone() else { return };
-        let name = self.repo_form_name(cx);
-        let cfg = self.repo_config(&path, name.clone(), cx);
-        if f.draft.source != Source::Clone {
-            return self.add_repo(path, cfg, window, cx);
-        }
-        let url = f.url.read(cx).value().trim().to_string();
-        let dest = format!("{path}/{name}");
-        self.repo_form.draft.busy = true;
-        self.repo_form.draft.error = None;
-        let task = cx.background_executor().spawn({
-            let dest = dest.clone();
-            async move { git::clone(&hosts::runner_for(&dest), &url, &dest) }
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let res = task.await;
-            this.update_in(cx, |d, window, cx| {
-                d.repo_form.draft.busy = false;
-                match res {
-                    Ok(()) => d.add_repo(dest, cfg, window, cx),
-                    Err(e) => d.repo_form.draft.error = Some(e),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+        let Some(path) = self.repo_form.draft.path.clone() else { return };
+        let cfg = self.repo_config(&path, self.repo_form_name(cx), cx);
+        self.add_repo(path, cfg, window, cx);
     }
 
     /// The project as the form now has it; its dev server URL is set in Settings › Browser.
@@ -345,11 +299,14 @@ impl Desktop {
             .child(div().pt(px(4.)).flex().justify_end().gap(px(8.)).child(cancel).child(reset))
     }
 
-    fn add_repo(&mut self, path: String, cfg: RepoConfig, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn add_repo(&mut self, path: String, cfg: RepoConfig, window: &mut Window, cx: &mut Context<Self>) {
         self.store.add(&path);
         self.store.repos.insert(path.clone(), cfg);
         self.store.save();
-        self.close_overlay(window, cx);
+        // A clone can finish after its dialog was dismissed and another opened.
+        if matches!(self.overlay, Some(Overlay::AddRepo | Overlay::Clone)) {
+            self.close_overlay(window, cx);
+        }
         // Edit… in Settings opens this form; saving stays there.
         if self.screen != Screen::Settings {
             self.select_project(path, cx);
@@ -359,20 +316,16 @@ impl Desktop {
         self.refresh_git(cx);
     }
 
-    fn folder_card(&self, cx: &mut Context<Self>) -> Div {
+    fn folder_card(&self) -> Div {
         let f = &self.repo_form.draft;
-        let clone = f.source == Source::Clone;
-        let title = match (&f.path, clone) {
-            (Some(p), true) => format!("Clone into {}", tilde(p)),
-            (Some(p), false) => match hosts::split(p) {
+        let title = match &f.path {
+            Some(p) => match hosts::split(p) {
                 (Some(h), path) => format!("{}:{path}", self.host_name(h)),
                 (None, _) => tilde(p),
             },
-            (None, true) => "Choose where to clone".into(),
-            (None, false) => "No folder chosen".into(),
+            None => "No folder chosen".into(),
         };
         let (mark, line, color) = match &f.probe {
-            _ if clone => (None, "The repository is cloned into a folder named after it.".to_string(), TEXT_4),
             None => (None, "Pick a folder.".into(), TEXT_4),
             Some(Probe::Loading) => (None, "Checking…".into(), TEXT_4),
             Some(Probe::NotGit) => (None, "Folder · not a git repository".into(), TEXT_3),
@@ -405,39 +358,12 @@ impl Desktop {
                     .child(div().truncate().font_family(MONO).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(title))
                     .child(div().flex().items_center().gap(px(4.)).text_size(px(12.5)).text_color(color).children(mark.map(|m| icon(m, 12., color))).child(line)),
             )
-            .when(f.editing.is_none() && f.source != Source::Host, |d| {
-                d.child(ui::button("repo-choose", Variant::Secondary, None, "Choose…").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.pick_path(true, window, cx, |d, paths, window, cx| {
-                        if let Some(p) = paths.into_iter().next() {
-                            d.set_repo_path(p.to_string_lossy().into_owned(), window, cx);
-                        }
-                    })
-                })))
-            })
     }
 
     pub fn repo_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
         let name = self.repo_form_name(cx);
         let reset = self.repo_form.draft.editing.clone().map(|p| self.reset_line(&p, &name, cx));
         let f = &self.repo_form;
-        let source = div().id("repo-source").child(ui::segmented(
-            vec![
-                Segment { icon: Some("folder"), value: Source::Local, label: "Local folder".into(), badge: None },
-                Segment { icon: Some("external"), value: Source::Clone, label: "Clone from URL".into(), badge: None },
-                Segment { icon: Some("globe"), value: Source::Host, label: "Folder on a host".into(), badge: None },
-            ],
-            f.draft.source,
-            false,
-            true,
-            |this: &mut Self, v, cx| {
-                this.set_repo_source(v);
-                cx.notify();
-            },
-            cx,
-        ));
-        let url = (f.draft.source == Source::Clone).then(|| {
-            ui::field_box().child(icon("external", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.url).appearance(false).p_0().text_size(px(13.))))
-        });
         let identity = div()
             .flex()
             .gap(px(14.))
@@ -462,17 +388,9 @@ impl Desktop {
             div().flex().items_center().gap(px(12.)).child(text).child(button)
         });
         let editing = f.draft.editing.is_some();
-        let note = match &f.draft.error {
-            Some(e) => div().truncate().text_color(FAILED).child(e.clone()),
-            None if editing || name.is_empty() => div(),
-            None => div().truncate().child(format!("Adds {name} to the project rail")),
-        };
+        let note = if editing || name.is_empty() { div() } else { div().truncate().child(format!("Adds {name} to the project rail")) };
         let ready = self.repo_ready(cx);
-        let label = match () {
-            _ if f.draft.busy => "Cloning…",
-            _ if editing => "Save",
-            _ => "Add project",
-        };
+        let label = if editing { "Save" } else { "Add project" };
         let cancel = ui::large(ui::button("repo-cancel", Variant::Ghost, None, "Cancel").text_color(TEXT))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let submit = ui::large(ui::button("repo-submit", Variant::Primary, None, label))
@@ -481,14 +399,10 @@ impl Desktop {
         let close = ui::icon_button("repo-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let title = if editing { "Project settings" } else { "Add project" };
         let mut body: Vec<AnyElement> = Vec::new();
-        if !editing {
-            body.push(source.into_any_element());
-        }
-        body.extend(url.map(IntoElement::into_any_element));
         if f.draft.source == Source::Host && !editing {
             body.push(self.host_browser(cx).into_any_element());
         }
-        body.extend([self.folder_card(cx).into_any_element(), identity.into_any_element()]);
+        body.extend([self.folder_card().into_any_element(), identity.into_any_element()]);
         if !f.draft.plain_folder() {
             body.push(div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).into_any_element());
         }
@@ -501,15 +415,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Probe, RepoDraft, Source, project_changes, repo_from_url};
+    use super::{Probe, RepoDraft, project_changes};
     use store::{ProjectIcon, RepoConfig};
-
-    #[test]
-    fn repo_name_comes_from_the_url() {
-        assert_eq!(repo_from_url("https://github.com/org/app-ios.git"), "app-ios");
-        assert_eq!(repo_from_url("git@github.com:org/app-ios.git"), "app-ios");
-        assert_eq!(repo_from_url("https://github.com/org/web/ "), "web");
-    }
 
     fn local(probe: Option<Probe>) -> RepoDraft {
         RepoDraft { path: Some("/src/app".into()), probe, ..RepoDraft::default() }
@@ -518,41 +425,24 @@ mod tests {
     #[test]
     fn a_local_folder_is_ready_once_named_and_probed_whether_or_not_it_is_a_git_repository() {
         let git = || Some(Probe::Git { branch: "main".into(), clean: true, remotes: 1 });
-        assert!(local(git()).ready("app", ""));
-        assert!(local(Some(Probe::NotGit)).ready("app", ""));
-        assert!(!local(git()).ready("", ""));
-        assert!(!local(Some(Probe::Loading)).ready("app", ""));
-        assert!(!local(None).ready("app", ""));
-        assert!(!RepoDraft { busy: true, ..local(git()) }.ready("app", ""));
+        assert!(local(git()).ready("app"));
+        assert!(local(Some(Probe::NotGit)).ready("app"));
+        assert!(!local(git()).ready(""));
+        assert!(!local(Some(Probe::Loading)).ready("app"));
+        assert!(!local(None).ready("app"));
     }
 
     #[test]
-    fn only_a_local_folder_found_not_to_be_a_repository_is_plain() {
+    fn only_a_folder_found_not_to_be_a_repository_is_plain() {
         assert!(local(Some(Probe::NotGit)).plain_folder());
         assert!(!local(Some(Probe::Git { branch: "main".into(), clean: true, remotes: 1 })).plain_folder());
         assert!(!local(Some(Probe::Loading)).plain_folder());
-        assert!(!RepoDraft { source: Source::Clone, ..local(Some(Probe::NotGit)) }.plain_folder());
     }
 
     #[test]
-    fn a_clone_is_ready_once_named_with_a_url_and_a_destination_while_not_already_cloning() {
-        let clone = RepoDraft { source: Source::Clone, path: Some("/code".into()), ..RepoDraft::default() };
-        let url = "https://github.com/org/app.git";
-        assert!(clone.ready("app", url));
-        assert!(!clone.ready("", url));
-        assert!(!clone.ready("app", "  "));
-        assert!(!RepoDraft { path: None, ..clone }.ready("app", url));
-        let clone = RepoDraft { source: Source::Clone, path: Some("/code".into()), busy: true, ..RepoDraft::default() };
-        assert!(!clone.ready("app", url));
-    }
-
-    #[test]
-    fn an_unnamed_project_takes_its_folder_name_or_the_repository_in_its_url() {
-        let url = "git@github.com:org/web.git";
-        assert_eq!(local(None).fallback_name(url), "app");
-        assert_eq!(RepoDraft::default().fallback_name(url), "");
-        let clone = RepoDraft { source: Source::Clone, path: Some("/code".into()), ..RepoDraft::default() };
-        assert_eq!(clone.fallback_name(url), "web");
+    fn an_unnamed_project_takes_its_folder_name() {
+        assert_eq!(local(None).fallback_name(), "app");
+        assert_eq!(RepoDraft::default().fallback_name(), "");
     }
 
     #[test]

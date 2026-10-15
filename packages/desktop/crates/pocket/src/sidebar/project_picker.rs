@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Overlay, Screen, id};
+use crate::desktop::chrome::{Screen, id};
 use crate::util::{basename, tilde, tree_icon};
 use agents::locals::is_local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -202,10 +202,7 @@ impl Desktop {
             .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.picker.search).appearance(false).p_0().text_size(px(13.))));
         let empty = div().h(px(36.)).px(px(10.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("No projects found");
         let list = div().id("projects-list").max_h(px(290.)).overflow_y_scroll().p(px(5.)).flex().flex_col().when(entries.is_empty(), |d| d.child(empty)).children(rows);
-        let new = ui::menu_row("projects-new", "plus", "New project", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.sidebar.picker.open = false;
-            this.open(Overlay::AddRepo, window, cx);
-        }));
+        let new = ui::menu_row("projects-new", "plus", "New project", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
         let host = ui::menu_row("projects-host-folder", "globe", "Open folder on a host…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
         ui::pop(div().id("projects-menu"))
             .w(px(286.))
