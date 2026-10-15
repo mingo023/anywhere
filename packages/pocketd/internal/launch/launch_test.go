@@ -20,6 +20,7 @@ import (
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
+	"pocketd/internal/worktree"
 )
 
 func launcher(t *testing.T, projects string) *Launcher {
@@ -273,6 +274,29 @@ func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout = project, proto.Checkout{New: &proto.NewWorktree{Name: "calm-otter"}}
 	return l, s
+}
+
+func TestANewWorktreeRunsTheRepoSetupUnlessTheProjectSettingsNameOne(t *testing.T) {
+	tree := t.TempDir()
+	os.Mkdir(filepath.Join(tree, ".anywhere"), 0o755)
+	os.WriteFile(filepath.Join(tree, worktree.ConfigFile), []byte(`{"setup": ["make deps"]}`), 0o644)
+	off := false
+	quiet := func(string, string) {}
+	for _, c := range []struct {
+		name, settings string
+		setup          *bool
+		want           string
+	}{
+		{"repo", "", nil, "make deps"},
+		{"settings", "make all", nil, "make all"},
+		{"turned off", "", &off, ""},
+	} {
+		f := registry.File{Repos: map[string]registry.Repo{"/p": {Setup: c.settings}}}
+		s := proto.LaunchSpec{Project: "/p", Checkout: proto.Checkout{New: &proto.NewWorktree{Name: "w", Setup: c.setup, Copy: &off}}}
+		if _, got, _ := filled(f, s, tree, quiet); got != c.want {
+			t.Errorf("%s: setup %q, want %q", c.name, got, c.want)
+		}
+	}
 }
 
 func TestANewWorktreeReportsEachStepAsItStarts(t *testing.T) {
