@@ -296,7 +296,8 @@ func opened(f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, pr
 }
 
 // filled copies into a new Worktree at path and picks its setup, unless the
-// owner turned them off.
+// owner turned them off. The setup in the project's settings wins over the
+// one the repo names in its worktree.ConfigFile.
 func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step, note string)) (string, string, *Failure) {
 	n := s.Checkout.New
 	if on(n.Copy) {
@@ -305,7 +306,9 @@ func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step
 	}
 	setup := ""
 	if on(n.Setup) {
-		setup = f.Repos[s.Project].Setup
+		if setup = f.Repos[s.Project].Setup; setup == "" {
+			setup = worktree.RepoSetup(s.Project, path)
+		}
 	}
 	return path, setup, nil
 }
