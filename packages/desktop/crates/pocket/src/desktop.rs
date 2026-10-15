@@ -448,6 +448,13 @@ impl Desktop {
         self.place()
     }
 
+    /// A git project's main checkout on screen with nothing open in it, once the saved layouts are back: the new session page stands in for its empty panes.
+    pub(crate) fn idle_main(&self) -> bool {
+        let Some(p) = self.project.as_deref() else { return false };
+        let Some(main) = self.tree_of(p) else { return false };
+        self.panels.restored && new_session::may_start(&self.agents) && self.worktrees.get(p).is_some_and(|w| !w.is_empty()) && self.place().as_ref() == Some(&main) && !self.in_use(&main)
+    }
+
     /// The provider's Label from Settings, else its own name.
     pub(crate) fn agent_name(&self, provider: &str) -> String {
         self.store.agents.label(provider).unwrap_or_else(|| theme::provider_name(provider).into())
@@ -456,6 +463,15 @@ impl Desktop {
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
             _ if self.shown_create().is_some() => self.creating_page(cx),
+            Some(_) if self.idle_main() => {
+                // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
+                cx.defer_in(window, |this, window, cx| {
+                    if let Some(p) = this.project.clone().filter(|_| this.idle_main() && !this.new_form.shown && this.overlay.is_none()) {
+                        this.new_place(p, window, cx);
+                    }
+                });
+                div()
+            }
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(cx),
@@ -573,7 +589,7 @@ impl Render for Desktop {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
-                } else if this.overlay.is_none() && this.new_form.shown && this.screen == Screen::Sessions {
+                } else if this.overlay.is_none() && this.new_form.shown && this.screen == Screen::Sessions && !this.idle_main() {
                     this.leave_new_session(window, cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Settings {
                     this.escape_settings(window, cx);

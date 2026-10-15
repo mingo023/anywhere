@@ -56,7 +56,7 @@ pub(crate) struct Listed {
 /// The kind of row a tree has under its project.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
-    /// The project's own Local, keyed by its main worktree's path.
+    /// The project's own Local, keyed by its main worktree's path; listed only while it has a terminal or tab open.
     Own,
     Local,
     Worktree,
@@ -107,14 +107,17 @@ impl Desktop {
         self.listed_trees(p).map(|w| self.removals.hide(self.creates.trees(p, &w)))
     }
 
-    /// The rows under `p`: its own Local, the Locals added to it, then its worktrees.
+    /// The rows under `p`: its own Local while in use, the Locals added to it, then its worktrees.
     pub(super) fn tree_rows(&self, p: &str, trees: &[git::Worktree]) -> Vec<TreeRow> {
         if trees.is_empty() {
             return vec![];
         }
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
         let tip = trees.iter().find(|w| w.main).map(tree_place).unwrap_or_default();
-        let mut rows = vec![TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own }];
+        let mut rows = Vec::new();
+        if self.in_use(&main) {
+            rows.push(TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own });
+        }
         rows.extend(self.agents.locals_in(p).map(|l| TreeRow { key: l.id.clone(), label: self.local_name(&l.id), tip: tip.clone(), kind: Kind::Local }));
         rows.extend(trees.iter().filter(|w| !w.main).map(|w| {
             let (label, tip) = tree_label(w, &self.agents);
