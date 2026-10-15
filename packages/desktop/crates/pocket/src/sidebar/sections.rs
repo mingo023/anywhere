@@ -1,12 +1,13 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{RowMenu, Screen};
+use crate::sidebar::filter::FIELD_H;
 use crate::sidebar::fold::{self, Fold};
 use crate::sidebar::rename::rename_field;
 use crate::sidebar::{DragProject, tree_label, tree_place};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use store::sections::{Pin, Sort};
+use store::sections::{Group, Pin, Sort};
 use theme::*;
 use ui::{self, icon_button_sized};
 
@@ -96,8 +97,8 @@ fn section_body(id: impl Into<ElementId>, open: bool, rows: Vec<(AnyElement, f32
     fold::springing(id, open, height, body)
 }
 
-pub(crate) fn color(rgb: u32) -> Token {
-    Token::fixed((rgb << 8) | 0xff)
+pub(crate) fn group_mark(g: &Group) -> Option<Div> {
+    g.icon.clone().map(|e| div().text_size(px(13.)).line_height(px(16.)).child(e))
 }
 
 impl Desktop {
@@ -158,17 +159,17 @@ impl Desktop {
         Listed { pinned, groups, other: arranged.other.into_iter().filter_map(block).collect() }
     }
 
-    /// The Projects header: its name and buttons, or the filter while it's open.
+    /// The Projects header: its name and search button, or the filter's field while it's open, then its menus.
     pub(super) fn projects_header(&self, cx: &mut Context<Self>) -> Div {
-        let header = div().pt(px(10.)).pb(px(4.)).pl(px(6.)).pr(px(10.)).flex().items_center();
-        if self.sidebar.filter.open {
-            return self.filter_field(header, cx);
-        }
-        let search = icon_button_sized("aside-filter", "search", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_filter(window, cx)));
+        // As tall as the filter's field, so opening it doesn't push the list down.
+        let header = div().pt(px(10.)).pb(px(4.)).pr(px(10.)).h(px(10. + FIELD_H + 4.)).flex().flex_none().items_center().gap(px(2.));
+        let header = if self.sidebar.filter.open {
+            header.child(self.filter_field(cx))
+        } else {
+            let search = icon_button_sized("aside-filter", "search", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_filter(window, cx)));
+            header.pl(px(6.)).child(div().flex_1().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(TEXT_3).child("PROJECTS")).child(search)
+        };
         header
-            .gap(px(2.))
-            .child(div().flex_1().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(TEXT_3).child("PROJECTS"))
-            .child(search)
             .child(self.organize_menu(cx))
             .child(self.add_menu(cx))
     }
@@ -229,10 +230,10 @@ impl Desktop {
         })
     }
 
-    /// Adds a group in the next colour, holding `project` if given, and names it in place.
+    /// Adds a group, holding `project` if given, and names it in place.
     pub(super) fn new_group(&mut self, project: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let sections = &mut self.store.sections;
-        let id = sections.add_group("New group", ACCENT_SWATCHES[sections.groups.len() % ACCENT_SWATCHES.len()]);
+        let id = sections.add_group("New group");
         if let Some(p) = project {
             sections.set_group(&p, Some(id));
         }
@@ -297,7 +298,7 @@ impl Desktop {
         let mut out = Vec::new();
         if !listed.pinned.is_empty() {
             let open = filtering || !sections.pins_folded;
-            let head = ui::section_head("aside-pinned", icon("pin", 14., TEXT), "Pinned", listed.pinned.len(), open).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            let head = ui::section_head("aside-pinned", icon("pin", 14., TEXT), "Pinned", open, None, false).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.store.sections.pins_folded = !this.store.sections.pins_folded;
                 if this.store.sections.pins_folded {
                     this.sidebar.closing.start(Fold::Pinned);
@@ -351,7 +352,8 @@ impl Desktop {
                 None => group.name.clone().into_any_element(),
             };
             let menu = RowMenu::Group(id);
-            let head = ui::section_head(("aside-group", id as usize), ui::dot(8., color(group.color)), name, blocks.len(), open)
+            let more = self.row_menu_button(&format!("group:{id}"), menu.clone(), cx);
+            let head = ui::section_head(("aside-group", id as usize), div().children(group_mark(group)), name, open, Some(more), self.row_menu.as_ref() == Some(&menu))
                 .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                     if this.sidebar.organize.rename.as_ref().is_some_and(|r| r.group == id) {
                         return;
@@ -367,8 +369,7 @@ impl Desktop {
                     }
                     cx.notify();
                 }))
-                .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu.clone(), cx))
-                .when(self.row_menu.as_ref() == Some(&menu), |d| d.child(self.row_menu_pop(&menu, cx)));
+                .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
             let rows: Vec<(AnyElement, f32)> = match (self.sidebar.closing.drawn(&Fold::Group(id), open), blocks.is_empty()) {
                 (false, _) => vec![],
                 (true, true) => vec![(div().h(px(ui::SIDEBAR_ROW_H)).px(px(10.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_4).child("Drag projects here").into_any_element(), ui::SIDEBAR_ROW_H)],

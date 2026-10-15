@@ -38,8 +38,8 @@ const STEPS: [(&str, Step); 144] = [
     ("sections", |d, _, _| {
         let projects = d.projects();
         let sections = &mut d.store.sections;
-        let work = sections.add_group("Work", theme::ACCENT_SWATCHES[0]);
-        sections.add_group("Side", theme::ACCENT_SWATCHES[1]);
+        let work = sections.add_group("Work");
+        sections.add_group("Side");
         for p in projects.iter().skip(1).step_by(2) {
             sections.set_group(p, Some(work));
         }

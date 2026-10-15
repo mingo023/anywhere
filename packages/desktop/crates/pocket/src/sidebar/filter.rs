@@ -6,6 +6,9 @@ use gpui_kit::*;
 use theme::*;
 use ui::icon_button_sized;
 
+const FILTER_IN: std::time::Duration = std::time::Duration::from_millis(220);
+pub(super) const FIELD_H: f32 = 28.;
+
 /// A row the filter lists: a project, or one of its trees by key.
 pub(crate) type Hit = (String, Option<String>);
 
@@ -20,12 +23,17 @@ pub(crate) struct Filter {
 impl Filter {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter projects & worktrees"));
-        let subs = vec![cx.subscribe(&input, |this, _, ev: &InputEvent, cx| {
-            if let InputEvent::Change = ev {
-                this.sidebar.filter.lit = this.filter_hits(cx).into_iter().next();
-                if this.sidebar.filter.query(cx).is_empty() {
-                    this.shut_filtered_folds();
+        let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
+            match ev {
+                InputEvent::Change => {
+                    this.sidebar.filter.lit = this.filter_hits(cx).into_iter().next();
+                    if this.sidebar.filter.query(cx).is_empty() {
+                        this.shut_filtered_folds();
+                    }
                 }
+                // A typed query stays, so its rows can still be clicked.
+                InputEvent::Blur if this.sidebar.filter.query(cx).is_empty() => this.close_filter(window, cx),
+                _ => {}
             }
             cx.notify()
         })];
@@ -71,22 +79,30 @@ impl Desktop {
         if query.is_empty() { vec![] } else { hits(&self.listed(&query)) }
     }
 
-    /// `header` holding the filter's field and its close button.
-    pub(super) fn filter_field(&self, header: Div, cx: &mut Context<Self>) -> Div {
-        let field = div()
+    /// The filter's field, close button inside, growing leftwards out of the search button.
+    pub(super) fn filter_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let close = icon_button_sized("aside-filter-close", "x", 20., TEXT_3).rounded(px(5.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_filter(window, cx)));
+        div()
+            .ml_auto()
+            .mr(px(2.))
             .flex_1()
             .min_w_0()
-            .h(px(28.))
-            .px(px(8.))
+            .h(px(FIELD_H))
+            .pl(px(8.))
+            .pr(px(4.))
             .flex()
             .items_center()
             .gap(px(6.))
             .rounded(px(8.))
             .bg(FILL_2)
+            // A click on the field's padding or icon would otherwise focus the window's root, blurring and so closing an empty filter.
+            .track_focus(&self.sidebar.filter.input.focus_handle(cx))
+            .capture_key_down(cx.listener(Self::on_filter_key))
             .child(icon("search", 13., TEXT_3))
-            .child(Input::new(&self.sidebar.filter.input).appearance(false).p_0().text_size(px(13.)));
-        let close = icon_button_sized("aside-filter-close", "x", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_filter(window, cx)));
-        header.pr(px(4.)).gap(px(4.)).capture_key_down(cx.listener(Self::on_filter_key)).child(field).child(close)
+            .child(Input::new(&self.sidebar.filter.input).appearance(false).p_0().text_size(px(13.)))
+            .child(close)
+            .overflow_hidden()
+            .with_animation("aside-filter-in", Animation::new(FILTER_IN).with_easing(|t: f32| 1. - (1. - t).powi(3)), |d, t| d.min_w(px(28.)).max_w(relative(t)).opacity(t))
     }
 
     pub(crate) fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {

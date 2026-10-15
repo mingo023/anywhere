@@ -665,17 +665,29 @@ pub fn group_count(n: usize) -> Div {
     div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(n.to_string())
 }
 
-/// A folding `group_head` on the sidebar: `lead`, `name`, the rows' count and a chevron.
-pub fn section_head(id: impl Into<ElementId>, lead: impl IntoElement, name: impl IntoElement, count: usize, open: bool) -> Stateful<Div> {
+const SECTION_HEAD: &str = "section-head";
+
+/// A folding `group_head` on the sidebar: `lead`, swapped for a chevron while hovered, then `name` and its `trail`, shown while hovered or `held`.
+pub fn section_head(id: impl Into<ElementId>, lead: impl IntoElement, name: impl IntoElement, open: bool, trail: Option<AnyElement>, held: bool) -> Stateful<Div> {
+    let chevron = icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_3);
+    let lead = div()
+        .relative()
+        .size(px(16.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(div().flex().items_center().group_hover(SECTION_HEAD, |s| s.opacity(0.)).child(lead))
+        .child(div().absolute().inset_0().flex().items_center().justify_center().opacity(0.).group_hover(SECTION_HEAD, |s| s.opacity(1.)).child(chevron));
     group_head()
         .id(id)
+        .group(SECTION_HEAD)
+        .pr(px(5.))
         .rounded(px(8.))
         .cursor_pointer()
         .child(lead)
-        .child(div().min_w_0().truncate().child(name))
-        .child(group_count(count))
-        .child(div().flex_1())
-        .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
+        .child(div().flex_1().min_w_0().truncate().child(name))
+        .children(trail.map(|t| div().flex_none().when(!held, |d| d.opacity(0.).group_hover(SECTION_HEAD, |s| s.opacity(1.))).child(t)))
 }
 
 fn session_line() -> Div {

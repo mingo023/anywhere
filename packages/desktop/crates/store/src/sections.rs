@@ -6,8 +6,9 @@ use std::collections::BTreeMap;
 pub struct Group {
     pub id: u32,
     pub name: String,
-    /// 0xRRGGBB.
-    pub color: u32,
+    /// An emoji.
+    #[serde(default)]
+    pub icon: Option<String>,
     #[serde(default)]
     pub folded: bool,
 }
@@ -53,9 +54,9 @@ pub struct Sections {
 
 impl Sections {
     /// Adds a group named `name` and returns its id.
-    pub fn add_group(&mut self, name: &str, color: u32) -> u32 {
+    pub fn add_group(&mut self, name: &str) -> u32 {
         let id = self.groups.iter().map(|g| g.id + 1).max().unwrap_or(1);
-        self.groups.push(Group { id, name: name.to_string(), color, folded: false });
+        self.groups.push(Group { id, name: name.to_string(), icon: None, folded: false });
         id
     }
 
@@ -75,9 +76,10 @@ impl Sections {
         }
     }
 
-    pub fn recolor_group(&mut self, id: u32, color: u32) {
+    /// Picking the group's icon again takes it off.
+    pub fn pick_group_icon(&mut self, id: u32, icon: &str) {
         if let Some(g) = self.group_mut(id) {
-            g.color = color;
+            g.icon = (g.icon.as_deref() != Some(icon)).then(|| icon.to_string());
         }
     }
 
@@ -183,7 +185,7 @@ mod tests {
     #[test]
     fn projects_sit_in_their_groups_in_list_order_and_the_rest_after() {
         let mut s = Sections::default();
-        let (work, side) = (s.add_group("Work", 1), s.add_group("Side", 2));
+        let (work, side) = (s.add_group("Work"), s.add_group("Side"));
         s.set_group("/c", Some(work));
         s.set_group("/a", Some(work));
         s.set_group("/b", Some(side));
@@ -194,7 +196,7 @@ mod tests {
     #[test]
     fn a_pinned_project_leaves_its_group_and_a_pinned_tree_leaves_its_project_in_place() {
         let mut s = Sections::default();
-        let work = s.add_group("Work", 1);
+        let work = s.add_group("Work");
         s.set_group("/a", Some(work));
         s.toggle_pin(Pin::Project("/a".into()));
         s.toggle_pin(Pin::Tree { project: "/b".into(), tree: "/wt".into() });
@@ -206,7 +208,7 @@ mod tests {
     #[test]
     fn a_project_that_cant_be_grouped_stays_with_the_rest_and_its_pins_hide() {
         let mut s = Sections::default();
-        let work = s.add_group("Work", 1);
+        let work = s.add_group("Work");
         s.set_group("/a", Some(work));
         s.toggle_pin(Pin::Project("/b".into()));
         let got = s.arrange(&projects(), |p| p == "/c" || p == "/d");
@@ -233,7 +235,7 @@ mod tests {
     #[test]
     fn moving_a_pinned_project_to_a_group_or_out_of_one_unpins_it_but_keeps_its_tree_pins() {
         let mut s = Sections::default();
-        let work = s.add_group("Work", 1);
+        let work = s.add_group("Work");
         let tree = Pin::Tree { project: "/a".into(), tree: "/wt".into() };
         for group in [Some(work), None] {
             s.pin(Pin::Project("/a".into()));
@@ -254,7 +256,7 @@ mod tests {
     #[test]
     fn revealing_a_row_unfolds_pinned_when_it_sits_there_and_else_its_group() {
         let mut s = Sections { pins_folded: true, ..Default::default() };
-        let work = s.add_group("Work", 1);
+        let work = s.add_group("Work");
         s.set_group("/a", Some(work));
         s.toggle_group(work);
         s.pin(Pin::Tree { project: "/a".into(), tree: "/wt".into() });
@@ -278,7 +280,7 @@ mod tests {
     #[test]
     fn deleting_a_group_ungroups_its_projects() {
         let mut s = Sections::default();
-        let (work, side) = (s.add_group("Work", 1), s.add_group("Side", 2));
+        let (work, side) = (s.add_group("Work"), s.add_group("Side"));
         s.set_group("/a", Some(work));
         s.set_group("/b", Some(side));
         s.delete_group(work);
@@ -287,18 +289,30 @@ mod tests {
     }
 
     #[test]
+    fn picking_a_groups_icon_sets_it_and_picking_it_again_takes_it_off() {
+        let mut s = Sections::default();
+        let g = s.add_group("Work");
+        s.pick_group_icon(g, "🚀");
+        assert_eq!(s.group(g).unwrap().icon.as_deref(), Some("🚀"));
+        s.pick_group_icon(g, "🔥");
+        assert_eq!(s.group(g).unwrap().icon.as_deref(), Some("🔥"));
+        s.pick_group_icon(g, "🔥");
+        assert_eq!(s.group(g).unwrap().icon, None);
+    }
+
+    #[test]
     fn a_new_group_never_reuses_a_live_groups_id() {
         let mut s = Sections::default();
-        let (a, b) = (s.add_group("A", 1), s.add_group("B", 1));
+        let (a, b) = (s.add_group("A"), s.add_group("B"));
         s.delete_group(a);
-        let c = s.add_group("C", 1);
+        let c = s.add_group("C");
         assert!(a != b && c != b);
     }
 
     #[test]
     fn a_project_joins_only_a_group_that_exists_and_moving_it_leaves_the_old_one() {
         let mut s = Sections::default();
-        let (work, side) = (s.add_group("Work", 1), s.add_group("Side", 2));
+        let (work, side) = (s.add_group("Work"), s.add_group("Side"));
         s.set_group("/a", Some(99));
         assert_eq!(s.group_of("/a"), None);
         s.set_group("/a", Some(work));
@@ -311,7 +325,7 @@ mod tests {
     #[test]
     fn a_blank_rename_keeps_the_name() {
         let mut s = Sections::default();
-        let id = s.add_group("Work", 1);
+        let id = s.add_group("Work");
         s.rename_group(id, "  ");
         s.rename_group(id, " Clients ");
         s.rename_group(id, "");
@@ -321,7 +335,7 @@ mod tests {
     #[test]
     fn forgetting_a_project_drops_its_group_and_every_pin_in_it() {
         let mut s = Sections::default();
-        let work = s.add_group("Work", 1);
+        let work = s.add_group("Work");
         s.set_group("/a", Some(work));
         s.toggle_pin(Pin::Project("/a".into()));
         s.toggle_pin(Pin::Tree { project: "/a".into(), tree: "/wt".into() });

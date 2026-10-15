@@ -1,6 +1,8 @@
 use crate::accounts;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, RowMenu, id};
+use crate::modals::add_project::icon::EMOJI;
+use crate::sidebar::sections::group_mark;
 use crate::terminals::link;
 use agents::Summary;
 use agents::locals::is_local;
@@ -133,10 +135,9 @@ impl Desktop {
         let sections = &self.store.sections;
         let current = sections.group_of(p);
         let mut rows = vec![ui::menu_label("Move to group").into_any_element()];
-        let picks = sections.groups.iter().map(|g| (Some(g.id), Some(g.color), g.name.clone())).chain([(None, None, "No group".to_string())]);
-        for (group, color, name) in picks {
+        let picks = sections.groups.iter().map(|g| (Some(g.id), group_mark(g), g.name.clone())).chain([(None, None, "No group".to_string())]);
+        for (group, lead, name) in picks {
             let target = p.to_string();
-            let lead = color.map(|c| ui::dot(8., super::sections::color(c)));
             rows.push(
                 ui::menu_pick(SharedString::from(format!("aside-menu-group:{group:?}")), div().children(lead), &name, current == group)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -160,23 +161,25 @@ impl Desktop {
         rows
     }
 
-    /// A group's rename, colours and delete.
+    /// A group's rename, icons and delete.
     fn group_menu_items(&self, id: u32, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let Some(group) = self.store.sections.group(id) else { return vec![] };
         let rename = ui::menu_row("aside-menu-rename", "compose", "Rename…", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_group_rename(id, window, cx)));
-        let swatches = ACCENT_SWATCHES.iter().enumerate().map(|(i, &c)| {
+        let icons = EMOJI.iter().enumerate().map(|(i, &e)| {
             div()
-                .id(("aside-menu-color", i))
-                .size(px(22.))
+                .id(("aside-menu-icon", i))
+                .size(px(28.))
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(11.))
+                .rounded(px(6.))
+                .text_size(px(16.))
                 .cursor_pointer()
-                .when(c == group.color, |d| d.border(px(1.5)).border_color(TEXT_3))
-                .child(ui::swatch((c << 8) | 0xff, 14., 7.))
+                .hover(|d| d.bg(FILL_2))
+                .when(group.icon.as_deref() == Some(e), |d| d.bg(FILL_3))
+                .child(e)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.store.sections.recolor_group(id, c);
+                    this.store.sections.pick_group_icon(id, e);
                     this.store.save();
                     cx.notify();
                 }))
@@ -189,7 +192,7 @@ impl Desktop {
         }));
         vec![
             rename.into_any_element(),
-            div().px(px(8.)).py(px(4.)).flex().gap(px(2.)).children(swatches).into_any_element(),
+            div().py(px(4.)).flex().flex_wrap().children(icons).into_any_element(),
             ui::menu_divider().into_any_element(),
             delete.into_any_element(),
         ]
