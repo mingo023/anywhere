@@ -240,7 +240,7 @@ impl Desktop {
         if !matches!(self.prs.gh, Some(Some(_))) {
             return self.check_gh(cx);
         }
-        let mut trees: Vec<String> = self.project.as_ref().and_then(|p| self.listed_trees(p)).into_iter().flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path).collect();
+        let mut trees: Vec<String> = self.projects().iter().filter_map(|p| self.listed_trees(p)).flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path).collect();
         trees.sort();
         let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
         let started = Instant::now();
