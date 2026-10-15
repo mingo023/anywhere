@@ -11,7 +11,8 @@ pub(crate) fn has_changes(repo: Option<&Repo>) -> bool {
 }
 
 /// The window colour around a mark on a sidebar icon, so it reads as cut out of the icon.
-const RAIL_CUTOUT: Token = Token::new(0xfafafaff, 0x171717ff);
+/// Clear in dark: the window is blurred glass, so no solid colour matches what shows through.
+const RAIL_CUTOUT: Token = Token::new(0xfafafaff, 0x00000000);
 
 /// Marks a sidebar toggle while the hidden Changes list has something in it.
 pub(crate) fn changes_dot() -> Div {
