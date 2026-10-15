@@ -27,10 +27,10 @@ pub fn new_id() -> String {
     format!("local-{nanos:x}")
 }
 
-/// "Local 2", "Local 3", …: the first number none of `taken` uses.
+/// "Local 1", "Local 2", …: the first number none of `taken` uses.
 pub fn next_name<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
     let taken: Vec<&str> = taken.into_iter().collect();
-    (2..).map(|n| format!("Local {n}")).find(|name| !taken.contains(&name.as_str())).unwrap_or_default()
+    (1..).map(|n| format!("Local {n}")).find(|name| !taken.contains(&name.as_str())).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn a_new_local_takes_the_first_free_number() {
-        assert_eq!(next_name([]), "Local 2");
-        assert_eq!(next_name(["Local", "Local 2", "Local 4"]), "Local 3");
+        assert_eq!(next_name([]), "Local 1");
+        assert_eq!(next_name(["Local", "Local 1", "Local 2", "Local 4"]), "Local 3");
     }
 }

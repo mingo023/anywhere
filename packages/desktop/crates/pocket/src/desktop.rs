@@ -448,6 +448,12 @@ impl Desktop {
         self.place()
     }
 
+    /// A git project's main checkout on screen with nothing running in it: the new session page stands in for its empty panes.
+    fn idle_main(&self) -> bool {
+        let Some(p) = self.project.as_deref() else { return false };
+        self.worktree.is_none() && new_session::may_start(&self.agents) && self.listed_trees(p).is_some_and(|t| !t.is_empty()) && self.place().is_some_and(|main| self.tree_terminals(&main).is_empty())
+    }
+
     /// The provider's Label from Settings, else its own name.
     pub(crate) fn agent_name(&self, provider: &str) -> String {
         self.store.agents.label(provider).unwrap_or_else(|| theme::provider_name(provider).into())
@@ -456,6 +462,14 @@ impl Desktop {
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
             _ if self.shown_create().is_some() => self.creating_page(cx),
+            Some(_) if self.idle_main() => {
+                cx.defer_in(window, |this, window, cx| {
+                    if let Some(p) = this.project.clone().filter(|_| this.idle_main() && !this.new_form.shown && this.overlay.is_none()) {
+                        this.new_place(p, window, cx);
+                    }
+                });
+                self.blank_page(cx)
+            }
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(cx),
