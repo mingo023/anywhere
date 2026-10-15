@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- Changelog draft lists commits with their hash: (5bc0c0c)
+- New session composer picks the project and keeps what you typed (#63): (a2a640d)
+- Changes badge no longer has a black ring in dark mode (#62): (de7c092)
+- Sidebar filters, groups and pins projects, and clones from a URL in its own dialog (#61): (8e5fe7a)
+- Terminal shows dim text dim (#60): (70f6f27)
+- Projects read setup and teardown from .anywhere/config.json in the repo (#59): (e0ad6a6)
+
 ## 0.1.3
 
 - Run projects on remote hosts (Mac, Linux, Windows) over SSH; add, connect, retry and remove hosts in Settings, and sign in once with a password
