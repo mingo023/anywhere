@@ -153,6 +153,9 @@ pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
             if c.inverse == 1 {
                 (fg, bg) = (bg.unwrap_or(paper), Some(fg));
             }
+            if c.faint == 1 {
+                fg = fg.opacity(0.5);
+            }
             if c.selected == 1 {
                 bg = Some(SELECTION.into());
             }

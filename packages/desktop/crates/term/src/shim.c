@@ -13,6 +13,7 @@ typedef struct {
   uint8_t italic;
   uint8_t underline;
   uint8_t inverse;
+  uint8_t faint;
   uint8_t wide;
   uint8_t selected;
 } PCell;
@@ -371,6 +372,7 @@ size_t pt_frame(PTerm* p, PFrame* f, PCell* out, size_t cap) {
       c->italic = st.italic;
       c->underline = st.underline != 0;
       c->inverse = st.inverse;
+      c->faint = st.faint;
     }
   }
   ghostty_render_state_clean(p->rs);

@@ -21,6 +21,7 @@ pub struct Cell {
     pub italic: u8,
     pub underline: u8,
     pub inverse: u8,
+    pub faint: u8,
     pub wide: u8,
     pub selected: u8,
 }
@@ -222,6 +223,14 @@ mod tests {
         assert_eq!(text, "abc");
         assert_eq!((cells[1].bold, cells[2].bold), (0, 1));
         assert_eq!((f.cursor_x, f.cursor_y), (3, 0));
+    }
+
+    #[test]
+    fn marks_faint_text() {
+        let mut t = Term::new(10, 2);
+        t.write(b"a\x1b[2mb");
+        let (_, cells) = t.frame();
+        assert_eq!((cells[0].faint, cells[1].faint), (0, 1));
     }
 
     #[test]
