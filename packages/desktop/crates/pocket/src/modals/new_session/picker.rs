@@ -177,9 +177,8 @@ impl Desktop {
     /// Projects a session can start in: those with a git checkout.
     fn form_project_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let repo = self.new_form.draft.repo.as_deref();
-        let mut rows: Vec<AnyElement> = self.projects().into_iter().filter(|p| self.listed_trees(p).is_some_and(|t| !t.is_empty())).enumerate().map(|(i, p)| {
-            let name = self.repo_name(&p);
-            let tile = ui::repo_tile(&self.project_mark(&p, crate::util::initials(&name)), 14., false, None);
+        let rows: Vec<AnyElement> = self.projects().into_iter().filter(|p| self.listed_trees(p).is_some_and(|t| !t.is_empty())).enumerate().map(|(i, p)| {
+            let (name, tile) = (self.repo_name(&p), self.repo_tile_for(&p, 14.));
             let chosen = repo == Some(p.as_str());
             ui::menu_pick(("project", i), tile, &name, chosen)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -189,21 +188,17 @@ impl Desktop {
                 }))
                 .into_any_element()
         }).collect();
-        rows.push(ui::menu_divider().into_any_element());
-        rows.push(ui::menu_row("project-add", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.new_form.draft.picker = None;
-            this.add_local_project(window, cx);
-        })).into_any_element());
         picker_menu("project-menu", 260., rows, cx).gap(px(2.))
+    }
+
+    fn repo_tile_for(&self, repo: &str, size: f32) -> Div {
+        ui::repo_tile(&self.project_mark(repo, crate::util::initials(&self.repo_name(repo))), size, false, None)
     }
 
     pub(super) fn project_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let lead = f.repo.as_ref().map(|repo| {
-            let name = self.repo_name(repo);
-            (ui::repo_tile(&self.project_mark(repo, crate::util::initials(&name)), 16., false, None), name)
-        });
-        let (tile, name) = lead.map_or((None, "Select project".to_string()), |(tile, name)| (Some(tile), name));
+        let name = f.repo.as_ref().map_or_else(|| "Select project".to_string(), |repo| self.repo_name(repo));
+        let tile = f.repo.as_ref().map(|repo| self.repo_tile_for(repo, 16.));
         let chip = ui::menu_chip("form-project", f.picker == Some(Picker::Project))
             .children(tile)
             .child(div().font_weight(FontWeight::MEDIUM).child(name))

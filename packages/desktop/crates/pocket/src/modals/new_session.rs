@@ -241,6 +241,31 @@ impl Draft {
         Some(message)
     }
 
+    /// The page opened again: a kept draft keeps its checkout, base and Local, and waits on a send still out.
+    fn reopen(&mut self, keep: bool, worktree: bool, locals_offered: bool) {
+        self.want_base = Some(self.base_branch()).filter(|b| keep && !b.is_empty());
+        if !keep {
+            (self.source, self.local) = (Source::New, None);
+            self.picked_checkout = if worktree { Target::Worktree } else { Target::NewLocal };
+        }
+        if !self.reply.waiting() {
+            self.reply = CreateReply::default();
+        }
+        (self.locals_offered, self.picker) = (locals_offered, None);
+        self.taken.clear();
+    }
+
+    /// Another project's base, branch and Local don't carry over.
+    fn pick_repo(&mut self, repo: String, run_setup: bool) {
+        if self.repo.as_ref() != Some(&repo) {
+            (self.source, self.want_base, self.local) = (Source::New, None, None);
+            self.taken.clear();
+        }
+        self.repo = Some(repo);
+        self.branches.clear();
+        self.remote_branches.clear();
+        (self.base, self.run_setup) = (0, run_setup);
+    }
 }
 
 /// A checkout choice as its chip and menu row show it.
@@ -334,7 +359,7 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
 }
 
 /// `typed`, with `added` after it once there are words to keep.
-fn with_prompt(typed: &str, added: Option<String>) -> String {
+fn appended(typed: &str, added: Option<String>) -> String {
     match added {
         Some(added) if !typed.trim().is_empty() => format!("{}\n\n{added}", typed.trim_end()),
         Some(added) => added,
@@ -399,30 +424,27 @@ impl Desktop {
         self.store.agents.pick(repo.map(|r| r.launch.clone()).unwrap_or_default())
     }
 
-    /// A draft not yet sent keeps its words, images, checkout and project; `prompt` adds to its words.
+    /// A draft not yet sent keeps its words, images, checkout and project; `prompt` adds to its words,
+    /// and since it quotes the Project on screen, the draft moves there.
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let worktree = worktree || self.store.agents.new_worktree;
         let f = &mut self.new_form;
         let typed = f.composer.prompt.read(cx).value().to_string();
-        let fresh = typed.trim().is_empty() && f.composer.draft.images.is_empty();
-        let text = with_prompt(&typed, prompt);
+        let keep = !typed.trim().is_empty() || !f.composer.draft.images.is_empty();
+        let keep_project = keep && prompt.is_none();
+        let text = appended(&typed, prompt);
         f.draft.seed = crate::util::now_ms() as usize;
         f.field.hide();
-        f.draft.taken.clear();
         f.composer.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
-        if fresh {
-            f.draft.source = Source::New;
-            f.draft.picked_checkout = if worktree { Target::Worktree } else { Target::NewLocal };
+        if !keep {
             f.composer.draft.clear();
         }
-        (f.draft.locals_offered, f.draft.local) = (self.agents.locals_offered(), None);
+        f.draft.reopen(keep, worktree, self.agents.locals_offered());
         f.composer.draft.menu = None;
-        f.draft.reply = CreateReply::default();
-        (f.draft.picker, f.draft.want_base) = (None, None);
-        let repo = if fresh { None } else { f.draft.repo.clone() };
+        let repo = if keep_project { f.draft.repo.clone() } else { None };
         match repo.or_else(|| self.project.clone()) {
             Some(repo) => self.pick_repo(repo, window, cx),
             None => {
@@ -435,15 +457,7 @@ impl Desktop {
     pub(super) fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let has_setup = self.store.repos.get(&repo).is_some_and(|c| !c.setup.is_empty());
         let folders = self.store.worktrees_dir(&repo, &self.host_agents.home_of(&repo));
-        let f = &mut self.new_form.draft;
-        if f.repo.as_ref() != Some(&repo) {
-            f.source = Source::New;
-        }
-        f.repo = Some(repo.clone());
-        f.branches.clear();
-        f.remote_branches.clear();
-        f.base = 0;
-        f.run_setup = has_setup;
+        self.new_form.draft.pick_repo(repo.clone(), has_setup);
         let dir = repo.clone();
         let (runner, fs) = (hosts::runner_for(&dir), fs_for(&dir));
         let task = cx.background_executor().spawn(async move {
@@ -614,6 +628,7 @@ impl Desktop {
     pub(crate) fn reopen_new_worktree(&mut self, c: &Create, window: &mut Window, cx: &mut Context<Self>) {
         self.new_session(Some(c.prompt().to_string()), true, window, cx);
         let f = &mut self.new_form.draft;
+        f.pick_checkout(Target::Worktree);
         f.want_base = Some(c.base().to_string());
         f.source = Source::of(c.asked());
     }
@@ -656,7 +671,7 @@ impl Desktop {
         let trailing = link.map(IntoElement::into_any_element).into_iter().chain([ui::kbd("⌘↵").mr(px(8.)).into_any_element(), send.into_any_element()]).collect();
         let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, pill.into_iter().collect(), trailing, cx);
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
-        let starters = self.new_form.composer.prompt.read(cx).value().is_empty().then(|| starters(&self.store.agents.starters, cx));
+        let chips = self.new_form.composer.prompt.read(cx).value().is_empty().then(|| starters(&self.store.agents.starters, cx));
         let footer = div()
             .w_full()
             .max_w(px(600.))
@@ -678,7 +693,7 @@ impl Desktop {
             .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
             .children(error)
             .child(footer)
-            .children(starters.map(|s| div().w_full().max_w(px(600.)).mt(px(18.)).flex().flex_wrap().justify_center().gap(px(6.)).children(s)));
+            .children(chips.map(|s| div().w_full().max_w(px(600.)).mt(px(18.)).flex().flex_wrap().justify_center().gap(px(6.)).children(s)));
         let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx);
         div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
     }
@@ -713,7 +728,7 @@ fn starters(prompts: &[String], cx: &mut Context<Desktop>) -> Vec<Stateful<Div>>
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Local, Source, Target, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, taken_names, with_prompt};
+    use super::{Draft, Local, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, taken_names};
     use agents::CreateReply;
     use serde_json::json;
     use store::LaunchPick;
@@ -729,11 +744,54 @@ mod tests {
         LaunchPick { provider: "claude".into(), ..LaunchPick::default() }
     }
 
+    fn kept() -> Draft {
+        Draft {
+            repo: Some("/p".into()),
+            branches: vec![("main".into(), None), ("dev".into(), None)],
+            base: 1,
+            source: Source::Branch("fix".into()),
+            picked_checkout: Target::NewLocal,
+            local: Some("local-1".into()),
+            ..Draft::default()
+        }
+    }
+
+    #[test]
+    fn a_kept_draft_comes_back_with_its_checkout_base_and_local() {
+        let mut draft = kept();
+        draft.reopen(true, true, true);
+        assert_eq!((draft.picked_checkout, draft.source, draft.local), (Target::NewLocal, Source::Branch("fix".into()), Some("local-1".into())));
+        assert_eq!(draft.want_base.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn an_empty_draft_starts_over() {
+        let mut draft = kept();
+        draft.reopen(false, true, true);
+        assert_eq!((draft.picked_checkout, draft.source, draft.local, draft.want_base), (Target::Worktree, Source::New, None, None));
+    }
+
+    #[test]
+    fn a_send_still_out_is_still_awaited_when_the_page_comes_back() {
+        let mut draft = Draft { reply: sent("r1"), ..kept() };
+        draft.reopen(true, false, true);
+        assert!(draft.reply.answer("r1", None));
+    }
+
+    #[test]
+    fn another_project_forgets_the_last_ones_branch_base_and_local() {
+        let mut draft = Draft { want_base: Some("dev".into()), ..kept() };
+        draft.pick_repo("/p".into(), false);
+        assert_eq!((draft.source.clone(), draft.want_base.as_deref()), (Source::Branch("fix".into()), Some("dev")));
+        draft.pick_repo("/q".into(), false);
+        assert_eq!((draft.source, draft.want_base, draft.local), (Source::New, None, None));
+    }
+
     #[test]
     fn a_prompt_opening_the_page_follows_the_words_already_typed() {
-        assert_eq!(with_prompt("Fix CI \n", Some("Explain this".into())), "Fix CI\n\nExplain this");
-        assert_eq!(with_prompt(" \n", Some("Explain this".into())), "Explain this");
-        assert_eq!(with_prompt("Fix CI", None), "Fix CI");
+        assert_eq!(appended("Fix CI \n", Some("Explain this".into())), "Fix CI\n\nExplain this");
+        assert_eq!(appended(" \n", Some("Explain this".into())), "Explain this");
+        assert_eq!(appended("Fix CI", None), "Fix CI");
     }
 
     #[test]
