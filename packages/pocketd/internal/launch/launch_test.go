@@ -320,6 +320,24 @@ func TestANewWorktreeReportsEachStepAsItStarts(t *testing.T) {
 	}
 }
 
+func TestASessionsTerminalNamesItsProjectAndWorktreeForTheSetup(t *testing.T) {
+	defer func(w time.Duration) { createWait = w }(createWait)
+	createWait = 500 * time.Millisecond
+	l, s := newWorktree(t, "env | grep -E '^ANYWHERE_(ROOT|WORKSPACE)_' | sort > ../env")
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, func(string, string) {}, func(c Creating) { go l.Exited(c.Terminal, "setup", 0) })
+	if term := l.d.Terminals.Get(r.TerminalID); term != nil {
+		t.Cleanup(term.Close)
+	}
+	want := "ANYWHERE_ROOT_PATH=" + s.Project + "\nANYWHERE_WORKSPACE_NAME=" + filepath.Base(r.Cwd) + "\nANYWHERE_WORKSPACE_PATH=" + r.Cwd + "\n"
+	var got []byte
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if got, _ = os.ReadFile(filepath.Join(filepath.Dir(r.Cwd), "env")); string(got) == want {
+			return
+		}
+	}
+	t.Fatalf("setup saw %q, want %q", got, want)
+}
+
 func TestATerminalThatCantStartFailsTheStepAfterTheWorktree(t *testing.T) {
 	l, s := newWorktree(t, "")
 	claude, _ := exec.LookPath("claude")

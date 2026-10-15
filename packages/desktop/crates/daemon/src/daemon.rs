@@ -329,10 +329,10 @@ fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, inp
     }
 }
 
-/// Runs `script` in `cwd` under the login shell, in its own process group so a timeout kills whatever it started too.
+/// Runs `script` in `cwd` under the login shell with `env` added, in its own process group so a timeout kills whatever it started too.
 /// Its output, or on failure its last 20 lines.
-pub fn run_script(script: &str, cwd: &str, timeout: Duration) -> Result<String, String> {
-    run_script_in(login_shell(), terminal_env(), script, cwd, timeout)
+pub fn run_script(script: &str, cwd: &str, env: &[(String, String)], timeout: Duration) -> Result<String, String> {
+    run_script_in(login_shell(), [terminal_env(), env.to_vec()].concat(), script, cwd, timeout)
 }
 
 fn run_script_in(shell: &str, env: Vec<(String, String)>, script: &str, cwd: &str, timeout: Duration) -> Result<String, String> {

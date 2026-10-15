@@ -187,7 +187,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	}
 	local := s.Checkout.Local
 	t, err := l.d.Terminals.Spawn(terminal.Spec{ID: id, Cmd: shell, Args: Wrap(shell, l.d.Exe, setup, argv, account), Cwd: cwd,
-		Env: l.d.Env(l.d.GhEnv(env, cwd), id, local), Cols: 100, Rows: 30, Origin: origin, Local: local})
+		Env: worktree.ScriptEnv(l.d.Env(l.d.GhEnv(env, cwd), id, local), s.Project, cwd), Cols: 100, Rows: 30, Origin: origin, Local: local})
 	if err != nil {
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
 	}
@@ -297,7 +297,8 @@ func opened(f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, pr
 
 // filled copies into a new Worktree at path and picks its setup, unless the
 // owner turned them off. The setup in the project's settings wins over the
-// one the repo names in its worktree.ConfigFile.
+// one the repo names in its worktree.ConfigFile or keeps as its
+// worktree.SetupScript.
 func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step, note string)) (string, string, *Failure) {
 	n := s.Checkout.New
 	if on(n.Copy) {
