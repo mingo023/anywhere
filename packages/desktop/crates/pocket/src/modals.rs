@@ -1,4 +1,5 @@
 pub(crate) mod add_project;
+pub(crate) mod clone_project;
 mod confirm;
 pub(crate) mod form;
 mod more;
@@ -16,7 +17,7 @@ pub(crate) fn may_open(o: Overlay, agents: &Agents) -> bool {
     match o {
         Overlay::PairPhone => agents.owner() && agents.pairing(),
         Overlay::PhoneAccess => agents.owner(),
-        Overlay::Palette | Overlay::AddRepo | Overlay::More | Overlay::Confirm => true,
+        Overlay::Palette | Overlay::AddRepo | Overlay::Clone | Overlay::More | Overlay::Confirm => true,
     }
 }
 
@@ -30,6 +31,7 @@ impl Desktop {
         match o {
             Overlay::Palette => self.open_palette(window, cx),
             Overlay::AddRepo => self.reset_repo_form(None, window, cx),
+            Overlay::Clone => self.reset_clone_form(window, cx),
             Overlay::PairPhone => self.begin_pairing(window, cx),
             Overlay::More | Overlay::Confirm | Overlay::PhoneAccess => {}
         }
@@ -58,6 +60,7 @@ impl Desktop {
         let (body, alpha, entrance) = match o {
             Overlay::Palette => (self.palette(cx), 0x1f, None),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40, Some((200, 8.))),
+            Overlay::Clone => (self.clone_view(window, cx), 0x40, Some((200, 8.))),
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
             Overlay::PairPhone => (self.pair_view(cx), 0x2e, Some((200, 8.))),

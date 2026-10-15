@@ -20,7 +20,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `daemon` | the pocketd socket client |
 | `agents` | the phone-socket client, the agent list, worktree display names, Locals and automations: the snapshot, the draft's validation and its messages |
 | `term` | the ghostty VT |
-| `store` | the saved projects, settings (sounds, notifications, appearance, worktree root; `store/prefs` one struct per Settings section) and each worktree's panels |
+| `store` | the saved projects, `store/sections` their pins and groups, settings (sounds, notifications, appearance, worktree root; `store/prefs` one struct per Settings section) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `hosts` | SSH hosts: what one is and how it's saved, `hosts/ssh` the ssh commands and what their failures mean, `hosts/link` the tunnel to a host's pocketd that reconnects by itself, `hosts/sign_in` the one password sign-in that gives a host the app's own key, `hosts/ssh_config` the hosts `~/.ssh/config` names, `hosts/remote` exec and file ops through a host's pocketd, `hosts/session` terminals and agents on hosts and which pocketd holds them, `hosts/install` putting pocketd on a host as a user service, `hosts/checklist` an install's progress, `hosts/owner` a Windows host's owner token |
 | `web` | the WKWebView page of a browser tab, address and link parsing |
@@ -35,7 +35,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `empty_pane` | the prompt a focused pane with no tabs offers, starting an agent there |
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer; `terminal_view/menu` its right-click menu |
 | `browser` | browser tabs: pages, address bar, navigation |
-| `sidebar` | projects aside, compact rail, `sidebar/project_picker` the rail's project switcher, `sidebar/rename` inline worktree rename, `sidebar/column` the inbox and Automations column and the panel's body, `sidebar/panel` the right-hand panel: its rail and edge drag |
+| `sidebar` | projects aside, compact rail, `sidebar/sections` the aside's Pinned, groups and Other with the Projects header and its organize menu, `sidebar/filter` the header's filter, `sidebar/fold` the folds' spring open and shut, `sidebar/project_picker` the rail's project switcher, `sidebar/rename` inline worktree rename, `sidebar/column` the inbox and Automations column and the panel's body, `sidebar/panel` the right-hand panel: its rail and edge drag |
 | `removal` | deleting a worktree: its teardown script, its branch, the confirm and the row's "Deleting…" |
 | `git_ui` | `changes` panel and commit, `diff` view, `graph` commit graph, `commit` stacked commit diff |
 | `accounts` | each machine's Claude Code and Codex sign-ins as its pocketd lists them, their usage, the sign-in terminals, and the account a session starts on |
@@ -48,4 +48,4 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `fs` | where a tree's files are read and changed: this Mac or a host |
 | `notch` | the island that grows out of the notch to answer permission asks: which asks it offers, and the `anywhere-notch` helper that draws it (a SwiftPM package in `packages/desktop/notch`), spoken to in JSON lines |
 | `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission` and `notifications/sounds` (the sound list), `keybindings`, `agents`, `provider` (each agent's own page), `accounts`, `automations`, `phone`, `ssh_hosts`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |
-| `modals` | overlays: new session, add project, confirm, more, pair phone |
+| `modals` | overlays: new session, project settings, `modals/clone_project` Clone from URL, confirm, more, pair phone |

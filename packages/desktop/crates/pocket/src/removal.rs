@@ -235,6 +235,7 @@ impl Desktop {
         self.prs.forget(tree);
         self.store.layouts.remove(tree);
         self.store.untrack(tree);
+        self.store.sections.unpin_tree(tree);
         self.save_soon(cx);
         if self.worktree.as_deref() == Some(tree) {
             self.worktree = None;

@@ -29,6 +29,14 @@ pub fn tilde(path: &str) -> String {
     }
 }
 
+/// "~/code/app" reads as "/Users/me/code/app".
+pub fn untilde(path: &str) -> String {
+    match path.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{}{rest}", std::env::var("HOME").unwrap_or_default()),
+        _ => path.to_string(),
+    }
+}
+
 /// Two letters for the rail, from the repository's last dash-separated word: "app-android" is AN.
 pub fn initials(name: &str) -> String {
     let word = name.rsplit('-').find(|w| !w.is_empty()).unwrap_or(name);
@@ -123,7 +131,7 @@ pub fn ago_long(ms: i64, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, folder, initials, list_dir, mark, tilde, tree_icon};
+    use super::{ago, ago_long, folder, initials, list_dir, mark, tilde, tree_icon, untilde};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -159,6 +167,14 @@ mod tests {
         let home = std::env::var("HOME").unwrap();
         assert_eq!(tilde(&format!("{home}/code/app")), "~/code/app");
         assert_eq!(tilde(&format!("{home}x/app")), format!("{home}x/app"));
+    }
+
+    #[test]
+    fn untilde_expands_only_a_leading_home() {
+        let home = std::env::var("HOME").unwrap();
+        assert_eq!(untilde("~/code/app"), format!("{home}/code/app"));
+        assert_eq!(untilde("~x/app"), "~x/app");
+        assert_eq!(untilde("/code/~/app"), "/code/~/app");
     }
 
     #[test]

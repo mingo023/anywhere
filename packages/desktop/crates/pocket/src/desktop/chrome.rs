@@ -53,6 +53,7 @@ pub enum Column {
 pub enum Overlay {
     Palette,
     AddRepo,
+    Clone,
     More,
     Confirm,
     PairPhone,
@@ -87,8 +88,9 @@ pub enum RowMenu {
     Project(String),
     Tree { project: String, tree: String },
     /// The project's own Local, by its main worktree's path, or one the user added, by its id.
-    Local(String),
+    Local { project: String, local: String },
     Session(String),
+    Group(u32),
 }
 
 pub fn id(s: String) -> ElementId {

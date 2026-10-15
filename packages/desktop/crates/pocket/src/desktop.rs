@@ -34,7 +34,7 @@ use crate::git_ui::pull_request::PullRequest;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
-use crate::modals::{add_project, new_session};
+use crate::modals::{add_project, clone_project, new_session};
 use crate::notch::Notch;
 use crate::palette::PaletteState;
 use crate::panels::Panels;
@@ -116,6 +116,7 @@ pub struct Desktop {
     pub(crate) new_form: new_session::NewForm,
     pub(crate) empty_pane: EmptyPane,
     pub(crate) repo_form: add_project::RepoForm,
+    pub(crate) clone_form: clone_project::CloneForm,
     pub(crate) pair: PairPhone,
     pub(crate) capturing: bool,
     pub(crate) geometry: Geometry,
@@ -135,6 +136,7 @@ impl Desktop {
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (empty_pane, empty_subs) = EmptyPane::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
+        let (clone_form, clone_subs) = clone_project::CloneForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
         let notch = Notch::new(window, cx);
@@ -170,6 +172,7 @@ impl Desktop {
         _subs.extend(new_subs);
         _subs.extend(empty_subs);
         _subs.extend(repo_subs);
+        _subs.extend(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
@@ -230,6 +233,7 @@ impl Desktop {
             new_form,
             empty_pane,
             repo_form,
+            clone_form,
             pair: PairPhone::default(),
             capturing: false,
             geometry,
@@ -421,7 +425,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu
     }
 
     /// Returns whether a menu was open.
@@ -432,8 +436,10 @@ impl Desktop {
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;
         self.sidebar.add_menu = false;
+        self.sidebar.organize.menu = false;
         self.automations.menu = None;
         self.accounts.menu = None;
+        self.clone_form.group_menu = false;
         self.explorer.close_menu();
         self.terminal.menu = None;
         open

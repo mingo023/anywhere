@@ -1,10 +1,13 @@
 pub(crate) mod column;
+mod filter;
+mod fold;
 pub(crate) mod host;
 pub(crate) mod panel;
 pub(crate) mod project_picker;
 pub(crate) mod rail;
 mod rename;
 mod row_menu;
+pub(crate) mod sections;
 pub(crate) mod sessions;
 mod tree_card;
 mod update;
@@ -14,11 +17,15 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, drag_area, id, state};
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rename::Rename;
+use crate::sidebar::filter::Filter;
+use crate::sidebar::fold::{Closing, Fold};
+use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
 use agents::Agents;
+use store::sections::{Pin, Sort};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -118,30 +125,35 @@ pub struct SidebarState {
     pub(crate) rename: Option<Rename>,
     /// Which row's hover card shows.
     pub(crate) hover: Hover,
+    pub(crate) filter: Filter,
+    pub(crate) organize: Organize,
+    pub(crate) closing: Closing,
 }
 
 impl SidebarState {
     pub fn new(panel_open: bool, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
+        let (filter, filter_subs) = Filter::new(window, cx);
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
-        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default() }, subs)
+        subs.extend(filter_subs);
+        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default() }, subs)
     }
 }
 
 impl Desktop {
-    /// The Projects + button and its menu: add a project, or open a folder on a host.
+    /// The Projects add button and its menu: add a project, or clone one.
     fn add_menu(&self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.add_menu;
-        let button = icon_button_sized("aside-add", "plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let button = icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.close_menus();
             this.sidebar.add_menu = !open;
             cx.notify();
         }));
         div().relative().child(button).when(open, |d| {
-            let add = ui::menu_row("aside-add-project", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::AddRepo, window, cx)));
-            let host = ui::menu_row("aside-add-host-folder", "globe", "Open folder on a host…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
+            let add = ui::menu_row("aside-add-project", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
+            let clone = ui::menu_row("aside-add-clone", "branch", "Clone from URL…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
             let menu = ui::pop(div().id("aside-add-menu"))
                 .w(px(220.))
                 .p(px(6.))
@@ -153,7 +165,7 @@ impl Desktop {
                     cx.notify();
                 }))
                 .child(add)
-                .child(host);
+                .child(clone);
             d.child(ui::dropdown_right(26., ui::menu_in("aside-add-menu-in", menu)))
         })
     }
@@ -185,23 +197,8 @@ impl Desktop {
         let automations = ui::nav_row("aside-automations", "bolt", "Automations", self.screen == Screen::Automations)
             .mb(px(2.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)));
-        let header = div()
-            .pt(px(10.))
-            .pb(px(4.))
-            .pl(px(6.))
-            .pr(px(10.))
-            .flex()
-            .items_center()
-            .text_size(px(11.))
-            .font_weight(FontWeight::BOLD)
-            .text_color(TEXT_3)
-            .child(div().flex_1().child("PROJECTS"))
-            .child(self.add_menu(cx));
-        let mut repos = Vec::new();
-        for (i, p) in self.projects().into_iter().enumerate() {
-            repos.push(self.project_block(i, &p, cx));
-        }
-        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(1.)).children(repos);
+        let header = self.projects_header(cx);
+        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(1.)).children(self.sections(cx));
         let aside = ui::side(div())
             .w(px(self.width(Column::Projects, 272.)))
             .flex_none()
@@ -223,20 +220,43 @@ impl Desktop {
         in_tree(self.cards(project), Some(tree), |cwd| self.tree_of(cwd))
     }
 
-    /// A Local's row, by its key: the main worktree's path for the project's own, whose `selects` is `None`, else its id. `tip` is the checkout's branch.
-    fn local_row(&self, p: &str, key: &str, selects: Option<&String>, tip: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
-        let menu = RowMenu::Local(key.to_string());
+    /// `row`'s element under `p`; pinned, it names its project `sub`.
+    fn place_row(&self, p: &str, row: &TreeRow, current: Option<&str>, setups: &HashMap<String, String>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+        match row.kind {
+            Kind::Worktree => self.worktree_row(p, row, current, setups, sub, cx),
+            Kind::Own | Kind::Local => self.local_row(p, row, current, sub, cx),
+        }
+    }
+
+    /// A Local's row. The project's own, pinned, reads as the project with its Local's name `sub`.
+    fn local_row(&self, p: &str, row: &TreeRow, current: Option<&str>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+        let (key, tip) = (row.key.as_str(), &row.tip);
+        let selects = (row.kind == Kind::Local).then(|| row.key.clone());
+        let menu = RowMenu::Local { project: p.to_string(), local: key.to_string() };
         let renames = self.agents.renames_offered(key);
+        let pins = self.store.projects.iter().any(|k| k == p);
         let (selected, own) = (current == Some(key), selects.is_none());
         let state = rolled_state(&self.tree_cards(p, key));
         let mark = ui::indicator(id(format!("aside-spin:{key}")), state).or_else(|| self.pr_mark(key).filter(|_| own));
-        let name = self.local_name(key);
+        let (name, sub) = match sub {
+            Some(project) if own => (project, Some(self.local_name(key))),
+            sub => (self.local_name(key), sub),
+        };
         let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => self.scrolling(key, name.clone(), tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())), cx),
         };
-        let trail = renames.then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
-        let (target, selects, path) = (p.to_string(), selects.cloned(), key.to_string());
+        let label = with_sub(label, sub.clone());
+        let mut buttons = Vec::new();
+        if pins {
+            buttons.push(self.pin_button(key, Pin::Tree { project: p.to_string(), tree: key.to_string() }, cx));
+        }
+        if pins || renames {
+            buttons.push(self.row_menu_button(key, menu.clone(), cx));
+        }
+        let trail = (!buttons.is_empty()).then(|| ui::row_trail(None, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
+        let lit = self.sidebar.filter.lit(p, Some(key));
+        let (target, path) = (p.to_string(), key.to_string());
         let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
         let row = ui::worktree_row(id(format!("aside-tree:{key}")), glyph, label, selected, mark)
             .children(trail)
@@ -249,7 +269,9 @@ impl Desktop {
                 }
                 this.select_tree(target.clone(), selects.clone(), cx);
             }))
-            .when(renames, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)));
+            .when(sub.is_some(), |row| row.pl(px(6.)))
+            .when(lit, |row| row.bg(FILL_3))
+            .when(pins || renames, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)));
         let card = self.card_for(p, key, &name, tip, own, cx.reduce_motion());
         Self::with_card(row, key, card, cx).into_any_element()
     }
@@ -325,20 +347,24 @@ impl Desktop {
         .detach();
     }
 
-    /// A project's row, then while it is open its checkout's and worktrees' rows.
-    fn project_block(&self, i: usize, p: &str, cx: &mut Context<Self>) -> AnyElement {
+    /// A project's row, then while it is open its checkout's and worktrees' rows, less those pinned.
+    /// `only` holds the trees the filter lets through, unfolding it; `section` is where it sits, so where a project dropped on it goes.
+    /// Returns its height once its fold settles, so a section around it can spring to it.
+    fn project_block(&self, i: usize, p: &str, only: Option<&[String]>, section: Section, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
         let kept = self.store.projects.iter().any(|k| k == p);
-        let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
-        let trees = self.listed_trees(p).map(|w| self.removals.hide(self.creates.trees(p, &w)));
+        let trees = self.trees_shown(p);
         let setups = self.creates.setups(&self.terminals.setups);
-        let fold = ProjectRow::new(trees.as_deref(), self.store.collapsed.contains(p), &setups);
+        let fold = ProjectRow::new(trees.as_deref(), only.is_none() && self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref());
         let ProjectRow { git, open, setting_up } = fold;
         let state = if open { None } else { rolled_state(&self.cards(p)).filter(|_| !setting_up) };
         let chevron = git.then(|| ui::chevron(("aside-chevron", i), open));
         let menu = RowMenu::Project(p.to_string());
         let mut buttons = Vec::new();
+        if kept {
+            buttons.push(self.pin_button(p, Pin::Project(p.to_string()), cx));
+        }
         if git {
             let target = p.to_string();
             buttons.push(
@@ -362,9 +388,13 @@ impl Desktop {
             .children(host.map(|h| host_mark(self.fleet.links.get(h))))
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
+            .when(self.sidebar.filter.lit(p, None), |row| row.bg(FILL_3))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if git {
                     this.store.toggle(&target);
+                    if this.store.collapsed.contains(&target) {
+                        this.sidebar.closing.start(Fold::Project(target.clone()));
+                    }
                     this.store.save();
                     cx.notify();
                 } else {
@@ -374,80 +404,87 @@ impl Desktop {
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
             .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
         let mut out = Vec::new();
-        if open {
-            let tip = trees.iter().flatten().find(|w| w.main).map(tree_place).unwrap_or_default();
-            out.push(self.local_row(p, &main, None, &tip, current.as_deref(), cx));
-            let locals: Vec<String> = self.agents.locals_in(p).map(|l| l.id.clone()).collect();
-            for local in &locals {
-                out.push(self.local_row(p, local, Some(local), &tip, current.as_deref(), cx));
-            }
-            let trees: Vec<(String, String, String)> = trees
-                .iter()
-                .flatten()
-                .filter(|w| !w.main)
-                .map(|w| {
-                    let (label, tip) = tree_label(w, &self.agents);
-                    (w.path.clone(), label, tip)
-                })
-                .collect();
-            for (tree, title, tip) in &trees {
-                let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
-                let selected = current.as_ref() == Some(tree);
-                let (failed, setting) = (self.creates.failed(tree), self::setting_up(&setups, tree));
-                let state = rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting);
-                let mark = if failed {
-                    ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
-                } else if setting {
-                    Some(dot_spinner(id(format!("aside-setup:{tree}")), 11., TEXT_4).into_any_element())
-                } else {
-                    ui::indicator(id(format!("aside-spin:{tree}")), state).or_else(|| self.pr_mark(tree))
-                };
-                let trail = ui::row_trail(None, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
-                let (target, path) = (p.to_string(), tree.clone());
-                let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
-                    Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-                    None => self.scrolling(tree, title.clone(), tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())), cx),
-                };
-                let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, label, selected, mark)
-                    .child(trail)
-                    .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                        // The rename input sits inside the row; its clicks must not restart or leave it.
-                        if this.sidebar.renaming(&path) {
-                            return;
-                        }
-                        if ev.click_count() > 1 && this.agents.names_offered() {
-                            return this.start_rename(path.clone(), window, cx);
-                        }
-                        this.creates.show_progress(&path);
-                        this.select_tree(target.clone(), Some(path.clone()), cx);
-                    }))
-                    .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
-                let card = self.card_for(p, tree, title, tip, true, cx.reduce_motion());
-                out.push(Self::with_card(row, tree, card, cx).into_any_element());
+        if self.sidebar.closing.drawn(&Fold::Project(p.to_string()), open) {
+            let rows = self.tree_rows(p, trees.as_deref().unwrap_or_default());
+            for row in rows.iter().filter(|r| only.is_none_or(|o| o.contains(&r.key)) && !self.tree_pinned(p, &r.key)) {
+                out.push(self.place_row(p, row, current.as_deref(), &setups, None, cx));
             }
         }
         // The rows are fixed-height, so the open height is known without measuring: top pad, rows, gaps between them, bottom pad.
-        let n = out.len() as f32;
-        let height = if out.is_empty() { 0. } else { 1. + n * ui::SIDEBAR_ROW_H + (n - 1.) + 6. };
-        let rows = div().flex().flex_col().gap(px(1.)).when(open, |d| d.pt(px(1.)).pb(px(6.))).children(out).with_spring(
-            id(format!("aside-fold:{p}")),
-            SpringAnimation::new(SPRING).to(open),
-            move |d, t| if t.0 < 1. { d.h(px(height * t.0)).overflow_hidden() } else { d },
-        );
+        let height = if out.is_empty() { 0. } else { 1. + fold::stacked(vec![ui::SIDEBAR_ROW_H; out.len()], 1.) + 6. };
+        let rows = fold::springing(id(format!("aside-fold:{p}")), open, height, div().flex().flex_col().gap(px(1.)).when(!out.is_empty(), |d| d.pt(px(1.)).pb(px(6.))).children(out));
         let to = p.to_string();
-        div()
+        let manual = self.store.sections.sort == Sort::Manual;
+        let block = div()
             .flex()
             .flex_col()
             .child(row)
             .child(rows)
             .when(kept, |d| {
-                d.drag_over::<DragProject>(move |s, d, _, _| if d.ix == i { s } else { s.shadow(ui::drop_line(d.ix < i)) }).on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
-                    this.store.move_project(&d.path, &to);
-                    this.store.save();
+                d.drag_over::<DragProject>(move |s, d, _, _| if d.ix == i || !manual { s } else { s.shadow(ui::drop_line(d.ix < i)) }).on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
+                    if manual {
+                        this.store.move_project(&d.path, &to);
+                    }
+                    this.drop_into(&d.path, section);
                     cx.notify();
                 }))
-            })
-            .into_any_element()
+            });
+        (block.into_any_element(), ui::SIDEBAR_ROW_H + if open { height } else { 0. })
+    }
+
+    /// A worktree's row under its project; pinned, it names its project `sub`.
+    fn worktree_row(&self, p: &str, row: &TreeRow, current: Option<&str>, setups: &HashMap<String, String>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+        let (tree, title, tip) = (&row.key, &row.label, &row.tip);
+        let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
+        let selected = current == Some(tree.as_str());
+        let (failed, setting) = (self.creates.failed(tree), self::setting_up(setups, tree));
+        let state = rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting);
+        let mark = if failed {
+            ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
+        } else if setting {
+            Some(dot_spinner(id(format!("aside-setup:{tree}")), 11., TEXT_4).into_any_element())
+        } else {
+            ui::indicator(id(format!("aside-spin:{tree}")), state).or_else(|| self.pr_mark(tree))
+        };
+        let pin = Pin::Tree { project: p.to_string(), tree: tree.clone() };
+        let mut buttons = Vec::new();
+        if self.store.projects.iter().any(|k| k == p) {
+            buttons.push(self.pin_button(tree, pin, cx));
+        }
+        buttons.push(self.row_menu_button(tree, menu.clone(), cx));
+        let trail = ui::row_trail(None, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
+        let (target, path) = (p.to_string(), tree.clone());
+        let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
+            Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
+            None => self.scrolling(tree, title.clone(), tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())), cx),
+        };
+        let pinned = sub.is_some();
+        let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub), selected, mark)
+            .child(trail)
+            .when(pinned, |row| row.pl(px(6.)))
+            .when(self.sidebar.filter.lit(p, Some(tree)), |row| row.bg(FILL_3))
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                // The rename input sits inside the row; its clicks must not restart or leave it.
+                if this.sidebar.renaming(&path) {
+                    return;
+                }
+                if ev.click_count() > 1 && this.agents.names_offered() {
+                    return this.start_rename(path.clone(), window, cx);
+                }
+                this.creates.show_progress(&path);
+                this.select_tree(target.clone(), Some(path.clone()), cx);
+            }))
+            .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
+        let card = self.card_for(p, tree, title, tip, true, cx.reduce_motion());
+        Self::with_card(row, tree, card, cx).into_any_element()
+    }
+}
+
+/// `label`, then `sub` dimmed after it.
+fn with_sub(label: AnyElement, sub: Option<String>) -> AnyElement {
+    match sub {
+        Some(sub) => div().flex().items_center().gap(px(6.)).min_w_0().child(div().min_w_0().truncate().child(label)).child(div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(sub)).into_any_element(),
+        None => label,
     }
 }
 

@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 140] = [
+const STEPS: [(&str, Step); 145] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -34,6 +34,27 @@ const STEPS: [(&str, Step); 140] = [
     ("sidebar", |d, window, cx| d.toggle_sidebar(&ToggleSidebar, window, cx)),
     ("projects", |d, window, cx| d.toggle_project_picker(window, cx)),
     ("add-menu", |d, _, _| d.sidebar.add_menu = true),
+    ("organize-menu", |d, _, _| d.sidebar.organize.menu = true),
+    ("sections", |d, _, _| {
+        let projects = d.projects();
+        let sections = &mut d.store.sections;
+        let work = sections.add_group("Work", theme::ACCENT_SWATCHES[0]);
+        sections.add_group("Side", theme::ACCENT_SWATCHES[1]);
+        for p in projects.iter().skip(1).step_by(2) {
+            sections.set_group(p, Some(work));
+        }
+        if let Some(p) = projects.last() {
+            sections.pin(store::sections::Pin::Project(p.clone()));
+        }
+        let first = projects.first().cloned().unwrap_or_default();
+        if let Some(w) = d.listed_trees(&first).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+            d.store.sections.pin(store::sections::Pin::Tree { project: first, tree: w.path });
+        }
+    }),
+    ("filter", |d, window, cx| {
+        d.open_filter(window, cx);
+        d.sidebar.filter.input.update(cx, |s, cx| s.set_value("fix", window, cx));
+    }),
     ("explore", |d, _, cx| {
         (d.side, d.sidebar.panel_open) = (Side::Explorer, true);
         d.refresh_git(cx);
@@ -235,7 +256,13 @@ const STEPS: [(&str, Step); 140] = [
     ("empty-access", |d, _, cx| d.toggle_composer(crate::empty_pane::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
-    ("add-repo", |d, window, cx| d.open(Overlay::AddRepo, window, cx)),
+    ("add-repo", |d, window, cx| d.edit_project(d.projects().into_iter().next(), window, cx)),
+    ("clone", |d, window, cx| {
+        d.clone_project(window, cx);
+        d.clone_form.url.update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
+        d.clone_url_changed(window, cx);
+    }),
+    ("clone-group-menu", |d, _, _| d.clone_form.group_menu = true),
     ("project-settings", |d, window, cx| d.project_settings(&crate::actions::ProjectSettings, window, cx)),
     ("project-icons", |d, _, _| {
         let app_icon = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/AppIcon.png"));
@@ -413,7 +440,7 @@ const STEPS: [(&str, Step); 140] = [
         }
         d.select_tree(project, Some("local-review".into()), cx);
     }),
-    ("local-menu", |d, _, _| d.row_menu = Some(RowMenu::Local("local-review".into()))),
+    ("local-menu", |d, _, _| d.row_menu = d.project.clone().map(|project| RowMenu::Local { project, local: "local-review".into() })),
     ("rename-local", |d, window, cx| d.start_rename("local-review".into(), window, cx)),
     ("delete-local", |d, _, cx| d.ask_delete_local("local-review".into(), cx)),
     ("form-checkout", |d, _, cx| d.toggle_picker(Picker::Checkout, cx)),
