@@ -154,9 +154,15 @@ pub fn on_windows(path: &str) -> bool {
     matches!(path.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic())
 }
 
-/// The command that runs a project's `script` on the host holding `key`, in its own shell: PowerShell on Windows, else sh.
-pub fn script_argv<'a>(key: &str, script: &'a str) -> Vec<&'a str> {
-    if on_windows(split(key).1) { vec!["powershell", "-NoProfile", "-NonInteractive", "-Command", script] } else { vec!["sh", "-c", script] }
+/// The command that runs a project's `script` on the host holding `key`, in its own shell with `env` set: PowerShell on Windows, else sh.
+pub fn script_argv(key: &str, script: &str, env: &[(String, String)]) -> Vec<String> {
+    if on_windows(split(key).1) {
+        let set: String = env.iter().map(|(k, v)| format!("$env:{k} = '{}'; ", v.replace('\'', "''"))).collect();
+        return ["powershell", "-NoProfile", "-NonInteractive", "-Command"].map(String::from).into_iter().chain([set + script]).collect();
+    }
+    let vars = env.iter().map(|(k, v)| format!("{k}={v}"));
+    let prefix = (!env.is_empty()).then(|| "env".to_string());
+    prefix.into_iter().chain(vars).chain(["sh", "-c", script].map(String::from)).collect()
 }
 
 /// Where git for the tree at `key` runs: this Mac, its host while linked, else a runner that only fails.
@@ -253,8 +259,15 @@ mod tests {
 
     #[test]
     fn a_script_runs_in_powershell_on_a_windows_host_and_in_sh_elsewhere() {
-        assert_eq!(script_argv("//pc/C:/Users/me/app", "npm ci")[0], "powershell");
-        assert_eq!(script_argv("//devbox/home/me/app", "npm ci"), ["sh", "-c", "npm ci"]);
+        assert_eq!(script_argv("//pc/C:/Users/me/app", "npm ci", &[])[0], "powershell");
+        assert_eq!(script_argv("//devbox/home/me/app", "npm ci", &[]), ["sh", "-c", "npm ci"]);
+    }
+
+    #[test]
+    fn a_hosts_script_gets_its_env_in_the_hosts_own_shell() {
+        let env = [("APP".to_string(), "/home/me/it's".to_string())];
+        assert_eq!(script_argv("//devbox/home/me/app", "npm ci", &env), ["env", "APP=/home/me/it's", "sh", "-c", "npm ci"]);
+        assert_eq!(script_argv("//pc/C:/Users/me/app", "npm ci", &env)[4], "$env:APP = '/home/me/it''s'; npm ci");
     }
 
     #[test]

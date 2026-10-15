@@ -111,12 +111,36 @@ fn dispose(aside: &Path, trash: bool) {
 /// Where a repo names its own scripts, committed with its code; pocketd reads the setup from the same file.
 const CONFIG_FILE: &str = ".anywhere/config.json";
 
-/// The teardown `r` runs: the project settings' `own`, else the one the repo names in `CONFIG_FILE`, the tree's before the project checkout's.
+/// The script a repo can keep instead of naming its teardown in `CONFIG_FILE`, like pocketd's `.anywhere/setup.sh`.
+/// It may be gitignored, so only the project checkout has it.
+const TEARDOWN_SCRIPT: &str = ".anywhere/teardown.sh";
+
+/// The teardown `r` runs: the project settings' `own`, else the one the repo names in `CONFIG_FILE`, else its `TEARDOWN_SCRIPT`;
+/// each the tree's before the project checkout's.
 fn teardown_for(r: &Removal, own: String) -> String {
     if !own.is_empty() {
         return own;
     }
-    [&r.tree, &r.project].into_iter().find_map(|dir| repo_teardown(dir)).unwrap_or_default()
+    let dirs = [&r.tree, &r.project];
+    dirs.into_iter().find_map(|dir| repo_teardown(dir)).or_else(|| dirs.into_iter().find_map(|dir| teardown_script(dir))).unwrap_or_default()
+}
+
+/// `dir`'s `TEARDOWN_SCRIPT` run with bash; `None` when it has none, or is on a Windows host, whose scripts run in PowerShell.
+fn teardown_script(dir: &str) -> Option<String> {
+    let path = hosts::split(dir).1;
+    if hosts::on_windows(path) {
+        return None;
+    }
+    let stat = hosts::runner_for(dir).stat(&format!("{dir}/{TEARDOWN_SCRIPT}")).ok()??;
+    (!stat.dir).then(|| format!("bash '{}'", format!("{path}/{TEARDOWN_SCRIPT}").replace('\'', r"'\''")))
+}
+
+/// What a teardown is told, as pocketd tells a session's terminal: the project checkout's path, and the tree's path and name, on their machine.
+fn script_env(r: &Removal) -> Vec<(String, String)> {
+    let tree = hosts::split(&r.tree).1;
+    [("ANYWHERE_ROOT_PATH", hosts::split(&r.project).1.to_string()), ("ANYWHERE_WORKSPACE_PATH", tree.to_string()), ("ANYWHERE_WORKSPACE_NAME", basename(tree))]
+        .map(|(k, v)| (k.to_string(), v))
+        .to_vec()
 }
 
 /// The teardown in `dir`'s `CONFIG_FILE`, its commands a line each; `None` when it names none or doesn't parse.
@@ -127,12 +151,13 @@ fn repo_teardown(dir: &str) -> Option<String> {
     (!commands.is_empty()).then(|| commands.join("\n"))
 }
 
-/// Runs a project's `script` in `tree` on the machine holding it, never here for a host's; the end of its output when it fails.
-fn run_script(script: &str, tree: &str, limit: Duration) -> Result<(), String> {
+/// Runs a project's `script` in `tree` with `env` on the machine holding it, never here for a host's; the end of its output when it fails.
+fn run_script(script: &str, tree: &str, env: &[(String, String)], limit: Duration) -> Result<(), String> {
     match hosts::runner_for(tree) {
-        git::Runner::Local => daemon::run_script(script, tree, limit).map(drop),
+        git::Runner::Local => daemon::run_script(script, tree, env, limit).map(drop),
         host => {
-            let out = host.exec(tree, &hosts::script_argv(tree, script), None, limit).map_err(|e| e.to_string())?;
+            let argv = hosts::script_argv(tree, script, env);
+            let out = host.exec(tree, &argv.iter().map(String::as_str).collect::<Vec<_>>(), None, limit).map_err(|e| e.to_string())?;
             if out.code == 0 {
                 return Ok(());
             }
@@ -146,7 +171,7 @@ fn run_script(script: &str, tree: &str, limit: Duration) -> Result<(), String> {
 /// Teardown goes first: scripts like `docker compose down` need the folder.
 fn run(r: &Removal, teardown: &str, limit: Duration) -> Result<Removed, Failure> {
     if r.teardown && !teardown.is_empty() && hosts::runner_for(&r.tree).stat(&r.tree).is_ok_and(|s| s.is_some_and(|s| s.dir)) {
-        run_script(teardown, &r.tree, limit).map_err(Failure::Teardown)?;
+        run_script(teardown, &r.tree, &script_env(r), limit).map_err(Failure::Teardown)?;
     }
     let runner = hosts::runner_for(&r.project);
     let aside = set_aside(&r.tree);
@@ -245,7 +270,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, branch_deletable, dispose, run, run_script, teardown_for};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, run, run_script, teardown_for};
     use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -368,7 +393,7 @@ mod tests {
         let (dir, r) = scratch("script");
         let marker = dir.join("ran");
         let script = format!("touch {}", marker.display());
-        assert!(run_script(&script, &hosts::place("devbox", &r.tree), LIMIT).is_err());
+        assert!(run_script(&script, &hosts::place("devbox", &r.tree), &[], LIMIT).is_err());
         assert!(!marker.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -418,6 +443,42 @@ mod tests {
             assert_eq!(teardown_for(&r, String::new()), "make clean", "{name}");
             std::fs::remove_dir_all(&dir).unwrap();
         }
+    }
+
+    fn write_teardown_script(dir: &str, body: &str) -> String {
+        let path = Path::new(dir).join(TEARDOWN_SCRIPT);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_repo_without_config_runs_its_teardown_script_the_trees_first() {
+        let (dir, r) = scratch("teardown-script");
+        let in_project = write_teardown_script(&r.project, "true");
+        assert_eq!(teardown_for(&r, String::new()), format!("bash '{in_project}'"));
+        let in_tree = write_teardown_script(&r.tree, "true");
+        assert_eq!(teardown_for(&r, String::new()), format!("bash '{in_tree}'"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_configs_teardown_wins_over_the_teardown_script() {
+        let (dir, r) = scratch("config-over-script");
+        write_teardown_script(&r.tree, "true");
+        write_config(&r.project, r#"{"teardown": ["make clean"]}"#);
+        assert_eq!(teardown_for(&r, String::new()), "make clean");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_teardown_script_is_told_the_project_and_the_tree() {
+        let (dir, r) = scratch("teardown-env");
+        write_teardown_script(&r.project, "env | grep -E '^ANYWHERE_(ROOT|WORKSPACE)_' | sort > ../env");
+        run(&Removal { delete_branch: false, ..r.clone() }, &teardown_for(&r, String::new()), LIMIT).unwrap();
+        let want = format!("ANYWHERE_ROOT_PATH={}\nANYWHERE_WORKSPACE_NAME=feat\nANYWHERE_WORKSPACE_PATH={}\n", r.project, r.tree);
+        assert_eq!(std::fs::read_to_string(dir.join("env")).unwrap(), want);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
