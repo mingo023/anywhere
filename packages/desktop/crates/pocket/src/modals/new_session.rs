@@ -684,7 +684,7 @@ impl Desktop {
             .child(div().text_color(TEXT_4).child("·"))
             .child(checkout)
             .children(branch)
-            .child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("esc to cancel"));
+            .when(!self.idle_main(), |d| d.child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("esc to cancel")));
         let content = div()
             .flex()
             .flex_col()

@@ -55,7 +55,7 @@ pub(crate) struct Listed {
 /// The kind of row a tree has under its project.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
-    /// The project's own Local, keyed by its main worktree's path; listed only while something runs in it.
+    /// The project's own Local, keyed by its main worktree's path; listed only while it has a terminal or tab open.
     Own,
     Local,
     Worktree,
@@ -113,8 +113,10 @@ impl Desktop {
         }
         let main = self.tree_of(p).unwrap_or_else(|| p.to_string());
         let tip = trees.iter().find(|w| w.main).map(tree_place).unwrap_or_default();
-        let busy = self.terminals.sessions.items.iter().any(|s| self.place_of(&s.info).as_deref() == Some(main.as_str()));
-        let mut rows: Vec<TreeRow> = busy.then(|| TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own }).into_iter().collect();
+        let mut rows = Vec::new();
+        if self.in_use(&main) {
+            rows.push(TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own });
+        }
         rows.extend(self.agents.locals_in(p).map(|l| TreeRow { key: l.id.clone(), label: self.local_name(&l.id), tip: tip.clone(), kind: Kind::Local }));
         rows.extend(trees.iter().filter(|w| !w.main).map(|w| {
             let (label, tip) = tree_label(w, &self.agents);

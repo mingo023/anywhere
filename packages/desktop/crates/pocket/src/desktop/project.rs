@@ -129,6 +129,11 @@ impl Desktop {
         self.terminals.sessions.items.iter().filter(|s| self.project_of(&s.info.cwd, &projects).is_some_and(|o| o == p)).map(|s| s.info.id.clone()).collect()
     }
 
+    /// Whether `tree` has a terminal or a tab open.
+    pub(crate) fn in_use(&self, tree: &str) -> bool {
+        self.workspaces.get(tree).is_some_and(|w| !w.is_empty()) || self.terminals.sessions.items.iter().any(|s| self.place_of(&s.info).as_deref() == Some(tree))
+    }
+
     pub(crate) fn tree_terminals(&self, tree: &str) -> Vec<String> {
         self.terminals.sessions.items.iter().filter(|s| self.place_of(&s.info).as_deref() == Some(tree)).map(|s| s.info.id.clone()).collect()
     }

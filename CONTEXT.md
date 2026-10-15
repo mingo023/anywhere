@@ -9,7 +9,7 @@ One PTY that pocketd owns. A terminal the desktop opens runs the user's login sh
 _Avoid_: pane, PTY session, pocketd session
 
 **Project**:
-A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order, by name or by recent activity, under Pinned, a Group or Other. Selecting it selects its main worktree, the repository's own checkout, which the project's own row stands for. A terminal launched outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves its folder on disk.
+A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order, by name or by recent activity, under Pinned, a Group or Other. Selecting it selects its main worktree, the repository's own checkout; with nothing open there, the new session page shows instead. A terminal launched outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves its folder on disk.
 _Avoid_: repository, repo, folder
 
 **Worktree**:
@@ -17,7 +17,7 @@ A git worktree of a project, listed under it on the sidebar by its name: the nam
 _Avoid_: workspace, branch
 
 **Local**:
-A named place over a project's own checkout, listed under the project with its worktrees. Its Locals share files, index and branch; each has its own terminals, tabs and sessions. Every project has one, the main worktree's row, which can't be deleted; deleting another closes its terminals and leaves the files alone.
+A named place over a project's own checkout, listed under the project with its worktrees. Its Locals share files, index and branch; each has its own terminals, tabs and sessions. Every project has one over its main worktree, which can't be deleted and is listed only while it has a terminal or tab open; deleting another closes its terminals and leaves the files alone.
 _Avoid_: workspace, branch workspace
 
 **Group**:
