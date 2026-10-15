@@ -7,7 +7,6 @@ mod capture;
 mod composer;
 mod creating;
 mod desktop;
-mod empty_pane;
 mod explorer;
 mod field;
 mod fleet;

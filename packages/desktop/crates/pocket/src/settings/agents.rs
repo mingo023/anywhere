@@ -38,7 +38,7 @@ pub(super) const ROWS: &[Setting] = &[
         s.agents.tabs_open_agent = i == 1
     }),
     Setting::custom("starter-prompts", "Composer", "Starter prompts", |d, s, cx| d.starters_row(s, cx))
-        .resets(|s| format!("{} prompts", s.agents.starters.len()), |s, d| s.agents.starters = d.agents.starters.clone()).hint("Shown in the composer of an empty pane. Drag to reorder"),
+        .resets(|s| format!("{} prompts", s.agents.starters.len()), |s, d| s.agents.starters = d.agents.starters.clone()).hint("Shown under the new session composer. Drag to reorder"),
     Setting::choice("add-to-chat", "Composer", "\u{201c}Add to chat\u{201d}", &["Send now", "Paste only"], Look::Segmented, |s| (!s.agents.send_now) as usize, |s, i| {
         s.agents.send_now = i == 0
     })

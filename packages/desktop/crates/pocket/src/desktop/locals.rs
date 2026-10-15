@@ -23,13 +23,6 @@ impl Desktop {
         local.id
     }
 
-    pub(crate) fn add_local(&mut self, project: String, cx: &mut Context<Self>) {
-        let id = self.new_local(&project);
-        self.store.collapsed.remove(&project);
-        self.store.save();
-        self.select_tree(project, Some(id), cx);
-    }
-
     pub(crate) fn ask_delete_local(&mut self, id: String, cx: &mut Context<Self>) {
         self.confirm = Some(Confirm::DeleteLocal(id));
         self.overlay = Some(Overlay::Confirm);

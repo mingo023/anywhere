@@ -8,6 +8,7 @@ use theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Picker {
+    Project,
     Checkout,
     Branch,
     Pr,
@@ -171,6 +172,48 @@ impl Desktop {
         }));
         let menu = (self.new_form.draft.picker == Some(Picker::Pr)).then(|| ui::dropdown_right(38., ui::menu_in("pr-menu-in", self.pr_picker(cx))));
         div().relative().child(button).children(menu)
+    }
+
+    /// Projects a session can start in: those with a git checkout.
+    fn form_project_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let repo = self.new_form.draft.repo.as_deref();
+        let mut rows: Vec<AnyElement> = self.projects().into_iter().filter(|p| self.listed_trees(p).is_some_and(|t| !t.is_empty())).enumerate().map(|(i, p)| {
+            let name = self.repo_name(&p);
+            let tile = ui::repo_tile(&self.project_mark(&p, crate::util::initials(&name)), 14., false, None);
+            let chosen = repo == Some(p.as_str());
+            ui::menu_pick(("project", i), tile, &name, chosen)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.new_form.draft.picker = None;
+                    this.pick_repo(p.clone(), window, cx);
+                    cx.notify();
+                }))
+                .into_any_element()
+        }).collect();
+        rows.push(ui::menu_divider().into_any_element());
+        rows.push(ui::menu_row("project-add", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.new_form.draft.picker = None;
+            this.add_local_project(window, cx);
+        })).into_any_element());
+        picker_menu("project-menu", 260., rows, cx).gap(px(2.))
+    }
+
+    pub(super) fn project_select(&self, cx: &mut Context<Self>) -> Div {
+        let f = &self.new_form.draft;
+        let lead = f.repo.as_ref().map(|repo| {
+            let name = self.repo_name(repo);
+            (ui::repo_tile(&self.project_mark(repo, crate::util::initials(&name)), 16., false, None), name)
+        });
+        let (tile, name) = lead.map_or((None, "Select project".to_string()), |(tile, name)| (Some(tile), name));
+        let chip = ui::menu_chip("form-project", f.picker == Some(Picker::Project))
+            .children(tile)
+            .child(div().font_weight(FontWeight::MEDIUM).child(name))
+            .child(icon("chevron-down", 12., TEXT_4))
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.toggle_picker(Picker::Project, cx);
+            }));
+        let menu = (f.picker == Some(Picker::Project)).then(|| ui::dropdown(36., ui::menu_in("project-menu-in", self.form_project_menu(cx))));
+        div().relative().child(chip).children(menu)
     }
 
     pub(super) fn checkout_select(&self, cx: &mut Context<Self>) -> Div {

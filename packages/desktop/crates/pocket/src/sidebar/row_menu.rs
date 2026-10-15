@@ -2,7 +2,6 @@ use crate::accounts;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, RowMenu, id};
 use crate::terminals::link;
-use crate::util::LOCAL_ICON;
 use agents::Summary;
 use agents::locals::is_local;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -215,17 +214,6 @@ impl Desktop {
                 let mut rows = vec![first.into_any_element()];
                 if kept {
                     rows.push(self.pin_item(Pin::Project(p.clone()), cx));
-                }
-                if kept && self.agents.locals_offered() && self.listed_trees(&p).is_some_and(|t| !t.is_empty()) {
-                    let target = p.clone();
-                    rows.push(
-                        ui::menu_row("aside-menu-new-local", LOCAL_ICON, "New Local", None)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                this.add_local(target.clone(), cx);
-                            }))
-                            .into_any_element(),
-                    );
                 }
                 let untracked = self.untracked_trees(&p).len();
                 if kept && untracked > 0 {
