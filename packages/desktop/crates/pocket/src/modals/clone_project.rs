@@ -1,7 +1,7 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{footer, home};
-use crate::sidebar::sections::color;
+use crate::sidebar::sections::group_mark;
 use crate::util::{tilde, untilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -211,7 +211,7 @@ impl Desktop {
             .id("clone-group")
             .cursor_pointer()
             .gap(px(8.))
-            .children(picked.map(|g| ui::dot(8., color(g.color))))
+            .children(picked.and_then(group_mark))
             .child(div().flex_1().text_size(px(13.5)).child(picked.map_or("No group".to_string(), |g| g.name.clone())))
             .child(icon("chevron-down", 12., TEXT_4))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -225,7 +225,7 @@ impl Desktop {
             }))
         };
         let mut rows = vec![pick(None, div().into_any_element(), "No group")];
-        rows.extend(groups.iter().map(|g| pick(Some(g.id), ui::dot(8., color(g.color)).into_any_element(), &g.name)));
+        rows.extend(groups.iter().map(|g| pick(Some(g.id), div().children(group_mark(g)).into_any_element(), &g.name)));
         let menu = ui::pop(div().id("clone-group-menu"))
             .w(px(240.))
             .p(px(6.))

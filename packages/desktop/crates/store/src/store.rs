@@ -555,7 +555,7 @@ mod tests {
         s.graph_share = Some(0.3);
         s.track("/t/fix");
         s.hosts.push(hosts::Host::new(hosts::Target::Alias { name: "devbox".into() }, &[]));
-        let work = s.sections.add_group("Work", 0x3e8ef7);
+        let work = s.sections.add_group("Work");
         s.sections.set_group("/w", Some(work));
         s.sections.toggle_pin(sections::Pin::Tree { project: "/w".into(), tree: "/t/fix".into() });
         s.sections.sort = sections::Sort::Recent;
