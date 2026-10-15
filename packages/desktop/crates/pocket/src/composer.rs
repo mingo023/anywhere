@@ -163,7 +163,7 @@ fn paste_image(desktop: &WeakEntity<Desktop>, slot: Slot, item: &ClipboardItem, 
 impl Desktop {
     /// The box around `textarea`; `pills` lead the attachments above it, `trailing` follows the chips.
     pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
-        let pick = c.draft.pick(project.as_deref(), || self.last_pick());
+        let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
         let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let attached = (!pills.is_empty() || !c.draft.images.is_empty()).then(|| {
             div().flex().items_center().gap(px(8.)).pt(px(14.)).px(px(16.)).children(pills).children(c.draft.images.iter().enumerate().map(|(i, a)| {

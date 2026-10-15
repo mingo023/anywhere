@@ -53,11 +53,10 @@ pub struct Terminals {
     pub(crate) lists: Lists,
 }
 
-/// A created terminal's worktree, and the pane it opens in if one was asked for.
+/// A created terminal's worktree.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Created {
     pub(crate) tree: String,
-    pub(crate) pane: Option<PaneId>,
 }
 
 impl Terminals {
@@ -127,14 +126,7 @@ impl Terminals {
         if setup {
             self.setups.insert(id.clone(), tree.clone());
         }
-        self.created.insert(id, Created { tree, pane: None });
-    }
-
-    /// Opens a created terminal in `pane` once it arrives.
-    pub(crate) fn aim(&mut self, id: &str, pane: PaneId) {
-        if let Some(c) = self.created.get_mut(id) {
-            c.pane = Some(pane);
-        }
+        self.created.insert(id, Created { tree });
     }
 
     /// Created terminals pocketd now lists, once.
@@ -247,7 +239,7 @@ impl Desktop {
                 }
                 for (id, c) in self.terminals.arrived() {
                     let local = self.terminals.sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
-                    self.adopt(id, local.unwrap_or(c.tree), Place::Pane(c.pane), window, cx);
+                    self.adopt(id, local.unwrap_or(c.tree), Place::Pane(None), window, cx);
                 }
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
@@ -753,17 +745,8 @@ mod tests {
         assert!(t.arrived().is_empty());
         assert_eq!(t.setups, HashMap::from([("a".to_string(), "/w/fix".to_string())]));
         t.listed(vec![info("x"), info("a")]);
-        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w/fix".into(), pane: None })]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w/fix".into() })]);
         assert!(t.arrived().is_empty());
-    }
-
-    #[test]
-    fn a_terminal_an_empty_pane_started_arrives_in_that_pane() {
-        let mut t = Terminals::new(Default::default());
-        t.created("r1", "a".into(), "/w".into(), false);
-        t.aim("a", 2);
-        t.listed(vec![info("a")]);
-        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into(), pane: Some(2) })]);
     }
 
     #[test]
@@ -771,7 +754,7 @@ mod tests {
         let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
-        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into(), pane: None })]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into() })]);
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         assert!(t.arrived().is_empty());

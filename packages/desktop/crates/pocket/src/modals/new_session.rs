@@ -241,6 +241,31 @@ impl Draft {
         Some(message)
     }
 
+    /// The page opened again: a kept draft keeps its checkout, base and Local, and waits on a send still out.
+    fn reopen(&mut self, keep: bool, worktree: bool, locals_offered: bool) {
+        self.want_base = Some(self.base_branch()).filter(|b| keep && !b.is_empty());
+        if !keep {
+            (self.source, self.local) = (Source::New, None);
+            self.picked_checkout = if worktree { Target::Worktree } else { Target::NewLocal };
+        }
+        if !self.reply.waiting() {
+            self.reply = CreateReply::default();
+        }
+        (self.locals_offered, self.picker) = (locals_offered, None);
+        self.taken.clear();
+    }
+
+    /// Another project's base, branch and Local don't carry over.
+    fn pick_repo(&mut self, repo: String, run_setup: bool) {
+        if self.repo.as_ref() != Some(&repo) {
+            (self.source, self.want_base, self.local) = (Source::New, None, None);
+            self.taken.clear();
+        }
+        self.repo = Some(repo);
+        self.branches.clear();
+        self.remote_branches.clear();
+        (self.base, self.run_setup) = (0, run_setup);
+    }
 }
 
 /// A checkout choice as its chip and menu row show it.
@@ -333,6 +358,15 @@ fn name_problem(name: &str, taken: &HashSet<String>) -> Option<&'static str> {
     }
 }
 
+/// `typed`, with `added` after it once there are words to keep.
+fn appended(typed: &str, added: Option<String>) -> String {
+    match added {
+        Some(added) if !typed.trim().is_empty() => format!("{}\n\n{added}", typed.trim_end()),
+        Some(added) => added,
+        None => typed.to_string(),
+    }
+}
+
 pub(crate) fn may_start(agents: &Agents) -> bool {
     !agents.observe_only()
 }
@@ -357,8 +391,10 @@ impl NewForm {
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
         let subs = vec![
             cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { secondary: true, .. } = ev {
-                    this.start_session(window, cx);
+                match ev {
+                    InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
+                    InputEvent::Change => cx.notify(),
+                    _ => {}
                 }
             }),
             cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
@@ -382,30 +418,34 @@ pub(crate) fn slot(d: &mut Desktop) -> &mut Composer {
 }
 
 impl Desktop {
-    /// What the Project last started, else the default agent, with an agent this app knows.
-    pub(crate) fn last_pick(&self) -> LaunchPick {
-        let repo = self.project.as_ref().and_then(|p| self.store.repos.get(p));
+    /// What `project` last started, else the default agent, with an agent this app knows.
+    pub(crate) fn last_pick(&self, project: Option<&str>) -> LaunchPick {
+        let repo = project.and_then(|p| self.store.repos.get(p));
         self.store.agents.pick(repo.map(|r| r.launch.clone()).unwrap_or_default())
     }
 
+    /// A draft not yet sent keeps its words, images, checkout and project; `prompt` adds to its words,
+    /// and since it quotes the Project on screen, the draft moves there.
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let worktree = worktree || self.store.agents.new_worktree;
-        let text = prompt.unwrap_or_default();
         let f = &mut self.new_form;
+        let typed = f.composer.prompt.read(cx).value().to_string();
+        let keep = !typed.trim().is_empty() || !f.composer.draft.images.is_empty();
+        let keep_project = keep && prompt.is_none();
+        let text = appended(&typed, prompt);
         f.draft.seed = crate::util::now_ms() as usize;
         f.field.hide();
-        f.draft.taken.clear();
-        f.draft.source = Source::New;
         f.composer.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
-        f.draft.picked_checkout = if worktree { Target::Worktree } else { Target::NewLocal };
-        (f.draft.locals_offered, f.draft.local) = (self.agents.locals_offered(), None);
-        f.composer.draft.clear();
-        f.draft.reply = CreateReply::default();
-        (f.draft.picker, f.draft.want_base) = (None, None);
-        match self.project.clone() {
+        if !keep {
+            f.composer.draft.clear();
+        }
+        f.draft.reopen(keep, worktree, self.agents.locals_offered());
+        f.composer.draft.menu = None;
+        let repo = if keep_project { f.draft.repo.clone() } else { None };
+        match repo.or_else(|| self.project.clone()) {
             Some(repo) => self.pick_repo(repo, window, cx),
             None => {
                 f.draft.repo = None;
@@ -414,15 +454,10 @@ impl Desktop {
         }
     }
 
-    fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let has_setup = self.store.repos.get(&repo).is_some_and(|c| !c.setup.is_empty());
         let folders = self.store.worktrees_dir(&repo, &self.host_agents.home_of(&repo));
-        let f = &mut self.new_form.draft;
-        f.repo = Some(repo.clone());
-        f.branches.clear();
-        f.remote_branches.clear();
-        f.base = 0;
-        f.run_setup = has_setup;
+        self.new_form.draft.pick_repo(repo.clone(), has_setup);
         let dir = repo.clone();
         let (runner, fs) = (hosts::runner_for(&dir), fs_for(&dir));
         let task = cx.background_executor().spawn(async move {
@@ -454,7 +489,8 @@ impl Desktop {
 
     /// The agent the page starts, picked here or the Project's last.
     fn new_form_pick(&self) -> LaunchPick {
-        self.new_form.composer.draft.pick(self.new_form.draft.repo.as_deref(), || self.last_pick())
+        let repo = self.new_form.draft.repo.as_deref();
+        self.new_form.composer.draft.pick(repo, || self.last_pick(repo))
     }
 
     fn session_ready(&self) -> bool {
@@ -507,6 +543,7 @@ impl Desktop {
         }
         let path = format!("{}/{folder}", self.store.worktrees_dir(&project, &self.host_agents.home_of(&project)));
         self.creates.list.push(Create::new(request, path.clone(), spec, Instant::now()));
+        self.clear_new_form(window, cx);
         self.leave_new_session(window, cx);
         self.select_tree(project, Some(path), cx);
     }
@@ -526,10 +563,11 @@ impl Desktop {
                         self.worktree = Some(cwd);
                     }
                     self.refresh_git(cx);
-                } else if self.empty_pane.launch.reply.answer(&request, None) {
-                    self.terminals.aim(&terminal, self.empty_pane.launch.pane);
-                } else if self.new_form.draft.reply.answer(&request, None) && self.new_form.shown {
-                    self.leave_new_session(window, cx);
+                } else if self.new_form.draft.reply.answer(&request, None) {
+                    self.clear_new_form(window, cx);
+                    if self.new_form.shown {
+                        self.leave_new_session(window, cx);
+                    }
                 }
             }
             Event::Progress { request, step, note } => {
@@ -543,8 +581,7 @@ impl Desktop {
             Event::CreateFailed { request, message, detail, .. } => {
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());
-                } else if !self.empty_prompt_failed(&request, &message, &detail, window, cx)
-                    && let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown)
+                } else if let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown)
                 {
                     self.error = Some(message);
                 }
@@ -568,6 +605,11 @@ impl Desktop {
         cx.notify();
     }
 
+    fn clear_new_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_form.composer.draft.clear();
+        self.new_form.composer.prompt.update(cx, |s, cx| s.set_value("", window, cx));
+    }
+
     pub(crate) fn leave_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_form.shown = false;
         self.refocus(window, cx);
@@ -575,24 +617,27 @@ impl Desktop {
 
     /// The page a project's + opens: a session in a new Worktree or Local of `project`.
     pub(crate) fn new_place(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_tree(project, None, cx);
+        self.select_tree(project.clone(), None, cx);
         self.new_worktree(&crate::actions::NewWorktree, window, cx);
+        if self.new_form.draft.repo.as_ref() != Some(&project) {
+            self.pick_repo(project, window, cx);
+        }
     }
 
     /// The page again, filled in as it was for a create that failed before git made its worktree.
     pub(crate) fn reopen_new_worktree(&mut self, c: &Create, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_worktree(&crate::actions::NewWorktree, window, cx);
+        self.new_session(Some(c.prompt().to_string()), true, window, cx);
         let f = &mut self.new_form.draft;
+        f.pick_checkout(Target::Worktree);
         f.want_base = Some(c.base().to_string());
         f.source = Source::of(c.asked());
-        self.new_form.composer.prompt.update(cx, |s, cx| s.set_value(c.prompt().to_string(), window, cx));
     }
 
     pub fn new_session_page(&mut self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
         let name = self.repo_name(&repo);
-        let project = div().flex().flex_none().items_center().gap(px(6.)).px(px(6.)).text_color(TEXT_2).child(ui::repo_tile(&self.project_mark(&repo, crate::util::initials(&name)), 16., false, None)).child(name.clone());
+        let project = self.project_select(cx);
         let checkout = self.checkout_select(cx);
         let pr = f.linked_pr();
         let branch = match pr {
@@ -626,6 +671,7 @@ impl Desktop {
         let trailing = link.map(IntoElement::into_any_element).into_iter().chain([ui::kbd("⌘↵").mr(px(8.)).into_any_element(), send.into_any_element()]).collect();
         let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, pill.into_iter().collect(), trailing, cx);
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
+        let chips = self.new_form.composer.prompt.read(cx).value().is_empty().then(|| starters(&self.store.agents.starters, cx));
         let footer = div()
             .w_full()
             .max_w(px(600.))
@@ -646,15 +692,43 @@ impl Desktop {
             .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("What should we build next?"))
             .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
             .children(error)
-            .child(footer);
+            .child(footer)
+            .children(chips.map(|s| div().w_full().max_w(px(600.)).mt(px(18.)).flex().flex_wrap().justify_center().gap(px(6.)).children(s)));
         let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx);
         div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
     }
 }
 
+fn starters(prompts: &[String], cx: &mut Context<Desktop>) -> Vec<Stateful<Div>> {
+    prompts.iter().enumerate().map(|(i, text)| {
+        let text: SharedString = text.clone().into();
+        div()
+            .id(("form-starter", i))
+            .h(px(30.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .rounded(px(15.))
+            .bg(SURFACE_SUNKEN)
+            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
+            .text_size(px(12.5))
+            .text_color(TEXT_2)
+            .whitespace_nowrap()
+            .cursor_pointer()
+            .hover(|s| s.bg(SURFACE).text_color(TEXT))
+            .child(text.clone())
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.new_form.composer.prompt.update(cx, |s, cx| {
+                    s.set_value(text.clone(), window, cx);
+                    s.focus(window, cx);
+                })
+            }))
+    }).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Local, Source, Target, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, taken_names};
+    use super::{Draft, Local, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, taken_names};
     use agents::CreateReply;
     use serde_json::json;
     use store::LaunchPick;
@@ -668,6 +742,56 @@ mod tests {
 
     fn claude() -> LaunchPick {
         LaunchPick { provider: "claude".into(), ..LaunchPick::default() }
+    }
+
+    fn kept() -> Draft {
+        Draft {
+            repo: Some("/p".into()),
+            branches: vec![("main".into(), None), ("dev".into(), None)],
+            base: 1,
+            source: Source::Branch("fix".into()),
+            picked_checkout: Target::NewLocal,
+            local: Some("local-1".into()),
+            ..Draft::default()
+        }
+    }
+
+    #[test]
+    fn a_kept_draft_comes_back_with_its_checkout_base_and_local() {
+        let mut draft = kept();
+        draft.reopen(true, true, true);
+        assert_eq!((draft.picked_checkout, draft.source, draft.local), (Target::NewLocal, Source::Branch("fix".into()), Some("local-1".into())));
+        assert_eq!(draft.want_base.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn an_empty_draft_starts_over() {
+        let mut draft = kept();
+        draft.reopen(false, true, true);
+        assert_eq!((draft.picked_checkout, draft.source, draft.local, draft.want_base), (Target::Worktree, Source::New, None, None));
+    }
+
+    #[test]
+    fn a_send_still_out_is_still_awaited_when_the_page_comes_back() {
+        let mut draft = Draft { reply: sent("r1"), ..kept() };
+        draft.reopen(true, false, true);
+        assert!(draft.reply.answer("r1", None));
+    }
+
+    #[test]
+    fn another_project_forgets_the_last_ones_branch_base_and_local() {
+        let mut draft = Draft { want_base: Some("dev".into()), ..kept() };
+        draft.pick_repo("/p".into(), false);
+        assert_eq!((draft.source.clone(), draft.want_base.as_deref()), (Source::Branch("fix".into()), Some("dev")));
+        draft.pick_repo("/q".into(), false);
+        assert_eq!((draft.source, draft.want_base, draft.local), (Source::New, None, None));
+    }
+
+    #[test]
+    fn a_prompt_opening_the_page_follows_the_words_already_typed() {
+        assert_eq!(appended("Fix CI \n", Some("Explain this".into())), "Fix CI\n\nExplain this");
+        assert_eq!(appended(" \n", Some("Explain this".into())), "Explain this");
+        assert_eq!(appended("Fix CI", None), "Fix CI");
     }
 
     #[test]

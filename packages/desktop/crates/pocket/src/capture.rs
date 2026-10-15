@@ -22,7 +22,7 @@ use workspace::Doc;
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 145] = [
+const STEPS: [(&str, Step); 144] = [
     ("session", |d, window, cx| {
         if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
             d.focus_agent(&card.id, window, cx);
@@ -252,8 +252,6 @@ const STEPS: [(&str, Step); 145] = [
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("form-model", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Model, cx)),
     ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
-    ("empty-model", |d, _, cx| d.toggle_composer(crate::empty_pane::slot, Menu::Model, cx)),
-    ("empty-access", |d, _, cx| d.toggle_composer(crate::empty_pane::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
     ("add-repo", |d, window, cx| d.edit_project(d.projects().into_iter().next(), window, cx)),
@@ -444,6 +442,7 @@ const STEPS: [(&str, Step); 145] = [
     ("rename-local", |d, window, cx| d.start_rename("local-review".into(), window, cx)),
     ("delete-local", |d, _, cx| d.ask_delete_local("local-review".into(), cx)),
     ("form-checkout", |d, _, cx| d.toggle_picker(Picker::Checkout, cx)),
+    ("form-project", |d, _, cx| d.toggle_picker(Picker::Project, cx)),
     ("new-place", |d, window, cx| {
         if let Some(p) = d.project.clone() {
             d.new_place(p, window, cx);

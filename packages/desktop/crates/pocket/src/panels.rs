@@ -247,23 +247,23 @@ impl Desktop {
         Some(ui::icon_group([chip]))
     }
 
+    /// The pane is focused before a click lands, so the browser and file search open in it.
     fn empty_pane(&self, p: PaneId, cx: &mut Context<Self>) -> Div {
-        div()
-            .flex_1()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(px(6.))
-            .child(div().text_size(px(13.)).text_color(TEXT_2).child("No open tabs"))
-            .child(div().text_size(px(12.5)).text_color(TEXT_3).child("Use + to start a shell or an agent"))
-            .when(!self.agents.observe_only(), |d| {
-                d.child(
-                    ui::button(id(format!("pane-new-terminal:{p}")), ui::Variant::Secondary, Some("terminal"), "New terminal")
-                        .mt(px(8.))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_shell(Place::Pane(Some(p)), cx))),
-                )
-            })
+        let title = div().pb(px(6.)).text_size(px(13.)).text_color(TEXT_3).child("No open tabs");
+        let pane = div().flex_1().flex().flex_col().items_center().justify_center();
+        if self.agents.observe_only() {
+            return pane.child(title);
+        }
+        let provider = self.store.agents.default_agent();
+        let agent = ui::menu_pick(id(format!("pane-new-agent:{p}")), provider_icon(provider, 14., TEXT_2), &self.agent_name(provider), false)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_agent_tab(provider, Place::Pane(Some(p)), cx)));
+        let terminal = ui::menu_row(id(format!("pane-new-terminal:{p}")), "prompt", "Terminal", Some("⌘T"))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_shell(Place::Pane(Some(p)), cx)));
+        let browser = ui::menu_row(id(format!("pane-new-browser:{p}")), "globe", "Browser", Some("⌘⇧B"))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx)));
+        let file = ui::menu_row(id(format!("pane-go-to-file:{p}")), "search", "Go to file", Some("⌘P"))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::actions::GoToFile, window, cx)));
+        pane.child(div().w(px(260.)).flex().flex_col().gap(px(2.)).child(title).child(agent).child(terminal).child(browser).child(file))
     }
 
     fn pane_body(&mut self, p: PaneId, focused: bool, tab: Option<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Div {
@@ -274,7 +274,6 @@ impl Desktop {
             Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc) => self.commit_view(p, cx),
             Some(Tab::Web(id)) => self.browser_view(p, id, window, cx),
             Some(Tab::Doc(_)) => div().flex_1(),
-            None if focused && self.offers_empty_prompt() => self.empty_composer(window, cx),
             None => self.empty_pane(p, cx),
         }
     }
@@ -297,7 +296,6 @@ impl Desktop {
         match t.focused().active().cloned() {
             Some(Tab::Term(id)) => self.focus_pane(id, window, cx),
             Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
-            None if self.offers_empty_prompt() => self.focus_empty_prompt(window, cx),
             Some(Tab::Doc(_)) | None => window.focus(&self.root, cx),
         }
         self.save_soon(cx);
