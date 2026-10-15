@@ -1,0 +1,66 @@
+# Builds "Anywhere Dev.app" (scripts/bundle-dev.sh) on every push to main and uploads it as an artifact.
+# Ad-hoc signed, so a downloaded copy needs `xattr -cr "Anywhere Dev.app"` before it opens. arm64 only.
+name: Dev macOS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-mac
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Rust version
+        id: rust
+        run: echo "rustc=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      # Same key as release-cache-mac.yml.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: ghostty
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+
+      # Own key: bundle-dev.sh builds the release profile, the release cache holds dist.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            packages/desktop/target
+          key: cargo-dev-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
+          restore-keys: cargo-dev-${{ steps.rust.outputs.rustc }}-
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        with:
+          version: 0.16.0
+
+      - name: Ghostty
+        run: scripts/build-ghostty.sh
+
+      - name: Bundle
+        run: |
+          scripts/bundle-dev.sh --no-open
+          ditto -c -k --keepParent "packages/desktop/target/release/Anywhere Dev.app" "Anywhere-Dev-${GITHUB_SHA::7}.zip"
+
+      # The zip is the artifact; ditto keeps the bundle's symlinks and signature, which upload-artifact's own zip would not.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: Anywhere-Dev-*.zip
+          archive: false
+          if-no-files-found: error
