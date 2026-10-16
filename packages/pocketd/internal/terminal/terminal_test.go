@@ -382,7 +382,7 @@ func TestReplaceRunsAnotherProcessInTheSameTerminalWithoutAnExit(t *testing.T) {
 	}
 	defer detach()
 
-	if err := s.Replace("sh", []string{"-c", "echo new; sleep 100"}, os.Environ()); err != nil {
+	if err := s.Replace("sh", []string{"-c", "echo new; sleep 100"}, os.Environ(), ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -418,7 +418,7 @@ func TestReplaceThatCannotStartLeavesTheTerminalAlone(t *testing.T) {
 	s := spawn(t, NewManager(), `echo old; sleep 100`)
 	waitScreen(t, s, "old")
 
-	if err := s.Replace("/no/such/binary", nil, os.Environ()); err == nil {
+	if err := s.Replace("/no/such/binary", nil, os.Environ(), ""); err == nil {
 		t.Fatal("replaced with a binary that is not there")
 	}
 
@@ -440,7 +440,7 @@ func TestAPausedTerminalRefusesToBeReplaced(t *testing.T) {
 	}
 	defer s.Resume()
 
-	if err := s.Replace("sh", []string{"-c", "true"}, os.Environ()); err == nil {
+	if err := s.Replace("sh", []string{"-c", "true"}, os.Environ(), ""); err == nil {
 		t.Fatal("replaced a paused terminal")
 	}
 }

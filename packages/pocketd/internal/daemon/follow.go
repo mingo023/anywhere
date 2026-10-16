@@ -107,7 +107,7 @@ func (d *Daemon) move(pr *presence, want string) {
 	driver := pr.a.Driver()
 	pr.a.SetDriver(d.waiting(h))
 	spec := terminal.Spec{ID: info.ID, Cwd: info.Cwd, Local: info.Local}
-	if err := pr.t.Replace(cmd, args, d.terminalEnv(spec)); err != nil {
+	if err := pr.t.Replace(cmd, args, d.terminalEnv(spec), pr.a.Summary().Origin); err != nil {
 		log.Printf("follow %s: %v", e.AgentID, err)
 		d.mu.Lock()
 		if d.restoring[info.ID] == h {

@@ -61,7 +61,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	} else {
 		pr.a = d.Agents.AddFunc(terminal.NewID(), info.Cwd, provider, driver)
 	}
-	// A restore or move adopts a hint; a handoff's hint carries whether the user typed it.
+	// A handed-down Terminal has lost its origin; its hint still knows.
 	pr.typed = origin == "" && (h == nil || h.saved.Typed)
 	pr.a.SetTerminal(info.ID)
 	pr.a.SetEffort(pr.launch.Effort)

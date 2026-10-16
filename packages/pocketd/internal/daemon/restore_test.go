@@ -512,7 +512,11 @@ func TestTheFileKeepsWhetherTheUserStartedTheAgent(t *testing.T) {
 	waitAgent(t, d, launched)
 	pr := d.presentIn(launched.Info().ID)
 	hookFrom(d, pr, sessionStart("s2", transcript(t, "hi")))
-	for _, e := range d.Snapshot().Terminals {
+	all := d.Snapshot().Terminals
+	if len(all) != 2 {
+		t.Fatalf("Snapshot = %+v", all)
+	}
+	for _, e := range all {
 		if want := e.ConversationID == "s1"; e.Typed != want {
 			t.Errorf("entry = %+v", e)
 		}
@@ -538,5 +542,21 @@ func TestAnAgentTheUserStartedComesBackAsAShell(t *testing.T) {
 	}
 	if e := d.Snapshot().Terminals[0]; e.AgentID != "" || e.Typed {
 		t.Fatalf("entry = %+v", e)
+	}
+}
+
+func TestAResumeSlowerThanItsWaitIsStillOneTheUserDidNotStart(t *testing.T) {
+	old := RestoreWait
+	RestoreWait = 10 * time.Millisecond
+	t.Cleanup(func() { RestoreWait = old })
+	d := newDaemon(t)
+	reports := resuming(d, fakeAgent(t, "claude"))
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	term, _ := restoredIn(t, d)
+	if r := report(t, reports); r.reason != "resume_timeout" {
+		t.Fatalf("report = %+v", r)
+	}
+	if pr := waitPresent(t, d, term); pr.typed {
+		t.Fatal("a late resume counts as one the user started")
 	}
 }
