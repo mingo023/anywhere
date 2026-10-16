@@ -57,12 +57,13 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                 window.handle_input(&focus, ElementInputHandler::new(bounds, view.clone()), cx);
             }
             let (Some((hitbox, cell)), Some((cols, rows))) = (prepaint, grid) else { return };
-            window.set_cursor_style(CursorStyle::IBeam, &hitbox);
+            let on_link = view.read(cx).terminal.link_hover.as_ref() == Some(&pane);
+            window.set_cursor_style(if on_link { CursorStyle::PointingHand } else { CursorStyle::IBeam }, &hitbox);
             let top = grid_top(bounds, rows, line);
             let at = move |p: Point<Pixels>| Pointer::at(f32::from(p.x - bounds.origin.x), f32::from(p.y - top), cell, line, cols, rows);
-            let (down, moved, up, wheel) = (view.clone(), view.clone(), view.clone(), view);
-            let (down_pane, moved_pane, up_pane, wheel_pane) = (pane.clone(), pane.clone(), pane.clone(), pane);
-            let (moved_hitbox, wheel_hitbox) = (hitbox.clone(), hitbox.clone());
+            let (down, moved, up, wheel, mods) = (view.clone(), view.clone(), view.clone(), view.clone(), view);
+            let (down_pane, moved_pane, up_pane, wheel_pane, mods_pane) = (pane.clone(), pane.clone(), pane.clone(), pane.clone(), pane);
+            let (moved_hitbox, wheel_hitbox, mods_hitbox) = (hitbox.clone(), hitbox.clone(), hitbox.clone());
             window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                     down.update(cx, |d, cx| {
@@ -88,10 +89,18 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                     let hovered = moved_hitbox.is_hovered(window);
                     moved.update(cx, |d, cx| {
                         d.mouse_motion(&moved_pane, at(e.position), hovered, e.pressed_button.is_some(), e.modifiers);
+                        let pointer = (hovered && e.pressed_button.is_none()).then(|| at(e.position));
+                        d.hover_link(&moved_pane, pointer, e.modifiers, cx);
                         if e.pressed_button == Some(MouseButton::Left) {
                             d.select_extend(&moved_pane, at(e.position), cx);
                         }
                     });
+                }
+            });
+            window.on_key_event(move |e: &ModifiersChangedEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble {
+                    let pointer = mods_hitbox.is_hovered(window).then(|| at(window.mouse_position()));
+                    mods.update(cx, |d, cx| d.hover_link(&mods_pane, pointer, e.modifiers, cx));
                 }
             });
             window.on_mouse_event(move |e: &MouseUpEvent, phase, window, cx| {
