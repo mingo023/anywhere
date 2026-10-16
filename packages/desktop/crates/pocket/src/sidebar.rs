@@ -106,6 +106,15 @@ fn tree_name(tree: &str, label: String, sweeps: Option<Token>) -> AnyElement {
     }
 }
 
+/// `label` bright and semibold while its tree is done, which lasts until it is viewed.
+/// Styled outside the marquee, which measures the label in the style it inherits.
+fn done_name(label: AnyElement, state: Option<ui::State>) -> AnyElement {
+    match state {
+        Some(ui::State::Done(..)) => div().text_color(TEXT).font_weight(FontWeight::SEMIBOLD).child(label).into_any_element(),
+        _ => label,
+    }
+}
+
 #[derive(Clone)]
 struct DragProject {
     path: String,
@@ -244,7 +253,7 @@ impl Desktop {
         };
         let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-            None => self.scrolling(key, name.clone(), tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())), cx),
+            None => done_name(self.scrolling(key, name.clone(), tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())), cx), state),
         };
         let label = with_sub(label, sub.clone());
         let mut buttons = Vec::new();
@@ -456,7 +465,7 @@ impl Desktop {
         let (target, path) = (p.to_string(), tree.clone());
         let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-            None => self.scrolling(tree, title.clone(), tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())), cx),
+            None => done_name(self.scrolling(tree, title.clone(), tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())), cx), state),
         };
         let pinned = sub.is_some();
         let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub), selected, mark)
