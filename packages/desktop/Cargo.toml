@@ -76,6 +76,7 @@ gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # gpui-base 0.6.6 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass; drop once upstream does.
 # It also renders markdown like pluk-inc/markdown-preview: its block spacing, code blocks, lists, tables, GitHub alerts and footnotes; upstream has no equivalent.
+# It also types the paths of files dropped on an editable input, with `on_drop_paths` to take some first; upstream has no equivalent.
 gpui-base = { path = "vendor/gpui-base" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.
