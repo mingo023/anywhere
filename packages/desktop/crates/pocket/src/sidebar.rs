@@ -255,7 +255,7 @@ impl Desktop {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => done_name(self.scrolling(key, name.clone(), tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())), cx), state),
         };
-        let label = with_sub(label, sub.clone());
+        let label = with_sub(label, sub.clone(), self.sidebar.renaming(key));
         let mut buttons = Vec::new();
         if pins {
             buttons.push(self.pin_button(key, Pin::Tree { project: p.to_string(), tree: key.to_string() }, cx));
@@ -468,7 +468,7 @@ impl Desktop {
             None => done_name(self.scrolling(tree, title.clone(), tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())), cx), state),
         };
         let pinned = sub.is_some();
-        let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub), selected, mark)
+        let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.renaming(tree)), selected, mark)
             .child(trail)
             .when(pinned, |row| row.pl(px(6.)))
             .when(self.sidebar.filter.lit(p, Some(tree)), |row| row.bg(FILL_3))
@@ -489,10 +489,10 @@ impl Desktop {
     }
 }
 
-/// `label`, then `sub` dimmed after it.
-fn with_sub(label: AnyElement, sub: Option<String>) -> AnyElement {
+/// `label`, then `sub` dimmed after it. An `editing` field has no width of its own, so it takes the room `sub` leaves.
+fn with_sub(label: AnyElement, sub: Option<String>, editing: bool) -> AnyElement {
     match sub {
-        Some(sub) => div().flex().items_center().gap(px(6.)).min_w_0().child(div().min_w_0().truncate().child(label)).child(div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(sub)).into_any_element(),
+        Some(sub) => div().flex().items_center().gap(px(6.)).min_w_0().child(div().min_w_0().truncate().when(editing, |d| d.flex_1()).child(label)).child(div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(sub)).into_any_element(),
         None => label,
     }
 }
