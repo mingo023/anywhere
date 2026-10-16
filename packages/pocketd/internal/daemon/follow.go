@@ -12,9 +12,9 @@ import (
 	"pocketd/internal/terminal"
 )
 
-// Follow restarts provider's agents that run on another account than the
-// default, once they are idle, resuming their conversation on the default's.
-// A busy agent moves when its turn ends.
+// Follow restarts provider's agents that Pocket launched and that run on
+// another account than the default, once they are idle, resuming their
+// conversation on the default's. A busy agent moves when its turn ends.
 func (d *Daemon) Follow(provider string) {
 	if d.Resume == nil || d.Accounts == nil {
 		return
@@ -51,7 +51,7 @@ func (d *Daemon) movers(provider, want string) []*presence {
 		}
 	}
 	d.mu.Unlock()
-	return slices.DeleteFunc(all, func(pr *presence) bool { return !movable(pr.a.Summary(), want) })
+	return slices.DeleteFunc(all, func(pr *presence) bool { return pr.typed || !movable(pr.a.Summary(), want) })
 }
 
 func (d *Daemon) followTo(provider, want string) {
@@ -107,7 +107,7 @@ func (d *Daemon) move(pr *presence, want string) {
 	driver := pr.a.Driver()
 	pr.a.SetDriver(d.waiting(h))
 	spec := terminal.Spec{ID: info.ID, Cwd: info.Cwd, Local: info.Local}
-	if err := pr.t.Replace(cmd, args, d.terminalEnv(spec)); err != nil {
+	if err := pr.t.Replace(cmd, args, d.terminalEnv(spec), pr.a.Summary().Origin); err != nil {
 		log.Printf("follow %s: %v", e.AgentID, err)
 		d.mu.Lock()
 		if d.restoring[info.ID] == h {

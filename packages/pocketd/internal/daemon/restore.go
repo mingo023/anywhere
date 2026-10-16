@@ -93,17 +93,20 @@ func (d *Daemon) Snapshot() state.File {
 }
 
 // Restore brings back the Terminals of the pocketd before this one, under
-// their old ids, in their launch dirs. A Terminal that held an Agent runs its
-// resume argv and keeps the Agent's id; any other is a login shell. It runs
-// before the poller and ops Serve start, so the poller finds every hint and
-// the first list holds them all. It reads the login shell's environment first,
-// so no Terminal gets pocketd's own: under launchd, that has no TERM, and a
-// PATH without the agents.
+// their old ids, in their launch dirs. A Terminal that held an Agent Pocket
+// launched runs its resume argv and keeps the Agent's id; any other is a
+// login shell. It runs before the poller and ops Serve start, so the poller
+// finds every hint and the first list holds them all. It reads the login
+// shell's environment first, so no Terminal gets pocketd's own: under
+// launchd, that has no TERM, and a PATH without the agents.
 func (d *Daemon) Restore(f state.File, shell string) {
 	if d.Capture != nil {
 		d.Recapture()
 	}
 	for _, e := range f.Terminals {
+		if e.Typed {
+			e = state.Terminal{TerminalID: e.TerminalID, LaunchDir: e.LaunchDir, Cols: e.Cols, Rows: e.Rows, Local: e.Local}
+		}
 		t, reason := d.reopen(e, shell)
 		switch {
 		case e.AgentID == "":
@@ -120,15 +123,15 @@ func (d *Daemon) reopen(e state.Terminal, shell string) (*terminal.Terminal, str
 		log.Printf("restore %s: launch_dir_missing", e.TerminalID)
 		return nil, "launch_dir_missing"
 	}
-	cmd, args, reason := shell, shellenv.LoginArgs(shell), ""
+	cmd, args, reason, origin := shell, shellenv.LoginArgs(shell), "", ""
 	if e.AgentID != "" && d.Resume != nil {
 		if c, a, r := d.Resume(e); r == "" {
-			cmd, args = c, a
+			cmd, args, origin = c, a, cmp.Or(e.Origin, "desktop")
 		} else {
 			reason = r
 		}
 	}
-	t, err := d.spawn(terminal.Spec{ID: e.TerminalID, Cmd: cmd, Args: args, Cwd: e.LaunchDir, Cols: e.Cols, Rows: e.Rows, Local: e.Local})
+	t, err := d.spawn(terminal.Spec{ID: e.TerminalID, Cmd: cmd, Args: args, Cwd: e.LaunchDir, Cols: e.Cols, Rows: e.Rows, Local: e.Local, Origin: origin})
 	if err != nil {
 		log.Printf("restore %s: %v", e.TerminalID, err)
 		return nil, cmp.Or(reason, "resume_not_accepted")

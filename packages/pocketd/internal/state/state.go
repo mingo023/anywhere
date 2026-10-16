@@ -40,6 +40,8 @@ type Terminal struct {
 	Local          string  `json:"local,omitempty"`
 	// Account is the managed account the agent ran on; empty is the built-in login.
 	Account string `json:"account,omitempty"`
+	// Typed is whether the user started the agent in a shell, rather than Pocket.
+	Typed bool `json:"typed,omitempty"`
 }
 
 type File struct {

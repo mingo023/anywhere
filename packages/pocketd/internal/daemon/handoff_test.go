@@ -90,3 +90,21 @@ func TestAHandedOverAgentKeepsItsIDAndShowsNoRestoreNotice(t *testing.T) {
 		t.Fatal("the hint is still waiting")
 	}
 }
+
+func TestAHandedOverAgentTheUserStartedStaysTheirs(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	saved := state.Terminal{TerminalID: term.Info().ID, LaunchDir: t.TempDir(), Cols: 80, Rows: 24, Provider: "claude", ConversationID: "c1",
+		TranscriptPath: transcript(t, "hi"), Launch: &state.Launch{Access: "ask"}, AgentID: "a-1", CreatedAt: 7, Status: "working", Typed: true}
+
+	d.expect(saved, term, "", &handoff.Agent{Phase: "working"})
+	pr := waitPresent(t, d, term)
+
+	if !pr.typed {
+		t.Fatal("the handoff forgot the user started the agent")
+	}
+}

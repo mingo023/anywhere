@@ -455,8 +455,9 @@ func (s *Terminal) Write(b []byte) error {
 // Replace ends the Terminal's session and runs cmd in its place, keeping the
 // id, the size and whoever is attached. Attached screens are reset, and no
 // exit is reported for the old process. A closed or paused Terminal refuses,
-// and the old session stays as it was when cmd doesn't start.
-func (s *Terminal) Replace(cmd string, args, env []string) error {
+// and the old session stays as it was when cmd doesn't start. origin is who
+// asked for cmd, as Spec.Origin.
+func (s *Terminal) Replace(cmd string, args, env []string, origin string) error {
 	bin, err := LookPath(cmd, env)
 	if err != nil {
 		return err
@@ -475,7 +476,7 @@ func (s *Terminal) Replace(cmd string, args, env []string) error {
 	}
 	oldPty, oldProc := s.pty, s.proc
 	s.pty, s.proc = f, p
-	s.info.Cmd, s.info.Args = cmd, args
+	s.info.Cmd, s.info.Args, s.origin = cmd, args, origin
 	s.last, s.osc = nil, scanner{}
 	reset := []byte("\x1bc") // RIS: the new process starts on a blank screen
 	s.vt.Write(reset)
