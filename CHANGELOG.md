@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5
+
+- Agents you start in a terminal keep their account and don't resume on restart (#69): (74f174d)
+- Sidebar loads every project's pull requests in the background (#68): (01a7337)
+- CI builds Anywhere Dev.app on every push to main (#67): (e64e99a)
+- Projects drop the default Local and open the composer on an idle main checkout (#66): (6656cad)
+- Group rename shows its text as you type, and group heads pick an emoji (#65): (c9c3ac2)
+- Repo scripts get ANYWHERE_* paths and fall back to .anywhere/setup.sh and teardown.sh (#64): (4b17080)
+
 ## 0.1.4
 
 - Changelog draft lists commits with their hash: (5bc0c0c)
