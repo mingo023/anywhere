@@ -47,10 +47,10 @@ pub(crate) struct Draft {
     pub(crate) images: Vec<Attachment>,
 }
 
-/// A pasted image and the file the agent reads it from.
+/// A pasted or dropped image and the file the agent reads it from.
 pub(crate) struct Attachment {
     pub(crate) path: PathBuf,
-    pub(crate) image: Arc<Image>,
+    pub(crate) image: ImageSource,
 }
 
 impl Draft {
@@ -80,6 +80,15 @@ impl Draft {
             self.images.push(attachment);
         }
         new
+    }
+
+    /// Attaches the dropped images where they lie and hands back the other files.
+    fn drop_images(&mut self, paths: &[PathBuf]) -> Vec<PathBuf> {
+        let (images, rest): (Vec<PathBuf>, _) = paths.iter().cloned().partition(|p| is_image(p));
+        for path in images {
+            self.attach(Attachment { image: path.clone().into(), path });
+        }
+        rest
     }
 
     /// Drops the image whose file couldn't be written; false if this draft no longer held it.
@@ -112,6 +121,12 @@ fn pasted_image(item: &ClipboardItem) -> Option<Image> {
     })
 }
 
+/// What both GPUI shows and the agents read.
+fn is_image(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")
+}
+
 fn attachment_path(image: &Image, dir: &Path) -> PathBuf {
     dir.join(format!("{}.{}", image.id, image.format.extension()))
 }
@@ -132,7 +147,7 @@ fn paste_image(desktop: &WeakEntity<Desktop>, slot: Slot, item: &ClipboardItem, 
     let path = attachment_path(&image, &d.read(cx).store.home().join("attachments"));
     let new = d.update(cx, |d, cx| {
         cx.notify();
-        slot(d).draft.attach(Attachment { path: path.clone(), image: image.clone() })
+        slot(d).draft.attach(Attachment { path: path.clone(), image: image.clone().into() })
     });
     if !new {
         return true;
@@ -158,6 +173,17 @@ fn paste_image(desktop: &WeakEntity<Desktop>, slot: Slot, item: &ClipboardItem, 
         })
         .detach();
     true
+}
+
+/// For the prompt's `on_drop_paths`: dropped images attach, other files go in as their paths.
+pub(crate) fn drop_images(desktop: WeakEntity<Desktop>, slot: Slot) -> impl Fn(&[PathBuf], &mut Window, &mut App) -> Vec<PathBuf> {
+    move |paths, _, cx| match desktop.upgrade() {
+        Some(d) => d.update(cx, |d, cx| {
+            cx.notify();
+            slot(d).draft.drop_images(paths)
+        }),
+        None => paths.to_vec(),
+    }
 }
 
 impl Desktop {
@@ -348,7 +374,7 @@ mod tests {
     #[test]
     fn the_same_image_attaches_once_and_only_one_still_held_is_dropped_as_unsaved() {
         let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
-        let at = |path: &str| Attachment { path: path.into(), image: image.clone() };
+        let at = |path: &str| Attachment { path: path.into(), image: image.clone().into() };
         let mut draft = Draft::default();
         assert!(draft.attach(at("/h/a.png")));
         assert!(!draft.attach(at("/h/a.png")));
@@ -360,9 +386,17 @@ mod tests {
     }
 
     #[test]
+    fn dropped_images_attach_where_they_lie_and_other_files_are_handed_back() {
+        let mut draft = Draft::default();
+        let rest = draft.drop_images(&["/r/shot.PNG".into(), "/r/main.rs".into(), "/r/a b.jpg".into(), "/r/notes".into()]);
+        assert_eq!(rest, [std::path::PathBuf::from("/r/main.rs"), "/r/notes".into()]);
+        assert_eq!(draft.prompt(""), "# Attached images\n\n- /r/shot.PNG\n- /r/a b.jpg");
+    }
+
+    #[test]
     fn attached_images_follow_the_prompt_as_paths() {
         let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
-        let at = |path: &str| Attachment { path: path.into(), image: image.clone() };
+        let at = |path: &str| Attachment { path: path.into(), image: image.clone().into() };
         let draft = Draft { images: vec![at("/h/attachments/a.png"), at("/h/attachments/b.png")], ..Draft::default() };
         let block = "# Attached images\n\n- /h/attachments/a.png\n- /h/attachments/b.png";
         assert_eq!(draft.prompt(" Fix CI "), format!("Fix CI\n\n{block}"));

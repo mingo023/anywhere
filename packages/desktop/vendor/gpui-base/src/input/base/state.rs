@@ -5,7 +5,7 @@
 use gpui::TextAlign;
 use gpui::{
     Action, App, AppContext, Bounds, ClipboardItem, Context, Edges, Entity, EntityInputHandler,
-    EventEmitter, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding,
+    EventEmitter, ExternalPaths, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Point,
     Render, ScrollHandle, ScrollWheelEvent, SharedString, Styled as _, Subscription,
     UTF16Selection, Window, actions, div, point, prelude::FluentBuilder as _, px,
@@ -15,6 +15,7 @@ use serde::Deserialize;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::rc::Rc;
 use sum_tree::Bias;
 use unicode_segmentation::*;
@@ -425,6 +426,7 @@ pub struct InputBaseState<M: InputModeKind> {
         Rc<dyn Fn(NativeMenu, InputContextMenuCapabilities, Point<Pixels>, &mut Window, &mut App)>,
     >,
     pending_context_menu: Option<(Point<Pixels>, usize)>,
+    drop_handler: Option<Rc<dyn Fn(&[PathBuf], &mut Window, &mut App) -> Vec<PathBuf>>>,
 
     /// Whether the context menu that shows on right-click is enabled.
     ///
@@ -730,6 +732,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             diagnostic_popover: None,
             context_menu_handler: None,
             pending_context_menu: None,
+            drop_handler: None,
             enable_context_menu: true,
             completion_inserting: false,
             overlay_action_handler: None,
@@ -760,6 +763,27 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn replaceable(mut self, allow: bool) -> Self {
         self.replaceable = allow;
         self
+    }
+
+    /// Takes the files dropped on this input that it wants, and returns the
+    /// rest, whose paths are typed in.
+    pub fn on_drop_paths(
+        mut self,
+        handler: impl Fn(&[PathBuf], &mut Window, &mut App) -> Vec<PathBuf> + 'static,
+    ) -> Self {
+        self.drop_handler = Some(Rc::new(handler));
+        self
+    }
+
+    fn drop_paths(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = match self.drop_handler.clone() {
+            Some(handler) => handler(paths.paths(), window, cx),
+            None => paths.paths().to_vec(),
+        };
+        self.focus(window, cx);
+        if !paths.is_empty() {
+            self.insert(dropped_text(&paths), window, cx);
+        }
     }
 
     /// Set placeholder
@@ -4187,6 +4211,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
                     .on_action(window.listener_for(&entity, InputBaseState::enter))
                     .on_action(window.listener_for(&entity, InputBaseState::escape))
                     .on_action(window.listener_for(&entity, InputBaseState::paste))
+                    .on_drop(window.listener_for(&entity, InputBaseState::drop_paths))
                     .on_action(window.listener_for(&entity, InputBaseState::cut))
                     .on_action(window.listener_for(&entity, InputBaseState::undo))
                     .on_action(window.listener_for(&entity, InputBaseState::redo))
@@ -4277,9 +4302,65 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
     }
 }
 
+/// Space-separated, each path quoted when it holds a space.
+fn dropped_text(paths: &[PathBuf]) -> String {
+    let typed: Vec<String> = paths
+        .iter()
+        .map(|p| p.to_string_lossy())
+        .map(|p| if p.contains(' ') { format!("\"{p}\"") } else { p.into_owned() })
+        .collect();
+    typed.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dropped_paths_are_spaced_and_quoted_when_they_hold_a_space() {
+        let paths = [PathBuf::from("/r/a.rs"), PathBuf::from("/My Files/b c.png")];
+        assert_eq!(dropped_text(&paths), r#"/r/a.rs "/My Files/b c.png""#);
+    }
+
+    fn drop_files(cx: &mut VisualTestContext, paths: &[&str]) {
+        let position = point(px(20.), px(10.));
+        let paths = ExternalPaths(paths.iter().map(PathBuf::from).collect());
+        cx.simulate_event(gpui::FileDropEvent::Entered { position, paths });
+        cx.simulate_event(gpui::FileDropEvent::Pending { position });
+        cx.simulate_event(gpui::FileDropEvent::Submit { position });
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn files_dropped_on_an_input_are_typed_as_their_paths(cx: &mut TestAppContext) {
+        let view = InputView::build_textarea(cx, |s| s);
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        drop_files(&mut cx, &["/r/a.rs", "/My Files/b c.png"]);
+        cx.update(|_, cx| {
+            assert_eq!(view.input.read(cx).value(), r#"/r/a.rs "/My Files/b c.png""#)
+        });
+    }
+
+    #[gpui::test]
+    fn a_drop_handler_takes_its_files_before_the_rest_are_typed(cx: &mut TestAppContext) {
+        let view = InputView::build(cx, |s| {
+            s.on_drop_paths(|paths, _, _| {
+                paths.iter().filter(|p| p.extension().is_none_or(|e| e != "png")).cloned().collect()
+            })
+        });
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        drop_files(&mut cx, &["/r/shot.png", "/r/a.rs"]);
+        cx.update(|_, cx| assert_eq!(view.input.read(cx).value(), "/r/a.rs"));
+    }
+
+    #[gpui::test]
+    fn a_readonly_input_ignores_dropped_files(cx: &mut TestAppContext) {
+        let view = InputView::build_textarea(cx, |s| s);
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        cx.update(|_, cx| view.input.update(cx, |s, cx| s.set_readonly(true, cx)));
+        drop_files(&mut cx, &["/r/a.rs"]);
+        cx.update(|_, cx| assert_eq!(view.input.read(cx).value(), ""));
+    }
 
     use crate::theme::Theme;
     use gpui::{TestAppContext, VisualTestContext, size};

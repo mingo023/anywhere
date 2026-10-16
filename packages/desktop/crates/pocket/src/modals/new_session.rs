@@ -2,7 +2,7 @@ pub(crate) mod picker;
 
 use agents::locals::Local;
 use agents::{Agents, CreateReply, Event};
-use crate::composer::Composer;
+use crate::composer::{self, Composer};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
@@ -385,7 +385,8 @@ impl NewForm {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4));
+        let dropped = composer::drop_images(cx.entity().downgrade(), slot);
+        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4).on_drop_paths(dropped));
         let composer = Composer::new(prompt.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
