@@ -237,9 +237,8 @@ pub fn diffstat(added: usize, removed: usize) -> Div {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Glyph {
-    Dot,
+    Halo,
     Spinner,
-    Check,
     Cross,
 }
 
@@ -255,9 +254,9 @@ pub struct Tone {
 /// The one map from a status to its look. States that are not an agent's status have none.
 pub fn tone(state: State) -> Option<Tone> {
     let (glyph, mark, text, bg) = match state {
-        State::NeedsYou => (Glyph::Dot, WAITING, WAITING_TEXT, WAITING_BG),
+        State::NeedsYou => (Glyph::Halo, WAITING, WAITING_TEXT, WAITING_BG),
         State::Working => (Glyph::Spinner, WORKING, ACCENT, ACCENT_TINT),
-        State::Done(..) => (Glyph::Check, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
+        State::Done(..) => (Glyph::Halo, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
         State::Failed => (Glyph::Cross, FAILED, FAILED_TEXT, FAILED_BG),
         _ => return None,
     };
@@ -266,9 +265,8 @@ pub fn tone(state: State) -> Option<Tone> {
 
 pub fn glyph(id: impl Into<ElementId>, t: Tone) -> AnyElement {
     match t.glyph {
-        Glyph::Dot => dot(7., t.mark).into_any_element(),
+        Glyph::Halo => div().size(px(13.)).flex().flex_none().items_center().justify_center().rounded(px(6.5)).bg(t.bg).child(dot(7., t.mark)).into_any_element(),
         Glyph::Spinner => dot_spinner(id, 11., t.mark).into_any_element(),
-        Glyph::Check => icon("check", 11., t.mark).into_any_element(),
         Glyph::Cross => icon("x-bold", 11., t.mark).into_any_element(),
     }
 }
@@ -1290,12 +1288,11 @@ mod tests {
     }
 
     #[test]
-    fn every_alerting_state_has_its_own_glyph_and_colour() {
+    fn every_alerting_state_has_its_own_colour() {
         let tones: Vec<Tone> = STATUSES.into_iter().filter_map(tone).collect();
         assert_eq!(tones.len(), 4);
         for (i, a) in tones.iter().enumerate() {
             for b in &tones[i + 1..] {
-                assert_ne!(a.glyph, b.glyph);
                 assert_ne!(a.mark, b.mark);
             }
         }
