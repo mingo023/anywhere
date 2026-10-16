@@ -37,11 +37,13 @@ pub struct TerminalViewState {
     pub(crate) caret: Option<Bounds<Pixels>>,
     /// The pane whose right-click menu is open, and where the click was.
     pub(crate) menu: Option<(String, Point<Pixels>)>,
+    /// The pane whose link is under the mouse and would open on a click, drawn with a pointing hand.
+    pub(crate) link_hover: Option<String>,
 }
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None, menu: None }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None, menu: None, link_hover: None }
     }
 }
 
@@ -80,6 +82,11 @@ pub fn release(selected: Option<String>, t: &store::prefs::Terminal) -> Release 
         None if t.click_opens_links => Release::OpenLink,
         _ => Release::Nothing,
     }
+}
+
+/// Whether a left click opens the link under it: ⌘ always does; a plain click only when asked, and only if a program tracking the mouse doesn't take it.
+pub fn click_opens_link(cmd: bool, shift: bool, tracking: bool, t: &store::prefs::Terminal) -> bool {
+    cmd || (t.click_opens_links && !(tracking && !shift))
 }
 
 /// Text that could run commands asks first, unless the program brackets pastes or the user turned the question off.
@@ -176,6 +183,23 @@ impl Desktop {
             self.open_browser(Some(url), window, cx);
         }
         true
+    }
+
+    /// Notes whether the mouse, at `at` over `pane` (None once it leaves), is on a link a click would open.
+    pub(crate) fn hover_link(&mut self, pane: &str, at: Option<Pointer>, mods: Modifiers, cx: &mut Context<Self>) {
+        let observe_only = self.agents.observe_only();
+        let over = at.is_some_and(|at| {
+            let Some(t) = self.terminals.sessions.term(pane) else { return false };
+            if !click_opens_link(mods.platform, mods.shift, t.mouse_tracking() && !observe_only, &self.store.terminal) {
+                return false;
+            }
+            let (f, cells) = t.frame();
+            link::link_at(cells, f.cols, at.row, at.col).is_some()
+        });
+        if over != (self.terminal.link_hover.as_deref() == Some(pane)) {
+            self.terminal.link_hover = over.then(|| pane.to_string());
+            cx.notify();
+        }
     }
 
     pub(crate) fn select_extend(&mut self, pane: &str, at: Pointer, cx: &mut Context<Self>) {
@@ -446,7 +470,7 @@ impl EntityInputHandler for Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drag, Pasted, Release, asks_before_paste, pasted, release, tick_rows};
+    use super::{Drag, Pasted, Release, asks_before_paste, click_opens_link, pasted, release, tick_rows};
     use store::prefs::Terminal;
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use term::Pointer;
@@ -496,6 +520,16 @@ mod tests {
         assert_eq!(release(None, &clicking), Release::OpenLink);
         assert_eq!(release(Some("x".into()), &clicking), Release::Nothing);
         assert_eq!(release(None, &Terminal::default()), Release::Nothing);
+    }
+
+    #[test]
+    fn a_link_is_clickable_with_cmd_or_a_plain_click_a_tracking_program_does_not_take() {
+        let clicking = Terminal { click_opens_links: true, ..Terminal::default() };
+        assert!(click_opens_link(true, false, true, &Terminal::default()));
+        assert!(!click_opens_link(false, false, false, &Terminal::default()));
+        assert!(click_opens_link(false, false, false, &clicking));
+        assert!(!click_opens_link(false, false, true, &clicking));
+        assert!(click_opens_link(false, true, true, &clicking));
     }
 
     #[test]
