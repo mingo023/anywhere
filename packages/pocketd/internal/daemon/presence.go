@@ -38,6 +38,7 @@ type presence struct {
 	launch     state.Launch
 	hooked     bool // a SessionStart came; a restored Agent has its Conversation before that
 	reported   bool // an OSC 7501 report came: status is theirs, not the hooks'
+	typed      bool // the user started it in a shell: Pocket never restarts it
 
 	// report makes applying a report atomic with reading the terminal's latest
 	// one, so a catch-up can't overwrite a live report that arrived meanwhile.
@@ -53,18 +54,22 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	}
 	info := t.Info()
 	driver := func(a *agent.Agent) agent.Driver { return termDriver{t: t, a: a, pid: p.Pid} }
-	if h := d.adopt(pr, driver); h != nil {
+	origin := t.TakeOrigin()
+	h := d.adopt(pr, driver)
+	if h != nil {
 		pr.a = h.a
 	} else {
 		pr.a = d.Agents.AddFunc(terminal.NewID(), info.Cwd, provider, driver)
 	}
+	// A restore or move adopts a hint; a handoff's hint carries whether the user typed it.
+	pr.typed = origin == "" && (h == nil || h.saved.Typed)
 	pr.a.SetTerminal(info.ID)
 	pr.a.SetEffort(pr.launch.Effort)
 	if d.Accounts != nil {
 		pr.a.SetAccount(d.Accounts.Of(provider, p.Env))
 	}
-	if o := t.TakeOrigin(); o != "" {
-		pr.a.SetOrigin(o)
+	if origin != "" {
+		pr.a.SetOrigin(origin)
 	}
 	d.place(pr)
 	d.mu.Lock()
@@ -191,7 +196,7 @@ func (pr *presence) save(e *state.Terminal) {
 	pr.mu.Unlock()
 	e.Provider, e.ConversationID, e.Launch = pr.provider, s.ProviderSessionID, &launch
 	e.AgentID, e.CreatedAt, e.Status, e.Failed, e.Origin, e.Pinned = s.ID, s.CreatedAt, s.Status, s.Failed, s.Origin, s.Pinned
-	e.Account = s.Account
+	e.Account, e.Typed = s.Account, pr.typed
 }
 
 // endAgent ends pr once; the poller and a hook's observe can both find it gone.

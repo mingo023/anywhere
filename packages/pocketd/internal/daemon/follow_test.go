@@ -295,3 +295,26 @@ func TestAMovedAgentLosesFullAccessWithANotice(t *testing.T) {
 
 	eventually(t, "the notice", func() bool { return pr.a.Summary().Restore == proto.RestoreAccessLowered })
 }
+
+func TestAnAgentTheUserStartedStaysOnItsAccount(t *testing.T) {
+	d := newDaemon(t)
+	asks := make(chan state.Terminal, 4)
+	d.Resume = func(e state.Terminal) (string, []string, string) {
+		asks <- e
+		return "/bin/sh", nil, ""
+	}
+	_, pr := claudeIn(t, d)
+	hookFrom(d, pr, sessionStart("c1", transcript(t, "hi")))
+	hookFrom(d, pr, `{"hook_event_name":"Stop","session_id":"c1"}`)
+	if s := pr.a.Summary(); !movable(s, "work") {
+		t.Fatalf("summary = %+v", s)
+	}
+
+	d.followTo("claude", "work")
+
+	select {
+	case <-asks:
+		t.Fatal("moved an agent the user started")
+	case <-time.After(300 * time.Millisecond):
+	}
+}

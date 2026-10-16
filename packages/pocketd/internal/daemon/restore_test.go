@@ -499,3 +499,44 @@ func TestTheFileKeepsWhoStartedTheAgent(t *testing.T) {
 		t.Fatalf("entry = %+v", e)
 	}
 }
+
+func TestTheFileKeepsWhetherTheUserStartedTheAgent(t *testing.T) {
+	d := newDaemon(t)
+	_, typed := claudeIn(t, d)
+	hookFrom(d, typed, sessionStart("s1", transcript(t, "hi")))
+	launched, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin"}, Origin: "desktop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(launched.Close)
+	waitAgent(t, d, launched)
+	pr := d.presentIn(launched.Info().ID)
+	hookFrom(d, pr, sessionStart("s2", transcript(t, "hi")))
+	for _, e := range d.Snapshot().Terminals {
+		if want := e.ConversationID == "s1"; e.Typed != want {
+			t.Errorf("entry = %+v", e)
+		}
+	}
+}
+
+func TestAnAgentTheUserStartedComesBackAsAShell(t *testing.T) {
+	d := newDaemon(t)
+	resuming(d, "/bin/sh", "-c", "sleep 30")
+	saved := savedAgent(t.TempDir(), "claude")
+	saved.Terminals[0].Typed = true
+	d.Restore(saved, "/bin/sh")
+	term := d.Terminals.Get("t-1")
+	if term == nil {
+		t.Fatal("t-1 was not recreated")
+	}
+	t.Cleanup(term.Close)
+	if info := term.Info(); info.Cmd != "/bin/sh" || !slices.Equal(info.Args, []string{"-l"}) {
+		t.Fatalf("info = %+v", info)
+	}
+	if all := d.Agents.List(); len(all) != 0 {
+		t.Fatalf("agents = %+v", all)
+	}
+	if e := d.Snapshot().Terminals[0]; e.AgentID != "" || e.Typed {
+		t.Fatalf("entry = %+v", e)
+	}
+}
