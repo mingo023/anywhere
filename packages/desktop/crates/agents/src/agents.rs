@@ -37,6 +37,8 @@ pub struct Summary {
     pub activity: String,
     /// The user's latest prompt in this conversation, cut short by pocketd; empty before the first.
     pub prompt: String,
+    /// When `prompt` reached pocketd, in Unix ms.
+    pub prompt_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
     /// The account it runs on; empty is the built-in login.
@@ -916,8 +918,8 @@ mod tests {
 
     #[test]
     fn summary_reads_the_latest_prompt_and_an_older_pocketd_sends_none() {
-        let a: Summary = serde_json::from_str(r#"{"id":"a","prompt":"fix the login"}"#).unwrap();
-        assert_eq!(a.prompt, "fix the login");
+        let a: Summary = serde_json::from_str(r#"{"id":"a","prompt":"fix the login","promptAt":1760670000000}"#).unwrap();
+        assert_eq!((a.prompt.as_str(), a.prompt_at), ("fix the login", 1760670000000));
         let older: Summary = serde_json::from_str(r#"{"id":"a"}"#).unwrap();
         assert_eq!(older.prompt, "");
     }

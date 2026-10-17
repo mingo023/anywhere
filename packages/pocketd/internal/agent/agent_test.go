@@ -269,16 +269,16 @@ func TestTheSummaryCarriesTheLatestPromptUntilTheConversationChanges(t *testing.
 	a.SetConversation("c1")
 	a.Record(timeline.Event{Kind: "user", Text: "  fix the login\n"})
 	a.Record(timeline.Event{Kind: "assistant_text", Text: "done"})
-	if s := a.Summary(); s.Prompt != "fix the login" {
-		t.Fatalf("first prompt: %q", s.Prompt)
+	if s := a.Summary(); s.Prompt != "fix the login" || s.PromptAt == 0 {
+		t.Fatalf("first prompt: %+v", s)
 	}
 	a.Record(timeline.Event{Kind: "user", Text: "now the logout"})
 	if s := a.Summary(); s.Prompt != "now the logout" || s.Title != "fix the login" {
 		t.Fatalf("second prompt: %+v", s)
 	}
 	a.SetConversation("c2")
-	if s := a.Summary(); s.Prompt != "" {
-		t.Fatalf("after switch: %q", s.Prompt)
+	if s := a.Summary(); s.Prompt != "" || s.PromptAt != 0 {
+		t.Fatalf("after switch: %+v", s)
 	}
 }
 
