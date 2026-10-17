@@ -17,9 +17,10 @@ import (
 )
 
 type sink struct {
-	mu     sync.Mutex
-	events []string
-	title  string
+	mu            sync.Mutex
+	events        []string
+	title         string
+	model, effort string
 }
 
 func (s *sink) Apply(e timeline.Event) {
@@ -55,6 +56,18 @@ func (s *sink) SetTokens(used, window int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, fmt.Sprintf("tokens:%d:%d", used, window))
+}
+
+func (s *sink) SetModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = model
+}
+
+func (s *sink) SetEffort(effort string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.effort = effort
 }
 
 func (s *sink) wait(t *testing.T, want ...string) {
@@ -325,4 +338,18 @@ func TestTokenUsageReportsTheLastTurnAndTheWindow(t *testing.T) {
 	srv.Push("thread/tokenUsage/updated", nil, fmt.Sprintf(usage, 1200, "258400"))
 	srv.Push("thread/tokenUsage/updated", nil, fmt.Sprintf(usage, 1500, "null"))
 	snk.wait(t, "tokens:1200:258400", "tokens:1500:0")
+}
+
+func TestResumeNamesTheThreadsModelAndEffort(t *testing.T) {
+	_, _, snk, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(`{"thread":{"turns":[]},"model":"gpt-6-sol","reasoningEffort":"xhigh"}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	snk.mu.Lock()
+	defer snk.mu.Unlock()
+	if snk.model != "gpt-6-sol" || snk.effort != "xhigh" {
+		t.Fatalf("model %q, effort %q", snk.model, snk.effort)
+	}
 }

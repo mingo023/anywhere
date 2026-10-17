@@ -13,10 +13,11 @@ import (
 
 type fakeDriver struct{}
 
-func (fakeDriver) Prompt(string) error { return nil }
-func (fakeDriver) Interrupt() error    { return nil }
-func (fakeDriver) Compact() error      { return nil }
-func (fakeDriver) Close()              {}
+func (fakeDriver) Prompt(string) error           { return nil }
+func (fakeDriver) Interrupt() error              { return nil }
+func (fakeDriver) Compact() error                { return nil }
+func (fakeDriver) Settings(string, string) error { return nil }
+func (fakeDriver) Close()                        {}
 
 type msg struct {
 	Type  string `json:"type"`
@@ -296,6 +297,26 @@ func TestRecordLeavesStatusAlone(t *testing.T) {
 	a.Record(timeline.Event{Kind: "result", OK: false})
 	if s := a.Summary(); s.Status != "idle" || s.Title != "hi" || s.MaxSeq != 2 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestASubagentsPromptNeitherTitlesTheAgentNorReachesOldClients(t *testing.T) {
+	h := hub.New()
+	plain, _ := h.Subscribe()
+	subs, _ := h.SubscribeSubagents()
+	a := NewRegistry(h).Add("a1", "/w", "claude", fakeDriver{})
+	drain(plain)
+	drain(subs)
+	epoch := a.Summary().Epoch
+	a.Record(timeline.Event{Kind: "user", Text: "Find the parser", ParentToolUseID: "t1"})
+	if s := a.Summary(); s.Title != "" || s.Epoch != epoch {
+		t.Fatalf("%+v", s)
+	}
+	if got := drain(plain); len(got) != 0 {
+		t.Fatalf("an old client got %+v", got)
+	}
+	if got := drain(subs); len(got) != 1 || got[0].Item.Kind != "user" {
+		t.Fatalf("%+v", got)
 	}
 }
 

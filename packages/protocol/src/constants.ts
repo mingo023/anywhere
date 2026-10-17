@@ -12,3 +12,5 @@ export const CAP_AUTOMATIONS = "automations.v1";
 export const CAP_LOCALS = "locals.v1";
 export const CAP_FORK = "fork.v1";
 export const CAP_ACCOUNTS = "accounts.v1";
+export const CAP_SUBAGENTS = "subagents.v1";
+export const CAP_SETTINGS = "settings.v1";

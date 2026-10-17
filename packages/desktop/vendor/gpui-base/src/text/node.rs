@@ -1918,6 +1918,7 @@ fn mark_highlight(mark: &TextMark, node_cx: &NodeContext, cx: &App) -> InlineHig
     let mut highlight = HighlightStyle::default();
     if mark.bold {
         highlight.font_weight = Some(FontWeight::SEMIBOLD);
+        highlight.color = node_cx.style.strong();
     }
     if mark.italic {
         highlight.font_style = Some(FontStyle::Italic);
@@ -1932,6 +1933,15 @@ fn mark_highlight(mark: &TextMark, node_cx: &NodeContext, cx: &App) -> InlineHig
         highlight.underline = Some(gpui::UnderlineStyle {
             thickness: gpui::px(1.),
             ..Default::default()
+        });
+    }
+    if mark.link.is_some()
+        && let Some(color) = node_cx.style.link_underline()
+    {
+        highlight.underline = Some(gpui::UnderlineStyle {
+            thickness: gpui::px(1.),
+            color: Some(color),
+            wavy: false,
         });
     }
     let mut font_family = None;
@@ -2482,15 +2492,21 @@ fn render_list(
                     .right(relative(1.))
                     .pr(font_size * 0.26)
                     .whitespace_nowrap()
-                    .text_color(style.link())
+                    .text_color(style.list_marker())
                     .child(format!("{}.", start + n as u64)),
-                None => div()
-                    .absolute()
-                    .left(-(font_size * 1.15))
-                    .top(line_height * 0.5 - font_size * 0.2)
-                    .size(font_size * 0.4)
-                    .rounded_full()
-                    .bg(style.link()),
+                None => {
+                    let (left, size) = match style.list_indent() {
+                        Some(indent) => (-indent + px(2.), px(5.)),
+                        None => (-(font_size * 1.15), font_size * 0.4),
+                    };
+                    div()
+                        .absolute()
+                        .left(left)
+                        .top((line_height - size) * 0.5)
+                        .size(size)
+                        .rounded_full()
+                        .bg(style.list_marker())
+                }
             };
             div()
                 .w_full()
@@ -2915,8 +2931,10 @@ impl BlockNode {
                 div()
                     .w_full()
                     // Rows share their borders, like collapsed ones.
-                    .when(row_ix == 0, |this| this.border_t_1())
-                    .border_b_1()
+                    .map(|this| match style.table_inner_rules() {
+                        true => this.when(row_ix > 0, |this| this.border_t_1()),
+                        false => this.when(row_ix == 0, |this| this.border_t_1()).border_b_1(),
+                    })
                     .border_color(style.border())
                     .flex()
                     .flex_row()
@@ -3021,8 +3039,10 @@ impl BlockNode {
                 div()
                     .w_full()
                     // Rows share their borders, like collapsed ones.
-                    .when(row_ix == 0, |this| this.border_t_1())
-                    .border_b_1()
+                    .map(|this| match style.table_inner_rules() {
+                        true => this.when(row_ix > 0, |this| this.border_t_1()),
+                        false => this.when(row_ix == 0, |this| this.border_t_1()).border_b_1(),
+                    })
                     .border_color(style.border())
                     .flex()
                     .flex_row()
@@ -3097,7 +3117,11 @@ impl BlockNode {
                     .whitespace_normal()
                     .text_size(heading_size(*level, style))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .line_height(relative(1.25))
+                    .when_some(style.strong(), |this, color| this.text_color(color))
+                    .map(|this| match style.heading_line_height(*level) {
+                        Some(height) => this.line_height(height),
+                        None => this.line_height(relative(1.25)),
+                    })
                     .child(children.render(
                         span.map(|span| TextLeafKey::block(span.start)),
                         &heading_cx,
@@ -3106,6 +3130,15 @@ impl BlockNode {
                     ))
                     .into_any_element()
             }
+            BlockNode::Blockquote {
+                children,
+                alert: None,
+                ..
+            } if let Some(quote) = style.blockquote() => div()
+                .w_full()
+                .refine_style(quote)
+                .children(render_column(children, false, node_cx, window, cx))
+                .into_any_element(),
             BlockNode::Blockquote {
                 children,
                 alert: None,
@@ -3197,8 +3230,8 @@ impl BlockNode {
                 *ordered,
                 *start,
                 ListMetrics {
-                    indent: font_size * 2.1,
-                    item_gap: style.paragraph_gap().to_pixels(rem_size) * 0.25,
+                    indent: style.list_indent().unwrap_or(font_size * 2.1),
+                    item_gap: style.list_item_gap().unwrap_or(style.paragraph_gap().to_pixels(rem_size) * 0.25),
                     item_padding: Pixels::ZERO,
                     font_size,
                     line_height: window.line_height(),

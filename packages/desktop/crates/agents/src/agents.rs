@@ -4,7 +4,7 @@ pub mod locals;
 use automations::{Automation, AutomationDraft, Automations, Run};
 use locals::Local;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -88,11 +88,25 @@ pub struct Item {
     pub duration_ms: i64,
     pub usage: Option<Usage>,
     pub call: Option<Call>,
+    /// A result's: whether the turn succeeded.
+    pub ok: bool,
+    /// A tasks item's todos.
+    pub items: Vec<TaskItem>,
+    /// A compact's: "manual" or "auto".
+    pub trigger: String,
+    /// The tool-use id of the sub-agent call this item belongs to.
+    pub parent_tool_use_id: Option<String>,
 }
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Call {
+    pub tool_use_id: String,
+    pub name: String,
+    /// "running", "ok" or "error".
+    pub status: String,
+    pub output: Option<String>,
+    pub duration_ms: Option<u64>,
     pub detail: Detail,
 }
 
@@ -100,7 +114,36 @@ pub struct Call {
 #[serde(default, rename_all = "camelCase")]
 pub struct Usage {
     pub input_tokens: u64,
+    pub output_tokens: u64,
     pub cache_read_tokens: u64,
+}
+
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct TaskItem {
+    pub text: String,
+    /// "pending", "in_progress" or "completed".
+    pub status: String,
+}
+
+/// A preview of an edit or write: pocketd keeps at most 24 lines, but counts the whole diff.
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FileDiff {
+    pub lines: Vec<DiffLine>,
+    pub additions: u32,
+    pub deletions: u32,
+    /// A write with no prior contents, so every line reads as added.
+    pub content_only: bool,
+}
+
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct DiffLine {
+    pub number: Option<u32>,
+    /// "add", "del" or "context".
+    pub kind: String,
+    pub text: String,
 }
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
@@ -112,15 +155,16 @@ pub struct Detail {
     pub query: String,
     pub description: String,
     pub name: String,
-    /// AskUserQuestion's, from the tool's input; the rest of it isn't kept, as timeline items share this.
-    #[serde(rename = "input", deserialize_with = "questions_in_input")]
-    pub questions: Vec<Question>,
+    pub diff: Option<FileDiff>,
+    /// An `other` tool's whole input.
+    pub input: Value,
 }
 
-/// A tool's input that isn't AskUserQuestion's has no questions, rather than failing its frame.
-fn questions_in_input<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Question>, D::Error> {
-    let input = Option::<Value>::deserialize(d)?;
-    Ok(input.and_then(|i| Vec::deserialize(i.get("questions")?).ok()).unwrap_or_default())
+impl Detail {
+    /// AskUserQuestion's, from the tool's input; an input shaped otherwise has none.
+    pub fn questions(&self) -> Vec<Question> {
+        self.input.get("questions").and_then(|q| Vec::deserialize(q).ok()).unwrap_or_default()
+    }
 }
 
 /// One of AskUserQuestion's questions.
@@ -175,7 +219,7 @@ impl Permission {
         if self.tool_name != "AskUserQuestion" {
             return vec![];
         }
-        self.detail.questions.clone()
+        self.detail.questions()
     }
 }
 
@@ -252,6 +296,8 @@ pub enum Event {
     CreateFailed { request: String, code: String, message: String, detail: String },
     Providers { phone_max: String },
     ConfigFailed(String),
+    /// pocketd couldn't switch an agent's model or effort.
+    SettingsFailed(String),
     /// Every worktree's display name by path, sent whole.
     Names(HashMap<String, String>),
     /// pocketd couldn't name the session from its prompt.
@@ -268,6 +314,8 @@ pub enum Event {
 pub struct Agents {
     pub list: Vec<Summary>,
     pub timelines: HashMap<String, Vec<Item>>,
+    /// Bumped each time an agent's timeline takes items, so views refold only when it moved.
+    pub revisions: HashMap<String, u64>,
     pub pending: Vec<Permission>,
     /// `None` until pocketd reports it, and again after each reconnect.
     pub host: Option<Host>,
@@ -287,6 +335,10 @@ pub struct Agents {
 impl Agents {
     pub fn get(&self, id: &str) -> Option<&Summary> {
         self.list.iter().find(|a| a.id == id)
+    }
+
+    pub fn revision(&self, id: &str) -> u64 {
+        self.revisions.get(id).copied().unwrap_or_default()
     }
 
     pub fn in_terminal(&self, terminal: &str) -> Option<&Summary> {
@@ -324,6 +376,7 @@ impl Agents {
                 None => self.list.push(a),
             },
             Event::Items(id, items) => {
+                *self.revisions.entry(id.clone()).or_default() += 1;
                 let t = self.timelines.entry(id).or_default();
                 for item in items {
                     match t.iter_mut().find(|x| x.id == item.id) {
@@ -351,7 +404,7 @@ impl Agents {
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
             Event::Providers { phone_max } => self.phone_max = phone_max,
-            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::NamingFailed(_) => {}
+            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::SettingsFailed(_) | Event::NamingFailed(_) => {}
             Event::Names(names) => {
                 self.names.retain(|path, _| !my_name(path));
                 self.names.extend(names);
@@ -434,6 +487,11 @@ impl Agents {
         self.caps.iter().any(|c| c == FORK_CAP)
     }
 
+    /// pocketd switches a running agent's model or effort.
+    pub fn settings_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == SETTINGS_CAP) && !self.observe_only()
+    }
+
     /// Shows a rename before pocketd echoes it; a blank title clears the name.
     pub fn set_name(&mut self, path: &str, title: &str) {
         match title.trim() {
@@ -449,7 +507,7 @@ impl Agents {
     }
 
     pub fn last_result(&self, id: &str) -> Option<&Item> {
-        self.timelines.get(id)?.iter().rev().find(|i| i.kind == "result")
+        self.timelines.get(id)?.iter().rev().find(|i| i.kind == "result" && i.parent_tool_use_id.is_none())
     }
 
     /// The agent whose timeline last edited or wrote `path`, and when; tool paths may be absolute or relative to its cwd.
@@ -468,7 +526,7 @@ impl Agents {
     }
 
     pub fn last_text(&self, id: &str) -> Option<&str> {
-        self.timelines.get(id)?.iter().rev().find(|i| i.kind == "assistant").map(|i| i.text.as_str())
+        self.timelines.get(id)?.iter().rev().find(|i| i.kind == "assistant" && i.parent_tool_use_id.is_none()).map(|i| i.text.as_str())
     }
 }
 
@@ -486,22 +544,39 @@ pub fn model_label(a: &Summary) -> String {
     if version.is_empty() { family } else { format!("{family} {}", version.join(".")) }
 }
 
-/// The models `codex debug models` lists, as (slug, name); hidden ones are left out.
-pub fn codex_models(json: &str) -> Vec<(String, String)> {
+#[derive(Deserialize)]
+struct CodexModel {
+    slug: String,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    visibility: String,
+    #[serde(default)]
+    supported_reasoning_levels: Vec<CodexLevel>,
+}
+
+#[derive(Deserialize)]
+struct CodexLevel {
+    effort: String,
+}
+
+/// The models `codex debug models` lists; hidden ones are left out.
+fn codex_catalog(json: &str) -> Vec<CodexModel> {
     #[derive(Deserialize)]
     struct Catalog {
-        models: Vec<Model>,
+        models: Vec<CodexModel>,
     }
-    #[derive(Deserialize)]
-    struct Model {
-        slug: String,
-        #[serde(default)]
-        display_name: String,
-        #[serde(default)]
-        visibility: String,
-    }
-    let Ok(catalog) = serde_json::from_str::<Catalog>(json) else { return Vec::new() };
-    catalog.models.into_iter().filter(|m| m.visibility == "list").map(|m| (m.slug.clone(), if m.display_name.is_empty() { m.slug } else { m.display_name })).collect()
+    serde_json::from_str::<Catalog>(json).map_or_else(|_| Vec::new(), |c| c.models.into_iter().filter(|m| m.visibility == "list").collect())
+}
+
+/// The models `codex debug models` lists, as (slug, name).
+pub fn codex_models(json: &str) -> Vec<(String, String)> {
+    codex_catalog(json).into_iter().map(|m| (m.slug.clone(), if m.display_name.is_empty() { m.slug } else { m.display_name })).collect()
+}
+
+/// Each listed model's efforts, as (slug, efforts).
+pub fn codex_efforts(json: &str) -> Vec<(String, Vec<String>)> {
+    codex_catalog(json).into_iter().map(|m| (m.slug, m.supported_reasoning_levels.into_iter().map(|l| l.effort).collect())).collect()
 }
 
 /// A reply to a permission ask. pocketd interrupts the turn on a deny.
@@ -514,6 +589,7 @@ pub enum Decision {
 const PAIR: &str = "pair";
 const CREATE: &str = "create-";
 const CONFIG: &str = "config";
+const SETTINGS: &str = "settings";
 const AUTO: &str = "auto-";
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -529,6 +605,7 @@ fn launch_event(f: &Frame) -> Option<Event> {
         "agent.created" => Event::Created { request: f.request_id.clone(), agent: f.agent_id.clone() },
         "agent.providers" => Event::Providers { phone_max: f.phone_max_access.clone() },
         "error" if f.id == CONFIG => Event::ConfigFailed(f.message.clone()),
+        "error" if f.id == SETTINGS => Event::SettingsFailed(f.message.clone()),
         "error" => Event::CreateFailed { request: f.id.strip_prefix(CREATE)?.to_string(), code: f.code.clone(), message: readable(&f.message), detail: f.detail.clone() },
         _ => return None,
     })
@@ -556,6 +633,7 @@ const AUTOMATIONS_CAP: &str = "automations.v1";
 const LOCALS_CAP: &str = "locals.v1";
 const FORK_CAP: &str = "fork.v1";
 const ACCOUNTS_CAP: &str = "accounts.v1";
+const SETTINGS_CAP: &str = "settings.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
@@ -596,6 +674,28 @@ impl Outbox {
 
     pub fn pin(&self, agent_id: &str, pinned: bool) {
         self.send(json!({"type": "agent.pin", "id": "pin", "agentId": agent_id, "pinned": pinned}));
+    }
+
+    /// Types `text` into the agent's terminal and presses Enter.
+    pub fn prompt(&self, agent_id: &str, text: &str) {
+        self.send(json!({"type": "agent.prompt", "id": "prompt", "agentId": agent_id, "text": text}));
+    }
+
+    pub fn interrupt(&self, agent_id: &str) {
+        self.send(json!({"type": "agent.interrupt", "id": "interrupt", "agentId": agent_id}));
+    }
+
+    pub fn compact(&self, agent_id: &str) {
+        self.send(json!({"type": "agent.compact", "id": "compact", "agentId": agent_id}));
+    }
+
+    /// Switches the agent's model, effort or both; "" keeps one as it is.
+    pub fn settings(&self, agent_id: &str, model: &str, effort: &str) {
+        let mut msg = json!({"type": "agent.settings", "id": SETTINGS, "agentId": agent_id});
+        for (key, value) in [("model", model), ("effort", effort)].into_iter().filter(|(_, v)| !v.is_empty()) {
+            msg[key] = value.into();
+        }
+        self.send(msg);
     }
 
     pub fn resolve(&self, request_id: &str, decision: Decision) {
@@ -706,7 +806,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 10] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP];
+const CAPS: [&str; 12] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -844,6 +944,12 @@ mod tests {
     }
 
     #[test]
+    fn codex_lists_each_shown_models_efforts() {
+        let json = r#"{"models":[{"slug":"gpt-6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"Fast"},{"effort":"ultra","description":"Most"}]},{"slug":"gpt-reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
+        assert_eq!(super::codex_efforts(json), [("gpt-6-sol".to_string(), vec!["low".to_string(), "ultra".to_string()]), ("gpt-5.6-luna".to_string(), vec![])]);
+    }
+
+    #[test]
     fn labels_models_like_the_picker() {
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5"))), "Opus 5");
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5-5"))), "Opus 5.5");
@@ -892,6 +998,14 @@ mod tests {
     }
 
     #[test]
+    fn a_sub_agents_text_is_not_its_parents_last_word() {
+        let mut a = Agents::default();
+        let text = |id: &str, seq, parent: Option<&str>| Item { id: id.into(), seq, kind: "assistant".into(), text: id.into(), parent_tool_use_id: parent.map(Into::into), ..Default::default() };
+        a.apply(Event::Items("a".into(), vec![text("mine", 1, None), text("theirs", 2, Some("tool"))]));
+        assert_eq!(a.last_text("a"), Some("mine"));
+    }
+
+    #[test]
     fn permissions_stay_pending_until_resolved_or_reconnected() {
         let f: Frame = serde_json::from_str(r#"{"type":"permission.request","request":{"requestId":"r1","agentId":"a","toolName":"Bash","detail":{"kind":"shell","command":"pnpm test"}}}"#).unwrap();
         let p = f.request.unwrap();
@@ -912,6 +1026,15 @@ mod tests {
         let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_failed.json")).unwrap();
         let a = f.agent.unwrap();
         assert_eq!((a.terminal_id.as_str(), a.status.as_str(), a.failed, a.attached, a.compacting), ("t1", "done", true, true, false));
+    }
+
+    #[test]
+    fn sub_agent_items_decode_with_the_call_that_spawned_them() {
+        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/stream_subagent.json")).unwrap();
+        assert_eq!(f.item.unwrap().parent_tool_use_id.as_deref(), Some("t4"));
+        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/timeline_subagents.json")).unwrap();
+        let parents: Vec<_> = f.items.iter().map(|i| i.parent_tool_use_id.as_deref()).collect();
+        assert_eq!(parents, [None, None, None, Some("toolu_list"), Some("toolu_list"), Some("toolu_list"), Some("toolu_count"), Some("toolu_count"), None]);
     }
 
     #[test]
@@ -995,7 +1118,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -1192,16 +1315,16 @@ mod tests {
 
     #[test]
     fn only_ask_user_question_has_questions() {
-        let p = Permission { tool_name: "Bash".into(), detail: Detail { questions: vec![Question::default()], ..Default::default() }, ..Default::default() };
+        let p = Permission { tool_name: "Bash".into(), detail: Detail { input: json!({"questions": [{}]}), ..Default::default() }, ..Default::default() };
         assert!(p.questions().is_empty());
     }
 
     #[test]
     fn a_tool_input_shaped_unlike_questions_still_reads() {
         let d: Detail = serde_json::from_value(json!({"kind": "other", "name": "mcp", "input": {"questions": "free text"}})).unwrap();
-        assert_eq!((d.name.as_str(), d.questions.len()), ("mcp", 0));
+        assert_eq!((d.name.as_str(), d.questions().len()), ("mcp", 0));
         let d: Detail = serde_json::from_value(json!({"kind": "other", "input": null})).unwrap();
-        assert!(d.questions.is_empty());
+        assert!(d.questions().is_empty());
     }
 
     #[test]
@@ -1479,11 +1602,114 @@ mod tests {
     fn an_edit_is_found_by_absolute_path_or_by_one_relative_to_the_agents_cwd() {
         let mut a = Agents::default();
         a.list.push(Summary { id: "a".into(), cwd: "/r".into(), ..Default::default() });
-        let edit = |path: &str| Item { ts: 1, call: Some(Call { detail: Detail { kind: "edit".into(), path: path.into(), ..Default::default() } }), ..Default::default() };
+        let edit = |path: &str| Item { ts: 1, call: Some(Call { detail: Detail { kind: "edit".into(), path: path.into(), ..Default::default() }, ..Default::default() }), ..Default::default() };
         a.timelines.insert("a".into(), vec![edit("src/a.rs"), edit("/elsewhere/b.rs")]);
         assert!(a.last_edit("/r/src/a.rs").is_some());
         assert!(a.last_edit("/elsewhere/b.rs").is_some());
         assert!(a.last_edit("/r/src/b.rs").is_none());
         assert!(a.last_edit("/rr/src/a.rs").is_none());
+    }
+
+    macro_rules! golden {
+        ($name:literal) => {
+            serde_json::from_str::<Value>(include_str!(concat!("../../../../pocketd/internal/proto/testdata/golden/", $name))).unwrap()
+        };
+    }
+
+    fn sent_but_id(send: impl FnOnce(&Outbox)) -> Value {
+        let (tx, rx) = channel();
+        send(&Outbox(tx));
+        let mut sent = rx.try_iter().next().unwrap();
+        sent.as_object_mut().unwrap().remove("id");
+        sent
+    }
+
+    fn without_id(mut v: Value) -> Value {
+        v.as_object_mut().unwrap().remove("id");
+        v
+    }
+
+    fn streamed(golden: Value) -> Item {
+        serde_json::from_value::<Frame>(golden).unwrap().item.unwrap()
+    }
+
+    #[test]
+    fn prompt_sends_the_golden_agent_prompt_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.prompt("a1", "hi")), without_id(golden!("client/agent_prompt.json")));
+    }
+
+    #[test]
+    fn interrupt_sends_the_golden_agent_interrupt_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.interrupt("a1")), without_id(golden!("client/agent_interrupt.json")));
+    }
+
+    #[test]
+    fn compact_sends_the_golden_agent_compact_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.compact("a1")), without_id(golden!("client/agent_compact.json")));
+    }
+
+    #[test]
+    fn settings_sends_the_golden_agent_settings_frame_but_its_id_and_leaves_out_what_stays() {
+        assert_eq!(sent_but_id(|o| o.settings("a1", "opus", "high")), without_id(golden!("client/agent_settings.json")));
+        assert_eq!(sent_but_id(|o| o.settings("a1", "", "low")), json!({"type": "agent.settings", "agentId": "a1", "effort": "low"}));
+    }
+
+    #[test]
+    fn a_refused_switch_becomes_settings_failed() {
+        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"settings","message":"Codex can switch once its first turn has started"}"#).unwrap();
+        assert!(matches!(launch_event(&f), Some(Event::SettingsFailed(m)) if m.starts_with("Codex can switch")));
+    }
+
+    #[test]
+    fn a_finished_tool_keeps_its_use_id_status_output_and_duration() {
+        let call = streamed(golden!("server/stream_tool_done.json")).call.unwrap();
+        assert_eq!((call.tool_use_id.as_str(), call.name.as_str(), call.status.as_str()), ("t2", "Edit", "ok"));
+        assert_eq!((call.output.as_deref(), call.duration_ms), (Some("done"), Some(5)));
+    }
+
+    #[test]
+    fn an_edit_keeps_its_diff_lines_and_counts() {
+        let diff = streamed(golden!("server/stream_tool_done.json")).call.unwrap().detail.diff.unwrap();
+        let line = |kind: &str, text: &str| DiffLine { number: Some(1), kind: kind.into(), text: text.into() };
+        assert_eq!(diff, FileDiff { lines: vec![line("del", "a"), line("add", "b")], additions: 1, deletions: 1, content_only: false });
+    }
+
+    #[test]
+    fn a_tasks_item_keeps_its_todos() {
+        assert_eq!(streamed(golden!("server/stream_tasks.json")).items, vec![TaskItem { text: "x".into(), status: "in_progress".into() }]);
+    }
+
+    #[test]
+    fn a_result_keeps_whether_it_succeeded_and_its_output_tokens() {
+        let failed = streamed(golden!("server/stream_result.json"));
+        assert_eq!((failed.ok, failed.error.as_str()), (false, "interrupted"));
+        let f: Frame = serde_json::from_value(golden!("server/timeline.json")).unwrap();
+        let done = &f.items[1];
+        assert_eq!((done.ok, done.usage.as_ref().map(|u| u.output_tokens)), (true, Some(2)));
+    }
+
+    #[test]
+    fn a_compact_keeps_its_trigger() {
+        assert_eq!(streamed(golden!("server/stream_compact.json")).trigger, "manual");
+    }
+
+    #[test]
+    fn an_ask_user_question_still_reads_its_questions_from_input() {
+        let item: Item = serde_json::from_value(json!({"kind": "tool", "id": "i1", "call": {"toolUseId": "t1", "name": "AskUserQuestion", "status": "running",
+            "detail": {"kind": "other", "name": "AskUserQuestion", "input": {"questions": [{"question": "Which color?", "header": "Color", "options": [{"label": "Red"}]}]}}}}))
+        .unwrap();
+        let detail = item.call.unwrap().detail;
+        assert_eq!(detail.questions()[0].question, "Which color?");
+        assert_eq!(detail.input["questions"][0]["header"], "Color");
+    }
+
+    #[test]
+    fn applying_items_bumps_only_that_agents_revision() {
+        let mut a = Agents::default();
+        let item = |id: &str| Item { id: id.into(), ..Default::default() };
+        a.apply(Event::Items("a".into(), vec![item("1")]));
+        a.apply(Event::Items("a".into(), vec![item("2")]));
+        a.apply(Event::Agents(vec![]));
+        assert_eq!((a.revision("a"), a.revision("b")), (2, 0));
     }
 }

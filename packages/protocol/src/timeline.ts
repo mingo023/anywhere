@@ -76,7 +76,13 @@ export type TimelineBody = typeof TimelineBody.Type;
 
 export const TimelineItem = Schema.extend(
   TimelineBody,
-  Schema.Struct({ id: Schema.String, seq: Schema.Number, ts: Schema.Number }),
+  Schema.Struct({
+    id: Schema.String,
+    seq: Schema.Number,
+    ts: Schema.Number,
+    /** The tool call that spawned the sub-agent this item belongs to. */
+    parentToolUseId: Schema.optional(Schema.String),
+  }),
 );
 export type TimelineItem = typeof TimelineItem.Type;
 

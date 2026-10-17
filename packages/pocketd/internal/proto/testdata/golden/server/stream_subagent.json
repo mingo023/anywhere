@@ -1,0 +1,21 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "tool",
+    "id": "i7",
+    "seq": 7,
+    "ts": 16,
+    "parentToolUseId": "t4",
+    "call": {
+      "toolUseId": "t5",
+      "name": "Read",
+      "detail": {
+        "kind": "read",
+        "path": "a.go"
+      },
+      "status": "running"
+    }
+  }
+}

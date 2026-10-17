@@ -7,6 +7,8 @@ use store::prefs::agents::{CLAUDE_MODELS, efforts};
 #[derive(Default)]
 pub(crate) struct Models {
     codex: Option<Vec<(String, String)>>,
+    /// Each Codex model's efforts, as (slug, efforts).
+    efforts: Vec<(String, Vec<String>)>,
     loading: bool,
     /// Bumped by `forget_models`, so a list asked for before it is dropped.
     asked: u32,
@@ -14,13 +16,18 @@ pub(crate) struct Models {
 
 /// A dropdown's (value, label) pairs: `none` first as "", then `provider`'s models, keeping a stored one the list lacks.
 pub(crate) fn model_options(provider: &str, codex: &[(String, String)], current: &str, none: &str) -> Vec<(String, String)> {
-    let listed: Vec<(String, String)> = if provider == "codex" { codex.to_vec() } else { CLAUDE_MODELS.iter().map(|m| (m.to_string(), model_label(m))).collect() };
+    let listed = listed_models(provider, codex);
     let mut out = vec![(String::new(), none.to_string())];
     if !current.is_empty() && !listed.iter().any(|(v, _)| v == current) {
         out.push((current.into(), current.into()));
     }
     out.extend(listed);
     out
+}
+
+/// `provider`'s models as (value, label): Codex's from its CLI, Claude Code's aliases.
+pub(crate) fn listed_models(provider: &str, codex: &[(String, String)]) -> Vec<(String, String)> {
+    if provider == "codex" { codex.to_vec() } else { CLAUDE_MODELS.iter().map(|m| (m.to_string(), model_label(m))).collect() }
 }
 
 pub(crate) fn effort_options(provider: &str, none: &str) -> Vec<(String, String)> {
@@ -60,12 +67,13 @@ impl Desktop {
         let asked = m.asked;
         let command = self.store.agents.command("codex");
         cx.spawn(async move |this, cx| {
-            let list = cx.background_executor().spawn(async move { daemon::run_login(&[&command, "debug", "models"], &home(), "").ok().map(|out| agents::codex_models(&out)) }).await;
+            let list = cx.background_executor().spawn(async move { daemon::run_login(&[&command, "debug", "models"], &home(), "").ok() }).await;
             this.update(cx, |d, cx| {
                 let m = &mut d.settings.models;
                 if m.asked == asked {
+                    m.efforts = list.as_deref().map(agents::codex_efforts).unwrap_or_default();
                     // A failed read stays None, so the next page that needs the list asks again.
-                    (m.codex, m.loading) = (list, false);
+                    (m.codex, m.loading) = (list.as_deref().map(agents::codex_models), false);
                     cx.notify();
                 }
             })
@@ -82,6 +90,14 @@ impl Desktop {
 
     pub(crate) fn codex_models(&self) -> &[(String, String)] {
         self.settings.models.codex.as_deref().unwrap_or_default()
+    }
+
+    /// The efforts `provider` offers on `model`: Claude Code's on any, Codex's per model.
+    pub(crate) fn efforts_on(&self, provider: &str, model: &str) -> Vec<String> {
+        if provider != "codex" {
+            return efforts(provider).iter().map(|e| e.to_string()).collect();
+        }
+        self.settings.models.efforts.iter().find(|(slug, _)| slug == model).map(|(_, e)| e.clone()).unwrap_or_default()
     }
 }
 

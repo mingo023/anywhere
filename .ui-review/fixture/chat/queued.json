@@ -1,0 +1,25 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Rename Entry to Row everywhere."
+ },
+ {
+  "id": "th1",
+  "kind": "thinking",
+  "text": "There are 40 call sites; a find and replace across crates/chat is safe because Entry is not exported."
+ },
+ {
+  "id": "t1",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-t1",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "rg -l '\\bEntry\\b' crates/chat"
+   },
+   "status": "running"
+  }
+ }
+]

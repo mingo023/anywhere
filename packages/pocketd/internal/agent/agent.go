@@ -19,6 +19,8 @@ type Driver interface {
 	Prompt(text string) error
 	Interrupt() error
 	Compact() error
+	// Settings switches the model, the effort or both; "" keeps one as it is.
+	Settings(model, effort string) error
 	Close()
 }
 
@@ -483,7 +485,8 @@ func shownPrompt(text string) string {
 
 // Record adds one provider event to the timeline and tells every phone. It leaves the status alone.
 func (a *Agent) Record(e timeline.Event) {
-	if e.Kind == "user" {
+	sub := e.ParentToolUseID != ""
+	if e.Kind == "user" && !sub {
 		a.Timeline.StartEpoch()
 		a.update(false, func() {
 			if a.title == "" {
@@ -499,6 +502,10 @@ func (a *Agent) Record(e timeline.Event) {
 	}
 	if item, ok := a.Timeline.Apply(e, now()); ok {
 		epoch, _ := a.Timeline.State()
-		a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
+		if sub {
+			a.hub.PublishSubagent(proto.NewAgentStream(a.id, epoch, item))
+		} else {
+			a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
+		}
 	}
 }

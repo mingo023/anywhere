@@ -18,6 +18,8 @@ type Sink interface {
 	Apply(timeline.Event)
 	SetTitle(string)
 	SetTokens(used, window int64)
+	SetModel(string)
+	SetEffort(string)
 }
 
 // Session follows one thread: it maps app-server items to timeline events
@@ -80,6 +82,8 @@ type resumed struct {
 		Turns []turn  `json:"turns"`
 	} `json:"thread"`
 	TurnsBackwardsCursor *string `json:"turnsBackwardsCursor"`
+	Model                string  `json:"model"`
+	ReasoningEffort      string  `json:"reasoningEffort"`
 }
 
 // Open subscribes to a thread and replays its history. Resume fails until the
@@ -147,6 +151,12 @@ func (s *Session) replay(r resumed) {
 	defer s.mu.Unlock()
 	if r.Thread.Name != nil {
 		s.sink.SetTitle(*r.Thread.Name)
+	}
+	if r.Model != "" {
+		s.sink.SetModel(r.Model)
+	}
+	if r.ReasoningEffort != "" {
+		s.sink.SetEffort(r.ReasoningEffort)
 	}
 	for _, t := range r.Thread.Turns {
 		for _, it := range t.Items {

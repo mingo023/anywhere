@@ -36,3 +36,17 @@ func TestUnsubscribeTwiceIsSafe(t *testing.T) {
 	stop()
 	h.Publish(1)
 }
+
+func TestASubagentsItemReachesOnlySubscribersThatTakeThem(t *testing.T) {
+	h := New()
+	plain, _ := h.Subscribe()
+	subs, _ := h.SubscribeSubagents()
+	h.PublishSubagent(1)
+	h.Publish(2)
+	if got := string(<-subs); got != "1" {
+		t.Fatal(got)
+	}
+	if got := string(<-plain); got != "2" {
+		t.Fatalf("plain subscriber got %s first", got)
+	}
+}

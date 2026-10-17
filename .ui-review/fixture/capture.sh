@@ -14,6 +14,7 @@ for spec in "$@"; do
   case ${spec%%=*} in
     compact-sidebar-open|repositories-worktrees) scenario=worktrees ;;
     restore-*) scenario=restored ;;
+    chat*) scenario=chat ;;
     *) scenario=sessions ;;
   esac
   fx=$(mktemp -d)

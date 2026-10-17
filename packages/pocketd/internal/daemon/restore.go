@@ -60,10 +60,11 @@ func (p pending) refuse() error {
 	return agent.ErrResuming
 }
 
-func (p pending) Prompt(string) error { return p.refuse() }
-func (p pending) Interrupt() error    { return p.refuse() }
-func (p pending) Compact() error      { return p.refuse() }
-func (p pending) Close()              { p.d.drop(p.h) }
+func (p pending) Prompt(string) error           { return p.refuse() }
+func (p pending) Interrupt() error              { return p.refuse() }
+func (p pending) Compact() error                { return p.refuse() }
+func (p pending) Settings(string, string) error { return p.refuse() }
+func (p pending) Close()                        { p.d.drop(p.h) }
 
 // Snapshot is what a restart needs to bring every Terminal back. An Agent
 // still resuming keeps its saved entry, so a second restart doesn't lose it.

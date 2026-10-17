@@ -1,0 +1,25 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Run the parser tests."
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "I'll run the suite for the parser package."
+ },
+ {
+  "id": "t1",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-t1",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "pnpm test --filter parser"
+   },
+   "status": "running"
+  }
+ }
+]

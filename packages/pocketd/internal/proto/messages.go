@@ -40,6 +40,8 @@ type ClientMessage struct {
 	Enabled         bool
 	LocalID         string
 	Project         string
+	Model           string
+	Effort          string
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -111,6 +113,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
 	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close":
 		ok = get("agentId", &m.AgentID)
+	case m.Type == "agent.settings":
+		ok = get("agentId", &m.AgentID) && optionalString("model", &m.Model) && optionalString("effort", &m.Effort) && (m.Model != "" || m.Effort != "")
 	case m.Type == "agent.pin":
 		ok = get("agentId", &m.AgentID) && get("pinned", &m.Pinned)
 	case m.Type == "agent.view", m.Type == "agent.seen":

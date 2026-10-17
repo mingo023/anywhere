@@ -365,6 +365,9 @@ pub struct Store {
     /// The sidebar's pins and project groups.
     #[serde(deserialize_with = "lenient")]
     pub sections: sections::Sections,
+    /// Terminals of sessions started from the New session page, which show their agent's chat for good.
+    #[serde(deserialize_with = "lenient")]
+    pub chats: BTreeSet<String>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -563,6 +566,7 @@ mod tests {
         s.sections.set_group("/w", Some(work));
         s.sections.toggle_pin(sections::Pin::Tree { project: "/w".into(), tree: "/t/fix".into() });
         s.sections.sort = sections::Sort::Recent;
+        s.chats.insert("t1".into());
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);

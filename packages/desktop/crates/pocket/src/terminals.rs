@@ -306,7 +306,7 @@ impl Desktop {
         if self.place().as_deref() == Some(tree.as_str()) {
             self.show_tree(&tree);
             self.load_active(cx);
-            self.focus_pane(id, window, cx);
+            self.focus_chat_or_terminal(id, window, cx);
         }
         self.save_soon(cx);
     }
@@ -379,6 +379,7 @@ impl Desktop {
         if self.terminals.close(id) {
             self.daemon.send(json!({"op": "close", "id": id}));
         }
+        self.store.chats.remove(id);
         if self.terminal.menu.as_ref().is_some_and(|(p, _)| p == id) {
             self.terminal.menu = None;
         }

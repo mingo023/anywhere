@@ -15,6 +15,11 @@ pub struct TextViewStyle {
     foreground: Hsla,
     muted_foreground: Hsla,
     link: Hsla,
+    link_underline: Option<Hsla>,
+    list_marker: Option<Hsla>,
+    list_indent: Option<Pixels>,
+    list_item_gap: Option<Pixels>,
+    strong: Option<Hsla>,
     selection: Hsla,
     code_background: Hsla,
     border: Hsla,
@@ -26,8 +31,11 @@ pub struct TextViewStyle {
     paragraph_gap: Rems,
     heading_base_font_size: Pixels,
     heading_font_size: Option<Arc<dyn Fn(u8, Pixels) -> Pixels + Send + Sync + 'static>>,
+    heading_line_height: Option<[Pixels; 6]>,
     code_block: StyleRefinement,
+    blockquote: Option<StyleRefinement>,
     table: StyleRefinement,
+    table_inner_rules: bool,
     table_head: StyleRefinement,
     table_cell: StyleRefinement,
     inline_code: HighlightStyle,
@@ -40,6 +48,11 @@ impl PartialEq for TextViewStyle {
             && self.foreground == other.foreground
             && self.muted_foreground == other.muted_foreground
             && self.link == other.link
+            && self.link_underline == other.link_underline
+            && self.list_marker == other.list_marker
+            && self.list_indent == other.list_indent
+            && self.list_item_gap == other.list_item_gap
+            && self.strong == other.strong
             && self.selection == other.selection
             && self.code_background == other.code_background
             && self.border == other.border
@@ -57,8 +70,11 @@ impl PartialEq for TextViewStyle {
                 (None, None) => true,
                 _ => false,
             }
+            && self.heading_line_height == other.heading_line_height
             && self.code_block == other.code_block
+            && self.blockquote == other.blockquote
             && self.table == other.table
+            && self.table_inner_rules == other.table_inner_rules
             && self.table_head == other.table_head
             && self.table_cell == other.table_cell
             && self.inline_code == other.inline_code
@@ -91,6 +107,11 @@ impl TextViewStyle {
             foreground: colors.foreground,
             muted_foreground: colors.muted_foreground,
             link: colors.primary,
+            link_underline: None,
+            list_marker: None,
+            list_indent: None,
+            list_item_gap: None,
+            strong: None,
             selection: colors.selection,
             code_background: colors.accent,
             border: colors.border,
@@ -102,8 +123,11 @@ impl TextViewStyle {
             paragraph_gap: rems(1.),
             heading_base_font_size: px(14.),
             heading_font_size: None,
+            heading_line_height: None,
             code_block: StyleRefinement::default(),
+            blockquote: None,
             table: StyleRefinement::default(),
+            table_inner_rules: false,
             table_head: StyleRefinement::default(),
             table_cell: StyleRefinement::default(),
             inline_code: HighlightStyle {
@@ -129,6 +153,37 @@ impl TextViewStyle {
     /// Sets the link text color.
     pub fn with_link(mut self, color: Hsla) -> Self {
         self.link = color;
+        self
+    }
+
+    /// Underlines links in `color`, so they read as links without relying on color.
+    pub fn with_link_underline(mut self, color: Hsla) -> Self {
+        self.link_underline = Some(color);
+        self
+    }
+
+    /// Sets the color of list dots and numbers, in place of the link color.
+    pub fn with_list_marker(mut self, color: Hsla) -> Self {
+        self.list_marker = Some(color);
+        self
+    }
+
+    /// Indents list text by `indent`, with the dot hanging at the list's left
+    /// edge, under the text before the list.
+    pub fn with_list_indent(mut self, indent: Pixels) -> Self {
+        self.list_indent = Some(indent);
+        self
+    }
+
+    /// Colors bold text and headings, so they stand out from body text.
+    pub fn with_strong(mut self, color: Hsla) -> Self {
+        self.strong = Some(color);
+        self
+    }
+
+    /// Sets the space between list items, in place of a quarter of the paragraph gap.
+    pub fn with_list_item_gap(mut self, gap: Pixels) -> Self {
+        self.list_item_gap = Some(gap);
         self
     }
 
@@ -208,6 +263,12 @@ impl TextViewStyle {
         self
     }
 
+    /// Sets the line height of a heading by level (1-6).
+    pub fn with_heading_line_height(mut self, f: impl Fn(u8) -> Pixels) -> Self {
+        self.heading_line_height = Some(std::array::from_fn(|ix| f(ix as u8 + 1)));
+        self
+    }
+
     /// Sets the style refinement for code blocks.
     pub fn with_code_block(mut self, style: StyleRefinement) -> Self {
         self.code_block = style;
@@ -220,6 +281,20 @@ impl TextViewStyle {
     /// which keeps [`TextViewStyle::default`] usable without a theme.
     pub fn with_inline_code(mut self, style: HighlightStyle) -> Self {
         self.inline_code = style;
+        self
+    }
+
+    /// Styles a blockquote as one box from `style` (a left border, a wash,
+    /// padding, text color), in place of the default bar and muted text.
+    pub fn with_blockquote(mut self, style: StyleRefinement) -> Self {
+        self.blockquote = Some(style);
+        self
+    }
+
+    /// Rules a table only between its rows, with none above the header or
+    /// below the last row.
+    pub fn with_table_inner_rules(mut self) -> Self {
+        self.table_inner_rules = true;
         self
     }
 
@@ -271,6 +346,31 @@ impl TextViewStyle {
     /// The link text color.
     pub fn link(&self) -> Hsla {
         self.link
+    }
+
+    /// The color links are underlined in, if they are.
+    pub fn link_underline(&self) -> Option<Hsla> {
+        self.link_underline
+    }
+
+    /// The color of list dots and numbers.
+    pub fn list_marker(&self) -> Hsla {
+        self.list_marker.unwrap_or(self.link)
+    }
+
+    /// The list text indent, when set in place of the font-relative default.
+    pub fn list_indent(&self) -> Option<Pixels> {
+        self.list_indent
+    }
+
+    /// The color of bold text and headings, when set in place of the text color.
+    pub fn strong(&self) -> Option<Hsla> {
+        self.strong
+    }
+
+    /// The space between list items, when set in place of the paragraph-relative default.
+    pub fn list_item_gap(&self) -> Option<Pixels> {
+        self.list_item_gap
     }
 
     /// The background painted behind selected text.
@@ -332,6 +432,21 @@ impl TextViewStyle {
         self.heading_font_size
             .as_ref()
             .map(|f| f(level, self.heading_base_font_size))
+    }
+
+    /// The line height of a heading of `level`, when set.
+    pub fn heading_line_height(&self, level: u8) -> Option<Pixels> {
+        self.heading_line_height.map(|h| h[(level.clamp(1, 6) - 1) as usize])
+    }
+
+    /// The style refinement for blockquotes, when set.
+    pub fn blockquote(&self) -> Option<&StyleRefinement> {
+        self.blockquote.as_ref()
+    }
+
+    /// Whether table rules run only between rows.
+    pub fn table_inner_rules(&self) -> bool {
+        self.table_inner_rules
     }
 
     /// The style refinement for code blocks.

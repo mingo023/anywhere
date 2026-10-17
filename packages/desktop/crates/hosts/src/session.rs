@@ -129,7 +129,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(agent);
         }
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
-        Event::Connected { .. } => {}
+        Event::Connected { .. } | Event::SettingsFailed(_) => {}
         Event::Host(_)
         | Event::PairCode { .. }
         | Event::Paired(_)
@@ -211,6 +211,22 @@ impl Outboxes {
 
     pub fn pin(&self, agent_id: &str, pinned: bool) {
         self.by_id(agent_id, |o, id| o.pin(id, pinned));
+    }
+
+    pub fn prompt(&self, agent_id: &str, text: &str) {
+        self.by_id(agent_id, |o, id| o.prompt(id, text));
+    }
+
+    pub fn interrupt(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.interrupt(id));
+    }
+
+    pub fn compact(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.compact(id));
+    }
+
+    pub fn settings(&self, agent_id: &str, model: &str, effort: &str) {
+        self.by_id(agent_id, |o, id| o.settings(id, model, effort));
     }
 
     pub fn resolve(&self, request_id: &str, decision: Decision) {
@@ -398,5 +414,17 @@ mod tests {
         let (out, here, there) = outboxes();
         assert_eq!(out.create(json!({"project": "//laptop/home/me/app"}), |_| json!({})), Err("laptop".into()));
         assert!(here.try_iter().next().is_none() && there.try_iter().next().is_none());
+    }
+
+    #[test]
+    fn a_host_agents_prompt_goes_to_that_host_untagged() {
+        let (out, here, there) = outboxes();
+        out.prompt("devbox/a1", "hi");
+        out.interrupt("devbox/a1");
+        out.compact("a2");
+        let sent: Vec<Value> = there.try_iter().collect();
+        assert_eq!((&sent[0]["type"], &sent[0]["agentId"], &sent[0]["text"]), (&json!("agent.prompt"), &json!("a1"), &json!("hi")));
+        assert_eq!((&sent[1]["type"], &sent[1]["agentId"]), (&json!("agent.interrupt"), &json!("a1")));
+        assert_eq!(here.try_iter().next().unwrap()["agentId"], "a2");
     }
 }

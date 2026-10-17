@@ -1,0 +1,124 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Spawn 3 sub-agents to discover this project"
+ },
+ {
+  "id": "b1",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-b1",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "ls && ls packages"
+   },
+   "status": "ok",
+   "output": "CHANGELOG.md\nCLAUDE.md\npackages",
+   "durationMs": 40
+  }
+ },
+ {
+  "id": "t1",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-a1",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "Explore overall architecture & docs"
+   },
+   "status": "ok",
+   "output": "Done."
+  }
+ },
+ {
+  "id": "t2",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-a2",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "Explore Rust desktop crates"
+   },
+   "status": "ok",
+   "output": "Done."
+  }
+ },
+ {
+  "id": "t3",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-a3",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "Explore TS packages and daemon"
+   },
+   "status": "ok",
+   "output": "Done."
+  }
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "I've started 3 read-only explorer agents, running in parallel. I'll combine their findings once they all report back."
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 19000,
+  "usage": {
+   "inputTokens": 9000,
+   "outputTokens": 600
+  }
+ },
+ {
+  "id": "n1",
+  "kind": "assistant",
+  "text": "Agent 1 (architecture) is done. Two still running."
+ },
+ {
+  "id": "r2",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 5000,
+  "usage": {
+   "inputTokens": 1000,
+   "outputTokens": 100
+  }
+ },
+ {
+  "id": "n2",
+  "kind": "assistant",
+  "text": "Agent 2 (Rust crates) is done. One still running."
+ },
+ {
+  "id": "r3",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 6000,
+  "usage": {
+   "inputTokens": 1000,
+   "outputTokens": 100
+  }
+ },
+ {
+  "id": "n3",
+  "kind": "assistant",
+  "text": "All three are done. Here is the combined summary."
+ },
+ {
+  "id": "r4",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 9000,
+  "usage": {
+   "inputTokens": 1000,
+   "outputTokens": 100
+  }
+ }
+]

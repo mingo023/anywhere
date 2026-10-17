@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"html"
 	"io"
 	"os"
 	"strings"
@@ -35,6 +36,8 @@ type line struct {
 	Origin struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
+	// ToolUseResult is a string for some tools, so it is read only when needed.
+	ToolUseResult json.RawMessage `json:"toolUseResult"`
 }
 
 // Model returns the model an assistant line was written by, or "".
@@ -59,9 +62,16 @@ type block struct {
 }
 
 // Map returns the events one transcript line adds.
-func Map(raw []byte) (events []timeline.Event) {
+func Map(raw []byte) []timeline.Event {
 	var l line
-	if json.Unmarshal(raw, &l) != nil || l.IsMeta || l.IsSidechain || l.IsCompactSummary {
+	if json.Unmarshal(raw, &l) != nil || l.IsSidechain {
+		return nil
+	}
+	return l.events()
+}
+
+func (l line) events() (events []timeline.Event) {
+	if l.IsMeta || l.IsCompactSummary {
 		return nil
 	}
 	switch l.Type {
@@ -85,12 +95,66 @@ func Map(raw []byte) (events []timeline.Event) {
 		}
 	case "user":
 		// Claude writes harness input, like task notifications, as user lines; only a human's is a prompt.
-		if l.Origin.Kind != "" && l.Origin.Kind != "human" {
+		switch l.Origin.Kind {
+		case "", "human":
+		case "task-notification":
+			return taskEnd(l.Message.Content)
+		default:
 			return nil
+		}
+		// A background call returns as it launches; it ends with its task notification.
+		if task, ok := l.background(); ok {
+			for _, b := range blocks(l.Message.Content) {
+				if b.Type == "tool_result" {
+					events = append(events, timeline.Event{Kind: "tool_background", ToolUseID: b.ToolUseID, TaskID: task})
+				}
+			}
+			return events
 		}
 		return userEvents(l.Message.Content)
 	}
 	return events
+}
+
+// background says whether the call went on in the background, an agent launched async or a command, and the command's task id.
+func (l line) background() (string, bool) {
+	var r struct {
+		IsAsync          bool   `json:"isAsync"`
+		BackgroundTaskID string `json:"backgroundTaskId"`
+	}
+	if json.Unmarshal(l.ToolUseResult, &r) != nil {
+		return "", false
+	}
+	return r.BackgroundTaskID, r.IsAsync || r.BackgroundTaskID != ""
+}
+
+// taskEnd ends the tool call a background task ran under, from the notification Claude writes when it stops.
+func taskEnd(content json.RawMessage) []timeline.Event {
+	var text string
+	json.Unmarshal(content, &text)
+	id := tag(text, "tool-use-id")
+	if id == "" {
+		return nil
+	}
+	// A task the agent stopped ended as asked, not in error.
+	e := timeline.Event{Kind: "tool_end", ToolUseID: id, OK: tag(text, "status") != "failed"}
+	// The result is the agent's own text, which may hold the closing tag itself.
+	if _, rest, ok := strings.Cut(text, "<result>"); ok {
+		if end := strings.LastIndex(rest, "</result>"); end >= 0 {
+			out := html.UnescapeString(strings.TrimSpace(rest[:end]))
+			e.Output = &out
+		}
+	}
+	return []timeline.Event{e}
+}
+
+func tag(text, name string) string {
+	_, rest, ok := strings.Cut(text, "<"+name+">")
+	value, _, closed := strings.Cut(rest, "</"+name+">")
+	if !ok || !closed {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func userEvents(content json.RawMessage) []timeline.Event {
