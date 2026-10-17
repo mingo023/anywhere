@@ -83,8 +83,7 @@ impl Desktop {
                 (div().text_color(TEXT_3).child(text), None, false, None, Vec::new())
             }
         };
-        // A Mono cell is 0.6em wide.
-        let prompt = grid.and_then(|(cols, _)| self.pinned_prompt(id, &shown, cols as f32 * m.size * 0.6, cx));
+        let prompt = grid.and_then(|(cols, _)| self.pinned_prompt(id, &shown, cols, m, cx));
         let caret = caret.map(|(at, rows, c)| {
             let preedit = self.terminal.marked.clone().filter(|_| typing);
             cursor::overlay(focused.then(|| cx.entity()), at, rows, c, preedit, m)
