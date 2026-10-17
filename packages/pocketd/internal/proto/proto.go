@@ -176,6 +176,9 @@ func (it Item) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("proto: unknown item kind " + it.Kind)
 }
 
+// MaxShownPrompt caps AgentSummary.Prompt: the desktop shows two lines of it, or a short scroll when opened.
+const MaxShownPrompt = 2000
+
 type AgentSummary struct {
 	ID                string `json:"id"`
 	TerminalID        string `json:"terminalId"`
@@ -203,6 +206,8 @@ type AgentSummary struct {
 	ContextWindow     int64  `json:"contextWindow,omitempty"`
 	Origin            string `json:"origin"`
 	Activity          string `json:"activity,omitempty"`
+	// Prompt is the user's latest prompt in this Conversation, cut to MaxShownPrompt runes.
+	Prompt string `json:"prompt,omitempty"`
 	// Account is the managed account the agent runs on; empty is the built-in login.
 	Account string `json:"account,omitempty"`
 }

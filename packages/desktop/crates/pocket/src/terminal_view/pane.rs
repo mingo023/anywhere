@@ -59,6 +59,7 @@ impl Desktop {
         let banner = self.summary(id).and_then(status::banner).map(|text| {
             div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
         });
+        let prompt = self.pinned_prompt(id, cx);
         let typing = focused && self.terminal.keyboard;
         let blink_on = self.terminal.blink_on;
         let (body, grid, scrolled, caret) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
@@ -108,6 +109,7 @@ impl Desktop {
             .drag_over::<ExternalPaths>(|s, _, _, _| s.shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT, 1.5) }]))
             .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| this.drop_paths(drop_id.clone(), paths, window, cx)))
             .children(banner)
+            .children(prompt)
             .children(self.term_menu(id, cx))
             .child(
                 div()
