@@ -108,6 +108,7 @@ export const AgentSummary = Schema.Struct({
   origin: Schema.optional(Schema.String),
   activity: Schema.optional(Schema.String),
   prompt: Schema.optional(Schema.String),
+  promptAt: Schema.optional(Schema.Number),
   account: Schema.optional(Schema.String),
 });
 export type AgentSummary = typeof AgentSummary.Type;

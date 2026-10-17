@@ -95,6 +95,7 @@ impl Desktop {
             .child(surface::surface(cx.entity(), id.to_string(), m, grid, focused.then(|| self.terminal.focus.clone())))
             .child(body)
             .children(caret)
+            .children(prompt)
             .children(scrolled.then(|| scroll::jump_pill(id, cx)))
             .when(self.terminals.bell.flashing.as_deref() == Some(id), |d| d.child(div().absolute().inset_0().bg(FILL_4)));
         div()
@@ -109,7 +110,6 @@ impl Desktop {
             .drag_over::<ExternalPaths>(|s, _, _, _| s.shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT, 1.5) }]))
             .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| this.drop_paths(drop_id.clone(), paths, window, cx)))
             .children(banner)
-            .children(prompt)
             .children(self.term_menu(id, cx))
             .child(
                 div()

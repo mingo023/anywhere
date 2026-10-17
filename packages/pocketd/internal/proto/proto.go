@@ -208,6 +208,8 @@ type AgentSummary struct {
 	Activity          string `json:"activity,omitempty"`
 	// Prompt is the user's latest prompt in this Conversation, cut to MaxShownPrompt runes.
 	Prompt string `json:"prompt,omitempty"`
+	// PromptAt is when Prompt reached pocketd, in Unix ms.
+	PromptAt int64 `json:"promptAt,omitempty"`
 	// Account is the managed account the agent runs on; empty is the built-in login.
 	Account string `json:"account,omitempty"`
 }

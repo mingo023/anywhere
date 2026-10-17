@@ -62,6 +62,7 @@ type Agent struct {
 	origin          string
 	activity        string // the provider's live line; each report replaces it
 	prompt          string // the user's latest prompt in this Conversation, cut by shownPrompt
+	promptAt        int64
 }
 
 type Registry struct {
@@ -235,7 +236,7 @@ func (a *Agent) summary() proto.AgentSummary {
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account,
 		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
-		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, Prompt: a.prompt,
+		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, Prompt: a.prompt, PromptAt: a.promptAt,
 	}
 }
 
@@ -391,7 +392,7 @@ func (a *Agent) SetConversation(id string) {
 			a.naming = false
 			a.conversations++
 			a.tokensUsed = 0
-			a.prompt = ""
+			a.prompt, a.promptAt = "", 0
 		}
 		a.conversation = id
 	})
@@ -488,7 +489,7 @@ func (a *Agent) Record(e timeline.Event) {
 			if a.title == "" {
 				a.title = firstLine(e.Text)
 			}
-			a.prompt = shownPrompt(e.Text)
+			a.prompt, a.promptAt = shownPrompt(e.Text), now()
 		})
 	}
 	a.mu.Lock()
