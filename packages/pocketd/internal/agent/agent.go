@@ -61,6 +61,8 @@ type Agent struct {
 	contextWindow   int64
 	origin          string
 	activity        string // the provider's live line; each report replaces it
+	prompt          string // the user's latest prompt in this Conversation, cut by shownPrompt
+	promptAt        int64
 }
 
 type Registry struct {
@@ -234,7 +236,7 @@ func (a *Agent) summary() proto.AgentSummary {
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account,
 		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
-		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity,
+		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, Prompt: a.prompt, PromptAt: a.promptAt,
 	}
 }
 
@@ -390,6 +392,7 @@ func (a *Agent) SetConversation(id string) {
 			a.naming = false
 			a.conversations++
 			a.tokensUsed = 0
+			a.prompt, a.promptAt = "", 0
 		}
 		a.conversation = id
 	})
@@ -468,6 +471,16 @@ func firstLine(text string) string {
 	return line
 }
 
+// shownPrompt is the prompt as the desktop pins it above the terminal: trimmed and cut to
+// proto.MaxShownPrompt runes, since every agent.update carries it.
+func shownPrompt(text string) string {
+	text = strings.TrimSpace(text)
+	if r := []rune(text); len(r) > proto.MaxShownPrompt {
+		return string(r[:proto.MaxShownPrompt]) + "…"
+	}
+	return text
+}
+
 // Record adds one provider event to the timeline and tells every phone. It leaves the status alone.
 func (a *Agent) Record(e timeline.Event) {
 	if e.Kind == "user" {
@@ -476,6 +489,7 @@ func (a *Agent) Record(e timeline.Event) {
 			if a.title == "" {
 				a.title = firstLine(e.Text)
 			}
+			a.prompt, a.promptAt = shownPrompt(e.Text), now()
 		})
 	}
 	a.mu.Lock()

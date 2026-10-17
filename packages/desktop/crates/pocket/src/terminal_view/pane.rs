@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::status;
-use crate::terminal_view::{cursor, scroll};
+use crate::terminal_view::{cursor, prompt, scroll};
 use crate::terminal_view::surface::{self, Metrics};
 use crate::terminals::sessions::Session;
 use crate::util::basename;
@@ -59,9 +59,10 @@ impl Desktop {
         let banner = self.summary(id).and_then(status::banner).map(|text| {
             div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
         });
+        let claude = self.summary(id).is_some_and(|a| a.provider == "claude");
         let typing = focused && self.terminal.keyboard;
         let blink_on = self.terminal.blink_on;
-        let (body, grid, scrolled, caret) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
+        let (body, grid, scrolled, caret, shown) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
             Some(t) => {
                 let (f, cells) = t.frame();
                 if typing {
@@ -69,7 +70,8 @@ impl Desktop {
                 }
                 let c = cursor::cursor(&f, typing, blink_on);
                 let caret = (focused || c.is_some()).then_some(((f.cursor_x, f.cursor_y), f.rows, c));
-                (surface::screen(&f, cells, m), Some((f.cols, f.rows)), f.at_bottom == 0, caret)
+                let shown = if claude { prompt::prompt_rows(cells, f.cols as usize) } else { Vec::new() };
+                (surface::screen(&f, cells, m), Some((f.cols, f.rows)), f.at_bottom == 0, caret, shown)
             }
             None => {
                 let offline = hosts::session::untag(id).0.is_some_and(|h| hosts::remote::connected(h).is_none());
@@ -78,9 +80,10 @@ impl Desktop {
                     (true, false) => "Connecting…",
                     (false, _) => "This session is not running.",
                 };
-                (div().text_color(TEXT_3).child(text), None, false, None)
+                (div().text_color(TEXT_3).child(text), None, false, None, Vec::new())
             }
         };
+        let prompt = grid.and_then(|(cols, _)| self.pinned_prompt(id, &shown, cols, m, cx));
         let caret = caret.map(|(at, rows, c)| {
             let preedit = self.terminal.marked.clone().filter(|_| typing);
             cursor::overlay(focused.then(|| cx.entity()), at, rows, c, preedit, m)
@@ -94,6 +97,7 @@ impl Desktop {
             .child(surface::surface(cx.entity(), id.to_string(), m, grid, focused.then(|| self.terminal.focus.clone())))
             .child(body)
             .children(caret)
+            .children(prompt)
             .children(scrolled.then(|| scroll::jump_pill(id, cx)))
             .when(self.terminals.bell.flashing.as_deref() == Some(id), |d| d.child(div().absolute().inset_0().bg(FILL_4)));
         div()

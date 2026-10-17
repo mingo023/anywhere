@@ -264,6 +264,32 @@ func TestConversationSwitchStartsOver(t *testing.T) {
 	}
 }
 
+func TestTheSummaryCarriesTheLatestPromptUntilTheConversationChanges(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetConversation("c1")
+	a.Record(timeline.Event{Kind: "user", Text: "  fix the login\n"})
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "done"})
+	if s := a.Summary(); s.Prompt != "fix the login" || s.PromptAt == 0 {
+		t.Fatalf("first prompt: %+v", s)
+	}
+	a.Record(timeline.Event{Kind: "user", Text: "now the logout"})
+	if s := a.Summary(); s.Prompt != "now the logout" || s.Title != "fix the login" {
+		t.Fatalf("second prompt: %+v", s)
+	}
+	a.SetConversation("c2")
+	if s := a.Summary(); s.Prompt != "" || s.PromptAt != 0 {
+		t.Fatalf("after switch: %+v", s)
+	}
+}
+
+func TestALongPromptIsCutForTheSummary(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: strings.Repeat("é", proto.MaxShownPrompt+10)})
+	if got := []rune(a.Summary().Prompt); len(got) != proto.MaxShownPrompt+1 || got[len(got)-1] != '…' {
+		t.Fatalf("cut to %d runes", len(got))
+	}
+}
+
 func TestRecordLeavesStatusAlone(t *testing.T) {
 	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
 	a.Record(timeline.Event{Kind: "user", Text: "hi"})
