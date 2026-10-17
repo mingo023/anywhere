@@ -1,12 +1,14 @@
 use crate::automations::logic::clock;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
+use crate::terminal_view::surface::Metrics;
 use agents::{Item, Summary};
 use chrono::Local;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
-use term::{Cell, WIDE_SPACER_TAIL};
+use std::time::Duration;
+use term::{Button, Cell, MouseAction, Pointer, WIDE_SPACER_TAIL};
 use theme::*;
 
 /// Lines a pinned prompt shows until it is opened, so a long one never takes over the pane.
@@ -19,6 +21,12 @@ const OPEN_MAX_HEIGHT: f32 = 160.;
 const CHAR_WIDTH: f32 = SIZE * 0.6;
 /// The card's inset from the pane, its padding and its border, on both sides.
 const CARD_INSET: f32 = 2. * (12. + 12. + 1.);
+
+/// A Mono cell is 0.6em wide.
+const MONO_CELL: f32 = 0.6;
+/// How long a jump waits for Claude Code to pin the prompt line once it scrolls, a check every `JUMP_POLL`.
+const JUMP_TRIES: usize = 10;
+const JUMP_POLL: Duration = Duration::from_millis(50);
 
 /// The panes whose pinned prompt is opened, each with the prompt it was opened on, so the next prompt shows folded.
 #[derive(Default)]
@@ -104,9 +112,12 @@ pub fn at_top<'a>(shown: &[(usize, String)], said: &'a [Said]) -> Option<&'a Sai
 impl Desktop {
     /// The prompt whose turn the top of `pane`'s output is in, floated over it as VS Code's Claude panel pins it, so
     /// it stays in view however far the output runs. Folded to two lines, its second fades out under Show more.
-    /// `shown` is what `prompt_rows` read off the screen; `width` is the output's, which the card spans.
-    pub(crate) fn pinned_prompt(&self, pane: &str, shown: &[(usize, String)], width: f32, cx: &mut Context<Self>) -> Option<Div> {
+    /// A click on the card scrolls Claude Code to the prompt. `shown` is what `prompt_rows` read off the screen.
+    pub(crate) fn pinned_prompt(&self, pane: &str, shown: &[(usize, String)], cols: u16, m: &Metrics, cx: &mut Context<Self>) -> Option<Div> {
+        let (cell, line) = (m.size * MONO_CELL, m.line);
+        let width = cols as f32 * cell;
         let agent = self.summary(pane)?;
+        let claude = agent.provider == "claude";
         let said = said(self.agents.timelines.get(&agent.id), agent);
         let top = at_top(shown, &said)?.clone();
         let open = self.terminal.prompts.is_open(pane, &top.text);
@@ -131,6 +142,7 @@ impl Desktop {
             .cursor_pointer()
             .hover(|s| s.bg(TEXT))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
                 this.terminal.prompts.toggle(&toggled, &prompt);
                 cx.notify();
             }))
@@ -161,6 +173,10 @@ impl Desktop {
                         .text_size(px(SIZE))
                         .line_height(px(LINE))
                         .text_color(TEXT)
+                        .when(claude, |d| {
+                            let jumped = pane.to_string();
+                            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.jump_to_prompt(&jumped, cell, line, cx)))
+                        })
                         .child(
                             div()
                                 .id(id(format!("prompt-text-{pane}")))
@@ -178,6 +194,53 @@ impl Desktop {
                         .when(long, |d| d.child(more)),
                 ),
         )
+    }
+
+    /// Scrolls `pane`'s Claude Code to the prompt its card pins, as a click on the card does in VS Code. The click goes
+    /// to the prompt line Claude pins on the top row while scrolled up, which jumps there. At the bottom there is no
+    /// such line yet, so a wheel notch up brings it and the click follows once it shows.
+    pub(crate) fn jump_to_prompt(&mut self, pane: &str, cell: f32, line: f32, cx: &mut Context<Self>) {
+        if self.click_top_prompt(pane, cell, line) {
+            return;
+        }
+        let Some(t) = self.terminals.sessions.term(pane) else { return };
+        let (cols, rows) = {
+            let (f, _) = t.frame();
+            (f.cols, f.rows)
+        };
+        let at = Pointer::at(cell * 4.5, line * (rows / 2) as f32, cell, line, cols, rows);
+        let bytes = t.wheel_report(at, true, false, false);
+        if bytes.is_empty() {
+            return;
+        }
+        self.send_input(pane, &bytes, cx);
+        let pane = pane.to_string();
+        cx.spawn(async move |this, cx| {
+            for _ in 0..JUMP_TRIES {
+                cx.background_executor().timer(JUMP_POLL).await;
+                if this.update(cx, |d, _| d.click_top_prompt(&pane, cell, line)).unwrap_or(true) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Clicks the prompt line on `pane`'s top row; false while there is none. A pane that's gone counts as done.
+    fn click_top_prompt(&mut self, pane: &str, cell: f32, line: f32) -> bool {
+        let Some(t) = self.terminals.sessions.term(pane) else { return true };
+        let (on_top, cols, rows) = {
+            let (f, cells) = t.frame();
+            (prompt_rows(cells, f.cols as usize).first().is_some_and(|(row, _)| *row == 0), f.cols, f.rows)
+        };
+        if !on_top {
+            return false;
+        }
+        let at = Pointer::at(cell * 4.5, line * 0.5, cell, line, cols, rows);
+        for action in [MouseAction::Press, MouseAction::Release] {
+            self.send_mouse(pane, at, action, Some(Button::Left), Modifiers::default());
+        }
+        true
     }
 }
 
