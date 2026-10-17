@@ -10,7 +10,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, assistant_text, thinking, tool_start, tool_end, result, compacted, error
+	Kind       string // user, assistant_text, thinking, tool_start, tool_background, tool_end, result, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -22,6 +22,10 @@ type Event struct {
 	Error      string
 	Trigger    string
 	Usage      *proto.TurnUsage
+	// ParentToolUseID tags a sub-agent's event with the tool call that spawned it.
+	ParentToolUseID string
+	// TaskID names a command sent to the background, for the calls that later read or stop it.
+	TaskID string
 }
 
 type Timeline struct {
@@ -32,12 +36,22 @@ type Timeline struct {
 	tools    map[string]int
 	openText int
 	folded   map[string]bool
+	// lasting holds the calls that run on in the background past their turn.
+	lasting map[string]bool
+	// tasks maps a background command's task id to the command.
+	tasks map[string]string
 }
 
 func New() *Timeline {
 	t := &Timeline{}
 	t.reset()
+	t.forget()
 	return t
+}
+
+func (t *Timeline) forget() {
+	t.lasting = map[string]bool{}
+	t.tasks = map[string]string{}
 }
 
 func (t *Timeline) reset() {
@@ -51,7 +65,14 @@ func (t *Timeline) StartEpoch() int64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.epoch++
+	running := t.tools
 	t.reset()
+	// A background call and its sub-agent's tools outlive the turn that spawned them.
+	for id, n := range running {
+		if t.items[n].ParentToolUseID != "" || t.lasting[id] {
+			t.tools[id] = n
+		}
+	}
 	return t.epoch
 }
 
@@ -62,6 +83,7 @@ func (t *Timeline) Clear() {
 	t.items = nil
 	t.epoch++
 	t.reset()
+	t.forget()
 }
 
 // Continue picks up a timeline from the image before an upgrade: a new
@@ -78,9 +100,9 @@ func (t *Timeline) State() (epoch, maxSeq int64) {
 	return t.epoch, t.seq
 }
 
-func (t *Timeline) append(it proto.Item, ts int64) proto.Item {
+func (t *Timeline) append(it proto.Item, parent string, ts int64) proto.Item {
 	t.seq++
-	it.ID, it.Seq, it.Ts = "i"+strconv.FormatInt(t.seq, 10), t.seq, ts
+	it.ID, it.Seq, it.Ts, it.ParentToolUseID = "i"+strconv.FormatInt(t.seq, 10), t.seq, ts, parent
 	t.items = append(t.items, it)
 	t.openText = -1
 	return it
@@ -92,18 +114,18 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	defer t.mu.Unlock()
 	switch e.Kind {
 	case "user":
-		return t.append(proto.Item{Kind: "user", Text: e.Text}, ts), true
+		return t.append(proto.Item{Kind: "user", Text: e.Text}, e.ParentToolUseID, ts), true
 
 	case "assistant_text", "thinking":
 		kind := "assistant"
 		if e.Kind == "thinking" {
 			kind = "thinking"
 		}
-		if t.openText >= 0 && t.items[t.openText].Kind == kind {
+		if t.openText >= 0 && t.items[t.openText].Kind == kind && t.items[t.openText].ParentToolUseID == e.ParentToolUseID {
 			t.items[t.openText].Text += e.Text
 			return t.items[t.openText], true
 		}
-		it := t.append(proto.Item{Kind: kind, Text: e.Text}, ts)
+		it := t.append(proto.Item{Kind: kind, Text: e.Text}, e.ParentToolUseID, ts)
 		t.openText = len(t.items) - 1
 		return it, true
 
@@ -111,28 +133,41 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		if e.Name == "TodoWrite" {
 			if tasks, ok := taskItems(e.Input); ok {
 				t.folded[e.ToolUseID] = true
-				return t.append(proto.Item{Kind: "tasks", Tasks: tasks}, ts), true
+				return t.append(proto.Item{Kind: "tasks", Tasks: tasks}, e.ParentToolUseID, ts), true
 			}
 		}
 		if e.Name == "ExitPlanMode" {
 			if plan, ok := planText(e.Input); ok {
 				t.folded[e.ToolUseID] = true
-				return t.append(proto.Item{Kind: "plan", Text: plan}, ts), true
+				return t.append(proto.Item{Kind: "plan", Text: plan}, e.ParentToolUseID, ts), true
 			}
 		}
 		detail := Detail(e.Name, e.Input)
 		if e.Detail != nil {
 			detail = *e.Detail
 		}
-		it := t.append(proto.Item{Kind: "tool", Call: &proto.ToolCall{ToolUseID: e.ToolUseID, Name: e.Name, Detail: detail, Status: "running"}}, ts)
+		if command := t.tasks[taskOf(e.Name, e.Input)]; command != "" {
+			detail = proto.ToolDetail{Kind: "shell", Command: command}
+		}
+		it := t.append(proto.Item{Kind: "tool", Call: &proto.ToolCall{ToolUseID: e.ToolUseID, Name: e.Name, Detail: detail, Status: "running"}}, e.ParentToolUseID, ts)
 		t.tools[e.ToolUseID] = len(t.items) - 1
 		return it, true
+
+	case "tool_background":
+		if n, ok := t.tools[e.ToolUseID]; ok {
+			t.lasting[e.ToolUseID] = true
+			if e.TaskID != "" {
+				t.tasks[e.TaskID] = t.items[n].Call.Detail.Command
+			}
+		}
+		return proto.Item{}, false
 
 	case "tool_end":
 		n, ok := t.tools[e.ToolUseID]
 		if t.folded[e.ToolUseID] || !ok {
 			return proto.Item{}, false
 		}
+		delete(t.lasting, e.ToolUseID)
 		call := *t.items[n].Call
 		call.Status = "error"
 		if e.OK {
@@ -149,24 +184,33 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.items[n], true
 
 	case "result":
-		return t.append(proto.Item{Kind: "result", OK: e.OK, DurationMs: e.DurationMs, Error: e.Error, Usage: e.Usage}, ts), true
+		return t.append(proto.Item{Kind: "result", OK: e.OK, DurationMs: e.DurationMs, Error: e.Error, Usage: e.Usage}, e.ParentToolUseID, ts), true
 
 	case "compacted":
-		return t.append(proto.Item{Kind: "compact", Trigger: e.Trigger}, ts), true
+		return t.append(proto.Item{Kind: "compact", Trigger: e.Trigger}, e.ParentToolUseID, ts), true
 
 	case "error":
-		return t.append(proto.Item{Kind: "result", OK: false, Error: e.Error}, ts), true
+		return t.append(proto.Item{Kind: "result", OK: false, Error: e.Error}, e.ParentToolUseID, ts), true
 	}
 	return proto.Item{}, false
 }
 
-// Page returns up to limit items newer than sinceSeq, newest last.
+// Page returns up to limit of the agent's own items newer than sinceSeq, newest last.
 func (t *Timeline) Page(sinceSeq int64, limit int) ([]proto.Item, bool) {
+	return t.page(sinceSeq, limit, false)
+}
+
+// PageWithSubagents is Page with its sub-agents' items too.
+func (t *Timeline) PageWithSubagents(sinceSeq int64, limit int) ([]proto.Item, bool) {
+	return t.page(sinceSeq, limit, true)
+}
+
+func (t *Timeline) page(sinceSeq int64, limit int, subagents bool) ([]proto.Item, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var newer []proto.Item
 	for _, it := range t.items {
-		if it.Seq > sinceSeq {
+		if it.Seq > sinceSeq && (subagents || it.ParentToolUseID == "") {
 			newer = append(newer, it)
 		}
 	}

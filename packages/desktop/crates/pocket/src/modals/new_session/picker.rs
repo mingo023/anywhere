@@ -37,7 +37,7 @@ fn menu_frame(id: &'static str, width: f32, cx: &mut Context<Desktop>) -> Statef
         }))
 }
 
-fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
+pub(crate) fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
     div()
         .h(px(44.))
         .px(px(14.))

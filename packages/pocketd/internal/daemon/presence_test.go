@@ -290,3 +290,25 @@ func TestPocketSpawnedClaudeRunsPlainAndIsDetected(t *testing.T) {
 		t.Fatalf("argv = %q", p.Argv)
 	}
 }
+
+func TestSwitchingClaudeTypesItsCommandsAndKeepsThemForAResume(t *testing.T) {
+	d := newDaemon(t)
+	term := shell(t, d)
+	term.Write([]byte(fakeAgent(t, "claude") + " --model sonnet\r"))
+	a := waitAgent(t, d, term)
+	ag, _ := d.Agents.Get(a.ID)
+	if err := ag.Driver().Settings("opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "both commands, each on its own line", func() bool {
+		s := term.Screen()
+		return strings.Contains(s, "/model opus\n") && strings.Contains(s, "/effort high")
+	})
+	pr := d.presentIn(term.Info().ID)
+	pr.mu.Lock()
+	launch := pr.launch
+	pr.mu.Unlock()
+	if s := ag.Summary(); s.Model != "opus" || s.Effort != "high" || launch.Model != "opus" || launch.Effort != "high" {
+		t.Fatalf("summary %s %s, launch %+v", s.Model, s.Effort, launch)
+	}
+}

@@ -387,7 +387,8 @@ impl NewForm {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let dropped = composer::drop_images(cx.entity().downgrade(), slot);
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4).on_drop_paths(dropped));
-        let composer = Composer::new(prompt.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
+        let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
+        let composer = Composer::new(prompt.clone(), models.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
         let subs = vec![
@@ -399,6 +400,7 @@ impl NewForm {
                 }
             }),
             cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe(&models, |_, _, _: &InputEvent, cx| cx.notify()),
             cx.subscribe_in(&pr, window, |this, pr, ev: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { secondary, .. } = ev {
                     let typed = pr.read(cx).value().to_string();
@@ -557,6 +559,7 @@ impl Desktop {
                 self.daemon.send(json!({"op": "list"}));
                 if self.creates.get(&request).is_some() {
                     self.store.track(&cwd);
+                    self.store.chats.insert(terminal.clone());
                     self.save_soon(cx);
                 }
                 if let Some(expected) = self.creates.started(&request, cwd.clone(), &mut self.worktrees) {
@@ -565,6 +568,8 @@ impl Desktop {
                     }
                     self.refresh_git(cx);
                 } else if self.new_form.draft.reply.answer(&request, None) {
+                    self.store.chats.insert(terminal);
+                    self.save_soon(cx);
                     self.clear_new_form(window, cx);
                     if self.new_form.shown {
                         self.leave_new_session(window, cx);

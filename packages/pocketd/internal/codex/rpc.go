@@ -44,6 +44,10 @@ type frame struct {
 // Dial connects to the app-server control socket. It only speaks
 // uncompressed WebSocket, so permessage-deflate must stay off.
 func Dial(ctx context.Context, sock string, h Handler) (*Client, error) {
+	return connect(ctx, sock, h, nil)
+}
+
+func connect(ctx context.Context, sock string, h Handler, capabilities any) (*Client, error) {
 	httpc := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
@@ -56,7 +60,7 @@ func Dial(ctx context.Context, sock string, h Handler) (*Client, error) {
 	ws.SetReadLimit(64 << 20)
 	c := &Client{ws: ws, h: h, pending: map[string]chan frame{}, done: make(chan struct{})}
 	go c.read()
-	if _, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "codex_app_server_daemon", "title": nil, "version": "0"}, "capabilities": nil}); err != nil {
+	if _, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "codex_app_server_daemon", "title": nil, "version": "0"}, "capabilities": capabilities}); err != nil {
 		ws.CloseNow()
 		return nil, err
 	}
@@ -157,6 +161,30 @@ func (c *Client) Close() {
 	c.ws.CloseNow()
 	<-c.done
 	c.handlers.Wait()
+}
+
+type ignore struct{}
+
+func (ignore) Notify(string, json.RawMessage)                   {}
+func (ignore) Request(json.RawMessage, string, json.RawMessage) {}
+
+// UpdateSettings sets the model and effort of thread's next turns; "" keeps
+// one as it is. Its method is experimental, so it dials with the experimental API.
+func UpdateSettings(ctx context.Context, sock, thread, model, effort string) error {
+	c, err := connect(ctx, sock, ignore{}, map[string]any{"experimentalApi": true})
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	params := map[string]any{"threadId": thread}
+	if model != "" {
+		params["model"] = model
+	}
+	if effort != "" {
+		params["effort"] = effort
+	}
+	_, err = c.Call(ctx, "thread/settings/update", params)
+	return err
 }
 
 // Sock is the app-server control socket for the account in env.

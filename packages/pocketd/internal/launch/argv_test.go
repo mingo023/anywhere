@@ -80,6 +80,19 @@ func TestABadModelOrEffortIsAnInvalidSpec(t *testing.T) {
 	}
 }
 
+func TestASwitchTakesOnlyAModelOrEffortTheAgentCouldHave(t *testing.T) {
+	for _, s := range [][3]string{{"claude", "opus; rm -rf", ""}, {"claude", "", "ultra"}, {"codex", "", "high now"}} {
+		if ValidSwitch(s[0], s[1], s[2]) == nil {
+			t.Errorf("%q passed", s)
+		}
+	}
+	for _, s := range [][3]string{{"claude", "opus", "xhigh"}, {"codex", "gpt-6-sol", "ultra"}} {
+		if err := ValidSwitch(s[0], s[1], s[2]); err != nil {
+			t.Errorf("%q: %v", s, err)
+		}
+	}
+}
+
 func TestNoAccessEverPassesFullAuto(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		for _, access := range proto.Accesses {

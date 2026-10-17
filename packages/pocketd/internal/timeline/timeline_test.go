@@ -148,3 +148,54 @@ func TestContinueStartsANewEpochPastTheOldSeq(t *testing.T) {
 		t.Fatalf("first item after continue: %+v", it)
 	}
 }
+
+func TestASubagentsItemsCarryTheirParentAndPageOnlyWithSubagents(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "assistant_text", Text: "a"}, 1)
+	sub, _ := tl.Apply(Event{Kind: "assistant_text", Text: "b", ParentToolUseID: "t1"}, 2)
+	if sub.Seq != 2 || sub.Text != "b" || sub.ParentToolUseID != "t1" {
+		t.Fatalf("a sub-agent's text merged into the agent's: %+v", sub)
+	}
+	if items, _ := tl.Page(0, 10); len(items) != 1 || items[0].Text != "a" {
+		t.Fatalf("Page: %+v", items)
+	}
+	if items, _ := tl.PageWithSubagents(0, 10); len(items) != 2 {
+		t.Fatalf("PageWithSubagents: %+v", items)
+	}
+}
+
+func TestASubagentsToolStillEndsAfterTheNextPrompt(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Read", Input: json.RawMessage(`{"file_path":"a.go"}`), ParentToolUseID: "t1"}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t3", Name: "Read", Input: json.RawMessage(`{"file_path":"b.go"}`)}, 1)
+	tl.StartEpoch()
+	if it, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "t2", OK: true}, 2); !ok || it.Call.Status != "ok" {
+		t.Fatalf("%+v", it)
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "t3", OK: true}, 2); ok {
+		t.Fatal("the agent's own tool outlived its epoch")
+	}
+}
+
+func TestABackgroundCommandEndsAfterTheNextPromptAndNamesWhatStopsIt(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
+	if _, ok := tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 2); ok {
+		t.Fatal("going to the background changed what shows")
+	}
+	tl.StartEpoch()
+	stop, _ := tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"b1"}`)}, 3)
+	if d := stop.Call.Detail; d.Kind != "shell" || d.Command != "bun run dev" {
+		t.Fatalf("stop: %+v", d)
+	}
+	it, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "t1", OK: true}, 9)
+	if !ok || it.Call.Status != "ok" || *it.Call.DurationMs != 8 {
+		t.Fatalf("end: %+v", it)
+	}
+	for _, c := range []struct{ name, input string }{{"TaskStop", `{"task_id":"b9"}`}, {"BashOutput", `{"bash_id":"b9"}`}} {
+		other, _ := tl.Apply(Event{Kind: "tool_start", ToolUseID: c.name, Name: c.name, Input: json.RawMessage(c.input)}, 10)
+		if other.Call.Detail.Kind != "other" {
+			t.Fatalf("%s on an unknown task: %+v", c.name, other.Call.Detail)
+		}
+	}
+}

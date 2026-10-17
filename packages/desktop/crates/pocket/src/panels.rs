@@ -181,7 +181,7 @@ impl Desktop {
             Some(Tab::Term(t)) => self.summary(t).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window, agents::level(used, window, self.store.sidebar.warn_at, self.store.sidebar.critical_at))),
             _ => None,
         };
-        let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().children(ring);
+        let status = div().ml_auto().pl(px(8.)).min_w_0().flex().items_center().gap(px(8.)).children(ring);
         let observe = self.agents.observe_only();
         let t = &self.workspaces[tree].tree;
         let focused = t.focused == p;
@@ -268,6 +268,7 @@ impl Desktop {
 
     fn pane_body(&mut self, p: PaneId, focused: bool, tab: Option<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Div {
         match tab {
+            Some(Tab::Term(id)) if self.chat_shown(&id) => self.chat_view(&id, window, cx),
             Some(Tab::Term(id)) => self.term_body(&id, focused, cx),
             Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
             Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. }))) if self.loaded(p, &doc) => self.diff_view(p, cx),
@@ -294,7 +295,7 @@ impl Desktop {
         let t = &mut self.workspace(&tree).tree;
         t.focus(p);
         match t.focused().active().cloned() {
-            Some(Tab::Term(id)) => self.focus_pane(id, window, cx),
+            Some(Tab::Term(id)) => self.focus_chat_or_terminal(id, window, cx),
             Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
             Some(Tab::Doc(_)) | None => window.focus(&self.root, cx),
         }

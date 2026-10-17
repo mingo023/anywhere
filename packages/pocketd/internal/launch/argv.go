@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"errors"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,6 +14,22 @@ import (
 var ClaudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 var model = regexp.MustCompile(`^[A-Za-z0-9._:\[\]][A-Za-z0-9._:\[\]-]{0,63}$`)
+
+const badModel, badClaudeEffort = "Model names use letters, digits and . _ : [ ] -, and don't start with -", "Claude's effort is low, medium, high, xhigh or max"
+
+// ValidSwitch refuses a model or effort a running agent can't switch to. A
+// codex model lists its own efforts, so codex's is only checked for shape.
+func ValidSwitch(provider, name, effort string) error {
+	switch {
+	case name != "" && !model.MatchString(name):
+		return errors.New(badModel)
+	case provider == "claude" && effort != "" && !slices.Contains(ClaudeEfforts, effort):
+		return errors.New(badClaudeEffort)
+	case effort != "" && !model.MatchString(effort):
+		return errors.New("An effort is one word")
+	}
+	return nil
+}
 
 var claudeAccess = map[string][]string{
 	"settings": nil,
@@ -35,7 +52,7 @@ var codexAccess = map[string][]string{
 // since codex forks with a subcommand.
 func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Failure) {
 	if s.Model != "" && !model.MatchString(s.Model) {
-		return nil, fail("invalid_spec", "Model names use letters, digits and . _ : [ ] -, and don't start with -")
+		return nil, fail("invalid_spec", badModel)
 	}
 	prompt, err := terminal.Sanitize(s.Prompt)
 	if err != nil {
@@ -54,7 +71,7 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 	switch s.Provider {
 	case "claude":
 		if s.Effort != "" && !slices.Contains(ClaudeEfforts, s.Effort) {
-			return nil, fail("invalid_spec", "Claude's effort is low, medium, high, xhigh or max")
+			return nil, fail("invalid_spec", badClaudeEffort)
 		}
 		if s.Plan {
 			argv = append(argv, "--permission-mode", "plan")

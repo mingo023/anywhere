@@ -1,6 +1,8 @@
 // Recreates a design scenario for `pocket-desktop --capture`: git repos under <dir>/home, and a fake
 // pocketd (unix socket + phone websocket) under <dir>/pocket. Usage: bun fixture.ts <scenario> <dir>
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+// The chat scenario's agent starts with the items of chat/$FIXTURE_CHAT.json (default every-tool-kind);
+// prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), or the "permission"/"question" ask.
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 
@@ -46,6 +48,14 @@ const SCENARIOS: Record<string, Scenario> = {
       ...OTHERS,
     ],
   },
+};
+
+SCENARIOS.chat = {
+  repos: ["app-android", "app-ios", "app-hook", "marketing"],
+  agents: [
+    { id: "parser", title: "Refactor the transcript fold", provider: "claude", model: "opus", effort: "high", repo: "app-android", branch: "refactor/fold", status: "idle", ago: 1 },
+    ...OTHERS,
+  ],
 };
 
 const RESTORED: Record<string, string> = { fix: "resumed", crash: "interrupted", haptics: "access_lowered", rn: "failed" };
@@ -98,6 +108,44 @@ for (const [key, agents] of trees) {
   for (const [f, added, removed] of agents.flatMap((a) => a.diff ?? [])) write(join(w, f), lines("next", added) + lines("base", removed + 10).split("\n").slice(removed).join("\n"));
 }
 
+type Item = { id: string; kind: string; [k: string]: unknown };
+const CHAT_AGENT = "parser";
+const perf = (items: number): Item[] =>
+  Array.from({ length: items / 8 }, (_, t) => {
+    const long = t % 5 === 0 ? Array.from({ length: 12 }, (_, s) => `## Step ${s + 1}\n\nThe fold groups consecutive tool calls so the transcript reads as a conversation.\n\n- one row per block\n- code in \`mono\``).join("\n\n") : "Done: the rows fold as expected.";
+    const diff = { lines: [{ number: t + 1, kind: "del", text: `let a${t} = 0;` }, { number: t + 1, kind: "add", text: `let a${t} = 1;` }], additions: 1, deletions: 1 };
+    const tool = (n: number, name: string, detail: object) => ({ id: `${t}-t${n}`, kind: "tool", call: { toolUseId: `tu-${t}-${n}`, name, detail, status: "ok", output: "ok", durationMs: 40 * n } });
+    return [
+      { id: `${t}-u`, kind: "user", text: `Turn ${t + 1}: refactor module ${t}.` },
+      { id: `${t}-th`, kind: "thinking", text: `Module ${t} has one caller; the change is local.` },
+      { id: `${t}-a1`, kind: "assistant", text: `Reading module ${t} first.` },
+      tool(1, "Bash", { kind: "shell", command: `cargo test -p m${t}` }),
+      tool(2, "Read", { kind: "read", path: `src/m${t}.rs` }),
+      tool(3, "Edit", { kind: "edit", path: `src/m${t}.rs`, diff }),
+      { id: `${t}-a2`, kind: "assistant", text: long },
+      { id: `${t}-r`, kind: "result", ok: true, durationMs: 30_000, usage: { inputTokens: 9000, outputTokens: 1200 } },
+    ];
+  }).flat();
+const chatItems = (name: string): Item[] =>
+  /^perf-\d+$/.test(name) ? perf(Number(name.slice(5))) : JSON.parse(readFileSync(join(import.meta.dir, "chat", `${name}.json`), "utf8"));
+const firstChat = chatItems(process.env.FIXTURE_CHAT ?? "every-tool-kind");
+const seqs = new Map<string, number>();
+// Numbered from the agent's last item, so a played scenario lands after what's shown.
+const stamp = (agentId: string, items: Item[], prefix = "") =>
+  items.map((it) => {
+    const seq = (seqs.get(agentId) ?? 0) + 1;
+    seqs.set(agentId, seq);
+    // Tool ids too, or a played scenario's calls would update the shown ones that share them.
+    const call = it.call as { toolUseId: string } | undefined;
+    const tools = prefix && { ...(call && { call: { ...call, toolUseId: prefix + call.toolUseId } }), ...(it.parentToolUseId ? { parentToolUseId: prefix + it.parentToolUseId } : {}) };
+    return { ...it, ...tools, id: prefix + it.id, seq, ts: Date.now() - 60_000 + seq * 100 };
+  });
+// A chat left on a user item streams its reply; one left mid-turn stays working.
+const chatWorking = firstChat.length > 0 && firstChat.at(-1)!.kind !== "result";
+if (chatWorking && scenario.agents[0]?.id === CHAT_AGENT) scenario.agents[0].status = "running";
+// FIXTURE_IDLE: nothing running anywhere, so no sidebar spinner redraws the window; for measuring idle cost.
+if (process.env.FIXTURE_IDLE) for (const a of scenario.agents) a.status = "idle";
+
 const now = Date.now();
 const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.repo));
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
@@ -107,7 +155,7 @@ const summaries = scenario.agents.map((a) => ({
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
   tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000,
 }));
-const timeline = (a: Agent) => [{
+const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : [{
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
 }];
@@ -200,14 +248,52 @@ createServer((c) =>
   }),
 ).listen(join(pocket, "pocketd.sock"));
 
+type Ws = { send(msg: string): unknown };
+const streams = new Map<string, ReturnType<typeof setInterval>>();
+// Stamped now, as pocketd stamps a live item, so the desktop matches a sent prompt to its echo.
+const item = (ws: Ws, agentId: string, it: Item) => ws.send(JSON.stringify({ type: "agent.stream", agentId, epoch: 1, item: { ...stamp(agentId, [it])[0], ts: Date.now() } }));
+const update = (ws: Ws, agentId: string, status: string) => {
+  const s = summaries.find((s) => s.id === agentId);
+  if (s) ws.send(JSON.stringify({ type: "agent.update", agent: { ...s, status, updatedAt: Date.now() } }));
+};
+const REPLY = "The transcript jumped because a finished tool's row grew by its output before the list measured it. Rows now keep their height until the next frame measures them, so the list stays pinned to the bottom while text streams in.";
+// 40 chunks 30ms apart into one item, as pocketd streams a reply.
+const reply = (ws: Ws, agentId: string) => {
+  const words = REPLY.split(" ");
+  const [id, seq] = [`a-${Date.now()}`, (seqs.get(agentId) ?? 0) + 1];
+  seqs.set(agentId, seq);
+  update(ws, agentId, "working");
+  clearInterval(streams.get(agentId));
+  let n = 0;
+  const timer = setInterval(() => {
+    n += 1;
+    const text = words.slice(0, Math.ceil((words.length * n) / 40)).join(" ");
+    ws.send(JSON.stringify({ type: "agent.stream", agentId, epoch: 1, item: { id, seq, ts: Date.now(), kind: "assistant", text } }));
+    if (n < 40) return;
+    clearInterval(timer);
+    streams.delete(agentId);
+    item(ws, agentId, { id: `r-${Date.now()}`, kind: "result", ok: true, durationMs: 1200, usage: { inputTokens: 12000, outputTokens: 180 } });
+    update(ws, agentId, "idle");
+  }, 30);
+  streams.set(agentId, timer);
+};
+const QUESTIONS = JSON.parse(readFileSync(join(import.meta.dir, "chat", "every-tool-kind.json"), "utf8")).find((i: Item) => i.id === "t9").call.detail;
+const ask = (ws: Ws, agentId: string, kind: "permission" | "question") => {
+  const detail = kind === "permission" ? { kind: "shell", command: "pnpm test --filter parser", description: "Run the parser tests" } : QUESTIONS;
+  const request = { requestId: `${kind}-${agentId}`, agentId, toolName: kind === "permission" ? "Bash" : "AskUserQuestion", detail, ...(kind === "permission" ? { options: [{ id: "always", label: "Yes, and don't ask again for pnpm test" }], feedback: true } : {}) };
+  ws.send(JSON.stringify({ type: "permission.request", request }));
+};
+
 Bun.serve({
   port,
   fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("fixture")),
   websocket: {
     message(ws, raw) {
       const f = JSON.parse(raw.toString());
+      // What the desktop sent, for checks that a click or key reached pocketd.
+      if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "locals.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "locals.v1", "settings.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
@@ -221,7 +307,41 @@ Bun.serve({
       if (f.type === "agent.timeline") {
         const a = scenario.agents.find((a) => a.id === f.agentId);
         if (a) ws.send(JSON.stringify({ type: "agent.timeline", agentId: a.id, items: timeline(a) }));
+        if (a?.id === CHAT_AGENT && firstChat.at(-1)?.kind === "user") reply(ws, a.id);
+        if (a?.id === CHAT_AGENT && process.env.FIXTURE_CHAT === "permissions") ask(ws, a.id, "permission");
       }
+      if (f.type === "agent.prompt") {
+        const name = f.text.match(/^\/fixture (\S+)$/)?.[1];
+        if (name === "permission" || name === "question") ask(ws, f.agentId, name);
+        else if (name) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: stamp(f.agentId, chatItems(name), `${name}-`) }));
+        else if (!process.env.FIXTURE_DROP) {
+          item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+          reply(ws, f.agentId);
+        }
+      }
+      // A session from the New session page: its terminal and agent appear, then the agent answers the prompt.
+      if (f.type === "agent.create") {
+        const { project, checkout, provider, prompt } = f.spec;
+        const id = `new-${f.requestId}`;
+        const tree = checkout?.new?.name ? join(`${project}.worktrees`, checkout.new.name) : project;
+        mkdirSync(tree, { recursive: true });
+        sessions.push({ id, cmd: provider, args: [], cwd: tree });
+        summaries.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: tree, provider, status: "working", pinned: false, createdAt: Date.now(), updatedAt: Date.now() });
+        ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd: tree, setup: false }));
+        ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
+        ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));
+        if (prompt) {
+          item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
+          reply(ws, id);
+        }
+      }
+      if (f.type === "agent.interrupt") {
+        clearInterval(streams.get(f.agentId));
+        streams.delete(f.agentId);
+        item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
+        update(ws, f.agentId, "idle");
+      }
+      if (f.type === "permission.resolve") ws.send(JSON.stringify({ type: "permission.resolved", requestId: f.requestId, decision: f.decision }));
     },
   },
 });

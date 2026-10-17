@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,4 +173,17 @@ func TestCloseWaitsForTheHandler(t *testing.T) {
 	}
 	close(h.release)
 	<-closed
+}
+
+func TestUpdateSettingsAsksForTheExperimentalAPIAndSendsOnlyWhatChanges(t *testing.T) {
+	s := codextest.Start(t, sock(t), codextest.OK)
+	if err := UpdateSettings(context.Background(), s.Sock, "th1", "", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(s.Next("initialize").Params); !strings.Contains(got, `"capabilities":{"experimentalApi":true}`) {
+		t.Fatalf("initialize %s", got)
+	}
+	if got := string(s.Next("thread/settings/update").Params); got != `{"effort":"high","threadId":"th1"}` {
+		t.Fatalf("update %s", got)
+	}
 }

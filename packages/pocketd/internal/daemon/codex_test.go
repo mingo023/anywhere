@@ -325,3 +325,24 @@ func TestAnEmbeddedCodexIsNotAttached(t *testing.T) {
 		t.Fatalf("agent %+v, bound %q, %d watchers", a, boundTo(pr), len(d.watchers))
 	}
 }
+
+func TestSwitchingCodexUpdatesItsThreadOnceBound(t *testing.T) {
+	d := newDaemon(t)
+	home, srv := codexHome(t)
+	term, pr := codexIn(t, d, home)
+	if err := pr.a.Driver().Settings("gpt-6-sol", "low"); err != errNoThread {
+		t.Fatalf("unbound: %v", err)
+	}
+	term.Write([]byte("\r"))
+	srv.Broadcast("thread/status/changed", active("th1"))
+	eventually(t, "bound", func() bool { return boundTo(pr) == "th1" })
+	if err := pr.a.Driver().Settings("gpt-6-sol", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(srv.Next("thread/settings/update").Params); got != `{"effort":"low","model":"gpt-6-sol","threadId":"th1"}` {
+		t.Fatalf("update %s", got)
+	}
+	if s := pr.a.Summary(); s.Model != "gpt-6-sol" || s.Effort != "low" {
+		t.Fatalf("summary %s %s", s.Model, s.Effort)
+	}
+}

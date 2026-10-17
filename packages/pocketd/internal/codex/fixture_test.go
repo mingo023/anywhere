@@ -44,11 +44,6 @@ func TestTheRecordedFixturesDecode(t *testing.T) {
 	}
 }
 
-type ignore struct{}
-
-func (ignore) Notify(string, json.RawMessage)                   {}
-func (ignore) Request(json.RawMessage, string, json.RawMessage) {}
-
 var keep = map[string]bool{"id": true, "type": true, "status": true, "kind": true, "role": true,
 	"nextCursor": true, "backwardsCursor": true, "turnsBackwardsCursor": true, "itemsBackwardsCursor": true}
 

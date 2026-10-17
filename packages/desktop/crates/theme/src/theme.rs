@@ -29,6 +29,16 @@ pub fn is_dark() -> bool {
     DARK.load(Ordering::Relaxed)
 }
 
+/// Black in light mode and white in dark at `a`, for fills and chip plates.
+pub fn ink(a: f32) -> Hsla {
+    if is_dark() { hsla(0., 0., 1., a) } else { hsla(0., 0., 0., a) }
+}
+
+/// `ink` for borders and rings: light mode's black is boosted to read as strongly as dark mode's white.
+pub fn hairline(a: f32) -> Hsla {
+    if is_dark() { hsla(0., 0., 1., a) } else { hsla(0., 0., 0., (a * 1.35).min(0.5)) }
+}
+
 /// Paints diffs blue and orange instead of green and red, from the next frame.
 pub fn set_blue_orange(on: bool) {
     BLUE_ORANGE.store(on, Ordering::Relaxed);
@@ -239,6 +249,10 @@ pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
 pub const WORKING: Token = Token::new(0xcc4e00ff, 0xf76b15ff);
 pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
 
+/// A chat's work rail: the line a reply's phases and steps hang from.
+pub const RAIL: Token = Token::new(0xdcdcdeff, 0x323237ff);
+pub const BUBBLE: Token = Token::new(0xf1f1f2ff, 0x2c2c30ff);
+pub const MENTION: Token = Token::new(0x0284c7ff, 0x5bb8f0ff);
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
 pub const AGENT_CODEX: Token = Token::fixed(0x0f9d8aff);
 
@@ -455,6 +469,11 @@ fn material_icon(path: &str, folder: bool, open: bool) -> &'static str {
     }
 }
 
+/// Whether `path` names a file the icon theme has its own icon for.
+pub fn has_file_icon(path: &str) -> bool {
+    material_icon(path, false, false) != "file"
+}
+
 pub fn file_icon(path: &str, folder: bool, open: bool, size: f32) -> Img {
     img(format!("icons/material/{}.svg", material_icon(path, folder, open))).size(px(size)).flex_none()
 }
@@ -504,9 +523,9 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple", "diff-split",
-    "discard", "explorer", "external", "file", "filter", "flow", "folder", "folder-plus", "forward", "globe", "grip", "inbox", "keyboard", "laptop", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "reload", "run-cancelled", "run-skipped", "search", "send", "server", "sessions", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "trash", "unfold", "warning", "worktree", "x", "x-bold",
+    "agent-arc", "agent-done", "agent-failed", "agent-ring", "agent-starting", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "circle-x", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple", "diff-split",
+    "discard", "explorer", "external", "file", "file-plus", "filter", "flow", "folder", "folder-plus", "forward", "globe", "grip", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
 
 const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));

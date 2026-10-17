@@ -125,7 +125,7 @@ impl Desktop {
         if let Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } = ev {
             return self.on_launch(ev, window, cx);
         }
-        if let Event::ConfigFailed(message) = ev {
+        if let Event::ConfigFailed(message) | Event::SettingsFailed(message) = ev {
             self.error = Some(message);
             return cx.notify();
         }
@@ -163,6 +163,8 @@ impl Desktop {
         }
         let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
         self.agents.apply_from(host, ev);
+        self.focus_arrived_chat(window, cx);
+        self.release_queued();
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.tab_of(t).is_some())) {
             self.close_pane(&term, cx);
         }

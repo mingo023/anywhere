@@ -24,14 +24,14 @@ use super::{
 const IMAGE_LEN: usize = 1;
 
 /// The space either side of an inline code span, at its own font size: CSS's
-/// `padding: 0.15em 0.3em`.
+/// `padding: 0.25em 0.5em`.
 pub(super) fn inline_code_padding(code_font_size: Pixels) -> Pixels {
-    code_font_size * 0.3
+    code_font_size * 0.5
 }
 
 /// The space above and below an inline code span's glyphs that its chip covers.
 fn inline_code_vertical_padding(code_font_size: Pixels) -> Pixels {
-    code_font_size * 0.15
+    code_font_size * 0.25
 }
 
 pub(super) struct InlineFlow {

@@ -10,6 +10,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/claude"
+	"pocketd/internal/codex"
 	"pocketd/internal/proc"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
@@ -53,7 +54,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 		pr.prompted, pr.enter = true, time.Now()
 	}
 	info := t.Info()
-	driver := func(a *agent.Agent) agent.Driver { return termDriver{t: t, a: a, pid: p.Pid} }
+	driver := func(a *agent.Agent) agent.Driver { return termDriver{t: t, a: a, pid: p.Pid, pr: pr} }
 	origin := t.TakeOrigin()
 	h := d.adopt(pr, driver)
 	if h != nil {
@@ -244,6 +245,7 @@ type termDriver struct {
 	t   *terminal.Terminal
 	a   *agent.Agent
 	pid int
+	pr  *presence
 }
 
 var errNotForeground = errors.New("Agent is no longer in the foreground")
@@ -277,6 +279,70 @@ func (c termDriver) Compact() error {
 	}
 	c.a.SetCompacting()
 	return c.t.Prompt("/compact")
+}
+
+// Settings types claude's own commands but switches codex through its
+// app-server, as codex's /model opens a picker. A resume keeps the switch.
+func (c termDriver) Settings(model, effort string) error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	var err error
+	if c.pr.provider == "codex" {
+		err = c.pr.switchCodex(model, effort)
+	} else {
+		err = c.typeSettings(model, effort)
+	}
+	if err != nil {
+		return err
+	}
+	c.pr.switched(model, effort)
+	return nil
+}
+
+// typeSettings waits out the Enter that Prompt sends late, so the two
+// commands don't run together.
+func (c termDriver) typeSettings(model, effort string) error {
+	if model != "" {
+		if err := c.t.Prompt("/model " + model); err != nil || effort == "" {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return c.t.Prompt("/effort " + effort)
+}
+
+var errNoThread = errors.New("Codex can switch once its first turn has started")
+
+// switchCodex needs pr's thread, which only a codex on its account's
+// app-server gets: one bound has its sock set.
+func (pr *presence) switchCodex(model, effort string) error {
+	pr.mu.Lock()
+	thread := pr.thread
+	pr.mu.Unlock()
+	if thread == "" {
+		return errNoThread
+	}
+	ctx, cancel := context.WithTimeout(pr.ctx, 5*time.Second)
+	defer cancel()
+	return codex.UpdateSettings(ctx, pr.sock, thread, model, effort)
+}
+
+func (pr *presence) switched(model, effort string) {
+	pr.mu.Lock()
+	if model != "" {
+		pr.launch.Model = model
+	}
+	if effort != "" {
+		pr.launch.Effort = effort
+	}
+	pr.mu.Unlock()
+	if model != "" {
+		pr.a.SetModel(model)
+	}
+	if effort != "" {
+		pr.a.SetEffort(effort)
+	}
 }
 
 func (c termDriver) inForeground() bool {

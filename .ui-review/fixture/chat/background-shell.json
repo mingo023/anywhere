@@ -1,0 +1,10 @@
+[
+  { "id": "u1", "kind": "user", "text": "Start the http server in the background" },
+  { "id": "b1", "kind": "tool", "call": { "toolUseId": "tu-b1", "name": "Bash", "detail": { "kind": "shell", "command": "bun run dev" }, "status": "running" } },
+  { "id": "a1", "kind": "assistant", "text": "The dev server is up on http://localhost:3000. It keeps going in the background." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 4000, "usage": { "inputTokens": 3000, "outputTokens": 120 } },
+  { "id": "u2", "kind": "user", "text": "Any errors so far?" },
+  { "id": "b2", "kind": "tool", "call": { "toolUseId": "tu-b2", "name": "TaskOutput", "detail": { "kind": "shell", "command": "bun run dev" }, "status": "ok", "output": "ready in 412ms\nGET / 200", "durationMs": 30 } },
+  { "id": "a2", "kind": "assistant", "text": "No errors: it served `GET /` with 200." },
+  { "id": "r2", "kind": "result", "ok": true, "durationMs": 3000, "usage": { "inputTokens": 3200, "outputTokens": 40 } }
+]

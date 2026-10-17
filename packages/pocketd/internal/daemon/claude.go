@@ -3,11 +3,13 @@ package daemon
 import (
 	"context"
 	"os"
+	"sync"
 	"time"
 
 	"pocketd/internal/claude"
 	"pocketd/internal/proc"
 	"pocketd/internal/terminal"
+	"pocketd/internal/timeline"
 )
 
 const claudeApp = "claude-code"
@@ -164,6 +166,23 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 	}
 	go func() {
 		defer close(done)
+		var spawns sync.Map
+		subagents := make(chan struct{})
+		go func() {
+			defer close(subagents)
+			claude.TailSubagents(ctx, path, func(id string) bool {
+				_, ok := spawns.Load(id)
+				return ok
+			}, func(events []timeline.Event) {
+				for _, e := range events {
+					if e.Kind == "tool_start" {
+						spawns.Store(e.ToolUseID, true)
+					}
+					pr.a.Record(e)
+				}
+			})
+		}()
+		defer func() { <-subagents }()
 		keys := map[string]string{}
 		var read int64
 		used, window := int64(-1), int64(0)
@@ -182,6 +201,9 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 				used = -1
 			}
 			for _, e := range events {
+				if e.Kind == "tool_start" {
+					spawns.Store(e.ToolUseID, true)
+				}
 				d.dismissAnswered(pr.a.ID(), keys, e)
 				pr.a.Record(e)
 				// Rejecting Claude's own dialog at the desk interrupts the turn without a hook.

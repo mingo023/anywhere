@@ -57,6 +57,9 @@ var serverGolden = map[string]any{
 	"stream_tool_other": NewAgentStream("a1", 1, Item{ID: "i3", Seq: 3, Ts: 12, Kind: "tool", Call: &ToolCall{
 		ToolUseID: "t3", Name: "mcp__x", Status: "error", Detail: ToolDetail{Kind: "other", Name: "mcp__x", Input: json.RawMessage(`{"q":1}`)},
 	}}),
+	"stream_subagent": NewAgentStream("a1", 1, Item{ID: "i7", Seq: 7, Ts: 16, Kind: "tool", ParentToolUseID: "t4", Call: &ToolCall{
+		ToolUseID: "t5", Name: "Read", Status: "running", Detail: ToolDetail{Kind: "read", Path: "a.go"},
+	}}),
 	"stream_tasks":   NewAgentStream("a1", 1, Item{ID: "i4", Seq: 4, Ts: 13, Kind: "tasks", Tasks: []TaskItem{{Text: "x", Status: "in_progress"}}}),
 	"stream_compact": NewAgentStream("a1", 1, Item{ID: "i5", Seq: 5, Ts: 14, Kind: "compact", Trigger: "manual"}),
 	"stream_result":  NewAgentStream("a1", 1, Item{ID: "i6", Seq: 6, Ts: 15, Kind: "result", OK: false, Error: "interrupted"}),
@@ -164,6 +167,7 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.close","id":null,"agentId":"a"}`,
 		`{"type":"agent.view","id":"1"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a"}`,
+		`{"type":"agent.settings","id":"1","agentId":"a"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a","pinned":"yes"}`,
 		`{"type":"agent.view","id":"1","agentIds":null}`,
 		`{"type":"agent.seen","id":"1","agentIds":"a1"}`,

@@ -15,6 +15,7 @@ capture = ["gpui-kit/test-support"]
 agents.workspace = true
 base64.workspace = true
 channel.workspace = true
+chat.workspace = true
 chrono.workspace = true
 daemon.workspace = true
 futures.workspace = true

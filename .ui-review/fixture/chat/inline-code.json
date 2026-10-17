@@ -1,0 +1,22 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Summarise how this repo builds and releases."
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "**Build and release:**\n\n- `make app` builds a side-by-side \"Anywhere Dev.app\". `make run` makes a release build.\n- A `v*` tag triggers `release-mac.yml`, which builds a universal app, notarizes it, signs the Sparkle update and uploads the DMG and `appcast.xml` to GitHub Releases.\n- Every PR needs exactly one `type:` label.\n- `changelog-draft.sh` drafts the changelog. The release script refuses a tag with no changelog section.\n\n**Things to check:**\n\n- Tags go up to v0.1.5, but the top `CHANGELOG.md` entry is 0.1.4.\n- No `.anywhere/` directory is checked in. The setup/teardown script feature exists, but this repo has no scripts of its own.\n\n**Recent work:** the last 30 commits are PRs #40\u2013#66. They cover sidebar and project UX (groups, pins, emoji, clone from URL, composer), multiple Claude/Codex accounts, the PR card and fix-checks flow, terminal polish, `.anywhere/config.json` scripts and release tooling.\n\nAll three agents have finished. This is the `pocket` UI crate summary.\n\n**Composition:**\n\n- `Desktop` (`crates/pocket/src/desktop.rs`) is the single root GPUI entity. It holds about 70 fields, most of them feature state structs."
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 64000,
+  "usage": {
+   "inputTokens": 12000,
+   "outputTokens": 900
+  }
+ }
+]

@@ -129,16 +129,19 @@ type Item struct {
 	DurationMs int64
 	Error      string
 	Usage      *TurnUsage
+	// ParentToolUseID is the tool call that spawned the sub-agent this item belongs to.
+	ParentToolUseID string
 }
 
 func (it Item) MarshalJSON() ([]byte, error) {
 	type head struct {
-		Kind string `json:"kind"`
-		ID   string `json:"id"`
-		Seq  int64  `json:"seq"`
-		Ts   int64  `json:"ts"`
+		Kind            string `json:"kind"`
+		ID              string `json:"id"`
+		Seq             int64  `json:"seq"`
+		Ts              int64  `json:"ts"`
+		ParentToolUseID string `json:"parentToolUseId,omitempty"`
 	}
-	h := head{it.Kind, it.ID, it.Seq, it.Ts}
+	h := head{it.Kind, it.ID, it.Seq, it.Ts, it.ParentToolUseID}
 	switch it.Kind {
 	case "user", "assistant", "thinking", "plan":
 		return json.Marshal(struct {

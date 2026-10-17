@@ -27,15 +27,6 @@ fn access_color(access: &str) -> Token {
     if access == "full" { WAITING_TEXT } else { TEXT }
 }
 
-/// The model a launch starts with: the one picked, else `app`'s from Settings.
-pub(crate) fn model_shown(picked: &str, app: &str) -> String {
-    match (picked, app) {
-        ("", "") => "Default model".into(),
-        ("", app) => model_label(app),
-        (picked, _) => model_label(picked),
-    }
-}
-
 /// The access a launch starts with: the one picked, else `app`'s from Settings.
 pub(crate) fn access_shown(picked: &str, app: &str) -> &'static str {
     access_text(if picked.is_empty() { app } else { picked }).0
@@ -71,19 +62,6 @@ pub(crate) fn chip(id: &'static str, open: bool, glyph: &str, label: impl Into<S
 pub(crate) fn access_chip(id: &'static str, open: bool, picked: &str, app: &str, toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
     let access = if picked.is_empty() { app } else { picked };
     chip(id, open, "shield", access_shown(picked, app), access_color(access), toggle, cx)
-}
-
-pub(crate) fn model_rows(id: &'static str, choices: Vec<(String, String)>, picked: &str, pick: Pick, cx: &mut Context<Desktop>) -> Vec<AnyElement> {
-    choices
-        .into_iter()
-        .enumerate()
-        .map(|(i, (value, label))| {
-            let pick = pick.clone();
-            ui::pick_row((id, i), value == picked, None::<Div>, div().child(label), None)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| pick(this, value.clone(), cx)))
-                .into_any_element()
-        })
-        .collect()
 }
 
 pub(crate) fn access_rows(id: &'static str, choices: Vec<(String, String, String)>, picked: &str, pick: Pick, cx: &mut Context<Desktop>) -> Vec<AnyElement> {
@@ -129,11 +107,10 @@ pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, lead: Option<
 
 #[cfg(test)]
 mod tests {
-    use super::{access_choices, access_shown, model_choices, model_shown};
+    use super::{access_choices, access_shown, model_choices};
 
     #[test]
     fn a_chip_names_the_pick_else_what_settings_start_with() {
-        assert_eq!((model_shown("", ""), model_shown("", "opus"), model_shown("haiku", "opus")), ("Default model".to_string(), "Opus".to_string(), "Haiku".to_string()));
         assert_eq!((access_shown("", "settings"), access_shown("", "auto"), access_shown("full", "auto")), ("Agent's settings", "Auto", "Full"));
     }
 

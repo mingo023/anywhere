@@ -645,7 +645,11 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Build the engine. Each mode's own `new` sets its layout on top of this.
     fn new_in_mode(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle().tab_stop(true);
-        let blink_cursor = cx.new(|_| BlinkCursor::new());
+        let blink_cursor = cx.new(|_| {
+            let mut cursor = BlinkCursor::new();
+            cursor.set_active(window.is_window_active());
+            cursor
+        });
         let undo_manager = UndoManager::new();
 
         let _subscriptions = vec![
@@ -664,7 +668,9 @@ impl<M: InputModeKind> InputBaseState<M> {
             cx.observe(&blink_cursor, |_, _, cx| cx.notify()),
             // Blink the cursor when the window is active, pause when it's not.
             cx.observe_window_activation(window, |input, window, cx| {
-                if window.is_window_active() {
+                let active = window.is_window_active();
+                input.blink_cursor.update(cx, |cursor, _| cursor.set_active(active));
+                if active {
                     let focus_handle = input.focus_handle.clone();
                     if focus_handle.is_focused(window) {
                         input.blink_cursor.update(cx, |blink_cursor, cx| {

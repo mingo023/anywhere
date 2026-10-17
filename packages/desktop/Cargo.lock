@@ -925,6 +925,14 @@ name = "channel"
 version = "0.0.0"
 
 [[package]]
+name = "chat"
+version = "0.0.0"
+dependencies = [
+ "agents",
+ "serde_json",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5569,6 +5577,7 @@ dependencies = [
  "base64",
  "block2 0.6.2",
  "channel",
+ "chat",
  "chrono",
  "daemon",
  "futures",
