@@ -53,6 +53,24 @@ jobs:
       - name: Ghostty
         run: scripts/build-ghostty.sh
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/pocketd/go.mod
+          cache-dependency-path: packages/pocketd/go.sum
+
+      - name: Test pocketd
+        working-directory: packages/pocketd
+        run: |
+          go vet ./internal/agent/ ./internal/proto/
+          go test ./internal/...
+          go build -o "$GITHUB_WORKSPACE/pocketd" ./cmd/pocketd
+
+      - name: Test desktop
+        working-directory: packages/desktop
+        run: |
+          cargo test --workspace --release
+          cargo clippy --workspace --all-targets --release
+
       - name: Bundle
         run: |
           scripts/bundle-dev.sh --no-open
@@ -61,6 +79,8 @@ jobs:
       # The zip is the artifact; ditto keeps the bundle's symlinks and signature, which upload-artifact's own zip would not.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: Anywhere-Dev-*.zip
+          path: |
+            Anywhere-Dev-*.zip
+            pocketd
           archive: false
           if-no-files-found: error
