@@ -1,9 +1,8 @@
-use crate::automations::logic::clock;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::terminal_view::surface::Metrics;
 use agents::{Item, Summary};
-use chrono::Local;
+use chrono::{DateTime, Local};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -13,14 +12,19 @@ use theme::*;
 
 /// Lines a pinned prompt shows until it is opened, so a long one never takes over the pane.
 const FOLDED_LINES: usize = 2;
-const SIZE: f32 = 13.;
-const LINE: f32 = 19.;
+const SIZE: f32 = 14.;
+const LINE: f32 = 20.;
+const PAD_X: f32 = 12.;
+const PAD_Y: f32 = 10.;
+const RADIUS: f32 = 8.;
+/// The row under a cut-off prompt that holds Show more.
+const MORE_ROW: f32 = 26.;
 /// Past this an opened prompt scrolls.
 const OPEN_MAX_HEIGHT: f32 = 160.;
 /// Taken wide on purpose: guessing a prompt overflows only costs a Show more that opens to the same text.
 const CHAR_WIDTH: f32 = SIZE * 0.6;
 /// The card's inset from the pane, its padding and its border, on both sides.
-const CARD_INSET: f32 = 2. * (12. + 12. + 1.);
+const CARD_INSET: f32 = 2. * (12. + PAD_X + 1.);
 
 /// A Mono cell is 0.6em wide.
 const MONO_CELL: f32 = 0.6;
@@ -53,15 +57,16 @@ pub struct Said {
     pub at: i64,
 }
 
-/// A prompt as one paragraph: line breaks and runs of spaces read as one space, so the folded lines hold as much as they can.
+/// A prompt as one paragraph: line breaks and runs of spaces read as one space, so the one line Claude Code shows of
+/// a prompt matches the prompt it came from.
 pub fn folded(prompt: &str) -> String {
     prompt.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Whether `prompt`, folded, runs past two lines of a card `width` px wide, or has line breaks only the open card shows.
+/// Whether `prompt` wraps past two lines of a card `width` px wide, so the card cuts it off.
 pub fn overflows(prompt: &str, width: f32) -> bool {
     let per_line = (width / CHAR_WIDTH).floor().max(1.) as usize;
-    prompt.trim().contains('\n') || folded(prompt).chars().count() > per_line * FOLDED_LINES
+    prompt.trim().lines().map(|l| l.chars().count().div_ceil(per_line).max(1)).sum::<usize>() > FOLDED_LINES
 }
 
 /// The prompts Claude Code shows on `cells`, top first, as (row, text shown): the line it pins while scrolled up, and
@@ -111,7 +116,7 @@ pub fn at_top<'a>(shown: &[(usize, String)], said: &'a [Said]) -> Option<&'a Sai
 
 impl Desktop {
     /// The prompt whose turn the top of `pane`'s output is in, floated over it as VS Code's Claude panel pins it, so
-    /// it stays in view however far the output runs. Folded to two lines, its second fades out under Show more.
+    /// it stays in view however far the output runs. Cut to two lines, the second fades out above Show more.
     /// A click on the card scrolls Claude Code to the prompt. `shown` is what `prompt_rows` read off the screen.
     pub(crate) fn pinned_prompt(&self, pane: &str, shown: &[(usize, String)], cols: u16, m: &Metrics, cx: &mut Context<Self>) -> Option<Div> {
         let (cell, line) = (m.size * MONO_CELL, m.line);
@@ -122,23 +127,22 @@ impl Desktop {
         let top = at_top(shown, &said)?.clone();
         let open = self.terminal.prompts.is_open(pane, &top.text);
         let long = overflows(&top.text, width - CARD_INSET);
-        let text = if open { top.text.clone() } else { folded(&top.text) };
-        // Opaque, so the output scrolling under the card never shows through it.
-        let card = Hsla::from(POPOVER).blend(FILL_3.into());
-        let strip = if is_dark() { WINDOW_SOLID } else { SURFACE_SUNKEN };
+        // Opaque and lifted off the output, which scrolls under it.
+        let card = Hsla::from(POPOVER).blend(FILL_4.into()).blend(FILL_2.into());
         let (toggled, prompt) = (pane.to_string(), top.text.clone());
         let more = ui::control(div().id(id(format!("prompt-more-{pane}"))))
             .absolute()
-            .right(px(6.))
-            .bottom(px(6.))
-            .h(px(22.))
-            .px(px(8.))
+            .right_0()
+            .bottom_0()
+            .h(px(MORE_ROW))
+            .px(px(10.))
             .flex()
             .items_center()
-            .rounded(px(6.))
+            .rounded_tl(px(6.))
+            .rounded_br(px(RADIUS - 1.))
             .bg(TEXT_BODY)
             .text_color(ON_TEXT)
-            .text_size(px(12.))
+            .text_size(px(13.))
             .cursor_pointer()
             .hover(|s| s.bg(TEXT))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -147,52 +151,57 @@ impl Desktop {
                 cx.notify();
             }))
             .child(if open { "Show less" } else { "Show more" });
-        Some(
+        let time = (top.at > 0).then(|| {
             div()
                 .absolute()
-                .top_0()
-                .left_0()
-                .right_0()
-                .px(px(12.))
-                .pt(px(4.))
-                .font_family(ui_font())
-                .bg(linear_gradient(180., linear_color_stop(strip, 0.6), linear_color_stop(Hsla::from(strip).opacity(0.), 1.)))
-                .children((top.at > 0).then(|| div().flex().justify_end().pb(px(4.)).text_size(px(11.)).line_height(px(14.)).text_color(TEXT_3).child(clock(top.at, &Local))))
-                .child(
-                    div()
-                        .id(id(format!("prompt-{pane}")))
-                        .occlude()
-                        .relative()
-                        .px(px(12.))
-                        .py(px(8.))
-                        .rounded(px(8.))
-                        .border_1()
-                        .border_color(SEPARATOR_STRONG)
-                        .bg(card)
-                        .shadow(vec![ui::shadow(rgba(0x00000059), 4., 14.), ui::shadow(rgba(0x00000026), 1., 3.)])
-                        .text_size(px(SIZE))
-                        .line_height(px(LINE))
-                        .text_color(TEXT)
-                        .when(claude, |d| {
-                            let jumped = pane.to_string();
-                            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.jump_to_prompt(&jumped, cell, line, cx)))
-                        })
-                        .child(
-                            div()
-                                .id(id(format!("prompt-text-{pane}")))
-                                .when(open, |d| d.max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll().pb(px(22.)))
-                                .when(!open, |d| d.line_clamp(FOLDED_LINES))
-                                .child(text),
-                        )
-                        .when(long && !open, |d| {
-                            d.child(div().absolute().left_0().right_0().bottom_0().h(px(LINE + 8.)).rounded_b(px(8.)).bg(linear_gradient(
-                                180.,
-                                linear_color_stop(card.opacity(0.), 0.),
-                                linear_color_stop(card, 0.9),
-                            )))
-                        })
-                        .when(long, |d| d.child(more)),
-                ),
+                .top(px(-20.))
+                .right(px(10.))
+                .px(px(6.))
+                .rounded(px(4.))
+                .bg(card)
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(TEXT_2)
+                .child(DateTime::from_timestamp_millis(top.at).unwrap_or_default().with_timezone(&Local).format("%-I:%M %p").to_string())
+        });
+        Some(
+            div().absolute().top_0().left_0().right_0().px(px(12.)).pt(px(24.)).font_family(ui_font()).child(
+                div()
+                    .id(id(format!("prompt-{pane}")))
+                    .occlude()
+                    .relative()
+                    .px(px(PAD_X))
+                    .pt(px(PAD_Y))
+                    .pb(px(if long { MORE_ROW } else { PAD_Y }))
+                    .rounded(px(RADIUS))
+                    .border_1()
+                    .border_color(SEPARATOR_STRONG)
+                    .bg(card)
+                    .shadow(vec![ui::shadow(rgba(0x00000066), 6., 18.), ui::shadow(rgba(0x00000033), 1., 4.)])
+                    .text_size(px(SIZE))
+                    .line_height(px(LINE))
+                    .text_color(TEXT)
+                    .when(claude, |d| {
+                        let jumped = pane.to_string();
+                        d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.jump_to_prompt(&jumped, cell, line, cx)))
+                    })
+                    .child(
+                        div()
+                            .id(id(format!("prompt-text-{pane}")))
+                            .when(open, |d| d.max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll())
+                            .when(!open, |d| d.line_clamp(FOLDED_LINES))
+                            .child(top.text.clone()),
+                    )
+                    .when(long && !open, |d| {
+                        d.child(div().absolute().left_0().right_0().top(px(PAD_Y + LINE)).h(px(LINE)).bg(linear_gradient(
+                            180.,
+                            linear_color_stop(card.opacity(0.2), 0.),
+                            linear_color_stop(card.opacity(0.85), 1.),
+                        )))
+                    })
+                    .children(time)
+                    .when(long, |d| d.child(more)),
+            ),
         )
     }
 
@@ -271,11 +280,13 @@ mod tests {
     }
 
     #[test]
-    fn show_more_appears_past_two_lines_or_for_line_breaks() {
-        let width = 13. * 0.6 * 10.;
+    fn show_more_appears_only_once_the_prompt_wraps_past_two_lines() {
+        let width = super::CHAR_WIDTH * 10.;
         assert!(!overflows(&"x".repeat(20), width));
         assert!(overflows(&"x".repeat(21), width));
-        assert!(overflows("one\ntwo", width));
+        assert!(!overflows("one\ntwo\n", width));
+        assert!(overflows("one\ntwo\nthree", width));
+        assert!(overflows(&format!("one\n{}", "x".repeat(11)), width));
     }
 
     #[test]
