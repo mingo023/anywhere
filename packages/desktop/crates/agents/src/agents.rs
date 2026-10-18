@@ -6,7 +6,7 @@ use locals::Local;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -46,6 +46,10 @@ pub struct Summary {
     pub updated_at: i64,
     /// The account it runs on; empty is the built-in login.
     pub account: String,
+    /// Bumped each time pocketd starts the agent's timeline over, as for a new conversation.
+    pub resets: u64,
+    /// Run without its TUI, so only the chat drives it.
+    pub chat_only: bool,
 }
 
 impl Summary {
@@ -308,6 +312,10 @@ pub enum Event {
     Automations { automations: Vec<Automation>, runs: Vec<Run> },
     /// pocketd refused an automation message.
     AutomationError(String),
+    /// pocketd refused the prompt sent under `request`, or the socket never took it; it isn't sent again, so it can't be typed twice.
+    PromptFailed { agent: String, request: String },
+    /// pocketd refused to stop the agent's turn, or the socket never took the stop; `reason` says why.
+    InterruptFailed { agent: String, reason: String },
 }
 
 #[derive(Default)]
@@ -363,6 +371,7 @@ impl Agents {
         let my_name = |path: &str| path.strip_prefix("//").and_then(|p| p.split_once('/')).map(|(h, _)| h) == source;
         match ev {
             Event::Agents(list) => {
+                list.iter().for_each(|a| self.drop_if_reset(a));
                 self.list.retain(|a| !mine(&a.id));
                 self.list.extend(list);
             }
@@ -371,10 +380,13 @@ impl Agents {
                 self.names.retain(|path, _| !my_name(path));
             }
             Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
-            Event::Agent(a) => match self.list.iter_mut().find(|x| x.id == a.id) {
-                Some(x) => *x = a,
-                None => self.list.push(a),
-            },
+            Event::Agent(a) => {
+                self.drop_if_reset(&a);
+                match self.list.iter_mut().find(|x| x.id == a.id) {
+                    Some(x) => *x = a,
+                    None => self.list.push(a),
+                }
+            }
             Event::Items(id, items) => {
                 *self.revisions.entry(id.clone()).or_default() += 1;
                 let t = self.timelines.entry(id).or_default();
@@ -411,7 +423,14 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
-            Event::AutomationError(_) => {}
+            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } => {}
+        }
+    }
+
+    /// Drops the items held for `a` once pocketd started its timeline over, so the old conversation doesn't stay above the new one.
+    fn drop_if_reset(&mut self, a: &Summary) {
+        if self.get(&a.id).is_some_and(|x| x.resets != a.resets) && self.timelines.remove(&a.id).is_some() {
+            *self.revisions.entry(a.id.clone()).or_default() += 1;
         }
     }
 
@@ -591,6 +610,10 @@ const CREATE: &str = "create-";
 const CONFIG: &str = "config";
 const SETTINGS: &str = "settings";
 const AUTO: &str = "auto-";
+const PROMPT: &str = "prompt-";
+const INTERRUPT: &str = "interrupt-";
+/// Why a prompt or stop the socket never took failed.
+const UNSENT: &str = "Lost the connection to pocketd";
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -676,13 +699,16 @@ impl Outbox {
         self.send(json!({"type": "agent.pin", "id": "pin", "agentId": agent_id, "pinned": pinned}));
     }
 
-    /// Types `text` into the agent's terminal and presses Enter.
-    pub fn prompt(&self, agent_id: &str, text: &str) {
-        self.send(json!({"type": "agent.prompt", "id": "prompt", "agentId": agent_id, "text": text}));
+    /// Types `text` into the agent's terminal and presses Enter; returns the request id a refusal names.
+    pub fn prompt(&self, agent_id: &str, text: &str) -> String {
+        let id = format!("{PROMPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        self.send(json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text}));
+        id
     }
 
     pub fn interrupt(&self, agent_id: &str) {
-        self.send(json!({"type": "agent.interrupt", "id": "interrupt", "agentId": agent_id}));
+        let id = format!("{INTERRUPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        self.send(json!({"type": "agent.interrupt", "id": id, "agentId": agent_id}));
     }
 
     pub fn compact(&self, agent_id: &str) {
@@ -826,12 +852,19 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         ws.send(Message::text(m.to_string())).ok()?;
     }
     let mut known: Vec<String> = Vec::new();
+    let mut requests = Requests::default();
     loop {
         for m in queue.try_iter() {
             if m["type"] == "agent.create" {
                 unanswered.push(m.clone());
             }
-            ws.send(Message::text(m.to_string())).ok()?;
+            if ws.send(Message::text(m.to_string())).is_err() {
+                if let Some(ev) = refused(&m, UNSENT) {
+                    let _ = tx.unbounded_send(ev);
+                }
+                return None;
+            }
+            requests.sent(&m);
         }
         let raw = match ws.read() {
             Ok(Message::Text(raw)) => raw,
@@ -843,7 +876,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = launch_event(&f).or_else(|| names_event(&f)).or_else(|| automation_event(&f)) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -888,6 +921,38 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
             ws.send(Message::text(req.to_string())).ok()?;
             known.push(id);
         }
+    }
+}
+
+/// Prompts and stops written to pocketd and not yet answered, so a refusal names the one it refused.
+#[derive(Default)]
+struct Requests(VecDeque<Value>);
+
+impl Requests {
+    fn sent(&mut self, m: &Value) {
+        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt")) {
+            self.0.push_back(m.clone());
+        }
+    }
+
+    /// Drops the request `f` answers; a refusal becomes `PromptFailed` or `InterruptFailed`.
+    fn answer(&mut self, f: &Frame) -> Option<Event> {
+        if !matches!(f.kind.as_str(), "ack" | "error") {
+            return None;
+        }
+        let i = self.0.iter().position(|m| m["id"] == f.id.as_str())?;
+        let m = self.0.remove(i)?;
+        if f.kind == "error" { refused(&m, &f.message) } else { None }
+    }
+}
+
+/// The event for a prompt or stop `m` that failed for `reason`; none for other messages.
+fn refused(m: &Value, reason: &str) -> Option<Event> {
+    let field = |key: &str| m[key].as_str().unwrap_or_default().to_string();
+    match m["type"].as_str()? {
+        "agent.prompt" => Some(Event::PromptFailed { agent: field("agentId"), request: field("id") }),
+        "agent.interrupt" => Some(Event::InterruptFailed { agent: field("agentId"), reason: reason.into() }),
+        _ => None,
     }
 }
 
@@ -998,6 +1063,26 @@ mod tests {
     }
 
     #[test]
+    fn a_new_conversation_drops_the_old_items() {
+        let mut a = Agents::default();
+        let agent = |id: &str, resets| Summary { id: id.into(), resets, ..Default::default() };
+        let item = |id: &str, seq, text: &str| Item { id: id.into(), seq, kind: "assistant".into(), text: text.into(), ..Default::default() };
+        a.apply(Event::Agents(vec![agent("a", 0), agent("b", 0)]));
+        a.apply(Event::Items("a".into(), vec![item("1", 1, "old")]));
+        a.apply(Event::Items("b".into(), vec![item("1", 1, "kept")]));
+        a.apply(Event::Agent(agent("a", 0)));
+        assert_eq!(a.timelines["a"].len(), 1, "the same conversation keeps its items");
+        let before = a.revision("a");
+        a.apply(Event::Agent(agent("a", 1)));
+        assert!(!a.timelines.contains_key("a") && a.revision("a") > before, "the old conversation is gone and views refold");
+        a.apply(Event::Items("a".into(), vec![item("2", 2, "new")]));
+        a.apply(Event::Agents(vec![agent("a", 1), agent("b", 2)]));
+        let texts = |id: &str| a.timelines.get(id).map(|t| t.iter().map(|i| i.text.clone()).collect::<Vec<_>>()).unwrap_or_default();
+        assert_eq!(texts("a"), ["new"]);
+        assert!(texts("b").is_empty(), "a reset seen in a whole list drops too");
+    }
+
+    #[test]
     fn a_sub_agents_text_is_not_its_parents_last_word() {
         let mut a = Agents::default();
         let text = |id: &str, seq, parent: Option<&str>| Item { id: id.into(), seq, kind: "assistant".into(), text: id.into(), parent_tool_use_id: parent.map(Into::into), ..Default::default() };
@@ -1034,7 +1119,7 @@ mod tests {
         assert_eq!(f.item.unwrap().parent_tool_use_id.as_deref(), Some("t4"));
         let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/timeline_subagents.json")).unwrap();
         let parents: Vec<_> = f.items.iter().map(|i| i.parent_tool_use_id.as_deref()).collect();
-        assert_eq!(parents, [None, None, None, Some("toolu_list"), Some("toolu_list"), Some("toolu_list"), Some("toolu_count"), Some("toolu_count"), None]);
+        assert_eq!(parents, [None, None, None, Some("toolu_list"), Some("toolu_list"), Some("toolu_list"), Some("toolu_count"), Some("toolu_count"), None, None]);
     }
 
     #[test]
@@ -1406,6 +1491,82 @@ mod tests {
         std::fs::remove_file(&sock).unwrap();
     }
 
+    fn frame(raw: Value) -> Frame {
+        serde_json::from_value(raw).unwrap()
+    }
+
+    #[test]
+    fn a_refused_prompt_reports_which_send_failed() {
+        let mut prompts = Requests::default();
+        prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"}));
+        prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-2", "agentId": "a2", "text": "Ship it"}));
+        let refused = prompts.answer(&frame(json!({"type": "error", "id": "prompt-2", "message": "Agent isn't in the foreground"})));
+        assert!(matches!(refused, Some(Event::PromptFailed { agent, request }) if agent == "a2" && request == "prompt-2"));
+        assert!(prompts.answer(&frame(json!({"type": "error", "id": "prompt-2", "message": "again"}))).is_none());
+    }
+
+    #[test]
+    fn an_acked_prompt_reports_nothing() {
+        let mut prompts = Requests::default();
+        prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"}));
+        assert!(prompts.answer(&frame(json!({"type": "ack", "id": "prompt-1"}))).is_none());
+        assert!(prompts.answer(&frame(json!({"type": "error", "id": "prompt-1", "message": "late"}))).is_none());
+    }
+
+    #[test]
+    fn a_refused_stop_reports_its_agent_and_why() {
+        let mut requests = Requests::default();
+        requests.sent(&json!({"type": "agent.interrupt", "id": "interrupt-1", "agentId": "a1"}));
+        requests.sent(&json!({"type": "agent.interrupt", "id": "interrupt-2", "agentId": "a2"}));
+        assert!(requests.answer(&frame(json!({"type": "ack", "id": "interrupt-1"}))).is_none());
+        let refused = requests.answer(&frame(json!({"type": "error", "id": "interrupt-2", "code": "agent_resuming", "message": "This session is still resuming"})));
+        assert!(matches!(refused, Some(Event::InterruptFailed { agent, reason }) if agent == "a2" && reason == "This session is still resuming"));
+    }
+
+    #[test]
+    fn a_prompt_or_stop_the_socket_never_took_fails_and_nothing_else_does() {
+        let unsent = json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"});
+        assert!(matches!(refused(&unsent, UNSENT), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == "prompt-1"));
+        let stop = json!({"type": "agent.interrupt", "id": "interrupt-1", "agentId": "a1"});
+        assert!(matches!(refused(&stop, UNSENT), Some(Event::InterruptFailed { agent, reason }) if agent == "a1" && reason == UNSENT));
+        assert!(refused(&json!({"type": "agent.compact", "id": "compact", "agentId": "a1"}), UNSENT).is_none());
+    }
+
+    #[test]
+    fn each_prompt_goes_out_under_its_own_id_and_its_refusal_reaches_the_app() {
+        let (server, sock) = pocketd("prompt");
+        let (out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        let first = out.prompt("a1", "Fix it");
+        let second = out.prompt("a1", "Fix it");
+        assert_ne!(first, second);
+        assert_eq!((read(&mut ws)["id"].as_str(), read(&mut ws)["id"].as_str()), (Some(first.as_str()), Some(second.as_str())));
+        let refusal = json!({"type": "error", "id": second, "message": "Agent isn't in the foreground"});
+        ws.send(Message::text(refusal.to_string())).unwrap();
+        ws.send(Message::text(json!({"type": "agent.update", "agent": {"id": "a1"}}).to_string())).unwrap();
+        let mut events = futures::executor::block_on_stream(events);
+        assert!(matches!(events.next(), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == second));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn each_stop_goes_out_under_its_own_id_and_its_refusal_reaches_the_app() {
+        let (server, sock) = pocketd("interrupt");
+        let (out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        out.interrupt("a1");
+        out.interrupt("a1");
+        let (first, second) = (read(&mut ws)["id"].clone(), read(&mut ws)["id"].clone());
+        assert_ne!(first, second);
+        let refusal = json!({"type": "error", "id": second, "message": "Agent is no longer in the foreground"});
+        ws.send(Message::text(refusal.to_string())).unwrap();
+        let mut events = futures::executor::block_on_stream(events);
+        assert!(matches!(events.next(), Some(Event::InterruptFailed { agent, reason }) if agent == "a1" && reason == "Agent is no longer in the foreground"));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
     #[test]
     fn a_refused_config_set_becomes_config_failed() {
         let f: Frame = serde_json::from_str(r#"{"type":"error","id":"config","code":"invalid_config","message":"phone.maxAccess can't be full"}"#).unwrap();
@@ -1635,7 +1796,9 @@ mod tests {
 
     #[test]
     fn prompt_sends_the_golden_agent_prompt_frame_but_its_id() {
-        assert_eq!(sent_but_id(|o| o.prompt("a1", "hi")), without_id(golden!("client/agent_prompt.json")));
+        assert_eq!(sent_but_id(|o| {
+            o.prompt("a1", "hi");
+        }), without_id(golden!("client/agent_prompt.json")));
     }
 
     #[test]

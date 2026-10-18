@@ -40,6 +40,7 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ops:list":              {"", "", "", ""},
 		"ops:status":            {"", "", "", ""},
 		"ops:hook":              {"", "", "", ""},
+		"ops:pipe":              {"", "", "", ""},
 		"ops:spawn":             {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:attach":            {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:screen":            {"", "scope_denied", "scope_denied", "scope_denied"},

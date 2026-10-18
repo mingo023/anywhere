@@ -74,6 +74,8 @@ pub(crate) struct Create {
     started: Instant,
     step_started: Instant,
     ended: Option<Instant>,
+    /// The agent pocketd started, once the create is done.
+    agent: Option<String>,
     pub(crate) failed: Option<(String, String)>,
     /// The worktree's terminal is on screen instead.
     pub(crate) output: bool,
@@ -89,7 +91,7 @@ impl Create {
             vec![Step::Prepare, Step::Agent]
         };
         let lines = steps.into_iter().map(|step| Line { step, took: None, note: String::new() }).collect();
-        Self { request, path, spec, lines, at: 0, started: now, step_started: now, ended: None, failed: None, output: false }
+        Self { request, path, spec, lines, at: 0, started: now, step_started: now, ended: None, agent: None, failed: None, output: false }
     }
 
     pub(crate) fn project(&self) -> &str {
@@ -139,6 +141,20 @@ impl Create {
         }
     }
 
+    pub(crate) fn finish(&mut self, agent: String, now: Instant) {
+        if let Some(l) = self.lines.get_mut(self.at) {
+            l.took = Some(now - self.step_started);
+        }
+        (self.at, self.ended, self.agent) = (self.lines.len(), Some(now), Some(agent));
+    }
+
+    /// How far the page has gone, once a finished create holds a beat and leaves.
+    fn leaving(&self, now: Instant, reduce_motion: bool) -> Option<f32> {
+        let since = now - self.ended.filter(|_| self.agent.is_some())?;
+        let t = since.saturating_sub(HOLD).as_secs_f32() / LEAVE.as_secs_f32();
+        Some(if reduce_motion && since >= HOLD { 1. } else { t.min(1.) })
+    }
+
     pub(crate) fn fail(&mut self, message: String, detail: String, now: Instant) {
         (self.failed, self.ended) = (Some((message, detail)), Some(now));
     }
@@ -183,11 +199,65 @@ fn took(d: Duration) -> String {
     if d.as_secs() < 60 { format!("{:.1}s", d.as_secs_f32()) } else { clock(d) }
 }
 
+const RISE: Duration = Duration::from_millis(240);
+/// A finished create's page stays this long, so its last check reads, before it leaves.
+const HOLD: Duration = Duration::from_millis(260);
+const LEAVE: Duration = Duration::from_millis(150);
+/// How long a finished create waits for pocketd to list its agent before its page goes anyway.
+const UNLISTED: Duration = Duration::from_secs(2);
+/// A handed-off prompt shows as sending this long; by then the transcript holds it.
+const FRESH: Duration = Duration::from_secs(10);
+
+/// When a part starts to rise, in ms, and from how far below.
+pub(crate) type Part = (f32, f32);
+pub(crate) const BAR: Part = (0., 4.);
+pub(crate) const BUBBLE: Part = (40., 10.);
+pub(crate) const DOCK: Part = (60., 14.);
+pub(crate) const THINKING: Part = (140., 8.);
+const TITLE: Part = (0., 8.);
+const BRANCH: Part = (40., 8.);
+const STEPS: Part = (80., 8.);
+/// The first step row; each next one rises `STAGGER` ms after the one above it.
+const STEP: Part = (120., 8.);
+const STAGGER: f32 = 30.;
+
+/// A part's opacity and how far it still sits below its place.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Rise {
+    opacity: f32,
+    offset: f32,
+}
+
+impl Rise {
+    pub(crate) fn on(&self, el: Div) -> Div {
+        el.relative().top(px(self.offset)).opacity(self.opacity)
+    }
+}
+
+/// `part` `since` its page opened, while it still moves; reduced motion fades it in, all at once.
+pub(crate) fn rise(since: Duration, (delay, by): Part, reduce_motion: bool) -> Option<Rise> {
+    let ms = since.as_secs_f32() * 1000.;
+    if reduce_motion {
+        return (ms < 150.).then(|| Rise { opacity: ms / 150., offset: 0. });
+    }
+    let t = ((ms - delay) / RISE.as_secs_f32() / 1000.).clamp(0., 1.);
+    let t = (ms < delay + RISE.as_secs_f32() * 1000.).then(|| ease_out_quint()(t))?;
+    Some(Rise { opacity: t, offset: by * (1. - t) })
+}
+
+/// A finished create, as its chat opens.
+struct Arrival {
+    at: Instant,
+    prompt: String,
+}
+
 #[derive(Default)]
 pub(crate) struct Creates {
     pub(crate) list: Vec<Create>,
     /// A timer redraws the clock while a running create is on screen.
     ticking: bool,
+    /// The chats finished creates handed off to, by agent.
+    arrivals: HashMap<String, Arrival>,
 }
 
 impl Creates {
@@ -235,6 +305,32 @@ impl Creates {
         setups.clone().into_iter().chain(running).collect()
     }
 
+    /// Hands each finished create to its chat once its page has left and pocketd lists its agent; says whether any went.
+    fn hand_off(&mut self, listed: impl Fn(&str) -> bool, now: Instant) -> bool {
+        let done = |c: &Create| {
+            let since = c.ended.map_or(Duration::ZERO, |e| now - e);
+            c.agent.as_deref().is_some_and(|a| since >= HOLD + LEAVE && (listed(a) || since > UNLISTED))
+        };
+        let (done, going): (Vec<_>, Vec<_>) = std::mem::take(&mut self.list).into_iter().partition(done);
+        self.list = going;
+        self.arrivals.retain(|_, a| now - a.at < FRESH);
+        for c in &done {
+            self.arrivals.insert(c.agent.clone().unwrap_or_default(), Arrival { at: now, prompt: c.prompt().to_string() });
+        }
+        !done.is_empty()
+    }
+
+    /// The prompt to show as sending when `agent`'s chat first opens; not once the transcript should hold it, or it would never settle.
+    pub(crate) fn unsent(&self, agent: &str, now: Instant) -> Option<&str> {
+        let a = self.arrivals.get(agent)?;
+        (!a.prompt.is_empty() && now - a.at < FRESH).then_some(a.prompt.as_str())
+    }
+
+    /// How far `part` of `agent`'s chat has risen, while it still moves.
+    pub(crate) fn arriving(&self, agent: &str, part: Part, now: Instant, reduce_motion: bool) -> Option<Rise> {
+        rise(now - self.arrivals.get(agent)?.at, part, reduce_motion)
+    }
+
     pub(crate) fn failed(&self, tree: &str) -> bool {
         self.list.iter().any(|c| c.path == tree && c.failed.is_some())
     }
@@ -258,6 +354,23 @@ impl Desktop {
         self.creates.shown(&self.place()?)
     }
 
+    /// Hands finished creates to their chats; says whether any went.
+    pub(crate) fn hand_off_creates(&mut self) -> bool {
+        let agents = &self.agents;
+        self.creates.hand_off(|a| agents.get(a).is_some(), Instant::now())
+    }
+
+    /// `el`, rising into `agent`'s chat just opened from its create.
+    pub(crate) fn arriving(&self, agent: &str, part: Part, el: Div, window: &mut Window, cx: &App) -> Div {
+        match self.creates.arriving(agent, part, Instant::now(), cx.reduce_motion()) {
+            Some(r) => {
+                window.request_animation_frame();
+                r.on(el)
+            }
+            None => el,
+        }
+    }
+
     fn tick_create(&mut self, cx: &mut Context<Self>) {
         if self.creates.ticking || !self.shown_create().is_some_and(|c| c.failed.is_none()) {
             return;
@@ -267,8 +380,9 @@ impl Desktop {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 let going = this.update(cx, |d, cx| {
+                    let handed = d.hand_off_creates();
                     d.creates.ticking = d.shown_create().is_some_and(|c| c.failed.is_none());
-                    if d.creates.ticking {
+                    if d.creates.ticking || handed {
                         cx.notify();
                     }
                     d.creates.ticking
@@ -296,10 +410,22 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn creating_page(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn creating_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        if self.hand_off_creates() {
+            window.request_animation_frame();
+        }
         self.tick_create(cx);
         let Some(c) = self.shown_create() else { return div() };
         let now = Instant::now();
+        let reduce = cx.reduce_motion();
+        let mut moving = false;
+        let mut rising = |el: Div, part: Part| match rise(now - c.started, part, reduce) {
+            Some(r) => {
+                moving = true;
+                r.on(el)
+            }
+            None => el,
+        };
         let bar = self.page_bar(vec![self.repo_name(c.project()), c.name()], Vec::new(), div(), cx);
         let mono = |s: String| div().font_family(MONO).text_color(TEXT_2).child(s);
         let title = div()
@@ -320,14 +446,15 @@ impl Desktop {
             .child(icon("branch", 13., TEXT_3))
             .child(mono(c.name()))
             .when(!c.base().is_empty(), |d| d.child("from").child(mono(c.base().to_string())));
-        let rows = c.steps().map(|(step, mark, spent, note)| {
+        let (title, branch) = (rising(title, TITLE), rising(branch, BRANCH));
+        let rows: Vec<_> = c.steps().enumerate().map(|(i, (step, mark, spent, note))| {
             let lead = match mark {
                 Mark::Done => icon("check", 14., SUCCESS).into_any_element(),
                 Mark::Active => spinner(("create-step", step as usize), 14., TEXT_3).into_any_element(),
                 Mark::Failed => icon("x-bold", 12., FAILED).into_any_element(),
                 Mark::Pending => div().size(px(6.)).rounded_full().bg(TEXT_5).into_any_element(),
             };
-            div()
+            let row = div()
                 .flex()
                 .gap(px(10.))
                 .py(px(7.))
@@ -342,8 +469,9 @@ impl Desktop {
                         .child(div().text_size(px(13.5)).text_color(if mark == Mark::Pending { TEXT_4 } else { TEXT }).child(step.label()))
                         .when(!note.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(TEXT_3).child(note.to_string()))),
                 )
-                .children(spent.map(|t| div().font_family(MONO).text_size(px(12.)).text_color(TEXT_4).child(took(t))))
-        });
+                .children(spent.map(|t| div().font_family(MONO).text_size(px(12.)).text_color(TEXT_4).child(took(t))));
+            rising(row, (STEP.0 + STAGGER * i as f32, STEP.1))
+        }).collect();
         let steps = div()
             .flex()
             .flex_col()
@@ -353,6 +481,7 @@ impl Desktop {
             .bg(SURFACE)
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x1111130a), 1., 2.)])
             .children(rows);
+        let steps = rising(steps, STEPS);
         let error = c.failed.clone().map(|(message, detail)| {
             div()
                 .flex()
@@ -393,15 +522,22 @@ impl Desktop {
                 .child(ui::button("create-retry", ui::Variant::Primary, None, "Try again").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.retry_create(&retry, cx))))
         });
         let footer = div().flex().items_center().min_h(px(32.)).children(output).children(actions);
-        div().flex_1().flex().flex_col().child(bar).child(
-            div().flex_1().flex().flex_col().items_center().justify_center().child(div().w(px(440.)).flex().flex_col().gap(px(12.)).child(title).child(branch).child(steps).children(error).child(footer)),
-        )
+        let gone = c.leaving(now, reduce).map(|t| ease_out_quint()(t));
+        if moving || gone.is_some_and(|t| t < 1.) {
+            window.request_animation_frame();
+        }
+        let page = div().w(px(440.)).flex().flex_col().gap(px(12.)).child(title).child(branch).child(steps).children(error).child(footer);
+        let page = match gone {
+            Some(t) => Rise { opacity: 1. - t, offset: -6. * t }.on(page),
+            None => page,
+        };
+        div().flex_1().flex().flex_col().child(bar).child(div().flex_1().flex().flex_col().items_center().justify_center().child(page))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Create, Creates, Mark, Step, clock};
+    use super::{BUBBLE, Create, Creates, Mark, Rise, Step, clock, rise};
     use serde_json::json;
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -550,5 +686,73 @@ mod tests {
         creates.drop("r1", &mut selected);
         assert_eq!(selected.as_deref(), Some("/w/fix"));
         assert!(creates.list.is_empty());
+    }
+
+    #[test]
+    fn finishing_marks_every_step_done_and_stops_the_clock() {
+        let (mut c, t0) = create(false, false);
+        c.reach("verify", "", t0 + Duration::from_secs(1));
+        c.finish("a1".into(), t0 + Duration::from_secs(3));
+        assert!(marks(&c).iter().all(|(_, m)| *m == Mark::Done));
+        assert_eq!(c.elapsed(t0 + Duration::from_secs(9)), Duration::from_secs(3));
+    }
+
+    #[test]
+    fn a_finished_page_holds_a_beat_then_leaves() {
+        let (mut c, t0) = create(false, false);
+        assert_eq!(c.leaving(t0, false), None);
+        c.finish("a1".into(), t0);
+        let at = |ms| c.leaving(t0 + Duration::from_millis(ms), false);
+        assert_eq!((at(200), at(335), at(500)), (Some(0.), Some(0.5), Some(1.)));
+        assert_eq!(c.leaving(t0 + Duration::from_millis(260), true), Some(1.));
+    }
+
+    #[test]
+    fn a_finished_create_hands_off_once_its_page_left_and_its_agent_is_listed_or_pocketd_is_slow_to_list_it() {
+        let (mut c, t0) = create(false, false);
+        c.finish("a1".into(), t0);
+        let mut creates = Creates { list: vec![c], ..Default::default() };
+        assert!(!creates.hand_off(|_| true, t0 + Duration::from_millis(300)));
+        assert!(!creates.hand_off(|_| false, t0 + Duration::from_secs(1)));
+        assert!(creates.hand_off(|a| a == "a1", t0 + Duration::from_secs(1)));
+        assert!(creates.list.is_empty() && creates.unsent("a1", t0 + Duration::from_secs(1)) == Some("Fix CI"));
+
+        let (mut c, t0) = create(false, false);
+        c.finish("a2".into(), t0);
+        creates.list.push(c);
+        assert!(creates.hand_off(|_| false, t0 + Duration::from_secs(3)));
+    }
+
+    #[test]
+    fn a_create_still_going_never_hands_off() {
+        let (c, t0) = create(false, false);
+        let mut creates = Creates { list: vec![c], ..Default::default() };
+        assert!(!creates.hand_off(|_| true, t0 + Duration::from_secs(60)));
+        assert_eq!(creates.list.len(), 1);
+    }
+
+    #[test]
+    fn a_handed_off_prompt_shows_as_sending_only_while_fresh() {
+        let (mut c, t0) = create(false, false);
+        c.finish("a1".into(), t0);
+        let mut creates = Creates { list: vec![c], ..Default::default() };
+        creates.hand_off(|_| true, t0 + Duration::from_secs(1));
+        assert_eq!(creates.unsent("a1", t0 + Duration::from_secs(2)), Some("Fix CI"));
+        assert_eq!(creates.unsent("a1", t0 + Duration::from_secs(30)), None);
+        assert_eq!(creates.unsent("other", t0), None);
+    }
+
+    #[test]
+    fn a_part_waits_its_turn_then_rises_into_place() {
+        let at = |ms| rise(Duration::from_millis(ms), BUBBLE, false);
+        assert_eq!(at(20), Some(Rise { opacity: 0., offset: 10. }));
+        assert!(at(160).is_some_and(|r| r.opacity > 0.5 && r.offset < 5.));
+        assert_eq!(at(280), None);
+    }
+
+    #[test]
+    fn reduced_motion_fades_every_part_in_at_once() {
+        assert_eq!(rise(Duration::from_millis(75), BUBBLE, true), Some(Rise { opacity: 0.5, offset: 0. }));
+        assert_eq!(rise(Duration::from_millis(150), BUBBLE, true), None);
     }
 }

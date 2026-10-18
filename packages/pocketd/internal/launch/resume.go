@@ -22,6 +22,14 @@ func Resume(t state.Terminal, args config.AgentArgs) ([]string, *Failure) {
 	if !resumeID.MatchString(t.ConversationID) {
 		return nil, invalidResume("conversation id")
 	}
+	// pocketd resumes its thread over JSON-RPC.
+	if t.Provider == "codex" && t.Chat {
+		if l.Access == "full" {
+			l.Access = "ask"
+		}
+		argv := codexChat(l.Access, l.Model, l.Effort)
+		return argv, ValidResume(argv)
+	}
 	argv := append(append([]string{t.Provider}, args.Resume...), t.ConversationID)
 	switch t.Provider {
 	case "claude":
@@ -40,6 +48,9 @@ func Resume(t state.Terminal, args config.AgentArgs) ([]string, *Failure) {
 		}
 		if l.Effort != "" {
 			argv = append(argv, "--effort", l.Effort)
+		}
+		if t.Chat {
+			argv = append(argv, chatFlags...)
 		}
 	case "codex":
 		switch l.Access {
@@ -100,5 +111,8 @@ func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, a
 		return "", nil, "resume_not_accepted"
 	}
 	argv[0] = path
+	if saved.Chat {
+		argv = Piped(exe, argv)
+	}
 	return shell, Wrap(shell, exe, "", argv, account), ""
 }

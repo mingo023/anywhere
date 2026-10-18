@@ -51,7 +51,7 @@ func TestASubagentSessionPagesEachSubagentUnderItsAgentCall(t *testing.T) {
 		eventually(t, sub.name, func() bool { it := last(); return it.ParentToolUseID == sub.parent && it.Text == sub.last })
 	}
 	appendLine(t, path, strings.TrimSuffix(string(raw[results:]), "\n"))
-	eventually(t, "the answer", func() bool { return strings.HasPrefix(last().Text, "The repo holds") })
+	eventually(t, "the turn's end", func() bool { return last().Kind == "result" })
 
 	items, older := pr.a.Timeline.PageWithSubagents(0, 100)
 	for i := range items {

@@ -24,6 +24,7 @@ pub(super) fn send_button(id: ElementId, action: Action, empty: bool, blocked: b
             });
             button(id, "Stop · esc").relative().bg(TEXT).child(ring).child(stop_square(ON_TEXT))
         }
+        Action::Stopping => button(id, "Stopping…").bg(TEXT).child(stop_square(ON_TEXT)),
         Action::Queue => button(id, "Queue · ⏎   Steer now · ⌘⏎")
             .pl(px(14.))
             .pr(px(12.))

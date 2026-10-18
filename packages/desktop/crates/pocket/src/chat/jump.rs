@@ -2,7 +2,7 @@ use gpui_kit::*;
 use std::time::Duration;
 use theme::*;
 
-const GLIDE: Duration = Duration::from_millis(300);
+pub(super) const GLIDE: Duration = Duration::from_millis(300);
 
 /// A scroll to the end, eased over 300ms; past 2.5 viewports there's no glide and the list jumps.
 #[derive(Debug, PartialEq)]

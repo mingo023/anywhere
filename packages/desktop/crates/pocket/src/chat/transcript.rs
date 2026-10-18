@@ -1,22 +1,28 @@
 use super::fold::{self, Live};
 use super::jump::{self, Glide};
+use super::pin::{self, Pin};
 use super::markdown::{self, Highlights};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
 use super::{end_row, meta, phase, question_marker, sub_agent, todos, user_bubble};
+use crate::creating;
 use crate::desktop::Desktop;
 use crate::util::now_ms;
 use chat::{Block, Command, Delivery, End, Message, Row, Session, ToolKind, ToolStatus, Transcript, Turn};
 use gpui_kit::*;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use theme::*;
 
 /// The transcript's reading width.
 const WIDTH: f32 = 720.;
+/// A sent prompt rises from under the list's end, out from behind the composer.
+const SENT: creating::Part = (0., 48.);
 
 /// A reading width held between 560 and 1200, in 16px steps.
 pub(super) fn content_width(width: f32) -> f32 {
@@ -31,6 +37,14 @@ pub(crate) struct View {
     pub(crate) tools: Entity<Tools>,
     jump: bool,
     glide: Option<(Instant, Glide)>,
+    /// The prompt just sent, held at the top while its reply grows.
+    pin: Option<Pin>,
+    /// When the user last sent a prompt: its row rises into the chat.
+    sent: Option<Instant>,
+    /// Whether the user's last scroll left the list at its end, until the next render reads it.
+    scrolled: Rc<Cell<Option<bool>>>,
+    /// The fold that last settled, and when: its label fades in.
+    settled: Option<(String, Instant)>,
     copied: Option<(String, Task<()>)>,
     expanded: HashSet<String>,
     /// The prompt last shown more or less of, and when.
@@ -48,8 +62,13 @@ impl View {
     fn new(cx: &mut App) -> Self {
         let list = ListState::new(0, ListAlignment::Bottom, px(320.));
         list.set_follow_mode(FollowMode::Tail);
+        let scrolled = Rc::new(Cell::new(None));
+        list.set_scroll_handler({
+            let scrolled = scrolled.clone();
+            move |e, _, _| scrolled.set(Some(!e.is_scrolled))
+        });
         let tools = cx.new(|_| Tools::default());
-        Self { session: Session::default(), list, tools, jump: false, glide: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), primed: false }
+        Self { session: Session::default(), list, tools, jump: false, glide: None, pin: None, sent: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), primed: false }
     }
 
     /// How far the list sits above its end.
@@ -57,14 +76,65 @@ impl View {
         f32::from(self.list.max_offset_for_scrollbar().y + self.list.scroll_px_offset_for_scrollbar().y).max(0.)
     }
 
+    /// Sizes the room that holds the sent prompt at the top and keeps the list on it, until its reply fills the viewport.
+    fn hold_pin(&mut self, rise: Duration, window: &mut Window) {
+        let scrolled = self.scrolled.take();
+        let Some(pin) = &mut self.pin else { return };
+        if let Some(at_end) = scrolled.or_else(|| (!pin.rising() && !pin.anchored && self.list.is_following_tail()).then_some(true)) {
+            pin.moved(at_end);
+        }
+        let Some(ix) = pin.row(&self.session.rows) else {
+            self.pin = None;
+            return;
+        };
+        let viewport = f32::from(self.list.viewport_bounds().size.height);
+        if !pin.step(viewport, self.list.height_from(ix).map(f32::from), Instant::now(), rise) {
+            // On the prompt the list follows the tail from here; scrolled away, it stays put until back at the end.
+            let (anchored, top) = (pin.anchored, self.list.logical_scroll_top());
+            self.pin = None;
+            self.list.set_follow_mode(FollowMode::Tail);
+            if !anchored {
+                self.list.scroll_to(top);
+            }
+            return;
+        }
+        if pin.rising() {
+            window.request_animation_frame();
+        } else if pin.anchored {
+            // Held by the item rather than by following the end: a row growing under the prompt can't push it up for a frame
+            // before the room shrinks.
+            self.list.set_follow_mode(FollowMode::Normal);
+            self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+        }
+    }
+
+    /// Holds the prompt just sent at the top once its row shows, rising from the end.
+    pub(super) fn pin(&mut self) {
+        self.pin = Some(Pin::new());
+        self.sent = Some(Instant::now());
+        self.list.set_follow_mode(FollowMode::Tail);
+    }
+
+    /// A steer went out: the prompt held at the top, if any, stays held, and the steer shows at the tail.
+    pub(super) fn steered(&mut self) {
+        self.sent = Some(Instant::now());
+        if let Some(pin) = &mut self.pin {
+            pin.steered();
+        }
+    }
+
     fn copied(&self, key: &str) -> bool {
         self.copied.as_ref().is_some_and(|(k, _)| k == key)
     }
 
     /// Refolds the session when its timeline moved and lays out what changed; returns the queued sends it let go.
-    fn refresh(&mut self, provider: &str, revision: u64, items: &[agents::Item]) -> Vec<String> {
+    fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item]) -> Vec<(u64, String)> {
         let before: HashMap<String, usize> = latest_texts(&self.session.transcript).map(|m| (m.id.clone(), m.text.len())).collect();
-        if let Some((range, count)) = self.session.update(chat::for_provider(provider), revision, items, now_ms()) {
+        let tail = chat::live_tail(&self.session.transcript).map(|f| self.session.transcript.turns[f].id.clone());
+        if let Some((range, count)) = self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms()) {
+            if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
+                self.settled = Some((format!("{turn}#fold"), Instant::now()));
+            }
             self.pace(&before, Instant::now());
             self.list.splice(range.clone(), count);
             // Rows kept above the change can show or hide as their reply settles; the list measured them as they were.
@@ -132,8 +202,12 @@ fn agent_call(b: &Block) -> bool {
     matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
 }
 
-/// What a live fold says: waiting on the user, thinking before anything else, else working for `now` less the start.
-fn live_state(t: &Transcript, turns: Range<usize>, ask: Option<bool>, now: i64) -> Live {
+/// What a live fold says: stopping once the user stopped it, waiting on the user, thinking before anything else, else
+/// working for `now` less the start.
+fn live_state(t: &Transcript, turns: Range<usize>, ask: Option<bool>, stopping: bool, now: i64) -> Live {
+    if stopping {
+        return Live::Stopping;
+    }
     match ask {
         Some(true) => return Live::Answer,
         Some(false) => return Live::Approval,
@@ -183,9 +257,11 @@ fn status(t: &Transcript, turn: usize, block: usize) -> Option<ToolStatus> {
     }
 }
 
-/// Whether `row` hangs off its fold's rail: a phase, or a sub-agent that finished well.
+/// Whether `row` hangs off its fold's rail: a phase, or a sub-agent that finished well. The live
+/// tail's fold shows no header, its line having moved to the bottom, so nothing hangs off it.
 fn in_fold(t: &Transcript, row: &Row) -> bool {
-    match row {
+    let headed = row.turn().and_then(|turn| chat::fold_of(t, turn)).is_some_and(|fold| chat::live_tail(t) != Some(fold));
+    headed && match row {
         Row::Phase { .. } => true,
         Row::Agent { turn, block } => status(t, *turn, *block) == Some(ToolStatus::Ok),
         _ => false,
@@ -222,29 +298,44 @@ impl Desktop {
         for (id, view) in self.chats.views.iter_mut().filter(|(_, v)| v.session.outgoing.holds()) {
             let Some(agent) = self.agents.get(id) else { continue };
             let items = self.agents.timelines.get(id).map_or(&[][..], Vec::as_slice);
-            released.extend(view.refresh(&agent.provider, self.agents.revision(id), items).into_iter().map(|text| (id.clone(), text)));
+            released.extend(view.refresh(agent, self.agents.revision(id), items).into_iter().map(|(send, text)| (id.clone(), send, text)));
         }
-        for (id, text) in released {
-            self.outbox.prompt(&id, &text);
+        for (id, send, text) in released {
+            if let (Some(request), Some(v)) = (self.outbox.prompt(&id, &text), self.chats.views.get_mut(&id)) {
+                v.session.outgoing.sent_as(send, request);
+            }
         }
     }
 
     /// `terminal`'s agent's transcript, refolded when its timeline moved.
-    pub(super) fn transcript(&mut self, terminal: &str, cx: &mut Context<Self>) -> Div {
+    pub(super) fn transcript(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Some(agent) = self.summary(terminal) else { return div().flex_1() };
-        let (id, provider) = (agent.id.clone(), agent.provider.clone());
+        let (id, agent) = (agent.id.clone(), agent.clone());
         let items = self.agents.timelines.get(&id).map_or(&[][..], Vec::as_slice);
-        let view = self.chats.views.entry(id.clone()).or_insert_with(|| View::new(cx));
-        for text in view.refresh(&provider, self.agents.revision(&id), items) {
-            self.outbox.prompt(&id, &text);
+        let creates = &self.creates;
+        let view = self.chats.views.entry(id.clone()).or_insert_with(|| {
+            let mut v = View::new(cx);
+            // A chat opened from its create shows the prompt pocketd sent before the transcript holds it.
+            if let Some(prompt) = creates.unsent(&id, Instant::now()) {
+                v.session.outgoing.push(prompt.to_string(), false, now_ms());
+            }
+            v
+        });
+        for (send, text) in view.refresh(&agent, self.agents.revision(&id), items) {
+            if let Some(request) = self.outbox.prompt(&id, &text) {
+                view.session.outgoing.sent_as(send, request);
+            }
         }
         if view.list.item_count() == 0 {
             return div().flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("Send a message to start.");
         }
+        let rise = if cx.reduce_motion() { Duration::ZERO } else { pin::RISE };
+        view.hold_pin(rise, window);
         view.jump = view.glide.is_none() && jump::jump_visibility(view.jump, view.distance());
+        let spacer = view.pin.as_ref().map_or(0., |p| p.spacer);
         let rows = {
             let id = id.clone();
-            list(view.list.clone(), cx.processor(move |this, ix, window, cx| this.chat_row(&id, ix, window, cx))).size_full().pt(px(8.)).pb(px(24.))
+            list(view.list.clone(), cx.processor(move |this, ix, window, cx| this.chat_row(&id, ix, window, cx))).size_full().pt(px(pin::TOP)).pb(px(pin::BOTTOM + spacer))
         };
         let pill = view.jump.then(|| jump::pill(cx.listener(move |this, _, window, cx| this.chat_jump_to_bottom(&id, window, cx))));
         div().relative().flex_1().min_h_0().child(rows).children(pill)
@@ -266,7 +357,7 @@ impl Desktop {
         s.toggle(id, default);
         if let Some(ix) = s.ids.iter().position(|i| i == id) {
             let end = match s.rows[ix] {
-                Row::Fold { .. } => (ix + 1..s.rows.len()).find(|&i| matches!(s.rows[i], Row::Prompt { .. } | Row::Fold { .. } | Row::Pending(_) | Row::Working)).unwrap_or(s.rows.len()),
+                Row::Fold { .. } => (ix + 1..s.rows.len()).find(|&i| matches!(s.rows[i], Row::Prompt { .. } | Row::Fold { .. } | Row::Live { .. } | Row::Pending(_) | Row::Working)).unwrap_or(s.rows.len()),
                 _ => ix + 1,
             };
             view.list.remeasure_items(ix..end);
@@ -348,10 +439,9 @@ impl Desktop {
         cx.notify();
     }
 
-    fn chat_retry(&mut self, agent: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.retry(ix)) else { return };
-        self.set_chat_text(&text, window, cx);
-        self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+    fn chat_retry(&mut self, agent: &str, send: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.retry(send)) else { return };
+        self.chat_take_back(agent, &text, window, cx);
     }
 
     fn chat_highlight(&mut self, agent: &str, row: &str, lang: &str, code: &str, cx: &mut Context<Self>) {
@@ -395,6 +485,13 @@ impl Desktop {
         let gap = if rail { 0. } else { chat::top_gap(ix.checked_sub(1).and_then(|i| s.rows.get(i)), &row) };
         let width = content_width(WIDTH);
 
+        let first = s.rows.iter().position(|r| matches!(r, Row::Prompt { .. } | Row::Pending(_))) == Some(ix);
+        let part = match row {
+            Row::Prompt { .. } | Row::Pending(_) if first => Some(creating::BUBBLE),
+            Row::Working => Some(creating::THINKING),
+            _ => None,
+        };
+
         let mut highlight = None;
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
@@ -414,10 +511,18 @@ impl Desktop {
             },
             Row::Fold { turn } => {
                 let turns = chat::folded(t, *turn);
-                if fold_live {
-                    fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, turns, ask, now_ms())))
+                if chat::live_tail(t) == Some(*turn) {
+                    div()
+                } else if fold_live {
+                    fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, turns, ask, s.outgoing.stopping(), now_ms())))
                 } else {
-                    fold::settled(&id, &provider, fold::settled_label(who, took(t, turns)), fold_open, toggle(agent, &id, false, cx))
+                    let settled = fold::settled(&id, &provider, fold::settled_label(who, took(t, turns)), fold_open, toggle(agent, &id, false, cx));
+                    match &view.settled {
+                        Some((fold, at)) if *fold == id && at.elapsed() < reveal::FADE => {
+                            div().child(settled.with_animation(SharedString::from(format!("settle-{id}")), Animation::new(reveal::FADE), |d, t| d.opacity(t)))
+                        }
+                        _ => settled,
+                    }
                 }
             }
             Row::Phase { turn, blocks: range } => {
@@ -457,7 +562,7 @@ impl Desktop {
                 }
                 let body = match markdown::fence(text) {
                     Some((lang, code)) => {
-                        let (styles, start) = view.code.get(&id, code.len(), is_dark());
+                        let (styles, start) = view.code.get(&id, code, is_dark());
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
@@ -507,12 +612,13 @@ impl Desktop {
                 },
                 None => div(),
             },
+            Row::Live { turn } => fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms()))),
             Row::Working => working::sending(),
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
-                Some((i, p)) => {
+                Some((_, p)) => {
                     let retry = (p.delivery == Delivery::Failed).then(|| {
-                        let agent = agent.to_string();
-                        working::not_delivered(SharedString::from(format!("retry-{id}"))).on_click(cx.listener(move |this, _, window, cx| this.chat_retry(&agent, i, window, cx)))
+                        let (agent, send) = (agent.to_string(), p.id);
+                        working::not_delivered(SharedString::from(format!("retry-{id}"))).on_click(cx.listener(move |this, _, window, cx| this.chat_retry(&agent, send, window, cx)))
                     });
                     div().flex().flex_col().items_end().child(user_bubble::bubble(&id, p.text.clone(), width, true, true, None::<(user_bubble::Fold, fn(&ClickEvent, &mut Window, &mut App))>)).children(retry)
                 }
@@ -520,6 +626,19 @@ impl Desktop {
             },
         };
         let inner = if rail { phase::in_fold(last_on_rail, inner) } else { inner };
+        let prompt = |r: &Row| matches!(r, Row::Prompt { .. } | Row::Pending(_));
+        let rising = view.sent.and_then(|at| creating::rise(at.elapsed(), SENT, cx.reduce_motion())).filter(|_| prompt(&row) && !s.rows[ix + 1..].iter().any(prompt));
+        let inner = match rising {
+            Some(r) => {
+                window.request_animation_frame();
+                r.on(inner)
+            }
+            None => inner,
+        };
+        let inner = match part {
+            Some(part) => self.arriving(agent, part, inner, window, cx),
+            None => inner,
+        };
 
         let element = div()
             .id(SharedString::from(id.clone()))
@@ -539,7 +658,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Live, answer, content_width, live_state, phase_live, shown, stream_in, took};
+    use super::{Live, answer, content_width, in_fold, live_state, phase_live, shown, stream_in, took};
     use chat::{Block, End, Message, Row, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -587,11 +706,19 @@ mod tests {
     #[test]
     fn a_live_fold_thinks_until_the_agent_acts_and_waits_on_the_user_first() {
         let thinking = turn(vec![Block::Thinking(msg("hm", 2_000))], None);
-        assert_eq!(live_state(&thinking, 0..1, None, 9_000), Live::Thinking);
+        assert_eq!(live_state(&thinking, 0..1, None, false, 9_000), Live::Thinking);
         let working = turn(vec![Block::Thinking(msg("hm", 2_000)), shell(3_000)], None);
-        assert_eq!(live_state(&working, 0..1, None, 8_500), Live::Working { secs: 7, background: 0 });
-        assert_eq!(live_state(&working, 0..1, Some(false), 8_500), Live::Approval);
-        assert_eq!(live_state(&working, 0..1, Some(true), 8_500), Live::Answer);
+        assert_eq!(live_state(&working, 0..1, None, false, 8_500), Live::Working { secs: 7, background: 0 });
+        assert_eq!(live_state(&working, 0..1, Some(false), false, 8_500), Live::Approval);
+        assert_eq!(live_state(&working, 0..1, Some(true), false, 8_500), Live::Answer);
+    }
+
+    #[test]
+    fn a_live_fold_reads_stopping_from_the_stop_on() {
+        let thinking = turn(vec![Block::Thinking(msg("hm", 2_000))], None);
+        assert_eq!(live_state(&thinking, 0..1, None, true, 9_000), Live::Stopping);
+        let working = turn(vec![shell(3_000)], None);
+        assert_eq!(live_state(&working, 0..1, Some(false), true, 8_500), Live::Stopping);
     }
 
     #[test]
@@ -610,6 +737,16 @@ mod tests {
         assert!(!phase_live(&answering, 0, &(0..1)));
         let ended = turn(vec![shell(1)], Some(End::Done { duration_ms: 1, usage: None }));
         assert!(!phase_live(&ended, 0, &(0..1)));
+    }
+
+    #[test]
+    fn a_finished_sub_agent_hangs_off_its_fold_only_once_the_live_line_leaves_it() {
+        let agent = |status| tool(ToolKind::Agent(SubAgent::default()), status, 1);
+        let done = Row::Agent { turn: 0, block: 0 };
+        let live = turn(vec![agent(ToolStatus::Ok), agent(ToolStatus::Running)], None);
+        assert!(!in_fold(&live, &done), "the live tail's fold has no header to hang from");
+        let settled = turn(vec![agent(ToolStatus::Ok)], Some(End::Done { duration_ms: 1, usage: None }));
+        assert!(in_fold(&settled, &done));
     }
 
     #[test]

@@ -19,6 +19,8 @@ pub enum Row {
     Question { turn: usize, block: usize },
     Compacted { turn: usize, block: usize },
     End { turn: usize },
+    /// What the agent is doing, under the reply it's at work on (`turn` holds its fold). Rebuilt with the trailer.
+    Live { turn: usize },
     /// "Sending…", while a send is on its way.
     Working,
     /// An outgoing message not yet in the transcript.
@@ -26,7 +28,7 @@ pub enum Row {
 }
 
 impl Row {
-    /// `{turn}`, `{turn}#fold`, `{turn}#p{first}`, `{turn}#{block}.{start}`, `{turn}#{block}`, `{turn}#end`, `working`, `pending-{i}`.
+    /// `{turn}`, `{turn}#fold`, `{turn}#p{first}`, `{turn}#{block}.{start}`, `{turn}#{block}`, `{turn}#end`, `{turn}#live`, `working`, `pending-{i}`.
     pub fn id(&self, t: &Transcript) -> String {
         let turn = |ix: usize| &t.turns[ix].id;
         match self {
@@ -38,6 +40,7 @@ impl Row {
                 format!("{}#{block}", turn(*ix))
             }
             Row::End { turn: ix } => format!("{}#end", turn(*ix)),
+            Row::Live { turn: ix } => format!("{}#live", turn(*ix)),
             Row::Working => "working".into(),
             Row::Pending(i) => format!("pending-{i}"),
         }
@@ -54,12 +57,12 @@ impl Row {
             | Row::Question { turn, .. }
             | Row::Compacted { turn, .. }
             | Row::End { turn } => Some(*turn),
-            Row::Working | Row::Pending(_) => None,
+            Row::Live { .. } | Row::Working | Row::Pending(_) => None,
         }
     }
 }
 
-/// The transcript's rows, then a row per pending send and "Sending…" while one is on its way.
+/// The transcript's rows, then what the agent is doing while at work, a row per pending send and "Sending…" while one is on its way.
 pub fn rows(t: &Transcript, pending: usize, sending: bool) -> Vec<Row> {
     let mut rows = Vec::new();
     rows_from(&mut rows, t, 0, pending, sending);
@@ -73,7 +76,8 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
         if turn.prompt.is_some() {
             rows.push(Row::Prompt { turn: ix });
         }
-        if folds_at(t, ix) {
+        // A turn stopped or failed before anything came has nothing to fold.
+        if folds_at(t, ix) && !(matches!(turn.end, Some(End::Failed { .. })) && turn.blocks.is_empty()) {
             rows.push(Row::Fold { turn: ix });
         }
         // Text before the turn's last step heads a phase; text after it is the answer.
@@ -109,6 +113,9 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
         if turn.end.is_some() {
             rows.push(Row::End { turn: ix });
         }
+    }
+    if let Some(fold) = live_tail(t) {
+        rows.push(Row::Live { turn: fold });
     }
     rows.extend((0..pending).map(Row::Pending));
     if sending {
@@ -169,6 +176,18 @@ pub fn at_work_on(t: &Transcript, turns: Range<usize>) -> bool {
     open || t.turns[turns].iter().flat_map(|turn| &turn.blocks).any(running_agent)
 }
 
+/// The fold of the last reply while the agent is at work on it; its live line sits under it rather than on the fold.
+pub fn live_tail(t: &Transcript) -> Option<usize> {
+    let fold = fold_of(t, t.turns.len().checked_sub(1)?)?;
+    at_work_on(t, folded(t, fold)).then_some(fold)
+}
+
+/// The turn whose fold held the live line before, `before`, once `t`'s no longer does: its reply just settled.
+pub fn settled_tail(before: Option<&str>, t: &Transcript) -> Option<String> {
+    let before = before?;
+    (live_tail(t).map(|f| t.turns[f].id.as_str()) != Some(before)).then(|| before.to_string())
+}
+
 /// Sub-agents and commands still running in `turns` after their own turn ended: the ones working in the background.
 pub fn in_background(turns: &[Turn]) -> impl Iterator<Item = &ToolCall> {
     turns.iter().filter(|turn| turn.end.is_some()).flat_map(|turn| &turn.blocks).filter_map(|b| match b {
@@ -211,8 +230,13 @@ pub fn worked(t: &Transcript, turns: Range<usize>) -> Option<(u64, Option<Usage>
     }))
 }
 
+/// Whether the agent is on a turn.
+pub fn at_work(t: &Transcript) -> bool {
+    t.turns.last().is_some_and(working)
+}
+
 /// An open turn holding only a compaction is the agent tidying up between prompts, not working.
-fn working(turn: &Turn) -> bool {
+pub(crate) fn working(turn: &Turn) -> bool {
     turn.end.is_none() && (turn.prompt.is_some() || !turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. })))
 }
 
@@ -436,9 +460,16 @@ mod tests {
     #[test]
     fn sub_agents_and_the_latest_todos_follow_the_work_and_precede_the_answer() {
         let t = one(vec![todos("a"), shell(), agent(), shell(), agent(), todos("b"), text("Both reported.")]);
-        assert_eq!(ids_of(&t), ["u1", "u1#fold", "u1#p1", "u1#2", "u1#4", "u1#5", "u1#6.0", "u1#end"]);
+        assert_eq!(ids_of(&t), ["u1", "u1#fold", "u1#p1", "u1#2", "u1#4", "u1#5", "u1#6.0", "u1#end", "u1#live"], "the running sub-agents keep the reply at work");
         assert!(matches!(rows(&t, 0, false)[3], Row::Agent { block: 2, .. }));
         assert!(matches!(rows(&t, 0, false)[5], Row::Tasks { block: 5, .. }));
+    }
+
+    #[test]
+    fn a_reply_stopped_before_anything_came_has_no_fold() {
+        let stopped = Some(End::Failed { error: "interrupted".into() });
+        assert_eq!(ids_of(&Transcript { turns: vec![turn("u1", vec![], stopped)] }), ["u1", "u1#end"]);
+        assert_eq!(ids_of(&Transcript { turns: vec![turn("u1", vec![], None)] }), ["u1", "u1#fold", "u1#live"], "an open one keeps it for its live line");
     }
 
     #[test]
@@ -512,8 +543,8 @@ mod tests {
         let running = Transcript { turns: vec![turn("u1", vec![call(ToolKind::Shell { command: "ls".into() }, ToolStatus::Running)], None)] };
         let finished = Transcript { turns: vec![turn("u1", vec![shell(), text("done")], None)] };
         let (before, after) = (ids(&running, 0), ids(&finished, 0));
-        assert_eq!(before, vec!["u1", "u1#fold", "u1#p0"]);
-        assert_eq!(after, vec!["u1", "u1#fold", "u1#p0", "u1#1.0"]);
+        assert_eq!(before, vec!["u1", "u1#fold", "u1#p0", "u1#live"]);
+        assert_eq!(after, vec!["u1", "u1#fold", "u1#p0", "u1#1.0", "u1#live"]);
     }
 
     #[test]
@@ -523,8 +554,8 @@ mod tests {
         };
         let rows = rows(&t, 1, true);
         let gaps: Vec<_> = rows.iter().enumerate().map(|(i, r)| top_gap(i.checked_sub(1).map(|p| &rows[p]), r)).collect();
-        // prompt, fold, phase, a, b, compacted, end, prompt, fold, pending, sending
-        assert_eq!(gaps, vec![16., 6., 0., 6., 10., 8., 6., 14., 6., 14., 0.]);
+        // prompt, fold, phase, a, b, compacted, end, prompt, fold, live, pending, sending
+        assert_eq!(gaps, vec![16., 6., 0., 6., 10., 8., 6., 14., 6., 6., 14., 0.]);
     }
 
     #[test]
@@ -538,13 +569,33 @@ mod tests {
     #[test]
     fn sending_shows_only_while_a_send_is_on_its_way() {
         let open = Transcript { turns: vec![turn("u1", vec![], done()), turn("u2", vec![shell()], None)] };
-        assert_eq!(rows(&open, 0, false).last(), Some(&Row::Phase { turn: 1, blocks: 0..1 }), "the fold says the agent works");
+        assert_eq!(rows(&open, 0, false).last(), Some(&Row::Live { turn: 1 }), "the live line says the agent works");
         let ended = one(vec![shell()]);
         assert_eq!(rows(&ended, 0, false).last(), Some(&Row::End { turn: 0 }));
         assert_eq!(rows(&ended, 1, true)[4..], [Row::Pending(0), Row::Working]);
         assert_eq!(rows(&ended, 1, false)[4..], [Row::Pending(0)], "a send not delivered waits on no one");
         let compacted = Transcript { turns: vec![Turn { id: "c".into(), prompt: None, blocks: vec![Block::Compacted { id: "c".into(), auto: true }], end: None }] };
         assert_eq!(rows(&compacted, 0, false), vec![Row::Compacted { turn: 0, block: 0 }]);
+    }
+
+    #[test]
+    fn the_live_line_trails_only_the_last_reply_while_the_agent_works_on_it() {
+        let own = Turn { prompt: None, ..turn("n1", vec![shell()], None) };
+        let t = Transcript { turns: vec![turn("u1", vec![agent()], done()), turn("u2", vec![shell()], done()), own] };
+        assert_eq!(live_tail(&t), Some(1), "the turn the agent began itself carries on u2's reply");
+        assert!(rows(&t, 1, true).ends_with(&[Row::Phase { turn: 2, blocks: 0..1 }, Row::Live { turn: 1 }, Row::Pending(0), Row::Working]), "u1 works on in the background, under its own fold");
+        assert_eq!(live_tail(&one(vec![shell()])), None);
+        assert_eq!(live_tail(&Transcript::default()), None);
+    }
+
+    #[test]
+    fn a_live_tail_settles_once_its_fold_stops_carrying_the_live_line() {
+        let own = Turn { prompt: None, ..turn("n1", vec![shell()], None) };
+        let working = Transcript { turns: vec![turn("u1", vec![agent()], done()), turn("u2", vec![shell()], done()), own.clone()] };
+        let ended = Transcript { turns: vec![turn("u1", vec![agent()], done()), turn("u2", vec![shell()], done()), Turn { end: done(), ..own }] };
+        assert_eq!(settled_tail(Some("u2"), &working), None);
+        assert_eq!(settled_tail(Some("u2"), &ended).as_deref(), Some("u2"));
+        assert_eq!(settled_tail(None, &ended), None);
     }
 
     #[test]

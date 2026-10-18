@@ -5,8 +5,10 @@ import (
 	"errors"
 	"pocketd/internal/accounts"
 	"slices"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"pocketd/internal/agent"
 	"pocketd/internal/claude"
@@ -26,7 +28,9 @@ type presence struct {
 	argv, env []string
 	ctx       context.Context
 	cancel    context.CancelFunc
-	sock      string // codex's app-server; set under Daemon.mu
+	sock      string     // codex's app-server; set under Daemon.mu
+	stream    *stream    // the stdio of an agent run for the chat; nil for one in its TUI
+	codex     *codexChat // the app-server of a codex run for the chat
 
 	mu         sync.Mutex
 	transcript string
@@ -40,6 +44,16 @@ type presence struct {
 	hooked     bool // a SessionStart came; a restored Agent has its Conversation before that
 	reported   bool // an OSC 7501 report came: status is theirs, not the hooks'
 	typed      bool // the user started it in a shell: Pocket never restarts it
+	drafted    bool // Claude's input may hold text the user typed
+	stashed    bool // Claude holds a draft put aside with Ctrl+S
+	line       line // the text keys put in Claude's input since the last Enter
+	aside      line // line as it was when Ctrl+S put it aside
+
+	// sending guards sent apart from mu, as a tail notes what it shows while
+	// mu waits for that tail to stop.
+	sending sync.Mutex
+	sent    []received // prompts Claude received that the transcript it follows hasn't shown
+	typing  []string   // prompts typedPrompt noted, each until the Enter that sends it
 
 	// report makes applying a report atomic with reading the terminal's latest
 	// one, so a catch-up can't overwrite a live report that arrived meanwhile.
@@ -48,13 +62,29 @@ type presence struct {
 
 func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) *presence {
 	ctx, cancel := context.WithCancel(context.Background())
-	pr := &presence{t: t, pid: p.Pid, provider: provider, argv: p.Argv, env: p.Env, ctx: ctx, cancel: cancel, asks: map[string]int{},
-		launch: state.Parse(provider, p.Argv)}
-	if provider == "codex" && prompted(p.Argv) {
+	argv, s := p.Argv, (*stream)(nil)
+	if inner := piped(argv); inner != nil {
+		argv, s = inner, newStream()
+	}
+	pr := &presence{t: t, pid: p.Pid, provider: provider, argv: argv, env: p.Env, ctx: ctx, cancel: cancel, asks: map[string]int{},
+		launch: state.Parse(provider, argv), stream: s}
+	if s != nil && provider == "codex" {
+		pr.codex = newCodexChat(d, pr)
+	}
+	if provider == "codex" && prompted(argv) {
 		pr.prompted, pr.enter = true, time.Now()
 	}
 	info := t.Info()
-	driver := func(a *agent.Agent) agent.Driver { return termDriver{t: t, a: a, pid: p.Pid, pr: pr} }
+	driver := func(a *agent.Agent) agent.Driver {
+		c := termDriver{t: t, a: a, pid: p.Pid, pr: pr}
+		switch {
+		case pr.codex != nil:
+			return codexChatDriver{c, d}
+		case s != nil:
+			return streamDriver{c, d}
+		}
+		return c
+	}
 	origin := t.TakeOrigin()
 	h := d.adopt(pr, driver)
 	if h != nil {
@@ -65,7 +95,14 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	// A handed-down Terminal has lost its origin; its hint still knows.
 	pr.typed = origin == "" && (h == nil || h.saved.Typed)
 	pr.a.SetTerminal(info.ID)
+	if s != nil {
+		pr.a.SetChatOnly()
+	}
 	pr.a.SetEffort(pr.launch.Effort)
+	// Claude names its model only in its first reply; until then the one it was started with stands in.
+	if pr.launch.Model != "" && pr.a.Summary().Model == "" {
+		pr.a.SetModel(pr.launch.Model)
+	}
 	if d.Accounts != nil {
 		pr.a.SetAccount(d.Accounts.Of(provider, p.Env))
 	}
@@ -114,8 +151,17 @@ func (d *Daemon) place(pr *presence) {
 
 // cleared is a turn the user stopped: it ends like any other, so the agent may move.
 func (d *Daemon) cleared(pr *presence) {
+	_, seq := pr.a.Timeline.State()
 	pr.a.Clear()
 	go d.Follow(pr.provider)
+	settled := time.After(StopSettle)
+	go func() {
+		select {
+		case <-pr.ctx.Done():
+		case <-settled:
+			pr.a.EndStopped(seq)
+		}
+	}()
 }
 
 func (d *Daemon) turnEnded(pr *presence, failed bool) {
@@ -123,6 +169,9 @@ func (d *Daemon) turnEnded(pr *presence, failed bool) {
 	d.place(pr)
 	go d.Follow(pr.provider)
 }
+
+// StopSettle is how long Claude has to mark a stop in its transcript.
+var StopSettle = 2 * time.Second
 
 // ClaudeAttachWait is how long a new claude has to send its SessionStart.
 // Claude skips hooks in a folder the user hasn't trusted.
@@ -133,6 +182,14 @@ var ClaudeAttachWait = 5 * time.Second
 func (d *Daemon) attach(pr *presence) {
 	if h := d.hintOf(pr); h != nil && h.handoff {
 		defer d.handedOver(pr, h)
+	}
+	if pr.codex != nil {
+		saved := ""
+		if h := d.hintOf(pr); h != nil {
+			saved = h.saved.ConversationID
+		}
+		go d.chatCodex(pr, saved)
+		return
 	}
 	if pr.provider == "codex" {
 		d.attachCodex(pr)
@@ -148,6 +205,12 @@ func (d *Daemon) attach(pr *presence) {
 		}
 		pr.mu.Unlock()
 	}
+	if pr.stream == nil {
+		if p := launchPrompt(pr.argv); p != "" {
+			pr.entered(p)
+		}
+		d.discover(pr)
+	}
 	expired := time.After(ClaudeAttachWait)
 	go func() {
 		select {
@@ -155,11 +218,155 @@ func (d *Daemon) attach(pr *presence) {
 		case <-expired:
 			pr.mu.Lock()
 			defer pr.mu.Unlock()
-			if !pr.hooked && !pr.reported {
+			if !pr.hooked && !pr.reported && (pr.stream == nil || !pr.stream.connected()) {
 				pr.a.SetAttached(false)
 			}
 		}
 	}()
+}
+
+func (pr *presence) isDrafted() bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	return pr.drafted
+}
+
+// typedKeys follows Claude's input through the keys written to it. It errs
+// towards a draft: Ctrl+S on an empty input with nothing put aside does nothing.
+// A paste, which a file dropped on the terminal is too, comes bracketed.
+func (pr *presence) typedKeys(b []byte) {
+	pr.mu.Lock()
+	sent, enter := "", false
+	switch s := string(b); {
+	case s == "\r" || s == "\x1b[13u":
+		if enter = true; !pr.line.lost {
+			sent = pr.line.text
+		}
+		// Claude puts a stashed draft back once a prompt is sent.
+		pr.drafted, pr.stashed = pr.stashed, false
+		pr.line, pr.aside = pr.aside, line{}
+		pr.a.Sent()
+	case s == "\x13":
+		pr.drafted, pr.stashed = pr.stashed, pr.drafted
+		pr.line, pr.aside = pr.aside, pr.line
+	default:
+		pr.line = pr.line.typed(s)
+		if b[0] != 0x1b && printable(s) || strings.HasPrefix(s, "\x1b[200~") && printable(strings.TrimSuffix(s[len("\x1b[200~"):], "\x1b[201~")) {
+			pr.drafted = true
+		}
+	}
+	pr.mu.Unlock()
+	if enter {
+		pr.entered(sent)
+	}
+}
+
+func printable(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r >= 0x20 && r != 0x7f })
+}
+
+// line is the text keys put in Claude's input, as far as they show it:
+// once an edit it can't follow comes, like an arrow key or Ctrl+U, it's lost.
+// Ctrl+C empties the input, and Shift+Tab, or Esc on an empty one, leaves it.
+type line struct {
+	text string
+	lost bool
+}
+
+func (l line) typed(s string) line {
+	if paste, ok := strings.CutPrefix(s, "\x1b[200~"); ok {
+		l.text += strings.TrimSuffix(paste, "\x1b[201~")
+		return l
+	}
+	switch {
+	case s == "\x1b\r" || s == "\x1b[13;2u":
+		l.text += "\n"
+		return l
+	case s == "\x03" || s == "\x1b[99;5u":
+		return line{}
+	case s == "\x1b[Z" || (s == "\x1b" || s == "\x1b[27u") && l == line{}:
+		return l
+	}
+	if strings.HasPrefix(s, "\x1b") {
+		l.lost = true
+		return l
+	}
+	for _, r := range s {
+		switch {
+		case r == 0x7f || r == '\b':
+			_, n := utf8.DecodeLastRuneInString(l.text)
+			l.text = l.text[:len(l.text)-n]
+		case r < 0x20:
+			l.lost = true
+		default:
+			l.text += string(r)
+		}
+	}
+	return l
+}
+
+// typedPrompt notes a prompt pocketd types into Claude.
+func (pr *presence) typedPrompt(text string) {
+	pr.sending.Lock()
+	defer pr.sending.Unlock()
+	pr.typing = append(pr.typing, text)
+	pr.received(text)
+}
+
+// entered notes a prompt Claude got other than through typedPrompt: one its
+// launch gave it, or a line sent from its input, "" when keys lost it. The
+// Enter after a prompt pocketd types comes through here too.
+func (pr *presence) entered(text string) {
+	pr.sending.Lock()
+	defer pr.sending.Unlock()
+	if len(pr.typing) > 0 {
+		typing := pr.typing[0]
+		if pr.typing = pr.typing[1:]; tidy(typing) == tidy(text) {
+			return
+		}
+	}
+	pr.received(text)
+}
+
+// unshownMax is how many prompts no transcript showed are kept: lines that
+// answered Claude's dialogs never show, nor do any while no transcript is followed.
+const unshownMax = 16
+
+// received is a prompt Claude got, and when: Claude writes it to a
+// transcript after, so a transcript up to it from before isn't its.
+type received struct {
+	text string
+	at   time.Time
+}
+
+// received notes a prompt Claude got. A /clear starts a conversation the
+// prompts before it can't open.
+func (pr *presence) received(text string) {
+	switch {
+	case tidy(text) == "/clear":
+		pr.sent = nil
+	case claude.Command(text) || tidy(text) == "":
+	default:
+		pr.sent = append(pr.sent, received{text, time.Now()})
+		if len(pr.sent) > unshownMax {
+			pr.sent = slices.Delete(pr.sent, 0, len(pr.sent)-unshownMax)
+		}
+	}
+}
+
+// shown drops the prompts typed up to the one the transcript pr follows shows.
+func (pr *presence) shown(echo string) {
+	pr.sending.Lock()
+	defer pr.sending.Unlock()
+	if i := slices.IndexFunc(pr.sent, func(r received) bool { return sameText(echo, r.text) }); i >= 0 {
+		pr.sent = pr.sent[i+1:]
+	}
+}
+
+func (pr *presence) unshown() []received {
+	pr.sending.Lock()
+	defer pr.sending.Unlock()
+	return slices.Clone(pr.sent)
 }
 
 func (pr *presence) isReported() bool {
@@ -197,7 +404,7 @@ func (pr *presence) save(e *state.Terminal) {
 	pr.mu.Unlock()
 	e.Provider, e.ConversationID, e.Launch = pr.provider, s.ProviderSessionID, &launch
 	e.AgentID, e.CreatedAt, e.Status, e.Failed, e.Origin, e.Pinned = s.ID, s.CreatedAt, s.Status, s.Failed, s.Origin, s.Pinned
-	e.Account, e.Typed = s.Account, pr.typed
+	e.Account, e.Typed, e.Chat = s.Account, pr.typed, pr.stream != nil
 }
 
 // endAgent ends pr once; the poller and a hook's observe can both find it gone.
@@ -256,6 +463,25 @@ func (c termDriver) Prompt(text string) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
+	return c.typeIn(text)
+}
+
+// typeIn clears Claude's input after a stop first: a prompt stopped before
+// its reply goes back there, and would run on into text. A draft the user
+// left there would too, so it is put aside instead, with whatever else the
+// input holds. It notes the prompt first, so it is known before Claude writes it.
+func (c termDriver) typeIn(text string) error {
+	if c.pr.provider != "claude" {
+		return c.t.Prompt(text)
+	}
+	c.pr.typedPrompt(text)
+	refilled := c.a.Refilled()
+	if c.pr.isDrafted() {
+		return c.t.PromptStashed(text)
+	}
+	if refilled {
+		return c.t.PromptOver(text)
+	}
 	return c.t.Prompt(text)
 }
 
@@ -263,6 +489,7 @@ func (c termDriver) Interrupt() error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
+	c.a.Stop()
 	return c.t.Write([]byte{0x1b})
 }
 
@@ -278,7 +505,7 @@ func (c termDriver) Compact() error {
 		return errNotForeground
 	}
 	c.a.SetCompacting()
-	return c.t.Prompt("/compact")
+	return c.typeIn("/compact")
 }
 
 // Settings types claude's own commands but switches codex through its
@@ -304,12 +531,12 @@ func (c termDriver) Settings(model, effort string) error {
 // commands don't run together.
 func (c termDriver) typeSettings(model, effort string) error {
 	if model != "" {
-		if err := c.t.Prompt("/model " + model); err != nil || effort == "" {
+		if err := c.typeIn("/model " + model); err != nil || effort == "" {
 			return err
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return c.t.Prompt("/effort " + effort)
+	return c.typeIn("/effort " + effort)
 }
 
 var errNoThread = errors.New("Codex can switch once its first turn has started")

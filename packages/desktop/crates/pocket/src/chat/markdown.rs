@@ -30,15 +30,16 @@ pub(crate) fn fence(text: &str) -> Option<(&str, &str)> {
 pub(super) struct Highlights(HashMap<String, ((usize, bool), Option<Styles>)>);
 
 impl Highlights {
-    /// The styles for a row's code of `len` bytes in a light or dark appearance, if done; true when it needs a new run.
-    pub(super) fn get(&mut self, row: &str, len: usize, dark: bool) -> (Option<Styles>, bool) {
-        match self.0.get(row) {
-            Some((of, styles)) if *of == (len, dark) => (styles.clone(), false),
-            _ => {
-                self.0.insert(row.to_string(), ((len, dark), None));
-                (None, true)
-            }
-        }
+    /// The styles for a row's `code` in a light or dark appearance; true when it needs a new run.
+    /// Code that changed length (a block still streaming) keeps the old run's colours until its own run lands.
+    pub(super) fn get(&mut self, row: &str, code: &str, dark: bool) -> (Option<Styles>, bool) {
+        let old = match self.0.get(row) {
+            Some((of, styles)) if *of == (code.len(), dark) => return (styles.clone(), false),
+            Some(((_, was_dark), Some(styles))) if *was_dark == dark => Some(kept(styles, code)),
+            _ => None,
+        };
+        self.0.insert(row.to_string(), ((code.len(), dark), old.clone()));
+        (old, true)
     }
 
     pub(super) fn set(&mut self, row: &str, len: usize, dark: bool, styles: Styles) {
@@ -50,6 +51,12 @@ impl Highlights {
     pub(super) fn retain(&mut self, keep: impl Fn(&String) -> bool) {
         self.0.retain(|row, _| keep(row));
     }
+}
+
+/// The ranges of a run made for other code that still fit `code`: cut at its end, dropping any that would split a character.
+fn kept(styles: &Styles, code: &str) -> Styles {
+    let fits = |r: &Range<usize>| r.start < r.end && code.is_char_boundary(r.start) && code.is_char_boundary(r.end);
+    Arc::new(styles.iter().map(|(r, s)| (r.start..r.end.min(code.len()), *s)).filter(|(r, _)| fits(r)).collect())
 }
 
 /// Runs off the UI thread: tree-sitter parsing a long block takes milliseconds.
@@ -266,6 +273,7 @@ pub(super) fn code_block(
 #[cfg(test)]
 mod tests {
     use super::{Highlights, Target, fence, path_in, target};
+    use gpui_kit::HighlightStyle;
     use std::sync::Arc;
 
     #[test]
@@ -297,11 +305,34 @@ mod tests {
     #[test]
     fn a_code_block_is_highlighted_again_when_the_appearance_flips() {
         let mut h = Highlights::default();
-        assert!(h.get("r", 4, false).1);
+        assert!(h.get("r", "a();", false).1);
         h.set("r", 4, false, Arc::new(vec![]));
-        assert_eq!(h.get("r", 4, false), (Some(Arc::new(vec![])), false));
-        assert_eq!(h.get("r", 4, true), (None, true));
+        assert_eq!(h.get("r", "a();", false), (Some(Arc::new(vec![])), false));
+        assert_eq!(h.get("r", "a();", true), (None, true));
         h.set("r", 4, false, Arc::new(vec![]));
-        assert_eq!(h.get("r", 4, true), (None, false), "a light run landing late doesn't fill the dark slot");
+        assert_eq!(h.get("r", "a();", true), (None, false), "a light run landing late doesn't fill the dark slot");
+    }
+
+    #[test]
+    fn a_growing_code_block_keeps_its_old_colours_until_the_new_run_lands() {
+        let style = HighlightStyle { font_weight: Some(gpui_kit::FontWeight::BOLD), ..Default::default() };
+        let mut h = Highlights::default();
+        h.get("r", "let a", false);
+        h.set("r", 5, false, Arc::new(vec![(0..3, style)]));
+        assert_eq!(h.get("r", "let a = 1;", false), (Some(Arc::new(vec![(0..3, style)])), true));
+        assert_eq!(h.get("r", "let a = 1;", false), (Some(Arc::new(vec![(0..3, style)])), false), "asked once per length");
+        h.set("r", 5, false, Arc::new(vec![]));
+        assert_eq!(h.get("r", "let a = 1;", false).0, Some(Arc::new(vec![(0..3, style)])), "a stale run doesn't replace them");
+        h.set("r", 10, false, Arc::new(vec![(0..3, style), (8..9, style)]));
+        assert_eq!(h.get("r", "let a = 1;", false), (Some(Arc::new(vec![(0..3, style), (8..9, style)])), false));
+    }
+
+    #[test]
+    fn kept_colours_stop_at_the_code_and_never_split_a_character() {
+        let style = HighlightStyle::default();
+        let mut h = Highlights::default();
+        h.get("r", "aé b ``", false);
+        h.set("r", 8, false, Arc::new(vec![(0..2, style), (4..6, style), (7..8, style)]));
+        assert_eq!(h.get("r", "aé b", false).0, Some(Arc::new(vec![(4..5, style)])));
     }
 }

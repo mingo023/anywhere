@@ -93,16 +93,7 @@ func (w *codexSock) ThreadStatus(id, typ string, flags []string) {
 	if pr == nil {
 		return
 	}
-	switch {
-	case typ == "active" && (slices.Contains(flags, "waitingOnApproval") || slices.Contains(flags, "waitingOnUserInput")):
-		pr.a.NeedsYou()
-	case typ == "active":
-		pr.a.Working()
-	case typ == "idle":
-		w.d.turnEnded(pr, false)
-	case typ == "systemError":
-		w.d.turnEnded(pr, true)
-	}
+	w.d.codexStatus(pr, typ, flags)
 	w.d.resumed(pr, id)
 }
 
@@ -170,7 +161,7 @@ func (d *Daemon) bind(pr *presence, thread string) {
 		pr.unfollow()
 	}
 	if pr.a.Summary().ProviderSessionID == thread {
-		pr.a.Timeline.Clear()
+		pr.a.ClearTimeline()
 	}
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})

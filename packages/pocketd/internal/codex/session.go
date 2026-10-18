@@ -37,6 +37,10 @@ type Session struct {
 	queued   []func()
 	streamed map[string]bool
 	details  map[string]proto.ToolDetail
+	// midTurn is a turn that was under way at replay: deltas of a message it
+	// started before then would show only its tail, so its completion shows it.
+	midTurn bool
+	live    map[string]bool // messages started since replay
 }
 
 type item struct {
@@ -78,6 +82,7 @@ var MaxTurnPages = 50
 
 type resumed struct {
 	Thread struct {
+		ID    string  `json:"id"`
 		Name  *string `json:"name"`
 		Turns []turn  `json:"turns"`
 	} `json:"thread"`
@@ -89,22 +94,18 @@ type resumed struct {
 // Open subscribes to a thread and replays its history. Resume fails until the
 // thread has its first turn, so it retries until ctx ends.
 func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker) (*Session, error) {
-	sctx, cancel := context.WithCancel(context.Background())
-	s := &Session{agentID: agentID, sink: sink, broker: b, ctx: sctx, cancel: cancel,
-		streamed: map[string]bool{}, details: map[string]proto.ToolDetail{}}
+	s := NewSession(agentID, sink, b)
 	c, err := Dial(ctx, sock, s)
 	if err != nil {
-		cancel()
+		s.cancel()
 		return nil, err
 	}
-	s.c = c
 	for {
 		res, err := c.Call(ctx, "thread/resume", map[string]any{"threadId": threadID})
 		if err == nil {
 			var r resumed
 			json.Unmarshal(res, &r)
-			s.hydrate(ctx, threadID, &r)
-			s.replay(r)
+			s.follow(ctx, c, threadID, r)
 			return s, nil
 		}
 		select {
@@ -114,6 +115,29 @@ func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *bro
 		case <-time.After(ResumeRetry):
 		}
 	}
+}
+
+// NewSession is a Session for agentID that has no thread yet: it holds the
+// messages that come before Replay.
+func NewSession(agentID string, sink Sink, b *broker.Broker) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Session{agentID: agentID, sink: sink, broker: b, ctx: ctx, cancel: cancel,
+		streamed: map[string]bool{}, details: map[string]proto.ToolDetail{}, live: map[string]bool{}}
+}
+
+// Replay follows the thread a thread/start or thread/resume on c returned in
+// res, its history first, and returns its id.
+func (s *Session) Replay(ctx context.Context, c *Client, res json.RawMessage) string {
+	var r resumed
+	json.Unmarshal(res, &r)
+	s.follow(ctx, c, r.Thread.ID, r)
+	return r.Thread.ID
+}
+
+func (s *Session) follow(ctx context.Context, c *Client, threadID string, r resumed) {
+	s.c = c
+	s.hydrate(ctx, threadID, &r)
+	s.replay(r)
 }
 
 // hydrate puts the turns a paginated resume left out before r's own, oldest
@@ -168,6 +192,7 @@ func (s *Session) replay(r resumed) {
 		if t.Status != "inProgress" {
 			s.turnDone(t)
 		}
+		s.midTurn = t.Status == "inProgress"
 	}
 	for _, f := range s.queued {
 		f()
@@ -208,13 +233,19 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 	s.run(func() {
 		switch method {
 		case "item/started":
+			s.live[p.Item.ID] = true
 			s.started(p.Item)
 		case "item/completed":
 			s.completed(p.Item)
+			delete(s.live, p.Item.ID)
 		case "item/agentMessage/delta":
+			if s.midTurn && !s.live[p.ItemID] {
+				return
+			}
 			s.streamed[p.ItemID] = true
 			s.sink.Apply(timeline.Event{Kind: "assistant_text", Text: p.Delta})
 		case "turn/completed":
+			s.midTurn = false
 			s.turnDone(p.Turn)
 		case "thread/name/updated":
 			if p.ThreadName != nil {

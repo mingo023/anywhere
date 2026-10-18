@@ -41,6 +41,10 @@ pub fn body(place: &str, line: &str) -> String {
     if place.is_empty() { cut } else { format!("{place}\n{cut}") }
 }
 
+fn who(a: &Summary) -> String {
+    if a.title.is_empty() { theme::provider_name(&a.provider).to_string() } else { a.title.clone() }
+}
+
 /// The banner's second line: the ask, the reply's first paragraph, or the status.
 fn line(agents: &Agents, a: &Summary, status: Status) -> String {
     let text = match status {
@@ -68,7 +72,7 @@ impl Alerts {
         let fresh: Vec<String> = show.into_iter().filter(|id| now[id].ask.is_none() || self.asks.get(id) != now[id].ask.as_ref()).collect();
         for id in fresh.into_iter().filter(|id| wanted(now[id].status)) {
             let Some(a) = agents.get(&id) else { continue };
-            let title = if a.title.is_empty() { theme::provider_name(&a.provider).to_string() } else { a.title.clone() };
+            let title = who(a);
             let Alert { status, ask } = now[&id].clone();
             match &ask {
                 Some(q) => self.asks.insert(id.clone(), q.clone()),
@@ -133,6 +137,20 @@ impl Desktop {
             self.error = Some(message);
             return cx.notify();
         }
+        if let Event::PromptFailed { agent, request } = &ev {
+            // A chat not yet opened has no send to fail.
+            if let Some(v) = self.chats.views.get_mut(agent) {
+                v.session.outgoing.fail(request);
+            }
+            return cx.notify();
+        }
+        if let Event::InterruptFailed { agent, reason } = &ev {
+            if let Some(v) = self.chats.views.get_mut(agent) {
+                v.session.outgoing.stop_refused();
+            }
+            self.error = Some(stop_failed(self.agents.get(agent), reason));
+            return cx.notify();
+        }
         if let Event::NamingFailed(_) = ev {
             self.error = Some("Couldn't name the session from its prompt".into());
             return cx.notify();
@@ -162,7 +180,12 @@ impl Desktop {
             self.outbox.view(ids);
         }
         let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
+        let listed = matches!(ev, Event::Agents(_) | Event::Agent(_)).then(|| self.agents.list.clone());
         self.agents.apply_from(host, ev);
+        for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
+            self.chat_closed(&agent, &who, window, cx);
+        }
+        self.hand_off_creates();
         self.focus_arrived_chat(window, cx);
         self.release_queued();
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.tab_of(t).is_some())) {
@@ -248,6 +271,17 @@ pub(crate) fn exited_terminal(list: &[Summary], ev: &Event) -> Option<String> {
     (a.status == "closed" && known.restore != "failed").then(|| known.terminal_id.clone())
 }
 
+/// The agents `before` held that `after` doesn't, with their names: closed, or left out of a host's full list after a reconnect.
+fn gone(before: &[Summary], after: &[Summary]) -> Vec<(String, String)> {
+    before.iter().filter(|a| !after.iter().any(|x| x.id == a.id)).map(|a| (a.id.clone(), who(a))).collect()
+}
+
+/// The toast for a stop pocketd refused or never got.
+fn stop_failed(a: Option<&Summary>, reason: &str) -> String {
+    let who = a.map_or_else(|| "the session".to_string(), who);
+    format!("Couldn't stop {who}: {reason}")
+}
+
 /// The toast for a failed pocketd upgrade, once per version it failed on.
 pub(crate) fn upgrade_toast(prev: Option<&Host>, next: &Host) -> Option<String> {
     let failed = &next.upgrade_failed;
@@ -257,13 +291,23 @@ pub(crate) fn upgrade_toast(prev: Option<&Host>, next: &Host) -> Option<String> 
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOW, Alerts, DENY, Notice, body, exited_terminal, upgrade_toast, wants_banner};
+    use super::{ALLOW, Alerts, DENY, Notice, body, exited_terminal, gone, stop_failed, upgrade_toast, wants_banner};
     use crate::status::Status;
     use store::Notifications;
     use agents::{Agents, Event, Host, Permission, Summary};
 
     fn agent(id: &str, status: &str) -> Summary {
         Summary { id: id.into(), terminal_id: format!("t-{id}"), title: id.to_uppercase(), status: status.into(), attached: true, ..Default::default() }
+    }
+
+    #[test]
+    fn an_agent_a_full_list_leaves_out_is_gone_like_a_closed_one() {
+        let before = [agent("a", "working"), agent("b", "idle"), Summary { title: String::new(), provider: "codex".into(), ..agent("c", "idle") }];
+        let mut after = Agents { list: before.to_vec(), ..Default::default() };
+        after.apply_from(None, Event::Agents(vec![agent("b", "idle")]));
+        assert_eq!(gone(&before, &after.list), [("a".to_string(), "A".to_string()), ("c".to_string(), "Codex".to_string())]);
+        after.apply_from(None, Event::Agent(agent("b", "closed")));
+        assert_eq!(gone(&before[1..2], &after.list), [("b".to_string(), "B".to_string())]);
     }
 
     #[test]
@@ -395,6 +439,15 @@ mod tests {
         assert_eq!(alerts.answerable("a", &[q("q1")]), Some("q1"));
         assert_eq!(alerts.answerable("a", &[q("q2")]), None);
         assert_eq!(alerts.answerable("b", &[q("q1")]), None);
+    }
+
+    #[test]
+    fn a_refused_stop_names_the_session_and_why() {
+        let a = agent("a", "working");
+        assert_eq!(stop_failed(Some(&a), "This session is still resuming"), "Couldn't stop A: This session is still resuming");
+        let untitled = Summary { title: String::new(), provider: "codex".into(), ..agent("b", "working") };
+        assert_eq!(stop_failed(Some(&untitled), "Agent is no longer in the foreground"), "Couldn't stop Codex: Agent is no longer in the foreground");
+        assert_eq!(stop_failed(None, "Agent not found"), "Couldn't stop the session: Agent not found");
     }
 
     #[test]

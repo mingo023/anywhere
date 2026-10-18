@@ -199,3 +199,32 @@ func TestABackgroundCommandEndsAfterTheNextPromptAndNamesWhatStopsIt(t *testing.
 		}
 	}
 }
+
+func TestAPromptIsUnansweredUntilTheAgentWritesAndASubAgentOrCompactionIsNoAnswer(t *testing.T) {
+	tl := New()
+	if tl.Unanswered() {
+		t.Fatal("an empty timeline is unanswered")
+	}
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "s1", Name: "Read", ParentToolUseID: "t1"}, 2)
+	tl.Apply(Event{Kind: "compacted", Trigger: "auto"}, 3)
+	if !tl.Unanswered() {
+		t.Fatal("a sub-agent's tool or a compaction answered the prompt")
+	}
+	tl.Apply(Event{Kind: "assistant_text", Text: "Once"}, 4)
+	if tl.Unanswered() {
+		t.Fatal("a reply left the prompt unanswered")
+	}
+}
+
+func TestASecondInterruptInARowEndsNothing(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	tl.Apply(Event{Kind: "result", Error: "interrupted"}, 2)
+	if _, ok := tl.Apply(Event{Kind: "result", Error: "interrupted"}, 3); ok {
+		t.Fatal("a turn ended twice")
+	}
+	if _, ok := tl.Apply(Event{Kind: "result", OK: true}, 4); !ok {
+		t.Fatal("a result after an interrupt was dropped")
+	}
+}

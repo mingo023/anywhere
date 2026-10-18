@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -21,8 +22,28 @@ type Handler interface {
 	Request(id json.RawMessage, method string, params json.RawMessage)
 }
 
+// Wire carries JSON-RPC messages, one per Read or Write.
+type Wire interface {
+	Read(ctx context.Context) ([]byte, error)
+	Write(ctx context.Context, msg []byte) error
+	Close()
+}
+
+type wsWire struct{ *websocket.Conn }
+
+func (w wsWire) Read(ctx context.Context) ([]byte, error) {
+	_, b, err := w.Conn.Read(ctx)
+	return b, err
+}
+
+func (w wsWire) Write(ctx context.Context, msg []byte) error {
+	return w.Conn.Write(ctx, websocket.MessageText, msg)
+}
+
+func (w wsWire) Close() { w.CloseNow() }
+
 type Client struct {
-	ws       *websocket.Conn
+	w        Wire
 	h        Handler
 	handlers sync.WaitGroup
 	mu       sync.Mutex
@@ -58,14 +79,28 @@ func connect(ctx context.Context, sock string, h Handler, capabilities any) (*Cl
 		return nil, err
 	}
 	ws.SetReadLimit(64 << 20)
-	c := &Client{ws: ws, h: h, pending: map[string]chan frame{}, done: make(chan struct{})}
+	return Connect(ctx, wsWire{ws}, h, capabilities)
+}
+
+// errInitialized is an app-server that an earlier pocketd initialized, over
+// a pipe that outlived it.
+const errInitialized = "initialize: Already initialized"
+
+// Connect initializes the app-server at the other end of w. Its ids start
+// anywhere, so a reply meant for an earlier pocketd on the same pipe answers
+// none of its calls.
+func Connect(ctx context.Context, w Wire, h Handler, capabilities any) (*Client, error) {
+	c := &Client{w: w, h: h, next: rand.IntN(1 << 30), pending: map[string]chan frame{}, done: make(chan struct{})}
 	go c.read()
-	if _, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "codex_app_server_daemon", "title": nil, "version": "0"}, "capabilities": capabilities}); err != nil {
-		ws.CloseNow()
-		return nil, err
+	_, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "codex_app_server_daemon", "title": nil, "version": "0"}, "capabilities": capabilities})
+	if err != nil && err.Error() == errInitialized {
+		return c, nil
 	}
-	if err := c.send(frame{Method: "initialized"}); err != nil {
-		ws.CloseNow()
+	if err == nil {
+		err = c.send(frame{Method: "initialized"})
+	}
+	if err != nil {
+		w.Close()
 		return nil, err
 	}
 	return c, nil
@@ -78,7 +113,7 @@ func (c *Client) read() {
 	handled := make(chan struct{})
 	close(handled)
 	for {
-		_, raw, err := c.ws.Read(context.Background())
+		raw, err := c.w.Read(context.Background())
 		if err != nil {
 			return
 		}
@@ -116,7 +151,7 @@ func (c *Client) handle(f frame) {
 
 func (c *Client) send(f frame) error {
 	raw, _ := json.Marshal(f)
-	return c.ws.Write(context.Background(), websocket.MessageText, raw)
+	return c.w.Write(context.Background(), raw)
 }
 
 func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -158,7 +193,7 @@ func (c *Client) Done() <-chan struct{} { return c.done }
 // Close returns once the handler has taken its last message, so the handler
 // must not call it.
 func (c *Client) Close() {
-	c.ws.CloseNow()
+	c.w.Close()
 	<-c.done
 	c.handlers.Wait()
 }

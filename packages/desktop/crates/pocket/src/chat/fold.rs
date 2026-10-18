@@ -7,6 +7,7 @@ use theme::*;
 /// What a live fold says the agent is doing.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Live {
+    Stopping,
     Thinking,
     Working { secs: i64, background: usize },
     Approval,
@@ -25,6 +26,7 @@ pub(crate) fn who(provider: &str) -> &'static str {
 /// "Claude Opus 5.5 working for 7s · 1 task in background".
 pub(crate) fn live_label(who: &str, model: &str, live: &Live) -> String {
     match live {
+        Live::Stopping => "Stopping…".into(),
         Live::Thinking => "Thinking…".into(),
         Live::Approval => "Needs your approval".into(),
         Live::Answer => "Needs your answer".into(),
@@ -94,6 +96,7 @@ mod tests {
         assert_eq!(live_label("Claude", "Opus 5.5", &working(7, 1)), "Claude Opus 5.5 working for 7s · 1 task in background");
         assert_eq!(live_label("Claude", "Opus 5.5", &working(7, 3)), "Claude Opus 5.5 working for 7s · 3 tasks in background");
         assert_eq!(live_label("Claude", "Opus 5.5", &Live::Thinking), "Thinking…");
+        assert_eq!(live_label("Claude", "Opus 5.5", &Live::Stopping), "Stopping…");
         assert_eq!(live_label("Claude", "Opus 5.5", &Live::Approval), "Needs your approval");
         assert_eq!(live_label("Claude", "Opus 5.5", &Live::Answer), "Needs your answer");
     }

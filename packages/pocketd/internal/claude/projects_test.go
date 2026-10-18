@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +53,27 @@ func TestInProjectsRefusesASymlinkOutOfProjects(t *testing.T) {
 	os.Symlink(outside, link)
 	if InProjects(link, []string{"CLAUDE_CONFIG_DIR=" + cfg}) {
 		t.Fatal("a symlink led out of projects")
+	}
+}
+
+func TestSessionsAreFoundUnderTheResolvedFolderClaudeNamesThem(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "c")
+	real, _ := filepath.EvalSymlinks(t.TempDir())
+	os.MkdirAll(filepath.Join(real, "my_repo.v2"), 0o700)
+	link := filepath.Join(t.TempDir(), "link")
+	os.Symlink(real, link)
+	dir := filepath.Join(cfg, "projects", strings.Map(func(r rune) rune {
+		if r == '/' || r == '_' || r == '.' {
+			return '-'
+		}
+		return r
+	}, real+"/my_repo.v2"))
+	os.MkdirAll(filepath.Join(dir, "s1"), 0o700)
+	for _, name := range []string{"s1.jsonl", "notes.json"} {
+		os.WriteFile(filepath.Join(dir, name), nil, 0o600)
+	}
+	got := Sessions(filepath.Join(link, "my_repo.v2"), []string{"CLAUDE_CONFIG_DIR=" + cfg})
+	if len(got) != 1 || got[0] != filepath.Join(dir, "s1.jsonl") {
+		t.Fatalf("got %v", got)
 	}
 }

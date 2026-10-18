@@ -8,6 +8,8 @@
 //	<text>      reply "echo: <text>"
 //	run <cmd>   ask the PermissionRequest hook, then run a Bash tool with its answer
 //	desk <cmd>  ask the hook, but answer on the "desktop" before it replies
+//
+// With --input-format it speaks stream-json, as for Pocket's chat; see chat.go.
 package main
 
 import (
@@ -28,6 +30,7 @@ import (
 
 type session struct {
 	id, cwd, transcript string
+	entrypoint          string
 	f                   *os.File
 	hooks               map[string]string
 }
@@ -103,6 +106,9 @@ func (s *session) write(line map[string]any) {
 	}
 	line["uuid"] = uuid()
 	line["sessionId"] = s.id
+	if s.entrypoint != "" {
+		line["entrypoint"] = s.entrypoint
+	}
 	line["timestamp"] = time.Now().UTC().Format(time.RFC3339Nano)
 	b, _ := json.Marshal(line)
 	s.f.Write(append(b, '\n'))
@@ -151,13 +157,17 @@ func runTool(s *session, id, command string, desktop bool) {
 }
 
 func main() {
-	if slices.Contains(os.Args, "-p") {
-		fmt.Println(`{"title":"Say hello","branchName":"say-hello","vague":false}`)
+	if slices.Contains(os.Args, "--input-format") {
+		chat()
 		return
 	}
 	if i := slices.Index(os.Args, "--model"); i > 0 && i+1 < len(os.Args) && os.Args[i+1] == "bogus" {
 		fmt.Println("fake claude: unknown model bogus")
 		os.Exit(1)
+	}
+	if slices.Contains(os.Args, "-p") {
+		fmt.Println(`{"title":"Say hello","branchName":"say-hello","vague":false}`)
+		return
 	}
 	s := start()
 	s.hook("SessionStart", map[string]any{"source": "startup", "model": "fake-model"})()

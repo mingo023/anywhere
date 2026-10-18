@@ -5,10 +5,8 @@ use theme::*;
 impl Desktop {
     pub(crate) fn added_toast(&self) -> Option<impl IntoElement> {
         let (provider, _) = self.chat.added.as_ref()?;
-        let toast = ui::pop(div())
-            .absolute()
-            .right(px(16.))
-            .bottom(px(16.))
+        let toast = self
+            .float(ui::pop(div()), 16.)
             .h(px(32.))
             .px(px(12.))
             .flex()

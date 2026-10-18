@@ -43,6 +43,7 @@ var Needs = map[string]Scope{
 	"ops:list":              Observe,
 	"ops:status":            Observe,
 	"ops:hook":              Observe,
+	"ops:pipe":              Observe,
 	"ops:spawn":             Own,
 	"ops:attach":            Own,
 	"ops:screen":            Own,

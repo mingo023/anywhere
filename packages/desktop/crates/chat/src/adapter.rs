@@ -21,6 +21,7 @@ impl Capabilities {
             Action::Stop => self.interrupt,
             Action::Queue => self.send_while_working,
             Action::Send => true,
+            Action::Stopping => false,
         }
     }
 }
@@ -37,6 +38,11 @@ pub trait Backend: Sync {
         std::mem::replace(t, self.transcript(items)).turns
     }
     fn ask(&self, ask: &Self::Ask) -> Ask;
+    /// The command `text` runs if it opens a panel in the agent's terminal, which the chat can't show and whose keys
+    /// the next send would land in.
+    fn panel<'t>(&self, _text: &'t str) -> Option<&'t str> {
+        None
+    }
 }
 
 /// The adapter for a pocketd agent, by its `Summary::provider`; Claude's for one this build doesn't know.
@@ -63,12 +69,26 @@ mod tests {
     }
 
     #[test]
+    fn a_command_that_opens_a_panel_in_claudes_terminal_is_named() {
+        let claude = for_provider("claude");
+        assert_eq!(claude.panel("/cost"), Some("/cost"));
+        assert_eq!(claude.panel("  /config \n"), Some("/config"));
+        assert_eq!(claude.panel("/model"), Some("/model"));
+        assert_eq!(claude.panel("/model haiku"), None, "with its argument it runs without a picker");
+        assert_eq!(claude.panel("/compact"), None);
+        assert_eq!(claude.panel("/costs went up, why?"), None);
+        assert_eq!(claude.panel("/usage/report.md is empty"), None);
+        assert_eq!(for_provider("codex").panel("/cost"), None);
+    }
+
+    #[test]
     fn the_composer_blocks_only_what_the_agent_cant_do() {
         let all = for_provider("codex").capabilities();
         assert!([Action::Send, Action::Queue, Action::Stop].into_iter().all(|a| all.allows(a)));
         let none = Capabilities::default();
         assert_eq!([Action::Send, Action::Queue, Action::Stop].map(|a| none.allows(a)), [true, false, false]);
         assert!(Gemini.capabilities().allows(Action::Stop) && !Gemini.capabilities().allows(Action::Queue));
+        assert!(!all.allows(Action::Stopping), "a stop under way has nothing to press");
     }
 
     /// A third agent, written against the trait alone: its history is plain lines, not pocketd items.
@@ -129,26 +149,26 @@ mod tests {
         let backend: &dyn Backend<Item = Line, Ask = Confirm> = &Gemini;
         let mut s = Session::default();
         let mut items = vec![Line::User("fix the build")];
-        assert_eq!(s.update(backend, 1, &items, 0), Some((0..0, 2)));
-        assert_eq!(s.ids, ["g0", "g0#fold"]);
+        assert_eq!(s.update(backend, 1, &items, false, 0), Some((0..0, 3)));
+        assert_eq!(s.ids, ["g0", "g0#fold", "g0#live"]);
 
         items.extend([Line::Model("Running make."), Line::Shell("make", None)]);
-        s.update(backend, 2, &items, 0);
-        assert_eq!(s.ids, ["g0", "g0#fold", "g0#p0"]);
+        s.update(backend, 2, &items, false, 0);
+        assert_eq!(s.ids, ["g0", "g0#fold", "g0#p0", "g0#live"]);
         assert_eq!(s.rows[2], Row::Phase { turn: 0, blocks: 0..2 });
 
         items[2] = Line::Shell("make", Some(true));
         items.push(Line::Done);
-        assert_eq!(s.update(backend, 3, &items, 0), Some((2..3, 2)), "the finished phase is measured afresh and the end follows");
+        assert_eq!(s.update(backend, 3, &items, false, 0), Some((2..4, 2)), "the finished phase is measured afresh and the end takes the live line's place");
         assert_eq!(s.ids, ["g0", "g0#fold", "g0#p0", "g0#end"]);
         assert!(matches!(&s.transcript.turns[0].blocks[1], Block::Tool(c) if c.status == ToolStatus::Ok));
 
         s.outgoing.push("again".into(), false, 4);
-        s.update(backend, 3, &items, 4);
+        s.update(backend, 3, &items, false, 4);
         assert_eq!(s.ids[4..], ["pending-0", "working"]);
         items.push(Line::User("again"));
-        s.update(backend, 4, &items, 5);
-        assert_eq!(s.ids[4..], ["g4", "g4#fold"], "the echoed prompt settles the send");
+        s.update(backend, 4, &items, false, 5);
+        assert_eq!(s.ids[4..], ["g4", "g4#fold", "g4#live"], "the echoed prompt settles the send");
         assert!(s.outgoing.list().is_empty());
 
         let ask = backend.ask(&Confirm("r1", "rm -rf target"));

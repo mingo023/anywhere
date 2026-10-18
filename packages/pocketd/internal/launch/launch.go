@@ -157,6 +157,9 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: fl}
 	}
 	argv[0] = exe
+	if Chat(s) {
+		argv = Piped(l.d.Exe, argv)
+	}
 	cwd, setup, fl := l.checkout(w, f, s, env, progress)
 	if fl != nil {
 		return Result{Err: fl}
@@ -194,6 +197,13 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	creating(Creating{Terminal: id, Cwd: cwd, Setup: setup != ""})
 	r := l.wait(t, id, exits, progress)
 	r.Cwd = cwd
+	if r.Err == nil && s.Prompt != "" && Chat(s) {
+		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
+			if err := a.Driver().Prompt(s.Prompt); err != nil {
+				r.Err = &Failure{Code: "spawn_failed", Message: "Couldn't send the prompt", Detail: err.Error()}
+			}
+		}
+	}
 	if r.Err == nil && s.Prompt != "" {
 		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, local: local}
 		if n := s.Checkout.New; n != nil && n.AutoName {

@@ -210,6 +210,13 @@ impl Desktop {
             .child(self.strip_tabs(tree, pane, window, cx))
             .child(status)
             .child(right);
+        let bar = match pane.active() {
+            Some(Tab::Term(t)) => match self.summary(t).map(|a| a.id.clone()) {
+                Some(agent) => self.arriving(&agent, crate::creating::BAR, bar, window, cx),
+                None => bar,
+            },
+            _ => bar,
+        };
         let body = self.pane_body(p, focused, pane.active().cloned(), window, cx);
         div()
             .id(id(format!("pane:{p}")))

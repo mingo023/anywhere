@@ -34,11 +34,22 @@ fn control(key: String, tip: &'static str) -> Stateful<Div> {
 
 impl Desktop {
     /// The tray over the box: what waits, numbered in the order it goes, each with Steer, Edit and Remove; none when nothing waits.
-    pub(super) fn queue_tray(&self, agent: &str, sends: &[Pending], cx: &mut Context<Self>) -> Option<Div> {
+    /// Once the user stopped the turn, or it failed, nothing goes until Resume.
+    pub(super) fn queue_tray(&self, agent: &str, sends: &[Pending], paused: bool, cx: &mut Context<Self>) -> Option<Div> {
         let rows = waiting(sends);
         if rows.is_empty() {
             return None;
         }
+        let resume = paused.then(|| {
+            let agent = agent.to_string();
+            control(format!("chat-queue-resume:{agent}"), "Send the queued messages in order")
+                .px(px(8.))
+                .gap(px(5.))
+                .text_color(TEXT_2)
+                .child(icon("play", 12., TEXT_2))
+                .child("Resume")
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_queue_resume(&agent, cx)))
+        });
         let header = div()
             .min_h(px(26.))
             .flex()
@@ -48,7 +59,9 @@ impl Desktop {
             .text_color(TEXT_2)
             .child(icon("list", 13., TEXT_2))
             .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{} queued", rows.len())))
-            .child("send in order after this turn");
+            .child(if paused { "paused" } else { "send in order after this turn" })
+            .child(div().flex_1())
+            .children(resume);
         let row = |(n, p): (usize, &&Pending)| {
             let on = |f: fn(&mut Self, &str, u64, &mut Window, &mut Context<Self>)| {
                 let (agent, send) = (agent.to_string(), p.id);
@@ -100,15 +113,34 @@ impl Desktop {
     /// Takes a held send back into the composer to rework.
     pub(crate) fn chat_queue_edit(&mut self, agent: &str, send: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.withdraw(send)) else { return };
-        let text = editing(&self.chats.input.read(cx).value(), &text);
+        self.chat_take_back(agent, &text, window, cx);
+    }
+
+    /// Puts a send's text back in `agent`'s composer, under what was typed there.
+    pub(crate) fn chat_take_back(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.chat_take_input(agent, window, cx);
+        let text = editing(&self.chats.input.read(cx).value(), text);
         self.set_chat_text(&text, window, cx);
         self.chats.input.update(cx, |s, cx| s.focus(window, cx));
     }
 
+    /// Lets the queue go on past the turn it was paused behind; the next send goes once the agent is idle.
+    pub(crate) fn chat_queue_resume(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if let Some(v) = self.chats.views.get_mut(agent) {
+            v.session.outgoing.resume(&v.session.transcript);
+            self.release_queued();
+            cx.notify();
+        }
+    }
+
     /// Sends a held send now: the agent takes it mid-turn.
     pub(crate) fn chat_queue_steer(&mut self, agent: &str, send: u64, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.steer(send, now_ms())) else { return };
-        self.outbox.prompt(agent, &text);
+        let Some(v) = self.chats.views.get_mut(agent) else { return };
+        let Some(text) = v.session.outgoing.steer(send, now_ms()) else { return };
+        v.steered();
+        if let Some(request) = self.outbox.prompt(agent, &text) {
+            v.session.outgoing.sent_as(send, request);
+        }
         cx.notify();
     }
 }
@@ -128,7 +160,7 @@ mod tests {
     fn the_queue_lists_only_queued_sends() {
         let mut out = Outgoing::default();
         out.push("lost".into(), false, 0);
-        out.settle(&Transcript::default(), 200_000);
+        out.settle(&Transcript::default(), false, 200_000);
         out.push("next".into(), true, 200_000);
         out.push("sending".into(), false, 200_000);
         let texts: Vec<&str> = waiting(out.list()).iter().map(|p| p.text.as_str()).collect();

@@ -11,11 +11,11 @@ import (
 )
 
 // argvClaude is a claude command that prints the words it was given, then
-// runs the fake claude with them.
+// runs the fake claude with them. It prints on stderr: stdout is the chat's.
 func argvClaude(h *Harness) string {
 	path := filepath.Join(h.Home, "argv", "claude")
 	os.MkdirAll(filepath.Dir(path), 0o755)
-	body := fmt.Sprintf("#!/bin/sh\necho \"ARGV: $*\"\nexec '%s' \"$@\"\n", filepath.Join(binDir, "fake", "claude"))
+	body := fmt.Sprintf("#!/bin/sh\necho \"ARGV: $*\" >&2\nexec '%s' \"$@\"\n", filepath.Join(binDir, "fake", "claude"))
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		h.t.Fatal(err)
 	}
@@ -36,7 +36,8 @@ func TestLaunchesUseTheAgentArgsFromConfig(t *testing.T) {
 
 	create(o, "r1", inRepo(h, map[string]any{"prompt": "hello"}))
 	c := reply(o, "agent.creating", "error")
-	h.WaitScreen(c.TerminalID, "ARGV: --permission-mode default -n hello --verbose -- hello")
+	h.WaitScreen(c.TerminalID, "ARGV: --permission-mode default -p --input-format stream-json")
+	h.WaitScreen(c.TerminalID, "--permission-prompt-tool stdio -n hello\n")
 	h.WaitScreen(c.TerminalID, "echo: hello")
 
 	create(o, "r2", inRepo(h, map[string]any{"fork": "0a1b-2c3d"}))

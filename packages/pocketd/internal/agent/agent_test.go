@@ -265,6 +265,62 @@ func TestConversationSwitchStartsOver(t *testing.T) {
 	}
 }
 
+// resetsPublished reads the resets of each agent.update a client got.
+func resetsPublished(ch <-chan []byte) []int64 {
+	var out []int64
+	for {
+		select {
+		case raw := <-ch:
+			var m struct {
+				Type  string `json:"type"`
+				Agent struct {
+					Resets int64 `json:"resets"`
+				} `json:"agent"`
+			}
+			json.Unmarshal(raw, &m)
+			if m.Type == "agent.update" {
+				out = append(out, m.Agent.Resets)
+			}
+		default:
+			return out
+		}
+	}
+}
+
+func TestSwitchingConversationBumpsTheCounter(t *testing.T) {
+	h := hub.New()
+	a := NewRegistry(h).Add("a1", "/w", "claude", fakeDriver{})
+	ch, _ := h.Subscribe()
+	a.SetConversation("c1")
+	a.SetConversation("c1")
+	if got := a.Summary().Resets; got != 0 {
+		t.Fatalf("same conversation: resets %d", got)
+	}
+	a.SetConversation("c2")
+	if got := a.Summary().Resets; got != 1 {
+		t.Fatalf("after switch: resets %d", got)
+	}
+	if got := resetsPublished(ch); len(got) != 2 || got[1] != 1 {
+		t.Fatalf("published %v", got)
+	}
+}
+
+func TestClearingTheTimelineBumpsTheCounterForClients(t *testing.T) {
+	h := hub.New()
+	a := NewRegistry(h).Add("a1", "/w", "codex", fakeDriver{})
+	a.SetConversation("th1")
+	a.Record(timeline.Event{Kind: "user", Text: "one"})
+	ch, _ := h.Subscribe()
+	a.ClearTimeline()
+	items, _ := a.Timeline.Page(0, 200)
+	if s := a.Summary(); s.Resets != 1 || s.ProviderSessionID != "th1" || s.Title != "one" || len(items) != 0 {
+		t.Fatalf("%+v %v", s, items)
+	}
+	if got := resetsPublished(ch); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("published %v", got)
+	}
+}
+
 func TestTheSummaryCarriesTheLatestPromptUntilTheConversationChanges(t *testing.T) {
 	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
 	a.SetConversation("c1")
