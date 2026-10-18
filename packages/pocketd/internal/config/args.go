@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"pocketd/internal/providers"
 )
 
 // SessionID marks where fork args take the source session's id.
@@ -13,9 +15,11 @@ const SessionID = "{sessionId}"
 // ArgKeys are a provider's config.json keys for the words its command line takes.
 var ArgKeys = []string{"promptArgs", "resumeArgs", "forkArgs"}
 
-var defaultArgs = map[string][3]string{
-	"claude": {"--", "--resume", "--resume " + SessionID + " --fork-session"},
-	"codex":  {"--", "resume", "fork " + SessionID},
+func defaults(id string) [3]string {
+	if p := providers.Get(id); p != nil {
+		return p.Args
+	}
+	return [3]string{}
 }
 
 // AgentArgs are the words around a provider's command: before a prompt, before
@@ -24,7 +28,7 @@ type AgentArgs struct{ Prompt, Resume, Fork []string }
 
 // DefaultArgs is what a launch uses when config.json sets nothing.
 func DefaultArgs(provider string) AgentArgs {
-	d := defaultArgs[provider]
+	d := defaults(provider)
 	return AgentArgs{Prompt: strings.Fields(d[0]), Resume: strings.Fields(d[1]), Fork: strings.Fields(d[2])}
 }
 
@@ -43,7 +47,7 @@ func (s *Settings) argText(provider, key string) string {
 	if s.get(provider, key, &text) && ValidArgs(key, text) == nil {
 		return text
 	}
-	return defaultArgs[provider][slices.Index(ArgKeys, key)]
+	return defaults(provider)[slices.Index(ArgKeys, key)]
 }
 
 // ValidArgs checks args text for key: words a shell would split, with no quote

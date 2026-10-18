@@ -18,7 +18,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `workspace` | the pane tree of a worktree: panes, their tabs, splits |
 | `git` | git reads and writes, diffs, commit graph lanes |
 | `daemon` | the pocketd socket client |
-| `agents` | the phone-socket client, the agent list, worktree display names, Locals and automations: the snapshot, the draft's validation and its messages |
+| `agents` | the phone-socket client, the agent list, worktree display names, Locals and automations: the snapshot, the draft's validation and its messages; `agents/providers` what each provider takes (efforts, plan, chat capabilities), from pocketd or built in |
 | `term` | the ghostty VT |
 | `store` | the saved projects, `store/sections` their pins and groups, settings (sounds, notifications, appearance, worktree root; `store/prefs` one struct per Settings section) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |

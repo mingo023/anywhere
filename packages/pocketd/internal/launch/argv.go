@@ -8,10 +8,9 @@ import (
 
 	"pocketd/internal/config"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/terminal"
 )
-
-var ClaudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 var model = regexp.MustCompile(`^[A-Za-z0-9._:\[\]][A-Za-z0-9._:\[\]-]{0,63}$`)
 
@@ -23,7 +22,7 @@ func ValidSwitch(provider, name, effort string) error {
 	switch {
 	case name != "" && !model.MatchString(name):
 		return errors.New(badModel)
-	case provider == "claude" && effort != "" && !slices.Contains(ClaudeEfforts, effort):
+	case provider == "claude" && effort != "" && !slices.Contains(providers.Claude.Efforts, effort):
 		return errors.New(badClaudeEffort)
 	case effort != "" && !model.MatchString(effort):
 		return errors.New("An effort is one word")
@@ -109,7 +108,7 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 	}
 	switch s.Provider {
 	case "claude":
-		if s.Effort != "" && !slices.Contains(ClaudeEfforts, s.Effort) {
+		if s.Effort != "" && !slices.Contains(providers.Claude.Efforts, s.Effort) {
 			return nil, fail("invalid_spec", badClaudeEffort)
 		}
 		if s.Plan {

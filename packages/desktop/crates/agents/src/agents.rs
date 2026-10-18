@@ -1,8 +1,10 @@
 pub mod automations;
 pub mod locals;
+pub mod providers;
 
 use automations::{Automation, AutomationDraft, Automations, Run};
 use locals::Local;
+use providers::ProviderInfo;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -253,6 +255,7 @@ struct Frame {
     setup: bool,
     detail: String,
     phone_max_access: String,
+    providers: Vec<ProviderInfo>,
     step: String,
     note: String,
     names: HashMap<String, String>,
@@ -298,7 +301,7 @@ pub enum Event {
     Progress { request: String, step: String, note: String },
     Created { request: String, agent: String },
     CreateFailed { request: String, code: String, message: String, detail: String },
-    Providers { phone_max: String },
+    Providers { phone_max: String, providers: Vec<ProviderInfo> },
     ConfigFailed(String),
     /// pocketd couldn't switch an agent's model or effort.
     SettingsFailed(String),
@@ -330,6 +333,8 @@ pub struct Agents {
     pub scopes: Vec<String>,
     /// The most a paired phone may start a session with, from `agent.providers`.
     pub phone_max: String,
+    /// What each provider takes, from `agent.providers`.
+    pub providers: Vec<ProviderInfo>,
     pub caps: Vec<String>,
     /// Worktree display names by path, from `worktree.names`.
     pub names: HashMap<String, String>,
@@ -351,6 +356,11 @@ impl Agents {
 
     pub fn in_terminal(&self, terminal: &str) -> Option<&Summary> {
         self.list.iter().find(|a| a.terminal_id == terminal)
+    }
+
+    /// pocketd's word on provider `id`, else what this build knows.
+    pub fn provider_info(&self, id: &str) -> &ProviderInfo {
+        self.providers.iter().find(|p| p.id == id).unwrap_or_else(|| providers::builtin(id))
     }
 
     pub fn apply(&mut self, ev: Event) {
@@ -415,7 +425,10 @@ impl Agents {
             }
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
-            Event::Providers { phone_max } => self.phone_max = phone_max,
+            Event::Providers { phone_max, providers } => {
+                self.phone_max = phone_max;
+                self.providers = providers;
+            }
             Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::SettingsFailed(_) | Event::NamingFailed(_) => {}
             Event::Names(names) => {
                 self.names.retain(|path, _| !my_name(path));
@@ -626,7 +639,7 @@ fn launch_event(f: &Frame) -> Option<Event> {
         "agent.creating" => Event::Creating { request: f.request_id.clone(), terminal: f.terminal_id.clone(), cwd: f.cwd.clone(), setup: f.setup },
         "agent.progress" => Event::Progress { request: f.request_id.clone(), step: f.step.clone(), note: f.note.clone() },
         "agent.created" => Event::Created { request: f.request_id.clone(), agent: f.agent_id.clone() },
-        "agent.providers" => Event::Providers { phone_max: f.phone_max_access.clone() },
+        "agent.providers" => Event::Providers { phone_max: f.phone_max_access.clone(), providers: f.providers.clone() },
         "error" if f.id == CONFIG => Event::ConfigFailed(f.message.clone()),
         "error" if f.id == SETTINGS => Event::SettingsFailed(f.message.clone()),
         "error" => Event::CreateFailed { request: f.id.strip_prefix(CREATE)?.to_string(), code: f.code.clone(), message: readable(&f.message), detail: f.detail.clone() },
@@ -1431,7 +1444,11 @@ mod tests {
         assert!(matches!(ev(progress), Some(Event::Progress { request, step, note })
             if request == "r1" && step == "fetch" && note == "Couldn't fetch, using local main"));
         assert!(matches!(ev(created), Some(Event::Created { request, agent }) if request == "r1" && agent == "a1"));
-        assert!(matches!(ev(providers), Some(Event::Providers { phone_max }) if phone_max == "ask"));
+        let Some(Event::Providers { phone_max, providers }) = ev(providers) else { panic!("not providers") };
+        assert_eq!(phone_max, "ask");
+        assert_eq!(providers[0].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: true }));
+        assert_eq!(providers[1].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: false }));
+        assert!(providers[1].efforts.is_empty());
         assert!(matches!(ev(failed), Some(Event::CreateFailed { request, code, message, detail })
             if request == "r1" && code == "spawn_failed" && message == "Setup exited 1" && detail == "npm ERR! missing script: setup"));
         assert!(ev(r#"{"type":"error","id":"pair","message":"x"}"#).is_none());

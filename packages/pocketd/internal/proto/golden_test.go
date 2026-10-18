@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"pocketd/internal/providers"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/golden")
@@ -78,8 +80,10 @@ var serverGolden = map[string]any{
 	"agent_created":       NewAgentCreated("c1", "r1", "a1", "t1"),
 	"agent_progress":      NewAgentProgress("c1", "r1", StepFetch, "Couldn't fetch, using local main"),
 	"agent_providers": NewAgentProviders("p1", []ProviderInfo{
-		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true},
-		{ID: "codex", Available: false, Efforts: []string{}, Plan: false},
+		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true,
+			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true}},
+		{ID: "codex", Available: false, Efforts: []string{}, Plan: false,
+			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}},
 	}, "full", "ask"),
 	"error_detail":  NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
 	"hello_ok_host": helloOKHost(),

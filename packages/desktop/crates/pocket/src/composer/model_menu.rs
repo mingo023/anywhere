@@ -6,7 +6,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use gpui_kit::component::input::InputState;
 use store::LaunchPick;
-use store::prefs::agents::{Provider, efforts};
+use store::prefs::agents::Provider;
 use theme::*;
 
 pub(crate) const ROW: f32 = 34.;
@@ -21,9 +21,9 @@ pub(crate) enum Side {
 }
 
 /// The pill's model and effort: the ones picked, else Settings'; with neither, the agent's name stands for its own default.
-fn pill_label(agent: &str, pick: &LaunchPick, app: &Provider, names: &[(String, String)]) -> (String, Option<String>) {
+fn pill_label(agent: &str, pick: &LaunchPick, app: &Provider, efforts: &[String], names: &[(String, String)]) -> (String, Option<String>) {
     let model = [&pick.model, &app.model].into_iter().find(|m| !m.is_empty()).map_or_else(|| agent.to_string(), |m| model_name(m, names));
-    let effort = [&pick.effort, &app.effort].into_iter().find(|e| !e.is_empty()).filter(|e| efforts(&pick.provider).contains(&e.as_str()));
+    let effort = [&pick.effort, &app.effort].into_iter().find(|e| !e.is_empty()).filter(|e| efforts.contains(e));
     (model, effort.map(|e| effort_label(e)))
 }
 
@@ -66,7 +66,7 @@ impl Desktop {
     /// The agent, model and effort a session starts with, in one pill.
     pub(super) fn model_pill(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Model));
-        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), self.codex_models());
+        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &self.agents.provider_info(&pick.provider).efforts, self.codex_models());
         let chip = ui::menu_chip("composer-model", open)
             .child(provider_icon(&pick.provider, 13., TEXT))
             .child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model))
@@ -84,8 +84,8 @@ impl Desktop {
     /// Two rows, Model and Effort, each opening its own menu beside them.
     fn model_menu(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, side) = (c.slot, c.draft.side);
-        let levels = efforts(&pick.provider);
-        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), self.codex_models());
+        let levels = &self.agents.provider_info(&pick.provider).efforts;
+        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), levels, self.codex_models());
         let open_side = |to: Side, search: Entity<InputState>| {
             move |this: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>| {
                 let draft = &mut slot(this).draft;
@@ -211,13 +211,13 @@ impl Desktop {
 
     fn effort_side(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let slot = c.slot;
-        let levels: Vec<&'static str> = std::iter::once("").chain(efforts(&pick.provider).iter().copied()).collect();
+        let levels: Vec<String> = std::iter::once(String::new()).chain(self.agents.provider_info(&pick.provider).efforts.iter().cloned()).collect();
         let chosen = levels.iter().position(|l| *l == pick.effort).unwrap_or(0);
         let list_rows = levels
-            .into_iter()
+            .iter()
             .enumerate()
             .map(|(i, level)| {
-                let (project, pick) = (project.clone(), LaunchPick { effort: level.into(), ..pick.clone() });
+                let (project, pick) = (project.clone(), LaunchPick { effort: level.clone(), ..pick.clone() });
                 row(("composer-effort-row", i), chosen == i)
                     .child(div().flex_1().font_weight(FontWeight::MEDIUM).child(if level.is_empty() { "Default".into() } else { effort_label(level) }))
                     .child(check(chosen == i))
@@ -242,17 +242,18 @@ mod tests {
     fn the_pill_names_the_pick_else_settings_else_the_agent() {
         let none = Provider::default();
         let settings = Provider { model: "sonnet".into(), effort: "xhigh".into(), ..Provider::default() };
-        assert_eq!(pill_label("Claude Code", &pick("claude", "", ""), &none, &[]), ("Claude Code".into(), None));
-        assert_eq!(pill_label("Claude Code", &pick("claude", "", ""), &settings, &[]), ("Sonnet".into(), Some("Extra high".into())));
-        assert_eq!(pill_label("Claude Code", &pick("claude", "opus", "high"), &settings, &[]), ("Opus".into(), Some("High".into())));
+        let efforts = &agents::providers::builtin("claude").efforts;
+        assert_eq!(pill_label("Claude Code", &pick("claude", "", ""), &none, efforts, &[]), ("Claude Code".into(), None));
+        assert_eq!(pill_label("Claude Code", &pick("claude", "", ""), &settings, efforts, &[]), ("Sonnet".into(), Some("Extra high".into())));
+        assert_eq!(pill_label("Claude Code", &pick("claude", "opus", "high"), &settings, efforts, &[]), ("Opus".into(), Some("High".into())));
     }
 
     #[test]
     fn a_codex_pill_shows_the_listed_name_and_no_effort() {
         let settings = Provider { effort: "high".into(), ..Provider::default() };
         let names = [("gpt-6-astra".to_string(), "GPT-6-Astra".to_string())];
-        assert_eq!(pill_label("Codex", &pick("codex", "gpt-6-astra", ""), &settings, &names), ("GPT-6-Astra".into(), None));
-        assert_eq!(pill_label("Codex", &pick("codex", "gpt-5", ""), &settings, &names).0, "gpt-5");
+        assert_eq!(pill_label("Codex", &pick("codex", "gpt-6-astra", ""), &settings, &[], &names), ("GPT-6-Astra".into(), None));
+        assert_eq!(pill_label("Codex", &pick("codex", "gpt-5", ""), &settings, &[], &names).0, "gpt-5");
     }
 
     #[test]

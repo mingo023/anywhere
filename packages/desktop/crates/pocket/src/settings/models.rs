@@ -1,7 +1,7 @@
 use crate::desktop::Desktop;
 use crate::modals::form::home;
 use gpui_kit::*;
-use store::prefs::agents::{CLAUDE_MODELS, efforts};
+use store::prefs::agents::CLAUDE_MODELS;
 
 /// Codex's models, from its CLI once asked; Claude Code lists none, so it has its aliases.
 #[derive(Default)]
@@ -30,8 +30,8 @@ pub(crate) fn listed_models(provider: &str, codex: &[(String, String)]) -> Vec<(
     if provider == "codex" { codex.to_vec() } else { CLAUDE_MODELS.iter().map(|m| (m.to_string(), model_label(m))).collect() }
 }
 
-pub(crate) fn effort_options(provider: &str, none: &str) -> Vec<(String, String)> {
-    std::iter::once((String::new(), none.to_string())).chain(efforts(provider).iter().map(|e| (e.to_string(), effort_label(e)))).collect()
+pub(crate) fn effort_options(efforts: &[String], none: &str) -> Vec<(String, String)> {
+    std::iter::once((String::new(), none.to_string())).chain(efforts.iter().map(|e| (e.clone(), effort_label(e)))).collect()
 }
 
 /// "Haiku" for Claude Code's alias, the slug for anything else, "Agent default" for none.
@@ -95,7 +95,7 @@ impl Desktop {
     /// The efforts `provider` offers on `model`: Claude Code's on any, Codex's per model.
     pub(crate) fn efforts_on(&self, provider: &str, model: &str) -> Vec<String> {
         if provider != "codex" {
-            return efforts(provider).iter().map(|e| e.to_string()).collect();
+            return self.agents.provider_info(provider).efforts.clone();
         }
         self.settings.models.efforts.iter().find(|(slug, _)| slug == model).map(|(_, e)| e.clone()).unwrap_or_default()
     }
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn only_claude_code_offers_efforts() {
-        assert_eq!(effort_options("claude", "Agent default").iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(), ["Agent default", "Low", "Medium", "High", "Extra high", "Max"]);
-        assert_eq!(effort_options("codex", "Agent default").len(), 1);
+        assert_eq!(effort_options(&agents::providers::builtin("claude").efforts, "Agent default").iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(), ["Agent default", "Low", "Medium", "High", "Extra high", "Max"]);
+        assert_eq!(effort_options(&[], "Agent default").len(), 1);
     }
 }

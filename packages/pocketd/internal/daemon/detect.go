@@ -6,23 +6,19 @@ import (
 	"strings"
 
 	"pocketd/internal/proc"
+	"pocketd/internal/providers"
 )
-
-var notAgent = map[string][]string{
-	"claude": {"auth", "mcp", "doctor", "config", "update", "install", "plugin", "setup-token", "migrate-installer", "-v", "--version", "-h", "--help"},
-	"codex":  {"login", "logout", "mcp", "mcp-server", "app-server", "completion", "sandbox", "debug", "apply", "a", "cloud", "features", "help", "-h", "--help", "-V", "--version"},
-}
 
 func Provider(argv []string) string {
 	if len(argv) == 0 {
 		return ""
 	}
 	name := strings.TrimSuffix(filepath.Base(argv[0]), ".exe")
-	skip, ok := notAgent[name]
-	if !ok {
+	p := providers.Get(name)
+	if p == nil {
 		return ""
 	}
-	if len(argv) > 1 && (slices.Contains(skip, argv[1]) || name == "claude" && strings.HasPrefix(argv[1], "bg-")) {
+	if len(argv) > 1 && (slices.Contains(p.NotAgent, argv[1]) || name == "claude" && strings.HasPrefix(argv[1], "bg-")) {
 		return ""
 	}
 	return name
