@@ -14,6 +14,7 @@ import { ChangesScreen } from "./ChangesScreen";
 import { restoreNotice } from "../status";
 import { contextChip } from "../context";
 import { pending as openFor } from "../permissions";
+import { PROVIDERS } from "../providers";
 
 /** The composer floats over the list, so it has to ride the keyboard itself instead of relying on padding. */
 function useKeyboard() {
@@ -58,8 +59,6 @@ function isCompact(text: string): boolean {
   return /^\/compact$/i.test(text.trim());
 }
 
-const providerLabel: Record<string, string> = { claude: "Claude", codex: "Codex" };
-
 function basename(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
@@ -84,7 +83,7 @@ export function ChatScreen({ agentId, onBack }: { agentId: string; onBack: () =>
   const insets = useSafeAreaInsets();
   const agent = agents.find((a) => a.id === agentId);
   const elsewhere = useMemo(() => needsYouElsewhere(agents, agentId), [agents, agentId]);
-  const provider = providerLabel[agent?.provider ?? ""] ?? "Agent";
+  const provider = PROVIDERS[agent?.provider ?? ""]?.label ?? "Agent";
   const meta = [agent ? basename(agent.cwd) : null, agent?.model].filter(Boolean).join(" · ");
   const items = timelines[agentId] ?? [];
   const notice = agent && restoreNotice(agent);

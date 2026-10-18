@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { QUEUES, composerAction, composerLabel, sendDisabled } from "../src/composer.ts";
+import { composerAction, composerLabel, sendDisabled } from "../src/composer.ts";
+import { PROVIDERS } from "../src/providers.ts";
 
 test("an idle agent always gets send", () => {
   assert.equal(composerAction(false, "fix it"), "send");
@@ -15,7 +16,7 @@ test("a working agent with text gets queue and without text gets stop", () => {
 test("queue reads Queue only for a provider that step 0 showed queues", () => {
   for (const provider of ["claude", "codex", "gemini"]) {
     assert.equal(composerLabel("send", provider), "Send");
-    assert.equal(composerLabel("queue", provider), QUEUES[provider] ? "Queue" : "Send");
+    assert.equal(composerLabel("queue", provider), PROVIDERS[provider]?.queues ? "Queue" : "Send");
     assert.equal(composerLabel("stop", provider), "Stop");
   }
 });

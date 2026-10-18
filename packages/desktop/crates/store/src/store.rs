@@ -49,11 +49,11 @@ pub struct LaunchPick {
 
 impl LaunchPick {
     /// The agents a session can start.
-    pub const PROVIDERS: [&str; 2] = ["claude", "codex"];
+    pub const PROVIDERS: [&str; agents::providers::COUNT] = agents::providers::IDS;
 
     /// The agent a remembered pick names; anything else starts Claude.
     pub fn known_provider(provider: &str) -> &'static str {
-        if provider == "codex" { "codex" } else { "claude" }
+        agents::providers::known(provider).id
     }
 
     /// This pick with its agent one this app knows.

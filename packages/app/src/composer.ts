@@ -1,7 +1,6 @@
-export type ComposerAction = "send" | "queue" | "stop";
+import { PROVIDERS } from "./providers.ts";
 
-/** Whether text sent mid-turn waits for the next turn. */
-export const QUEUES: Readonly<Record<string, boolean>> = { claude: false, codex: false };
+export type ComposerAction = "send" | "queue" | "stop";
 
 export function composerAction(working: boolean, text: string): ComposerAction {
   if (!working) return "send";
@@ -10,7 +9,7 @@ export function composerAction(working: boolean, text: string): ComposerAction {
 
 export function composerLabel(action: ComposerAction, provider: string): "Send" | "Queue" | "Stop" {
   if (action === "stop") return "Stop";
-  return action === "queue" && QUEUES[provider] ? "Queue" : "Send";
+  return action === "queue" && PROVIDERS[provider]?.queues ? "Queue" : "Send";
 }
 
 export function sendDisabled(working: boolean, text: string): boolean {

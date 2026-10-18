@@ -119,7 +119,7 @@ impl AutomationDraft {
         if self.prompt.len() > MAX_PROMPT {
             return Some("Shorten the prompt to 64 KB");
         }
-        if self.provider != "claude" && self.provider != "codex" {
+        if crate::providers::get(&self.provider).is_none() {
             return Some("Pick an agent");
         }
         if self.folder.is_empty() {

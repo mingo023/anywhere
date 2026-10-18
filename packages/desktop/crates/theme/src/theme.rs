@@ -410,17 +410,47 @@ pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {
 /// Colours a repository can take in the rail, the menu and the new-session form.
 pub const PALETTE: [u32; 6] = [0xd97757ff, 0x0f9d8aff, 0x7b61ffff, 0xe8a317ff, 0x3b82f6ff, 0x8b8b94ff];
 
-pub fn provider_color(provider: &str) -> Token {
-    match provider {
-        "codex" => AGENT_CODEX,
-        "claude" => AGENT_CLAUDE,
-        _ => TEXT_3,
+/// How a provider looks; ids and order follow `agents::providers::ALL`, which this crate can't depend on.
+pub struct Brand {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// What the chat calls it mid-sentence: "Claude working…".
+    pub short: &'static str,
+    pub color: Token,
+    pub glyph: &'static str,
+    /// Its icon takes `color` rather than the caller's ink.
+    pub tinted: bool,
+}
+
+pub const BRANDS: [Brand; 2] = [
+    Brand { id: "claude", name: "Claude Code", short: "Claude", color: AGENT_CLAUDE, glyph: "claude", tinted: true },
+    Brand { id: "codex", name: "Codex", short: "Codex", color: AGENT_CODEX, glyph: "openai", tinted: false },
+];
+
+pub const PROVIDER_NAMES: [&str; BRANDS.len()] = {
+    let mut names = [""; BRANDS.len()];
+    let mut i = 0;
+    while i < BRANDS.len() {
+        names[i] = BRANDS[i].name;
+        i += 1;
     }
+    names
+};
+
+pub fn brand(provider: &str) -> Option<&'static Brand> {
+    BRANDS.iter().find(|b| b.id == provider)
+}
+
+pub fn provider_color(provider: &str) -> Token {
+    brand(provider).map_or(TEXT_3, |b| b.color)
 }
 
 /// Claude's spark in its orange; OpenAI's knot, or a terminal for anything else, in `ink`.
 pub fn provider_icon(provider: &str, size: f32, ink: impl Into<Hsla>) -> Svg {
-    let ink = if provider == "claude" { AGENT_CLAUDE.into() } else { ink.into() };
+    let ink = match brand(provider) {
+        Some(b) if b.tinted => b.color.into(),
+        _ => ink.into(),
+    };
     icon(provider_glyph(provider), size, ink)
 }
 
@@ -430,20 +460,12 @@ pub fn provider_svg(provider: &str) -> &'static [u8] {
     ICONS.iter().find(|(p, _)| *p == path).map_or(&[], |(_, bytes)| bytes)
 }
 
-fn provider_glyph(provider: &str) -> &'static str {
-    match provider {
-        "claude" => "claude",
-        "codex" => "openai",
-        _ => "terminal",
-    }
+pub fn provider_glyph(provider: &str) -> &'static str {
+    brand(provider).map_or("terminal", |b| b.glyph)
 }
 
 pub fn provider_name(provider: &str) -> &'static str {
-    match provider {
-        "codex" => "Codex",
-        "claude" => "Claude Code",
-        _ => "Shell",
-    }
+    brand(provider).map_or("Shell", |b| b.name)
 }
 
 pub fn icon(name: &str, size: f32, color: impl Into<Hsla>) -> Svg {

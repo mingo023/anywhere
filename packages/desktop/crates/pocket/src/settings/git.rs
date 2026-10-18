@@ -12,7 +12,7 @@ use theme::*;
 use workspace::Place;
 
 pub(super) const ACCOUNT_MENU: &str = "gh-account";
-const AGENTS: [&str; 2] = ["claude", "codex"];
+const AGENTS: [&str; agents::providers::COUNT] = agents::providers::IDS;
 const STYLES: [Style; 4] = [Style::Recent, Style::Conventional, Style::Plain, Style::Custom];
 
 fn index<T: PartialEq>(all: &[T], value: &T) -> usize {
@@ -33,7 +33,7 @@ pub(super) const ROWS: &[Setting] = &[
         .advanced(),
     Setting::switch("ai", "AI commit messages", "Write commit messages with AI", |s| s.git.ai, |s, on| s.git.ai = on)
         .hint("Drafts a message from the changes to commit. You can edit it before committing"),
-    Setting::choice("ai-agent", "AI commit messages", "Agent", &["Claude Code", "Codex"], Look::Dropdown, |s| index(&AGENTS, &s.git.agent.as_str()), |s, i| s.git.set_agent(AGENTS[i]))
+    Setting::choice("ai-agent", "AI commit messages", "Agent", &PROVIDER_NAMES, Look::Dropdown, |s| index(&AGENTS, &s.git.agent.as_str()), |s, i| s.git.set_agent(AGENTS[i]))
         .offers(super::agents::enabled_provider)
         .under(|s| s.git.ai),
     Setting::custom("ai-model", "AI commit messages", "Model", |d, s, cx| d.ai_model_row(s, cx))

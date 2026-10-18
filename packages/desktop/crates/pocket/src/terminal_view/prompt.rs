@@ -122,7 +122,7 @@ impl Desktop {
         let (cell, line) = (m.size * MONO_CELL, m.line);
         let width = cols as f32 * cell;
         let agent = self.summary(pane)?;
-        let claude = agent.provider == "claude";
+        let claude = agents::providers::get(&agent.provider).is_some_and(|b| b.terminal_prompts);
         let said = said(self.agents.timelines.get(&agent.id), agent);
         let top = at_top(shown, &said)?.clone();
         let open = self.terminal.prompts.is_open(pane, &top.text);

@@ -5,6 +5,7 @@ use crate::status::Status;
 use crate::util::tilde;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
+use agents::providers;
 use gpui_kit::*;
 use store::LaunchPick;
 use store::prefs::agents::{ACCESSES, CHAT_TO};
@@ -19,7 +20,7 @@ struct DragStarter(usize);
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("providers", "Providers", "Providers", |d, _, cx| d.providers_row(cx)).hint("Claude Code and Codex, found on your login PATH"),
     Setting::custom("provider-status", "Providers", "Status", |d, _, _| d.provider_status()).hint("How Anywhere reads status"),
-    Setting::choice("default-agent", NEW, "Default agent", &["Claude Code", "Codex"], Look::Dropdown, default_index, |s, i| {
+    Setting::choice("default-agent", NEW, "Default agent", &PROVIDER_NAMES, Look::Dropdown, default_index, |s, i| {
         s.agents.default = LaunchPick::PROVIDERS[i].into();
         s.agents.set_enabled(LaunchPick::PROVIDERS[i], true);
     })
@@ -77,7 +78,7 @@ fn provider_line(path: Option<&str>) -> String {
 
 /// How Anywhere learns a provider's sessions need you, are done or failed.
 pub(super) fn status_source(provider: &str) -> String {
-    let how = if provider == "codex" { "reads Codex session events" } else { "uses Claude Code hooks" };
+    let how = providers::known(provider).status_via;
     let [needs, done, failed] = [Status::NeedsYou, Status::Done, Status::Failed].map(Status::label);
     format!("Built in \u{b7} {how} for {needs}, {done} and {failed}")
 }
@@ -192,6 +193,11 @@ impl Desktop {
 mod tests {
     use super::{access_index, enabled_provider, provider_line, status_source};
     use store::Store;
+
+    #[test]
+    fn brands_follow_the_provider_table() {
+        assert_eq!(theme::BRANDS.map(|b| b.id), agents::providers::IDS);
+    }
 
     #[test]
     fn a_provider_picker_lists_only_enabled_providers() {

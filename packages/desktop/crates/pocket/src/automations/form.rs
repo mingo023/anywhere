@@ -2,7 +2,7 @@ use super::logic::{fallback_name, when_label};
 use agents::automations::{Automation, AutomationDraft, Schedule, valid_every, valid_time};
 use store::prefs::Automations as Defaults;
 
-pub const PROVIDERS: [&str; 2] = ["claude", "codex"];
+pub const PROVIDERS: [&str; agents::providers::COUNT] = agents::providers::IDS;
 pub const WEEKDAYS: [u8; 5] = [1, 2, 3, 4, 5];
 pub const EVERY_DAY: [u8; 7] = [0, 1, 2, 3, 4, 5, 6];
 pub const WEEKENDS: [u8; 2] = [0, 6];

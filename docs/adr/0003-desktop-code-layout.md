@@ -18,14 +18,14 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `workspace` | the pane tree of a worktree: panes, their tabs, splits |
 | `git` | git reads and writes, diffs, commit graph lanes |
 | `daemon` | the pocketd socket client |
-| `agents` | the phone-socket client, the agent list, worktree display names, Locals and automations: the snapshot, the draft's validation and its messages; `agents/providers` what each provider takes (efforts, plan, chat capabilities), from pocketd or built in |
+| `agents` | the phone-socket client, the agent list, worktree display names, Locals and automations: the snapshot, the draft's validation and its messages; `agents/providers` the built-in table of each provider (ids, efforts, plan, models, resume and fork args, status text) plus what pocketd says it takes (efforts, plan, chat capabilities) |
 | `term` | the ghostty VT |
 | `store` | the saved projects, `store/sections` their pins and groups, settings (sounds, notifications, appearance, worktree root; `store/prefs` one struct per Settings section) and each worktree's panels |
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `hosts` | SSH hosts: what one is and how it's saved, `hosts/ssh` the ssh commands and what their failures mean, `hosts/link` the tunnel to a host's pocketd that reconnects by itself, `hosts/sign_in` the one password sign-in that gives a host the app's own key, `hosts/ssh_config` the hosts `~/.ssh/config` names, `hosts/remote` exec and file ops through a host's pocketd, `hosts/session` terminals and agents on hosts and which pocketd holds them, `hosts/install` putting pocketd on a host as a user service, `hosts/checklist` an install's progress, `hosts/owner` a Windows host's owner token |
 | `web` | the WKWebView page of a browser tab, address and link parsing |
 | `chat` | an agent's chat as plain data: the transcript (turns, messages, tool calls, sub-agents) folded from the timeline, `chat/adapter` the `Backend` each agent provides and its capabilities (`adapter/claude`, `adapter/codex`, `adapter/other` for a provider this build doesn't know), `chat/rows` the transcript's rows, `chat/session` one pane's transcript, rows and folds kept in step, `chat/outgoing` sends, the queue and their settling |
-| `ui`, `theme` | widgets, colours, icons |
+| `ui`, `theme` | widgets, colours, icons, and each provider's brand (name, colour, glyph) |
 
 | `pocket` module | Owns |
 |---|---|
@@ -48,5 +48,5 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `host_agents` | each host's pocketd agent channel, opened once the host serves projects |
 | `fs` | where a tree's files are read and changed: this Mac or a host |
 | `notch` | the island that grows out of the notch to answer permission asks: which asks it offers, and the `anywhere-notch` helper that draws it (a SwiftPM package in `packages/desktop/notch`), spoken to in JSON lines |
-| `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission` and `notifications/sounds` (the sound list), `keybindings`, `agents`, `provider` (each agent's own page), `accounts`, `automations`, `phone`, `ssh_hosts`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |
+| `settings` | the Settings screen (⌘,): `settings/catalog` the rows every page, search, Advanced and Reset read; `nav`, `search`; `host` pocketd's status, devices and settings; `models` the agents' model and effort lists; `dropdown` the menu their pickers share; one page per section (`general`, `appearance`, `notifications` with `notifications/permission` and `notifications/sounds` (the sound list), `keybindings`, `agents`, `provider` (one page per `agents::providers` entry), `accounts`, `automations`, `phone`, `ssh_hosts`, `projects`, `sidebar`, `terminal`, `files`, `browser`, `git`, `diff`) |
 | `modals` | overlays: new session, project settings, `modals/clone_project` Clone from URL, confirm, more, pair phone |

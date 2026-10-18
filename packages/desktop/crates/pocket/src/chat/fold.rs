@@ -16,11 +16,7 @@ pub(crate) enum Live {
 
 /// The agent as the fold names it: "Claude", "Codex".
 pub(crate) fn who(provider: &str) -> &'static str {
-    match provider {
-        "claude" => "Claude",
-        "codex" => "Codex",
-        _ => "Agent",
-    }
+    brand(provider).map_or("Agent", |b| b.short)
 }
 
 /// "Claude Opus 5.5 working for 7s · 1 task in background".
