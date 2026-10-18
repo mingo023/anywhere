@@ -71,6 +71,13 @@ impl Desktop {
                 item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx))),
             )
+            .child(
+                item("tab-menu-chat".into(), icon("comment", 14., TEXT_2).into_any_element(), "New chat".into(), None, None)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.panels.menu = None;
+                        this.new_chat_tab(Place::Pane(Some(pane)), cx);
+                    })),
+            )
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))
             .children(self.store.agents.enabled().into_iter().map(|p| agent(p, cx)))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {

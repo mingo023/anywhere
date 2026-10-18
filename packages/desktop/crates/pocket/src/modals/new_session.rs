@@ -556,6 +556,10 @@ impl Desktop {
     pub(crate) fn on_launch(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             Event::Creating { request, terminal, cwd, setup } => {
+                if self.terminals.tab_chats.contains_key(&request) {
+                    self.store.chats.insert(terminal.clone());
+                    self.save_soon(cx);
+                }
                 self.terminals.created(&request, terminal.clone(), cwd.clone(), setup);
                 self.daemon.send(json!({"op": "list"}));
                 if self.creates.get(&request).is_some() {
@@ -588,6 +592,7 @@ impl Desktop {
                 }
             }
             Event::CreateFailed { request, message, detail, .. } => {
+                self.terminals.tab_chats.remove(&request);
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());
                 } else if let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown)

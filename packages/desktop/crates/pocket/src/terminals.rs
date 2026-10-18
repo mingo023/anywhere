@@ -42,6 +42,8 @@ pub struct Terminals {
     pub(crate) setups: HashMap<String, String>,
     /// Terminals pocketd made for this window's creates, until pocketd lists them.
     pub(crate) created: HashMap<String, Created>,
+    /// Chats asked for from a tab menu, by create request, with where their tab goes.
+    pub(crate) tab_chats: HashMap<String, Place>,
     /// The creates whose Terminal was taken in, so pocketd's replay of one after a reconnect adds nothing.
     requests: HashSet<String>,
     /// Terminals whose screen was dropped on reconnect and must be attached again once pocketd lists them.
@@ -53,15 +55,16 @@ pub struct Terminals {
     pub(crate) lists: Lists,
 }
 
-/// A created terminal's worktree.
+/// A created terminal's worktree, and where its tab goes there.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Created {
     pub(crate) tree: String,
+    pub(crate) place: Place,
 }
 
 impl Terminals {
     pub fn new(config: term::Config) -> Self {
-        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default(), killed: HashSet::new(), lists: Lists::default() }
+        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), tab_chats: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default(), killed: HashSet::new(), lists: Lists::default() }
     }
 
     /// The listed terminals closed here that still run, because their close never reached pocketd.
@@ -126,7 +129,8 @@ impl Terminals {
         if setup {
             self.setups.insert(id.clone(), tree.clone());
         }
-        self.created.insert(id, Created { tree });
+        let place = self.tab_chats.remove(request).unwrap_or(Place::Pane(None));
+        self.created.insert(id, Created { tree, place });
     }
 
     /// Created terminals pocketd now lists, once.
@@ -239,7 +243,7 @@ impl Desktop {
                 }
                 for (id, c) in self.terminals.arrived() {
                     let local = self.terminals.sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
-                    self.adopt(id, local.unwrap_or(c.tree), Place::Pane(None), window, cx);
+                    self.adopt(id, local.unwrap_or(c.tree), c.place, window, cx);
                 }
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();
@@ -356,6 +360,23 @@ impl Desktop {
     pub fn new_agent_tab(&mut self, provider: &str, place: Place, cx: &mut Context<Self>) {
         let argv = [provider.to_string()];
         self.run_in_tree(place, &argv, |cwd| daemon::agent_op(&argv, cwd), cx);
+    }
+
+    /// Starts the agent last picked here as a chat in the worktree on screen, its tab at `place`.
+    pub(crate) fn new_chat_tab(&mut self, place: Place, cx: &mut Context<Self>) {
+        let (Some(project), Some(tree)) = (self.project.clone(), self.place()) else { return };
+        if self.terminals.link.stale().is_some() {
+            self.error = Some(link::UPDATING.into());
+            return cx.notify();
+        }
+        let pick = self.last_pick(Some(&project));
+        let mut spec = pick.spec(&project, agents::locals::checkout(&tree), "");
+        let info = self.agents.provider_info(&pick.provider);
+        self.store.agents.launch(&mut spec, info.plan, &info.efforts);
+        if let Some(request) = self.send_create(spec) {
+            self.terminals.tab_chats.insert(request, place);
+        }
+        cx.notify();
     }
 
     /// Spawns `op` in the worktree's folder; a host's folder gets its login shell running `argv` instead.
@@ -746,8 +767,18 @@ mod tests {
         assert!(t.arrived().is_empty());
         assert_eq!(t.setups, HashMap::from([("a".to_string(), "/w/fix".to_string())]));
         t.listed(vec![info("x"), info("a")]);
-        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w/fix".into() })]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w/fix".into(), place: Place::Pane(None) })]);
         assert!(t.arrived().is_empty());
+    }
+
+    #[test]
+    fn a_chat_from_the_tab_menu_opens_in_the_pane_it_was_asked_from() {
+        let mut t = Terminals::new(Default::default());
+        t.tab_chats.insert("r1".into(), Place::Pane(Some(7)));
+        t.created("r1", "a".into(), "/w".into(), false);
+        t.listed(vec![info("a")]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into(), place: Place::Pane(Some(7)) })]);
+        assert!(t.tab_chats.is_empty());
     }
 
     #[test]
@@ -755,7 +786,7 @@ mod tests {
         let mut t = Terminals::new(Default::default());
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
-        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into() })]);
+        assert_eq!(t.arrived(), vec![("a".to_string(), Created { tree: "/w".into(), place: Place::Pane(None) })]);
         t.created("r1", "a".into(), "/w".into(), true);
         t.listed(vec![info("a")]);
         assert!(t.arrived().is_empty());
