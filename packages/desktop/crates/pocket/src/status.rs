@@ -142,12 +142,7 @@ pub fn banner(a: &Summary) -> Option<&'static str> {
     if a.restore == "failed" {
         return notice(a);
     }
-    let hint = match a.provider.as_str() {
-        _ if a.attached => None,
-        "claude" => Some("Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."),
-        "codex" => Some("This codex runs without the app-server, so Pocket can't see its status."),
-        _ => None,
-    };
+    let hint = if a.attached { None } else { agents::providers::get(&a.provider).map(|b| b.unattached) };
     hint.or_else(|| notice(a))
 }
 

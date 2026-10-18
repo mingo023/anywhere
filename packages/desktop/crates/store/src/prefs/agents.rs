@@ -1,4 +1,5 @@
 use crate::LaunchPick;
+use agents::providers;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -7,9 +8,6 @@ pub const ACCESSES: [&str; 5] = ["settings", "ask", "edits", "auto", "full"];
 
 /// Where "Add to chat" sends a quote when no agent is picked; "ask" never picks one.
 pub const CHAT_TO: [&str; 3] = ["focused", "recent", "ask"];
-
-/// Claude Code's model aliases; its CLI lists no models.
-pub const CLAUDE_MODELS: [&str; 3] = ["haiku", "sonnet", "opus"];
 
 /// A provider's own settings; empty leaves each to the agent.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
@@ -52,12 +50,10 @@ impl Args {
 
     /// pocketd's default when config.json sets none; pocketd's config/args.go holds the same.
     pub fn default_text(self, provider: &str) -> &'static str {
-        match (self, provider) {
-            (Self::Prompt, _) => "--",
-            (Self::Resume, "codex") => "resume",
-            (Self::Resume, _) => "--resume",
-            (Self::Fork, "codex") => "fork {sessionId}",
-            (Self::Fork, _) => "--resume {sessionId} --fork-session",
+        match self {
+            Self::Prompt => "--",
+            Self::Resume => providers::known(provider).resume_args,
+            Self::Fork => providers::known(provider).fork_args,
         }
     }
 }

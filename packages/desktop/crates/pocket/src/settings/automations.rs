@@ -24,7 +24,7 @@ const STARTING: Duration = Duration::from_secs(20);
 const WEEK: [(u8, &str); 7] = [(1, "M"), (2, "T"), (3, "W"), (4, "T"), (5, "F"), (6, "S"), (0, "S")];
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::choice("automation-agent", DEFAULTS, "Agent", &["Claude Code", "Codex"], Look::Dropdown, |s| {
+    Setting::choice("automation-agent", DEFAULTS, "Agent", &PROVIDER_NAMES, Look::Dropdown, |s| {
         LaunchPick::PROVIDERS.iter().position(|p| *p == s.automations.agent).unwrap_or(0)
     }, |s, i| s.automations.agent = LaunchPick::PROVIDERS[i].into())
     .hint("The agent a new automation starts with")

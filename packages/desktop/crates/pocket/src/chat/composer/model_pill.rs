@@ -14,7 +14,7 @@ pub(super) fn label(agent: &Summary) -> (String, Option<String>) {
 
 /// Whether the agent runs `value`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus".
 fn runs(agent: &Summary, value: &str) -> bool {
-    agent.model.as_deref().is_some_and(|m| m == value || agent.provider == "claude" && m.split('-').any(|w| w == value))
+    agent.model.as_deref().is_some_and(|m| m == value || matches!(agents::providers::get(&agent.provider).map(|b| b.models), Some(agents::providers::Models::Aliases(_))) && m.split('-').any(|w| w == value))
 }
 
 /// The agent's model and effort, as read where they can't be switched.

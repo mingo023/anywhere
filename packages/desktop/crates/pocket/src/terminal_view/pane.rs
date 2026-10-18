@@ -86,7 +86,7 @@ impl Desktop {
             }));
             div().flex_none().flex().items_center().gap(px(8.)).pl(px(16.)).pr(px(8.)).py(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(div().flex_1().min_w_0().child(text)).child(close)
         });
-        let claude = self.summary(id).is_some_and(|a| a.provider == "claude");
+        let claude = self.summary(id).is_some_and(|a| agents::providers::get(&a.provider).is_some_and(|b| b.terminal_prompts));
         let typing = focused && self.terminal.keyboard;
         let blink_on = self.terminal.blink_on;
         let (body, grid, scrolled, caret, shown) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {

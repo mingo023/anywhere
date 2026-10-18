@@ -5,6 +5,7 @@ import type { Project } from "@pocket/protocol";
 import { d, font } from "../design";
 import { useSession } from "../session";
 import { loadPicks, savePicks } from "../launchPicks";
+import { PROVIDERS } from "../providers";
 import {
   ACCESSES,
   ACCESS_LABEL,
@@ -27,8 +28,6 @@ import {
 } from "../launch";
 
 type Menu = "project" | "checkout" | "agent" | "access";
-
-const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
 
 function taken(p: Project): string[] {
   return p.worktrees.flatMap((w) => [w.name, w.branch]).filter(Boolean);
@@ -137,7 +136,7 @@ export function NewSessionScreen({ onClose, onCreated }: { onClose: () => void; 
         return list.map((p) => (
           <Row
             key={p.id}
-            label={PROVIDER_LABEL[p.id] ?? p.id}
+            label={PROVIDERS[p.id]?.label ?? p.id}
             hint={p.available ? undefined : "Not installed"}
             on={p.id === d.provider}
             disabled={!p.available}
@@ -184,7 +183,7 @@ export function NewSessionScreen({ onClose, onCreated }: { onClose: () => void; 
             {draft ? (
               <>
                 <Chip label={project?.name ?? "Project"} on={menu === "project"} onPress={() => toggle("project")} />
-                <Chip label={PROVIDER_LABEL[draft.provider] ?? draft.provider} on={menu === "agent"} onPress={() => toggle("agent")} />
+                <Chip label={PROVIDERS[draft.provider]?.label ?? draft.provider} on={menu === "agent"} onPress={() => toggle("agent")} />
                 <Chip label={ACCESS_LABEL[draft.access]} on={menu === "access"} onPress={() => toggle("access")} />
                 <Chip label="Plan first" on={draft.plan} dim={!plannable} onPress={() => plannable && setDraft({ ...draft, plan: !draft.plan })} />
               </>

@@ -1,3 +1,4 @@
+use ::agents::providers::{self, Models};
 use super::agents::status_source;
 use super::catalog::Setting;
 use super::dropdown::dropdown;
@@ -18,12 +19,15 @@ const STATUS: &str = "Status";
 /// The Enabled card, drawn above the groups.
 const ENABLED: &str = "Enabled";
 
-pub(super) const CLAUDE_ROWS: &[Setting] = &rows::<0>();
-pub(super) const CODEX_ROWS: &[Setting] = &rows::<1>();
+/// Each provider's page, in `providers::ALL` order.
+pub(super) const PAGES: [&[Setting]; providers::COUNT] = [&rows::<0>(), &rows::<1>()];
 
-/// Codex takes no effort from pocketd, so its page has no Effort row.
+/// Each provider's label and model row ids.
+const ROW_IDS: [(&str, &str); providers::COUNT] = [("claude-label", "claude-model"), ("codex-label", "codex-model")];
+
+/// A provider without efforts has no Effort row.
 const fn rows<const P: usize>() -> [Setting; 9] {
-    let effort = if P == 0 {
+    let effort = if !providers::ALL[P].efforts.is_empty() {
         Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx)).resets(|s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort), |s, _| {
             s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear()
         })
@@ -33,14 +37,14 @@ const fn rows<const P: usize>() -> [Setting; 9] {
     [
         Setting::custom("enabled", ENABLED, "Enabled", |d, _, cx| d.enabled_row(P, cx))
             .resets(|s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(), |s, _| s.agents.set_enabled(LaunchPick::PROVIDERS[P], true)),
-        Setting::text(["claude-label", "codex-label"][P], DEFAULTS, "Label", ["Claude Code", "Codex"][P], |s| s.agents.provider(LaunchPick::PROVIDERS[P]).label, |s, v| {
+        Setting::text(ROW_IDS[P].0, DEFAULTS, "Label", PROVIDER_NAMES[P], |s| s.agents.provider(LaunchPick::PROVIDERS[P]).label, |s, v| {
             s.agents.provider_mut(LaunchPick::PROVIDERS[P]).label = v
         })
         .hint("Replaces the built-in name everywhere in the app"),
         Setting::custom("model", DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
             .resets(|s| model_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).model), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear())
             .hint("The list comes from the CLI; Agent default uses its own setting"),
-        effort.under(|_| P == 0),
+        effort.under(|_| !providers::ALL[P].efforts.is_empty()),
         Setting::custom("command", LAUNCH, "Command", |d, s, _| d.launch_row(P, Launch::Command, s))
             .resets(|s| command_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).command), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).command.clear())
             .effect(|d, cx| d.send_launch(P, Launch::Command, cx))
@@ -133,13 +137,13 @@ impl Launch {
 }
 
 /// Each provider's Launch fields, committed on Enter or leaving one.
-pub(crate) struct LaunchFields([[Entity<InputState>; 4]; 2]);
+pub(crate) struct LaunchFields([[Entity<InputState>; 4]; providers::COUNT]);
 
 impl LaunchFields {
     pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let mut subs = vec![];
-        let fields = LaunchPick::PROVIDERS.map(|p| {
-            let i = usize::from(p == "codex");
+        let fields = std::array::from_fn(|i| {
+            let p = LaunchPick::PROVIDERS[i];
             Launch::ALL.map(|f| {
                 let field = cx.new(|cx| InputState::new(window, cx).placeholder(f.placeholder(p)).default_value(f.text(&store.agents, p)));
                 subs.push(cx.subscribe_in(&field, window, move |this, _, ev: &InputEvent, window, cx| {
@@ -170,7 +174,7 @@ impl Desktop {
     /// Opens a provider's page with its fields showing what the store holds.
     pub(crate) fn open_provider(&mut self, provider: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.settings.launch.sync(&self.store, window, cx);
-        self.show_section(if provider == 0 { Section::Claude } else { Section::Codex }, cx);
+        self.show_section(Section::Provider(provider), cx);
         cx.notify();
     }
 
@@ -198,7 +202,7 @@ impl Desktop {
                         field.update(cx, |field, cx| field.set_value(f.text(&d.store.agents, p), window, cx));
                     }
                 }
-                if p == "codex" && f == Launch::Command {
+                if providers::ALL[i].models == Models::Catalog && f == Launch::Command {
                     d.forget_models();
                 }
                 d.load_host(cx);
@@ -252,7 +256,7 @@ impl Desktop {
         let p = LaunchPick::PROVIDERS[i];
         let model = self.store.agents.provider(p).model;
         let options = model_options(p, self.codex_models(), &model, "Agent default");
-        let id = ["claude-model", "codex-model"][i];
+        let id = ROW_IDS[i].1;
         let trigger = action(id, "").child(model_label_of(&options, &model)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let menu = dropdown(id, trigger, options, &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
         row(setting.label, setting.hint, menu)
@@ -274,8 +278,8 @@ impl Desktop {
     }
 
     /// The page for one provider: its header, the Enabled card, then its groups.
-    pub(super) fn provider_page(&mut self, section: Section, cx: &mut Context<Self>) -> Div {
-        let i = usize::from(section == Section::Codex);
+    pub(super) fn provider_page(&mut self, i: usize, cx: &mut Context<Self>) -> Div {
+        let section = Section::Provider(i);
         let p = LaunchPick::PROVIDERS[i];
         let path = self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).cloned();
         let tile = div()
@@ -311,7 +315,7 @@ fn model_label_of(options: &[(String, String)], value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CLAUDE_ROWS, CODEX_ROWS, command_label, provider_line};
+    use super::{PAGES, command_label, provider_line};
     use crate::settings::catalog::{changed, reset};
     use store::Store;
 
@@ -329,7 +333,7 @@ mod tests {
             let own = store.agents.provider_mut(p);
             (own.model, own.effort, own.command, own.label, own.fork_args) = ("opus".into(), "high".into(), "/opt/agent".into(), "Mine".into(), Some(String::new()));
         }
-        let labels: Vec<_> = changed(CLAUDE_ROWS, &store).into_iter().map(|c| (c.label, c.from, c.to)).collect();
+        let labels: Vec<_> = changed(PAGES[0], &store).into_iter().map(|c| (c.label, c.from, c.to)).collect();
         assert_eq!(
             labels,
             [
@@ -341,9 +345,9 @@ mod tests {
                 ("Fork args", "None".into(), "\u{201c}--resume {sessionId} --fork-session\u{201d}".into()),
             ]
         );
-        assert_eq!(reset(CLAUDE_ROWS, &mut store).len(), 6);
-        assert!(changed(CLAUDE_ROWS, &store).is_empty());
+        assert_eq!(reset(PAGES[0], &mut store).len(), 6);
+        assert!(changed(PAGES[0], &store).is_empty());
         assert_eq!(store.agents.provider("codex").model, "opus");
-        assert_eq!(changed(CODEX_ROWS, &store).len(), 4);
+        assert_eq!(changed(PAGES[1], &store).len(), 4);
     }
 }

@@ -394,8 +394,8 @@ const STEPS: [(&str, Step); 190] = [
     ("settings-browser", |d, _, _| d.settings.section = Section::Browser),
     ("settings-git", |d, _, _| d.settings.section = Section::Git),
     ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
-    ("settings-claude", |d, _, _| d.settings.section = Section::Claude),
-    ("settings-codex", |d, _, _| d.settings.section = Section::Codex),
+    ("settings-claude", |d, _, _| d.settings.section = Section::Provider(0)),
+    ("settings-codex", |d, _, _| d.settings.section = Section::Provider(1)),
     ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
     ("account-signin", |d, window, cx| {
@@ -412,7 +412,7 @@ const STEPS: [(&str, Step); 190] = [
     }),
     ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
         (_, Section::Git) => "ai-model",
-        (_, Section::Codex) => "codex-model",
+        (_, Section::Provider(1)) => "codex-model",
         _ => "claude-model",
     })),
     ("service-down", |d, _, _| d.terminals.link.down(Instant::now())),

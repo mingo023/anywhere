@@ -253,7 +253,7 @@ impl Desktop {
         let enabled = self.store.agents.enabled();
         let rows: Vec<_> = PROVIDERS.iter().filter(|p| enabled.contains(p) || **p == provider).enumerate().map(|(i, p)| {
             let p = *p;
-            ui::menu_row(("editor-provider-row", i), if p == "codex" { "openai" } else { "claude" }, &self.agent_name(p), None)
+            ui::menu_row(("editor-provider-row", i), provider_glyph(p), &self.agent_name(p), None)
                 .child(div().w(px(14.)).when(p == provider, |d| d.child(icon("check", 14., TEXT))))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.automations.form.v.provider = p;

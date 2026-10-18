@@ -1,4 +1,4 @@
-use super::{catalog, nav_groups};
+use super::{Section, catalog, nav_groups};
 use gpui_kit::component::input::Input;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, HEADER, drag_area};
@@ -15,7 +15,7 @@ impl Desktop {
             let items = sections.into_iter().map(|s| {
                 let count = hits.iter().find(|(h, _)| *h == s).map_or(0, |(_, rows)| rows.len());
                 let selected = !searching && self.settings.section.nav() == s;
-                item(("settings-section", s as usize), s.icon(), s.label(), selected)
+                item(("settings-section", Section::ALL.iter().position(|a| *a == s).unwrap_or(0)), s.icon(), s.label(), selected)
                     .when(searching && count == 0, |d| d.opacity(0.45))
                     .when(count > 0, |d| d.child(div().ml_auto().min_w(px(18.)).h(px(16.)).px(px(5.)).flex().items_center().justify_center().rounded(px(8.)).bg(FILL_3).text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(count.to_string())))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
