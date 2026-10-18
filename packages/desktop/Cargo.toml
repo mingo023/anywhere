@@ -63,6 +63,7 @@ serde_json = "1"
 tree-sitter-javascript = "0.23.1"
 tree-sitter-swift = "0.7.3"
 tungstenite = "0.26"
+uds_windows = "1.2"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
 
 # gpui-pre 0.3.6 with `List` keeping item heights as hints on a width change instead of re-measuring every item; drop once upstream does.

@@ -1,10 +1,11 @@
 # Publishes a tagged release: scripts/release-mac.sh, unchanged from the maintainer's Mac.
-# Tag pushes only; secrets live in the `release` environment, which only v* tags can deploy to.
+# Runs on a v* tag push, or dispatched on a tag by release.yml; secrets live in the `release` environment, which only v* tags can deploy to.
 name: Release macOS
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write

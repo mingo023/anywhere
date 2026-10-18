@@ -7,9 +7,13 @@ use crate::status::{self, Card};
 use gpui_kit::*;
 use std::time::Duration;
 
-/// Whether ⌃ alone is down with hints on and nothing over the window, which starts the chip timer.
+/// Whether ⌃ (Alt off macOS, see `actions::native`) alone is down with hints on and nothing over the window, which starts the chip timer.
 pub fn arms_chips(m: &Modifiers, overlay_open: bool, hints: bool) -> bool {
-    hints && *m == Modifiers::control() && !overlay_open
+    hints && *m == jump_modifier() && !overlay_open
+}
+
+fn jump_modifier() -> Modifiers {
+    if cfg!(target_os = "macos") { Modifiers::control() } else { Modifiers::alt() }
 }
 
 /// The sessions ⌃n and ⌃Tab walk, in the order the Sessions column shows them: pinned first.
@@ -126,7 +130,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{arms_chips, walkable};
+    use super::{arms_chips, jump_modifier, walkable};
     use crate::status::{self, Card};
     use agents::Summary;
     use gpui_kit::Modifiers;
@@ -155,12 +159,12 @@ mod tests {
     }
 
     #[test]
-    fn chips_arm_on_ctrl_alone_and_never_over_an_overlay() {
-        let ctrl_shift = Modifiers { shift: true, ..Modifiers::control() };
-        assert!(arms_chips(&Modifiers::control(), false, true));
-        assert!(!arms_chips(&Modifiers::control(), true, true));
-        assert!(!arms_chips(&Modifiers::control(), false, false));
-        assert!(!arms_chips(&ctrl_shift, false, true));
+    fn chips_arm_on_the_jump_modifier_alone_and_never_over_an_overlay() {
+        let with_shift = Modifiers { shift: true, ..jump_modifier() };
+        assert!(arms_chips(&jump_modifier(), false, true));
+        assert!(!arms_chips(&jump_modifier(), true, true));
+        assert!(!arms_chips(&jump_modifier(), false, false));
+        assert!(!arms_chips(&with_shift, false, true));
         assert!(!arms_chips(&Modifiers::command(), false, true));
         assert!(!arms_chips(&Modifiers::default(), false, true));
     }

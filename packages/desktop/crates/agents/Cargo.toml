@@ -12,3 +12,6 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tungstenite.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+uds_windows.workspace = true

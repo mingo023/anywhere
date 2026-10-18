@@ -41,3 +41,13 @@ func Classify(pid int, roots map[int]string) Principal {
 	}
 	return OwnerOf(pid)
 }
+
+// MayAuth is whether who can become the owner by sending an owner token.
+func MayAuth(who Principal) bool { return mayAuth(who, pidOwns) }
+
+// mayAuth: a TCP peer, or, where a pid can't prove the owner (Windows), a
+// socket peer outside every Terminal; a token proves no more there than it
+// would sent to ownerListen.
+func mayAuth(who Principal, pidOwns bool) bool {
+	return who.Kind == None || !pidOwns && who.Kind == PTY && who.Terminal == ""
+}

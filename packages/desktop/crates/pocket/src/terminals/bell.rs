@@ -31,6 +31,8 @@ impl Desktop {
         if ring == Ring::Off || !self.terminals.bell.rings(Instant::now()) {
             return;
         }
+        // Elsewhere a sound bell flashes, having no system beep to play.
+        #[cfg(target_os = "macos")]
         if ring == Ring::Sound {
             objc2_app_kit::NSBeep();
             return;

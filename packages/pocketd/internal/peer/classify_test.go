@@ -49,3 +49,24 @@ func TestAncestorsStartAtTheProcessItself(t *testing.T) {
 		t.Fatalf("%+v %v", chain, err)
 	}
 }
+
+func TestOnlyAPeerOutsideEveryTerminalMayAuthOverTheSocketAndOnlyWhereAPidCantProveTheOwner(t *testing.T) {
+	outside := Principal{Kind: PTY, Scopes: PTYScopes}
+	inside := Principal{Kind: PTY, Terminal: "t1", Scopes: PTYScopes}
+	tcp := Principal{}
+	cases := []struct {
+		who     Principal
+		pidOwns bool
+		want    bool
+	}{
+		{tcp, true, true}, {tcp, false, true},
+		{outside, true, false}, {outside, false, true},
+		{inside, true, false}, {inside, false, false},
+		{OwnerOf(1), false, false}, {Principal{Kind: Device}, false, false},
+	}
+	for _, c := range cases {
+		if got := mayAuth(c.who, c.pidOwns); got != c.want {
+			t.Errorf("mayAuth(%+v, %v) = %v", c.who, c.pidOwns, got)
+		}
+	}
+}

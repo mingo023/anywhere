@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use daemon::Endpoint;
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, ErrorKind, Write};
-use std::os::unix::net::UnixStream;
+use daemon::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -316,7 +316,10 @@ pub fn forget(id: &str) {
 mod tests {
     use super::*;
     use git::Exec;
+    #[cfg(unix)]
     use std::os::unix::net::UnixListener;
+    #[cfg(windows)]
+    use uds_windows::UnixListener;
 
     fn temp_sock(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("hr-{name}-{}.sock", std::process::id()));

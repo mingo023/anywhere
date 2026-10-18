@@ -34,7 +34,7 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::stepper("usage-critical", "Context bars", "Critical at", (60, 99, 1), "%", |s| s.sidebar.critical_at as i32, |s, n| s.sidebar.set_critical(n as u32))
         .hint("The bars turn red")
         .under(|s| s.sidebar.usage_card),
-    Setting::switch("jump-hints", "Jump hints", "Show jump hints while holding Control", |s| s.sidebar.jump_hints, |s, on| s.sidebar.jump_hints = on).hint("Numbers appear on sessions; press one with ⌃ to jump"),
+    Setting::switch("jump-hints", "Jump hints", if cfg!(target_os = "macos") { "Show jump hints while holding Control" } else { "Show jump hints while holding Alt" }, |s| s.sidebar.jump_hints, |s, on| s.sidebar.jump_hints = on).hint(if cfg!(target_os = "macos") { "Numbers appear on sessions; press one with ⌃ to jump" } else { "Numbers appear on sessions; press one with Alt to jump" }),
     Setting::stepper("jump-delay", "Jump hints", "Delay before hints appear", (0, 1000, 20), " ms", |s| s.sidebar.hint_delay_ms as i32, |s, n| s.sidebar.hint_delay_ms = n as u32)
         .under(|s| s.sidebar.jump_hints)
         .advanced(),

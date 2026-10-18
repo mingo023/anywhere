@@ -133,9 +133,12 @@ fn attachment_path(image: &Image, dir: &Path) -> PathBuf {
 
 /// Owner-only, like the rest of Pocket's files: screenshots can hold secrets.
 fn save_image(image: &Image, path: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
     if let Some(dir) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(dir)?;
     }
     std::fs::write(path, &image.bytes)
 }
@@ -360,12 +363,14 @@ mod tests {
 
     #[test]
     fn an_image_paste_is_saved_to_a_private_file_and_text_pastes_as_itself() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!("pocket-paste-test-{}", std::process::id()));
         let image = pasted_image(&ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, vec![1, 2, 3]))).unwrap();
         let path = attachment_path(&image, &root.join("attachments"));
         save_image(&image, &path).unwrap();
         assert_eq!((path.extension().and_then(|e| e.to_str()), std::fs::read(&path).unwrap()), (Some("png"), vec![1, 2, 3]));
+        #[cfg(unix)]
         assert_eq!(std::fs::metadata(root.join("attachments")).unwrap().permissions().mode() & 0o777, 0o700);
         assert!(pasted_image(&ClipboardItem::new_string("fix ci".into())).is_none());
         std::fs::remove_dir_all(root).unwrap();

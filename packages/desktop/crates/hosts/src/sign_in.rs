@@ -3,10 +3,8 @@
 use crate::Host;
 use crate::ssh::{self, Failure, PasswordMethod};
 use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 /// Askpass reads the password from here: an inherited fd doesn't reach it, and argv shows in `ps`.
@@ -19,15 +17,13 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(30);
 /// The host's key must already be trusted, so the password never goes to a host nobody checked.
 pub fn with_password(host: &Host, home: &Path, password: &str) -> Result<(), Failure> {
     let dir = home.join("hosts");
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|_| Failure::Other)?;
+    crate::private_dir(&dir).map_err(|_| Failure::Other)?;
     let key = host.app_key(home);
     if !key.exists() {
         keygen(&key)?;
     }
     let public = std::fs::read(public_key(&key)).map_err(|_| Failure::Other)?;
-    let askpass = dir.join("askpass");
-    std::fs::write(&askpass, format!("#!/bin/sh\nprintf '%s\\n' \"${PASSWORD_VAR}\"\n")).map_err(|_| Failure::Other)?;
-    std::fs::set_permissions(&askpass, std::fs::Permissions::from_mode(0o700)).map_err(|_| Failure::Other)?;
+    let askpass = write_askpass(&dir).map_err(|_| Failure::Other)?;
     match sign_in(host, home, &askpass, password, &public, PasswordMethod::Password) {
         Err(stderr) if !ssh::takes_passwords(&stderr) => sign_in(host, home, &askpass, password, &public, PasswordMethod::KeyboardInteractive),
         signed_in => signed_in,
@@ -35,9 +31,29 @@ pub fn with_password(host: &Host, home: &Path, password: &str) -> Result<(), Fai
     .map_err(|stderr| ssh::classify(&stderr))
 }
 
+#[cfg(unix)]
+fn write_askpass(dir: &Path) -> std::io::Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let askpass = dir.join("askpass");
+    std::fs::write(&askpass, format!("#!/bin/sh\nprintf '%s\\n' \"${PASSWORD_VAR}\"\n"))?;
+    std::fs::set_permissions(&askpass, std::fs::Permissions::from_mode(0o700))?;
+    Ok(askpass)
+}
+
+/// Delayed expansion reads the password after cmd has parsed the line, so its `&` or `|` stay text.
+#[cfg(windows)]
+fn write_askpass(dir: &Path) -> std::io::Result<PathBuf> {
+    let askpass = dir.join("askpass.cmd");
+    std::fs::write(&askpass, format!("@setlocal EnableDelayedExpansion\r\n@echo(!{PASSWORD_VAR}!\r\n"))?;
+    Ok(askpass)
+}
+
 /// Runs the key install over one password sign-in; ssh's stderr when it fails.
 fn sign_in(host: &Host, home: &Path, askpass: &Path, password: &str, public: &[u8], method: PasswordMethod) -> Result<(), String> {
-    let mut child = Command::new("ssh")
+    let mut cmd = crate::ssh_command();
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    let mut child = cmd
         .args(ssh::password_args(host, &host.known_hosts(home), method, ssh::INSTALL_KEY))
         .env("SSH_ASKPASS", askpass)
         // Askpass even when the app was started from a terminal, whose tty ssh would otherwise prompt on.
@@ -46,7 +62,6 @@ fn sign_in(host: &Host, home: &Path, askpass: &Path, password: &str, public: &[u
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
-        .process_group(0)
         .spawn()
         .map_err(|e| e.to_string())?;
     let _ = child.stdin.take().map(|mut stdin| stdin.write_all(public));
@@ -87,6 +102,6 @@ fn public_key(key: &Path) -> PathBuf {
 }
 
 fn keygen(key: &Path) -> Result<(), Failure> {
-    let out = Command::new("ssh-keygen").args(["-q", "-t", "ed25519", "-N", "", "-C", "anywhere", "-f"]).arg(key).stdin(Stdio::null()).output();
+    let out = daemon::command("ssh-keygen").args(["-q", "-t", "ed25519", "-N", "", "-C", "anywhere", "-f"]).arg(key).stdin(Stdio::null()).output();
     out.ok().filter(|o| o.status.success()).map(|_| ()).ok_or(Failure::Other)
 }

@@ -1,0 +1,113 @@
+# Adds the Linux and Windows desktops to a tagged release: scripts/release-desktop.sh, which waits for release-mac.yml to create it.
+# Runs on a v* tag push, or dispatched on a tag by release.yml. Unsigned, so no secrets.
+# Dispatched on a branch, it only builds, as version 0.0.0, and keeps the archives as the run's artifacts.
+name: Release Linux and Windows
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    # The oldest supported runner: its glibc is the oldest the binaries run on.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/pocketd/go.mod
+          cache-dependency-path: packages/pocketd/go.sum
+
+      - name: Libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-dev cmake pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libx11-xcb-dev libxcb1-dev \
+            libxcb-randr0-dev libxcb-xfixes0-dev libxcb-shape0-dev libxi-dev libxrandr-dev \
+            libfontconfig-dev libfreetype-dev libvulkan-dev libssl-dev libasound2-dev libzstd-dev \
+            libdbus-1-dev libgbm-dev libegl-dev libdrm-dev
+
+      # Saved by release-cache-mac.yml, which builds linux-amd64 too.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-desktop.sh "${GITHUB_REF_NAME#v}" linux-amd64 --publish
+
+      - name: Build
+        if: github.ref_type != 'tag'
+        run: scripts/release-desktop.sh 0.0.0 linux-amd64
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.ref_type != 'tag'
+        with:
+          path: packages/desktop/target/release-linux-amd64/Anywhere-linux-amd64.*
+          archive: false
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The runner's git checks out CRLF, which sh can't run.
+      - run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/pocketd/go.mod
+          cache-dependency-path: packages/pocketd/go.sum
+
+      # libghostty is built for the GNU ABI, so the app links it with zig rather than MSVC.
+      - name: Rust target
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          cargo install --locked cargo-zigbuild
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-desktop.sh "${GITHUB_REF_NAME#v}" windows-amd64 --publish
+
+      - name: Build
+        if: github.ref_type != 'tag'
+        run: scripts/release-desktop.sh 0.0.0 windows-amd64
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.ref_type != 'tag'
+        with:
+          path: packages/desktop/target/release-windows-amd64/Anywhere-windows-amd64.*
+          archive: false
+          if-no-files-found: error

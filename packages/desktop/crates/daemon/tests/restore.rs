@@ -1,4 +1,5 @@
 //! Restarts a scratch pocketd under the desktop's own client and checks that every Terminal comes back by id.
+#![cfg(unix)]
 
 use daemon::{Daemon, Msg};
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver};

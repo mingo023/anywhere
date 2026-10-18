@@ -103,21 +103,27 @@ fn place(b: &KeyBinding) -> Option<Option<&'static str>> {
     }
 }
 
-/// `k` as macOS menus print it, one glyph per key: "⌘ ⇧ J".
+/// `k` as this OS's menus print it, one glyph or name per key: "⌘ ⇧ J" on macOS, "Ctrl Shift J" elsewhere.
 fn glyphs(k: &Keystroke) -> String {
+    glyphs_on(k, cfg!(target_os = "macos"))
+}
+
+fn glyphs_on(k: &Keystroke, mac: bool) -> String {
     let m = k.modifiers;
     let key = match k.key.as_str() {
-        "enter" => "↩".to_string(),
-        "tab" => "⇥".to_string(),
+        "enter" if mac => "↩".to_string(),
+        "tab" if mac => "⇥".to_string(),
+        "backspace" if mac => "⌫".to_string(),
         "left" => "←".to_string(),
         "right" => "→".to_string(),
         "up" => "↑".to_string(),
         "down" => "↓".to_string(),
-        "backspace" => "⌫".to_string(),
         "space" => "Space".to_string(),
+        key if !mac && key.len() > 1 => key[..1].to_uppercase() + &key[1..],
         key => key.to_uppercase(),
     };
-    [(m.control, "⌃"), (m.alt, "⌥"), (m.shift, "⇧"), (m.platform, "⌘")].into_iter().filter(|(on, _)| *on).map(|(_, g)| g.to_string()).chain([key]).collect::<Vec<_>>().join(" ")
+    let names = if mac { ["⌃", "⌥", "⇧", "⌘"] } else { ["Ctrl", "Alt", "Shift", if cfg!(target_os = "windows") { "Win" } else { "Super" }] };
+    [m.control, m.alt, m.shift, m.platform].into_iter().zip(names).filter(|(on, _)| *on).map(|(_, g)| g.to_string()).chain([key]).collect::<Vec<_>>().join(" ")
 }
 
 /// Keys as `Store.keys` holds them ("cmd-shift-j"), in glyphs.
@@ -485,8 +491,8 @@ fn fixed_keys(keys: &[&str]) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHORTCUTS, Topic, clash, find, glyphs, label, place, replace, set_keys, shortcut_rows, takes};
-    use crate::actions::bindings;
+    use super::{SHORTCUTS, Topic, clash, find, glyphs_on, label, place, replace, set_keys, shortcut_rows, shown, takes};
+    use crate::actions::{bindings, native};
     use crate::settings::catalog::words;
     use gpui_kit::Keystroke;
     use std::collections::BTreeMap;
@@ -505,8 +511,14 @@ mod tests {
 
     #[test]
     fn shortcuts_print_as_macos_glyphs() {
-        let g = |k: &str| glyphs(&Keystroke::parse(k).unwrap());
+        let g = |k: &str| glyphs_on(&Keystroke::parse(k).unwrap(), true);
         assert_eq!([g("cmd-shift-j"), g("cmd-alt-left"), g("ctrl-shift-tab"), g("cmd-,")], ["⇧ ⌘ J", "⌥ ⌘ ←", "⌃ ⇧ ⇥", "⌘ ,"]);
+    }
+
+    #[test]
+    fn shortcuts_off_macos_print_their_modifiers_by_name() {
+        let g = |k: &str| glyphs_on(&Keystroke::parse(k).unwrap(), false);
+        assert_eq!([g("ctrl-shift-j"), g("ctrl-alt-left"), g("ctrl-shift-tab"), g("ctrl-enter")], ["Ctrl Shift J", "Ctrl Alt ←", "Ctrl Shift Tab", "Ctrl Enter"]);
     }
 
     #[test]
@@ -531,7 +543,7 @@ mod tests {
         assert!(labels("split").contains(&"Split right"));
         assert!(labels("panels").contains(&"Zoom pane"));
         assert!(labels("browser reload").contains(&"Reload"));
-        assert_eq!(labels("⌘K"), ["Command palette"]);
+        assert_eq!(labels(&shown(&native("cmd-k", None)).replace(' ', "")), ["Command palette"]);
         assert_eq!(labels("cmd-shift-y"), ["Split down"]);
         assert!(labels("zzz").is_empty());
     }
@@ -541,29 +553,30 @@ mod tests {
         let mut custom = BTreeMap::new();
         set_keys(&mut custom, row("Split right"), "cmd-shift-y");
         assert_eq!(row("Split right").keys_in(&custom), ["cmd-shift-y"]);
-        set_keys(&mut custom, row("Split right"), "cmd-d");
+        set_keys(&mut custom, row("Split right"), &native("cmd-d", None));
         assert!(custom.is_empty());
     }
 
     #[test]
     fn keys_clash_with_a_shortcut_that_works_in_the_same_place_or_everywhere() {
         let none = BTreeMap::new();
-        let other = |r: &str, keys: &str| clash(&SHORTCUTS, &none, row(r), keys).map(|o| o.label);
+        let other = |r: &str, keys: &str| clash(&SHORTCUTS, &none, row(r), &native(keys, None)).map(|o| o.label);
         assert_eq!(other("Split right", "cmd-k"), Some("Command palette"));
         assert_eq!(other("Reload", "cmd-k"), Some("Command palette"));
         assert_eq!(other("Reload", "cmd-c"), None);
         assert_eq!(other("Split right", "cmd-d"), None);
         let moved = BTreeMap::from([("desktop::OpenPalette".to_string(), String::new())]);
-        assert_eq!(clash(&SHORTCUTS, &moved, row("Split right"), "cmd-k").map(|o| o.label), None);
+        assert_eq!(clash(&SHORTCUTS, &moved, row("Split right"), &native("cmd-k", None)).map(|o| o.label), None);
     }
 
     #[test]
     fn replacing_takes_the_keys_from_a_single_key_shortcut_but_not_from_one_with_several() {
         let mut custom = BTreeMap::new();
-        assert!(replace(&mut custom, row("Split right"), "cmd-k"));
-        assert_eq!([row("Split right").keys_in(&custom), row("Command palette").keys_in(&custom)], [vec!["cmd-k"], vec![]]);
+        let cmd_k = native("cmd-k", None);
+        assert!(replace(&mut custom, row("Split right"), &cmd_k));
+        assert_eq!([row("Split right").keys_in(&custom), row("Command palette").keys_in(&custom)], [vec![cmd_k.as_str()], vec![]]);
         let mut custom = BTreeMap::new();
-        assert!(!replace(&mut custom, row("Split right"), "cmd-1"));
+        assert!(!replace(&mut custom, row("Split right"), &native("cmd-1", None)));
         assert!(custom.is_empty());
     }
 

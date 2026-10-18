@@ -87,7 +87,7 @@ pub fn release(selected: Option<String>, t: &store::prefs::Terminal) -> Release 
     }
 }
 
-/// Whether a left click opens the link under it: ⌘ always does; a plain click only when asked, and only if a program tracking the mouse doesn't take it.
+/// Whether a left click opens the link under it: ⌘ (Ctrl off macOS) always does; a plain click only when asked, and only if a program tracking the mouse doesn't take it.
 pub fn click_opens_link(cmd: bool, shift: bool, tracking: bool, t: &store::prefs::Terminal) -> bool {
     cmd || (t.click_opens_links && !(tracking && !shift))
 }
@@ -193,7 +193,7 @@ impl Desktop {
         let observe_only = self.agents.observe_only();
         let over = at.is_some_and(|at| {
             let Some(t) = self.terminals.sessions.term(pane) else { return false };
-            if !click_opens_link(mods.platform, mods.shift, t.mouse_tracking() && !observe_only, &self.store.terminal) {
+            if !click_opens_link(mods.secondary(), mods.shift, t.mouse_tracking() && !observe_only, &self.store.terminal) {
                 return false;
             }
             let (f, cells) = t.frame();
@@ -422,7 +422,10 @@ fn option_held(left: bool) -> bool {
         objc2_app_kit::NSApplication::sharedApplication(mtm).currentEvent().is_some_and(|e| e.modifierFlags().0 & mask != 0)
     }
     #[cfg(not(target_os = "macos"))]
-    false
+    {
+        let _ = left;
+        false
+    }
 }
 
 /// Typed text arrives here rather than as key-downs so IMEs (Telex, dead keys, CJK) can compose it.

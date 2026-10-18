@@ -166,7 +166,7 @@ pub struct ChangesState {
 
 impl ChangesState {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder("Message (⌘↩ to commit)").auto_grow(1, 8));
+        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder(format!("Message ({} to commit)", ui::os_keys("⌘↩"))).auto_grow(1, 8));
         let subs = vec![cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| match ev {
             InputEvent::PressEnter { secondary: true, .. } => this.commit(CommitKind::Commit, window, cx),
             InputEvent::Change => cx.notify(),

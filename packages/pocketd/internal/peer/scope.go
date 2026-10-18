@@ -35,7 +35,7 @@ var (
 
 // Principal is who sits on the other end of a conn. Terminal is set for a
 // PTY peer, Device for a paired phone, TokenID for an owner that sent an owner
-// token over TCP.
+// token.
 type Principal struct {
 	Kind     Kind
 	Pid      int

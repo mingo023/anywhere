@@ -498,10 +498,14 @@ pub fn write(path: &Path, raw: &[u8]) {
 
 fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let tmp = path.with_extension("json.tmp");
-    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
-    f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut f = options.open(&tmp)?;
+    #[cfg(unix)]
+    f.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     f.write_all(raw)?;
     std::fs::rename(&tmp, path)
 }
@@ -651,12 +655,14 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
         use std::os::unix::fs::PermissionsExt;
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
     #[test]
+    #[cfg(unix)]
     fn save_writes_desktop_json_owner_only_and_leaves_no_temp_file() {
         let dir = std::env::temp_dir().join(format!("pocket-store-private-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -671,6 +677,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn save_makes_a_shared_desktop_json_and_a_stale_temp_file_owner_only() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("pocket-store-shared-{}", std::process::id()));

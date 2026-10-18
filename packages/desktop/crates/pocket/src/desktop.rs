@@ -653,4 +653,6 @@ impl Render for Desktop {
 pub(crate) fn follow_reduce_motion(pref: Option<bool>, cx: &mut App) {
     #[cfg(target_os = "macos")]
     cx.set_reduce_motion(crate::settings::reduce_motion(pref, || objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()));
+    #[cfg(not(target_os = "macos"))]
+    cx.set_reduce_motion(crate::settings::reduce_motion(pref, || false));
 }

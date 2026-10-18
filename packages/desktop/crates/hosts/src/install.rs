@@ -4,9 +4,8 @@ use crate::Host;
 use crate::link::Paths;
 use crate::ssh::{self, Failure};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::time::Duration;
 
 const BOOTSTRAP: &str = include_str!("bootstrap.sh");
@@ -254,7 +253,7 @@ fn run(host: &Host, paths: &Paths, source: &Source, force: bool, mut on: impl Fn
         }
         (bootstrap_command(dir, &env, uploaded), filled)
     };
-    let mut child = Command::new("ssh")
+    let mut child = crate::ssh_command()
         .args(args(host, paths, &command))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -358,14 +357,14 @@ fn fill(script: &str, version: &str, url: &str, dir: &str, label: &str) -> Resul
 fn args(host: &Host, paths: &Paths, command: &str) -> Vec<String> {
     let known_hosts = host.known_hosts(&paths.home);
     if let Some(dir) = known_hosts.parent() {
-        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
+        let _ = crate::private_dir(dir);
     }
     ssh::args(host, &known_hosts, host.signed_in_key(&paths.home).as_deref(), &[], command)
 }
 
 /// `command`'s output on the host; `Err` only when ssh itself failed, which it says by exiting 255.
 fn ssh(host: &Host, paths: &Paths, command: &str, stdin: Stdio) -> Result<Output, Error> {
-    let out = Command::new("ssh").args(args(host, paths, command)).stdin(stdin).output().map_err(|e| Error::Failed(format!("Couldn't run ssh: {e}")))?;
+    let out = crate::ssh_command().args(args(host, paths, command)).stdin(stdin).output().map_err(|e| Error::Failed(format!("Couldn't run ssh: {e}")))?;
     if out.status.code() == Some(255) {
         return Err(Error::Ssh(ssh::classify(&String::from_utf8_lossy(&out.stderr))));
     }

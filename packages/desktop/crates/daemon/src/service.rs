@@ -1,4 +1,13 @@
 //! pocketd as a Login Item: the release app registers the LaunchAgent plist it ships.
+//! On Linux and Windows the pocketd beside the app installs itself as a service instead (`bundled`).
+
+#[cfg(not(target_os = "macos"))]
+mod bundled;
+
+#[cfg(not(target_os = "macos"))]
+pub use bundled::{open_at_login, open_login_items, register, restart, status};
+#[cfg(windows)]
+pub use bundled::own_token;
 
 /// What macOS reports for the bundled agent (`SMAppServiceStatus`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11,6 +20,7 @@ pub enum Service {
 }
 
 impl Service {
+    #[cfg(any(test, target_os = "macos"))]
     fn from_raw(raw: isize) -> Self {
         match raw {
             1 => Self::Enabled,
@@ -26,6 +36,7 @@ pub fn should_register(s: Service) -> bool {
     matches!(s, Service::NotRegistered | Service::NotFound)
 }
 
+#[cfg(target_os = "macos")]
 fn plist() -> String {
     format!("{}.plist", channel::daemon_label())
 }
@@ -42,20 +53,10 @@ pub fn status() -> Service {
     Service::from_raw(unsafe { agent().status() }.0)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn status() -> Service {
-    Service::NotFound
-}
-
 /// Blocks on launchd; keep it off the UI thread.
 #[cfg(target_os = "macos")]
 pub fn register() -> Result<(), String> {
     unsafe { agent().registerAndReturnError() }.map_err(|e| e.localizedDescription().to_string())
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn register() -> Result<(), String> {
-    Err(format!("{} needs macOS", plist()))
 }
 
 pub fn register_if_needed() {
@@ -73,11 +74,6 @@ pub fn restart() -> Result<(), String> {
     let target = format!("gui/{uid}/{}", channel::daemon_label());
     let out = std::process::Command::new("launchctl").args(["kickstart", "-k", &target]).output().map_err(|e| e.to_string())?;
     if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn restart() -> Result<(), String> {
-    Err(format!("{} needs macOS", plist()))
 }
 
 /// Whether opening at login must register (`Some(true)`) or unregister the app, given what macOS reports. One the user switched off in Login Items stays off.
@@ -101,18 +97,10 @@ pub fn open_at_login(on: bool) -> Result<(), String> {
     result.map_err(|e| e.localizedDescription().to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn open_at_login(_: bool) -> Result<(), String> {
-    Err("Opening at login needs macOS".into())
-}
-
 #[cfg(target_os = "macos")]
 pub fn open_login_items() {
     unsafe { objc2_service_management::SMAppService::openSystemSettingsLoginItems() }
 }
-
-#[cfg(not(target_os = "macos"))]
-pub fn open_login_items() {}
 
 #[cfg(test)]
 mod tests {

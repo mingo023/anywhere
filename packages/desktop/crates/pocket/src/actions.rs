@@ -2,6 +2,7 @@ use crate::explorer::menu::{self, Arrow, Item};
 use crate::{browser, inbox, settings};
 use gpui_kit::*;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use workspace::tree::Edge;
 
 actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, ZoomIn, ZoomOut, ResetZoom]);
@@ -38,74 +39,92 @@ pub struct TreeMenuChoose;
 #[action(namespace = desktop, no_json)]
 pub struct FocusPane(pub Edge);
 
+/// `keys`, written for macOS, as this OS presses them.
+pub fn native(keys: &str, context: Option<&str>) -> String {
+    if cfg!(target_os = "macos") { keys.to_string() } else { off_mac(keys, context) }
+}
+
+/// ⌘ becomes Ctrl, with Shift in a terminal, whose Ctrl keys are the shell's. Mac's own ⌃ becomes Alt, so ⌘1 and ⌃1 stay apart, except ⌃Tab, which is Ctrl-Tab everywhere.
+fn off_mac(keys: &str, context: Option<&str>) -> String {
+    let k = Keystroke::parse(keys).unwrap();
+    let m = k.modifiers;
+    let tab = k.key == "tab";
+    let modifiers = Modifiers { control: m.platform || (m.control && tab), alt: m.alt || (m.control && !tab), shift: m.shift || (m.platform && context == Some(keys::CONTEXT)), platform: false, ..m };
+    Keystroke { modifiers, ..k }.unparse()
+}
+
+fn bind<A: Action>(keys: &str, action: A, context: Option<&str>) -> KeyBinding {
+    KeyBinding::new(&native(keys, context), action, context)
+}
+
 pub fn bindings() -> Vec<KeyBinding> {
     let mut out = vec![
-        KeyBinding::new("cmd-k", OpenPalette, None),
-        KeyBinding::new("cmd-l", AddToChat, None),
-        KeyBinding::new("cmd-p", GoToFile, None),
-        KeyBinding::new("cmd-n", StartSession, None),
-        KeyBinding::new("cmd-j", NextNeedsYou, None),
-        KeyBinding::new("cmd-shift-j", GoToUpNext, None),
-        KeyBinding::new("ctrl-tab", NextSession, None),
-        KeyBinding::new("ctrl-shift-tab", PrevSession, None),
-        KeyBinding::new("cmd-b", ToggleSidebar, None),
-        KeyBinding::new("cmd-\\", ToggleRail, None),
-        KeyBinding::new("cmd-.", ToggleFocus, None),
-        KeyBinding::new("cmd-t", NewTab, None),
-        KeyBinding::new("cmd-w", CloseTab, None),
-        KeyBinding::new("cmd-s", Save, None),
-        KeyBinding::new("cmd-q", Quit, None),
-        KeyBinding::new("cmd-shift-n", NewWorktree, None),
-        KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("cmd-shift-a", OpenAutomations, None),
-        KeyBinding::new("cmd-=", ZoomIn, None),
-        KeyBinding::new("cmd--", ZoomOut, None),
-        KeyBinding::new("cmd-0", ResetZoom, None),
+        bind("cmd-k", OpenPalette, None),
+        bind("cmd-l", AddToChat, None),
+        bind("cmd-p", GoToFile, None),
+        bind("cmd-n", StartSession, None),
+        bind("cmd-j", NextNeedsYou, None),
+        bind("cmd-shift-j", GoToUpNext, None),
+        bind("ctrl-tab", NextSession, None),
+        bind("ctrl-shift-tab", PrevSession, None),
+        bind("cmd-b", ToggleSidebar, None),
+        bind("cmd-\\", ToggleRail, None),
+        bind("cmd-.", ToggleFocus, None),
+        bind("cmd-t", NewTab, None),
+        bind("cmd-w", CloseTab, None),
+        bind("cmd-s", Save, None),
+        bind("cmd-q", Quit, None),
+        bind("cmd-shift-n", NewWorktree, None),
+        bind("cmd-,", OpenSettings, None),
+        bind("cmd-shift-a", OpenAutomations, None),
+        bind("cmd-=", ZoomIn, None),
+        bind("cmd--", ZoomOut, None),
+        bind("cmd-0", ResetZoom, None),
         // gpui-base's `Input` binds ⌘F to its own search, so only the Settings page claims it.
-        KeyBinding::new("cmd-f", FocusSearch, Some(settings::CONTEXT)),
+        bind("cmd-f", FocusSearch, Some(settings::CONTEXT)),
         // Unscoped, it ties with a text field's own ⌘↵ in depth and, bound later, wins.
-        KeyBinding::new("cmd-enter", OpenSession, Some(inbox::CONTEXT)),
-        KeyBinding::new("cmd-c", CopySelection, Some(keys::CONTEXT)),
-        KeyBinding::new("cmd-a", SelectAll, Some(keys::CONTEXT)),
-        KeyBinding::new("cmd-v", Paste, Some(keys::CONTEXT)),
-        KeyBinding::new("cmd-shift-b", NewBrowser, None),
-        KeyBinding::new("cmd-d", SplitRight, None),
-        KeyBinding::new("cmd-shift-d", SplitDown, None),
-        KeyBinding::new("cmd-alt-left", FocusPane(Edge::Left), None),
-        KeyBinding::new("cmd-alt-right", FocusPane(Edge::Right), None),
-        KeyBinding::new("cmd-alt-up", FocusPane(Edge::Top), None),
-        KeyBinding::new("cmd-alt-down", FocusPane(Edge::Bottom), None),
+        bind("cmd-enter", OpenSession, Some(inbox::CONTEXT)),
+        bind("cmd-c", CopySelection, Some(keys::CONTEXT)),
+        bind("cmd-a", SelectAll, Some(keys::CONTEXT)),
+        bind("cmd-v", Paste, Some(keys::CONTEXT)),
+        bind("cmd-shift-b", NewBrowser, None),
+        bind("cmd-d", SplitRight, None),
+        bind("cmd-shift-d", SplitDown, None),
+        bind("cmd-alt-left", FocusPane(Edge::Left), None),
+        bind("cmd-alt-right", FocusPane(Edge::Right), None),
+        bind("cmd-alt-up", FocusPane(Edge::Top), None),
+        bind("cmd-alt-down", FocusPane(Edge::Bottom), None),
         // gpui-base's `Input` binds these to add cursors; at equal depth the later binding wins, so panels keep them in the code editor too.
-        KeyBinding::new("cmd-alt-up", FocusPane(Edge::Top), Some("Input")),
-        KeyBinding::new("cmd-alt-down", FocusPane(Edge::Bottom), Some("Input")),
+        bind("cmd-alt-up", FocusPane(Edge::Top), Some("Input")),
+        bind("cmd-alt-down", FocusPane(Edge::Bottom), Some("Input")),
         // macOS reports ⌘⇧[ as `{` with shift already applied (gpui-pre-macos parse_keystroke), so `cmd-shift-[` would never match.
-        KeyBinding::new("cmd-{", PrevTab, None),
-        KeyBinding::new("cmd-}", NextTab, None),
-        KeyBinding::new("cmd-shift-enter", ZoomPane, None),
-        KeyBinding::new("cmd-ctrl-=", EqualizePanes, None),
-        KeyBinding::new("cmd-l", FocusAddress, Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-r", Reload, Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-[", Back, Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-]", Forward, Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-c", PageEdit(web::Edit::Copy), Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-x", PageEdit(web::Edit::Cut), Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-v", PageEdit(web::Edit::Paste), Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-a", PageEdit(web::Edit::SelectAll), Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-z", PageEdit(web::Edit::Undo), Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-shift-z", PageEdit(web::Edit::Redo), Some(browser::CONTEXT)),
-        KeyBinding::new("cmd-l", TreeMenuItem(Item::Mention), Some(menu::CONTEXT)),
-        KeyBinding::new("cmd-alt-c", TreeMenuItem(Item::Copy), Some(menu::CONTEXT)),
-        KeyBinding::new("cmd-alt-shift-c", TreeMenuItem(Item::CopyRelative), Some(menu::CONTEXT)),
-        KeyBinding::new("enter", TreeMenuChoose, Some(menu::CONTEXT)),
-        KeyBinding::new("down", TreeMenuArrow(Arrow::Down), Some(menu::CONTEXT)),
-        KeyBinding::new("up", TreeMenuArrow(Arrow::Up), Some(menu::CONTEXT)),
-        KeyBinding::new("left", TreeMenuArrow(Arrow::Left), Some(menu::CONTEXT)),
-        KeyBinding::new("right", TreeMenuArrow(Arrow::Right), Some(menu::CONTEXT)),
-        KeyBinding::new("cmd-backspace", TreeMenuItem(Item::Trash), Some(menu::CONTEXT)),
+        bind("cmd-{", PrevTab, None),
+        bind("cmd-}", NextTab, None),
+        bind("cmd-shift-enter", ZoomPane, None),
+        bind("cmd-ctrl-=", EqualizePanes, None),
+        bind("cmd-l", FocusAddress, Some(browser::CONTEXT)),
+        bind("cmd-r", Reload, Some(browser::CONTEXT)),
+        bind("cmd-[", Back, Some(browser::CONTEXT)),
+        bind("cmd-]", Forward, Some(browser::CONTEXT)),
+        bind("cmd-c", PageEdit(web::Edit::Copy), Some(browser::CONTEXT)),
+        bind("cmd-x", PageEdit(web::Edit::Cut), Some(browser::CONTEXT)),
+        bind("cmd-v", PageEdit(web::Edit::Paste), Some(browser::CONTEXT)),
+        bind("cmd-a", PageEdit(web::Edit::SelectAll), Some(browser::CONTEXT)),
+        bind("cmd-z", PageEdit(web::Edit::Undo), Some(browser::CONTEXT)),
+        bind("cmd-shift-z", PageEdit(web::Edit::Redo), Some(browser::CONTEXT)),
+        bind("cmd-l", TreeMenuItem(Item::Mention), Some(menu::CONTEXT)),
+        bind("cmd-alt-c", TreeMenuItem(Item::Copy), Some(menu::CONTEXT)),
+        bind("cmd-alt-shift-c", TreeMenuItem(Item::CopyRelative), Some(menu::CONTEXT)),
+        bind("enter", TreeMenuChoose, Some(menu::CONTEXT)),
+        bind("down", TreeMenuArrow(Arrow::Down), Some(menu::CONTEXT)),
+        bind("up", TreeMenuArrow(Arrow::Up), Some(menu::CONTEXT)),
+        bind("left", TreeMenuArrow(Arrow::Left), Some(menu::CONTEXT)),
+        bind("right", TreeMenuArrow(Arrow::Right), Some(menu::CONTEXT)),
+        bind("cmd-backspace", TreeMenuItem(Item::Trash), Some(menu::CONTEXT)),
     ];
-    out.extend((1..=9).map(|n| KeyBinding::new(&format!("cmd-{n}"), JumpToTab(n), None)));
+    out.extend((1..=9).map(|n| bind(&format!("cmd-{n}"), JumpToTab(n), None)));
     // Not ⌘⇧n: macOS takes ⌘⇧3–5 for screenshots before the app sees them.
-    out.extend((1..=9).map(|n| KeyBinding::new(&format!("ctrl-{n}"), JumpTo(n), None)));
+    out.extend((1..=9).map(|n| bind(&format!("ctrl-{n}"), JumpTo(n), None)));
     out
 }
 
@@ -119,12 +138,33 @@ pub fn binding_id(b: &KeyBinding) -> String {
 
 /// `bindings`, with each one `custom` names on new keys, or gone when they're empty.
 pub fn keymap(custom: &BTreeMap<String, String>) -> Vec<KeyBinding> {
-    bindings()
+    let mut out: Vec<KeyBinding> = bindings()
         .into_iter()
         .filter_map(|b| match custom.get(&binding_id(&b)) {
             None => Some(b),
             Some(keys) if keys.is_empty() => None,
             Some(keys) => Some(KeyBinding::load(keys, b.action().boxed_clone(), b.predicate(), false, None, &DummyKeyboardMapper).unwrap_or(b)),
+        })
+        .collect();
+    if !cfg!(target_os = "macos") {
+        out.extend(terminal_aliases(&out));
+    }
+    out
+}
+
+/// A terminal hands Ctrl and a letter to the shell (`keys::bindings`), so there a shortcut on them answers to Ctrl-Shift and the letter, when nothing else has those.
+fn terminal_aliases(bindings: &[KeyBinding]) -> Vec<KeyBinding> {
+    let on = |b: &KeyBinding, keys: &str| b.keystrokes().iter().map(|k| k.inner().unparse()).eq([keys.to_string()]);
+    let reaches_terminal = |b: &KeyBinding| b.predicate().is_none_or(|p| p.to_string() == keys::CONTEXT);
+    bindings
+        .iter()
+        .filter_map(|b| {
+            let [k] = b.keystrokes() else { return None };
+            let k = k.inner();
+            let ctrl_letter = k.modifiers == Modifiers::control() && k.key.len() == 1 && k.key.chars().all(|c| c.is_ascii_lowercase());
+            let alias = format!("ctrl-shift-{}", k.key);
+            let free = !bindings.iter().any(|o| reaches_terminal(o) && on(o, &alias));
+            (b.predicate().is_none() && ctrl_letter && free).then(|| KeyBinding::load(&alias, b.action().boxed_clone(), KeyBindingContextPredicate::parse(keys::CONTEXT).ok().map(Rc::new), false, None, &DummyKeyboardMapper).unwrap())
         })
         .collect()
 }
@@ -144,7 +184,7 @@ pub fn rebind(custom: &BTreeMap<String, String>, cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{binding_id, bindings, keymap};
+    use super::{CopySelection, NewTab, SplitDown, SplitRight, binding_id, bindings, keymap, native, off_mac, terminal_aliases};
     use std::collections::BTreeMap;
     use crate::inbox;
     use gpui_kit::{KeyBinding, KeyContext, Keymap, Keystroke, actions};
@@ -153,7 +193,7 @@ mod tests {
     #[test]
     fn no_two_bindings_share_a_keystroke_and_context() {
         let mut seen = HashSet::new();
-        for b in bindings().into_iter().chain(keys::bindings()) {
+        for b in keymap(&BTreeMap::new()).into_iter().chain(keys::bindings()) {
             let keys: Vec<String> = b.keystrokes().iter().map(|k| k.unparse()).collect();
             let context = b.predicate().map(|p| p.to_string());
             assert!(seen.insert((keys.clone(), context.clone())), "{keys:?} in {context:?} is bound twice");
@@ -162,9 +202,9 @@ mod tests {
 
     actions!(test, [Submit]);
 
-    /// The actions bound to `keys` outside any context.
+    /// The actions bound to `keys`, as macOS writes them, outside any context.
     fn bound(keys: &str) -> Vec<&'static str> {
-        let want = vec![Keystroke::parse(keys).unwrap().unparse()];
+        let want = vec![Keystroke::parse(&native(keys, None)).unwrap().unparse()];
         bindings().iter().filter(|b| b.predicate().is_none() && b.keystrokes().iter().map(|k| k.unparse()).collect::<Vec<_>>() == want).map(|b| b.action().name()).collect()
     }
 
@@ -189,7 +229,7 @@ mod tests {
         keymap.add_bindings(bindings());
         let action = |stack: &[&str]| {
             let stack: Vec<KeyContext> = stack.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
-            keymap.bindings_for_input(&[Keystroke::parse("cmd-enter").unwrap()], &stack).0.first().map(|b| b.action().name())
+            keymap.bindings_for_input(&[Keystroke::parse("secondary-enter").unwrap()], &stack).0.first().map(|b| b.action().name())
         };
         assert_eq!(action(&["Root", inbox::CONTEXT, "Input"]), Some("test::Submit"));
         assert_eq!(action(&["Root", inbox::CONTEXT]), Some("desktop::OpenSession"));
@@ -209,8 +249,23 @@ mod tests {
     fn a_changed_shortcut_moves_to_its_new_keys_and_an_emptied_one_is_gone() {
         let custom = BTreeMap::from([("desktop::OpenPalette".to_string(), "cmd-shift-p".to_string()), ("desktop::Reload in Browser".to_string(), String::new())]);
         let keys = |id: &str| keymap(&custom).iter().filter(|b| binding_id(b) == id).map(|b| b.keystrokes()[0].inner().unparse()).collect::<Vec<_>>();
-        assert_eq!(keys("desktop::OpenPalette"), ["cmd-shift-p"]);
+        let unparsed = |k: &str| Keystroke::parse(k).unwrap().unparse();
+        assert_eq!(keys("desktop::OpenPalette"), [unparsed("cmd-shift-p")]);
         assert!(keys("desktop::Reload in Browser").is_empty());
-        assert_eq!(keys("desktop::GoToFile"), ["cmd-p"]);
+        assert_eq!(keys("desktop::GoToFile"), [unparsed(&native("cmd-p", None))]);
+    }
+
+    #[test]
+    fn off_macos_cmd_becomes_ctrl_and_ctrl_becomes_alt_except_on_tab() {
+        let off = |k: &str| off_mac(k, None);
+        assert_eq!([off("cmd-k"), off("cmd-shift-j"), off("ctrl-1"), off("cmd-ctrl-="), off("ctrl-shift-tab"), off("cmd-alt-left")], ["ctrl-k", "ctrl-shift-j", "alt-1", "ctrl-alt-=", "ctrl-shift-tab", "ctrl-alt-left"]);
+        assert_eq!(off_mac("cmd-c", Some(keys::CONTEXT)), "ctrl-shift-c");
+    }
+
+    #[test]
+    fn a_ctrl_letter_shortcut_answers_to_ctrl_shift_in_a_terminal_unless_those_keys_are_taken() {
+        let bindings = [KeyBinding::new("ctrl-t", NewTab, None), KeyBinding::new("ctrl-d", SplitRight, None), KeyBinding::new("ctrl-shift-d", SplitDown, None), KeyBinding::new("ctrl-c", CopySelection, Some(keys::CONTEXT))];
+        let aliases: Vec<_> = terminal_aliases(&bindings).iter().map(|b| (b.keystrokes()[0].inner().unparse(), b.action().name(), b.predicate().map(|p| p.to_string()))).collect();
+        assert_eq!(aliases, [("ctrl-shift-t".to_string(), "desktop::NewTab", Some(keys::CONTEXT.to_string()))]);
     }
 }

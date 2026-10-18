@@ -6,9 +6,8 @@ use futures::channel::mpsc::UnboundedSender;
 use serde_json::json;
 use std::hash::{BuildHasher, RandomState};
 use std::io::{BufRead, BufReader, Read};
-use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
@@ -145,11 +144,11 @@ fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Rec
     let known_hosts = host.known_hosts(&paths.home);
     // Before the probe, or ssh can't record a host key it accepts, and a password sign-in then won't trust it.
     if let Some(dir) = known_hosts.parent() {
-        let _ = std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir);
+        let _ = crate::private_dir(dir);
     }
     let key = host.signed_in_key(&paths.home);
     let probe = |command: &str| {
-        let out = Command::new("ssh").args(ssh::args(host, &known_hosts, key.as_deref(), &[], command)).stdin(Stdio::null()).output().map_err(|_| Failure::Other)?;
+        let out = crate::ssh_command().args(ssh::args(host, &known_hosts, key.as_deref(), &[], command)).stdin(Stdio::null()).output().map_err(|_| Failure::Other)?;
         // 255 is ssh's own failure; anything else is the command's, as when a Windows shell can't run the POSIX probe.
         if out.status.code() == Some(255) {
             return Err(ssh::classify(&String::from_utf8_lossy(&out.stderr)));
@@ -183,7 +182,7 @@ fn connect(host: &Host, paths: &Paths, tunnel: u32, tx: &Sender<Event>, rx: &Rec
         Err(failure) => return End::Failed(failure),
     };
     // stdin stays open for `cat` on the host: if this app dies, the pipe closes and ssh ends with it.
-    let spawned = Command::new("ssh")
+    let spawned = crate::ssh_command()
         .args(ssh::args(host, &known_hosts, key.as_deref(), &forward, &command))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

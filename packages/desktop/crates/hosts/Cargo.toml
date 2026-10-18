@@ -16,3 +16,6 @@ futures.workspace = true
 git.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+uds_windows.workspace = true

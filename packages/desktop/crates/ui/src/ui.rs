@@ -123,7 +123,41 @@ pub fn large(b: Stateful<Div>) -> Stateful<Div> {
 }
 
 pub fn button_kbd(keys: &str) -> Div {
-    div().text_size(px(12.)).font_weight(FontWeight::NORMAL).opacity(0.7).child(keys.to_string())
+    div().text_size(px(12.)).font_weight(FontWeight::NORMAL).opacity(0.7).child(os_keys(keys))
+}
+
+/// Keys as macOS writes them ("⌘⇧B", "⌘ ↵"), as this OS names them.
+pub fn os_keys(mac: &str) -> String {
+    if cfg!(target_os = "macos") { mac.to_string() } else { named_keys(mac) }
+}
+
+/// "⌘⇧B" as "Ctrl+Shift+B" and "⌘ ↵" as "Ctrl Enter": off macOS Pocket's shortcuts put Ctrl for ⌘ and Alt for ⌃.
+fn named_keys(mac: &str) -> String {
+    let name = |c: char| match c {
+        '⌘' => Some("Ctrl"),
+        '⌃' | '⌥' => Some("Alt"),
+        '⇧' => Some("Shift"),
+        '↵' | '↩' => Some("Enter"),
+        '⌫' => Some("Backspace"),
+        _ => None,
+    };
+    let key = |token: &str| {
+        let mut parts: Vec<String> = Vec::new();
+        let mut text = false;
+        for c in token.chars() {
+            if let Some(n) = name(c) {
+                parts.push(n.into());
+                text = false;
+            } else if text {
+                parts.last_mut().unwrap().push(c);
+            } else {
+                parts.push(c.into());
+                text = true;
+            }
+        }
+        parts.iter().enumerate().map(|(i, p)| if i == 0 || p.starts_with('-') { p.clone() } else { format!("+{p}") }).collect::<String>()
+    };
+    mac.split_whitespace().map(key).collect::<Vec<_>>().join(" ")
 }
 
 fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
@@ -328,7 +362,7 @@ pub fn tag(label: impl Into<SharedString>) -> Div {
 
 /// One chip per space-separated key, so "⌘ K" renders as ⌘ and K.
 pub fn kbd(keys: &str) -> Div {
-    div().flex().flex_none().gap(px(4.)).children(keys.split_whitespace().map(|k| {
+    div().flex().flex_none().gap(px(4.)).children(os_keys(keys).split_whitespace().map(|k| {
         div().px(px(6.)).py(px(1.)).rounded(px(5.)).bg(FILL_4).font_family(MONO).text_size(px(11.)).line_height(px(16.)).text_color(TEXT_2).child(k.to_string())
     }))
 }
@@ -730,7 +764,7 @@ fn session_card(id: ElementId, selected: bool, state: Option<State>) -> Stateful
 
 /// The "⌃n" chip a session row shows in place of its age while ⌃ is held.
 pub fn jump_chip(n: usize) -> Div {
-    div().h(px(16.)).px(px(4.)).flex().items_center().rounded(px(4.)).bg(FILL_4).font_family(MONO).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(format!("⌃{n}"))
+    div().h(px(16.)).px(px(4.)).flex().items_center().rounded(px(4.)).bg(FILL_4).font_family(MONO).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(os_keys(&format!("⌃{n}")))
 }
 
 /// A card's status as coloured text: the pill's glyph and label without its background.
@@ -1191,7 +1225,7 @@ pub fn trigger_field(id: impl Into<ElementId>, icon_name: &str, label: &str, key
         .text_color(TEXT_2)
         .child(icon(icon_name, 15., TEXT_3))
         .child(div().flex_1().child(label.to_string()))
-        .child(div().text_size(px(11.5)).text_color(TEXT_2).child(keys.to_string()))
+        .child(div().text_size(px(11.5)).text_color(TEXT_2).child(os_keys(keys)))
 }
 
 /// Holds a row's glyph in the project mark's column.
@@ -1272,13 +1306,18 @@ pub fn failure(message: String, detail: String) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, Mark, State, Tone, count_text, lit, marquee_cycle, marquee_offset, tone, word};
+    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, Mark, State, Tone, count_text, lit, marquee_cycle, marquee_offset, named_keys, tone, word};
     use theme::{ACCENT, ACCENT_TINT, WORKING};
 
     #[test]
     fn an_emoji_fills_more_of_its_tile_than_letters_or_a_picture_s_fallback() {
         let image = Mark::Image { path: "/logo.png".into(), letters: "AN".into() };
         assert_eq!([Mark::Emoji("🚀".into()).scale(0.34), Mark::Letters("AN".into()).scale(0.34), image.scale(0.34)], [0.6, 0.34, 0.34]);
+    }
+
+    #[test]
+    fn mac_key_glyphs_read_as_named_keys_off_macos() {
+        assert_eq!([named_keys("⌘⇧B"), named_keys("⌘ ↵"), named_keys("⌃3"), named_keys("⌘1–9"), named_keys("⌘-click"), named_keys("esc")], ["Ctrl+Shift+B", "Ctrl Enter", "Alt+3", "Ctrl+1–9", "Ctrl-click", "esc"]);
     }
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];

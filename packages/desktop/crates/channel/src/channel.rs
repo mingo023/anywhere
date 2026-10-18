@@ -1,4 +1,4 @@
-//! Release or Dev, fixed at build time: `scripts/release-mac.sh` sets `ANYWHERE_CHANNEL=release`
+//! Release or Dev, fixed at build time: `scripts/release-mac.sh` and `release-desktop.sh` set `ANYWHERE_CHANNEL=release`
 //! and every other build is Dev, so a dev build never touches the installed app (ADR 0004).
 //! Mirrors `config.Release` and its siblings in pocketd.
 
