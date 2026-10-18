@@ -202,7 +202,7 @@ Each FR is testable; the test named is the acceptance check. Idea IDs are in bra
 | 09-3 | Agents with a Conversation resume through the E06 builder [15-1, 10-7 marker; R17 §F14]:<br>• Full resumes as Ask (D28); argv validated by herdr rules; `resume_agents_on_restore` (default on);<br>• a Working Agent at shutdown gets an "Interrupted by restart" marker and goes Idle;<br>• each Agent reports `restore: resumed \| interrupted \| access_lowered \| failed` (cap `restore.v1`);<br>• codex `resume -s/-a` is probed first, with app-server `thread/resume` as the fallback. | restore fixture per provider and outcome |
 | 09-4 | Timelines rebuild from provider files: claude `transcriptPath`, codex `thread/resume` [14-4 re-derived] | rebuilt timeline equals the live one on a fixture |
 | 09-5 | The desktop re-adopts restored Terminals without user action | e2e: restart pocketd with 2 Agents → both Attached on the same Conversation ≤30 s |
-| 09-6 | Desktop and phone show the restore outcome as a row notice: "Resumed" · "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" [UXD §3.14; UXP §5.4] | one render test per outcome, both clients |
+| 09-6 | Desktop and phone show the restore outcome as a row notice, except a plain resume: "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" [UXD §3.14; UXP §5.4] | one render test per outcome, both clients |
 
 ### E10 codex-drive (M2)
 

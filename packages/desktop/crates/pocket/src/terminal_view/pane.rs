@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
+use crate::desktop::chrome::id as element_id;
 use crate::status;
-use crate::terminal_view::{cursor, scroll};
+use crate::terminal_view::{cursor, prompt, scroll};
 use crate::terminal_view::surface::{self, Metrics};
 use crate::terminals::sessions::Session;
 use crate::util::basename;
@@ -8,7 +9,9 @@ use agents::Summary;
 use daemon::Info;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::HashMap;
 use theme::*;
+use ui::icon_button_sized;
 
 /// "/bin/zsh -l" reads as "zsh": the login flag the desktop adds says nothing about the pane.
 /// A login shell shows as its name only: the script it may run to start an agent is ours, not the user's.
@@ -24,6 +27,25 @@ pub fn pane_label(agent: Option<&Summary>, session: Option<&Session>) -> String 
         (Some(a), _) => a.provider.clone(),
         (None, Some(s)) => s.busy().map_or_else(|| command_line(&s.info), str::to_string),
         (None, None) => "session".into(),
+    }
+}
+
+/// The banner each agent had when the user closed it, until the agent's banner changes.
+#[derive(Default)]
+pub struct DismissedBanners(HashMap<String, &'static str>);
+
+impl DismissedBanners {
+    pub fn dismiss(&mut self, agent: &str, text: &'static str) {
+        self.0.insert(agent.to_string(), text);
+    }
+
+    /// The banner to draw for `agent`. Any other banner, or none, forgets the close, so the closed one can come back.
+    pub fn shown(&mut self, agent: &str, banner: Option<&'static str>) -> Option<&'static str> {
+        if self.0.get(agent).copied() == banner {
+            return None;
+        }
+        self.0.remove(agent);
+        banner
     }
 }
 
@@ -56,12 +78,18 @@ impl Desktop {
         let focused = self.terminal.focused.as_deref() == Some(id);
         let exit = self.terminals.sessions.get(id).and_then(|s| s.exit);
         let known = self.terminals.sessions.get(id).is_some();
-        let banner = self.summary(id).and_then(status::banner).map(|text| {
-            div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
+        let banner = self.summary(id).map(|a| (a.id.clone(), status::banner(a)));
+        let banner = banner.and_then(|(agent, banner)| Some((self.terminal.dismissed.shown(&agent, banner)?, agent))).map(|(text, agent)| {
+            let close = icon_button_sized(element_id(format!("banner-close:{id}")), "x", 20., TEXT_3).rounded(px(5.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.terminal.dismissed.dismiss(&agent, text);
+                cx.notify();
+            }));
+            div().flex_none().flex().items_center().gap(px(8.)).pl(px(16.)).pr(px(8.)).py(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(div().flex_1().min_w_0().child(text)).child(close)
         });
+        let claude = self.summary(id).is_some_and(|a| a.provider == "claude");
         let typing = focused && self.terminal.keyboard;
         let blink_on = self.terminal.blink_on;
-        let (body, grid, scrolled, caret) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
+        let (body, grid, scrolled, caret, shown) = match self.terminals.sessions.get_mut(id).and_then(|s| s.term.as_mut()) {
             Some(t) => {
                 let (f, cells) = t.frame();
                 if typing {
@@ -69,7 +97,8 @@ impl Desktop {
                 }
                 let c = cursor::cursor(&f, typing, blink_on);
                 let caret = (focused || c.is_some()).then_some(((f.cursor_x, f.cursor_y), f.rows, c));
-                (surface::screen(&f, cells, m), Some((f.cols, f.rows)), f.at_bottom == 0, caret)
+                let shown = if claude { prompt::prompt_rows(cells, f.cols as usize) } else { Vec::new() };
+                (surface::screen(&f, cells, m), Some((f.cols, f.rows)), f.at_bottom == 0, caret, shown)
             }
             None => {
                 let offline = hosts::session::untag(id).0.is_some_and(|h| hosts::remote::connected(h).is_none());
@@ -78,9 +107,10 @@ impl Desktop {
                     (true, false) => "Connecting…",
                     (false, _) => "This session is not running.",
                 };
-                (div().text_color(TEXT_3).child(text), None, false, None)
+                (div().text_color(TEXT_3).child(text), None, false, None, Vec::new())
             }
         };
+        let prompt = grid.and_then(|(cols, _)| self.pinned_prompt(id, &shown, cols, m, cx));
         let caret = caret.map(|(at, rows, c)| {
             let preedit = self.terminal.marked.clone().filter(|_| typing);
             cursor::overlay(focused.then(|| cx.entity()), at, rows, c, preedit, m)
@@ -94,6 +124,7 @@ impl Desktop {
             .child(surface::surface(cx.entity(), id.to_string(), m, grid, focused.then(|| self.terminal.focus.clone())))
             .child(body)
             .children(caret)
+            .children(prompt)
             .children(scrolled.then(|| scroll::jump_pill(id, cx)))
             .when(self.terminals.bell.flashing.as_deref() == Some(id), |d| d.child(div().absolute().inset_0().bg(FILL_4)));
         div()
@@ -129,7 +160,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Info, command_line, pane_label};
+    use super::{DismissedBanners, Info, command_line, pane_label};
     use crate::terminals::sessions::Session;
     use agents::Summary;
 
@@ -164,5 +195,22 @@ mod tests {
         assert_eq!(command_line(&info), "fish");
         let info = Info { cmd: "pnpm".into(), args: vec!["dev".into(), "--port".into(), "8081".into()], ..Default::default() };
         assert_eq!(command_line(&info), "pnpm dev --port 8081");
+    }
+
+    #[test]
+    fn a_closed_banner_stays_hidden_until_its_agent_shows_another() {
+        let mut dismissed = DismissedBanners::default();
+        dismissed.dismiss("a", "Interrupted by restart");
+        assert_eq!(dismissed.shown("a", Some("Interrupted by restart")), None);
+        assert_eq!(dismissed.shown("b", Some("Interrupted by restart")), Some("Interrupted by restart"));
+        assert_eq!(dismissed.shown("a", Some("Couldn't resume")), Some("Couldn't resume"));
+    }
+
+    #[test]
+    fn a_closed_banner_comes_back_once_its_agent_showed_something_else() {
+        let mut dismissed = DismissedBanners::default();
+        dismissed.dismiss("a", "Interrupted by restart");
+        assert_eq!(dismissed.shown("a", None), None);
+        assert_eq!(dismissed.shown("a", Some("Interrupted by restart")), Some("Interrupted by restart"));
     }
 }

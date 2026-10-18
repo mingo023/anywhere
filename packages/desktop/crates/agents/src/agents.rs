@@ -35,6 +35,10 @@ pub struct Summary {
     pub tokens_used: u64,
     pub context_window: Option<u64>,
     pub activity: String,
+    /// The user's latest prompt in this conversation, cut short by pocketd; empty before the first.
+    pub prompt: String,
+    /// When `prompt` reached pocketd, in Unix ms.
+    pub prompt_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
     /// The account it runs on; empty is the built-in login.
@@ -1118,6 +1122,14 @@ mod tests {
         assert_eq!(a.provider_session_id.as_deref(), Some("s-1"));
         let fresh: Summary = serde_json::from_str(r#"{"id":"a"}"#).unwrap();
         assert_eq!(fresh.provider_session_id, None);
+    }
+
+    #[test]
+    fn summary_reads_the_latest_prompt_and_an_older_pocketd_sends_none() {
+        let a: Summary = serde_json::from_str(r#"{"id":"a","prompt":"fix the login","promptAt":1760670000000}"#).unwrap();
+        assert_eq!((a.prompt.as_str(), a.prompt_at), ("fix the login", 1760670000000));
+        let older: Summary = serde_json::from_str(r#"{"id":"a"}"#).unwrap();
+        assert_eq!(older.prompt, "");
     }
 
     #[test]

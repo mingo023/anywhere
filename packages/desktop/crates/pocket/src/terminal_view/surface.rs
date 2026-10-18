@@ -57,12 +57,13 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                 window.handle_input(&focus, ElementInputHandler::new(bounds, view.clone()), cx);
             }
             let (Some((hitbox, cell)), Some((cols, rows))) = (prepaint, grid) else { return };
-            window.set_cursor_style(CursorStyle::IBeam, &hitbox);
+            let on_link = view.read(cx).terminal.link_hover.as_ref() == Some(&pane);
+            window.set_cursor_style(if on_link { CursorStyle::PointingHand } else { CursorStyle::IBeam }, &hitbox);
             let top = grid_top(bounds, rows, line);
             let at = move |p: Point<Pixels>| Pointer::at(f32::from(p.x - bounds.origin.x), f32::from(p.y - top), cell, line, cols, rows);
-            let (down, moved, up, wheel) = (view.clone(), view.clone(), view.clone(), view);
-            let (down_pane, moved_pane, up_pane, wheel_pane) = (pane.clone(), pane.clone(), pane.clone(), pane);
-            let (moved_hitbox, wheel_hitbox) = (hitbox.clone(), hitbox.clone());
+            let (down, moved, up, wheel, mods) = (view.clone(), view.clone(), view.clone(), view.clone(), view);
+            let (down_pane, moved_pane, up_pane, wheel_pane, mods_pane) = (pane.clone(), pane.clone(), pane.clone(), pane.clone(), pane);
+            let (moved_hitbox, wheel_hitbox, mods_hitbox) = (hitbox.clone(), hitbox.clone(), hitbox.clone());
             window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                     down.update(cx, |d, cx| {
@@ -88,10 +89,18 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                     let hovered = moved_hitbox.is_hovered(window);
                     moved.update(cx, |d, cx| {
                         d.mouse_motion(&moved_pane, at(e.position), hovered, e.pressed_button.is_some(), e.modifiers);
+                        let pointer = (hovered && e.pressed_button.is_none()).then(|| at(e.position));
+                        d.hover_link(&moved_pane, pointer, e.modifiers, cx);
                         if e.pressed_button == Some(MouseButton::Left) {
                             d.select_extend(&moved_pane, at(e.position), cx);
                         }
                     });
+                }
+            });
+            window.on_key_event(move |e: &ModifiersChangedEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble {
+                    let pointer = mods_hitbox.is_hovered(window).then(|| at(window.mouse_position()));
+                    mods.update(cx, |d, cx| d.hover_link(&mods_pane, pointer, e.modifiers, cx));
                 }
             });
             window.on_mouse_event(move |e: &MouseUpEvent, phase, window, cx| {
@@ -131,6 +140,40 @@ fn is_icon(ch: char) -> bool {
     matches!(ch, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{FFFFD}')
 }
 
+/// Below this contrast ratio text has all but vanished into its background, as in Claude Code's sticky prompt
+/// (`rgb(80,80,80)` on `rgb(70,70,70)`, 1.2). Its dim hints on the plain background sit at 2.2 and stay as drawn.
+const MIN_CONTRAST: f32 = 2.;
+
+/// Whitespace, icons and the box, block and legacy-computing glyphs that draw shapes rather than text keep their colors:
+/// a block drawn in the color of what's behind it is meant to blend in.
+fn keeps_its_colors(ch: char) -> bool {
+    ch.is_whitespace() || is_icon(ch) || matches!(ch, '\u{2500}'..='\u{259F}' | '\u{1FB00}'..='\u{1FBFF}')
+}
+
+/// `fg` as painted over the opaque `bg`, or, as Ghostty's `minimum-contrast` does, white or black (whichever stands
+/// out more, at `fg`'s own opacity) when it is under `MIN_CONTRAST` against `bg`.
+fn legible(fg: Hsla, bg: Hsla) -> Hsla {
+    let (front, back) = (Rgba::from(fg), Rgba::from(bg));
+    let over = |f: f32, b: f32| f * front.a + b * (1. - front.a);
+    let shown = luminance([over(front.r, back.r), over(front.g, back.g), over(front.b, back.b)]);
+    let behind = luminance([back.r, back.g, back.b]);
+    if contrast(shown, behind) >= MIN_CONTRAST {
+        return fg;
+    }
+    let pick = if contrast(1., behind) >= contrast(0., behind) { white() } else { black() };
+    pick.opacity(fg.a)
+}
+
+/// WCAG relative luminance of an sRGB color.
+fn luminance(rgb: [f32; 3]) -> f32 {
+    let [r, g, b] = rgb.map(|c| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) });
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+fn contrast(a: f32, b: f32) -> f32 {
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
 fn color([r, g, b]: [u8; 3]) -> Hsla {
     rgb(((r as u32) << 16) | ((g as u32) << 8) | b as u32).into()
 }
@@ -156,10 +199,13 @@ pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
             if c.faint == 1 {
                 fg = fg.opacity(0.5);
             }
+            let ch = c.ch();
+            if !keeps_its_colors(ch) {
+                fg = legible(fg, bg.unwrap_or(paper));
+            }
             if c.selected == 1 {
                 bg = Some(SELECTION.into());
             }
-            let ch = c.ch();
             text.push(ch);
             let mut fnt = if is_icon(ch) { font(SYMBOLS) } else { base.clone() };
             if c.bold == 1 {
@@ -195,8 +241,8 @@ pub fn screen(f: &Frame, cells: &[Cell], m: &Metrics) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Metrics, grid_top, is_icon, term_font};
-    use gpui_kit::{Bounds, point, px, size};
+    use super::{Metrics, color, grid_top, is_icon, keeps_its_colors, legible, term_font};
+    use gpui_kit::{Bounds, black, point, px, size, white};
 
     #[test]
     fn leftover_height_is_split_above_and_below_the_grid() {
@@ -208,6 +254,32 @@ mod tests {
     fn nerd_font_icons_are_told_apart_from_text() {
         assert!(is_icon('\u{E0A0}') && is_icon('\u{F0001}'));
         assert!(!is_icon('a') && !is_icon('世') && !is_icon('→'));
+    }
+
+    #[test]
+    fn text_that_vanishes_into_its_background_paints_white_on_dark_and_black_on_light() {
+        assert_eq!(legible(color([80, 80, 80]), color([70, 70, 70])), white());
+        assert_eq!(legible(color([80, 80, 80]), color([55, 55, 55])), white());
+        assert_eq!(legible(color([175, 175, 175]), color([240, 240, 240])), black());
+    }
+
+    #[test]
+    fn dim_but_readable_text_keeps_its_color() {
+        let hint = color([80, 80, 80]);
+        assert_eq!(legible(hint, color([23, 23, 23])), hint);
+        let faint = color([235, 235, 235]).opacity(0.5);
+        assert_eq!(legible(faint, color([23, 23, 23])), faint);
+    }
+
+    #[test]
+    fn faint_text_that_vanishes_stays_faint_once_legible() {
+        assert_eq!(legible(color([60, 60, 60]).opacity(0.5), color([70, 70, 70])), white().opacity(0.5));
+    }
+
+    #[test]
+    fn shapes_and_spaces_keep_their_colors_but_text_does_not() {
+        assert!(keeps_its_colors(' ') && keeps_its_colors('█') && keeps_its_colors('─') && keeps_its_colors('\u{1FB00}'));
+        assert!(!keeps_its_colors('a') && !keeps_its_colors('❯') && !keeps_its_colors('đ'));
     }
 
     #[test]

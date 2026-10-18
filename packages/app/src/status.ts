@@ -25,13 +25,12 @@ export function look(agent: AgentSummary): Look {
 }
 
 const notices = new Map([
-  ["resumed", "Resumed"],
   ["interrupted", "Interrupted by restart"],
   ["access_lowered", "Full access resumed as Ask"],
   ["failed", "Couldn't resume"],
 ]);
 
-/** How a pocketd restart brought the agent back, until its next turn. */
+/** How a pocketd restart brought the agent back, until its next turn. A plain resume is the expected case, so it says nothing. */
 export function restoreNotice(agent: AgentSummary): string | undefined {
   return notices.get(agent.restore ?? "");
 }
