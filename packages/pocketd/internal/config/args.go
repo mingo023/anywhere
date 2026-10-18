@@ -10,7 +10,7 @@ import (
 )
 
 // SessionID marks where fork args take the source session's id.
-const SessionID = "{sessionId}"
+const SessionID = providers.SessionID
 
 // ArgKeys are a provider's config.json keys for the words its command line takes.
 var ArgKeys = []string{"promptArgs", "resumeArgs", "forkArgs"}

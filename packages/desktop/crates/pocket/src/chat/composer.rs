@@ -177,6 +177,10 @@ impl Desktop {
         busy(agent, self.chats.views.get(&agent.id).map(|v| &v.session))
     }
 
+    fn chat_caps(&self, provider: &str) -> chat::Capabilities {
+        chat::capabilities(provider, self.agents.provider_info(provider).chat)
+    }
+
     fn chat_stopping(&self, agent: &Summary) -> bool {
         self.chats.views.get(&agent.id).is_some_and(|v| v.session.outgoing.stopping())
     }
@@ -238,7 +242,7 @@ impl Desktop {
             return;
         }
         let busy = self.chat_busy(a);
-        if busy && !chat::capabilities(&a.provider, self.agents.provider_info(&a.provider).chat).send_while_working {
+        if busy && !self.chat_caps(&a.provider).send_while_working {
             return;
         }
         let steer = steers(steer, busy, self.chat_stopping(a));
@@ -288,7 +292,7 @@ impl Desktop {
     fn chat_escape(&mut self, terminal: &str, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
         let action = chat::action(self.chat_busy(a), self.chat_stopping(a), self.chats.input.read(cx).value().is_empty());
-        if action != Action::Stop || !chat::capabilities(&a.provider, self.agents.provider_info(&a.provider).chat).interrupt {
+        if action != Action::Stop || !self.chat_caps(&a.provider).interrupt {
             return;
         }
         let agent = a.id.clone();
@@ -331,7 +335,7 @@ impl Desktop {
             Mode::Permission { answerable: true } | Mode::Question { answerable: true } => Some(hand_focus(vec![input], c.ask_focus.clone())),
             _ => None,
         };
-        let can_queue = chat::capabilities(&agent.provider, self.agents.provider_info(&agent.provider).chat).send_while_working;
+        let can_queue = self.chat_caps(&agent.provider).send_while_working;
         let (busy, stopping) = (self.chat_busy(agent), self.chat_stopping(agent));
         let placeholder = placeholder(busy, stopping, can_queue);
         if c.placeholder.replace(placeholder) != placeholder {
@@ -385,7 +389,7 @@ impl Desktop {
     }
 
     fn prompt_box(&self, terminal: &str, agent: &Summary, view_only: bool, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let caps = chat::capabilities(&agent.provider, self.agents.provider_info(&agent.provider).chat);
+        let caps = self.chat_caps(&agent.provider);
         let held = self.chats.drafts.owner() == Some(agent.id.as_str());
         let (typed, images) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && images.is_empty();
