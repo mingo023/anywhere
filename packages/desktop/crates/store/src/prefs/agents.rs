@@ -11,14 +11,6 @@ pub const CHAT_TO: [&str; 3] = ["focused", "recent", "ask"];
 /// Claude Code's model aliases; its CLI lists no models.
 pub const CLAUDE_MODELS: [&str; 3] = ["haiku", "sonnet", "opus"];
 
-/// The efforts pocketd passes to Claude Code.
-pub const CLAUDE_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-
-/// The efforts `provider` takes; pocketd refuses one for Codex.
-pub fn efforts(provider: &str) -> &'static [&'static str] {
-    if provider == PLANS { &CLAUDE_EFFORTS } else { &[] }
-}
-
 /// A provider's own settings; empty leaves each to the agent.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
 #[serde(default)]
@@ -183,18 +175,18 @@ impl Agents {
         LaunchPick { account: String::new(), ..remembered.switched(provider) }
     }
 
-    /// A create spec with plan mode where its agent has one, and this permission mode and its provider's model and effort where it names none.
-    pub fn launch(&self, spec: &mut serde_json::Value) {
+    /// A create spec with plan mode where its agent has one (`plan`), and this permission mode and its provider's model and effort, if one of its `efforts`, where it names none.
+    pub fn launch(&self, spec: &mut serde_json::Value, plan: bool, efforts: &[String]) {
         if spec.get("access").is_none() {
             spec["access"] = self.access().into();
         }
-        spec["plan"] = (self.plan && spec["provider"] == PLANS).into();
+        spec["plan"] = (self.plan && plan).into();
         let provider = spec["provider"].as_str().unwrap_or_default().to_string();
         let own = self.provider(&provider);
         if spec.get("model").is_none() && !own.model.is_empty() {
             spec["model"] = own.model.into();
         }
-        if spec.get("effort").is_none() && efforts(&provider).contains(&own.effort.as_str()) {
+        if spec.get("effort").is_none() && efforts.contains(&own.effort) {
             spec["effort"] = own.effort.into();
         }
     }
@@ -223,13 +215,14 @@ impl Agents {
     }
 }
 
-/// The one agent with a plan mode; pocketd refuses plan for Codex.
-const PLANS: &str = "claude";
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn claude_efforts() -> Vec<String> {
+        ["low", "medium", "high", "xhigh", "max"].map(String::from).to_vec()
+    }
 
     #[test]
     fn a_blank_or_repeated_starter_prompt_is_not_added() {
@@ -288,7 +281,9 @@ mod tests {
         *a.provider_mut("claude") = Provider { model: "opus".into(), effort: "high".into(), ..Provider::default() };
         *a.provider_mut("codex") = Provider { model: "gpt-5".into(), effort: "high".into(), ..Provider::default() };
         let (mut claude, mut named, mut codex) = (json!({"provider": "claude"}), json!({"provider": "claude", "model": "haiku"}), json!({"provider": "codex"}));
-        [&mut claude, &mut named, &mut codex].into_iter().for_each(|s| a.launch(s));
+        a.launch(&mut claude, true, &claude_efforts());
+        a.launch(&mut named, true, &claude_efforts());
+        a.launch(&mut codex, false, &[]);
         assert_eq!((&claude["model"], &claude["effort"]), (&json!("opus"), &json!("high")));
         assert_eq!((&named["model"], &named["effort"]), (&json!("haiku"), &json!("high")));
         assert_eq!((&codex["model"], codex.get("effort")), (&json!("gpt-5"), None));
@@ -323,8 +318,8 @@ mod tests {
     fn plan_mode_goes_only_to_the_agent_that_has_one() {
         let a = Agents { access: "auto".into(), plan: true, ..Agents::default() };
         let (mut claude, mut codex) = (serde_json::json!({"provider": "claude"}), serde_json::json!({"provider": "codex"}));
-        a.launch(&mut claude);
-        a.launch(&mut codex);
+        a.launch(&mut claude, true, &claude_efforts());
+        a.launch(&mut codex, false, &[]);
         assert_eq!((&claude["access"], &claude["plan"], &codex["access"], &codex["plan"]), (&"auto".into(), &true.into(), &"auto".into(), &false.into()));
     }
 
@@ -332,7 +327,7 @@ mod tests {
     fn a_launch_takes_the_app_s_permission_mode_unless_it_names_its_own() {
         let a = Agents { access: "auto".into(), ..Agents::default() };
         let mut named = json!({"provider": "claude", "access": "ask"});
-        a.launch(&mut named);
+        a.launch(&mut named, true, &claude_efforts());
         assert_eq!(named["access"], "ask");
     }
 

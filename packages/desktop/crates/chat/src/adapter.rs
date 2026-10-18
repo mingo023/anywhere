@@ -14,6 +14,12 @@ pub struct Capabilities {
     pub sub_agents: bool,
 }
 
+impl From<agents::providers::ChatCaps> for Capabilities {
+    fn from(c: agents::providers::ChatCaps) -> Self {
+        Self { interrupt: c.interrupt, compact: c.compact, send_while_working: c.send_while_working, sub_agents: c.sub_agents }
+    }
+}
+
 impl Capabilities {
     /// Whether the composer's button may do `action` for this agent.
     pub fn allows(&self, action: Action) -> bool {
@@ -53,6 +59,11 @@ pub fn for_provider(provider: &str) -> &'static dyn Backend<Item = agents::Item,
     }
 }
 
+/// What `provider`'s chat can do: what pocketd `said`, else its adapter's own, for a pocketd older than `chat`.
+pub fn capabilities(provider: &str, said: Option<agents::providers::ChatCaps>) -> Capabilities {
+    said.map_or_else(|| for_provider(provider).capabilities(), Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,6 +90,13 @@ mod tests {
         assert_eq!(claude.panel("/costs went up, why?"), None);
         assert_eq!(claude.panel("/usage/report.md is empty"), None);
         assert_eq!(for_provider("codex").panel("/cost"), None);
+    }
+
+    #[test]
+    fn pocketd_s_chat_caps_win_over_the_adapter_s() {
+        let said = agents::providers::ChatCaps { interrupt: true, ..Default::default() };
+        assert_eq!(capabilities("claude", Some(said)), Capabilities { interrupt: true, ..Default::default() });
+        assert_eq!(capabilities("codex", None), for_provider("codex").capabilities());
     }
 
     #[test]

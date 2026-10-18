@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"pocketd/internal/config"
 	"pocketd/internal/launch"
 	"pocketd/internal/ops"
+	"pocketd/internal/providers"
 	"pocketd/internal/reach"
 )
 
@@ -117,7 +119,7 @@ func configSetter(l *launch.Launcher, settings *config.Settings, changed func())
 		if key == "phone.maxAccess" {
 			return l.SetPhoneMaxAccess(value)
 		}
-		if key == "claude.command" || key == "codex.command" {
+		if id, name, _ := strings.Cut(key, "."); name == "command" && providers.Get(id) != nil {
 			if err := l.CheckCommand(value); err != nil {
 				return err
 			}

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"pocketd/internal/providers"
 )
 
 const CapAutomations = "automations.v1"
@@ -82,7 +84,7 @@ type Automation struct {
 func (a Automation) Valid() bool {
 	name := utf8.RuneCountInString(strings.TrimSpace(a.Name))
 	return name >= 1 && name <= MaxName && a.Prompt != "" && len(a.Prompt) <= MaxPrompt &&
-		(a.Provider == "claude" || a.Provider == "codex") && a.Folder != "" && a.Schedule.Valid() &&
+		providers.Get(a.Provider) != nil && a.Folder != "" && a.Schedule.Valid() &&
 		(a.Access == "" || slices.Contains(Accesses, a.Access))
 }
 

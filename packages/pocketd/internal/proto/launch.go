@@ -3,6 +3,8 @@ package proto
 import (
 	"encoding/json"
 	"slices"
+
+	"pocketd/internal/providers"
 )
 
 const CapLaunch = "launch.v1"
@@ -124,10 +126,11 @@ func NewAgentCreated(id, requestID, agentID, terminalID string) AgentCreated {
 }
 
 type ProviderInfo struct {
-	ID        string   `json:"id"`
-	Available bool     `json:"available"`
-	Efforts   []string `json:"efforts"`
-	Plan      bool     `json:"plan"`
+	ID        string         `json:"id"`
+	Available bool           `json:"available"`
+	Efforts   []string       `json:"efforts"`
+	Plan      bool           `json:"plan"`
+	Chat      providers.Chat `json:"chat"`
 }
 
 type AgentProviders struct {
@@ -191,7 +194,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 	if set != 1 || c.New != nil && !c.New.valid() || c.Local != "" && !ValidLocalID(c.Local) {
 		return false
 	}
-	if s.Provider != "claude" && s.Provider != "codex" || !slices.Contains(Accesses, s.Access) || len(s.Prompt) > MaxPrompt {
+	if providers.Get(s.Provider) == nil || !slices.Contains(Accesses, s.Access) || len(s.Prompt) > MaxPrompt {
 		return false
 	}
 	*dst = &s

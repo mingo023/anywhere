@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { Access } from "./launch.js";
+import { Access, ProviderId } from "./launch.js";
 
 export const Schedule = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("days"), days: Schema.Array(Schema.Int), time: Schema.String }),
@@ -11,7 +11,7 @@ export const AutomationDraft = Schema.Struct({
   id: Schema.optional(Schema.String),
   name: Schema.String,
   prompt: Schema.String,
-  provider: Schema.Literal("claude", "codex"),
+  provider: ProviderId,
   folder: Schema.String,
   schedule: Schedule,
   enabled: Schema.Boolean,
@@ -23,7 +23,7 @@ export const Automation = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   prompt: Schema.String,
-  provider: Schema.Literal("claude", "codex"),
+  provider: ProviderId,
   folder: Schema.String,
   schedule: Schedule,
   enabled: Schema.Boolean,

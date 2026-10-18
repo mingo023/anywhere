@@ -20,6 +20,7 @@ import (
 	"pocketd/internal/names"
 	"pocketd/internal/naming"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
@@ -429,25 +430,24 @@ func (l *Launcher) Exited(terminalID, phase string, status int) {
 // Providers lists the agents the user's shell can run. maxAccess is w's ceiling.
 func (l *Launcher) Providers(w Who) (list []proto.ProviderInfo, maxAccess, phoneMax string) {
 	env := l.d.LoginEnv()
-	_, claude := l.find("claude", env)
-	_, codex := l.find("codex", env)
+	for _, p := range providers.All {
+		_, ok := l.find(p.ID, env)
+		list = append(list, proto.ProviderInfo{ID: p.ID, Available: ok, Efforts: p.Efforts, Plan: p.Plan, Chat: p.Chat})
+	}
 	phoneMax = l.set.PhoneMaxAccess()
 	maxAccess = phoneMax
 	if w.Owner {
 		maxAccess = "full"
 	}
-	return []proto.ProviderInfo{
-		{ID: "claude", Available: claude, Efforts: ClaudeEfforts, Plan: true},
-		{ID: "codex", Available: codex, Efforts: []string{}, Plan: false},
-	}, maxAccess, phoneMax
+	return list, maxAccess, phoneMax
 }
 
 // Paths is what runs each built-in agent: a path, a shell function's name, or empty.
 func (l *Launcher) Paths() map[string]string {
 	env := l.d.LoginEnv()
 	paths := map[string]string{}
-	for _, p := range []string{"claude", "codex"} {
-		paths[p], _ = l.find(p, env)
+	for _, p := range providers.All {
+		paths[p.ID], _ = l.find(p.ID, env)
 	}
 	return paths
 }

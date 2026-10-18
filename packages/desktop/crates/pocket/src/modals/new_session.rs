@@ -533,7 +533,8 @@ impl Desktop {
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
-        self.store.agents.launch(&mut spec);
+        let info = self.agents.provider_info(&pick.provider);
+        self.store.agents.launch(&mut spec, info.plan, &info.efforts);
         self.store.repos.entry(project.clone()).or_default().launch = pick;
         if worktree {
             self.store.collapsed.remove(&project);

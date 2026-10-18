@@ -4,6 +4,9 @@ import { LocalId } from "./locals.js";
 export const Access = Schema.Literal("settings", "ask", "edits", "auto", "full");
 export type Access = typeof Access.Type;
 
+export const ProviderId = Schema.Literal("claude", "codex");
+export type ProviderId = typeof ProviderId.Type;
+
 export const PhoneAccess = Schema.Literal("ask", "edits", "auto");
 export type PhoneAccess = typeof PhoneAccess.Type;
 
@@ -26,7 +29,7 @@ export const Checkout = Schema.Union(
 export const LaunchSpec = Schema.Struct({
   project: Schema.String,
   checkout: Checkout,
-  provider: Schema.Literal("claude", "codex"),
+  provider: ProviderId,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
   access: Access,
@@ -37,11 +40,21 @@ export const LaunchSpec = Schema.Struct({
 });
 export type LaunchSpec = typeof LaunchSpec.Type;
 
+export const ChatCaps = Schema.Struct({
+  interrupt: Schema.Boolean,
+  compact: Schema.Boolean,
+  sendWhileWorking: Schema.Boolean,
+  subAgents: Schema.Boolean,
+});
+export type ChatCaps = typeof ChatCaps.Type;
+
 export const ProviderInfo = Schema.Struct({
   id: Schema.String,
   available: Schema.Boolean,
   efforts: Schema.Array(Schema.String),
   plan: Schema.Boolean,
+  // Optional: older pocketds don't send it.
+  chat: Schema.optional(ChatCaps),
 });
 export type ProviderInfo = typeof ProviderInfo.Type;
 

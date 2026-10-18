@@ -12,13 +12,25 @@
         "xhigh",
         "max"
       ],
-      "plan": true
+      "plan": true,
+      "chat": {
+        "interrupt": true,
+        "compact": true,
+        "sendWhileWorking": true,
+        "subAgents": true
+      }
     },
     {
       "id": "codex",
       "available": false,
       "efforts": [],
-      "plan": false
+      "plan": false,
+      "chat": {
+        "interrupt": true,
+        "compact": true,
+        "sendWhileWorking": true,
+        "subAgents": false
+      }
     }
   ],
   "maxAccess": "full",

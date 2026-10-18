@@ -262,7 +262,7 @@ impl Desktop {
         let p = LaunchPick::PROVIDERS[i];
         let effort = self.store.agents.provider(p).effort;
         let trigger = action("claude-effort", "").child(effort_label(&effort)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown("claude-effort", trigger, effort_options(p, "Agent default"), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
+        let menu = dropdown("claude-effort", trigger, effort_options(&self.agents.provider_info(p).efforts, "Agent default"), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
         row(setting.label, setting.hint, menu)
     }
 

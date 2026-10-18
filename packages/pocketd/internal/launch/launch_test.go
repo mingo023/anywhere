@@ -16,6 +16,7 @@ import (
 	"pocketd/internal/hub"
 	"pocketd/internal/locals"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
@@ -87,6 +88,13 @@ func TestProvidersShowWhatIsInstalledAndTheCeiling(t *testing.T) {
 	list, max, phone := l.Providers(Who{Owner: true, Key: "owner"})
 	if len(list) != 2 || !list[0].Available || list[1].Available || len(list[0].Efforts) != 5 || !list[0].Plan || list[1].Plan {
 		t.Fatalf("got %+v", list)
+	}
+	if list[1].Efforts == nil || len(list[1].Efforts) != 0 || list[0].ID != "claude" || list[1].ID != "codex" {
+		t.Fatalf("got %+v", list)
+	}
+	if list[0].Chat != (providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true}) ||
+		list[1].Chat != (providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}) {
+		t.Fatalf("chat %+v %+v", list[0].Chat, list[1].Chat)
 	}
 	if max != "full" || phone != "ask" {
 		t.Fatalf("owner: max %q phone %q", max, phone)

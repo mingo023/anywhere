@@ -6,7 +6,7 @@ mod rows;
 mod session;
 mod timeline;
 
-pub use adapter::{for_provider, Backend, Capabilities};
+pub use adapter::{capabilities, for_provider, Backend, Capabilities};
 pub use outgoing::{action, busy, Action, Delivery, Outgoing, Pending};
 pub use rows::{at_work, at_work_on, first_sentence, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, phase_title, reply, rows, settled_tail, splice, top_gap, worked, Row};
 pub use session::{Folds, Session};
