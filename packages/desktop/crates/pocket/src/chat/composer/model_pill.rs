@@ -14,7 +14,7 @@ pub(super) fn label(agent: &Summary) -> (String, Option<String>) {
 
 /// Whether the agent runs `value`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus".
 fn runs(agent: &Summary, value: &str) -> bool {
-    agent.model.as_deref().is_some_and(|m| m == value || matches!(agents::providers::get(&agent.provider).map(|b| b.models), Some(agents::providers::Models::Aliases(_))) && m.split('-').any(|w| w == value))
+    agent.model.as_deref().is_some_and(|m| m == value || agents::providers::get(&agent.provider).is_some_and(|b| b.aliases().is_some()) && m.split('-').any(|w| w == value))
 }
 
 /// The agent's model and effort, as read where they can't be switched.
@@ -88,7 +88,7 @@ impl Desktop {
 
         let side_menu = side.map(|s| {
             let choices = match s {
-                Side::Model => listed_models(&agent.provider, self.codex_models()),
+                Side::Model => listed_models(&agent.provider, self.catalog_models()),
                 Side::Effort => levels.iter().map(|e| (e.clone(), effort_label(e))).collect(),
             };
             let list = choices

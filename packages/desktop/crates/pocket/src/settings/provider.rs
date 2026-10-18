@@ -255,7 +255,7 @@ impl Desktop {
     fn model_row(&mut self, i: usize, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let p = LaunchPick::PROVIDERS[i];
         let model = self.store.agents.provider(p).model;
-        let options = model_options(p, self.codex_models(), &model, "Agent default");
+        let options = model_options(p, self.catalog_models(), &model, "Agent default");
         let id = ROW_IDS[i].1;
         let trigger = action(id, "").child(model_label_of(&options, &model)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let menu = dropdown(id, trigger, options, &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);

@@ -66,7 +66,7 @@ impl Desktop {
     /// The agent, model and effort a session starts with, in one pill.
     pub(super) fn model_pill(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Model));
-        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &self.agents.provider_info(&pick.provider).efforts, self.codex_models());
+        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &self.agents.provider_info(&pick.provider).efforts, self.catalog_models());
         let chip = ui::menu_chip("composer-model", open)
             .child(provider_icon(&pick.provider, 13., TEXT))
             .child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model))
@@ -85,7 +85,7 @@ impl Desktop {
     fn model_menu(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, side) = (c.slot, c.draft.side);
         let levels = &self.agents.provider_info(&pick.provider).efforts;
-        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), levels, self.codex_models());
+        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), levels, self.catalog_models());
         let open_side = |to: Side, search: Entity<InputState>| {
             move |this: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>| {
                 let draft = &mut slot(this).draft;
@@ -177,7 +177,7 @@ impl Desktop {
 
         let same = viewed == pick.provider;
         let picked = if same { pick.model.as_str() } else { "" };
-        let choices = matching(launch::model_choices(viewed, self.codex_models(), picked, &self.store.agents.provider(viewed).model), &c.search.read(cx).value());
+        let choices = matching(launch::model_choices(viewed, self.catalog_models(), picked, &self.store.agents.provider(viewed).model), &c.search.read(cx).value());
         let chosen = same.then(|| choices.iter().position(|(v, _)| *v == picked)).flatten();
         let empty = choices.is_empty();
         let base = pick.switched(viewed);

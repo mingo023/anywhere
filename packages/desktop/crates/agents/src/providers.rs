@@ -83,6 +83,16 @@ pub const ALL: [Builtin; 2] = [
     },
 ];
 
+impl Builtin {
+    /// The model aliases it's offered with, if it takes aliases.
+    pub fn aliases(&self) -> Option<&'static [&'static str]> {
+        match self.models {
+            Models::Aliases(a) => Some(a),
+            Models::Catalog => None,
+        }
+    }
+}
+
 pub const COUNT: usize = ALL.len();
 
 pub const IDS: [&str; COUNT] = {

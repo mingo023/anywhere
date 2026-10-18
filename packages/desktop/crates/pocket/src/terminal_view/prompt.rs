@@ -122,7 +122,7 @@ impl Desktop {
         let (cell, line) = (m.size * MONO_CELL, m.line);
         let width = cols as f32 * cell;
         let agent = self.summary(pane)?;
-        let claude = agents::providers::get(&agent.provider).is_some_and(|b| b.terminal_prompts);
+        let prompts = agents::providers::get(&agent.provider).is_some_and(|b| b.terminal_prompts);
         let said = said(self.agents.timelines.get(&agent.id), agent);
         let top = at_top(shown, &said)?.clone();
         let open = self.terminal.prompts.is_open(pane, &top.text);
@@ -181,7 +181,7 @@ impl Desktop {
                     .text_size(px(SIZE))
                     .line_height(px(LINE))
                     .text_color(TEXT)
-                    .when(claude, |d| {
+                    .when(prompts, |d| {
                         let jumped = pane.to_string();
                         d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.jump_to_prompt(&jumped, cell, line, cx)))
                     })
