@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"pocketd/internal/agent"
 	"slices"
 	"strings"
 	"sync"
@@ -165,10 +166,19 @@ func (x *codexChat) status(st threadStatus) {
 	}
 }
 
-// chatCodex opens the thread of a codex run for the chat: saved's, which a
-// resumed or handed-down codex had, else a new one.
-func (d *Daemon) chatCodex(pr *presence, saved string) {
-	x := pr.codex
+func (x *codexChat) driver(c termDriver) agent.Driver { return codexChatDriver{c, x.d, x} }
+
+// attach opens the thread: the one a resumed or handed-down codex had, else a new one.
+func (x *codexChat) attach() {
+	saved := ""
+	if h := x.d.hintOf(x.pr); h != nil {
+		saved = h.saved.ConversationID
+	}
+	go x.d.chatCodex(x, saved)
+}
+
+func (d *Daemon) chatCodex(x *codexChat, saved string) {
+	pr := x.pr
 	x.s = codex.NewSession(pr.a.ID(), codexSink{pr.a}, d.Broker)
 	ctx := pr.ctx
 	stop := context.AfterFunc(ctx, x.Close)
@@ -286,13 +296,14 @@ var (
 type codexChatDriver struct {
 	termDriver
 	d *Daemon
+	x *codexChat
 }
 
 func (c codexChatDriver) Prompt(text string) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
-	x := c.pr.codex
+	x := c.x
 	x.mu.Lock()
 	ok, err := x.opened()
 	if !ok && err == nil {
@@ -309,7 +320,7 @@ func (c codexChatDriver) Interrupt() error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
-	x := c.pr.codex
+	x := c.x
 	x.mu.Lock()
 	turn := x.turn
 	x.stopping = turn != ""
@@ -334,11 +345,11 @@ func (c codexChatDriver) Compact() error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
-	if err := c.pr.codex.usable(); err != nil {
+	if err := c.x.usable(); err != nil {
 		return err
 	}
 	c.a.SetCompacting()
-	return c.pr.codex.call("thread/compact/start", map[string]any{})
+	return c.x.call("thread/compact/start", map[string]any{})
 }
 
 // Settings applies to the thread's next turns; a resume keeps it, as the
@@ -347,7 +358,7 @@ func (c codexChatDriver) Settings(model, effort string) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
-	if err := c.pr.codex.usable(); err != nil {
+	if err := c.x.usable(); err != nil {
 		return err
 	}
 	params := map[string]any{}
@@ -357,7 +368,7 @@ func (c codexChatDriver) Settings(model, effort string) error {
 	if effort != "" {
 		params["effort"] = effort
 	}
-	if err := c.pr.codex.call("thread/settings/update", params); err != nil {
+	if err := c.x.call("thread/settings/update", params); err != nil {
 		return err
 	}
 	c.pr.switched(model, effort)

@@ -22,52 +22,15 @@ func Resume(t state.Terminal, args config.AgentArgs) ([]string, *Failure) {
 	if !resumeID.MatchString(t.ConversationID) {
 		return nil, invalidResume("conversation id")
 	}
-	// pocketd resumes its thread over JSON-RPC.
-	if t.Provider == "codex" && t.Chat {
-		if l.Access == "full" {
-			l.Access = "ask"
-		}
-		argv := codexChat(l.Access, l.Model, l.Effort)
+	c := clis[t.Provider]
+	if c == nil {
+		return nil, invalidResume("provider " + t.Provider)
+	}
+	if argv, ok := c.chatResume(t, l); ok {
 		return argv, ValidResume(argv)
 	}
 	argv := append(append([]string{t.Provider}, args.Resume...), t.ConversationID)
-	switch t.Provider {
-	case "claude":
-		mode := map[string]string{"edits": "acceptEdits", "auto": "auto"}[l.Access]
-		if l.Plan {
-			mode = "plan"
-		}
-		if mode == "" && l.Access != "settings" {
-			mode = "default"
-		}
-		if mode != "" {
-			argv = append(argv, "--permission-mode", mode)
-		}
-		if l.Model != "" {
-			argv = append(argv, "--model", l.Model)
-		}
-		if l.Effort != "" {
-			argv = append(argv, "--effort", l.Effort)
-		}
-		if t.Chat {
-			argv = append(argv, chatFlags...)
-		}
-	case "codex":
-		switch l.Access {
-		case "settings":
-		case "edits":
-			argv = append(argv, "-s", "workspace-write", "-a", "on-request")
-		case "auto":
-			argv = append(argv, "--approve-for-me")
-		default:
-			argv = append(argv, "-s", "read-only", "-a", "on-request")
-		}
-		if l.Model != "" {
-			argv = append(argv, "-m", l.Model)
-		}
-	default:
-		return nil, invalidResume("provider " + t.Provider)
-	}
+	argv = c.resume(t, l, argv)
 	if len(args.Resume) == 0 {
 		return nil, &Failure{Code: "resume_not_accepted", Message: "This agent has no resume args in Settings"}
 	}

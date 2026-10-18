@@ -80,9 +80,8 @@ func (l *Launcher) signIn(provider, id string) ops.Msg {
 }
 
 func loginArgv(provider, exe string) []string {
-	if provider == "codex" {
-		// A device code works on a host whose browser is elsewhere.
-		return []string{exe, "login", "--device-auth"}
+	if c := clis[provider]; c != nil {
+		return c.login(exe)
 	}
 	return []string{exe, "auth", "login"}
 }
@@ -95,8 +94,8 @@ func (l *Launcher) signOut(provider, id string) {
 		return
 	}
 	argv := []string{exe, "logout"}
-	if provider == "claude" {
-		argv = []string{exe, "auth", "logout"}
+	if c := clis[provider]; c != nil {
+		argv = c.logout(exe)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

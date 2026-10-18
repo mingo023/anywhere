@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"pocketd/internal/providers"
 )
 
 func TestTheLastObjectWithNamesWins(t *testing.T) {
@@ -45,6 +47,17 @@ func TestEachProviderRunsHeadlessOnACheapModel(t *testing.T) {
 	}
 	if got := Command("codex", "/bin/codex", "P"); !reflect.DeepEqual(got, []string{"/bin/codex", "exec", "--skip-git-repo-check", "-m", "gpt-5.6-luna", "P"}) {
 		t.Fatal(got)
+	}
+	if got := Command("gemini", "/bin/gemini", "P"); !reflect.DeepEqual(got, []string{"/bin/gemini", "--strict-mcp-config", "-p", "--model", "haiku", "P"}) {
+		t.Fatal(got)
+	}
+}
+
+func TestEveryProviderHasANamingCommand(t *testing.T) {
+	for _, p := range providers.All {
+		if _, ok := commands[p.ID]; !ok {
+			t.Errorf("%s has no naming command", p.ID)
+		}
 	}
 }
 

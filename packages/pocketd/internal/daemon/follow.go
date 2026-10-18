@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"log"
-	"os"
 	"slices"
 	"time"
 
@@ -70,11 +69,8 @@ func (d *Daemon) move(pr *presence, want string) {
 	if e.AgentID == "" {
 		return
 	}
-	// A conversation that has had no prompt has no transcript, and claude can't resume it.
-	if pr.provider == "claude" {
-		if _, err := os.Stat(e.TranscriptPath); err != nil {
-			return
-		}
+	if !kindOf[pr.provider].resumable(e) {
+		return
 	}
 	if e.Account != "" && d.Accounts != nil {
 		// Its history must be reachable from the account it moves to.

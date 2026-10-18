@@ -28,9 +28,9 @@ type presence struct {
 	argv, env []string
 	ctx       context.Context
 	cancel    context.CancelFunc
-	sock      string     // codex's app-server; set under Daemon.mu
-	stream    *stream    // the stdio of an agent run for the chat; nil for one in its TUI
-	codex     *codexChat // the app-server of a codex run for the chat
+	sock      string   // codex's app-server; set under Daemon.mu
+	stream    *stream  // the stdio of an agent run for the chat; nil for one in its TUI
+	chat      pipeChat // its chat behind `pocketd pipe`; nil in a TUI
 
 	mu         sync.Mutex
 	transcript string
@@ -68,20 +68,15 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	}
 	pr := &presence{t: t, pid: p.Pid, provider: provider, argv: argv, env: p.Env, ctx: ctx, cancel: cancel, asks: map[string]int{},
 		launch: state.Parse(provider, argv), stream: s}
-	if s != nil && provider == "codex" {
-		pr.codex = newCodexChat(d, pr)
+	if s != nil {
+		pr.chat = kindOf[provider].pipe(d, pr)
 	}
-	if provider == "codex" && prompted(argv) {
-		pr.prompted, pr.enter = true, time.Now()
-	}
+	kindOf[provider].started(d, pr)
 	info := t.Info()
 	driver := func(a *agent.Agent) agent.Driver {
 		c := termDriver{t: t, a: a, pid: p.Pid, pr: pr}
-		switch {
-		case pr.codex != nil:
-			return codexChatDriver{c, d}
-		case s != nil:
-			return streamDriver{c, d}
+		if pr.chat != nil {
+			return pr.chat.driver(c)
 		}
 		return c
 	}
@@ -183,46 +178,11 @@ func (d *Daemon) attach(pr *presence) {
 	if h := d.hintOf(pr); h != nil && h.handoff {
 		defer d.handedOver(pr, h)
 	}
-	if pr.codex != nil {
-		saved := ""
-		if h := d.hintOf(pr); h != nil {
-			saved = h.saved.ConversationID
-		}
-		go d.chatCodex(pr, saved)
+	if pr.chat != nil {
+		pr.chat.attach()
 		return
 	}
-	if pr.provider == "codex" {
-		d.attachCodex(pr)
-		if h := d.hintOf(pr); h != nil && pr.sock != "" {
-			d.bind(pr, h.saved.ConversationID)
-		}
-		return
-	}
-	if h := d.hintOf(pr); h != nil && claude.InProjects(h.saved.TranscriptPath, pr.env) {
-		pr.mu.Lock()
-		if pr.transcript == "" {
-			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "")
-		}
-		pr.mu.Unlock()
-	}
-	if pr.stream == nil {
-		if p := launchPrompt(pr.argv); p != "" {
-			pr.entered(p)
-		}
-		d.discover(pr)
-	}
-	expired := time.After(ClaudeAttachWait)
-	go func() {
-		select {
-		case <-pr.ctx.Done():
-		case <-expired:
-			pr.mu.Lock()
-			defer pr.mu.Unlock()
-			if !pr.hooked && !pr.reported && (pr.stream == nil || !pr.stream.connected()) {
-				pr.a.SetAttached(false)
-			}
-		}
-	}()
+	kindOf[pr.provider].attach(d, pr)
 }
 
 func (pr *presence) isDrafted() bool {
@@ -466,23 +426,8 @@ func (c termDriver) Prompt(text string) error {
 	return c.typeIn(text)
 }
 
-// typeIn clears Claude's input after a stop first: a prompt stopped before
-// its reply goes back there, and would run on into text. A draft the user
-// left there would too, so it is put aside instead, with whatever else the
-// input holds. It notes the prompt first, so it is known before Claude writes it.
 func (c termDriver) typeIn(text string) error {
-	if c.pr.provider != "claude" {
-		return c.t.Prompt(text)
-	}
-	c.pr.typedPrompt(text)
-	refilled := c.a.Refilled()
-	if c.pr.isDrafted() {
-		return c.t.PromptStashed(text)
-	}
-	if refilled {
-		return c.t.PromptOver(text)
-	}
-	return c.t.Prompt(text)
+	return kindOf[c.pr.provider].typeIn(c, text)
 }
 
 func (c termDriver) Interrupt() error {
@@ -508,19 +453,12 @@ func (c termDriver) Compact() error {
 	return c.typeIn("/compact")
 }
 
-// Settings types claude's own commands but switches codex through its
-// app-server, as codex's /model opens a picker. A resume keeps the switch.
+// Settings switches through the provider; a resume keeps the switch.
 func (c termDriver) Settings(model, effort string) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
-	var err error
-	if c.pr.provider == "codex" {
-		err = c.pr.switchCodex(model, effort)
-	} else {
-		err = c.typeSettings(model, effort)
-	}
-	if err != nil {
+	if err := kindOf[c.pr.provider].settings(c, model, effort); err != nil {
 		return err
 	}
 	c.pr.switched(model, effort)

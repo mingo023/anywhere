@@ -327,13 +327,14 @@ func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step
 
 func on(b *bool) bool { return b == nil || *b }
 
-// trust refuses a phone's claude where Claude would wait on its trust dialog:
+// trust refuses a phone's agent where it would wait on a trust dialog:
 // nobody at the Mac would see it.
 func trust(w Who, s proto.LaunchSpec, dir string, env []string) *Failure {
-	if w.Owner || s.Provider != "claude" || trustedAt(env, dir) {
+	c := clis[s.Provider]
+	if w.Owner || c == nil {
 		return nil
 	}
-	return fail("folder_not_trusted", "Trust this folder in Claude on your Mac first")
+	return c.untrusted(env, dir)
 }
 
 func gitFailure(err error) *Failure {
