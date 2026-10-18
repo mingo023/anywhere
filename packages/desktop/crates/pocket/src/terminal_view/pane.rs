@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use crate::desktop::chrome::id as element_id;
 use crate::status;
 use crate::terminal_view::{cursor, prompt, scroll};
 use crate::terminal_view::surface::{self, Metrics};
@@ -8,7 +9,9 @@ use agents::Summary;
 use daemon::Info;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::HashMap;
 use theme::*;
+use ui::icon_button_sized;
 
 /// "/bin/zsh -l" reads as "zsh": the login flag the desktop adds says nothing about the pane.
 /// A login shell shows as its name only: the script it may run to start an agent is ours, not the user's.
@@ -24,6 +27,25 @@ pub fn pane_label(agent: Option<&Summary>, session: Option<&Session>) -> String 
         (Some(a), _) => a.provider.clone(),
         (None, Some(s)) => s.busy().map_or_else(|| command_line(&s.info), str::to_string),
         (None, None) => "session".into(),
+    }
+}
+
+/// The banner each agent had when the user closed it, until the agent's banner changes.
+#[derive(Default)]
+pub struct DismissedBanners(HashMap<String, &'static str>);
+
+impl DismissedBanners {
+    pub fn dismiss(&mut self, agent: &str, text: &'static str) {
+        self.0.insert(agent.to_string(), text);
+    }
+
+    /// The banner to draw for `agent`. Any other banner, or none, forgets the close, so the closed one can come back.
+    pub fn shown(&mut self, agent: &str, banner: Option<&'static str>) -> Option<&'static str> {
+        if self.0.get(agent).copied() == banner {
+            return None;
+        }
+        self.0.remove(agent);
+        banner
     }
 }
 
@@ -56,8 +78,13 @@ impl Desktop {
         let focused = self.terminal.focused.as_deref() == Some(id);
         let exit = self.terminals.sessions.get(id).and_then(|s| s.exit);
         let known = self.terminals.sessions.get(id).is_some();
-        let banner = self.summary(id).and_then(status::banner).map(|text| {
-            div().flex_none().px(px(16.)).py(px(6.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(text)
+        let banner = self.summary(id).map(|a| (a.id.clone(), status::banner(a)));
+        let banner = banner.and_then(|(agent, banner)| Some((self.terminal.dismissed.shown(&agent, banner)?, agent))).map(|(text, agent)| {
+            let close = icon_button_sized(element_id(format!("banner-close:{id}")), "x", 20., TEXT_3).rounded(px(5.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.terminal.dismissed.dismiss(&agent, text);
+                cx.notify();
+            }));
+            div().flex_none().flex().items_center().gap(px(8.)).pl(px(16.)).pr(px(8.)).py(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(div().flex_1().min_w_0().child(text)).child(close)
         });
         let claude = self.summary(id).is_some_and(|a| a.provider == "claude");
         let typing = focused && self.terminal.keyboard;
@@ -133,7 +160,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Info, command_line, pane_label};
+    use super::{DismissedBanners, Info, command_line, pane_label};
     use crate::terminals::sessions::Session;
     use agents::Summary;
 
@@ -168,5 +195,22 @@ mod tests {
         assert_eq!(command_line(&info), "fish");
         let info = Info { cmd: "pnpm".into(), args: vec!["dev".into(), "--port".into(), "8081".into()], ..Default::default() };
         assert_eq!(command_line(&info), "pnpm dev --port 8081");
+    }
+
+    #[test]
+    fn a_closed_banner_stays_hidden_until_its_agent_shows_another() {
+        let mut dismissed = DismissedBanners::default();
+        dismissed.dismiss("a", "Interrupted by restart");
+        assert_eq!(dismissed.shown("a", Some("Interrupted by restart")), None);
+        assert_eq!(dismissed.shown("b", Some("Interrupted by restart")), Some("Interrupted by restart"));
+        assert_eq!(dismissed.shown("a", Some("Couldn't resume")), Some("Couldn't resume"));
+    }
+
+    #[test]
+    fn a_closed_banner_comes_back_once_its_agent_showed_something_else() {
+        let mut dismissed = DismissedBanners::default();
+        dismissed.dismiss("a", "Interrupted by restart");
+        assert_eq!(dismissed.shown("a", None), None);
+        assert_eq!(dismissed.shown("a", Some("Interrupted by restart")), Some("Interrupted by restart"));
     }
 }

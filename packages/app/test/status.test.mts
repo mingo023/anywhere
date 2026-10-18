@@ -31,11 +31,11 @@ test("each status has its glossary label and theme tone", () => {
   );
 });
 
-test("each restore outcome has its notice", () => {
+test("each restore outcome but a plain resume has its notice", () => {
   const notices = ["resumed", "interrupted", "access_lowered", "failed"].map((restore) =>
     restoreNotice(agent("a", "idle", { restore })),
   );
-  assert.deepEqual(notices, ["Resumed", "Interrupted by restart", "Full access resumed as Ask", "Couldn't resume"]);
+  assert.deepEqual(notices, [undefined, "Interrupted by restart", "Full access resumed as Ask", "Couldn't resume"]);
 });
 
 test("restoreNotice ignores unknown values", () => {

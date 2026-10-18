@@ -127,10 +127,9 @@ pub fn roll_up(statuses: impl IntoIterator<Item = Status>) -> Option<(Status, us
     Some((top, all.iter().filter(|s| section(**s, true) == section(top, true)).count()))
 }
 
-/// How a pocketd restart brought the agent back, until its next turn.
+/// How a pocketd restart brought the agent back, until its next turn. A plain resume is the expected case, so it says nothing.
 pub fn notice(a: &Summary) -> Option<&'static str> {
     match a.restore.as_str() {
-        "resumed" => Some("Resumed"),
         "interrupted" => Some("Interrupted by restart"),
         "access_lowered" => Some("Full access resumed as Ask"),
         "failed" => Some("Couldn't resume"),
@@ -305,9 +304,9 @@ mod tests {
     }
 
     #[test]
-    fn each_restore_outcome_has_its_notice() {
+    fn each_restore_outcome_but_a_plain_resume_has_its_notice() {
         let got: Vec<_> = ["resumed", "interrupted", "access_lowered", "failed"].iter().map(|o| notice(&restored(o))).collect();
-        assert_eq!(got, vec![Some("Resumed"), Some("Interrupted by restart"), Some("Full access resumed as Ask"), Some("Couldn't resume")]);
+        assert_eq!(got, vec![None, Some("Interrupted by restart"), Some("Full access resumed as Ask"), Some("Couldn't resume")]);
     }
 
     #[test]
@@ -326,7 +325,7 @@ mod tests {
     fn an_untrusted_resumed_claude_still_shows_the_trust_hint() {
         let hint = Some("Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status.");
         assert_eq!(banner(&Summary { attached: false, ..restored("resumed") }), hint);
-        assert_eq!(banner(&restored("resumed")), Some("Resumed"));
+        assert_eq!(banner(&restored("resumed")), None);
     }
 
     #[test]
