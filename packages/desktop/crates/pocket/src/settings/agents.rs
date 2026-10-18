@@ -1,11 +1,11 @@
 use super::catalog::{Look, Setting};
 use super::{action, row};
+use agents::providers;
 use crate::desktop::Desktop;
 use crate::status::Status;
 use crate::util::tilde;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
-use agents::providers;
 use gpui_kit::*;
 use store::LaunchPick;
 use store::prefs::agents::{ACCESSES, CHAT_TO};
