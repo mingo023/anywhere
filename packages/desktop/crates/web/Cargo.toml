@@ -7,7 +7,7 @@ publish.workspace = true
 [lib]
 path = "src/web.rs"
 
-[dependencies]
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 wry.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

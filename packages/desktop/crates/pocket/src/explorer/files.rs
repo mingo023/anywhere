@@ -3,7 +3,6 @@ use git::Exec;
 use hosts::remote::Client;
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 /// Makes `name` under `parent`, with any folders a "/" in it names; a trailing "/" makes a folder.
@@ -36,7 +35,11 @@ pub fn rename(path: &Path, name: &str) -> io::Result<PathBuf> {
         return host.rename(&from, &onto).map(|()| to);
     }
     fs_at(path).local()?;
-    let inode = |p: &Path| p.symlink_metadata().map(|m| m.ino());
+    #[cfg(unix)]
+    let inode = |p: &Path| p.symlink_metadata().map(|m| std::os::unix::fs::MetadataExt::ino(&m));
+    // Windows has no inode to hand; the path it resolves to, in the case it's stored in, names the file.
+    #[cfg(windows)]
+    let inode = |p: &Path| p.symlink_metadata().and_then(|_| fs::canonicalize(p));
     if let Ok(taken) = inode(&to)
         && inode(path).ok() != Some(taken)
     {

@@ -87,8 +87,8 @@ impl Desktop {
             }
             prev = Some(group(item));
             let row = match item {
-                Item::Copy => ui::menu_row("term-menu-copy", "copy", "Copy", Some("⌘C")),
-                Item::Paste => ui::menu_row("term-menu-paste", "compose", "Paste", Some("⌘V")),
+                Item::Copy => ui::menu_row("term-menu-copy", "copy", "Copy", Some(if cfg!(target_os = "macos") { "⌘C" } else { "⌘⇧C" })),
+                Item::Paste => ui::menu_row("term-menu-paste", "compose", "Paste", Some(if cfg!(target_os = "macos") { "⌘V" } else { "⌘⇧V" })),
                 Item::Clear => ui::menu_row("term-menu-clear", "discard", "Clear", None),
                 Item::Close => ui::menu_row("term-menu-close", "x", "Close terminal", Some("⌘W")),
                 Item::Kill => ui::danger_row("term-menu-kill", "stop", "Kill session"),

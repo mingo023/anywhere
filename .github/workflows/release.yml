@@ -1,0 +1,45 @@
+# Starts a production release from the Actions tab: tags the chosen commit v<version> and runs the release workflows on that tag.
+# A tag pushed with the workflow token starts no workflow by itself, so they're dispatched.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 0.1.0 or 0.2.0-beta.1; CHANGELOG.md needs its section
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "$VERSION" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?' || { echo "::error::$VERSION isn't a version like 0.1.0"; exit 1; }
+          grep -qxF "## $VERSION" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $VERSION section; run scripts/changelog-draft.sh $VERSION"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then echo "::error::tag v$VERSION exists"; exit 1; fi
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh workflow run release-mac.yml --ref "v$VERSION"
+          gh workflow run release-desktop.yml --ref "v$VERSION"

@@ -5,11 +5,10 @@ use crate::Host;
 use crate::link::Paths;
 use crate::ssh::{self, Failure};
 use serde::{Deserialize, Serialize};
-use std::fs::{DirBuilder, OpenOptions, Permissions};
+use std::fs::OpenOptions;
 use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Owner {
@@ -25,11 +24,16 @@ pub fn load(path: &Path) -> Option<Owner> {
 /// Writes `owner` readable only by this user.
 pub fn save(path: &Path, owner: &Owner) -> io::Result<()> {
     if let Some(dir) = path.parent() {
-        DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        crate::private_dir(dir)?;
     }
-    let mut file = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
     // `mode` only applies to a file this creates.
-    file.set_permissions(Permissions::from_mode(0o600))?;
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     file.write_all(&serde_json::to_vec(owner)?)
 }
 
@@ -49,7 +53,7 @@ pub fn pair_command(home_dir_name: &str, name: &str) -> String {
 /// Pairs this Mac with the host's pocketd and keeps the token beside the host's other files here.
 pub fn pair(host: &Host, paths: &Paths) -> Result<Owner, Failure> {
     let command = pair_command(&paths.remote_dir, &mac_name());
-    let out = Command::new("ssh").args(ssh::args(host, &host.known_hosts(&paths.home), host.signed_in_key(&paths.home).as_deref(), &[], &command)).stdin(Stdio::null()).output().map_err(|_| Failure::Other)?;
+    let out = crate::ssh_command().args(ssh::args(host, &host.known_hosts(&paths.home), host.signed_in_key(&paths.home).as_deref(), &[], &command)).stdin(Stdio::null()).output().map_err(|_| Failure::Other)?;
     if out.status.code() == Some(255) {
         return Err(ssh::classify(&String::from_utf8_lossy(&out.stderr)));
     }
@@ -60,8 +64,13 @@ pub fn pair(host: &Host, paths: &Paths) -> Result<Owner, Failure> {
 
 /// This Mac's name as Sharing shows it, so `pocketd owner list` on the host says whose token it is.
 fn mac_name() -> String {
-    let out = Command::new("scutil").args(["--get", "ComputerName"]).output();
-    out.ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Mac".into())
+    #[cfg(target_os = "macos")]
+    let name = std::process::Command::new("scutil").args(["--get", "ComputerName"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    #[cfg(windows)]
+    let name = std::env::var("COMPUTERNAME").ok();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let name = std::fs::read_to_string("/etc/hostname").ok().map(|n| n.trim().to_string());
+    name.filter(|n| !n.is_empty()).unwrap_or_else(|| if cfg!(target_os = "macos") { "Mac" } else { "Desktop" }.into())
 }
 
 #[cfg(test)]
@@ -69,7 +78,10 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn the_token_file_is_only_the_users_even_when_it_was_there_before() {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("hosts-owner-{}", std::process::id()));
         let path = dir.join("hosts/pc.token");
         let _ = std::fs::remove_dir_all(&dir);

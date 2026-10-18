@@ -30,6 +30,8 @@ Download [Anywhere.dmg](https://github.com/mingo023/anywhere/releases/latest/dow
 
 Requires macOS 13 or later. Updates install automatically through Sparkle.
 
+On Linux (x86_64) or Windows (x64), unpack [Anywhere-linux-amd64.tar.gz](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-linux-amd64.tar.gz) or [Anywhere-windows-amd64.zip](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-windows-amd64.zip) and run `pocket-desktop`. These builds are unsigned and don't update themselves.
+
 ## Architecture
 
 | Package | What it is |
@@ -48,4 +50,4 @@ make app        # Anywhere Dev.app, side by side with the release app
 make run        # release build of the desktop app, run in place
 ```
 
-`scripts/release-mac.sh <version>` builds the signed, notarized DMG; pushing a `v*` tag publishes it ([ADR 0004](docs/adr/0004-release-and-updates.md)).
+`scripts/release-mac.sh <version>` builds the signed, notarized DMG and `scripts/release-desktop.sh <version> <linux-amd64|windows-amd64>` the Linux and Windows archives. Running the Release workflow from the Actions tab, or pushing a `v*` tag, publishes all three ([ADR 0004](docs/adr/0004-release-and-updates.md)).

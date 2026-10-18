@@ -252,7 +252,7 @@ pub(crate) fn checked(checking: bool, at: i64, now: i64) -> String {
 fn endpoint(host: &Option<(hosts::Host, PathBuf)>) -> daemon::Endpoint {
     match host {
         Some((host, home)) => host.endpoint(home),
-        None => daemon::Endpoint::local(&daemon::sock_path()),
+        None => daemon::Endpoint::own(),
     }
 }
 

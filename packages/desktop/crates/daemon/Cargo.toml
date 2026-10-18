@@ -19,3 +19,6 @@ serde_json.workspace = true
 objc2.workspace = true
 objc2-foundation = { workspace = true, features = ["NSError"] }
 objc2-service-management.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+uds_windows.workspace = true

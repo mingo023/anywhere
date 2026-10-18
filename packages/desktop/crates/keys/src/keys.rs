@@ -4,8 +4,13 @@ use term::{Mods, Term};
 pub const CONTEXT: &str = "Terminal";
 
 /// gpui-component's Root binds tab and shift-tab to focus cycling, and Pocket binds cmd-enter to open the inbox's session; in the terminal they belong to the CLI.
-pub fn bindings() -> [KeyBinding; 3] {
-    [KeyBinding::new("tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("cmd-enter", NoAction {}, Some(CONTEXT))]
+/// Off macOS so do Ctrl and a letter, which Pocket's shortcuts use in place of ⌘.
+pub fn bindings() -> Vec<KeyBinding> {
+    let mut out = vec![KeyBinding::new("tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("secondary-enter", NoAction {}, Some(CONTEXT))];
+    if !cfg!(target_os = "macos") {
+        out.extend(('a'..='z').map(|c| KeyBinding::new(&format!("ctrl-{c}"), NoAction {}, Some(CONTEXT))));
+    }
+    out
 }
 
 /// What a key down sends to the pty, in the encoding the program asked for; `None` for text, which arrives through the input handler, and for Pocket's own ⌘ keys.
@@ -182,9 +187,19 @@ mod tests {
     #[test]
     fn cmd_enter_reaches_the_terminal_past_open_session() {
         let mut keymap = Keymap::default();
-        keymap.add_bindings([KeyBinding::new("cmd-enter", OpenSession, Some("Inbox"))]);
+        keymap.add_bindings([KeyBinding::new("secondary-enter", OpenSession, Some("Inbox"))]);
         keymap.add_bindings(bindings());
         let stack = [KeyContext::parse("Root").unwrap(), KeyContext::parse("Inbox").unwrap(), KeyContext::parse(CONTEXT).unwrap()];
-        assert!(keymap.bindings_for_input(&[Keystroke::parse("cmd-enter").unwrap()], &stack).0.is_empty());
+        assert!(keymap.bindings_for_input(&[Keystroke::parse("secondary-enter").unwrap()], &stack).0.is_empty());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ctrl_letters_reach_the_shell_past_shortcuts_off_macos() {
+        let mut keymap = Keymap::default();
+        keymap.add_bindings([KeyBinding::new("ctrl-r", OpenSession, None)]);
+        keymap.add_bindings(bindings());
+        let stack = [KeyContext::parse("Root").unwrap(), KeyContext::parse(CONTEXT).unwrap()];
+        assert!(keymap.bindings_for_input(&[Keystroke::parse("ctrl-r").unwrap()], &stack).0.is_empty());
     }
 }

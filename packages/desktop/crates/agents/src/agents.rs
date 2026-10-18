@@ -8,12 +8,15 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::ErrorKind;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tungstenite::Message;
+#[cfg(windows)]
+use uds_windows::UnixStream;
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
@@ -817,7 +820,10 @@ impl CreateReply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::net::UnixListener;
+    #[cfg(windows)]
+    use uds_windows::UnixListener;
     use std::path::PathBuf;
 
     fn summary(provider: &str, model: Option<&str>) -> Summary {

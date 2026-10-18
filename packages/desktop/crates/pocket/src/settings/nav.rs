@@ -42,7 +42,7 @@ impl Desktop {
             .bg(FILL_3)
             .child(icon("search", 14., TEXT_3))
             .child(div().flex_1().min_w_0().text_size(px(13.)).child(Input::new(&self.settings.search).appearance(false).p_0().text_size(px(13.))))
-            .when(empty, |d| d.child(div().flex_none().text_size(px(11.5)).text_color(TEXT_4).child("⌘F")));
+            .when(empty, |d| d.child(div().flex_none().text_size(px(11.5)).text_color(TEXT_4).child(ui::os_keys("⌘F"))));
         ui::side(div())
             .w(px(self.width(Column::Projects, 272.)))
             .flex_none()

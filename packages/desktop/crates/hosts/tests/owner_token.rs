@@ -1,5 +1,6 @@
 //! A Windows host's pocketd as the desktop reaches it: its owner TCP port behind a local socket, as `ssh -L sock:127.0.0.1:port`
 //! forwards it. Runs a scratch macOS pocketd with ownerListen on, which speaks the same auth as on Windows.
+#![cfg(unix)]
 
 use daemon::{Daemon, Endpoint, NOT_OWNER, request_to};
 use futures::StreamExt;

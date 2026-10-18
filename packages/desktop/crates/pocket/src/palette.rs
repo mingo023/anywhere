@@ -111,7 +111,7 @@ pub(crate) fn marked(text: String, words: &[String]) -> StyledText {
 }
 
 pub(crate) fn hint(keys: &str, label: &str) -> Div {
-    div().flex().items_center().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).child(keys.to_string())).child(label.to_string())
+    div().flex().items_center().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).child(ui::os_keys(keys))).child(label.to_string())
 }
 
 #[derive(Debug, PartialEq)]

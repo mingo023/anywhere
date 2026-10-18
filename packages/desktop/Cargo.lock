@@ -117,6 +117,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tungstenite",
+ "uds_windows",
 ]
 
 [[package]]
@@ -1466,6 +1467,7 @@ dependencies = [
  "objc2-service-management",
  "serde",
  "serde_json",
+ "uds_windows",
 ]
 
 [[package]]
@@ -3279,6 +3281,7 @@ dependencies = [
  "git",
  "serde",
  "serde_json",
+ "uds_windows",
 ]
 
 [[package]]

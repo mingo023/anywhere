@@ -2,12 +2,13 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::ffi::CStr;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
+#[cfg(unix)]
+pub use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+pub use uds_windows::UnixStream;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -113,7 +114,7 @@ pub struct Window {
 /// Sends one op on its own connection and returns pocketd's reply, so it never reaches the terminal stream.
 /// Blocks for up to five seconds; call it off the UI thread.
 pub fn request(msg: &Value) -> Result<Msg, String> {
-    request_at(&sock_path(), msg)
+    request_to(&Endpoint::own(), msg, Duration::from_secs(5))
 }
 
 /// What `request_at` returns when the socket closes before pocketd replies.
@@ -143,6 +144,16 @@ pub struct Endpoint {
 impl Endpoint {
     pub fn local(path: &Path) -> Self {
         Self { path: path.into(), token: None }
+    }
+
+    /// This machine's pocketd. On Windows it can't tell the app from a process inside a Terminal, so the app proves itself with a token.
+    pub fn own() -> Self {
+        let path = sock_path();
+        #[cfg(windows)]
+        let token = service::own_token(&path.with_file_name("desktop.token"));
+        #[cfg(not(windows))]
+        let token = None;
+        Self { path, token }
     }
 
     /// A connection pocketd treats as its owner. Without a token nothing is sent first.
@@ -194,6 +205,9 @@ impl Msg {
     }
 }
 
+/// The variable Go's `os.UserHomeDir` reads.
+const HOME: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+
 /// Mirrors `config.Sock` in pocketd.
 pub fn sock_path() -> PathBuf {
     sock_path_in(|k| std::env::var(k).ok())
@@ -206,7 +220,7 @@ fn sock_path_in(env: impl Fn(&str) -> Option<String>) -> PathBuf {
     }
     let home = env("POCKET_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env("HOME").unwrap_or_default()).join(channel::home_dir_name()));
+        .unwrap_or_else(|| PathBuf::from(env(HOME).unwrap_or_default()).join(channel::home_dir_name()));
     home.join("pocketd.sock")
 }
 
@@ -218,24 +232,43 @@ fn resolve_cwd(cwd: &str, home: &str) -> String {
 }
 
 /// The shell on the user's account, set with `chsh`. `$SHELL` is whatever the app was launched from.
+#[cfg(unix)]
 pub fn login_shell() -> &'static str {
     static SHELL: OnceLock<String> = OnceLock::new();
     SHELL.get_or_init(|| {
         let pw = unsafe { libc::getpwuid(libc::getuid()) };
         let shell = (!pw.is_null()).then(|| unsafe { (*pw).pw_shell }).filter(|s| !s.is_null());
-        first_that_runs(shell.map(|s| unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()), runs)
+        first_that_runs(shell.map(|s| unsafe { std::ffi::CStr::from_ptr(s) }.to_string_lossy().into_owned()), runs)
+    })
+}
+
+/// PowerShell 7 when installed, else the Windows PowerShell every Windows has.
+#[cfg(windows)]
+pub fn login_shell() -> &'static str {
+    static SHELL: OnceLock<String> = OnceLock::new();
+    SHELL.get_or_init(|| {
+        let env = |k: &str| std::env::var(k).unwrap_or_default();
+        let pwsh = format!(r"{}\PowerShell\7\pwsh.exe", env("ProgramFiles"));
+        let windows = format!(r"{}\System32\WindowsPowerShell\v1.0\powershell.exe", env("SystemRoot"));
+        [pwsh, windows].into_iter().find(|s| runs(s)).unwrap_or_else(|| "powershell.exe".into())
     })
 }
 
 /// The account's shell, or macOS's own when it's unset or was uninstalled after `chsh`.
+#[cfg(unix)]
 fn first_that_runs(account: Option<String>, can_run: impl Fn(&str) -> bool) -> String {
     account.into_iter().chain(["/bin/zsh", "/bin/bash"].map(String::from)).find(|s| can_run(s)).unwrap_or_else(|| "/bin/sh".into())
 }
 
 /// An absolute path to a file someone may execute.
 pub fn runs(path: &str) -> bool {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    Path::new(path).is_absolute() && std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    #[cfg(unix)]
+    let executable = |m: &std::fs::Metadata| m.permissions().mode() & 0o111 != 0;
+    #[cfg(windows)]
+    let executable = |_: &std::fs::Metadata| true;
+    Path::new(path).is_absolute() && std::fs::metadata(path).is_ok_and(|m| m.is_file() && executable(&m))
 }
 
 /// A new terminal's env, as Terminal.app gives it: the account's basics, nothing from the terminal that launched the app.
@@ -244,10 +277,20 @@ pub fn terminal_env() -> Vec<(String, String)> {
     shell_env(login_shell())
 }
 
+#[cfg(unix)]
 fn shell_env(shell: &str) -> Vec<(String, String)> {
     terminal_env_in(|k| std::env::var(k).ok().filter(|v| !v.is_empty()), shell)
 }
 
+/// Windows programs need most of the app's env (SystemRoot, APPDATA, …), and no login shell rebuilds it.
+#[cfg(windows)]
+fn shell_env(shell: &str) -> Vec<(String, String)> {
+    let set = [("SHELL", shell), ("TERM", "xterm-256color"), ("COLORTERM", "truecolor"), ("TERM_PROGRAM", "ghostty")];
+    let kept = std::env::vars().filter(|(k, _)| !set.iter().any(|(s, _)| k.eq_ignore_ascii_case(s)));
+    kept.chain(set.map(|(k, v)| (k.to_string(), v.to_string()))).collect()
+}
+
+#[cfg(unix)]
 fn terminal_env_in(env: impl Fn(&str) -> Option<String>, shell: &str) -> Vec<(String, String)> {
     let kept = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK", "__CF_USER_TEXT_ENCODING"].into_iter().filter_map(|k| Some((k.to_string(), env(k)?)));
     let set = [
@@ -273,6 +316,7 @@ pub fn agent_op(argv: &[String], cwd: &str) -> Value {
 }
 
 /// The agent's argv goes to the shell as arguments rather than inside the script, so no shell's quoting rules can garble a prompt.
+#[cfg(unix)]
 fn agent_args(shell: &str, argv: &[String]) -> Vec<String> {
     let back = format!("exec '{shell}' -l");
     let mut args = vec!["-l".to_string(), "-c".to_string()];
@@ -284,6 +328,13 @@ fn agent_args(shell: &str, argv: &[String]) -> Vec<String> {
     }
     args.extend(argv.iter().cloned());
     args
+}
+
+/// PowerShell takes no script arguments, so each of argv is a single-quoted string, in which only `'` is special.
+#[cfg(windows)]
+fn agent_args(_shell: &str, argv: &[String]) -> Vec<String> {
+    let quoted: Vec<String> = argv.iter().map(|a| format!("'{}'", a.replace('\'', "''"))).collect();
+    ["-NoLogo", "-NoExit", "-Command"].map(String::from).into_iter().chain([format!("& {}", quoted.join(" "))]).collect()
 }
 
 /// Runs `argv` in `cwd` under the login shell, so it finds the tools the user's terminal would, with `input` on stdin.
@@ -299,15 +350,44 @@ pub fn run_login_env(argv: &[&str], cwd: &str, input: &str, extra: Vec<(String, 
     run_in(login_shell(), env, argv, cwd, input)
 }
 
-fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
+/// `argv` under the login shell `shell`.
+#[cfg(unix)]
+fn login_command(shell: &str, argv: &[&str]) -> Command {
     let fish = Path::new(shell).file_name().is_some_and(|n| n == "fish");
     let mut cmd = Command::new(shell);
     cmd.args(["-l", "-c", if fish { "$argv" } else { "\"$@\"" }]);
     if !fish {
         cmd.arg(shell);
     }
-    let mut child = cmd
-        .args(argv)
+    cmd.args(argv);
+    cmd
+}
+
+/// `argv` itself: on Windows the app's own PATH is the user's.
+#[cfg(windows)]
+fn login_command(_shell: &str, argv: &[&str]) -> Command {
+    let mut cmd = command(argv[0]);
+    cmd.args(&argv[1..]);
+    cmd
+}
+
+#[cfg(not(windows))]
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    Command::new(program)
+}
+
+/// `Command::new`, minus the console window Windows gives a console program the app starts.
+#[cfg(windows)]
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, input: &str) -> Result<String, String> {
+    let mut child = login_command(shell, argv)
         .current_dir(cwd)
         .env_clear()
         .envs(env)
@@ -337,17 +417,22 @@ pub fn run_script(script: &str, cwd: &str, env: &[(String, String)], timeout: Du
 
 fn run_script_in(shell: &str, env: Vec<(String, String)>, script: &str, cwd: &str, timeout: Duration) -> Result<String, String> {
     let (mut out, writer) = std::io::pipe().map_err(|e| e.to_string())?;
-    let mut child = Command::new(shell)
-        .args(["-l", "-c", script])
+    let mut cmd = command(shell);
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(cmd.args(["-l", "-c", script]), 0);
+    #[cfg(windows)]
+    cmd.args(["-NoLogo", "-Command", script]);
+    let mut child = cmd
         .current_dir(cwd)
         .env_clear()
         .envs(env)
         .stdin(Stdio::null())
         .stdout(writer.try_clone().map_err(|e| e.to_string())?)
         .stderr(writer)
-        .process_group(0)
         .spawn()
         .map_err(|e| e.to_string())?;
+    // It still holds the pipe's write end, and the reader sees EOF only once every copy is closed.
+    drop(cmd);
     let (tx, rx) = std::sync::mpsc::channel();
     // Read on its own thread: a script that prints more than the pipe holds blocks until someone reads it.
     std::thread::spawn(move || {
@@ -357,7 +442,7 @@ fn run_script_in(shell: &str, env: Vec<(String, String)>, script: &str, cwd: &st
     });
     // The pipe closes once the script and everything it started have exited.
     let Ok(buf) = rx.recv_timeout(timeout) else {
-        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+        kill_tree(&child);
         let _ = child.wait();
         return Err(format!("Timed out after {timeout:?}"));
     };
@@ -371,9 +456,19 @@ fn run_script_in(shell: &str, env: Vec<(String, String)>, script: &str, cwd: &st
     Err(if tail.is_empty() { status.to_string() } else { tail })
 }
 
+/// Kills `child` and whatever it started.
+fn kill_tree(child: &Child) {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL)
+    };
+    #[cfg(windows)]
+    let _ = command("taskkill").args(["/T", "/F", "/PID", &child.id().to_string()]).status();
+}
+
 fn spawn_op(cmd: &str, args: Vec<String>, env: Vec<(String, String)>, cwd: &str) -> Value {
     let env: Vec<String> = env.into_iter().map(|(k, v)| format!("{k}={v}")).collect();
-    let cwd = resolve_cwd(cwd, &std::env::var("HOME").unwrap_or_default());
+    let cwd = resolve_cwd(cwd, &std::env::var(HOME).unwrap_or_default());
     json!({"op": "spawn", "cmd": cmd, "args": args, "cwd": cwd, "env": env, "cols": 120, "rows": 36})
 }
 
@@ -444,9 +539,13 @@ mod tests {
     use super::*;
     use futures::StreamExt;
     use futures::executor::block_on;
+    #[cfg(unix)]
     use std::os::unix::net::UnixListener;
+    #[cfg(windows)]
+    use uds_windows::UnixListener;
 
     #[test]
+    #[cfg(unix)]
     fn an_uninstalled_login_shell_falls_back_to_one_that_runs() {
         let installed = |s: &str| s != "/opt/homebrew/bin/fish";
         assert_eq!(first_that_runs(Some("/opt/homebrew/bin/fish".into()), installed), "/bin/zsh");
@@ -456,6 +555,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn only_an_absolute_executable_file_runs() {
         assert!(runs("/bin/sh"));
         assert!(!runs("sh") && !runs("/bin") && !runs("/etc/hosts") && !runs("/no/such/shell"));
@@ -497,10 +597,10 @@ mod tests {
             move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
         };
         assert_eq!(
-            sock_path_in(env(&[("POCKETD_SOCK", ""), ("POCKET_HOME", ""), ("HOME", "/h")])),
+            sock_path_in(env(&[("POCKETD_SOCK", ""), ("POCKET_HOME", ""), (HOME, "/h")])),
             PathBuf::from("/h").join(channel::home_dir_name()).join("pocketd.sock")
         );
-        assert_eq!(sock_path_in(env(&[("POCKET_HOME", "/p"), ("HOME", "/h")])), PathBuf::from("/p/pocketd.sock"));
+        assert_eq!(sock_path_in(env(&[("POCKET_HOME", "/p"), (HOME, "/h")])), PathBuf::from("/p/pocketd.sock"));
         assert_eq!(sock_path_in(env(&[("POCKETD_SOCK", "/s.sock")])), PathBuf::from("/s.sock"));
     }
 
@@ -522,6 +622,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn agents_hand_their_argv_to_the_shell_untouched() {
         let argv: Vec<String> = ["claude", "it's a \\ \"prompt\"\n"].map(String::from).to_vec();
         assert_eq!(agent_args("/opt/homebrew/bin/fish", &argv), ["-l", "-c", "$argv; exec '/opt/homebrew/bin/fish' -l", "claude", "it's a \\ \"prompt\"\n"]);
@@ -529,6 +630,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn agents_come_back_to_the_prompt_in_real_shells() {
         for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
             let argv = ["printf", "[%s]", "it's a \\ \"prompt\""].map(String::from);
@@ -541,6 +643,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn runs_argv_in_real_shells_with_stdin() {
         for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
             let home = std::env::temp_dir().join("pocket-desktop-no-home");
@@ -551,12 +654,14 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn bare_env() -> Vec<(String, String)> {
         let home = std::env::temp_dir().join("pocket-desktop-no-home");
         vec![("HOME".to_string(), home.to_string_lossy().into_owned()), ("PATH".to_string(), "/usr/bin:/bin".to_string())]
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_script_returns_its_output_and_on_failure_its_last_twenty_lines() {
         for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
             let wait = Duration::from_secs(5);
@@ -568,6 +673,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_script_that_runs_too_long_is_killed_with_what_it_started() {
         let marker = std::env::temp_dir().join(format!("pocket-script-{}", std::process::id()));
         let _ = std::fs::remove_file(&marker);
@@ -580,6 +686,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn terminals_start_from_the_account_not_the_launching_terminal() {
         let launched = |k: &str| match k {
             "HOME" => Some("/h".to_string()),

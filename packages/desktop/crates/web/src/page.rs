@@ -1,12 +1,21 @@
+#[cfg(not(target_os = "linux"))]
 use std::cell::Cell;
+#[cfg(not(target_os = "linux"))]
 use std::rc::Rc;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 use wry::dpi::{LogicalPosition, LogicalSize};
+#[cfg(not(target_os = "linux"))]
 use wry::raw_window_handle::HasWindowHandle;
+#[cfg(not(target_os = "linux"))]
 use wry::{NewWindowResponse, PageLoadEvent, WebView, WebViewBuilder};
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+
+#[cfg(target_os = "linux")]
+pub use linux::Page;
 
 /// A rect in the parent window, in logical pixels from its top left.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -42,9 +51,11 @@ pub enum Edit {
     Redo,
 }
 
+#[cfg(not(target_os = "linux"))]
 /// Hidden alone, a WKWebView still takes every drag that crosses its last rect, so a parked page also moves out of the window.
 const PARKED: f32 = -20_000.;
 
+#[cfg(not(target_os = "linux"))]
 /// Run in the main frame, where wry defines `window.ipc`.
 const MOVED: &str = "(() => {
     const moved = () => window.ipc.postMessage('moved');
@@ -60,8 +71,10 @@ const MOVED: &str = "(() => {
     addEventListener('hashchange', moved);
 })();";
 
+#[cfg(any(test, not(target_os = "linux")))]
 const SCHEMES: [&str; 7] = ["http:", "https:", "about:", "data:", "blob:", "file:", "javascript:"];
 
+#[cfg(not(target_os = "linux"))]
 /// A WKWebView laid over the parent window's view, parked until placed.
 pub struct Page {
     view: WebView,
@@ -70,6 +83,7 @@ pub struct Page {
     glue: macos::Glue,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl Page {
     /// `sink` runs on the main thread, from inside WebKit's callbacks.
     pub fn new(url: &str, parent: &impl HasWindowHandle, sink: impl Fn(Event) + 'static) -> wry::Result<Self> {
@@ -234,6 +248,7 @@ impl Page {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 /// Removed while first responder, the page would leave the window with none, and GPUI's view deaf to keys.
 impl Drop for Page {
     fn drop(&mut self) {
@@ -241,11 +256,12 @@ impl Drop for Page {
     }
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 fn opens_here(url: &str) -> bool {
     SCHEMES.iter().any(|s| url.starts_with(s))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 fn bounds(rect: Rect) -> wry::Rect {
     wry::Rect {
         position: LogicalPosition::new(rect.x, rect.y).into(),

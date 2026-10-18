@@ -198,6 +198,7 @@ fn compact_pad(layout: Layout, screen: Screen, pad: f32, zoom: f32) -> f32 {
 /// Zooms the window, moving the traffic lights so they stay in the zoomed title bar.
 pub(crate) fn apply_zoom(zoom: f32, window: &mut Window) {
     window.set_zoom(zoom);
+    #[cfg(target_os = "macos")]
     window.set_traffic_light_position(point(px(LIGHTS_AT * zoom), px(LIGHTS_AT * zoom)));
 }
 

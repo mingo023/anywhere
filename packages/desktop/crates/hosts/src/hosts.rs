@@ -11,6 +11,20 @@ pub mod sign_in;
 pub mod ssh;
 pub mod ssh_config;
 
+/// Creates `dir` and its parents, readable only by this user; on Windows the user's profile already is.
+fn private_dir(dir: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)
+}
+
+/// `ssh`, with no console window on Windows.
+fn ssh_command() -> std::process::Command {
+    daemon::command("ssh")
+}
+
 /// How ssh reaches a host.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase")]

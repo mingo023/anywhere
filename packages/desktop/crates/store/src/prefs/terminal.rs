@@ -93,7 +93,8 @@ impl Terminal {
         if self.shell == Shell::Custom && runs(path) {
             return (path.to_string(), self.shell_args.split_whitespace().map(str::to_string).collect());
         }
-        (login.to_string(), vec!["-l".into()])
+        // PowerShell has no login mode, and reads `-l` as an ambiguous parameter.
+        (login.to_string(), vec![if cfg!(windows) { "-NoLogo" } else { "-l" }.into()])
     }
 
     /// The custom shell a terminal that `shell_command` sent to `program` didn't open.

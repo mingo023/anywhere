@@ -1,3 +1,6 @@
+// Release builds open no console window beside the app on Windows.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod accounts;
 mod actions;
 mod add_to_chat;
@@ -43,11 +46,12 @@ fn main() {
         std::thread::spawn(daemon::service::register_if_needed);
     }
     let capture = capture::Capture::from_args();
-    let path = daemon::sock_path();
-    let (daemon, mut rx) = Daemon::spawn(&path);
+    let own = daemon::Endpoint::own();
+    let (daemon, mut rx) = Daemon::spawn_to(own.clone());
     let daemon = hosts::session::Daemons::new(daemon);
-    let home = path.parent().unwrap_or(&path).to_path_buf();
-    let (outbox, mut agent_rx) = agents::connect(&path);
+    let path = &own.path;
+    let home = path.parent().unwrap_or(path).to_path_buf();
+    let (outbox, mut agent_rx) = agents::connect_with(path, own.token.clone());
     let store = Store::load(&home);
     if channel::is_release() && store.general.open_at_login {
         std::thread::spawn(|| daemon::service::open_at_login(true));

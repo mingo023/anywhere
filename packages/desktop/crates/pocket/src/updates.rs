@@ -44,6 +44,7 @@ pub fn launch(version: &str, seen: &mut Option<String>, announce: bool) -> Updat
 }
 
 /// Sent from Sparkle's delegate on the main thread.
+#[cfg_attr(not(target_os = "macos"), expect(dead_code, reason = "only Sparkle sends one"))]
 pub enum Event {
     Ready(String),
 }

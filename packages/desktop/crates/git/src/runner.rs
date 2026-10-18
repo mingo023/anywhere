@@ -88,6 +88,12 @@ fn local_exec(cwd: &str, argv: &[&str], stdin: Option<&[u8]>) -> io::Result<Outp
     let (program, args) = argv.split_first().ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no command"))?;
     let mut cmd = Command::new(program);
     cmd.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: git started from the app would flash a console window.
+        cmd.creation_flags(0x0800_0000);
+    }
     if !cwd.is_empty() {
         cmd.current_dir(cwd);
     }

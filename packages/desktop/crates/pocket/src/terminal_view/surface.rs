@@ -68,7 +68,7 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                 if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                     down.update(cx, |d, cx| {
                         let left = e.button == MouseButton::Left;
-                        if left && e.modifiers.platform && d.open_link(&down_pane, at(e.position), window, cx) {
+                        if left && e.modifiers.secondary() && d.open_link(&down_pane, at(e.position), window, cx) {
                             cx.stop_propagation();
                             return;
                         }

@@ -4,6 +4,8 @@ Users download `Anywhere.dmg` from a landing page whose button points at `github
 
 `pocketd` ships inside the app as `Contents/Library/Helpers/AnywhereDaemon.app`, a bundle named "Anywhere", so privacy prompts from its terminals say "Anywhere" rather than "pocketd". The app registers it with `SMAppService.agent` on first launch, without a welcome screen; if the user turns it off in Login Items, the "Not starting?" state offers to open Login Items. This needs macOS 13. A moved or deleted app takes its daemon along, which a LaunchAgent plist with an absolute path would not.
 
+Linux and Windows get an unsigned archive on the same release, `Anywhere-<os>-amd64`, holding `pocket-desktop` and `pocketd`; `scripts/release-desktop.sh` builds it and adds it once `release-mac.sh` has created the release. On first launch the app has that `pocketd` install itself as a systemd user unit or a Scheduled Task. These builds have no updater yet. The Release workflow takes a version, tags the commit and dispatches both release workflows on the tag.
+
 ## Rules
 
 - The git tag `vX.Y.Z` is the only version. The script injects it into `Info.plist` (`CFBundleShortVersionString` and `CFBundleVersion`), the app (`ANYWHERE_VERSION`) and `pocketd` (`-ldflags -X main.version`). Untagged builds say `dev`.
