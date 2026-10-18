@@ -11,11 +11,92 @@ import (
 
 	"pocketd/internal/claude"
 	"pocketd/internal/proc"
+	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
 
 const claudeApp = "claude-code"
+
+type claudeKind struct{}
+
+func (claudeKind) tool(arg string) bool { return strings.HasPrefix(arg, "bg-") }
+
+func (claudeKind) serves(string) bool { return false }
+
+func (claudeKind) pipe(d *Daemon, pr *presence) pipeChat { return claudeStream{d, pr} }
+
+func (claudeKind) started(*Daemon, *presence) {}
+
+func (claudeKind) attach(d *Daemon, pr *presence) {
+	if h := d.hintOf(pr); h != nil && claude.InProjects(h.saved.TranscriptPath, pr.env) {
+		pr.mu.Lock()
+		if pr.transcript == "" {
+			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "")
+		}
+		pr.mu.Unlock()
+	}
+	if pr.stream == nil {
+		if p := launchPrompt(pr.argv); p != "" {
+			pr.entered(p)
+		}
+		d.discover(pr)
+	}
+	expired := time.After(ClaudeAttachWait)
+	go func() {
+		select {
+		case <-pr.ctx.Done():
+		case <-expired:
+			pr.mu.Lock()
+			defer pr.mu.Unlock()
+			if !pr.hooked && !pr.reported && (pr.stream == nil || !pr.stream.connected()) {
+				pr.a.SetAttached(false)
+			}
+		}
+	}()
+}
+
+// typeIn clears Claude's input after a stop first: a prompt stopped before
+// its reply goes back there, and would run on into text. A draft the user
+// left there would too, so it is put aside instead, with whatever else the
+// input holds. It notes the prompt first, so it is known before Claude writes it.
+func (claudeKind) typeIn(c termDriver, text string) error {
+	c.pr.typedPrompt(text)
+	refilled := c.a.Refilled()
+	if c.pr.isDrafted() {
+		return c.t.PromptStashed(text)
+	}
+	if refilled {
+		return c.t.PromptOver(text)
+	}
+	return c.t.Prompt(text)
+}
+
+func (claudeKind) settings(c termDriver, model, effort string) error {
+	return c.typeSettings(model, effort)
+}
+
+// keys clears a turn the user stops with Esc or Ctrl+C, as Claude fires no
+// hook for it. Only a key written alone counts, so typed or pasted text that
+// holds one, or an Esc sequence like an arrow key, doesn't.
+func (claudeKind) keys(d *Daemon, pr *presence, b []byte) {
+	if len(b) > 0 {
+		pr.typedKeys(b)
+	}
+	switch string(b) {
+	case "\x1b", "\x1b[27u", "\x03", "\x1b[99;5u":
+		pr.a.Escaped()
+		if !pr.isReported() {
+			d.cleared(pr)
+		}
+	}
+}
+
+// resumable: a conversation that has had no prompt has no transcript, and claude can't resume it.
+func (claudeKind) resumable(e state.Terminal) bool {
+	_, err := os.Stat(e.TranscriptPath)
+	return err == nil
+}
 
 // claudeAt is the claude agent that pid is in terminal id, or nil for any
 // other process, like a claude -p run by the agent's Bash tool. A hook can
@@ -74,32 +155,13 @@ func (d *Daemon) AskOpen(id string) bool {
 	return asking || pr.a.Summary().Status == "needsYou"
 }
 
-// Input clears a claude turn the user stops with Esc or Ctrl+C, as Claude
-// fires no hook for it, and notes a codex's Enter, which starts the turn its
-// thread is found by. Only a key written alone counts, so typed or pasted
-// text that holds one, or an Esc sequence like an arrow key, doesn't.
+// Input hands the keys the user writes to an agent in its TUI to its kind.
 func (d *Daemon) Input(id string, b []byte) {
-	if pr := d.presentIn(id); pr != nil && pr.stream != nil {
+	pr := d.presentIn(id)
+	if pr == nil || pr.stream != nil {
 		return
 	}
-	if pr := d.presentIn(id); pr != nil && pr.provider == "claude" && len(b) > 0 {
-		pr.typedKeys(b)
-	}
-	switch string(b) {
-	case "\x1b", "\x1b[27u", "\x03", "\x1b[99;5u":
-		if pr := d.presentIn(id); pr != nil && pr.provider == "claude" {
-			pr.a.Escaped()
-			if !pr.isReported() {
-				d.cleared(pr)
-			}
-		}
-	case "\r", "\x1b[13u":
-		if pr := d.presentIn(id); pr != nil && pr.provider == "codex" {
-			pr.mu.Lock()
-			pr.enter = time.Now()
-			pr.mu.Unlock()
-		}
-	}
+	kindOf[pr.provider].keys(d, pr, b)
 }
 
 // Report takes one OSC 7501 report from terminal id. The first one makes the

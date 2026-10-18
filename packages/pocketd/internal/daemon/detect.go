@@ -18,7 +18,7 @@ func Provider(argv []string) string {
 	if p == nil {
 		return ""
 	}
-	if len(argv) > 1 && (slices.Contains(p.NotAgent, argv[1]) || name == "claude" && strings.HasPrefix(argv[1], "bg-")) {
+	if len(argv) > 1 && (slices.Contains(p.NotAgent, argv[1]) || kindOf[name].tool(argv[1])) {
 		return ""
 	}
 	return name
@@ -35,8 +35,10 @@ func piped(argv []string) []string {
 // pipedProvider is the provider a pipe runs for the chat, or "".
 func pipedProvider(argv []string) string {
 	inner := piped(argv)
-	if len(inner) > 1 && inner[1] == "app-server" && Provider(inner[:1]) == "codex" {
-		return "codex"
+	if len(inner) > 1 {
+		if p := Provider(inner[:1]); p != "" && kindOf[p].serves(inner[1]) {
+			return p
+		}
 	}
 	return Provider(inner)
 }

@@ -7,6 +7,7 @@ import (
 
 	"pocketd/internal/config"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 )
 
 func argvOf(s proto.LaunchSpec, name string) ([]string, *Failure) {
@@ -180,5 +181,13 @@ func TestAForkNeedsForkArgsAndAPlainId(t *testing.T) {
 	s.Fork = "c 1;rm"
 	if _, f := argvOf(s, ""); f == nil || f.Code != "invalid_spec" {
 		t.Fatalf("bad id: %v", f)
+	}
+}
+
+func TestEveryProviderHasACLI(t *testing.T) {
+	for _, p := range providers.All {
+		if clis[p.ID] == nil {
+			t.Errorf("%s has no cli", p.ID)
+		}
 	}
 }

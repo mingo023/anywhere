@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"pocketd/internal/names"
+	"pocketd/internal/providers"
 )
 
 type Result struct {
@@ -55,12 +56,23 @@ func clip(s string, n int) string {
 	return s
 }
 
-// Command runs provider's CLI at exe once, headless, on a cheap model.
-func Command(provider, exe, prompt string) []string {
-	if provider == "codex" {
+var commands = map[string]func(exe, prompt string) []string{
+	providers.Claude.ID: func(exe, prompt string) []string {
+		return []string{exe, "--strict-mcp-config", "-p", "--model", "haiku", prompt}
+	},
+	providers.Codex.ID: func(exe, prompt string) []string {
 		return []string{exe, "exec", "--skip-git-repo-check", "-m", "gpt-5.6-luna", prompt}
+	},
+}
+
+// Command runs provider's CLI at exe once, headless, on a cheap model. A
+// provider without a command runs as Claude.
+func Command(provider, exe, prompt string) []string {
+	c, ok := commands[provider]
+	if !ok {
+		c = commands[providers.Claude.ID]
 	}
-	return []string{exe, "--strict-mcp-config", "-p", "--model", "haiku", prompt}
+	return c(exe, prompt)
 }
 
 // Env is env without API keys, so the user's login pays, and without pocketd's

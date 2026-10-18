@@ -4,7 +4,16 @@ import (
 	"testing"
 
 	"pocketd/internal/proc"
+	"pocketd/internal/providers"
 )
+
+func TestEveryProviderHasAKind(t *testing.T) {
+	for _, p := range providers.All {
+		if kindOf[p.ID] == nil {
+			t.Errorf("%s has no kind", p.ID)
+		}
+	}
+}
 
 func TestProvider(t *testing.T) {
 	for _, c := range []struct {

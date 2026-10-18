@@ -1,6 +1,10 @@
 package state
 
-import "testing"
+import (
+	"testing"
+
+	"pocketd/internal/providers"
+)
 
 func TestParseReadsBackWhatEveryLaunchArgvAsksFor(t *testing.T) {
 	for _, c := range []struct {
@@ -56,5 +60,13 @@ func TestModeFollowsClaudePermissionModes(t *testing.T) {
 	}
 	if got := Mode(l, "dontAsk"); got != l {
 		t.Errorf("unknown: %+v", got)
+	}
+}
+
+func TestEveryProviderHasAParser(t *testing.T) {
+	for _, p := range providers.All {
+		if parsers[p.ID] == nil {
+			t.Errorf("%s has no parser", p.ID)
+		}
 	}
 }

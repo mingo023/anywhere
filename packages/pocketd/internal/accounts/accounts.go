@@ -3,9 +3,9 @@
 package accounts
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,15 +18,59 @@ import (
 	"sync"
 
 	"pocketd/internal/atomicfile"
+	"pocketd/internal/providers"
 )
 
 // BuiltIn is the id of a provider's own login in ~/.claude or ~/.codex.
 const BuiltIn = "builtin"
 
-var Providers = []string{"claude", "codex"}
+// login is what pocketd knows of one provider's sign-in.
+type login interface {
+	// envKey points the CLI at an account's folder.
+	envKey() string
+	// unset are what would sign its agent in as someone else.
+	unset() []string
+	identity(s *Store, id string) (email, plan string)
+	signedIn(s *Store, id string) bool
+	usage(ctx context.Context, s *Store, id string) (Usage, error)
+	// shared are the entries of its own folder that a managed account reads through.
+	shared() []string
+	// history is the shared entry that holds what an account has already run.
+	// A real folder in its place is merged into the user's first, so a session
+	// started before sharing can still resume.
+	history() string
+	shareMore(s *Store, id string) error
+}
+
+var logins = map[string]login{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}}
+
+// loginOf reads a provider without a login as Claude.
+func loginOf(provider string) login {
+	if l, ok := logins[provider]; ok {
+		return l
+	}
+	return claude{}
+}
+
+// Providers are the ones with accounts, in providers.All order.
+var Providers = func() []string {
+	var ids []string
+	for _, p := range providers.All {
+		if _, ok := logins[p.ID]; ok {
+			ids = append(ids, p.ID)
+		}
+	}
+	return ids
+}()
 
 // Unset are what would sign a managed account's agent in as someone else.
-var Unset = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
+var Unset = func() []string {
+	var keys []string
+	for _, p := range Providers {
+		keys = append(keys, logins[p].unset()...)
+	}
+	return keys
+}()
 
 var (
 	ErrUnknown   = errors.New("That account isn't on this machine anymore")
@@ -97,10 +141,7 @@ func (s *Store) Env(provider, id string) []string {
 }
 
 func envKey(provider string) string {
-	if provider == "codex" {
-		return "CODEX_HOME"
-	}
-	return "CLAUDE_CONFIG_DIR"
+	return loginOf(provider).envKey()
 }
 
 // Of is the managed account a process with env runs on, or "" for any other login.
@@ -338,23 +379,7 @@ func (s *Store) save(x index) error {
 
 // identity is the email and plan account id signed in as, from its CLI's own files.
 func (s *Store) identity(provider, id string) (email, plan string) {
-	if provider == "codex" {
-		claims := jwtClaims(s.codexAuth(id).Tokens.IDToken)
-		return claims.Email, title(claims.Auth.Plan)
-	}
-	path := filepath.Join(s.Dir(provider, id), ".claude.json")
-	if id == BuiltIn {
-		path = filepath.Join(s.Home, ".claude.json")
-	}
-	var cfg struct {
-		OAuth struct {
-			Email string `json:"emailAddress"`
-			Org   string `json:"organizationType"`
-		} `json:"oauthAccount"`
-	}
-	raw, _ := os.ReadFile(path)
-	json.Unmarshal(raw, &cfg)
-	return cfg.OAuth.Email, title(strings.TrimPrefix(cfg.OAuth.Org, "claude_"))
+	return loginOf(provider).identity(s, id)
 }
 
 func title(s string) string {
@@ -364,70 +389,9 @@ func title(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-type codexAuth struct {
-	Tokens struct {
-		IDToken     string `json:"id_token"`
-		AccessToken string `json:"access_token"`
-		AccountID   string `json:"account_id"`
-	} `json:"tokens"`
-}
-
-func (s *Store) codexAuth(id string) codexAuth {
-	var a codexAuth
-	raw, _ := os.ReadFile(filepath.Join(s.Dir("codex", id), "auth.json"))
-	json.Unmarshal(raw, &a)
-	return a
-}
-
-type claims struct {
-	Email string `json:"email"`
-	Exp   int64  `json:"exp"`
-	Auth  struct {
-		Plan string `json:"chatgpt_plan_type"`
-	} `json:"https://api.openai.com/auth"`
-}
-
-// jwtClaims reads a token's payload unverified: it only labels a login the CLI made.
-func jwtClaims(token string) claims {
-	var c claims
-	parts := strings.Split(token, ".")
-	if len(parts) == 3 {
-		raw, _ := base64.RawURLEncoding.DecodeString(parts[1])
-		json.Unmarshal(raw, &c)
-	}
-	return c
-}
-
 // SignedIn is whether account id of provider holds a login.
 func (s *Store) SignedIn(provider, id string) bool {
-	if provider == "codex" {
-		return s.codexAuth(id).Tokens.AccessToken != ""
-	}
-	return s.claudeToken(id).AccessToken != ""
-}
-
-type claudeOAuth struct {
-	AccessToken string `json:"accessToken"`
-	ExpiresAt   int64  `json:"expiresAt"`
-}
-
-// claudeToken is Claude Code's OAuth token for account id: in the Keychain
-// item named after its folder on macOS, else in .credentials.json, where
-// Claude Code keeps it when it has no Keychain.
-func (s *Store) claudeToken(id string) claudeOAuth {
-	var raw []byte
-	if s.Secret != nil {
-		v, _ := s.Secret(KeychainService(s.Dir("claude", id), id == BuiltIn))
-		raw = []byte(v)
-	}
-	if len(raw) == 0 {
-		raw, _ = os.ReadFile(filepath.Join(s.Dir("claude", id), ".credentials.json"))
-	}
-	var c struct {
-		OAuth claudeOAuth `json:"claudeAiOauth"`
-	}
-	json.Unmarshal(raw, &c)
-	return c.OAuth
+	return loginOf(provider).signedIn(s, id)
 }
 
 // Keychain reads a macOS Keychain item's password with the security tool,

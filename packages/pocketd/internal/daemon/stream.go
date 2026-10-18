@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"pocketd/internal/agent"
 	"strconv"
 	"sync"
 	"time"
@@ -201,12 +202,8 @@ func (d *Daemon) Pipe(_ context.Context, p peer.Principal, m ops.Msg, c *ops.Con
 			pr.stream.detach(c)
 			return nil
 		}
-		switch {
-		case msg.Ev != "out":
-		case pr.codex != nil:
-			pr.codex.out(msg.Text)
-		default:
-			d.streamLine(pr, msg.Text)
+		if msg.Ev == "out" {
+			pr.chat.out(msg.Text)
 		}
 	}
 }
@@ -314,6 +311,16 @@ func (d *Daemon) canUseTool(pr *presence, id string, raw json.RawMessage) {
 		s.send(controlReply(id, decision))
 	}()
 }
+
+// claudeStream is a claude's chat over stream-json.
+type claudeStream struct {
+	d  *Daemon
+	pr *presence
+}
+
+func (c claudeStream) driver(t termDriver) agent.Driver { return streamDriver{t, c.d} }
+func (c claudeStream) attach()                          { claudeKind{}.attach(c.d, c.pr) }
+func (c claudeStream) out(line string)                  { c.d.streamLine(c.pr, line) }
 
 // streamDriver drives a claude through its stream, which queues a prompt
 // sent mid-turn and switches models without a dialog.

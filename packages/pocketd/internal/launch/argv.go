@@ -3,81 +3,60 @@ package launch
 import (
 	"errors"
 	"regexp"
-	"slices"
 	"strings"
 
 	"pocketd/internal/config"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
+	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 )
 
 var model = regexp.MustCompile(`^[A-Za-z0-9._:\[\]][A-Za-z0-9._:\[\]-]{0,63}$`)
 
-const badModel, badClaudeEffort = "Model names use letters, digits and . _ : [ ] -, and don't start with -", "Claude's effort is low, medium, high, xhigh or max"
+const badModel = "Model names use letters, digits and . _ : [ ] -, and don't start with -"
 
-// ValidSwitch refuses a model or effort a running agent can't switch to. A
-// codex model lists its own efforts, so codex's is only checked for shape.
+// cli is how pocketd runs one provider's command; clis has one per providers ID.
+type cli interface {
+	// switchEffort refuses an effort a running agent can't switch to.
+	switchEffort(effort string) error
+	// chat is whether s runs for the chat behind `pocketd pipe`.
+	chat(s proto.LaunchSpec) bool
+	// argv adds s's flags to argv. done means out is the whole command line.
+	argv(s proto.LaunchSpec, argv []string, name, prompt string) (out []string, done bool, f *Failure)
+	// chatResume is the whole argv that resumes t for the chat, if it has its own.
+	chatResume(t state.Terminal, l state.Launch) ([]string, bool)
+	// resume adds l's flags to argv, which resumes t.
+	resume(t state.Terminal, l state.Launch, argv []string) []string
+	// untrusted fails a launch in dir that would wait on a folder trust dialog.
+	untrusted(env []string, dir string) *Failure
+	login(exe string) []string
+	logout(exe string) []string
+}
+
+var clis = map[string]cli{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}}
+
+// ValidSwitch refuses a model or effort a running agent can't switch to.
 func ValidSwitch(provider, name, effort string) error {
-	switch {
-	case name != "" && !model.MatchString(name):
+	if name != "" && !model.MatchString(name) {
 		return errors.New(badModel)
-	case provider == "claude" && effort != "" && !slices.Contains(providers.Claude.Efforts, effort):
-		return errors.New(badClaudeEffort)
-	case effort != "" && !model.MatchString(effort):
+	}
+	if c := clis[provider]; c != nil && effort != "" {
+		if err := c.switchEffort(effort); err != nil {
+			return err
+		}
+	}
+	if effort != "" && !model.MatchString(effort) {
 		return errors.New("An effort is one word")
 	}
 	return nil
 }
 
-var claudeAccess = map[string][]string{
-	"settings": nil,
-	"ask":      {"--permission-mode", "default"},
-	"edits":    {"--permission-mode", "acceptEdits"},
-	"auto":     {"--permission-mode", "auto"},
-	"full":     {"--permission-mode", "bypassPermissions", "--allow-dangerously-skip-permissions"},
-}
-
-var codexAccess = map[string][]string{
-	"settings": nil,
-	"ask":      {"-s", "read-only", "-a", "on-request"},
-	"edits":    {"-s", "workspace-write", "-a", "on-request"},
-	"auto":     {"--approve-for-me"},
-	"full":     {"-s", "danger-full-access", "-a", "never"},
-}
-
-// codexChatAccess is codexAccess as config for `codex app-server`, which
-// takes none of the TUI's flags.
-var codexChatAccess = map[string][]string{
-	"settings": nil,
-	"ask":      {"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="on-request"`},
-	"edits":    {"-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="on-request"`},
-	"auto":     {"-c", `sandbox_mode="workspace-write"`, "-c", `approvals_reviewer="auto_review"`},
-	"full":     {"-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`},
-}
-
-// codexChat runs codex for the chat: its app-server on stdio, which pocketd
-// drives over JSON-RPC.
-func codexChat(access, model, effort string) []string {
-	argv := append([]string{"codex", "app-server"}, codexChatAccess[access]...)
-	if model != "" {
-		argv = append(argv, "-c", `model="`+model+`"`)
-	}
-	if effort != "" {
-		argv = append(argv, "-c", `model_reasoning_effort="`+effort+`"`)
-	}
-	return argv
-}
-
-// Chat is whether s runs for the chat behind `pocketd pipe`. A codex fork
-// runs in its TUI, as only that forks from the command line.
+// Chat is whether s runs for the chat behind `pocketd pipe`.
 func Chat(s proto.LaunchSpec) bool {
-	return s.Provider == "claude" || s.Provider == "codex" && s.Fork == ""
+	c := clis[s.Provider]
+	return c != nil && c.chat(s)
 }
-
-// chatFlags run claude for the chat: stream-json both ways, and its asks to
-// use a tool as control requests rather than a dialog.
-var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio"}
 
 // Piped runs argv behind `pocketd pipe`, which relays its stdio to pocketd.
 func Piped(exe string, argv []string) []string {
@@ -106,43 +85,15 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 		}
 		argv = append(argv, config.Fill(args.Fork, s.Fork)...)
 	}
-	switch s.Provider {
-	case "claude":
-		if s.Effort != "" && !slices.Contains(providers.Claude.Efforts, s.Effort) {
-			return nil, fail("invalid_spec", badClaudeEffort)
+	if c := clis[s.Provider]; c != nil {
+		out, done, f := c.argv(s, argv, name, prompt)
+		if f != nil {
+			return nil, f
 		}
-		if s.Plan {
-			argv = append(argv, "--permission-mode", "plan")
-		} else {
-			argv = append(argv, claudeAccess[s.Access]...)
+		if done {
+			return out, nil
 		}
-		argv = append(argv, chatFlags...)
-		if s.Model != "" {
-			argv = append(argv, "--model", s.Model)
-		}
-		if s.Effort != "" {
-			argv = append(argv, "--effort", s.Effort)
-		}
-		if name == "" {
-			name = Slug(prompt)
-		}
-		if name != "" {
-			argv = append(argv, "-n", name)
-		}
-	case "codex":
-		if s.Plan {
-			return nil, fail("access_not_allowed", "Codex can't plan first in a terminal session")
-		}
-		if s.Effort != "" {
-			return nil, fail("invalid_spec", "Codex takes no effort here")
-		}
-		if Chat(s) {
-			return codexChat(s.Access, s.Model, ""), nil
-		}
-		argv = append(argv, codexAccess[s.Access]...)
-		if s.Model != "" {
-			argv = append(argv, "-m", s.Model)
-		}
+		argv = out
 	}
 	if prompt != "" && !Chat(s) {
 		argv = append(append(argv, args.Prompt...), prompt)

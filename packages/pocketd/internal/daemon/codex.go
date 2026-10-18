@@ -8,6 +8,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/codex"
+	"pocketd/internal/state"
 	"pocketd/internal/timeline"
 )
 
@@ -19,6 +20,46 @@ var CodexMapWindow = 3 * time.Second
 // first thread to turn active: nobody presses Enter, and its TUI takes a
 // while to come up.
 var CodexPromptWindow = 30 * time.Second
+
+type codexKind struct{}
+
+func (codexKind) tool(string) bool { return false }
+
+func (codexKind) serves(arg string) bool { return arg == "app-server" }
+
+func (codexKind) pipe(d *Daemon, pr *presence) pipeChat { return newCodexChat(d, pr) }
+
+func (codexKind) started(d *Daemon, pr *presence) {
+	if prompted(pr.argv) {
+		pr.prompted, pr.enter = true, time.Now()
+	}
+}
+
+func (codexKind) attach(d *Daemon, pr *presence) {
+	d.attachCodex(pr)
+	if h := d.hintOf(pr); h != nil && pr.sock != "" {
+		d.bind(pr, h.saved.ConversationID)
+	}
+}
+
+func (codexKind) typeIn(c termDriver, text string) error { return c.t.Prompt(text) }
+
+// settings goes through the app-server, as codex's /model opens a picker.
+func (codexKind) settings(c termDriver, model, effort string) error {
+	return c.pr.switchCodex(model, effort)
+}
+
+// keys notes an Enter written alone, which starts the turn its thread is found by.
+func (codexKind) keys(_ *Daemon, pr *presence, b []byte) {
+	switch string(b) {
+	case "\r", "\x1b[13u":
+		pr.mu.Lock()
+		pr.enter = time.Now()
+		pr.mu.Unlock()
+	}
+}
+
+func (codexKind) resumable(state.Terminal) bool { return true }
 
 func (d *Daemon) attachCodex(pr *presence) {
 	if embedded(pr.argv, pr.env) {

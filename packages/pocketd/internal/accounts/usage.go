@@ -24,12 +24,6 @@ type Usage struct {
 	Stale   bool    `json:"stale,omitempty"`
 }
 
-// The usage endpoints; tests point them elsewhere.
-var (
-	ClaudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
-	CodexUsageURL  = "https://chatgpt.com/backend-api/wham/usage"
-)
-
 var client = &http.Client{Timeout: 10 * time.Second}
 
 // Refresh fetches the usage of every signed-in account, or only id's when set.
@@ -62,63 +56,7 @@ func (s *Store) Refresh(ctx context.Context, id string) {
 }
 
 func (s *Store) fetch(ctx context.Context, provider, id string) (Usage, error) {
-	now := time.Now()
-	if provider == "codex" {
-		a := s.codexAuth(id)
-		if exp := jwtClaims(a.Tokens.AccessToken).Exp; exp > 0 && exp < now.Unix() {
-			return Usage{}, fmt.Errorf("token expired")
-		}
-		var raw struct {
-			Limit struct {
-				Primary   *codexWindow `json:"primary_window"`
-				Secondary *codexWindow `json:"secondary_window"`
-			} `json:"rate_limit"`
-		}
-		if err := get(ctx, CodexUsageURL, map[string]string{"Authorization": "Bearer " + a.Tokens.AccessToken, "ChatGPT-Account-Id": a.Tokens.AccountID}, &raw); err != nil {
-			return Usage{}, err
-		}
-		return Usage{Session: raw.Limit.Primary.window(), Week: raw.Limit.Secondary.window(), At: now.UnixMilli()}, nil
-	}
-	t := s.claudeToken(id)
-	if t.ExpiresAt > 0 && t.ExpiresAt < now.UnixMilli() {
-		return Usage{}, fmt.Errorf("token expired")
-	}
-	var raw struct {
-		FiveHour *claudeWindow `json:"five_hour"`
-		SevenDay *claudeWindow `json:"seven_day"`
-	}
-	if err := get(ctx, ClaudeUsageURL, map[string]string{"Authorization": "Bearer " + t.AccessToken, "anthropic-beta": "oauth-2025-04-20"}, &raw); err != nil {
-		return Usage{}, err
-	}
-	return Usage{Session: raw.FiveHour.window(), Week: raw.SevenDay.window(), At: now.UnixMilli()}, nil
-}
-
-type codexWindow struct {
-	Used    float64 `json:"used_percent"`
-	ResetAt int64   `json:"reset_at"`
-}
-
-func (w *codexWindow) window() *Window {
-	if w == nil {
-		return nil
-	}
-	return &Window{Percent: w.Used, ResetsAt: w.ResetAt * 1000}
-}
-
-type claudeWindow struct {
-	Utilization float64   `json:"utilization"`
-	ResetsAt    time.Time `json:"resets_at"`
-}
-
-func (w *claudeWindow) window() *Window {
-	if w == nil {
-		return nil
-	}
-	at := int64(0)
-	if !w.ResetsAt.IsZero() {
-		at = w.ResetsAt.UnixMilli()
-	}
-	return &Window{Percent: w.Utilization, ResetsAt: at}
+	return loginOf(provider).usage(ctx, s, id)
 }
 
 func get(ctx context.Context, url string, headers map[string]string, v any) error {
