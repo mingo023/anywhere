@@ -209,9 +209,9 @@ func (s *Server) principal(c net.Conn) peer.Principal {
 	return peer.Classify(pid, s.Terminals.Roots())
 }
 
-// owner is the id of token, for a conn that is no one yet.
+// owner is the id of token, for a conn that may become the owner by it.
 func (s *Server) owner(who peer.Principal, token string) (string, bool) {
-	if who.Kind != peer.None || s.Owners == nil {
+	if !peer.MayAuth(who) || s.Owners == nil {
 		return "", false
 	}
 	o, ok := s.Owners.Lookup(token)

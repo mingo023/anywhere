@@ -227,8 +227,8 @@ func (c *conn) handle(raw []byte) {
 			return
 		}
 		who, local := peer.From(c.ctx)
-		if local && who.Kind == peer.None {
-			// A TCP conn: the owner token is all that says who it is.
+		if local && (who.Kind == peer.None || m.OwnerToken != "" && peer.MayAuth(who)) {
+			// A TCP conn, or a Windows socket peer that sent one: the owner token is all that says who it is.
 			var o owners.Owner
 			ok := c.s.Owners != nil
 			if ok {
