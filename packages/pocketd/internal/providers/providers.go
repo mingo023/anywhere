@@ -2,6 +2,9 @@
 // internal, so proto, config and the rest can all read it.
 package providers
 
+// SessionID marks where fork args take the source session's id.
+const SessionID = "{sessionId}"
+
 // Spec is one agent CLI pocketd runs. ID is its command's name and its config.json section.
 type Spec struct {
 	ID       string
