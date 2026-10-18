@@ -24,7 +24,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `project` | which project and worktree a folder belongs to, the folders git refresh reads |
 | `hosts` | SSH hosts: what one is and how it's saved, `hosts/ssh` the ssh commands and what their failures mean, `hosts/link` the tunnel to a host's pocketd that reconnects by itself, `hosts/sign_in` the one password sign-in that gives a host the app's own key, `hosts/ssh_config` the hosts `~/.ssh/config` names, `hosts/remote` exec and file ops through a host's pocketd, `hosts/session` terminals and agents on hosts and which pocketd holds them, `hosts/install` putting pocketd on a host as a user service, `hosts/checklist` an install's progress, `hosts/owner` a Windows host's owner token |
 | `web` | the WKWebView page of a browser tab, address and link parsing |
-| `chat` | an agent's chat as plain data: the transcript (turns, messages, tool calls, sub-agents) folded from the timeline, `chat/adapter` the `Backend` each agent provides and its capabilities (`adapter/claude`, `adapter/codex`), `chat/rows` the transcript's rows, `chat/session` one pane's transcript, rows and folds kept in step, `chat/outgoing` sends, the queue and their settling |
+| `chat` | an agent's chat as plain data: the transcript (turns, messages, tool calls, sub-agents) folded from the timeline, `chat/adapter` the `Backend` each agent provides and its capabilities (`adapter/claude`, `adapter/codex`, `adapter/other` for a provider this build doesn't know), `chat/rows` the transcript's rows, `chat/session` one pane's transcript, rows and folds kept in step, `chat/outgoing` sends, the queue and their settling |
 | `ui`, `theme` | widgets, colours, icons |
 
 | `pocket` module | Owns |

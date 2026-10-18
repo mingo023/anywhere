@@ -1,5 +1,6 @@
 mod claude;
 mod codex;
+mod other;
 
 use crate::{Action, Ask, Fold, Transcript, Turn};
 
@@ -51,11 +52,12 @@ pub trait Backend: Sync {
     }
 }
 
-/// The adapter for a pocketd agent, by its `Summary::provider`; Claude's for one this build doesn't know.
+/// The adapter for a pocketd agent, by its `Summary::provider`; a generic one for a provider this build doesn't know.
 pub fn for_provider(provider: &str) -> &'static dyn Backend<Item = agents::Item, Ask = agents::Permission> {
     match provider {
+        "claude" => &claude::Claude,
         "codex" => &codex::Codex,
-        _ => &claude::Claude,
+        _ => &other::Other,
     }
 }
 
@@ -90,6 +92,11 @@ mod tests {
         assert_eq!(claude.panel("/costs went up, why?"), None);
         assert_eq!(claude.panel("/usage/report.md is empty"), None);
         assert_eq!(for_provider("codex").panel("/cost"), None);
+    }
+
+    #[test]
+    fn an_unknown_provider_opens_no_claude_panel() {
+        assert_eq!(for_provider("gemini").panel("/cost"), None);
     }
 
     #[test]
