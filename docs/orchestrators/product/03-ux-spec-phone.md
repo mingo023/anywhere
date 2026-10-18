@@ -714,7 +714,7 @@ pocketd already answers `agent.prompt` with `ack {id}` or `error {id, message}` 
 | Idle | relative time | Composer: Send |
 | Not attached | 0.5 opacity | no timeline; Terminal only (Phase 3) |
 | Closed | removed [P app/agents.ts:4] | "Session ended." |
-| Restored after a pocketd restart (PRD FR 09-6) | row notice "Resumed" · "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | the same notice as a timeline row |
+| Restored after a pocketd restart (PRD FR 09-6) | row notice "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | the same notice as a timeline row |
 
 ---
 
@@ -831,7 +831,7 @@ Tone: short, plain, sentence case, no exclamation marks. Say "Session" (CONTEXT.
 | Approval | "{toolName} · {i} of {n}" · "Do you want to proceed?" · "Yes" · "No" · field "Tell {Provider} what to do differently" | [R08 §S5; P app/components/PermissionSheet.tsx:61,73-83] |
 | Needs-you notice | "{Provider} needs you in the terminal." / "Answer on your Mac." ("Open terminal" only with S7) | **new** |
 | Plan | "Plan" · "Approve" · "Keep planning" · "Feedback (optional)" | PRD FR 12-3 |
-| Restore | "Resumed" · "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | PRD FR 09-6 |
+| Restore | "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | PRD FR 09-6 |
 | Context | "{n}% context" · "Context window" · "{used} / {window} tokens" · "{left} tokens remaining" · "Compact now" | [R05 §UI spec "Context ring"; R13 §UI spec] |
 | Session ended | "Session ended." | **new** |
 | Changes | "Changes" · "Edits in this session · {n} files" · "Edit {i} of {n}" · "Empty file" | **new**; [P app/components/DiffView.tsx:26] |

@@ -567,7 +567,7 @@ body SURFACE_SUNKEN = TERM_BG. A tab holds rows; each row holds terminals side b
 ┌ split header h30 pl16 pr6 (only when the tab has 2+ terminals) ────────────────────┐
 │ 1 · Claude Code — ~/pocket/feat-login        mono 11.5; TEXT focused, else TEXT_2 ×22│
 ├─────────────────────────────────────────────────────────────────────────────────────┤
-│ banner px16 py6, 12 TEXT_2 on FILL_2 (status::banner, only when set)                │
+│ banner pl16 pr8 py4, 12 TEXT_2 on FILL_2, x 20 closes (status::banner, only when set)│
 │ pt10                                                                                │
 │ px20   grid: Geist Mono 13 / line 22, ligatures off                           ▐ ←─┐ │
 │        cursor: filled block TERM_CURSOR, blink 530; unfocused: hollow 1 px        │ │
@@ -887,7 +887,7 @@ Empty copy renders only after the first snapshot arrives, so it never flashes du
 | Surface | Condition | Copy (13.5–14, `TEXT_2`) | Action |
 |---|---|---|---|
 | Main | pocketd down (PRD FR 04-5) | "Starting Pocket's terminal service…" | — (retries with backoff) |
-| Session row, tab banner | after a pocketd restart (PRD FR 09-6) | "Resumed" · "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | — |
+| Session row, tab banner | after a pocketd restart (PRD FR 09-6) | "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | — |
 | Main | no Project | "Add a project to begin." | [Add project] (new button) |
 | Main | Project, no tabs | "Pick a session, or start a new one." | [New session ⌘N] |
 | Sessions list | no Project | "Add a project with + to start." | — |
@@ -1028,7 +1028,7 @@ Tags: **E** = existing, kept · **C** = changed · **N** = new.
 | Aside host line | "Keeping Mac awake" · "Phone access needs Tailscale" | N | PRD FR 16-5 |
 | Observe-only banner | "Observe only — pocketd is managed elsewhere" | N | D20 |
 | Reconnect | "Starting Pocket's terminal service…" | N | PRD FR 04-5 |
-| Restore notices | "Resumed" · "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | N | PRD FR 09-6 |
+| Restore notices | "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" | N | PRD FR 09-6 |
 | Pair phone dialog | "Pair phone" · "Scan with the iPhone Camera" · "Or enter this code: {code}" · "Paired" | N | PRD FR 03-7 |
 
 **Terminal**
