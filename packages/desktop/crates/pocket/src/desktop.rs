@@ -468,7 +468,7 @@ impl Desktop {
 
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
-            _ if self.shown_create().is_some() => self.creating_page(cx),
+            _ if self.shown_create().is_some() => self.creating_page(window, cx),
             Some(_) if self.idle_main() => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
@@ -481,7 +481,7 @@ impl Desktop {
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(cx),
-            None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
+            None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(window, cx),
             None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
             None => self.blank_page(cx),
         };

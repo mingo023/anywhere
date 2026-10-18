@@ -155,6 +155,22 @@ func TestLiveTurnStreamsOnce(t *testing.T) {
 	}
 }
 
+func TestAMessageUnderWayAtResumeShowsWholeOnceItCompletes(t *testing.T) {
+	srv, _, snk, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(`{"thread":{"turns":[{"id":"t1","status":"inProgress","items":[{"type":"userMessage","id":"u1","content":[{"type":"text","text":"count"}]}]}]}}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	srv.Push("item/agentMessage/delta", nil, `{"threadId":"th1","turnId":"t1","itemId":"a1","delta":"3"}`)
+	srv.Push("item/completed", nil, `{"threadId":"th1","turnId":"t1","item":{"type":"agentMessage","id":"a1","text":"123"}}`)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":{"type":"agentMessage","id":"a2","text":""}}`)
+	srv.Push("item/agentMessage/delta", nil, `{"threadId":"th1","turnId":"t1","itemId":"a2","delta":"done"}`)
+	srv.Push("item/completed", nil, `{"threadId":"th1","turnId":"t1","item":{"type":"agentMessage","id":"a2","text":"done"}}`)
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":{"id":"t1","items":[],"status":"completed"}}`)
+	snk.wait(t, "user:count", "assistant_text:123", "assistant_text:done", "result:true:0:")
+}
+
 func TestPhoneAnswersApproval(t *testing.T) {
 	for _, c := range []struct{ decision, reply string }{{"allow", `{"decision":"accept"}`}, {"deny", `{"decision":"decline"}`}} {
 		t.Run(c.decision, func(t *testing.T) {

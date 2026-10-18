@@ -277,7 +277,7 @@ func serve(sock, handed string) error {
 			HostID: hostID, OS: runtime.GOOS, Arch: runtime.GOARCH, UserHome: userHome, Shell: shellenv.LoginShell(), Name: ws.MacName, Caps: ops.HostCaps}
 	}
 	srv := &ops.Server{
-		Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook,
+		Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook, Pipe: d.Pipe,
 		Devices: devs, Kick: ws.CloseDevice,
 		Pairing: pairs, Host: pairHost, MacName: ws.MacName,
 		WS: ws, AskOpen: d.AskOpen,

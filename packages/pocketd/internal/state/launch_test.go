@@ -20,6 +20,8 @@ func TestParseReadsBackWhatEveryLaunchArgvAsksFor(t *testing.T) {
 		{"codex", []string{"codex", "--approve-for-me"}, Launch{Access: "auto"}},
 		{"codex", []string{"codex", "-s", "danger-full-access", "-a", "never"}, Launch{Access: "full"}},
 		{"codex", []string{"codex", "--dangerously-bypass-approvals-and-sandbox"}, Launch{Access: "full"}},
+		{"codex", []string{"codex", "app-server", "-c", `sandbox_mode="read-only"`, "-c", `approval_policy="on-request"`, "-c", `model="gpt-6-luna"`, "-c", `model_reasoning_effort="low"`}, Launch{Access: "ask", Model: "gpt-6-luna", Effort: "low"}},
+		{"codex", []string{"codex", "app-server", "-c", `sandbox_mode="workspace-write"`, "-c", `approvals_reviewer="auto_review"`}, Launch{Access: "auto"}},
 		{"codex", []string{"codex", "--sandbox=workspace-write", "-m", "gpt-5.5", "--", "-s danger-full-access"}, Launch{Access: "edits", Model: "gpt-5.5"}},
 	} {
 		if got := Parse(c.provider, c.argv); got != c.want {

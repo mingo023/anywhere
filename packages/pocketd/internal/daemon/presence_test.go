@@ -40,6 +40,8 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
+	// Set once: a test's tails may outlive it and read it.
+	StopSettle = 50 * time.Millisecond
 	os.Exit(m.Run())
 }
 
@@ -116,6 +118,18 @@ func TestAnAgentReportsTheEffortItWasStartedWith(t *testing.T) {
 	}
 	t.Cleanup(term.Close)
 	if a := waitAgent(t, d, term); a.Effort != "high" {
+		t.Fatalf("agent = %+v", a)
+	}
+}
+
+func TestAnAgentReportsTheModelItWasStartedWithBeforeItsFirstReply(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Args: []string{"--model", "haiku"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	if a := waitAgent(t, d, term); a.Model != "haiku" {
 		t.Fatalf("agent = %+v", a)
 	}
 }

@@ -128,6 +128,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(request);
             t(agent);
         }
+        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } => t(agent),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
         Event::Connected { .. } | Event::SettingsFailed(_) => {}
         Event::Host(_)
@@ -213,8 +214,10 @@ impl Outboxes {
         self.by_id(agent_id, |o, id| o.pin(id, pinned));
     }
 
-    pub fn prompt(&self, agent_id: &str, text: &str) {
-        self.by_id(agent_id, |o, id| o.prompt(id, text));
+    /// The request id a refusal names, once sent.
+    pub fn prompt(&self, agent_id: &str, text: &str) -> Option<String> {
+        let (host, theirs) = untag(agent_id);
+        self.to(host).map(|out| out.prompt(theirs, text))
     }
 
     pub fn interrupt(&self, agent_id: &str) {
@@ -364,6 +367,14 @@ mod tests {
         let mut names = Event::Names(HashMap::from([("/home/me/app".into(), "App".into())]));
         assert!(tag_event("devbox", &mut names));
         assert!(matches!(names, Event::Names(n) if n.contains_key("//devbox/home/me/app")));
+
+        let mut refused = Event::PromptFailed { agent: "a1".into(), request: "prompt-1".into() };
+        assert!(tag_event("devbox", &mut refused));
+        assert!(matches!(refused, Event::PromptFailed { agent, .. } if agent == "devbox/a1"));
+
+        let mut unstopped = Event::InterruptFailed { agent: "a1".into(), reason: "This session is still resuming".into() };
+        assert!(tag_event("devbox", &mut unstopped));
+        assert!(matches!(unstopped, Event::InterruptFailed { agent, .. } if agent == "devbox/a1"));
 
         assert!(!tag_event("devbox", &mut Event::Paired("iPhone".into())));
         assert!(!tag_event("devbox", &mut Event::Locals(Vec::new())));

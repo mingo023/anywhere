@@ -61,7 +61,7 @@ pub struct ExplorerState {
     /// The menu just closed, fading out, and when it closed.
     leaving: Option<(menu::TreeMenu, Instant)>,
     edit: Option<edit::NameEdit>,
-    notice: Option<(toast::Notice, Task<()>)>,
+    pub(crate) notice: Option<(toast::Notice, Task<()>)>,
     /// The last trash, while its notice shows.
     undo: Option<toast::Trashed>,
     flash: Option<(PathBuf, Task<()>)>,

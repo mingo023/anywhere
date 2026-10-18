@@ -66,6 +66,23 @@ func TestACodexThreadBindsToTheCodexThatGotEnter(t *testing.T) {
 	})
 }
 
+func TestRebindingTheSameCodexThreadTellsClientsTheTimelineStartedOver(t *testing.T) {
+	d := newDaemon(t)
+	home, srv := codexHome(t)
+	term, pr := codexIn(t, d, home)
+	term.Write([]byte("\r"))
+	srv.Broadcast("thread/status/changed", active("th1"))
+	eventually(t, "the thread's history", func() bool { return pr.a.Summary().MaxSeq > 0 })
+	if got := pr.a.Summary().Resets; got != 0 {
+		t.Fatalf("first bind: resets %d", got)
+	}
+	d.bind(pr, "th1")
+	eventually(t, "the history again", func() bool {
+		items, _ := pr.a.Timeline.Page(0, 200)
+		return pr.a.Summary().Resets == 1 && len(items) > 0
+	})
+}
+
 func TestACodexStartedOnAPromptBindsItsFirstThreadWithoutEnter(t *testing.T) {
 	d := newDaemon(t)
 	home, srv := codexHome(t)

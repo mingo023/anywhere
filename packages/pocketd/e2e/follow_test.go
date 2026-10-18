@@ -46,20 +46,25 @@ func isOn(t *testing.T, term, agent, account string) func(Message) bool {
 	}
 }
 
+// startedClaude launches a claude through Pocket: only those follow the
+// default account, not one the user typed in a terminal.
 func startedClaude(t *testing.T) (h *Harness, phone *Phone, term, agent string) {
 	t.Helper()
 	h = Start(t, launchReady(""), resumingAccounts)
-	phone = h.Phone()
-	term = h.SpawnReady("claude")
-	agent = phone.WaitFor("the claude's agent", func(m Message) bool {
-		return m.Type == "agent.update" && m.Agent.TerminalID == term && m.Agent.ProviderSessionID != "" && m.Agent.Attached
-	}).Agent.ID
+	phone = h.Owner()
+	create(phone, "r1", inRepo(h, nil))
+	done := reply(phone, "agent.created", "error")
+	if done.Type != "agent.created" {
+		t.Fatalf("got %s", done.Raw)
+	}
+	term, agent = done.TerminalID, done.AgentID
+	h.WaitScreen(term, "fake claude ready")
 	return h, phone, term, agent
 }
 
 func TestAnIdleAgentFollowsTheDefaultAccountInItsTerminal(t *testing.T) {
 	h, phone, term, agent := startedClaude(t)
-	h.Prompt(term, "marker")
+	phone.Prompt(agent, "marker")
 	h.WaitScreen(term, "echo: marker")
 	phone.WaitFor("the turn to end", between(agent))
 
@@ -87,13 +92,13 @@ func TestAnIdleAgentFollowsTheDefaultAccountInItsTerminal(t *testing.T) {
 
 func TestABusyAgentFollowsOnceItsTurnEnds(t *testing.T) {
 	h, phone, term, agent := startedClaude(t)
-	h.Prompt(term, "run ls")
+	phone.Prompt(agent, "run ls")
 	req := phone.WaitFor("permission.request", func(m Message) bool { return m.Type == "permission.request" })
 
 	h.setDefault("claude", "work")
 
 	time.Sleep(time.Second)
-	if got := h.Screen(term); !strings.Contains(got, "run ls") {
+	if got := h.Screen(term); !strings.Contains(got, "prompt: run ls") {
 		t.Fatalf("restarted with a request open:\n%s", got)
 	}
 	phone.Send(map[string]any{"type": "permission.resolve", "id": "r1", "requestId": req.Request.RequestID, "decision": "allow"})
@@ -103,17 +108,17 @@ func TestABusyAgentFollowsOnceItsTurnEnds(t *testing.T) {
 
 func TestAnAgentThatIsBackOnTheDefaultBeforeItsTurnEndsStays(t *testing.T) {
 	h, phone, term, agent := startedClaude(t)
-	h.Prompt(term, "run ls")
+	phone.Prompt(agent, "run ls")
 	req := phone.WaitFor("permission.request", func(m Message) bool { return m.Type == "permission.request" })
 
 	h.setDefault("claude", "work")
 	h.setDefault("claude", "builtin")
 	phone.Send(map[string]any{"type": "permission.resolve", "id": "r1", "requestId": req.Request.RequestID, "decision": "allow"})
 	phone.WaitFor("the turn to end", between(agent))
-	h.WaitScreen(term, "hook: allow")
+	h.WaitScreen(term, "can_use_tool: allow")
 	time.Sleep(time.Second)
 
-	if got := h.Screen(term); !strings.Contains(got, "run ls") || !strings.Contains(got, "hook: allow") {
+	if got := h.Screen(term); !strings.Contains(got, "prompt: run ls") || !strings.Contains(got, "can_use_tool: allow") {
 		t.Fatalf("the agent restarted:\n%s", got)
 	}
 }

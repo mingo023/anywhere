@@ -581,8 +581,10 @@ impl Desktop {
                     c.reach(&step, &note, Instant::now());
                 }
             }
-            Event::Created { request, .. } => {
-                self.creates.remove(&request);
+            Event::Created { request, agent } => {
+                if let Some(c) = self.creates.get(&request) {
+                    c.finish(agent, Instant::now());
+                }
             }
             Event::CreateFailed { request, message, detail, .. } => {
                 if let Some(c) = self.creates.get(&request) {

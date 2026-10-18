@@ -102,8 +102,16 @@
       "seq": 9,
       "ts": 9,
       "text": "The repo holds README.md and src/; the count was 1, 2, 3."
+    },
+    {
+      "kind": "result",
+      "id": "i10",
+      "seq": 10,
+      "ts": 10,
+      "ok": true,
+      "durationMs": 10781
     }
   ],
   "hasOlder": false,
-  "maxSeq": 9
+  "maxSeq": 10
 }

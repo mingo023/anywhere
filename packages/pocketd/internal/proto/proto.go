@@ -195,6 +195,7 @@ type AgentSummary struct {
 	Pinned            bool   `json:"pinned,omitempty"`
 	Epoch             int64  `json:"epoch"`
 	MaxSeq            int64  `json:"maxSeq"`
+	Resets            int64  `json:"resets,omitempty"` // timeline clears; when it moves, held items are stale
 	ProviderSessionID string `json:"providerSessionId,omitempty"`
 	CreatedAt         int64  `json:"createdAt"`
 	UpdatedAt         int64  `json:"updatedAt"`
@@ -208,6 +209,8 @@ type AgentSummary struct {
 	Activity          string `json:"activity,omitempty"`
 	// Account is the managed account the agent runs on; empty is the built-in login.
 	Account string `json:"account,omitempty"`
+	// ChatOnly is an agent Pocket runs without its TUI: only the chat drives it.
+	ChatOnly bool `json:"chatOnly,omitempty"`
 }
 
 type PermissionRequest struct {

@@ -27,6 +27,20 @@ func Parse(provider string, argv []string) Launch {
 			*p = value
 		} else if p := switches[argv[i]]; p != nil {
 			*p = true
+		} else if provider == "codex" && argv[i] == "-c" && i+1 < len(argv) {
+			i++
+			key, value, _ := strings.Cut(argv[i], "=")
+			value = strings.Trim(value, `"`)
+			switch key {
+			case "sandbox_mode":
+				sandbox = value
+			case "model":
+				model = value
+			case "model_reasoning_effort":
+				effort = value
+			case "approvals_reviewer":
+				approveForMe = value == "auto_review"
+			}
 		}
 	}
 	l := Launch{Access: "ask", Model: model, Effort: effort}

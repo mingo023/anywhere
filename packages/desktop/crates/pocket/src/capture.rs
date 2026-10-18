@@ -24,7 +24,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 181] = [
+const STEPS: [(&str, Step); 190] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -175,10 +175,34 @@ const STEPS: [(&str, Step); 181] = [
             d.chat_queue_steer(&agent, send, window, cx);
         }
     }),
+    ("chat-resume", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_queue_resume(&agent, cx);
+        }
+    }),
+    ("chat-slash", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("/compact".into()), cx);
+        }
+    }),
+    // Another agent's chat: one already open, else the first other agent's.
+    ("chat-other", |d, window, cx| {
+        let here = d.session().map(str::to_string);
+        let others: Vec<(String, String)> = d.agents.list.iter().filter(|a| Some(&a.id) != here.as_ref()).map(|a| (a.id.clone(), a.terminal_id.clone())).collect();
+        let Some((agent, terminal)) = others.iter().find(|(_, t)| d.store.chats.contains(t)).or(others.first()).cloned() else { return };
+        d.store.chats.insert(terminal.clone());
+        d.focus_agent(&agent, window, cx);
+        d.focus_chat_or_terminal(terminal, window, cx);
+    }),
+    ("chat-exit", |d, _, _| fixture(d, "exit")),
+    ("chat-compacted", |d, _, _| fixture(d, "compaction-after-result")),
+    ("chat-clear", |d, _, _| fixture(d, "clear")),
+    ("chat-restart", |d, _, _| fixture(d, "restart")),
     ("chat-permission", |d, _, _| fixture(d, "permission")),
     ("chat-question", |d, _, _| fixture(d, "question")),
     ("chat-sub-agent", |d, _, _| fixture(d, "sub-agent")),
     ("chat-perf", |d, _, _| fixture(d, "perf-1200")),
+    ("chat-stream-code", |d, _, _| fixture(d, "stream-code")),
     ("worktree", |d, _, _| d.worktree = d.cwd().and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
     ("rail", |d, window, cx| d.toggle_rail(&ToggleRail, window, cx)),
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
@@ -260,6 +284,11 @@ const STEPS: [(&str, Step); 181] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("chat-only-done", |d, _, _| {
+        for a in d.agents.list.iter_mut() {
+            (a.chat_only, a.status) = if a.id == "parser" { (true, "done".into()) } else { (a.chat_only, "idle".into()) };
+        }
+    }),
     ("automations", |d, window, cx| d.open_automations(&crate::actions::OpenAutomations, window, cx)),
     ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
     ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
@@ -674,8 +703,9 @@ const INPUT_STEPS: [(&str, Step); 8] = [
     ("pause", |_, _, _| {}),
     // The fixture's clock override: the shown chat's sends age past their two minutes.
     ("chat-age-sends", |d, _, cx| {
-        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
-            v.session.outgoing.settle(&v.session.transcript, crate::util::now_ms() + 121_000);
+        let Some((id, working)) = d.session().and_then(|a| d.agents.get(a)).map(|a| (a.id.clone(), crate::status::Status::of(a) == Some(crate::status::Status::Working))) else { return };
+        if let Some(v) = d.chats.views.get_mut(&id) {
+            v.session.outgoing.settle(&v.session.transcript, working, crate::util::now_ms() + 121_000);
             cx.notify();
         }
     }),

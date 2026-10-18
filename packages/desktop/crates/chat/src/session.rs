@@ -20,15 +20,17 @@ pub struct Session {
 }
 
 impl Session {
-    /// Refolds when `revision` moved, settles outgoing sends, and returns the list splice to apply, if any.
-    pub fn update<B: Backend + ?Sized>(&mut self, backend: &B, revision: u64, items: &[B::Item], now_ms: i64) -> Option<(Range<usize>, usize)> {
+    /// Refolds when `revision` moved, settles outgoing sends by the transcript and pocketd's status (`working`), and
+    /// returns the list splice to apply, if any.
+    pub fn update<B: Backend + ?Sized>(&mut self, backend: &B, revision: u64, items: &[B::Item], working: bool, now_ms: i64) -> Option<(Range<usize>, usize)> {
         let old = (revision != self.revision).then(|| {
             self.revision = revision;
+            self.outgoing.moved();
             let turns = self.transcript.turns.len();
             let replaced = backend.refold(items, &mut self.transcript, &mut self.fold);
             (turns - replaced.len(), replaced)
         });
-        self.outgoing.settle(&self.transcript, now_ms);
+        self.outgoing.settle(&self.transcript, working, now_ms);
         let sends = (self.outgoing.echoed().count(), self.outgoing.echoed().any(|(_, p)| p.delivery == Delivery::Sending));
         if old.is_none() && sends == self.sends {
             return None;
@@ -90,7 +92,7 @@ fn same_content(old: &[Turn], from: usize, new: &Transcript, row: &Row) -> bool 
         // One line, whatever the reply it heads does.
         Row::Fold { .. } => true,
         Row::End { .. } => a.end == b.end,
-        Row::Working | Row::Pending(_) => true,
+        Row::Live { .. } | Row::Working | Row::Pending(_) => true,
     }
 }
 
@@ -125,13 +127,13 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"}))];
-        assert_eq!(s.update(backend, 1, &items, 0), Some((0..0, 2)));
-        assert_eq!(s.ids, vec!["i1", "i1#fold"]);
+        assert_eq!(s.update(backend, 1, &items, false, 0), Some((0..0, 3)));
+        assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#live"]);
         items.push(item(2, json!({"kind": "assistant", "text": "on it"})));
-        assert_eq!(s.update(backend, 1, &items, 0), None, "same revision, nothing refolded");
+        assert_eq!(s.update(backend, 1, &items, false, 0), None, "same revision, nothing refolded");
         assert_eq!(s.transcript.turns[0].blocks.len(), 0);
-        assert_eq!(s.update(backend, 2, &items, 0), Some((2..2, 1)), "the prompt and fold rows stay");
-        assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#0.0"]);
+        assert_eq!(s.update(backend, 2, &items, false, 0), Some((2..3, 2)), "the prompt and fold rows stay");
+        assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#0.0", "i1#live"]);
     }
 
     #[test]
@@ -139,10 +141,10 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"})), bash(2, "t1", "running")];
-        s.update(backend, 1, &items, 0);
+        s.update(backend, 1, &items, false, 0);
         items[1] = bash(2, "t1", "ok");
-        assert_eq!(s.update(backend, 2, &items, 0), Some((2..3, 1)), "the prompt and fold stay, the phase is measured afresh");
-        assert_eq!(s.update(backend, 3, &items, 0), None, "a refold that changes nothing splices nothing");
+        assert_eq!(s.update(backend, 2, &items, false, 0), Some((2..4, 2)), "the prompt and fold stay, the phase and the live line under it are measured afresh");
+        assert_eq!(s.update(backend, 3, &items, false, 0), None, "a refold that changes nothing splices nothing");
     }
 
     #[test]
@@ -150,15 +152,15 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "assistant", "text": "a\n\nb"}))];
-        s.update(backend, 1, &items, 0);
+        s.update(backend, 1, &items, false, 0);
         items[1] = item(2, json!({"kind": "assistant", "text": "a\n\nbc"}));
-        assert_eq!(s.update(backend, 2, &items, 0), Some((3..4, 1)));
+        assert_eq!(s.update(backend, 2, &items, false, 0), Some((3..5, 2)));
     }
 
     #[test]
     fn an_agent_with_no_items_shows_no_rows_and_no_working_row() {
         let mut s = Session::default();
-        assert_eq!(s.update(for_provider("claude"), 1, &[], 0), None);
+        assert_eq!(s.update(for_provider("claude"), 1, &[], false, 0), None);
         assert!(s.rows.is_empty() && s.ids.is_empty());
     }
 
@@ -167,21 +169,21 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"}))];
-        s.update(backend, 1, &items, 0);
-        assert_eq!(s.ids, ["i1", "i1#fold"]);
+        s.update(backend, 1, &items, false, 0);
+        assert_eq!(s.ids, ["i1", "i1#fold", "i1#live"]);
         let chunks = ["The", "The transcript", "The transcript jumped."];
         for (n, text) in chunks.into_iter().enumerate() {
             items.truncate(1);
             items.push(item(2, json!({"kind": "assistant", "text": text})));
-            let splice = s.update(backend, 2 + n as u64, &items, 0);
-            assert_eq!(s.ids, ["i1", "i1#fold", "i1#0.0"], "chunk {n}");
+            let splice = s.update(backend, 2 + n as u64, &items, false, 0);
+            assert_eq!(s.ids, ["i1", "i1#fold", "i1#0.0", "i1#live"], "chunk {n}");
             assert_eq!(super::text(&s.transcript.turns[0], 0), text);
             if n > 0 {
-                assert_eq!(splice, Some((2..3, 1)), "only the growing reply is re-measured");
+                assert_eq!(splice, Some((2..4, 2)), "only the growing reply and the live line under it are re-measured");
             }
         }
         items.push(item(3, json!({"kind": "result", "ok": true, "durationMs": 1200})));
-        assert_eq!(s.update(backend, 9, &items, 0), Some((3..3, 1)));
+        assert_eq!(s.update(backend, 9, &items, false, 0), Some((3..4, 1)), "the end takes the live line's place");
         assert_eq!(s.ids, ["i1", "i1#fold", "i1#0.0", "i1#end"]);
     }
 
@@ -190,9 +192,9 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
-        s.update(backend, 1, &items, 0);
+        s.update(backend, 1, &items, false, 0);
         s.outgoing.push("next".into(), false, 10);
-        assert_eq!(s.update(backend, 1, &items, 10), Some((3..3, 2)));
+        assert_eq!(s.update(backend, 1, &items, false, 10), Some((3..3, 2)));
         assert_eq!(s.ids[3..], ["pending-0", "working"]);
     }
 
@@ -201,10 +203,10 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
-        s.update(backend, 1, &items, 0);
+        s.update(backend, 1, &items, false, 0);
         s.outgoing.push("next".into(), false, 10);
-        s.update(backend, 1, &items, 10);
-        assert_eq!(s.update(backend, 1, &items, 200_000), Some((4..5, 0)));
+        s.update(backend, 1, &items, false, 10);
+        assert_eq!(s.update(backend, 1, &items, false, 200_000), Some((4..5, 0)));
         assert_eq!(s.ids[3..], ["pending-0"]);
     }
 
@@ -213,12 +215,30 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"}))];
-        s.update(backend, 1, &items, 0);
+        s.update(backend, 1, &items, false, 0);
         s.outgoing.push("next".into(), true, 10);
-        assert_eq!(s.update(backend, 1, &items, 10), None, "the composer's tray shows it");
+        assert_eq!(s.update(backend, 1, &items, false, 10), None, "the composer's tray shows it");
         items.push(item(2, json!({"kind": "result", "ok": true})));
-        s.update(backend, 2, &items, 20);
+        s.update(backend, 2, &items, false, 20);
         assert_eq!(s.ids[3..], ["pending-0", "working"]);
+    }
+
+    #[test]
+    fn a_new_conversation_keeps_queued_sends_and_fails_none() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        let old = vec![item(1, json!({"kind": "user", "text": "go"}))];
+        s.update(backend, 1, &old, false, 0);
+        s.outgoing.push("next".into(), true, 10);
+        s.update(backend, 1, &old, false, 10);
+        s.update(backend, 2, &[], false, 20);
+        assert!(s.transcript.turns.is_empty() && !s.ids.contains(&"i1".to_string()), "the old conversation's rows are gone");
+        let released: Vec<String> = s.outgoing.released().into_iter().map(|(_, text)| text).collect();
+        assert_eq!(released, ["next"], "the new conversation is idle, so the queue goes on");
+        let new = vec![item(5, json!({"kind": "user", "text": "next"}))];
+        s.update(backend, 3, &new, false, 30);
+        s.update(backend, 3, &new, false, 200_000);
+        assert!(s.outgoing.list().is_empty(), "{:?}", s.outgoing.list());
     }
 
     #[test]
@@ -226,8 +246,8 @@ mod tests {
         let backend = for_provider("claude");
         let t = backend.transcript(&[item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "assistant", "text": "on it"}))]);
         let mut s = Session::default();
-        assert_eq!(s.show(t.clone()), Some((0..0, 3)));
-        assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#0.0"]);
+        assert_eq!(s.show(t.clone()), Some((0..0, 4)));
+        assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#0.0", "i1#live"]);
         assert_eq!(s.show(t), None);
     }
 
@@ -270,7 +290,7 @@ mod tests {
         let (mut s, mut items, mut shown) = (Session::default(), Vec::new(), Transcript::default());
         for (n, v) in updates.into_iter().enumerate() {
             upsert(&mut items, serde_json::from_value(v).unwrap());
-            let splice = s.update(backend, n as u64 + 1, &items, 0);
+            let splice = s.update(backend, n as u64 + 1, &items, false, 0);
             let full = backend.transcript(&items);
             let rows = rows(&full, 0, false);
             assert_eq!(s.transcript, full, "update {n}");
@@ -455,7 +475,7 @@ mod tests {
         let backend = for_provider("claude");
         let mut items = history(n / 8);
         let mut s = Session::default();
-        s.update(backend, 1, &items, 0);
+        s.update(backend, 1, &items, false, 0);
         let seq = items.len() as i64;
         items.push(item(seq + 1, json!({"kind": "user", "text": "stream"})));
         items.push(item(seq + 2, json!({"kind": "assistant", "text": ""})));
@@ -465,7 +485,7 @@ mod tests {
             text.push_str(if chunk % 20 == 19 { "end.\n\n" } else { "word " });
             items.last_mut().unwrap().text = text.clone();
             let start = std::time::Instant::now();
-            std::hint::black_box(s.update(backend, 2 + chunk, &items, 0));
+            std::hint::black_box(s.update(backend, 2 + chunk, &items, false, 0));
             took.push(start.elapsed().as_micros());
         }
         took.sort();
@@ -491,17 +511,46 @@ mod tests {
         assert_eq!(items.len(), 1200);
         let backend = for_provider("claude");
         let mut s = Session::default();
-        s.update(backend, 1, &items, 0);
+        s.update(backend, 1, &items, false, 0);
         let runs = 50;
         let start = std::time::Instant::now();
         for revision in 2..2 + runs {
-            std::hint::black_box(s.update(backend, revision, &items, 0));
+            std::hint::black_box(s.update(backend, revision, &items, false, 0));
         }
         let each = start.elapsed() / runs as u32;
         let start = std::time::Instant::now();
-        s.update(backend, 1 + runs, &items, 0);
+        s.update(backend, 1 + runs, &items, false, 0);
         let idle = start.elapsed();
         eprintln!("update: {each:?} per refold, {idle:?} unchanged");
         assert!(each.as_micros() < 2000, "{each:?}");
+    }
+
+    #[test]
+    fn a_pocketd_restart_mid_turn_holds_a_queued_send() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        let working = vec![item(1, json!({"kind": "user", "text": "long job"})), item(2, json!({"kind": "assistant", "text": "on it"}))];
+        s.update(backend, 1, &working, true, 0);
+        s.outgoing.push("next".into(), true, 10);
+        s.update(backend, 1, &working, true, 10);
+        // pocketd restarted: its resets went back to 0, so the held items were dropped until it sends them again.
+        s.update(backend, 2, &[], true, 20);
+        assert!(s.outgoing.released().is_empty(), "the agent still works");
+        s.update(backend, 3, &working, true, 30);
+        assert!(s.outgoing.released().is_empty());
+    }
+
+    #[test]
+    fn a_command_reads_as_work_until_the_timeline_moves() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        let mut items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
+        s.update(backend, 1, &items, false, 0);
+        s.outgoing.push("/compact".into(), false, 10);
+        s.update(backend, 1, &items, true, 20);
+        assert!(crate::busy(&s.transcript, &s.outgoing, true));
+        items.push(item(3, json!({"kind": "compact", "trigger": "manual"})));
+        s.update(backend, 2, &items, true, 4_000);
+        assert!(!crate::busy(&s.transcript, &s.outgoing, true), "the compaction shows; status trails it");
     }
 }

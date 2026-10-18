@@ -50,17 +50,17 @@ func TestAnOwnerCreateInANewWorktreeRunsSetupThenTheAgent(t *testing.T) {
 	h.WaitScreen(c.TerminalID, "echo: hello")
 }
 
-func TestABogusModelFailsWithoutWaiting(t *testing.T) {
+func TestABogusModelFailsTheFirstTurnWithoutWaiting(t *testing.T) {
 	h := Start(t, launchReady(""))
 	o := h.Owner()
 	start := time.Now()
-	create(o, "r1", inRepo(h, map[string]any{"model": "bogus"}))
-	reply(o, "agent.creating")
-	e := reply(o, "agent.created", "error")
-	if e.Type != "error" || e.Code != "spawn_failed" || e.Message != "The agent exited 1" || !strings.Contains(e.Detail, "fake claude: unknown model bogus") {
-		t.Fatalf("got %s", e.Raw)
+	create(o, "r1", inRepo(h, map[string]any{"model": "bogus", "prompt": "hi"}))
+	done := reply(o, "agent.created", "error")
+	if done.Type != "agent.created" {
+		t.Fatalf("got %s", done.Raw)
 	}
-	if took := time.Since(start); took > 2*time.Second {
+	o.WaitFor("the failed turn", func(m Message) bool { return m.Type == "agent.update" && m.Agent.ID == done.AgentID && m.Agent.Failed })
+	if took := time.Since(start); took > 3*time.Second {
 		t.Fatalf("took %v", took)
 	}
 }

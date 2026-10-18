@@ -102,6 +102,7 @@ export const AgentSummary = Schema.Struct({
   pinned: Schema.optional(Schema.Boolean),
   epoch: Schema.Number,
   maxSeq: Schema.Number,
+  resets: Schema.optional(Schema.Number),
   providerSessionId: Schema.optional(Schema.String),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
@@ -114,6 +115,7 @@ export const AgentSummary = Schema.Struct({
   origin: Schema.optional(Schema.String),
   activity: Schema.optional(Schema.String),
   account: Schema.optional(Schema.String),
+  chatOnly: Schema.optional(Schema.Boolean),
 });
 export type AgentSummary = typeof AgentSummary.Type;
 export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;

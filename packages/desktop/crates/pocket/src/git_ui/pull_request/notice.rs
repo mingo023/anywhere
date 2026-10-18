@@ -10,10 +10,8 @@ impl Desktop {
         let undo = notice.undo.is_some().then(|| {
             ui::link("pr-undo", "Undo").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.undo_pr(cx)))
         });
-        let toast = ui::pop(div())
-            .absolute()
-            .right(px(16.))
-            .bottom(px(if raised { 56. } else { 16. }))
+        let toast = self
+            .float(ui::pop(div()), if raised { 56. } else { 16. })
             .h(px(32.))
             .px(px(12.))
             .flex()

@@ -47,7 +47,46 @@ var codexAccess = map[string][]string{
 	"full":     {"-s", "danger-full-access", "-a", "never"},
 }
 
-// Argv is a Session's command line. name is a new Worktree's name; without
+// codexChatAccess is codexAccess as config for `codex app-server`, which
+// takes none of the TUI's flags.
+var codexChatAccess = map[string][]string{
+	"settings": nil,
+	"ask":      {"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="on-request"`},
+	"edits":    {"-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="on-request"`},
+	"auto":     {"-c", `sandbox_mode="workspace-write"`, "-c", `approvals_reviewer="auto_review"`},
+	"full":     {"-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`},
+}
+
+// codexChat runs codex for the chat: its app-server on stdio, which pocketd
+// drives over JSON-RPC.
+func codexChat(access, model, effort string) []string {
+	argv := append([]string{"codex", "app-server"}, codexChatAccess[access]...)
+	if model != "" {
+		argv = append(argv, "-c", `model="`+model+`"`)
+	}
+	if effort != "" {
+		argv = append(argv, "-c", `model_reasoning_effort="`+effort+`"`)
+	}
+	return argv
+}
+
+// Chat is whether s runs for the chat behind `pocketd pipe`. A codex fork
+// runs in its TUI, as only that forks from the command line.
+func Chat(s proto.LaunchSpec) bool {
+	return s.Provider == "claude" || s.Provider == "codex" && s.Fork == ""
+}
+
+// chatFlags run claude for the chat: stream-json both ways, and its asks to
+// use a tool as control requests rather than a dialog.
+var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio"}
+
+// Piped runs argv behind `pocketd pipe`, which relays its stdio to pocketd.
+func Piped(exe string, argv []string) []string {
+	return append([]string{exe, "pipe"}, argv...)
+}
+
+// Argv is a Session's command line. An agent run for the chat gets its
+// prompt as the first message instead. name is a new Worktree's name; without
 // one, claude's session is named after the prompt. A fork's args come first,
 // since codex forks with a subcommand.
 func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Failure) {
@@ -78,6 +117,7 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 		} else {
 			argv = append(argv, claudeAccess[s.Access]...)
 		}
+		argv = append(argv, chatFlags...)
 		if s.Model != "" {
 			argv = append(argv, "--model", s.Model)
 		}
@@ -97,12 +137,15 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 		if s.Effort != "" {
 			return nil, fail("invalid_spec", "Codex takes no effort here")
 		}
+		if Chat(s) {
+			return codexChat(s.Access, s.Model, ""), nil
+		}
 		argv = append(argv, codexAccess[s.Access]...)
 		if s.Model != "" {
 			argv = append(argv, "-m", s.Model)
 		}
 	}
-	if prompt != "" {
+	if prompt != "" && !Chat(s) {
 		argv = append(append(argv, args.Prompt...), prompt)
 	}
 	return argv, nil

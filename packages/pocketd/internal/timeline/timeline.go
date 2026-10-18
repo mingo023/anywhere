@@ -33,6 +33,7 @@ type Timeline struct {
 	items    []proto.Item
 	epoch    int64
 	seq      int64
+	resets   int64 // Clears so far, so a client knows to drop what it holds
 	tools    map[string]int
 	openText int
 	folded   map[string]bool
@@ -82,8 +83,15 @@ func (t *Timeline) Clear() {
 	defer t.mu.Unlock()
 	t.items = nil
 	t.epoch++
+	t.resets++
 	t.reset()
 	t.forget()
+}
+
+func (t *Timeline) Resets() int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.resets
 }
 
 // Continue picks up a timeline from the image before an upgrade: a new
@@ -106,6 +114,23 @@ func (t *Timeline) append(it proto.Item, parent string, ts int64) proto.Item {
 	t.items = append(t.items, it)
 	t.openText = -1
 	return it
+}
+
+// last is the newest item outside sub-agents, skipping compactions.
+func (t *Timeline) last() proto.Item {
+	for i := len(t.items) - 1; i >= 0; i-- {
+		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind != "compact" {
+			return it
+		}
+	}
+	return proto.Item{}
+}
+
+// Unanswered says whether the newest prompt has nothing after it yet.
+func (t *Timeline) Unanswered() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.last().Kind == "user"
 }
 
 // Apply returns the new or changed item, or false when nothing visible changed.
@@ -184,6 +209,10 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.items[n], true
 
 	case "result":
+		// A stop pocketd ended for Claude may be marked again by Claude itself.
+		if e.Error == "interrupted" && e.ParentToolUseID == "" && t.last().Kind == "result" && t.last().Error == "interrupted" {
+			return proto.Item{}, false
+		}
 		return t.append(proto.Item{Kind: "result", OK: e.OK, DurationMs: e.DurationMs, Error: e.Error, Usage: e.Usage}, e.ParentToolUseID, ts), true
 
 	case "compacted":

@@ -1,7 +1,10 @@
 // Recreates a design scenario for `pocket-desktop --capture`: git repos under <dir>/home, and a fake
 // pocketd (unix socket + phone websocket) under <dir>/pocket. Usage: bun fixture.ts <scenario> <dir>
 // The chat scenario's agent starts with the items of chat/$FIXTURE_CHAT.json (default every-tool-kind);
-// prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), or the "permission"/"question" ask.
+// prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
+// "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn) or "stream-code" (a reply whose code block streams in over 4.5s).
+// "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
+// FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
@@ -140,8 +143,9 @@ const stamp = (agentId: string, items: Item[], prefix = "") =>
     const tools = prefix && { ...(call && { call: { ...call, toolUseId: prefix + call.toolUseId } }), ...(it.parentToolUseId ? { parentToolUseId: prefix + it.parentToolUseId } : {}) };
     return { ...it, ...tools, id: prefix + it.id, seq, ts: Date.now() - 60_000 + seq * 100 };
   });
-// A chat left on a user item streams its reply; one left mid-turn stays working.
-const chatWorking = firstChat.length > 0 && firstChat.at(-1)!.kind !== "result";
+// A chat left on a user item streams its reply; one left mid-turn stays working. A compaction after a result leaves it idle.
+const lastWork = firstChat.findLast((i) => i.kind !== "compact");
+const chatWorking = !!lastWork && lastWork.kind !== "result";
 if (chatWorking && scenario.agents[0]?.id === CHAT_AGENT) scenario.agents[0].status = "running";
 // FIXTURE_IDLE: nothing running anywhere, so no sidebar spinner redraws the window; for measuring idle cost.
 if (process.env.FIXTURE_IDLE) for (const a of scenario.agents) a.status = "idle";
@@ -153,7 +157,7 @@ const left = { claude: 62, codex: 41 };
 const summaries = scenario.agents.map((a) => ({
   id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, status: status(a), restore: a.restore,
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
-  tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000,
+  tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000, resets: 0,
 }));
 const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : [{
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
@@ -256,10 +260,49 @@ const update = (ws: Ws, agentId: string, status: string) => {
   const s = summaries.find((s) => s.id === agentId);
   if (s) ws.send(JSON.stringify({ type: "agent.update", agent: { ...s, status, updatedAt: Date.now() } }));
 };
+// As pocketd's Registry.Remove: one update to closed, then the agent is gone from every list.
+const exit = (ws: Ws, agentId: string) => {
+  clearInterval(streams.get(agentId));
+  streams.delete(agentId);
+  update(ws, agentId, "closed");
+  const i = summaries.findIndex((s) => s.id === agentId);
+  if (i >= 0) summaries.splice(i, 1);
+};
+// As pocketd's SetConversation on /clear: the timeline starts over, the summary's resets moves, then the new conversation streams.
+const clear = (ws: Ws, agentId: string) => {
+  clearInterval(streams.get(agentId));
+  streams.delete(agentId);
+  const s = summaries.find((s) => s.id === agentId);
+  if (s) s.resets += 1;
+  update(ws, agentId, "idle");
+  item(ws, agentId, { id: `clear-u-${Date.now()}`, kind: "user", text: "Start over: why does the build fail on a clean checkout?" });
+  item(ws, agentId, { id: `clear-a-${Date.now()}`, kind: "assistant", text: "The build script reads `gen/schema.rs`, which only exists after `cargo xtask codegen` has run once. A clean checkout skips that step, so the include fails." });
+  item(ws, agentId, { id: `clear-r-${Date.now()}`, kind: "result", ok: true, durationMs: 2400, usage: { inputTokens: 3000, outputTokens: 90 } });
+};
+// As Claude's /compact: it works a while with nothing in the timeline, then the compaction lands.
+const compact = (ws: Ws, agentId: string) => {
+  update(ws, agentId, "working");
+  setTimeout(() => {
+    item(ws, agentId, { id: `c-${Date.now()}`, kind: "compact", trigger: "manual" });
+    update(ws, agentId, "idle");
+  }, 4000);
+};
+// As pocketd restarting mid-turn: the agent works on, but resets starts over at 0 and the timeline holds nothing until it writes again.
+const restart = (ws: Ws, agentId: string) => {
+  clearInterval(streams.get(agentId));
+  streams.delete(agentId);
+  const s = summaries.find((s) => s.id === agentId);
+  if (s) s.resets = 0;
+  update(ws, agentId, "working");
+  setTimeout(() => reply(ws, agentId), 3000);
+};
+// A prompt sent mid-reply, which Claude takes once the reply's step ends, by agent.
+const steers = new Map<string, () => void>();
 const REPLY = "The transcript jumped because a finished tool's row grew by its output before the list measured it. Rows now keep their height until the next frame measures them, so the list stays pinned to the bottom while text streams in.";
-// 40 chunks 30ms apart into one item, as pocketd streams a reply.
-const reply = (ws: Ws, agentId: string) => {
-  const words = REPLY.split(" ");
+const CODE_REPLY = "The fold in Rust:\n\n```rust\npub fn fold(items: &[Item]) -> Vec<Row> {\n    let mut rows = Vec::with_capacity(items.len());\n    for item in items {\n        match item.kind.as_str() {\n            \"tool\" => push_tool(&mut rows, item),\n            \"text\" => rows.push(Row::Text { id: item.id.clone() }),\n            _ => rows.push(Row::from(item)),\n        }\n    }\n    rows.dedup_by(|a, b| a.id() == b.id());\n    rows\n}\n```\n\nRows keep their ids, so the list keeps its place.";
+// `chunks` chunks 30ms apart into one item, as pocketd streams a reply.
+const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.env.FIXTURE_CHUNKS) || 40) => {
+  const words = text.split(" ");
   const [id, seq] = [`a-${Date.now()}`, (seqs.get(agentId) ?? 0) + 1];
   seqs.set(agentId, seq);
   update(ws, agentId, "working");
@@ -267,11 +310,14 @@ const reply = (ws: Ws, agentId: string) => {
   let n = 0;
   const timer = setInterval(() => {
     n += 1;
-    const text = words.slice(0, Math.ceil((words.length * n) / 40)).join(" ");
-    ws.send(JSON.stringify({ type: "agent.stream", agentId, epoch: 1, item: { id, seq, ts: Date.now(), kind: "assistant", text } }));
-    if (n < 40) return;
+    const part = words.slice(0, Math.ceil((words.length * n) / chunks)).join(" ");
+    ws.send(JSON.stringify({ type: "agent.stream", agentId, epoch: 1, item: { id, seq, ts: Date.now(), kind: "assistant", text: part } }));
+    if (n < chunks) return;
     clearInterval(timer);
     streams.delete(agentId);
+    const steer = steers.get(agentId);
+    steers.delete(agentId);
+    if (steer) return steer();
     item(ws, agentId, { id: `r-${Date.now()}`, kind: "result", ok: true, durationMs: 1200, usage: { inputTokens: 12000, outputTokens: 180 } });
     update(ws, agentId, "idle");
   }, 30);
@@ -313,10 +359,22 @@ Bun.serve({
       if (f.type === "agent.prompt") {
         const name = f.text.match(/^\/fixture (\S+)$/)?.[1];
         if (name === "permission" || name === "question") ask(ws, f.agentId, name);
+        else if (name === "exit") exit(ws, f.agentId);
+        else if (name === "clear") clear(ws, f.agentId);
+        else if (name === "restart") restart(ws, f.agentId);
+        else if (name === "stream-code") reply(ws, f.agentId, CODE_REPLY, 150);
         else if (name) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: stamp(f.agentId, chatItems(name), `${name}-`) }));
-        else if (!process.env.FIXTURE_DROP) {
-          item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
-          reply(ws, f.agentId);
+        // What pocketd sends when the agent left the foreground before the prompt reached it.
+        else if (process.env.FIXTURE_REFUSE) ws.send(JSON.stringify({ type: "error", id: f.id, message: "Agent is no longer in the foreground" }));
+        else if (f.text === "/compact") compact(ws, f.agentId);
+        // Claude writes a slash command as <command-name> markup, which pocketd's transcript skips: no echo, no reply.
+        else if (!process.env.FIXTURE_DROP && !f.text.startsWith("/")) {
+          const answer = () => {
+            item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+            reply(ws, f.agentId);
+          };
+          if (streams.has(f.agentId)) steers.set(f.agentId, answer);
+          else answer();
         }
       }
       // A session from the New session page: its terminal and agent appear, then the agent answers the prompt.
@@ -335,11 +393,15 @@ Bun.serve({
           reply(ws, id);
         }
       }
-      if (f.type === "agent.interrupt") {
-        clearInterval(streams.get(f.agentId));
-        streams.delete(f.agentId);
-        item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
-        update(ws, f.agentId, "idle");
+      // What pocketd sends when the agent is still resuming and can't take Esc yet.
+      if (f.type === "agent.interrupt" && process.env.FIXTURE_REFUSE_STOP) ws.send(JSON.stringify({ type: "error", id: f.id, code: "agent_resuming", message: "This session is still resuming" }));
+      else if (f.type === "agent.interrupt") {
+        setTimeout(() => {
+          clearInterval(streams.get(f.agentId));
+          streams.delete(f.agentId);
+          item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
+          update(ws, f.agentId, "idle");
+        }, Number(process.env.FIXTURE_STOP_MS) || 0);
       }
       if (f.type === "permission.resolve") ws.send(JSON.stringify({ type: "permission.resolved", requestId: f.requestId, decision: f.decision }));
     },
