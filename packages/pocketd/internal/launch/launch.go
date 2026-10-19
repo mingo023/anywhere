@@ -206,7 +206,8 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		}
 	}
 	if r.Err == nil && s.Prompt != "" {
-		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, local: local}
+		// Argv named the claude after the prompt or a placeholder Worktree name, unless the user gave the name.
+		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, local: local, retitle: name == "" || s.Checkout.New.AutoName}
 		if n := s.Checkout.New; n != nil && n.AutoName {
 			j.project, j.tree, j.branch = s.Project, cwd, n.Name
 		}

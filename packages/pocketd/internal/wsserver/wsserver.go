@@ -82,6 +82,9 @@ type Server struct {
 	Locals    *locals.Locals
 	Registry  *registry.Registry
 	Terminals *terminal.Manager
+	// Retitle names the Claude conversations in the Terminals that match after
+	// a rename; nil names none.
+	Retitle func(match func(terminal.Info) bool, title string)
 	// Owners are the tokens a TCP peer sends in hello's ownerToken to become the owner.
 	Owners *owners.Store
 
@@ -504,6 +507,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		if err := c.s.Names.Rename(m.Path, m.Title); err != nil {
 			return err
 		}
+		c.retitle(func(t terminal.Info) bool { return t.Local == "" && inside(t.Cwd, m.Path) }, m.Title)
 		c.send(proto.NewAck(m.ID))
 		return nil
 	}

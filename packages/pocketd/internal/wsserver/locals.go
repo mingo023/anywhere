@@ -6,6 +6,7 @@ import (
 
 	"pocketd/internal/locals"
 	"pocketd/internal/proto"
+	"pocketd/internal/terminal"
 )
 
 // withLocals subscribes c to local.list when it speaks locals.v1.
@@ -49,7 +50,11 @@ func (c *conn) changeLocal(m proto.ClientMessage) error {
 		}
 		return c.s.Locals.Create(m.LocalID, m.Project, m.Name)
 	case "local.rename":
-		return c.s.Locals.Rename(m.LocalID, m.Title)
+		if err := c.s.Locals.Rename(m.LocalID, m.Title); err != nil {
+			return err
+		}
+		c.retitle(func(t terminal.Info) bool { return t.Local == m.LocalID }, m.Title)
+		return nil
 	}
 	// Removed first, so a create can't start in it while its terminals close.
 	if err := c.s.Locals.Delete(m.LocalID); err != nil {
