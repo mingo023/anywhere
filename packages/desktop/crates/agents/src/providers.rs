@@ -50,7 +50,6 @@ pub struct Builtin {
     pub status_via: &'static str,
     pub unattached: &'static str,
     pub pastes_code: bool,
-    pub terminal_prompts: bool,
     pub oneshot: Oneshot,
 }
 
@@ -65,7 +64,6 @@ pub const ALL: [Builtin; 2] = [
         status_via: "uses Claude Code hooks",
         unattached: "Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status.",
         pastes_code: true,
-        terminal_prompts: true,
         oneshot: Oneshot { args: &["-p"], model_flag: "--model", model: "haiku" },
     },
     Builtin {
@@ -78,7 +76,6 @@ pub const ALL: [Builtin; 2] = [
         status_via: "reads Codex session events",
         unattached: "This codex runs without the app-server, so Pocket can't see its status.",
         pastes_code: false,
-        terminal_prompts: false,
         oneshot: Oneshot { args: &["exec", "-s", "read-only", "--skip-git-repo-check", "--color", "never"], model_flag: "-m", model: "" },
     },
 ];
