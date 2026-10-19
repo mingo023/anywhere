@@ -4,7 +4,6 @@ pub(crate) mod link;
 pub(crate) mod menu;
 pub(crate) mod mouse;
 pub(crate) mod pane;
-pub(crate) mod prompt;
 pub(crate) mod scroll;
 pub(crate) mod surface;
 
@@ -40,13 +39,12 @@ pub struct TerminalViewState {
     pub(crate) menu: Option<(String, Point<Pixels>)>,
     /// The pane whose link is under the mouse and would open on a click, drawn with a pointing hand.
     pub(crate) link_hover: Option<String>,
-    pub(crate) prompts: prompt::OpenPrompts,
     pub(crate) dismissed: pane::DismissedBanners,
 }
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None, menu: None, link_hover: None, prompts: prompt::OpenPrompts::default(), dismissed: pane::DismissedBanners::default() }
+        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None, menu: None, link_hover: None, dismissed: pane::DismissedBanners::default() }
     }
 }
 
