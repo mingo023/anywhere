@@ -21,10 +21,13 @@ var claudeAccess = map[string][]string{
 	"full":     {"--permission-mode", "bypassPermissions"},
 }
 
+// allowBypass lets claude take bypassPermissions without starting in it.
+const allowBypass = "--allow-dangerously-skip-permissions"
+
 // chatFlags run claude for the chat: stream-json both ways, its asks to use a
 // tool as control requests rather than a dialog, and Full allowed so the chat
 // can switch to it whatever it launched or resumed at.
-var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allow-dangerously-skip-permissions"}
+var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", allowBypass}
 
 func (claude) switchEffort(effort string) error {
 	if !slices.Contains(providers.Claude.Efforts, effort) {
@@ -33,10 +36,10 @@ func (claude) switchEffort(effort string) error {
 	return nil
 }
 
-func (claude) chat(proto.LaunchSpec) bool { return true }
+func (claude) chat(s proto.LaunchSpec) bool { return s.Chat }
 
 // argv names the session after the prompt when there's no Worktree name.
-func (claude) argv(s proto.LaunchSpec, argv []string, name, prompt string) ([]string, bool, *Failure) {
+func (c claude) argv(s proto.LaunchSpec, argv []string, name, prompt string) ([]string, bool, *Failure) {
 	if s.Effort != "" && !slices.Contains(providers.Claude.Efforts, s.Effort) {
 		return nil, false, fail("invalid_spec", badClaudeEffort)
 	}
@@ -45,7 +48,11 @@ func (claude) argv(s proto.LaunchSpec, argv []string, name, prompt string) ([]st
 	} else {
 		argv = append(argv, claudeAccess[s.Access]...)
 	}
-	argv = append(argv, chatFlags...)
+	if c.chat(s) {
+		argv = append(argv, chatFlags...)
+	} else if s.Access == "full" && !s.Plan {
+		argv = append(argv, allowBypass)
+	}
 	if s.Model != "" {
 		argv = append(argv, "--model", s.Model)
 	}

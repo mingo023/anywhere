@@ -365,7 +365,7 @@ pub struct Store {
     /// The sidebar's pins and project groups.
     #[serde(deserialize_with = "lenient")]
     pub sections: sections::Sections,
-    /// Terminals of sessions started from the New session page, which show their agent's chat for good.
+    /// Terminals of sessions started as a chat, which show their agent's chat for good.
     #[serde(deserialize_with = "lenient")]
     pub chats: BTreeSet<String>,
     #[serde(skip)]

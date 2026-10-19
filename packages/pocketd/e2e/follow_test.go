@@ -52,7 +52,7 @@ func startedClaude(t *testing.T) (h *Harness, phone *Phone, term, agent string) 
 	t.Helper()
 	h = Start(t, launchReady(""), resumingAccounts)
 	phone = h.Owner()
-	create(phone, "r1", inRepo(h, nil))
+	create(phone, "r1", inRepo(h, map[string]any{"chat": true}))
 	done := reply(phone, "agent.created", "error")
 	if done.Type != "agent.created" {
 		t.Fatalf("got %s", done.Raw)

@@ -50,11 +50,26 @@ func TestAnOwnerCreateInANewWorktreeRunsSetupThenTheAgent(t *testing.T) {
 	h.WaitScreen(c.TerminalID, "echo: hello")
 }
 
-func TestABogusModelFailsTheFirstTurnWithoutWaiting(t *testing.T) {
+func TestABogusModelFailsWithoutWaiting(t *testing.T) {
 	h := Start(t, launchReady(""))
 	o := h.Owner()
 	start := time.Now()
-	create(o, "r1", inRepo(h, map[string]any{"model": "bogus", "prompt": "hi"}))
+	create(o, "r1", inRepo(h, map[string]any{"model": "bogus"}))
+	reply(o, "agent.creating")
+	e := reply(o, "agent.created", "error")
+	if e.Type != "error" || e.Code != "spawn_failed" || e.Message != "The agent exited 1" || !strings.Contains(e.Detail, "fake claude: unknown model bogus") {
+		t.Fatalf("got %s", e.Raw)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("took %v", took)
+	}
+}
+
+func TestABogusModelFailsTheFirstChatTurnWithoutWaiting(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner()
+	start := time.Now()
+	create(o, "r1", inRepo(h, map[string]any{"model": "bogus", "prompt": "hi", "chat": true}))
 	done := reply(o, "agent.created", "error")
 	if done.Type != "agent.created" {
 		t.Fatalf("got %s", done.Raw)

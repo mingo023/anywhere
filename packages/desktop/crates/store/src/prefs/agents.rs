@@ -87,6 +87,8 @@ pub struct Agents {
     pub chat_to: String,
     /// A tab closes when its agent exits, instead of returning to the shell.
     pub close_on_exit: bool,
+    /// New sessions start as a chat rather than in the agent's TUI.
+    pub start_as_chat: bool,
     /// By provider.
     pub providers: BTreeMap<String, Provider>,
 }
@@ -103,6 +105,7 @@ impl Default for Agents {
             send_now: false,
             chat_to: "focused".into(),
             close_on_exit: false,
+            start_as_chat: false,
             providers: BTreeMap::new(),
         }
     }
@@ -169,10 +172,13 @@ impl Agents {
         LaunchPick { account: String::new(), ..remembered.switched(provider) }
     }
 
-    /// A create spec with plan mode where its agent has one (`plan`), and this permission mode and its provider's model and effort, if one of its `efforts`, where it names none.
+    /// A create spec with plan mode where its agent has one (`plan`), and this permission mode, chat or TUI, and its provider's model and effort, if one of its `efforts`, where it names none.
     pub fn launch(&self, spec: &mut serde_json::Value, plan: bool, efforts: &[String]) {
         if spec.get("access").is_none() {
             spec["access"] = self.access().into();
+        }
+        if self.start_as_chat && spec.get("chat").is_none() {
+            spec["chat"] = true.into();
         }
         spec["plan"] = (self.plan && plan).into();
         let provider = spec["provider"].as_str().unwrap_or_default().to_string();
@@ -299,10 +305,20 @@ mod tests {
     }
 
     #[test]
+    fn a_launch_starts_as_a_chat_only_when_set_unless_it_names_its_own() {
+        let (off, on) = (Agents::default(), Agents { start_as_chat: true, ..Agents::default() });
+        let (mut tui, mut chat, mut named) = (json!({"provider": "claude"}), json!({"provider": "claude"}), json!({"provider": "claude", "chat": true}));
+        off.launch(&mut tui, true, &claude_efforts());
+        on.launch(&mut chat, true, &claude_efforts());
+        off.launch(&mut named, true, &claude_efforts());
+        assert_eq!((tui.get("chat"), &chat["chat"], &named["chat"]), (None, &true.into(), &true.into()));
+    }
+
+    #[test]
     fn a_file_without_agent_settings_keeps_todays_behaviour() {
         let a: Agents = serde_json::from_str("{}").unwrap();
         assert_eq!((a.access(), a.plan, a.new_worktree, a.tabs_open_agent, a.send_now), ("settings", false, false, false, false));
-        assert_eq!((a.chat_to(), a.close_on_exit, a.provider("claude")), ("focused", false, Provider::default()));
+        assert_eq!((a.chat_to(), a.close_on_exit, a.start_as_chat, a.provider("claude")), ("focused", false, false, Provider::default()));
     }
 
     #[test]

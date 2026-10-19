@@ -14,7 +14,7 @@ func chatClaude(t *testing.T, opts ...func(*Harness)) (h *Harness, phone *Phone,
 	t.Helper()
 	h = Start(t, append([]func(*Harness){launchReady("")}, opts...)...)
 	phone = h.Owner()
-	create(phone, "r1", inRepo(h, nil))
+	create(phone, "r1", inRepo(h, map[string]any{"chat": true}))
 	done := reply(phone, "agent.created", "error")
 	if done.Type != "agent.created" {
 		t.Fatalf("got %s", done.Raw)
@@ -61,7 +61,7 @@ func TestAChatAgentsFailedTurnEndsWithItsError(t *testing.T) {
 func TestACreatedChatAgentGetsItsPromptAsTheFirstMessage(t *testing.T) {
 	h := Start(t, launchReady(""))
 	phone := h.Owner()
-	create(phone, "r1", inRepo(h, map[string]any{"prompt": "hello"}))
+	create(phone, "r1", inRepo(h, map[string]any{"prompt": "hello", "chat": true}))
 	done := reply(phone, "agent.created", "error")
 	if done.Type != "agent.created" {
 		t.Fatalf("got %s", done.Raw)

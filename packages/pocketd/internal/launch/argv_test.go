@@ -21,25 +21,48 @@ func spec(provider, access string, plan bool) proto.LaunchSpec {
 func TestArgvMatchesTheF14TableForEveryProviderAccessAndPlan(t *testing.T) {
 	for _, c := range []struct {
 		provider, access string
-		plan             bool
+		plan, chat       bool
 		want             string
 	}{
-		{"claude", "settings", false, "claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "ask", false, "claude --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "edits", false, "claude --permission-mode acceptEdits -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "auto", false, "claude --permission-mode auto -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "full", false, "claude --permission-mode bypassPermissions -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "full", true, "claude --permission-mode plan -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"codex", "settings", false, "codex app-server"},
-		{"codex", "ask", false, `codex app-server -c sandbox_mode="read-only" -c approval_policy="on-request"`},
-		{"codex", "edits", false, `codex app-server -c sandbox_mode="workspace-write" -c approval_policy="on-request"`},
-		{"codex", "auto", false, `codex app-server -c sandbox_mode="workspace-write" -c approvals_reviewer="auto_review"`},
-		{"codex", "full", false, `codex app-server -c sandbox_mode="danger-full-access" -c approval_policy="never"`},
+		{"claude", "settings", false, false, "claude"},
+		{"claude", "ask", false, false, "claude --permission-mode default"},
+		{"claude", "edits", false, false, "claude --permission-mode acceptEdits"},
+		{"claude", "auto", false, false, "claude --permission-mode auto"},
+		{"claude", "full", false, false, "claude --permission-mode bypassPermissions --allow-dangerously-skip-permissions"},
+		{"claude", "full", true, false, "claude --permission-mode plan"},
+		{"codex", "settings", false, false, "codex"},
+		{"codex", "ask", false, false, "codex -s read-only -a on-request"},
+		{"codex", "edits", false, false, "codex -s workspace-write -a on-request"},
+		{"codex", "auto", false, false, "codex --approve-for-me"},
+		{"codex", "full", false, false, "codex -s danger-full-access -a never"},
+		{"claude", "settings", false, true, "claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "ask", false, true, "claude --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "edits", false, true, "claude --permission-mode acceptEdits -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "auto", false, true, "claude --permission-mode auto -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "full", false, true, "claude --permission-mode bypassPermissions -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "full", true, true, "claude --permission-mode plan -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"codex", "settings", false, true, "codex app-server"},
+		{"codex", "ask", false, true, `codex app-server -c sandbox_mode="read-only" -c approval_policy="on-request"`},
+		{"codex", "edits", false, true, `codex app-server -c sandbox_mode="workspace-write" -c approval_policy="on-request"`},
+		{"codex", "auto", false, true, `codex app-server -c sandbox_mode="workspace-write" -c approvals_reviewer="auto_review"`},
+		{"codex", "full", false, true, `codex app-server -c sandbox_mode="danger-full-access" -c approval_policy="never"`},
 	} {
-		argv, f := argvOf(spec(c.provider, c.access, c.plan), "")
+		s := spec(c.provider, c.access, c.plan)
+		s.Chat = c.chat
+		argv, f := argvOf(s, "")
 		if f != nil || strings.Join(argv, " ") != c.want {
-			t.Errorf("%s %s plan=%v: got %q %v, want %q", c.provider, c.access, c.plan, argv, f, c.want)
+			t.Errorf("%s %s plan=%v chat=%v: got %q %v, want %q", c.provider, c.access, c.plan, c.chat, argv, f, c.want)
 		}
+	}
+}
+
+func TestAClaudeNotAskedForTheChatRunsInItsTUIWithItsPrompt(t *testing.T) {
+	s := spec("claude", "ask", false)
+	s.Prompt = "fix it"
+	argv, _ := argvOf(s, "")
+	want := []string{"claude", "--permission-mode", "default", "-n", "fix-it", "--", "fix it"}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("got %q", argv)
 	}
 }
 
@@ -62,7 +85,7 @@ func TestPromptGoesLastAfterDoubleDash(t *testing.T) {
 
 func TestCodexRunsForTheChatAndLeavesItsPromptOut(t *testing.T) {
 	s := spec("codex", "edits", false)
-	s.Model, s.Prompt = "gpt-5", "fix it"
+	s.Model, s.Prompt, s.Chat = "gpt-5", "fix it", true
 	argv, _ := argvOf(s, "")
 	want := []string{"codex", "app-server", "-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="on-request"`, "-c", `model="gpt-5"`}
 	if !slices.Equal(argv, want) {
@@ -72,7 +95,7 @@ func TestCodexRunsForTheChatAndLeavesItsPromptOut(t *testing.T) {
 
 func TestClaudeRunsForTheChatAndLeavesItsPromptOut(t *testing.T) {
 	s := spec("claude", "ask", false)
-	s.Model, s.Effort, s.Prompt = "opus", "high", "-rf fix the flaky tests now please"
+	s.Model, s.Effort, s.Prompt, s.Chat = "opus", "high", "-rf fix the flaky tests now please", true
 	argv, _ := argvOf(s, "")
 	want := []string{"claude", "--permission-mode", "default", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allow-dangerously-skip-permissions",
 		"--model", "opus", "--effort", "high", "-n", "rf-fix-the-flaky"}
@@ -164,7 +187,7 @@ func TestAForkPutsTheSessionIdInItsArgsBeforeTheFlags(t *testing.T) {
 		{"codex", "codex fork c-1 -s read-only -a on-request"},
 	} {
 		s := spec(c.provider, "ask", false)
-		s.Fork = "c-1"
+		s.Fork, s.Chat = "c-1", true
 		argv, f := argvOf(s, "")
 		if f != nil || strings.Join(argv, " ") != c.want {
 			t.Errorf("%s: got %q %v, want %q", c.provider, argv, f, c.want)

@@ -14,7 +14,7 @@ func chatCodex(t *testing.T, extra map[string]any, opts ...func(*Harness)) (h *H
 	t.Helper()
 	h = Start(t, append([]func(*Harness){launchReady("")}, opts...)...)
 	phone = h.Owner()
-	spec := map[string]any{"provider": "codex"}
+	spec := map[string]any{"provider": "codex", "chat": true}
 	for k, v := range extra {
 		spec[k] = v
 	}
@@ -43,7 +43,7 @@ func TestAChatCodexAnswersInItsTranscriptAndEndsItsTurn(t *testing.T) {
 func TestACreatedChatCodexGetsItsPromptAsTheFirstMessage(t *testing.T) {
 	h := Start(t, launchReady(""))
 	phone := h.Owner()
-	create(phone, "r1", inRepo(h, map[string]any{"provider": "codex", "prompt": "hello"}))
+	create(phone, "r1", inRepo(h, map[string]any{"provider": "codex", "prompt": "hello", "chat": true}))
 	done := reply(phone, "agent.created", "error")
 	if done.Type != "agent.created" {
 		t.Fatalf("got %s", done.Raw)

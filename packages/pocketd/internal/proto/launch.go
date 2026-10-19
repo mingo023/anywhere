@@ -41,6 +41,8 @@ type LaunchSpec struct {
 	Fork string `json:"fork,omitempty"`
 	// Account is an account id, or "builtin"; empty is the provider's default.
 	Account string `json:"account,omitempty"`
+	// Chat runs the agent for the chat where its provider can; without it, in its TUI.
+	Chat bool `json:"chat,omitempty"`
 }
 
 // Checkout is exactly one of Worktree, New and Local.
@@ -162,7 +164,7 @@ func strictObject(raw json.RawMessage, allowed ...string) (map[string]json.RawMe
 }
 
 func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
-	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account")
+	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account", "chat")
 	if !ok {
 		return false
 	}

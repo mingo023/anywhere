@@ -36,8 +36,7 @@ func TestLaunchesUseTheAgentArgsFromConfig(t *testing.T) {
 
 	create(o, "r1", inRepo(h, map[string]any{"prompt": "hello"}))
 	c := reply(o, "agent.creating", "error")
-	h.WaitScreen(c.TerminalID, "ARGV: --permission-mode default -p --input-format stream-json")
-	h.WaitScreen(c.TerminalID, "--permission-prompt-tool stdio -n hello\n")
+	h.WaitScreen(c.TerminalID, "ARGV: --permission-mode default -n hello --verbose -- hello")
 	h.WaitScreen(c.TerminalID, "echo: hello")
 
 	create(o, "r2", inRepo(h, map[string]any{"fork": "0a1b-2c3d"}))

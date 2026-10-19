@@ -24,6 +24,8 @@ pub(super) const ROWS: &[Setting] = &[
     })
     .hint("Agent's settings uses the agent's own config. Full skips every approval"),
     Setting::switch("plan-mode", NEW, "Start in plan mode", |s| s.agents.plan, |s, on| s.agents.plan = on).hint("For providers that support plan mode"),
+    Setting::switch("start-as-chat", NEW, "Start as a chat", |s| s.agents.start_as_chat, |s, on| s.agents.start_as_chat = on)
+        .hint("Experimental. New chat in a tab's + menu always starts one"),
     Setting::choice("runs-in", NEW, "Runs in", &["Local", "Worktree"], Look::Segmented, |s| s.agents.new_worktree as usize, |s, i| s.agents.new_worktree = i == 1)
         .hint("A new worktree keeps the agent's edits off your branch"),
     Setting::choice("agent-exits", "Tabs", "When an agent exits", &["Return to shell", "Close tab"], Look::Segmented, |s| s.agents.close_on_exit as usize, |s, i| {

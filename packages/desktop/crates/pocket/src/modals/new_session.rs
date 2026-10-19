@@ -574,7 +574,9 @@ impl Desktop {
                 self.daemon.send(json!({"op": "list"}));
                 if self.creates.get(&request).is_some() {
                     self.store.track(&cwd);
-                    self.store.chats.insert(terminal.clone());
+                    if self.store.agents.start_as_chat {
+                        self.store.chats.insert(terminal.clone());
+                    }
                     self.save_soon(cx);
                 }
                 if let Some(expected) = self.creates.started(&request, cwd.clone(), &mut self.worktrees) {
@@ -583,8 +585,10 @@ impl Desktop {
                     }
                     self.refresh_git(cx);
                 } else if self.new_form.draft.reply.answer(&request, None) {
-                    self.store.chats.insert(terminal);
-                    self.save_soon(cx);
+                    if self.store.agents.start_as_chat {
+                        self.store.chats.insert(terminal);
+                        self.save_soon(cx);
+                    }
                     self.clear_new_form(window, cx);
                     if self.new_form.shown {
                         self.leave_new_session(window, cx);

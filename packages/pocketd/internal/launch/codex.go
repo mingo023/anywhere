@@ -42,7 +42,7 @@ func codexChat(access, model, effort string) []string {
 func (codex) switchEffort(string) error { return nil }
 
 // chat leaves a fork in the TUI, as only that forks from the command line.
-func (codex) chat(s proto.LaunchSpec) bool { return s.Fork == "" }
+func (codex) chat(s proto.LaunchSpec) bool { return s.Chat && s.Fork == "" }
 
 func (c codex) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string, bool, *Failure) {
 	if s.Plan {
