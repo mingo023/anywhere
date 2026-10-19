@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.6
+
+- Experimental chat for Claude Code and Codex: New chat in a tab's + menu, or Settings › Agents › Start as a chat for new sessions (#80): (d7c9adc)
+- Desktop releases on Linux and Windows, started from a Release workflow (#79): (312b948)
+- Terminal banner drops "Resumed" and gets a close button (#77): (95b9900)
+- Terminal paints text that vanishes into its background white or black (#75): (bd7e33e)
+- Dock badge shows the bell's count, asking macOS for the Badge permission (#74): (fea2562)
+- Pinned row rename shows its text as you type, and its name stays while hovered (#73): (7ec6388)
+- Terminal shows a pointing hand over a link a click would open (#72): (aad3dc0)
+- Needs you and Done show a haloed dot, and a Done row's name stands out until viewed (#71): (870c69f)
+- Inputs take dropped files, and the composer attaches dropped images (#70): (9e17d35)
+
 ## 0.1.5
 
 - Agents you start in a terminal keep their account and don't resume on restart (#69): (74f174d)
