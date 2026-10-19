@@ -188,11 +188,24 @@ pub fn settled_tail(before: Option<&str>, t: &Transcript) -> Option<String> {
     (live_tail(t).map(|f| t.turns[f].id.as_str()) != Some(before)).then(|| before.to_string())
 }
 
-/// Sub-agents and commands still running in `turns` after their own turn ended: the ones working in the background.
-pub fn in_background(turns: &[Turn]) -> impl Iterator<Item = &ToolCall> {
-    turns.iter().filter(|turn| turn.end.is_some()).flat_map(|turn| &turn.blocks).filter_map(|b| match b {
-        Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) => Some(c),
-        _ => None,
+/// Sub-agents and commands still running in `turns` after their own turn ended, the ones working in the background, with
+/// their turn and block.
+pub fn in_background(turns: &[Turn]) -> impl Iterator<Item = (usize, usize, &ToolCall)> {
+    let ended = turns.iter().enumerate().filter(|(_, turn)| turn.end.is_some());
+    ended.flat_map(|(t, turn)| {
+        turn.blocks.iter().enumerate().filter_map(move |(b, block)| match block {
+            Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) => Some((t, b, c)),
+            _ => None,
+        })
+    })
+}
+
+/// The row that shows block `block` of turn `turn`: a sub-agent's own row, else the phase holding it.
+pub fn row_of(rows: &[Row], turn: usize, block: usize) -> Option<usize> {
+    rows.iter().position(|row| match row {
+        Row::Agent { turn: t, block: b } => (*t, *b) == (turn, block),
+        Row::Phase { turn: t, blocks } => *t == turn && blocks.contains(&block),
+        _ => false,
     })
 }
 
@@ -604,6 +617,19 @@ mod tests {
         let t = Transcript { turns: vec![turn("u1", vec![server, shell()], done())] };
         assert_eq!(in_background(&t.turns).count(), 1);
         assert!(!at_work_on(&t, 0..1));
+    }
+
+    #[test]
+    fn a_background_task_is_found_at_its_turn_and_block_and_shown_by_its_row() {
+        let server = call(ToolKind::Shell { command: "bun run dev".into() }, ToolStatus::Running);
+        let t = Transcript { turns: vec![turn("u1", vec![shell()], done()), turn("u2", vec![shell(), server, agent()], done())] };
+        let found: Vec<_> = in_background(&t.turns).map(|(turn, block, _)| (turn, block)).collect();
+        assert_eq!(found, [(1, 1), (1, 2)]);
+        let rows = rows(&t, 0, false);
+        let shown = |turn, block| row_of(&rows, turn, block).map(|ix| rows[ix].clone());
+        assert_eq!(shown(1, 1), Some(Row::Phase { turn: 1, blocks: 0..2 }), "a command shows in the phase that holds it");
+        assert_eq!(shown(1, 2), Some(Row::Agent { turn: 1, block: 2 }));
+        assert_eq!(shown(1, 5), None);
     }
 
     #[test]

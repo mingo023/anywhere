@@ -67,11 +67,11 @@ impl Desktop {
     pub(super) fn model_pill(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Model));
         let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &self.agents.provider_info(&pick.provider).efforts, self.catalog_models());
-        let chip = ui::menu_chip("composer-model", open)
-            .child(provider_icon(&pick.provider, 13., TEXT))
-            .child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model))
-            .children(effort.map(|e| div().text_color(TEXT_3).child(e)))
-            .child(icon("chevron-down", 12., TEXT_4))
+        let pill = super::pill()
+            .child(provider_icon(&pick.provider, 16., TEXT_2))
+            .child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model))
+            .children(effort.map(|e| div().whitespace_nowrap().text_color(TEXT_3).child(e)));
+        let chip = super::picker(pill, "composer-model", open)
             .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.load_models(cx);

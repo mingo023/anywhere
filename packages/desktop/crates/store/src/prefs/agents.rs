@@ -81,7 +81,6 @@ pub struct Agents {
     pub new_worktree: bool,
     /// ⌘T and splits open the default agent instead of a shell.
     pub tabs_open_agent: bool,
-    pub starters: Vec<String>,
     /// "Add to chat" presses Return after the quote.
     pub send_now: bool,
     /// One of `CHAT_TO`.
@@ -101,7 +100,6 @@ impl Default for Agents {
             plan: false,
             new_worktree: false,
             tabs_open_agent: false,
-            starters: ["Review my uncommitted changes", "Fix the failing tests", "Summarise what this branch changes", "Write the commit message"].map(String::from).to_vec(),
             send_now: false,
             chat_to: "focused".into(),
             close_on_exit: false,
@@ -191,24 +189,6 @@ impl Agents {
     pub fn chat_to(&self) -> &'static str {
         CHAT_TO.into_iter().find(|t| *t == self.chat_to).unwrap_or("focused")
     }
-
-    /// Moves starter prompt `from` to where `to` is, shifting the ones between.
-    pub fn move_starter(&mut self, from: usize, to: usize) {
-        if from < self.starters.len() && to < self.starters.len() {
-            let s = self.starters.remove(from);
-            self.starters.insert(to, s);
-        }
-    }
-
-    /// Adds a starter prompt at the end; refuses a blank one or one already there.
-    pub fn add_starter(&mut self, text: &str) -> bool {
-        let text = text.trim();
-        let fresh = !text.is_empty() && !self.starters.iter().any(|s| s == text);
-        if fresh {
-            self.starters.push(text.into());
-        }
-        fresh
-    }
 }
 
 #[cfg(test)]
@@ -218,15 +198,6 @@ mod tests {
 
     fn claude_efforts() -> Vec<String> {
         ["low", "medium", "high", "xhigh", "max"].map(String::from).to_vec()
-    }
-
-    #[test]
-    fn a_blank_or_repeated_starter_prompt_is_not_added() {
-        let mut a = Agents::default();
-        assert!(a.add_starter("  Explain this repo "));
-        assert!(!a.add_starter("Explain this repo"));
-        assert!(!a.add_starter("   "));
-        assert_eq!(a.starters.last().map(String::as_str), Some("Explain this repo"));
     }
 
     #[test]
@@ -330,19 +301,8 @@ mod tests {
     #[test]
     fn a_file_without_agent_settings_keeps_todays_behaviour() {
         let a: Agents = serde_json::from_str("{}").unwrap();
-        assert_eq!((a.access(), a.plan, a.new_worktree, a.tabs_open_agent, a.send_now, a.starters.len()), ("settings", false, false, false, false, 4));
+        assert_eq!((a.access(), a.plan, a.new_worktree, a.tabs_open_agent, a.send_now), ("settings", false, false, false, false));
         assert_eq!((a.chat_to(), a.close_on_exit, a.provider("claude")), ("focused", false, Provider::default()));
-    }
-
-    #[test]
-    fn a_dragged_starter_prompt_lands_where_it_was_dropped() {
-        let mut a = Agents { starters: ["a", "b", "c", "d"].map(String::from).to_vec(), ..Agents::default() };
-        a.move_starter(0, 2);
-        assert_eq!(a.starters, ["b", "c", "a", "d"]);
-        a.move_starter(3, 0);
-        assert_eq!(a.starters, ["d", "b", "c", "a"]);
-        a.move_starter(1, 9);
-        assert_eq!(a.starters, ["d", "b", "c", "a"]);
     }
 
     #[test]

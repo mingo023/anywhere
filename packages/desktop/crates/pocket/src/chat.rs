@@ -1,4 +1,4 @@
-mod composer;
+pub(crate) mod composer;
 mod diff;
 mod drafts;
 mod end_row;
@@ -6,6 +6,7 @@ mod fold;
 mod jump;
 mod locate;
 pub(crate) mod markdown;
+pub(crate) mod mention;
 mod meta;
 mod permission;
 mod phase;

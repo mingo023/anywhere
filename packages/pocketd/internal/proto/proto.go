@@ -190,6 +190,7 @@ type AgentSummary struct {
 	Provider          string `json:"provider"`
 	Model             string `json:"model,omitempty"`
 	Effort            string `json:"effort,omitempty"`
+	Access            string `json:"access,omitempty"`
 	Status            string `json:"status"`
 	Failed            bool   `json:"failed,omitempty"`
 	Attached          bool   `json:"attached"`
@@ -218,6 +219,23 @@ type AgentSummary struct {
 	Account string `json:"account,omitempty"`
 	// ChatOnly is an agent Pocket runs without its TUI: only the chat drives it.
 	ChatOnly bool `json:"chatOnly,omitempty"`
+	// Goal is what the agent keeps working toward across turns, set by /goal.
+	Goal Goal `json:"goal,omitzero"`
+}
+
+// GoalFailed is Claude's judge giving a goal up; Codex has no such status.
+const GoalFailed = "failed"
+
+// GoalComplete is a goal met.
+const GoalComplete = "complete"
+
+// Goal is an agent's /goal. Status is Codex's (active, paused, blocked,
+// usageLimited, budgetLimited, complete) or GoalFailed.
+type Goal struct {
+	Objective   string `json:"objective"`
+	Status      string `json:"status"`
+	TokensUsed  int64  `json:"tokensUsed,omitempty"`
+	TokenBudget int64  `json:"tokenBudget,omitempty"`
 }
 
 type PermissionRequest struct {

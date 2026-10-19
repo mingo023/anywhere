@@ -128,7 +128,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(request);
             t(agent);
         }
-        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } => t(agent),
+        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } => t(agent),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
         Event::Connected { .. } | Event::SettingsFailed(_) => {}
         Event::Host(_)
@@ -230,6 +230,14 @@ impl Outboxes {
 
     pub fn settings(&self, agent_id: &str, model: &str, effort: &str) {
         self.by_id(agent_id, |o, id| o.settings(id, model, effort));
+    }
+
+    pub fn access(&self, agent_id: &str, access: &str) {
+        self.by_id(agent_id, |o, id| o.access(id, access));
+    }
+
+    pub fn commands(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.commands(id));
     }
 
     pub fn resolve(&self, request_id: &str, decision: Decision) {

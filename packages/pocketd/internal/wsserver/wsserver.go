@@ -535,9 +535,32 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.compact":
 		err = a.Driver().Compact()
 	case "agent.settings":
-		if err = launch.ValidSwitch(a.Provider(), m.Model, m.Effort); err == nil {
-			err = a.Driver().Settings(m.Model, m.Effort)
+		if m.Access != "" {
+			if f := launch.CheckAccess(launchWho(c.who), m.Access, c.s.Launch.PhoneMaxAccess()); f != nil {
+				c.send(proto.NewCodedError(m.ID, f.Code, f.Message, f.Detail))
+				return nil
+			}
 		}
+		if m.Model != "" || m.Effort != "" {
+			err = launch.ValidSwitch(a.Provider(), m.Model, m.Effort)
+			if err == nil {
+				err = a.Driver().Settings(m.Model, m.Effort)
+			}
+		}
+		if err == nil && m.Access != "" {
+			err = a.Driver().Access(m.Access)
+		}
+	case "agent.commands":
+		// Claude takes a while to list them; the conn's other messages don't wait.
+		go func() {
+			list, err := a.Driver().Commands()
+			if err != nil {
+				c.send(errorReply(m.ID, err))
+				return
+			}
+			c.send(proto.NewAgentCommands(m.ID, a.ID(), list))
+		}()
+		return nil
 	case "agent.close":
 		a.Driver().Close()
 	case "agent.pin":

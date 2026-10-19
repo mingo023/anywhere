@@ -480,7 +480,7 @@ impl Desktop {
             }
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
-            None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(cx),
+            None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(window, cx),
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(window, cx),
             None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
             None => self.blank_page(cx),

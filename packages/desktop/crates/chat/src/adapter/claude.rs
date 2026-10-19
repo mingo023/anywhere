@@ -1,4 +1,5 @@
 use crate::adapter::{Backend, Capabilities};
+use crate::commands::{Builtin, Kind, Local};
 use crate::{Ask, Fold, Transcript, Turn};
 
 pub struct Claude;
@@ -23,14 +24,30 @@ impl Backend for Claude {
         crate::timeline::ask(ask)
     }
 
-    fn panel<'t>(&self, text: &'t str) -> Option<&'t str> {
-        let mut words = text.split_whitespace();
-        let command = words.next()?;
-        let name = command.strip_prefix('/')?;
-        let bare = words.next().is_none();
-        (PANELS.contains(&name) || bare && PICKERS.contains(&name)).then_some(command)
+    fn command(&self, name: &str, arg: &str) -> Kind {
+        match name {
+            "model" => Kind::Local(Local::Model),
+            "effort" => Kind::Local(Local::Effort),
+            "compact" if arg.is_empty() => Kind::Local(Local::Compact),
+            "new" => Kind::Local(Local::New),
+            "clear" | "reset" | "resume" => Kind::Unsupported,
+            "add-dir" if arg.is_empty() => Kind::Unsupported,
+            _ if PANELS.contains(&name) => Kind::Unsupported,
+            _ => Kind::Send,
+        }
+    }
+
+    fn builtins(&self) -> &'static [Builtin] {
+        BUILTINS
     }
 }
+
+const BUILTINS: &[Builtin] = &[
+    Builtin { name: "model", hint: "[model]", description: "Set the model" },
+    Builtin { name: "effort", hint: "[level]", description: "Set the reasoning effort" },
+    Builtin { name: "compact", hint: "[instructions]", description: "Summarize the conversation to free up context" },
+    Builtin { name: "goal", hint: "[<condition> | clear]", description: "Keep working until the condition is met" },
+];
 
 /// Claude's commands that open a panel, by name and alias.
 const PANELS: &[&str] = &[
@@ -38,6 +55,3 @@ const PANELS: &[&str] = &[
     "mcp", "memory", "permissions", "plugin", "privacy-settings", "rewind", "settings", "skills", "stats", "status", "tasks", "terminal-setup",
     "theme", "usage",
 ];
-
-/// Claude's commands that open a picker unless given what to pick.
-const PICKERS: &[&str] = &["add-dir", "effort", "model", "resume"];

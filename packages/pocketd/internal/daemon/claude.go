@@ -445,6 +445,9 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 		claude.Tail(ctx, path, func(line []byte) {
 			read += int64(len(line)) + 1
 			events := turns.Map(line)
+			if g, ok := claude.Goal(line); ok {
+				pr.a.SetGoal(g)
+			}
 			if model := claude.Model(line); model != "" {
 				pr.a.SetModel(model)
 				if u, ok := claude.Tokens(line); ok {

@@ -18,12 +18,13 @@ var claudeAccess = map[string][]string{
 	"ask":      {"--permission-mode", "default"},
 	"edits":    {"--permission-mode", "acceptEdits"},
 	"auto":     {"--permission-mode", "auto"},
-	"full":     {"--permission-mode", "bypassPermissions", "--allow-dangerously-skip-permissions"},
+	"full":     {"--permission-mode", "bypassPermissions"},
 }
 
-// chatFlags run claude for the chat: stream-json both ways, and its asks to
-// use a tool as control requests rather than a dialog.
-var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio"}
+// chatFlags run claude for the chat: stream-json both ways, its asks to use a
+// tool as control requests rather than a dialog, and Full allowed so the chat
+// can switch to it whatever it launched or resumed at.
+var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allow-dangerously-skip-permissions"}
 
 func (claude) switchEffort(effort string) error {
 	if !slices.Contains(providers.Claude.Efforts, effort) {

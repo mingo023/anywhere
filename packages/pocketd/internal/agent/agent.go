@@ -21,6 +21,10 @@ type Driver interface {
 	Compact() error
 	// Settings switches the model, the effort or both; "" keeps one as it is.
 	Settings(model, effort string) error
+	// Access switches what the agent may do without asking: ask, edits, auto or full.
+	Access(access string) error
+	// Commands lists the slash commands the agent takes beyond the chat's own.
+	Commands() ([]proto.Command, error)
 	Close()
 }
 
@@ -42,6 +46,7 @@ type Agent struct {
 	conversations   int    // Conversations so far, so a late name for an older one is dropped
 	model           string
 	effort          string
+	access          string
 	phase           string // idle, working or needsYou
 	unseenEnd       bool
 	failed          bool
@@ -68,6 +73,7 @@ type Agent struct {
 	refilled        bool   // stopped since the last typed prompt: Claude may have put it back in its input
 	prompt          string // the user's latest prompt in this Conversation, cut by shownPrompt
 	promptAt        int64
+	goal            proto.Goal
 }
 
 type Registry struct {
@@ -238,11 +244,11 @@ func (a *Agent) summary() proto.AgentSummary {
 	epoch, maxSeq := a.Timeline.State()
 	status := a.status()
 	return proto.AgentSummary{
-		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort,
+		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort, Access: a.access,
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account,
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
-		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, Prompt: a.prompt, PromptAt: a.promptAt, ChatOnly: a.chatOnly,
+		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, Prompt: a.prompt, PromptAt: a.promptAt, ChatOnly: a.chatOnly, Goal: a.goal,
 	}
 }
 
@@ -446,6 +452,7 @@ func (a *Agent) SetConversation(id string) {
 			a.conversations++
 			a.tokensUsed = 0
 			a.prompt, a.promptAt = "", 0
+			a.goal = proto.Goal{}
 		}
 		a.conversation = id
 	})
@@ -491,6 +498,10 @@ func (a *Agent) SetEffort(effort string) {
 	a.update(false, func() { a.effort = effort })
 }
 
+func (a *Agent) SetAccess(access string) {
+	a.update(false, func() { a.access = access })
+}
+
 // SetAccount names the managed account the agent runs on; "" is the built-in login.
 func (a *Agent) SetAccount(id string) {
 	a.update(false, func() { a.account = id })
@@ -522,6 +533,14 @@ func (a *Agent) SetOrigin(origin string) {
 func (a *Agent) SetChatOnly() { a.update(false, func() { a.chatOnly = true }) }
 
 func (a *Agent) SetActivity(text string) { a.update(false, func() { a.activity = text }) }
+
+// SetGoal takes the agent's /goal; the zero Goal is none, as is a met one.
+func (a *Agent) SetGoal(g proto.Goal) {
+	if g.Status == proto.GoalComplete {
+		g = proto.Goal{}
+	}
+	a.update(false, func() { a.goal = g })
+}
 
 func firstLine(text string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")

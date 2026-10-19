@@ -1,5 +1,6 @@
 use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
 use crate::add_to_chat::Quote;
+use crate::chat::composer::suggest::Prompt;
 use crate::chat::tool_row::{self, Tools};
 use crate::composer::Menu;
 use crate::creating::Create;
@@ -24,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 190] = [
+const STEPS: [(&str, Step); 204] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -98,6 +99,17 @@ const STEPS: [(&str, Step); 190] = [
             cx.notify();
         }
     }),
+    ("chat-background-folded", |d, _, cx| {
+        d.chats.composer.background_folded = true;
+        cx.notify();
+    }),
+    ("chat-background-show", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        let task = d.chats.views.get(&agent).and_then(|v| chat::in_background(&v.session.transcript.turns).last().map(|(turn, block, _)| (turn, block)));
+        if let Some((turn, block)) = task {
+            d.chat_show_block(&agent, turn, block, cx);
+        }
+    }),
     ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
     ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),
     ("chat-jump", |d, window, cx| {
@@ -120,12 +132,46 @@ const STEPS: [(&str, Step); 190] = [
         d.chats.composer.draft.toggle(Menu::Model);
         cx.notify();
     }),
+    ("chat-access", |d, _, cx| {
+        if let Some(a) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)) {
+            (a.chat_only, a.access) = (true, Some("edits".into()));
+        }
+        cx.notify();
+    }),
+    ("chat-access-open", |d, _, cx| {
+        d.chats.composer.draft.toggle(Menu::Access);
+        cx.notify();
+    }),
     ("chat-model-effort", |d, _, cx| {
         d.chats.composer.draft.side = Some(crate::composer::model_menu::Side::Effort);
         cx.notify();
     }),
     ("chat-model-models", |d, _, cx| {
         d.chats.composer.draft.side = Some(crate::composer::model_menu::Side::Model);
+        cx.notify();
+    }),
+    ("chat-slash", |d, window, cx| d.type_text(Prompt::Chat, "/", window, cx)),
+    ("chat-slash-re", |d, window, cx| d.type_text(Prompt::Chat, "/re", window, cx)),
+    ("chat-mention", |d, window, cx| d.type_text(Prompt::Chat, "Look at @", window, cx)),
+    ("chat-mention-rea", |d, window, cx| d.type_text(Prompt::Chat, "Look at @rea", window, cx)),
+    ("new-slash", |d, window, cx| d.type_text(Prompt::Launch, "/", window, cx)),
+    ("new-mention", |d, window, cx| d.type_text(Prompt::Launch, "Look at @", window, cx)),
+    ("chat-marked", |d, window, cx| d.set_chat_text("/review 482 then check @src/fold.rs and @docs/", window, cx)),
+    ("chat-marked-sent", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("Look at @src/parser.rs and @docs/adr/0003-desktop-code-layout.md, then fold the tool runs. Mail dev@pocket.app".into()), cx);
+        }
+    }),
+    ("chat-command-sent", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("/review 482".into()), cx);
+        }
+    }),
+    ("chat-goal", |d, _, cx| {
+        let goal = agents::Goal { objective: "Every parser test passes and the CI lint job is green".into(), status: agents::GoalStatus::Active, tokens_used: 16510, token_budget: 50000 };
+        if let Some(a) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)) {
+            a.goal = Some(goal);
+        }
         cx.notify();
     }),
     ("chat-typed-long", |d, window, cx| {
@@ -747,17 +793,6 @@ fn opens(b: &Block) -> bool {
     matches!(b, Block::Tool(c) if is_call(b) && (c.status == chat::ToolStatus::Failed || tool_row::colour(c).is_some()))
 }
 
-/// Opens the fold over the shown chat's row `ix`, unless it's open, and scrolls to the row.
-fn reveal(d: &mut Desktop, agent: &str, ix: usize, cx: &mut Context<Desktop>) {
-    let Some(view) = d.chats.views.get(agent) else { return };
-    let s = &view.session;
-    view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
-    let fold = s.rows[ix].turn().and_then(|turn| chat::fold_of(&s.transcript, turn)).map(|f| format!("{}#fold", s.transcript.turns[f].id));
-    if let Some(f) = fold.filter(|f| !s.open(f, false)) {
-        d.chat_toggle(agent, &f, false, cx);
-    }
-}
-
 /// Opens the shown chat's first phase holding a block `pick` takes, and the fold over it, and returns that block.
 fn open_phase(d: &mut Desktop, pick: fn(&Block) -> bool, cx: &mut Context<Desktop>) -> Option<(Entity<Tools>, Block)> {
     let agent = d.session()?.to_string();
@@ -768,7 +803,7 @@ fn open_phase(d: &mut Desktop, pick: fn(&Block) -> bool, cx: &mut Context<Deskto
         _ => None,
     })?;
     let (phase, open, tools) = (s.ids[ix].clone(), s.open(&s.ids[ix], false), view.tools.clone());
-    reveal(d, &agent, ix, cx);
+    d.chat_reveal(&agent, ix, cx);
     if !open {
         d.chat_toggle(&agent, &phase, false, cx);
     }
@@ -789,7 +824,7 @@ fn open_agent(d: &mut Desktop, pick: fn(&chat::ToolCall) -> bool, cx: &mut Conte
     });
     let Some((ix, failed)) = found else { return };
     let (id, open) = (s.ids[ix].clone(), s.open(&s.ids[ix], failed));
-    reveal(d, &agent, ix, cx);
+    d.chat_reveal(&agent, ix, cx);
     if !open {
         d.chat_toggle(&agent, &id, failed, cx);
     }

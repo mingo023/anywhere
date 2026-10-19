@@ -70,3 +70,11 @@ func TestEveryProviderHasAParser(t *testing.T) {
 		}
 	}
 }
+
+func TestASwitchedPermissionModeReadsBackAsItsAccess(t *testing.T) {
+	for _, access := range []string{"ask", "edits", "auto", "full"} {
+		if got := Mode(Launch{Access: "settings", Plan: true}, PermissionMode(access)); got.Access != access || got.Plan {
+			t.Errorf("%s: got %+v", access, got)
+		}
+	}
+}

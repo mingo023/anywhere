@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"pocketd/internal/proto"
 	"pocketd/internal/timeline"
 )
 
@@ -43,6 +44,16 @@ type line struct {
 	} `json:"origin"`
 	// ToolUseResult is a string for some tools, so it is read only when needed.
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
+	Attachment    struct {
+		Type      string `json:"type"`
+		Met       bool   `json:"met"`
+		Failed    bool   `json:"failed"`
+		Condition string `json:"condition"`
+	} `json:"attachment"`
+	CommandRun struct {
+		Command string `json:"command"`
+		Args    string `json:"args"`
+	} `json:"commandRun"`
 }
 
 // Model returns the model an assistant line was written by, or "".
@@ -52,6 +63,28 @@ func Model(raw []byte) string {
 		return ""
 	}
 	return l.Message.Model
+}
+
+// Goal reads the /goal a line sets, judges or clears; ok is false when it
+// touches none. Claude writes a goal_status attachment for each.
+func Goal(raw []byte) (g proto.Goal, ok bool) {
+	var l line
+	if json.Unmarshal(raw, &l) != nil || l.IsSidechain {
+		return g, false
+	}
+	switch {
+	case l.Type == "attachment" && l.Attachment.Type == "goal_status":
+		g = proto.Goal{Objective: l.Attachment.Condition, Status: "active"}
+		if l.Attachment.Met {
+			g.Status = proto.GoalComplete
+		} else if l.Attachment.Failed {
+			g.Status = proto.GoalFailed
+		}
+		return g, true
+	case l.Type == "system" && l.Subtype == "local_command" && l.CommandRun.Command == "goal" && strings.TrimSpace(l.CommandRun.Args) == "clear":
+		return g, true
+	}
+	return g, false
 }
 
 type block struct {
@@ -230,9 +263,13 @@ func userEvents(content json.RawMessage) []timeline.Event {
 			}
 		}
 	}
+	name := tag(text, "command-name")
 	switch {
 	case strings.HasPrefix(text, "[Request interrupted by user"):
 		return append(events, timeline.Event{Kind: "result", OK: false, Error: "interrupted"})
+	// A /clear opens the conversation it starts, which has nothing of the one before to answer.
+	case strings.HasPrefix(text, "<command-") && name != "" && name != "/clear":
+		return append(events, timeline.Event{Kind: "user", Text: strings.TrimSpace(name + " " + tag(text, "command-args"))})
 	case strings.HasPrefix(text, "<command-"), strings.HasPrefix(text, "<local-command-"), Command(text), text == "":
 		return events
 	}
@@ -305,7 +342,8 @@ func (o Opening) Read(path string) Opening {
 			o.Interactive = l.Entrypoint == "cli"
 		}
 		for _, e := range l.events() {
-			if e.Kind == "user" {
+			// The prompts it is matched against hold no commands.
+			if e.Kind == "user" && !Command(e.Text) {
 				o.Prompt = e.Text
 				o.At, _ = time.Parse(time.RFC3339Nano, l.Timestamp)
 			}

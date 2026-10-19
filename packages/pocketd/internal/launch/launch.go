@@ -455,6 +455,8 @@ func (l *Launcher) Paths() map[string]string {
 
 func (l *Launcher) SetPhoneMaxAccess(v string) error { return l.set.SetPhoneMaxAccess(v) }
 
+func (l *Launcher) PhoneMaxAccess() string { return l.set.PhoneMaxAccess() }
+
 func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 	env := l.d.LoginEnv()
 	account := []string(nil)

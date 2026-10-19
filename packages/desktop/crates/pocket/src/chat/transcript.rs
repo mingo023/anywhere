@@ -21,6 +21,8 @@ use theme::*;
 
 /// The transcript's reading width.
 const WIDTH: f32 = 720.;
+/// How long a row shown from the background tray stays lit.
+const FLASH: Duration = Duration::from_millis(900);
 /// A sent prompt rises from under the list's end, out from behind the composer.
 const SENT: creating::Part = (0., 48.);
 
@@ -41,6 +43,8 @@ pub(crate) struct View {
     pin: Option<Pin>,
     /// When the user last sent a prompt: its row rises into the chat.
     sent: Option<Instant>,
+    /// The row just shown from the background tray, and when: it flashes.
+    flash: Option<(String, Instant)>,
     /// Whether the user's last scroll left the list at its end, until the next render reads it.
     scrolled: Rc<Cell<Option<bool>>>,
     /// The fold that last settled, and when: its label fades in.
@@ -68,7 +72,7 @@ impl View {
             move |e, _, _| scrolled.set(Some(!e.is_scrolled))
         });
         let tools = cx.new(|_| Tools::default());
-        Self { session: Session::default(), list, tools, jump: false, glide: None, pin: None, sent: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), primed: false }
+        Self { session: Session::default(), list, tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), primed: false }
     }
 
     /// How far the list sits above its end.
@@ -218,7 +222,7 @@ fn live_state(t: &Transcript, turns: Range<usize>, ask: Option<bool>, stopping: 
         return Live::Thinking;
     }
     let secs = started(&t.turns[turns.start]).map_or(0, |at| (now - at).max(0) / 1000);
-    Live::Working { secs, background: chat::in_background(&t.turns[turns]).count() }
+    Live::Working { secs }
 }
 
 /// How long a settled reply took: its turns' own count, else from its start to its last move.
@@ -361,6 +365,32 @@ impl Desktop {
                 _ => ix + 1,
             };
             view.list.remeasure_items(ix..end);
+        }
+        cx.notify();
+    }
+
+    /// Scrolls `agent`'s chat to its row `ix`, opening the fold over it if it shows shut.
+    pub(crate) fn chat_reveal(&mut self, agent: &str, ix: usize, cx: &mut Context<Self>) {
+        let Some(view) = self.chats.views.get(agent) else { return };
+        view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+        if let Some(f) = view.session.shut_fold_over(ix) {
+            self.chat_toggle(agent, &f, false, cx);
+        }
+    }
+
+    /// Scrolls `agent`'s chat to the row showing block `block` of turn `turn`, opened, and flashes it.
+    pub(crate) fn chat_show_block(&mut self, agent: &str, turn: usize, block: usize, cx: &mut Context<Self>) {
+        let Some(view) = self.chats.views.get_mut(agent) else { return };
+        let s = &view.session;
+        let Some(ix) = chat::row_of(&s.rows, turn, block) else { return };
+        let id = s.ids[ix].clone();
+        let shut = s.shut_phase(ix);
+        // A prompt held at the top, or a glide to the end, would scroll the list off the row.
+        (view.pin, view.glide) = (None, None);
+        view.flash = Some((id.clone(), Instant::now()));
+        self.chat_reveal(agent, ix, cx);
+        if shut {
+            self.chat_toggle(agent, &id, false, cx);
         }
         cx.notify();
     }
@@ -635,6 +665,13 @@ impl Desktop {
             }
             None => inner,
         };
+        let inner = match &view.flash {
+            Some((row, at)) if *row == id && at.elapsed() < FLASH => {
+                let flash = inner.rounded(px(8.)).with_animation(SharedString::from(format!("flash-{id}")), Animation::new(FLASH).with_easing(ease_out_quint()), |d, t| d.bg(Hsla::from(FILL_4).opacity(1. - t)));
+                div().child(flash)
+            }
+            _ => inner,
+        };
         let inner = match part {
             Some(part) => self.arriving(agent, part, inner, window, cx),
             None => inner,
@@ -708,7 +745,7 @@ mod tests {
         let thinking = turn(vec![Block::Thinking(msg("hm", 2_000))], None);
         assert_eq!(live_state(&thinking, 0..1, None, false, 9_000), Live::Thinking);
         let working = turn(vec![Block::Thinking(msg("hm", 2_000)), shell(3_000)], None);
-        assert_eq!(live_state(&working, 0..1, None, false, 8_500), Live::Working { secs: 7, background: 0 });
+        assert_eq!(live_state(&working, 0..1, None, false, 8_500), Live::Working { secs: 7 });
         assert_eq!(live_state(&working, 0..1, Some(false), false, 8_500), Live::Approval);
         assert_eq!(live_state(&working, 0..1, Some(true), false, 8_500), Live::Answer);
     }

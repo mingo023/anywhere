@@ -775,7 +775,6 @@ mod tests {
         s.sounds.all = false;
         s.worktree.root = "/wt".into();
         (s.agents.close_on_exit, s.agents.chat_to) = (true, "ask".into());
-        s.agents.move_starter(0, 3);
         s.keys = BTreeMap::from([("desktop::OpenPalette".into(), "cmd-shift-p".into()), ("desktop::Reload in Browser".into(), String::new())]);
         s.save();
         assert_eq!(Store::load(&dir), s);

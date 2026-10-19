@@ -339,7 +339,7 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "locals.v1", "settings.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "locals.v1", "settings.v1", "access.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
@@ -367,8 +367,9 @@ Bun.serve({
         // What pocketd sends when the agent left the foreground before the prompt reached it.
         else if (process.env.FIXTURE_REFUSE) ws.send(JSON.stringify({ type: "error", id: f.id, message: "Agent is no longer in the foreground" }));
         else if (f.text === "/compact") compact(ws, f.agentId);
-        // Claude writes a slash command as <command-name> markup, which pocketd's transcript skips: no echo, no reply.
-        else if (!process.env.FIXTURE_DROP && !f.text.startsWith("/")) {
+        // pocketd shows a slash command as typed, from Claude's <command-name> markup; the fixture runs none.
+        else if (!process.env.FIXTURE_DROP && f.text.startsWith("/")) item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+        else if (!process.env.FIXTURE_DROP) {
           const answer = () => {
             item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
             reply(ws, f.agentId);
@@ -376,6 +377,14 @@ Bun.serve({
           if (streams.has(f.agentId)) steers.set(f.agentId, answer);
           else answer();
         }
+      }
+      if (f.type === "agent.commands") {
+        const commands = [
+          { name: "review", description: "Review a pull request", argumentHint: "<pr>" },
+          { name: "release-notes", description: "Draft release notes from the merged pull requests" },
+          { name: "goal", description: "Set a goal — keep working until the condition is met" },
+        ];
+        ws.send(JSON.stringify({ type: "agent.commands", id: f.id, agentId: f.agentId, commands }));
       }
       // A session from the New session page: its terminal and agent appear, then the agent answers the prompt.
       if (f.type === "agent.create") {

@@ -30,6 +30,8 @@ pub struct Summary {
     pub provider: String,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// What it may do without asking: ask, edits, auto or full; "settings" leaves that to its own settings.
+    pub access: Option<String>,
     pub status: String,
     pub failed: bool,
     pub attached: bool,
@@ -52,6 +54,45 @@ pub struct Summary {
     pub resets: u64,
     /// Run without its TUI, so only the chat drives it.
     pub chat_only: bool,
+    /// What `/goal` set it working toward; none when no goal is set.
+    pub goal: Option<Goal>,
+}
+
+/// An agent's `/goal`.
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Goal {
+    pub objective: String,
+    pub status: GoalStatus,
+    pub tokens_used: u64,
+    pub token_budget: u64,
+}
+
+/// Codex's goal statuses, and `Failed` from Claude's judge.
+#[derive(Deserialize, Default, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum GoalStatus {
+    #[default]
+    Active,
+    Paused,
+    /// Can't get further on its own.
+    Blocked,
+    UsageLimited,
+    BudgetLimited,
+    Complete,
+    Failed,
+    /// A status a newer pocketd added.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A slash command the agent's CLI offers, from `agent.commands`.
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Command {
+    pub name: String,
+    pub description: String,
+    pub argument_hint: String,
 }
 
 impl Summary {
@@ -260,6 +301,7 @@ struct Frame {
     note: String,
     names: HashMap<String, String>,
     locals: Vec<Local>,
+    commands: Vec<Command>,
     version: String,
     #[serde(deserialize_with = "automations::known")]
     automations: Vec<Automation>,
@@ -319,6 +361,8 @@ pub enum Event {
     PromptFailed { agent: String, request: String },
     /// pocketd refused to stop the agent's turn, or the socket never took the stop; `reason` says why.
     InterruptFailed { agent: String, reason: String },
+    /// The slash commands the agent offers; empty when pocketd couldn't list them.
+    Commands { agent: String, commands: Vec<Command> },
 }
 
 #[derive(Default)]
@@ -436,7 +480,7 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
-            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } => {}
+            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } => {}
         }
     }
 
@@ -522,6 +566,11 @@ impl Agents {
     /// pocketd switches a running agent's model or effort.
     pub fn settings_offered(&self) -> bool {
         self.caps.iter().any(|c| c == SETTINGS_CAP) && !self.observe_only()
+    }
+
+    /// pocketd switches a chat agent's access.
+    pub fn access_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == ACCESS_CAP) && !self.observe_only()
     }
 
     /// Shows a rename before pocketd echoes it; a blank title clears the name.
@@ -624,6 +673,7 @@ const CONFIG: &str = "config";
 const SETTINGS: &str = "settings";
 const AUTO: &str = "auto-";
 const PROMPT: &str = "prompt-";
+const COMMANDS: &str = "commands-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
@@ -659,6 +709,8 @@ fn names_event(f: &Frame) -> Option<Event> {
         "worktree.names" => Some(Event::Names(f.names.clone())),
         "naming.failed" => Some(Event::NamingFailed(f.agent_id.clone())),
         "local.list" => Some(Event::Locals(f.locals.clone())),
+        "agent.commands" => Some(Event::Commands { agent: f.agent_id.clone(), commands: f.commands.clone() }),
+        "error" => Some(Event::Commands { agent: f.id.strip_prefix(COMMANDS)?.to_string(), commands: Vec::new() }),
         _ => None,
     }
 }
@@ -670,6 +722,7 @@ const LOCALS_CAP: &str = "locals.v1";
 const FORK_CAP: &str = "fork.v1";
 const ACCOUNTS_CAP: &str = "accounts.v1";
 const SETTINGS_CAP: &str = "settings.v1";
+const ACCESS_CAP: &str = "access.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
@@ -728,6 +781,11 @@ impl Outbox {
         self.send(json!({"type": "agent.compact", "id": "compact", "agentId": agent_id}));
     }
 
+    /// Asks for the agent's slash commands; a pocketd that can't list them answers with an empty `Commands`.
+    pub fn commands(&self, agent_id: &str) {
+        self.send(json!({"type": "agent.commands", "id": format!("{COMMANDS}{agent_id}"), "agentId": agent_id}));
+    }
+
     /// Switches the agent's model, effort or both; "" keeps one as it is.
     pub fn settings(&self, agent_id: &str, model: &str, effort: &str) {
         let mut msg = json!({"type": "agent.settings", "id": SETTINGS, "agentId": agent_id});
@@ -735,6 +793,11 @@ impl Outbox {
             msg[key] = value.into();
         }
         self.send(msg);
+    }
+
+    /// Switches what the agent may do without asking.
+    pub fn access(&self, agent_id: &str, access: &str) {
+        self.send(json!({"type": "agent.settings", "id": SETTINGS, "agentId": agent_id, "access": access}));
     }
 
     pub fn resolve(&self, request_id: &str, decision: Decision) {
@@ -845,7 +908,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 12] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP];
+const CAPS: [&str; 14] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1127,6 +1190,12 @@ mod tests {
     }
 
     #[test]
+    fn a_summary_names_the_agents_access() {
+        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_model.json")).unwrap();
+        assert_eq!(f.agent.unwrap().access.as_deref(), Some("edits"));
+    }
+
+    #[test]
     fn sub_agent_items_decode_with_the_call_that_spawned_them() {
         let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/stream_subagent.json")).unwrap();
         assert_eq!(f.item.unwrap().parent_tool_use_id.as_deref(), Some("t4"));
@@ -1216,7 +1285,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -1832,6 +1901,37 @@ mod tests {
     fn settings_sends_the_golden_agent_settings_frame_but_its_id_and_leaves_out_what_stays() {
         assert_eq!(sent_but_id(|o| o.settings("a1", "opus", "high")), without_id(golden!("client/agent_settings.json")));
         assert_eq!(sent_but_id(|o| o.settings("a1", "", "low")), json!({"type": "agent.settings", "agentId": "a1", "effort": "low"}));
+    }
+
+    #[test]
+    fn access_sends_the_golden_agent_access_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.access("a1", "edits")), without_id(golden!("client/agent_access.json")));
+    }
+
+    #[test]
+    fn commands_sends_the_golden_agent_commands_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.commands("a1")), without_id(golden!("client/agent_commands.json")));
+    }
+
+    #[test]
+    fn the_golden_commands_list_becomes_commands_for_its_agent() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_commands.json")).unwrap();
+        let Some(Event::Commands { agent, commands }) = names_event(&f) else { panic!("no commands") };
+        assert_eq!((agent.as_str(), commands.len()), ("a1", 2));
+        assert_eq!((commands[1].name.as_str(), commands[1].argument_hint.as_str()), ("review", "<pr>"));
+    }
+
+    #[test]
+    fn a_refused_commands_list_becomes_an_empty_one() {
+        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"commands-a1","message":"Malformed message"}"#).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::Commands { agent, commands }) if agent == "a1" && commands.is_empty()));
+    }
+
+    #[test]
+    fn the_golden_goal_rides_on_its_agent() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_update_goal.json")).unwrap();
+        let goal = Goal { objective: "tests pass".into(), status: GoalStatus::Active, tokens_used: 16510, token_budget: 50000 };
+        assert_eq!(f.agent.unwrap().goal, Some(goal));
     }
 
     #[test]

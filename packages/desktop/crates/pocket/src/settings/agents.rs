@@ -1,10 +1,8 @@
 use super::catalog::{Look, Setting};
-use super::{action, row};
 use agents::providers;
 use crate::desktop::Desktop;
 use crate::status::Status;
 use crate::util::tilde;
-use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::LaunchPick;
@@ -12,10 +10,6 @@ use store::prefs::agents::{ACCESSES, CHAT_TO};
 use theme::*;
 
 const NEW: &str = "New sessions";
-
-/// A starter prompt being dragged, by its place in the list.
-#[derive(Clone)]
-struct DragStarter(usize);
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("providers", "Providers", "Providers", |d, _, cx| d.providers_row(cx)).hint("Claude Code and Codex, found on your login PATH"),
@@ -38,8 +32,6 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::choice("new-tabs-open", "Tabs", "New tabs and splits open", &["Shell", "Default agent"], Look::Segmented, |s| s.agents.tabs_open_agent as usize, |s, i| {
         s.agents.tabs_open_agent = i == 1
     }),
-    Setting::custom("starter-prompts", "Composer", "Starter prompts", |d, s, cx| d.starters_row(s, cx))
-        .resets(|s| format!("{} prompts", s.agents.starters.len()), |s, d| s.agents.starters = d.agents.starters.clone()).hint("Shown under the new session composer. Drag to reorder"),
     Setting::choice("add-to-chat", "Composer", "\u{201c}Add to chat\u{201d}", &["Send now", "Paste only"], Look::Segmented, |s| (!s.agents.send_now) as usize, |s, i| {
         s.agents.send_now = i == 0
     })
@@ -140,52 +132,6 @@ impl Desktop {
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_provider(i, window, cx)))
         });
         div().flex().flex_col().children(rows)
-    }
-
-    fn starters_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
-        let items = self.store.agents.starters.clone().into_iter().enumerate().map(|(i, text)| {
-            let remove = ui::icon_button_sized(("starter-remove", i), "x", 20., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if i < this.store.agents.starters.len() {
-                    this.store.agents.starters.remove(i);
-                    this.save_soon(cx);
-                    cx.notify();
-                }
-            }));
-            div()
-                .id(("starter", i))
-                .h(px(30.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .border_b(px(0.5))
-                .border_color(SEPARATOR)
-                .cursor_grab()
-                .on_drag(DragStarter(i), |_, _, _, cx| cx.new(|_| EmptyView))
-                .drag_over::<DragStarter>(move |s, d, _, _| if d.0 == i { s } else { s.shadow(ui::drop_line(d.0 < i)) })
-                .on_drop(cx.listener(move |this, d: &DragStarter, _, cx| {
-                    this.store.agents.move_starter(d.0, i);
-                    this.save_soon(cx);
-                    cx.notify();
-                }))
-                .child(icon("grip", 12., TEXT_3))
-                .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(TEXT).child(text))
-                .child(remove)
-        });
-        let add = action("starter-add", "Add").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_starter(window, cx)));
-        let input = div().h(px(32.)).px(px(10.)).flex().items_center().gap(px(8.)).child(div().flex_1().min_w_0().child(Input::new(&self.settings.host.starter).appearance(false).p_0().text_size(px(12.5)))).child(add);
-        let list = div().mt(px(8.)).rounded(px(8.)).bg(FILL_1).border(px(0.5)).border_color(SEPARATOR).overflow_hidden().flex().flex_col().children(items).child(input);
-        let head = row(setting.label, setting.hint, div());
-        div().flex().flex_col().child(head.pb(px(4.))).child(div().px(px(14.)).pb(px(12.)).child(list))
-    }
-
-    pub(super) fn add_starter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.settings.host.starter.read(cx).value().to_string();
-        if self.store.agents.add_starter(&text) {
-            self.settings.host.starter.update(cx, |f, cx| f.set_value("", window, cx));
-            self.save_soon(cx);
-            cx.notify();
-        }
     }
 }
 

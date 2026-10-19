@@ -1,6 +1,9 @@
+use super::mention::{paint_icons, hidden, tint};
 use crate::composer::split_images;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use theme::*;
@@ -11,42 +14,67 @@ const TEXT_SIZE: f32 = 14.5;
 /// A bubble's widest, of the reading width.
 const WIDTH: f32 = 0.78;
 
-/// Byte ranges of the `@path` mentions in `text`.
-pub(super) fn mentions(text: &str) -> Vec<std::ops::Range<usize>> {
-    let part = |c: char| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-');
-    let mut out = Vec::new();
-    let mut chars = text.char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
-        if c != '@' {
-            continue;
-        }
-        let mut end = i + 1;
-        while let Some(&(j, c)) = chars.peek().filter(|(_, c)| part(*c)) {
-            end = j + c.len_utf8();
-            chars.next();
-        }
-        if end > i + 1 {
-            out.push(i..end);
-        }
+/// A mention's `@` and the gap after it, which its icon covers; two narrow spaces, as one leaves the icon touching the name.
+const SLOT: &str = "@\u{202F}\u{202F}";
+const ICON: f32 = 15.;
+
+/// What a bubble shows of a prompt.
+#[derive(Default)]
+struct Shown {
+    text: String,
+    highlights: Vec<(Range<usize>, HighlightStyle)>,
+    /// Where each mention shows, and its path.
+    mentions: Vec<(Range<usize>, String)>,
+}
+
+/// `text` with its command tinted and each mention shown as its icon and name.
+fn shown(text: &str) -> Shown {
+    let marks = chat::marks(text);
+    let mut out = Shown { highlights: marks.command.map(|r| (r, tint(COMMAND))).into_iter().collect(), ..Default::default() };
+    let mut copied = 0;
+    for m in marks.mentions {
+        out.text.push_str(&text[copied..m.start]);
+        let path = &text[m.start + 1..m.end];
+        let start = out.text.len();
+        out.text.push_str(SLOT);
+        out.text.push_str(chat::mention_name(path));
+        out.highlights.push((start..start + SLOT.len(), hidden()));
+        out.highlights.push((start + SLOT.len()..out.text.len(), tint(MENTION)));
+        out.mentions.push((start..out.text.len(), path.to_string()));
+        copied = m.end;
     }
+    out.text.push_str(&text[copied..]);
     out
 }
 
-/// The prompt's text with its mentions picked out in the code font.
-fn styled(text: String) -> StyledText {
-    let ranges = mentions(&text);
-    let highlights = ranges.iter().map(|r| (r.clone(), HighlightStyle { color: Some(MENTION.into()), ..Default::default() })).collect::<Vec<_>>();
-    let fonts = ranges.into_iter().map(|r| (r, code_font())).collect::<Vec<_>>();
-    StyledText::new(text).with_highlights(highlights).with_font_family_overrides(fonts)
+/// The prompt's text, its mentions' icons painted over their slots and their paths on hover.
+fn styled(id: &str, text: &str) -> Div {
+    let Shown { text, highlights, mentions } = shown(text);
+    let styled = StyledText::new(text).with_highlights(highlights);
+    let layout = styled.layout().clone();
+    let slots: Vec<(usize, String)> = mentions.iter().map(|(r, path)| (r.start, path.clone())).collect();
+    let icons = canvas(
+        |_, _, _| (),
+        move |_, _, window, cx| {
+            let line = layout.line_height();
+            let slot = |at: usize| Some(Bounds::from_corners(layout.position_for_index(at)?, layout.position_for_index(at + SLOT.len())? + point(px(0.), line)));
+            let found: Vec<(Bounds<Pixels>, &str)> = slots.iter().filter_map(|(at, path)| Some((slot(*at)?, path.as_str()))).collect();
+            paint_icons(found, ICON, window, cx);
+        },
+    )
+    .absolute()
+    .size_0();
+    let tip = move |ix: usize, window: &mut Window, cx: &mut App| mentions.iter().find(|(r, _)| r.contains(&ix)).map(|(_, path)| Tooltip::new(path.clone()).build(window, cx));
+    div().child(InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip)).child(icons)
 }
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.
 pub(super) fn lines(text: &str, width: f32, window: &Window) -> usize {
-    let text = split_images(text).0;
+    let text = shown(split_images(text).0).text;
     let run = window.text_style().to_run(text.len());
     window
         .text_system()
-        .shape_text(text.to_string().into(), px(TEXT_SIZE), &[run], Some(px(width * WIDTH - 32.)), None)
+        .shape_text(text.into(), px(TEXT_SIZE), &[run], Some(px(width * WIDTH - 32.)), None)
         .map_or(1, |lines| lines.iter().map(|l| l.wrap_boundaries().len() + 1).sum())
 }
 
@@ -97,13 +125,13 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
         let easing = move |t| if delta > 500. { ease_in_out(t) } else { quint(t) };
         div()
             .overflow_hidden()
-            .child(styled(text))
+            .child(styled(id, &text))
             .with_animation(SharedString::from(format!("{id}-{expanded}")), Animation::new(tween(delta)).with_easing(easing), move |d, t| d.h(px(from + (to - from) * t)))
             .into_any_element()
     } else if collapsed {
-        div().flex().flex_col().child(div().h(px(LINE_HEIGHT * COLLAPSED_LINES as f32)).overflow_hidden().child(styled(text))).child(div().h(px(LINE_HEIGHT)).child("...")).into_any_element()
+        div().flex().flex_col().child(div().h(px(LINE_HEIGHT * COLLAPSED_LINES as f32)).overflow_hidden().child(styled(id, &text))).child(div().h(px(LINE_HEIGHT)).child("...")).into_any_element()
     } else {
-        div().whitespace_normal().child(styled(text)).into_any_element()
+        div().whitespace_normal().child(styled(id, &text)).into_any_element()
     };
     let expander = toggle.map(|(_, on_click)| {
         div().mt(px(8.)).flex().items_start().child(
@@ -144,7 +172,7 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
 
 #[cfg(test)]
 mod tests {
-    use super::{mentions, needs_collapse, tween};
+    use super::{needs_collapse, shown, tween};
     use std::time::Duration;
 
     #[test]
@@ -154,10 +182,11 @@ mod tests {
     }
 
     #[test]
-    fn mentions_are_at_signs_followed_by_a_path() {
-        let text = "fix @src/chat.rs and @a_b-c.md, mail me@ x";
-        let found: Vec<&str> = mentions(text).into_iter().map(|r| &text[r]).collect();
-        assert_eq!(found, ["@src/chat.rs", "@a_b-c.md"]);
+    fn a_bubble_shows_each_mention_as_its_name_and_keeps_its_path() {
+        let s = shown("/review then @src/parser.rs and @docs/");
+        assert_eq!(s.text, "/review then @\u{202F}\u{202F}parser.rs and @\u{202F}\u{202F}docs/");
+        let mentions: Vec<(&str, &str)> = s.mentions.iter().map(|(r, path)| (&s.text[r.clone()], path.as_str())).collect();
+        assert_eq!(mentions, [("@\u{202F}\u{202F}parser.rs", "src/parser.rs"), ("@\u{202F}\u{202F}docs/", "docs/")]);
     }
 
     #[test]

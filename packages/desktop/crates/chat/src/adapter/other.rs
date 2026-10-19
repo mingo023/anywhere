@@ -1,7 +1,7 @@
 use crate::adapter::{Backend, Capabilities};
 use crate::{Ask, Fold, Transcript, Turn};
 
-/// A provider this build has no adapter for: pocketd's items, without another agent's panels.
+/// A provider this build has no adapter for: pocketd's items, every command sent as typed.
 pub struct Other;
 
 impl Backend for Other {

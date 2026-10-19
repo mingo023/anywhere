@@ -263,7 +263,7 @@ fn on_turn(t: &Transcript, working: bool) -> bool {
 
 /// A slash command, which Claude runs without echoing a prompt; a prompt may start with a path instead.
 fn command(text: &str) -> bool {
-    text.trim_start().strip_prefix('/').and_then(|rest| rest.split_whitespace().next()).is_some_and(|name| !name.contains(['/', '.']))
+    crate::slash(text).is_some()
 }
 
 /// Agents may tidy a prompt's whitespace before echoing it back, and Claude echoes a bash command as `! cmd`. Text the

@@ -17,10 +17,12 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
+	"pocketd/internal/config"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
+	"pocketd/internal/launch"
 	"pocketd/internal/names"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
@@ -33,6 +35,7 @@ type fakeDriver struct {
 	prompts              []string
 	interrupts, compacts int
 	settings             [][2]string
+	accesses             []string
 }
 
 func (d *fakeDriver) Prompt(text string) error { d.prompts = append(d.prompts, text); return nil }
@@ -41,6 +44,13 @@ func (d *fakeDriver) Compact() error           { d.compacts++; return nil }
 func (d *fakeDriver) Settings(model, effort string) error {
 	d.settings = append(d.settings, [2]string{model, effort})
 	return nil
+}
+func (d *fakeDriver) Access(access string) error {
+	d.accesses = append(d.accesses, access)
+	return nil
+}
+func (d *fakeDriver) Commands() ([]proto.Command, error) {
+	return []proto.Command{{Name: "goal", ArgumentHint: "[<condition> | clear]"}}, nil
 }
 func (d *fakeDriver) Close() {}
 
@@ -346,6 +356,57 @@ func TestTheGoldenPromptInterruptCompactAndSettingsReachTheDriver(t *testing.T) 
 	}
 	if !reflect.DeepEqual(d.prompts, []string{"hi"}) || d.interrupts != 1 || d.compacts != 1 || !reflect.DeepEqual(d.settings, [][2]string{{"opus", "high"}}) {
 		t.Fatalf("%+v", d)
+	}
+}
+
+func withMaxAccess(t *testing.T, maxAccess string) func(*Server) {
+	set := config.NewSettings(t.TempDir())
+	if err := set.SetPhoneMaxAccess(maxAccess); err != nil {
+		t.Fatal(err)
+	}
+	return func(s *Server) { s.Launch = launch.New(nil, nil, set, nil) }
+}
+
+func TestAPhoneSwitchesAccessNoHigherThanTheOwnerAllows(t *testing.T) {
+	_, d, p := setup(t, withMaxAccess(t, "edits"))
+	p.hello()
+	raw, _ := os.ReadFile(filepath.Join("..", "proto", "testdata", "golden", "client", "agent_access.json"))
+	p.send(string(raw))
+	if m := p.recv(); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	for _, access := range []string{"auto", "full"} {
+		p.send(`{"type":"agent.settings","id":"p7","agentId":"a1","access":"` + access + `"}`)
+		if m := p.recv(); m["type"] != "error" || m["code"] != "access_not_allowed" {
+			t.Fatalf("%s: %v", access, m)
+		}
+	}
+	if !reflect.DeepEqual(d.accesses, []string{"edits"}) {
+		t.Fatalf("%v", d.accesses)
+	}
+}
+
+func TestTheOwnerSwitchesToAnyAccess(t *testing.T) {
+	_, d, p := local(t, peer.OwnerOf(1), withMaxAccess(t, "ask"))
+	p.hello()
+	p.send(`{"type":"agent.settings","id":"p7","agentId":"a1","access":"full"}`)
+	if m := p.recv(); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	if !reflect.DeepEqual(d.accesses, []string{"full"}) {
+		t.Fatalf("%v", d.accesses)
+	}
+}
+
+func TestTheGoldenCommandsAsksTheDriverForItsList(t *testing.T) {
+	_, _, p := setup(t)
+	p.hello()
+	raw, _ := os.ReadFile(filepath.Join("..", "proto", "testdata", "golden", "client", "agent_commands.json"))
+	p.send(string(raw))
+	m := p.recv()
+	want := []any{map[string]any{"name": "goal", "argumentHint": "[<condition> | clear]"}}
+	if m["type"] != "agent.commands" || m["id"] != "p9" || m["agentId"] != "a1" || !reflect.DeepEqual(m["commands"], want) {
+		t.Fatalf("%v", m)
 	}
 }
 

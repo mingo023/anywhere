@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"pocketd/internal/ops"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/state"
 )
 
 // stream is the stdio of an agent that `pocketd pipe` runs for the chat. A
@@ -23,14 +25,19 @@ type stream struct {
 	mu       sync.Mutex
 	conn     *ops.Conn
 	inbox    []string                      // lines for claude from before the pipe connected
-	replies  map[string]chan string        // pocketd's control requests by id, each getting its error or ""
+	replies  map[string]chan controlAnswer // pocketd's control requests by id
 	asks     map[string]context.CancelFunc // claude's open can_use_tool requests by id
 	stopping bool                          // a stop is under way, so the turn's result is no turn end
 	next     int
 }
 
 func newStream() *stream {
-	return &stream{replies: map[string]chan string{}, asks: map[string]context.CancelFunc{}}
+	return &stream{replies: map[string]chan controlAnswer{}, asks: map[string]context.CancelFunc{}}
+}
+
+type controlAnswer struct {
+	err  string
+	body json.RawMessage
 }
 
 // send writes v to claude as one line, or keeps it until the pipe connects.
@@ -86,11 +93,11 @@ var ControlWait = 10 * time.Second
 var errNoReply = errors.New("The agent didn't answer")
 
 // control sends claude a control request and waits for its answer.
-func (s *stream) control(ctx context.Context, request any) error {
+func (s *stream) control(ctx context.Context, request any) (json.RawMessage, error) {
 	s.mu.Lock()
 	s.next++
 	id := "pocket-" + strconv.Itoa(s.next)
-	reply := make(chan string, 1)
+	reply := make(chan controlAnswer, 1)
 	s.replies[id] = reply
 	s.mu.Unlock()
 	defer func() {
@@ -100,28 +107,27 @@ func (s *stream) control(ctx context.Context, request any) error {
 	}()
 	s.send(map[string]any{"type": "control_request", "request_id": id, "request": request})
 	select {
-	case e := <-reply:
-		if e != "" {
-			return errors.New(e)
+	case a := <-reply:
+		if a.err != "" {
+			return nil, errors.New(a.err)
 		}
-		return nil
+		return a.body, nil
 	case <-time.After(ControlWait):
-		return errNoReply
+		return nil, errNoReply
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
-func (s *stream) replied(id, subtype, e string) {
+func (s *stream) replied(id, subtype, e string, body json.RawMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if subtype == "error" && e == "" {
-		e = "The agent refused"
-	} else if subtype != "error" {
-		e = ""
+	a := controlAnswer{body: body}
+	if subtype == "error" {
+		a = controlAnswer{err: cmp.Or(e, "The agent refused")}
 	}
 	select {
-	case s.replies[id] <- e:
+	case s.replies[id] <- a:
 	default:
 	}
 }
@@ -163,6 +169,8 @@ func (s *stream) stopped(starting bool) bool {
 	s.stopping = false
 	return stopped && !starting
 }
+
+func midTurn(status string) bool { return status == "working" || status == "needsYou" }
 
 func promptLine(text string) map[string]any {
 	return map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}}
@@ -214,9 +222,10 @@ type streamLine struct {
 	RequestID string          `json:"request_id"`
 	Request   json.RawMessage `json:"request"`
 	Response  struct {
-		Subtype   string `json:"subtype"`
-		RequestID string `json:"request_id"`
-		Error     string `json:"error"`
+		Subtype   string          `json:"subtype"`
+		RequestID string          `json:"request_id"`
+		Error     string          `json:"error"`
+		Response  json.RawMessage `json:"response"`
 	} `json:"response"`
 	SessionID      string `json:"session_id"`
 	Cwd            string `json:"cwd"`
@@ -244,7 +253,7 @@ func (d *Daemon) streamLine(pr *presence, text string) {
 	case l.Type == "control_request":
 		d.canUseTool(pr, l.RequestID, l.Request)
 	case l.Type == "control_response":
-		s.replied(l.Response.RequestID, l.Response.Subtype, l.Response.Error)
+		s.replied(l.Response.RequestID, l.Response.Subtype, l.Response.Error, l.Response.Response)
 	case l.Type == "control_cancel_request":
 		s.cancel(l.RequestID)
 	case l.Type == "system" && l.Subtype == "init":
@@ -333,6 +342,12 @@ func (c streamDriver) Prompt(text string) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
+	// Claude runs a command sent mid-turn once the turn ends, and a goal can keep it going for long.
+	if name, arg, ok := slashCommand(text); ok && name == "goal" && arg == "clear" && midTurn(c.a.Summary().Status) {
+		if err := c.Interrupt(); err != nil {
+			return err
+		}
+	}
 	c.pr.stream.send(promptLine(text))
 	return nil
 }
@@ -343,7 +358,7 @@ func (c streamDriver) Interrupt() error {
 	}
 	c.a.Stop()
 	c.pr.stream.stop()
-	if err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "interrupt"}); err != nil {
+	if _, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "interrupt"}); err != nil {
 		c.pr.stream.stopped(true)
 		return err
 	}
@@ -368,15 +383,45 @@ func (c streamDriver) Settings(model, effort string) error {
 	}
 	s := c.pr.stream
 	if model != "" {
-		if err := s.control(c.pr.ctx, map[string]any{"subtype": "set_model", "model": model}); err != nil {
+		if _, err := s.control(c.pr.ctx, map[string]any{"subtype": "set_model", "model": model}); err != nil {
 			return err
 		}
 	}
 	if effort != "" {
-		if err := s.control(c.pr.ctx, map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": effort}}); err != nil {
+		if _, err := s.control(c.pr.ctx, map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": effort}}); err != nil {
 			return err
 		}
 	}
 	c.pr.switched(model, effort)
 	return nil
+}
+
+// Access switches claude's permission mode; a resume keeps it, as the
+// switch is saved with the Terminal.
+func (c streamDriver) Access(access string) error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	if _, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "set_permission_mode", "mode": state.PermissionMode(access)}); err != nil {
+		return err
+	}
+	c.pr.accessSwitched(access)
+	return nil
+}
+
+// Commands asks claude for its slash commands: its initialize answer lists
+// them, and claude answers one at any time.
+func (c streamDriver) Commands() ([]proto.Command, error) {
+	if !c.inForeground() {
+		return nil, errNotForeground
+	}
+	body, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "initialize"})
+	if err != nil {
+		return nil, err
+	}
+	var r struct {
+		Commands []proto.Command `json:"commands"`
+	}
+	json.Unmarshal(body, &r)
+	return r.Commands, nil
 }

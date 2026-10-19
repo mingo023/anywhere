@@ -253,6 +253,8 @@ pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
 pub const RAIL: Token = Token::new(0xdcdcdeff, 0x323237ff);
 pub const BUBBLE: Token = Token::new(0xf1f1f2ff, 0x2c2c30ff);
 pub const MENTION: Token = Token::new(0x0284c7ff, 0x5bb8f0ff);
+/// A prompt's opening `/command`.
+pub const COMMAND: Token = Token::new(0x5b5bd6ff, 0xb1a9ffff);
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
 pub const AGENT_CODEX: Token = Token::fixed(0x0f9d8aff);
 
@@ -496,8 +498,12 @@ pub fn has_file_icon(path: &str) -> bool {
     material_icon(path, false, false) != "file"
 }
 
+pub fn file_icon_path(path: &str, folder: bool, open: bool) -> SharedString {
+    format!("icons/material/{}.svg", material_icon(path, folder, open)).into()
+}
+
 pub fn file_icon(path: &str, folder: bool, open: bool, size: f32) -> Img {
-    img(format!("icons/material/{}.svg", material_icon(path, folder, open))).size(px(size)).flex_none()
+    img(file_icon_path(path, folder, open)).size(px(size)).flex_none()
 }
 
 pub fn spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) -> impl IntoElement {

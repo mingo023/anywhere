@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"pocketd/internal/proto"
 	"pocketd/internal/timeline"
 )
 
@@ -28,7 +29,8 @@ func TestMap(t *testing.T) {
 		{"prompt", `{"type":"user","message":{"content":"hi"}}`, []string{"user"}},
 		{"prompt blocks", `{"type":"user","message":{"content":[{"type":"text","text":"hi"}]}}`, []string{"user"}},
 		{"interrupt", `{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}`, []string{"result"}},
-		{"slash command", `{"type":"user","message":{"content":"<command-name>/compact</command-name>"}}`, nil},
+		{"slash command", `{"type":"user","message":{"content":"<command-name>/compact</command-name>"}}`, []string{"user"}},
+		{"clear", `{"type":"user","message":{"content":"<command-name>/clear</command-name>\n<command-args></command-args>"}}`, nil},
 		{"local command", `{"type":"user","message":{"content":"<local-command-stdout>ok</local-command-stdout>"}}`, nil},
 		{"typed slash command", `{"type":"user","message":{"content":"/compact"}}`, nil},
 		{"prompt starting with a path", `{"type":"user","message":{"content":"/tmp/x.txt is empty"}}`, []string{"user"}},
@@ -56,6 +58,13 @@ func TestMap(t *testing.T) {
 		if !reflect.DeepEqual(kinds(got), c.want) {
 			t.Errorf("%s: got %v want %v", c.name, kinds(got), c.want)
 		}
+	}
+}
+
+func TestASlashCommandShowsAsTyped(t *testing.T) {
+	ev := Map([]byte(`{"type":"user","message":{"content":"<command-message>grill-me</command-message>\n<command-name>/grill-me</command-name>\n<command-args>it is a test</command-args>"}}`))
+	if len(ev) != 1 || ev[0].Kind != "user" || ev[0].Text != "/grill-me it is a test" {
+		t.Fatalf("got %+v", ev)
 	}
 }
 
@@ -232,5 +241,28 @@ func TestAnOpeningReadsOnFromWhereItGotTo(t *testing.T) {
 	}
 	if fi, _ := os.Stat(path); o.read != fi.Size() {
 		t.Fatalf("read %d of %d", o.read, fi.Size())
+	}
+}
+
+func TestGoalFollowsWhatClaudeWritesForEachGoalStep(t *testing.T) {
+	cases := []struct {
+		name, line string
+		want       proto.Goal
+		ok         bool
+	}{
+		{"set", `{"type":"attachment","attachment":{"type":"goal_status","met":false,"sentinel":true,"condition":"tests pass"}}`, proto.Goal{Objective: "tests pass", Status: "active"}, true},
+		{"unmet check", `{"type":"attachment","attachment":{"type":"goal_status","met":false,"condition":"tests pass","iterations":2}}`, proto.Goal{Objective: "tests pass", Status: "active"}, true},
+		{"met", `{"type":"attachment","attachment":{"type":"goal_status","met":true,"condition":"tests pass","iterations":3}}`, proto.Goal{Objective: "tests pass", Status: "complete"}, true},
+		{"given up", `{"type":"attachment","attachment":{"type":"goal_status","met":false,"failed":true,"condition":"tests pass"}}`, proto.Goal{Objective: "tests pass", Status: proto.GoalFailed}, true},
+		{"cleared", `{"type":"system","subtype":"local_command","content":"<local-command-stdout>Goal cleared</local-command-stdout>","commandRun":{"command":"goal","args":"clear"}}`, proto.Goal{}, true},
+		{"asked", `{"type":"system","subtype":"local_command","content":"<local-command-stdout>No goal set</local-command-stdout>","commandRun":{"command":"goal","args":""}}`, proto.Goal{}, false},
+		{"other attachment", `{"type":"attachment","attachment":{"type":"todo_reminder"}}`, proto.Goal{}, false},
+		{"subagent", `{"type":"attachment","isSidechain":true,"attachment":{"type":"goal_status","met":true,"condition":"x"}}`, proto.Goal{}, false},
+	}
+	for _, c := range cases {
+		got, ok := Goal([]byte(c.line))
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: got %+v %v, want %+v %v", c.name, got, ok, c.want, c.ok)
+		}
 	}
 }

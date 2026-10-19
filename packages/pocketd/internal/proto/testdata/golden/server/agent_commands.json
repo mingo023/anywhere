@@ -1,0 +1,16 @@
+{
+  "type": "agent.commands",
+  "id": "p9",
+  "agentId": "a1",
+  "commands": [
+    {
+      "name": "goal",
+      "description": "Set a goal — keep working until the condition is met"
+    },
+    {
+      "name": "review",
+      "description": "Review a pull request",
+      "argumentHint": "\u003cpr\u003e"
+    }
+  ]
+}

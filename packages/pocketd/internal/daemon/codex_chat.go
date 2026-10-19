@@ -10,9 +10,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"pocketd/internal/agent"
 	"pocketd/internal/codex"
+	"pocketd/internal/proto"
+	"pocketd/internal/timeline"
 )
 
 // codexChat drives the app-server a codex that Pocket runs for the chat
@@ -113,9 +116,14 @@ func (x *codexChat) Notify(method string, params json.RawMessage) {
 		Turn     struct {
 			ID string `json:"id"`
 		} `json:"turn"`
+		Goal codexGoal `json:"goal"`
 	}
 	json.Unmarshal(params, &p)
 	switch method {
+	case "thread/goal/updated", "thread/goal/cleared":
+		if x.wait() && p.ThreadID == x.threadID() {
+			x.pr.a.SetGoal(p.Goal.proto())
+		}
 	case "thread/status/changed":
 		if x.wait() && p.ThreadID == x.threadID() {
 			x.status(p.Status)
@@ -238,6 +246,11 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 			log.Printf("codex %s: prompt: %v", thread, err)
 		}
 	}
+	if saved != "" {
+		if err := x.goal(""); err != nil {
+			log.Printf("codex %s: goal: %v", thread, err)
+		}
+	}
 }
 
 func (x *codexChat) fail(err error) {
@@ -252,21 +265,140 @@ func (x *codexChat) fail(err error) {
 // CodexCallWait is how long codex has to answer a call from the chat.
 var CodexCallWait = 10 * time.Second
 
-func (x *codexChat) call(method string, params map[string]any) error {
+// request calls codex outside the thread.
+func (x *codexChat) request(method string, params map[string]any) (json.RawMessage, error) {
 	x.mu.Lock()
-	c, thread := x.c, x.thread
+	c := x.c
 	x.mu.Unlock()
-	params["threadId"] = thread
 	ctx, cancel := context.WithTimeout(x.pr.ctx, CodexCallWait)
 	defer cancel()
-	_, err := c.Call(ctx, method, params)
-	return err
+	return c.Call(ctx, method, params)
+}
+
+func (x *codexChat) call(method string, params map[string]any) (json.RawMessage, error) {
+	params["threadId"] = x.threadID()
+	return x.request(method, params)
 }
 
 // prompt starts a turn, or steers the one under way, as codex adds a
-// prompt sent mid-turn to it.
+// prompt sent mid-turn to it. The app-server has no slash commands, so
+// /goal and a skill's name become its calls.
 func (x *codexChat) prompt(text string) error {
-	return x.call("turn/start", map[string]any{"input": []map[string]any{{"type": "text", "text": text}}})
+	input := []map[string]any{{"type": "text", "text": text}}
+	if name, arg, ok := slashCommand(text); ok {
+		if name == "goal" {
+			if err := x.goal(arg); err != nil {
+				return err
+			}
+			// A goal is no turn, so codex echoes no prompt for it.
+			x.pr.a.Record(timeline.Event{Kind: "user", Text: strings.TrimSpace(text)})
+			return nil
+		}
+		if s, ok := x.skill(name); ok {
+			input = append([]map[string]any{{"type": "skill", "name": s.Name, "path": s.Path}}, input...)
+		}
+	}
+	_, err := x.call("turn/start", map[string]any{"input": input})
+	return err
+}
+
+// slashCommand splits "/name arg" into its name and arg as the desktop's
+// chat::slash does; a path, as "/tmp/x", is no command.
+func slashCommand(text string) (name, arg string, ok bool) {
+	rest, ok := strings.CutPrefix(strings.TrimLeftFunc(text, unicode.IsSpace), "/")
+	if !ok {
+		return "", "", false
+	}
+	name, arg = rest, ""
+	if i := strings.IndexFunc(rest, unicode.IsSpace); i >= 0 {
+		name, arg = rest[:i], rest[i:]
+	}
+	if name == "" || strings.ContainsAny(name, "/.") {
+		return "", "", false
+	}
+	return name, strings.TrimSpace(arg), true
+}
+
+type codexGoal struct {
+	Objective   string `json:"objective"`
+	Status      string `json:"status"`
+	TokensUsed  int64  `json:"tokensUsed"`
+	TokenBudget int64  `json:"tokenBudget"`
+}
+
+func (g codexGoal) proto() proto.Goal {
+	return proto.Goal{Objective: g.Objective, Status: g.Status, TokensUsed: g.TokensUsed, TokenBudget: g.TokenBudget}
+}
+
+// goal runs /goal arg: pause, resume and clear act on the goal, no arg
+// reads it, and anything else is a new objective, which starts a turn.
+func (x *codexChat) goal(arg string) error {
+	method, params := "thread/goal/set", map[string]any{}
+	switch arg {
+	case "":
+		method = "thread/goal/get"
+	case "pause":
+		params["status"] = "paused"
+	case "resume":
+		params["status"] = "active"
+	case "clear":
+		method = "thread/goal/clear"
+	default:
+		params["objective"], params["status"] = arg, "active"
+	}
+	res, err := x.call(method, params)
+	if err != nil {
+		return err
+	}
+	var r struct {
+		Goal codexGoal `json:"goal"`
+	}
+	json.Unmarshal(res, &r)
+	x.pr.a.SetGoal(r.Goal.proto())
+	return nil
+}
+
+type codexSkill struct {
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	ShortDescription string `json:"shortDescription"`
+	Path             string `json:"path"`
+	Enabled          bool   `json:"enabled"`
+}
+
+// skills lists the enabled skills codex has for the thread's folder.
+func (x *codexChat) skills() ([]codexSkill, error) {
+	res, err := x.request("skills/list", map[string]any{"cwds": []string{x.pr.t.Info().Cwd}})
+	if err != nil {
+		return nil, err
+	}
+	var r struct {
+		Data []struct {
+			Skills []codexSkill `json:"skills"`
+		} `json:"data"`
+	}
+	json.Unmarshal(res, &r)
+	var out []codexSkill
+	for _, d := range r.Data {
+		for _, s := range d.Skills {
+			if s.Enabled {
+				out = append(out, s)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (x *codexChat) skill(name string) (codexSkill, bool) {
+	list, err := x.skills()
+	if err != nil {
+		log.Printf("codex %s: skills: %v", x.pr.a.ID(), err)
+	}
+	i := slices.IndexFunc(list, func(s codexSkill) bool { return s.Name == name })
+	if i < 0 {
+		return codexSkill{}, false
+	}
+	return list[i], true
 }
 
 // opened reports whether the thread is ready, and if not, whether it may still be.
@@ -329,7 +461,7 @@ func (c codexChatDriver) Interrupt() error {
 		return errNoTurn
 	}
 	c.a.Stop()
-	err := x.call("turn/interrupt", map[string]any{"turnId": turn})
+	_, err := x.call("turn/interrupt", map[string]any{"turnId": turn})
 	// The turn may have ended on its own meanwhile.
 	if err != nil && !strings.Contains(err.Error(), "no active turn") {
 		x.mu.Lock()
@@ -341,6 +473,25 @@ func (c codexChatDriver) Interrupt() error {
 	return nil
 }
 
+// Commands lists codex's skills; the chat knows codex's own commands.
+func (c codexChatDriver) Commands() ([]proto.Command, error) {
+	if !c.inForeground() {
+		return nil, errNotForeground
+	}
+	if err := c.x.usable(); err != nil {
+		return nil, err
+	}
+	list, err := c.x.skills()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]proto.Command, len(list))
+	for i, s := range list {
+		out[i] = proto.Command{Name: s.Name, Description: cmp.Or(s.ShortDescription, s.Description)}
+	}
+	return out, nil
+}
+
 func (c codexChatDriver) Compact() error {
 	if !c.inForeground() {
 		return errNotForeground
@@ -349,7 +500,8 @@ func (c codexChatDriver) Compact() error {
 		return err
 	}
 	c.a.SetCompacting()
-	return c.x.call("thread/compact/start", map[string]any{})
+	_, err := c.x.call("thread/compact/start", map[string]any{})
+	return err
 }
 
 // Settings applies to the thread's next turns; a resume keeps it, as the
@@ -368,11 +520,40 @@ func (c codexChatDriver) Settings(model, effort string) error {
 	if effort != "" {
 		params["effort"] = effort
 	}
-	if err := c.x.call("thread/settings/update", params); err != nil {
+	if _, err := c.x.call("thread/settings/update", params); err != nil {
 		return err
 	}
 	c.pr.switched(model, effort)
 	return nil
+}
+
+// Access applies to the thread's next turns; a resume keeps it, as the
+// switch is saved with the Terminal.
+func (c codexChatDriver) Access(access string) error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	if err := c.x.usable(); err != nil {
+		return err
+	}
+	if _, err := c.x.call("thread/settings/update", accessSettings(access)); err != nil {
+		return err
+	}
+	c.pr.accessSwitched(access)
+	return nil
+}
+
+// accessSettings is launch's codexChatAccess for a running thread.
+func accessSettings(access string) map[string]any {
+	sandbox := map[string]string{"ask": "readOnly", "edits": "workspaceWrite", "auto": "workspaceWrite", "full": "dangerFullAccess"}[access]
+	approval, reviewer := "on-request", "user"
+	switch access {
+	case "auto":
+		reviewer = "auto_review"
+	case "full":
+		approval = "never"
+	}
+	return map[string]any{"sandboxPolicy": map[string]any{"type": sandbox}, "approvalPolicy": approval, "approvalsReviewer": reviewer}
 }
 
 // codexStatus sets pr's status from its codex thread's.

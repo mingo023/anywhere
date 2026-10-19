@@ -16,7 +16,7 @@ fn button(id: ElementId, tip: &'static str) -> Stateful<Div> {
 }
 
 /// The box's Send / Queue / Stop: a working agent's empty box stops it, typing into it queues. `blocked` when the agent can't take it now.
-pub(super) fn send_button(id: ElementId, action: Action, empty: bool, blocked: bool) -> Stateful<Div> {
+pub(crate) fn send_button(id: ElementId, action: Action, empty: bool, blocked: bool) -> Stateful<Div> {
     let b = match action {
         Action::Stop => {
             let ring = icon("send-ring", SIZE, ON_TEXT).absolute().top_0().left_0().with_animation("send-ring", Animation::new(Duration::from_secs(1)).repeat().with_max_fps(30.), |s, t| {

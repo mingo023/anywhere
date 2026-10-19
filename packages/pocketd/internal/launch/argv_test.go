@@ -24,12 +24,12 @@ func TestArgvMatchesTheF14TableForEveryProviderAccessAndPlan(t *testing.T) {
 		plan             bool
 		want             string
 	}{
-		{"claude", "settings", false, "claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"},
-		{"claude", "ask", false, "claude --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"},
-		{"claude", "edits", false, "claude --permission-mode acceptEdits -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"},
-		{"claude", "auto", false, "claude --permission-mode auto -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"},
-		{"claude", "full", false, "claude --permission-mode bypassPermissions --allow-dangerously-skip-permissions -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"},
-		{"claude", "full", true, "claude --permission-mode plan -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"},
+		{"claude", "settings", false, "claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "ask", false, "claude --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "edits", false, "claude --permission-mode acceptEdits -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "auto", false, "claude --permission-mode auto -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "full", false, "claude --permission-mode bypassPermissions -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "full", true, "claude --permission-mode plan -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
 		{"codex", "settings", false, "codex app-server"},
 		{"codex", "ask", false, `codex app-server -c sandbox_mode="read-only" -c approval_policy="on-request"`},
 		{"codex", "edits", false, `codex app-server -c sandbox_mode="workspace-write" -c approval_policy="on-request"`},
@@ -74,7 +74,7 @@ func TestClaudeRunsForTheChatAndLeavesItsPromptOut(t *testing.T) {
 	s := spec("claude", "ask", false)
 	s.Model, s.Effort, s.Prompt = "opus", "high", "-rf fix the flaky tests now please"
 	argv, _ := argvOf(s, "")
-	want := []string{"claude", "--permission-mode", "default", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio",
+	want := []string{"claude", "--permission-mode", "default", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allow-dangerously-skip-permissions",
 		"--model", "opus", "--effort", "high", "-n", "rf-fix-the-flaky"}
 	if !slices.Equal(argv, want) {
 		t.Fatalf("got %q", argv)
@@ -160,7 +160,7 @@ func TestPromptOnlyArgsComeBeforeThePrompt(t *testing.T) {
 
 func TestAForkPutsTheSessionIdInItsArgsBeforeTheFlags(t *testing.T) {
 	for _, c := range []struct{ provider, want string }{
-		{"claude", "claude --resume c-1 --fork-session --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"},
+		{"claude", "claude --resume c-1 --fork-session --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
 		{"codex", "codex fork c-1 -s read-only -a on-request"},
 	} {
 		s := spec(c.provider, "ask", false)

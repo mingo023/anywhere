@@ -1,9 +1,8 @@
-use crate::composer::Menu;
+use crate::composer::{self, Menu};
 use crate::composer::model_menu::{GAP, PAD, ROW, Side, check, row, rows};
 use crate::desktop::Desktop;
 use crate::settings::models::{effort_label, listed_models};
 use agents::Summary;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
@@ -20,17 +19,10 @@ fn runs(agent: &Summary, value: &str) -> bool {
 /// The agent's model and effort, as read where they can't be switched.
 fn model_pill(agent: &Summary) -> Div {
     let (model, effort) = label(agent);
-    div()
-        .h(px(30.))
+    composer::pill()
         .max_w(px(248.))
         .min_w_0()
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .pl(px(7.))
-        .pr(px(6.))
-        .rounded(px(9.))
-        .text_size(px(12.5))
+        .flex_shrink(1.)
         .child(provider_icon(&agent.provider, 16., TEXT_2))
         .child(div().truncate().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model))
         .children(effort.map(|e| div().flex_none().text_color(TEXT_3).child(e)))
@@ -51,12 +43,7 @@ impl Desktop {
             return model_pill(agent);
         }
         let open = self.chats.composer.draft.menu == Some(Menu::Model);
-        let chip = model_pill(agent)
-            .id("chat-model")
-            .cursor_pointer()
-            .when(open, |d| d.bg(FILL_2))
-            .hover(|s| s.bg(FILL_2))
-            .child(icon("chevron-down", 12., TEXT_4))
+        let chip = composer::picker(model_pill(agent), "chat-model", open)
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.load_models(cx);

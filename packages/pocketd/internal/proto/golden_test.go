@@ -37,12 +37,19 @@ var serverGolden = map[string]any{
 		s.Status, s.Compacting, s.Attached, s.ProviderSessionID = "working", true, false, ""
 	})),
 	"agent_update_restore_cleared": NewAgentUpdate(with(func(s *AgentSummary) { s.Status = "working" })),
-	"agent_update_model":           NewAgentUpdate(with(func(s *AgentSummary) { s.Model, s.Effort = "claude-opus-5-5", "high" })),
+	"agent_update_model":           NewAgentUpdate(with(func(s *AgentSummary) { s.Model, s.Effort, s.Access = "claude-opus-5-5", "high", "edits" })),
 	"agent_update_pinned":          NewAgentUpdate(with(func(s *AgentSummary) { s.Pinned = true })),
 	"agent_update_activity":        NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Activity = "needsYou", "Approve Bash: rm marker" })),
 	"agent_update_account":         NewAgentUpdate(with(func(s *AgentSummary) { s.Account = "3f9a0c1b2d4e" })),
 	"agent_update_resets":          NewAgentUpdate(with(func(s *AgentSummary) { s.Resets, s.ProviderSessionID = 1, "s2" })),
 	"agent_update_chat_only":       NewAgentUpdate(with(func(s *AgentSummary) { s.ChatOnly = true })),
+	"agent_update_goal": NewAgentUpdate(with(func(s *AgentSummary) {
+		s.Status, s.Goal = "working", Goal{Objective: "tests pass", Status: "active", TokensUsed: 16510, TokenBudget: 50000}
+	})),
+	"agent_commands": NewAgentCommands("p9", "a1", []Command{
+		{Name: "goal", Description: "Set a goal — keep working until the condition is met"},
+		{Name: "review", Description: "Review a pull request", ArgumentHint: "<pr>"},
+	}),
 	"agent_list_restored": NewAgentList("l1", []AgentSummary{
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),
@@ -174,6 +181,8 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.view","id":"1"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a"}`,
 		`{"type":"agent.settings","id":"1","agentId":"a"}`,
+		`{"type":"agent.settings","id":"1","agentId":"a","access":"settings"}`,
+		`{"type":"agent.settings","id":"1","agentId":"a","access":"root"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a","pinned":"yes"}`,
 		`{"type":"agent.view","id":"1","agentIds":null}`,
 		`{"type":"agent.seen","id":"1","agentIds":"a1"}`,

@@ -78,6 +78,18 @@ impl Session {
         let open = self.open(id, default);
         self.folds.insert(id.into(), !open);
     }
+
+    /// The fold over row `ix` when it shows shut, to open so the row shows; none while work going on holds it open.
+    pub fn shut_fold_over(&self, ix: usize) -> Option<String> {
+        let t = &self.transcript;
+        let f = self.rows[ix].turn().and_then(|turn| crate::fold_of(t, turn)).filter(|&f| !crate::at_work_on(t, crate::folded(t, f)))?;
+        Some(format!("{}#fold", t.turns[f].id)).filter(|id| !self.open(id, false))
+    }
+
+    /// Whether row `ix` is a phase that shows shut.
+    pub fn shut_phase(&self, ix: usize) -> bool {
+        matches!(self.rows[ix], Row::Phase { .. }) && !self.open(&self.ids[ix], false)
+    }
 }
 
 /// Whether `row`, of a turn from `from` on, shows what it showed when `old` held those turns.
@@ -120,6 +132,25 @@ mod tests {
 
     fn bash(seq: i64, id: &str, status: &str) -> Item {
         item(seq, json!({"kind": "tool", "call": {"toolUseId": id, "name": "Bash", "status": status, "output": "x\n".repeat(40), "detail": {"kind": "shell", "command": "make"}}}))
+    }
+
+    #[test]
+    fn showing_a_row_opens_the_shut_fold_over_it_and_its_shut_phase_but_no_fold_work_holds_open() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        let items = vec![item(1, json!({"kind": "user", "text": "go"})), bash(2, "t1", "ok"), item(3, json!({"kind": "result", "ok": true}))];
+        s.update(backend, 1, &items, false, 0);
+        let phase = s.rows.iter().position(|r| matches!(r, Row::Phase { .. })).unwrap();
+        assert_eq!((s.shut_fold_over(phase).as_deref(), s.shut_phase(phase)), (Some("i1#fold"), true));
+        s.toggle("i1#fold", false);
+        s.toggle(&s.ids[phase].clone(), false);
+        assert_eq!((s.shut_fold_over(phase), s.shut_phase(phase)), (None, false));
+
+        let task = json!({"kind": "tool", "call": {"toolUseId": "tu", "name": "Task", "status": "running", "detail": {"kind": "task", "description": "audit"}}});
+        let mut s = Session::default();
+        s.update(backend, 1, &[item(1, json!({"kind": "user", "text": "go"})), item(2, task), item(3, json!({"kind": "result", "ok": true}))], false, 0);
+        let agent = s.rows.iter().position(|r| matches!(r, Row::Agent { .. })).unwrap();
+        assert_eq!(s.shut_fold_over(agent), None, "its sub-agent still at work holds the fold open");
     }
 
     #[test]

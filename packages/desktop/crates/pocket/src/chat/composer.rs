@@ -1,32 +1,39 @@
-mod attachments;
+mod access_pill;
+pub(crate) mod attachments;
+mod background;
+mod goal;
 mod model_pill;
 mod queue;
-mod send_button;
+pub(crate) mod send_button;
+pub(crate) mod suggest;
 
 use super::question::Wizard;
-use crate::composer::{Attachment, Draft};
+use suggest::Prompt;
+use crate::composer::model_menu::Side;
+use crate::composer::{Attachment, Draft, Menu};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::explorer::toast::Notice;
 use crate::status::Status;
 use crate::util::now_ms;
 use agents::{Decision, Summary};
-use chat::{Action, Ask, Command, Session};
+use chat::{Action, Ask, Command, Kind, Local, Session};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
 use theme::*;
+use workspace::Place;
 
-const PLACEHOLDER: &str = "Ask, build, / for commands, @ for files";
+pub(crate) const PLACEHOLDER: &str = "Ask, build, / for commands, @ for files";
 const BUSY_PLACEHOLDER: &str = "Queue a follow-up, or ⌘⏎ to steer…";
 const STOPPING_PLACEHOLDER: &str = "Queue a follow-up…";
 const MAX_WIDTH: f32 = 744.;
-pub(super) const RADIUS: f32 = 16.;
-const INPUT_TEXT_SIZE: f32 = 14.5;
-const INPUT_LINE_HEIGHT: f32 = 22.;
+pub(crate) const RADIUS: f32 = 16.;
+pub(crate) const INPUT_TEXT_SIZE: f32 = 14.5;
+pub(crate) const INPUT_LINE_HEIGHT: f32 = 22.;
 /// The rows that fit 260px; past them the input scrolls.
-pub(super) const MAX_ROWS: usize = (260. / INPUT_LINE_HEIGHT) as usize;
+pub(crate) const MAX_ROWS: usize = (260. / INPUT_LINE_HEIGHT) as usize;
 
 /// What stands under the transcript.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -82,7 +89,7 @@ fn stop_beside_queue(action: Action, interrupt: bool, stopping: bool) -> bool {
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
     let drop = attachments::drop_images(cx.weak_entity());
-    cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true).on_drop_paths(drop))
+    cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true).on_drop_paths(drop).decorate(super::mention::decorations))
 }
 
 /// The chat composer's state besides its input (`ChatState::input`), shared by every chat pane.
@@ -98,6 +105,9 @@ pub(crate) struct ComposerState {
     pub(super) replying: Option<String>,
     /// The input's placeholder, which reads differently while the agent works.
     placeholder: Cell<&'static str>,
+    pub(crate) suggest: suggest::Suggest,
+    /// Whether the background tray shows one line rather than its tasks; every chat's tray folds with it.
+    pub(crate) background_folded: bool,
 }
 
 impl ComposerState {
@@ -106,7 +116,7 @@ impl ComposerState {
         let subs = vec![
             cx.subscribe_in(input, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, secondary } => this.chat_enter(*secondary, window, cx),
-                InputEvent::Change => cx.notify(),
+                InputEvent::Change => this.draft_changed(Prompt::Chat, cx),
                 _ => {}
             }),
             cx.subscribe_in(&answer, window, |this, _, ev: &InputEvent, window, cx| match ev {
@@ -123,9 +133,47 @@ impl ComposerState {
             advance: None,
             replying: None,
             placeholder: Cell::new(PLACEHOLDER),
+            suggest: Default::default(),
+            background_folded: false,
         };
         (state, subs)
     }
+}
+
+/// Paints each mention's icon over its `@` in `input`, read after the input painted this frame so it sits where the text does.
+pub(crate) fn mention_icons(input: Entity<TextareaState>) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |_, _, window, cx| {
+            let input = input.read(cx);
+            let text = input.value();
+            let slots: Vec<(Bounds<Pixels>, String)> =
+                chat::marks(&text).mentions.into_iter().filter_map(|r| Some((input.range_to_bounds(&(r.start..r.start + 1))?, text[r.start + 1..r.end].to_string()))).collect();
+            let visible = input.input_bounds();
+            window.with_content_mask(Some(ContentMask { bounds: visible }), |window| {
+                super::mention::paint_icons(slots.iter().map(|(slot, path)| (*slot, path.as_str())), 13., window, cx)
+            });
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+/// The prompt box, ringed darker while typed into.
+pub(crate) fn frame(typing: bool) -> Div {
+    let (ring, drop) = if typing { (TEXT_4, 0x11111314) } else { (SEPARATOR_STRONG, 0x1111130f) };
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .rounded(px(RADIUS))
+        .bg(SURFACE)
+        // A border, not a ring: a shadow fills beneath the box, and dark SURFACE is translucent.
+        .border_1()
+        .border_color(ring)
+        .shadow(vec![ui::shadow(rgba(drop), 8., 28.)])
+        .text_size(px(INPUT_TEXT_SIZE))
+        .text_color(TEXT)
 }
 
 /// Moves focus to `to` when one of `from` holds it, so focus follows the pill into the ask that replaces it and back.
@@ -153,12 +201,12 @@ pub(super) fn said_in_terminal<'a>(notice: Option<&'a Notice>, agent: &str) -> O
     }
 }
 
-/// Why the chat won't send `command`, which opens a panel: only the agent's TUI shows it, and one the chat drives has none.
-fn panel_said(command: &str, provider: &str, chat_only: bool) -> String {
+/// Why the chat won't send `command`: only the agent's TUI runs it, and one the chat drives has none.
+fn terminal_only_said(command: &str, provider: &str, chat_only: bool) -> String {
     if chat_only {
-        format!("{command} opens a panel, which the chat can't show.")
+        format!("{command} isn't available in the chat.")
     } else {
-        format!("{command} opens a panel in {}'s terminal. Run it there.", super::fold::who(provider))
+        format!("{command} runs only in {}'s terminal. Run it there.", super::fold::who(provider))
     }
 }
 
@@ -248,15 +296,25 @@ impl Desktop {
         let steer = steers(steer, busy, self.chat_stopping(a));
         let (agent, provider, chat_only) = (a.id.clone(), a.provider.clone(), a.chat_only);
         self.chat_take_input(&agent, window, cx);
-        let text = self.chats.composer.draft.prompt(&self.chats.input.read(cx).value());
+        let typed = self.chats.input.read(cx).value().to_string();
+        let text = self.chats.composer.draft.prompt(&typed);
         if text.is_empty() {
             return;
         }
-        if let Some(command) = chat::for_provider(&provider).panel(&text) {
-            return self.show_notice(Notice::InTerminal { agent, text: panel_said(command, &provider, chat_only) }, cx);
+        // From what was typed: the prompt adds the attached images, which no command's argument holds.
+        let slash = chat::slash(&typed).map(|(name, arg)| (chat::for_provider(&provider).command(name, arg), name, arg.to_string()));
+        if let Some((Kind::Unsupported, name, _)) = slash {
+            return self.show_notice(Notice::InTerminal { agent, text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
         self.chats.composer.draft.clear();
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
+        if let Some((Kind::Local(local), _, arg)) = slash {
+            return self.chat_local(&agent, local, &arg, cx);
+        }
+        if chat::skips_queue(&typed) {
+            self.outbox.prompt(&agent, &text);
+            return cx.notify();
+        }
         if !steer {
             return self.chat_command(&agent, Command::Send(text), cx);
         }
@@ -266,6 +324,23 @@ impl Desktop {
                 v.session.outgoing.sent_as(send, request);
             }
             v.steered();
+        }
+        cx.notify();
+    }
+
+    /// Runs a command the desktop does itself: a picker without its argument opens the model pill on its side.
+    fn chat_local(&mut self, agent: &str, local: Local, arg: &str, cx: &mut Context<Self>) {
+        match (local, arg) {
+            (Local::Model | Local::Effort, "") => {
+                self.load_models(cx);
+                let draft = &mut self.chats.composer.draft;
+                draft.menu = Some(Menu::Model);
+                draft.side = Some(if local == Local::Model { Side::Model } else { Side::Effort });
+            }
+            (Local::Model, model) => self.outbox.settings(agent, model, ""),
+            (Local::Effort, effort) => self.outbox.settings(agent, "", effort),
+            (Local::Compact, _) => self.chat_command(agent, Command::Compact, cx),
+            (Local::New, _) => self.new_chat_tab(Place::Pane(None), cx),
         }
         cx.notify();
     }
@@ -351,12 +426,15 @@ impl Desktop {
         let paused = view.is_some_and(|v| v.session.outgoing.paused(&v.session.transcript));
         let tray = (mode == Mode::Prompt).then(|| self.queue_tray(&agent.id, pending, paused, cx)).flatten();
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
+        let goal = (mode == Mode::Prompt).then(|| self.goal_strip(agent, cx)).flatten();
+        let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, cx))).flatten();
+        let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
         let (typed, images) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && images.is_empty();
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
         let footer = self.composer_footer(agent, hint(mode, busy, stopping, empty, can_queue), said, asking);
-        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(tray).child(body).child(footer).children(handoff);
+        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(goal).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 
@@ -406,7 +484,7 @@ impl Desktop {
             send_button::ghost_stop(id(format!("chat-stop:{terminal}"))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_stop(&t, cx)))
         });
         let send = (!view_only).then(|| send_button::send_button(id(format!("chat-send:{terminal}")), action, empty, blocked).when(!blocked && !(action == Action::Send && empty), |b| b.on_click(press(terminal))));
-        let attach = (!view_only).then(|| attachments::attach_button(terminal, cx));
+        let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), |d| &mut d.chats.composer.draft, cx));
         let strip = attachments::strip(images, cx);
         let input = if view_only {
             div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child("View only").into_any_element()
@@ -416,17 +494,16 @@ impl Desktop {
             div().px(px(10.)).py(px(8.)).line_height(px(INPUT_LINE_HEIGHT)).text_color(shown.1).child(shown.0).into_any_element()
         } else {
             let desktop = cx.entity().downgrade();
-            Textarea::new(&self.chats.input)
+            let textarea = Textarea::new(&self.chats.input)
                 .appearance(false)
                 .text_size(px(INPUT_TEXT_SIZE))
                 .line_height(px(INPUT_LINE_HEIGHT))
                 .on_paste(move |item, window, cx| {
                     let unsaved = |d: &mut Desktop, (title, detail): (String, String)| d.error = Some(format!("{title}: {detail}"));
                     crate::composer::paste_image(&desktop, |d| &mut d.chats.composer.draft, unsaved, item, window, cx)
-                })
-                .into_any_element()
+                });
+            div().child(textarea).child(mention_icons(self.chats.input.clone())).into_any_element()
         };
-        let (ring, drop) = if typing { (TEXT_4, 0x11111314) } else { (SEPARATOR_STRONG, 0x1111130f) };
         let (t, a) = (terminal.to_string(), agent.id.clone());
         // The textarea pads itself 8 × 10; with these and the border its text sits at the design's 14 × 16 and the box starts 44 tall.
         let text = div().pt(px(5.)).px(px(5.)).child(input);
@@ -438,22 +515,13 @@ impl Desktop {
             .px(px(7.))
             .pb(px(7.))
             .children(attach)
+            .children(self.chat_access_pill(agent, view_only, cx))
             .child(div().flex_1())
             .child(self.chat_model_pill(agent, view_only, cx))
             .children(ghost)
             .children(send);
-        div()
-            .relative()
-            .flex()
-            .flex_col()
-            .rounded(px(RADIUS))
-            .bg(SURFACE)
-            // A border, not a ring: a shadow fills beneath the box, and dark SURFACE is translucent.
-            .border_1()
-            .border_color(ring)
-            .shadow(vec![ui::shadow(rgba(drop), 8., 28.)])
-            .text_size(px(INPUT_TEXT_SIZE))
-            .text_color(TEXT)
+        let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
+        self.suggest_keys(Prompt::Chat, frame(typing), cx)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _: &MouseDownEvent, window, cx| {
@@ -466,6 +534,7 @@ impl Desktop {
                     this.chat_escape(&t, cx);
                 }
             }))
+            .children(suggestions)
             .children(strip)
             .child(text)
             .child(bar)
@@ -474,7 +543,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, busy, composer_mode, hint, panel_said, placeholder, said_in_terminal, steers, stop_beside_queue, working};
+    use super::{Mode, busy, composer_mode, hint, placeholder, said_in_terminal, steers, stop_beside_queue, terminal_only_said, working};
     use crate::explorer::toast::Notice;
     use agents::Summary;
     use chat::{Action, Ask, End, Message, Question, Session, ToolKind, Transcript, Turn};
@@ -555,9 +624,9 @@ mod tests {
     }
 
     #[test]
-    fn a_panel_command_points_at_the_terminal_only_when_the_agent_has_its_tui() {
-        assert_eq!(panel_said("/cost", "claude", false), "/cost opens a panel in Claude's terminal. Run it there.");
-        assert_eq!(panel_said("/cost", "claude", true), "/cost opens a panel, which the chat can't show.");
+    fn a_terminal_only_command_points_at_the_terminal_only_when_the_agent_has_its_tui() {
+        assert_eq!(terminal_only_said("/cost", "claude", false), "/cost runs only in Claude's terminal. Run it there.");
+        assert_eq!(terminal_only_said("/cost", "claude", true), "/cost isn't available in the chat.");
     }
 
     #[test]

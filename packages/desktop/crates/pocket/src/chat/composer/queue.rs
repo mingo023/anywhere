@@ -17,7 +17,7 @@ pub(super) fn waiting(sends: &[Pending]) -> Vec<&Pending> {
     sends.iter().filter(|p| p.delivery == Delivery::Queued).collect()
 }
 
-fn control(key: String, tip: &'static str) -> Stateful<Div> {
+pub(super) fn control(key: String, tip: &'static str) -> Stateful<Div> {
     div()
         .id(id(key))
         .h(px(26.))

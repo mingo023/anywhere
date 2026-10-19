@@ -9,7 +9,7 @@ use theme::*;
 pub(crate) enum Live {
     Stopping,
     Thinking,
-    Working { secs: i64, background: usize },
+    Working { secs: i64 },
     Approval,
     Answer,
 }
@@ -19,21 +19,16 @@ pub(crate) fn who(provider: &str) -> &'static str {
     brand(provider).map_or("Agent", |b| b.short)
 }
 
-/// "Claude Opus 5.5 working for 7s · 1 task in background".
+/// "Claude Opus 5.5 working for 7s".
 pub(crate) fn live_label(who: &str, model: &str, live: &Live) -> String {
     match live {
         Live::Stopping => "Stopping…".into(),
         Live::Thinking => "Thinking…".into(),
         Live::Approval => "Needs your approval".into(),
         Live::Answer => "Needs your answer".into(),
-        Live::Working { secs, background } => {
+        Live::Working { secs } => {
             let model = if model.is_empty() { String::new() } else { format!(" {model}") };
-            let background = match background {
-                0 => String::new(),
-                1 => " · 1 task in background".into(),
-                n => format!(" · {n} tasks in background"),
-            };
-            format!("{who}{model} working for {}{background}", format_elapsed(*secs))
+            format!("{who}{model} working for {}", format_elapsed(*secs))
         }
     }
 }
@@ -86,11 +81,8 @@ mod tests {
 
     #[test]
     fn a_live_fold_says_who_works_and_for_how_long() {
-        let working = |secs, background| Live::Working { secs, background };
-        assert_eq!(live_label(who("claude"), "Opus 5.5", &working(7, 0)), "Claude Opus 5.5 working for 7s");
-        assert_eq!(live_label(who("codex"), "", &working(64, 0)), "Codex working for 1m 4s");
-        assert_eq!(live_label("Claude", "Opus 5.5", &working(7, 1)), "Claude Opus 5.5 working for 7s · 1 task in background");
-        assert_eq!(live_label("Claude", "Opus 5.5", &working(7, 3)), "Claude Opus 5.5 working for 7s · 3 tasks in background");
+        assert_eq!(live_label(who("claude"), "Opus 5.5", &Live::Working { secs: 7 }), "Claude Opus 5.5 working for 7s");
+        assert_eq!(live_label(who("codex"), "", &Live::Working { secs: 64 }), "Codex working for 1m 4s");
         assert_eq!(live_label("Claude", "Opus 5.5", &Live::Thinking), "Thinking…");
         assert_eq!(live_label("Claude", "Opus 5.5", &Live::Stopping), "Stopping…");
         assert_eq!(live_label("Claude", "Opus 5.5", &Live::Approval), "Needs your approval");

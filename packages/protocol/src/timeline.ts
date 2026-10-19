@@ -86,6 +86,14 @@ export const TimelineItem = Schema.extend(
 );
 export type TimelineItem = typeof TimelineItem.Type;
 
+export const Goal = Schema.Struct({
+  objective: Schema.String,
+  status: Schema.String,
+  tokensUsed: Schema.optional(Schema.Number),
+  tokenBudget: Schema.optional(Schema.Number),
+});
+export type Goal = typeof Goal.Type;
+
 export const AgentSummary = Schema.Struct({
   id: Schema.String,
   terminalId: Schema.String,
@@ -94,6 +102,7 @@ export const AgentSummary = Schema.Struct({
   provider: Schema.String,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
+  access: Schema.optional(Schema.String),
   status: AgentStatus,
   failed: Schema.optional(Schema.Boolean),
   attached: Schema.Boolean,
@@ -118,6 +127,7 @@ export const AgentSummary = Schema.Struct({
   promptAt: Schema.optional(Schema.Number),
   account: Schema.optional(Schema.String),
   chatOnly: Schema.optional(Schema.Boolean),
+  goal: Schema.optional(Goal),
 });
 export type AgentSummary = typeof AgentSummary.Type;
 export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;

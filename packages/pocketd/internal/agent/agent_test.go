@@ -13,11 +13,13 @@ import (
 
 type fakeDriver struct{}
 
-func (fakeDriver) Prompt(string) error           { return nil }
-func (fakeDriver) Interrupt() error              { return nil }
-func (fakeDriver) Compact() error                { return nil }
-func (fakeDriver) Settings(string, string) error { return nil }
-func (fakeDriver) Close()                        {}
+func (fakeDriver) Prompt(string) error                { return nil }
+func (fakeDriver) Interrupt() error                   { return nil }
+func (fakeDriver) Compact() error                     { return nil }
+func (fakeDriver) Settings(string, string) error      { return nil }
+func (fakeDriver) Commands() ([]proto.Command, error) { return nil, nil }
+func (fakeDriver) Access(string) error                { return nil }
+func (fakeDriver) Close()                             {}
 
 type msg struct {
 	Type  string `json:"type"`
@@ -71,6 +73,18 @@ func TestTurnLifecycle(t *testing.T) {
 	s := a.Summary()
 	if s.Title != "fix the tests" || s.Epoch != 1 || s.MaxSeq != 3 || s.Provider != "claude" {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestAMetGoalLeavesTheAgent(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetGoal(proto.Goal{Objective: "tests pass", Status: "active"})
+	if g := a.Summary().Goal; g.Objective != "tests pass" {
+		t.Fatalf("set: %+v", g)
+	}
+	a.SetGoal(proto.Goal{Objective: "tests pass", Status: proto.GoalComplete})
+	if g := a.Summary().Goal; g != (proto.Goal{}) {
+		t.Fatalf("met: %+v", g)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"pocketd/internal/claude"
 	"pocketd/internal/codex"
 	"pocketd/internal/proc"
+	"pocketd/internal/proto"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
@@ -94,6 +95,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 		pr.a.SetChatOnly()
 	}
 	pr.a.SetEffort(pr.launch.Effort)
+	pr.a.SetAccess(pr.launch.Access)
 	// Claude names its model only in its first reply; until then the one it was started with stands in.
 	if pr.launch.Model != "" && pr.a.Summary().Model == "" {
 		pr.a.SetModel(pr.launch.Model)
@@ -348,8 +350,18 @@ func (pr *presence) working(key string) {
 
 func (pr *presence) setMode(permissionMode string) {
 	pr.mu.Lock()
-	defer pr.mu.Unlock()
 	pr.launch = state.Mode(pr.launch, permissionMode)
+	access := pr.launch.Access
+	pr.mu.Unlock()
+	pr.a.SetAccess(access)
+}
+
+// accessSwitched leaves plan mode, as claude does on a switch.
+func (pr *presence) accessSwitched(access string) {
+	pr.mu.Lock()
+	pr.launch.Access, pr.launch.Plan = access, false
+	pr.mu.Unlock()
+	pr.a.SetAccess(access)
 }
 
 // save puts pr's Conversation in e, once there is one to resume.
@@ -464,6 +476,13 @@ func (c termDriver) Settings(model, effort string) error {
 	c.pr.switched(model, effort)
 	return nil
 }
+
+var errTUIAccess = errors.New("Switch this agent's access in its terminal")
+
+func (c termDriver) Access(string) error { return errTUIAccess }
+
+// Commands is none: a TUI agent has its own menu.
+func (c termDriver) Commands() ([]proto.Command, error) { return nil, nil }
 
 // typeSettings waits out the Enter that Prompt sends late, so the two
 // commands don't run together.

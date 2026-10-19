@@ -151,6 +151,10 @@ impl Desktop {
             self.error = Some(stop_failed(self.agents.get(agent), reason));
             return cx.notify();
         }
+        if let Event::Commands { agent, commands } = ev {
+            self.chats.composer.suggest.listed(agent, commands);
+            return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
+        }
         if let Event::NamingFailed(_) = ev {
             self.error = Some("Couldn't name the session from its prompt".into());
             return cx.notify();

@@ -1,8 +1,12 @@
 pub(crate) mod launch;
 pub(crate) mod model_menu;
 
+use crate::chat::composer::attachments::attach_button;
+use crate::chat::composer::suggest::Suggest;
+use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, mention_icons};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use launch::Pick;
 use std::path::{Path, PathBuf};
@@ -20,6 +24,7 @@ pub(crate) struct Composer {
     /// Narrows the model menu's list.
     search: Entity<InputState>,
     pub(crate) draft: Draft,
+    pub(crate) suggest: Suggest,
     slot: Slot,
     /// Closes the host's own menus as one of the composer's opens.
     opened: fn(&mut Desktop),
@@ -29,7 +34,7 @@ pub(crate) struct Composer {
 
 impl Composer {
     pub(crate) fn new(prompt: Entity<TextareaState>, search: Entity<InputState>, slot: Slot, opened: fn(&mut Desktop), unsaved: fn(&mut Desktop, (String, String))) -> Self {
-        Self { prompt, search, draft: Draft::default(), slot, opened, unsaved }
+        Self { prompt, search, draft: Draft::default(), suggest: Suggest::default(), slot, opened, unsaved }
     }
 }
 
@@ -220,8 +225,10 @@ pub(crate) fn drop_images(desktop: WeakEntity<Desktop>, slot: Slot) -> impl Fn(&
 }
 
 impl Desktop {
-    /// The box around `textarea`; `pills` lead the attachments above it, `trailing` follows the chips.
-    pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
+    /// The box around `textarea`, as the chat's; `pills` lead the attachments above it, `trailing` comes before the
+    /// model and `send`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, typing: bool, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, send: Stateful<Div>, cx: &mut Context<Self>) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
         let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let attached = (!pills.is_empty() || !c.draft.images.is_empty()).then(|| {
@@ -248,29 +255,29 @@ impl Desktop {
                 div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(img(a.image.clone()).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover)).child(remove)
             }))
         });
-        div()
+        let textarea = textarea
+            .appearance(false)
+            .text_size(px(INPUT_TEXT_SIZE))
+            .line_height(px(INPUT_LINE_HEIGHT))
+            .on_paste(move |item, window, cx| paste_image(&desktop, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx));
+        let bar = div()
             .flex()
-            .flex_col()
-            .rounded(px(14.))
-            .bg(SURFACE)
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
+            .items_center()
+            .gap(px(4.))
+            .pt(px(4.))
+            .px(px(7.))
+            .pb(px(7.))
+            .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
+            .child(self.access_chip(c, &pick, project.clone(), cx))
+            .child(div().flex_1())
+            .children(trailing)
+            .child(self.model_pill(c, &pick, project, cx))
+            .child(send);
+        frame(typing)
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))
             .children(attached)
-            // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
-            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(textarea.appearance(false).text_size(px(15.)).on_paste(move |item, window, cx| paste_image(&desktop, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx))))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(2.))
-                    .pt(px(4.))
-                    .px(px(10.))
-                    .pb(px(10.))
-                    .text_size(px(13.))
-                    .child(self.model_pill(c, &pick, project.clone(), cx))
-                    .child(self.access_chip(c, &pick, project, cx))
-                    .child(div().flex_1())
-                    .children(trailing),
-            )
+            .child(div().pt(px(5.)).px(px(5.)).child(textarea).child(mention_icons(c.prompt.clone())))
+            .child(bar)
     }
 
     pub(crate) fn toggle_composer(&mut self, slot: Slot, menu: Menu, cx: &mut Context<Self>) {
@@ -298,6 +305,16 @@ impl Desktop {
         });
         div().relative().child(chip).children(menu)
     }
+}
+
+/// A setting in the prompt box's bar, as model or access.
+pub(crate) fn pill() -> Div {
+    div().h(px(30.)).flex_none().flex().items_center().gap(px(6.)).pl(px(7.)).pr(px(6.)).rounded(px(9.)).text_size(px(12.5))
+}
+
+/// `pill` as a picker, shaded while its menu is open.
+pub(crate) fn picker(pill: Div, id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
+    pill.id(id).cursor_pointer().when(open, |d| d.bg(FILL_2)).hover(|s| s.bg(FILL_2)).child(icon("chevron-down", 12., TEXT_4))
 }
 
 /// A chip's menu, closed by a press outside it.

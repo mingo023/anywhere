@@ -1,6 +1,5 @@
-use crate::composer::Attachment;
+use crate::composer::{Attachment, Draft};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::id;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use std::path::PathBuf;
@@ -17,9 +16,9 @@ pub(super) fn drop_images(desktop: WeakEntity<Desktop>) -> impl Fn(&[PathBuf], &
     }
 }
 
-pub(super) fn attach_button(terminal: &str, cx: &mut Context<Desktop>) -> Stateful<Div> {
+pub(crate) fn attach_button(id: impl Into<ElementId>, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
     div()
-        .id(id(format!("chat-attach:{terminal}")))
+        .id(id)
         .size(px(32.))
         .flex_none()
         .flex()
@@ -31,9 +30,9 @@ pub(super) fn attach_button(terminal: &str, cx: &mut Context<Desktop>) -> Statef
         .active(|s| s.bg(FILL_4))
         .child(icon("plus", 17., TEXT_2))
         .tooltip(|window, cx| Tooltip::new("Attach images").build(window, cx))
-        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.pick_path(false, window, cx, |d, paths, _, _| {
-                d.chats.composer.draft.drop_images(&paths);
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            this.pick_path(false, window, cx, move |d, paths, _, _| {
+                draft(d).drop_images(&paths);
             })
         }))
 }

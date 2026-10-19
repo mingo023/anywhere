@@ -1,14 +1,18 @@
 //! An agent's conversation as a chat shows it: the shared transcript every agent's history folds into, and the rows it lays out as.
 
 mod adapter;
+mod commands;
+mod marks;
 mod outgoing;
 mod rows;
 mod session;
 mod timeline;
 
 pub use adapter::{capabilities, for_provider, Backend, Capabilities};
+pub use commands::{menu, skips_queue, slash, Builtin, Kind, Local, Slash};
+pub use marks::{marks, mention_name, Marks};
 pub use outgoing::{action, busy, Action, Delivery, Outgoing, Pending};
-pub use rows::{at_work, at_work_on, first_sentence, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, phase_title, reply, rows, settled_tail, splice, top_gap, worked, Row};
+pub use rows::{at_work, at_work_on, first_sentence, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, phase_title, reply, row_of, rows, settled_tail, splice, top_gap, worked, Row};
 pub use session::{Folds, Session};
 pub use timeline::Fold;
 

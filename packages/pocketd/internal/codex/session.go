@@ -264,7 +264,10 @@ func (s *Session) started(it item) {
 	case "userMessage":
 		var parts []string
 		for _, c := range it.Content {
-			parts = append(parts, c.Text)
+			// A skill's part has no text.
+			if c.Text != "" {
+				parts = append(parts, c.Text)
+			}
 		}
 		s.sink.Apply(timeline.Event{Kind: "user", Text: strings.Join(parts, "\n")})
 	case "commandExecution", "fileChange", "mcpToolCall", "webSearch":

@@ -67,7 +67,7 @@ pub(crate) fn report(call: &ToolCall, agent: &SubAgent) -> Option<String> {
     call.output.clone().filter(|o| !o.trim().is_empty()).or_else(last).map(|r| r.trim().to_string())
 }
 
-fn glyph(id: &str, mark: Mark) -> AnyElement {
+pub(crate) fn glyph(id: &str, mark: Mark) -> AnyElement {
     let spin = |svg: Svg| svg.with_animation(SharedString::from(format!("agent-spin-{id}")), Animation::new(Duration::from_secs(1)).repeat().with_max_fps(20.), |s, t| s.with_transformation(Transformation::rotate(percentage(t))));
     match mark {
         Mark::Starting => icon("agent-starting", 14., TEXT_2).into_any_element(),

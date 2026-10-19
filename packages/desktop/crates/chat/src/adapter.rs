@@ -2,6 +2,7 @@ mod claude;
 mod codex;
 mod other;
 
+use crate::commands::{Builtin, Kind};
 use crate::{Action, Ask, Fold, Transcript, Turn};
 
 /// What an agent's chat can do; the view hides what it can't.
@@ -45,10 +46,18 @@ pub trait Backend: Sync {
         std::mem::replace(t, self.transcript(items)).turns
     }
     fn ask(&self, ask: &Self::Ask) -> Ask;
-    /// The command `text` runs if it opens a panel in the agent's terminal, which the chat can't show and whose keys
-    /// the next send would land in.
-    fn panel<'t>(&self, _text: &'t str) -> Option<&'t str> {
-        None
+    /// What the chat does with command `name` given `arg`. One that opens a panel in the agent's terminal is
+    /// unsupported: the chat can't show it, and the next send would land in its keys.
+    fn command(&self, _name: &str, _arg: &str) -> Kind {
+        Kind::Send
+    }
+    /// The commands the `/` menu offers before the agent's CLI lists its own.
+    fn builtins(&self) -> &'static [Builtin] {
+        &[]
+    }
+    /// Whether `/goal pause` holds the agent's goal without dropping it.
+    fn pauses_goal(&self) -> bool {
+        false
     }
 }
 
@@ -79,24 +88,6 @@ mod tests {
             assert!(can.interrupt && can.compact && can.send_while_working, "{provider}");
             assert_eq!(can.sub_agents, provider != "codex", "{provider}");
         }
-    }
-
-    #[test]
-    fn a_command_that_opens_a_panel_in_claudes_terminal_is_named() {
-        let claude = for_provider("claude");
-        assert_eq!(claude.panel("/cost"), Some("/cost"));
-        assert_eq!(claude.panel("  /config \n"), Some("/config"));
-        assert_eq!(claude.panel("/model"), Some("/model"));
-        assert_eq!(claude.panel("/model haiku"), None, "with its argument it runs without a picker");
-        assert_eq!(claude.panel("/compact"), None);
-        assert_eq!(claude.panel("/costs went up, why?"), None);
-        assert_eq!(claude.panel("/usage/report.md is empty"), None);
-        assert_eq!(for_provider("codex").panel("/cost"), None);
-    }
-
-    #[test]
-    fn an_unknown_provider_opens_no_claude_panel() {
-        assert_eq!(for_provider("gemini").panel("/cost"), None);
     }
 
     #[test]

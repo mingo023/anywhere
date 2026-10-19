@@ -125,9 +125,18 @@ func TestAChatClaudeResumesForTheChatBehindAPipe(t *testing.T) {
 	s.Chat = true
 	found := func(string) (string, bool) { return "/bin/claude", true }
 	_, args, reason := resumeCmd(s, config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, found)
-	want := "/pd pipe /bin/claude --resume c-1 --permission-mode default --model opus -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio"
+	want := "/pd pipe /bin/claude --resume c-1 --permission-mode default --model opus -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"
 	if reason != "" || !strings.Contains(strings.Join(args, " "), want) {
 		t.Fatalf("resumeCmd = %q %q", args, reason)
+	}
+}
+
+func TestAClaudeChatResumedFromFullStartsAtAskYetCanSwitchToFull(t *testing.T) {
+	s := saved("claude", state.Launch{Access: "full"})
+	s.Chat = true
+	argv, _ := resumeOf(s)
+	if !slices.Contains(argv, "default") || slices.Contains(argv, "bypassPermissions") || slices.Contains(argv, "--dangerously-skip-permissions") || !slices.Contains(argv, "--allow-dangerously-skip-permissions") {
+		t.Fatalf("got %q", argv)
 	}
 }
 
