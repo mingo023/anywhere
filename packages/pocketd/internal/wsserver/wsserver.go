@@ -270,7 +270,11 @@ func (c *conn) handle(raw []byte) {
 		// the channel buffers them until hello.ok and agent.list are out.
 		var msgs <-chan []byte
 		if !c.authed {
-			msgs, c.stop = c.s.Hub.Subscribe()
+			if slices.Contains(caps, proto.CapSubagents) {
+				msgs, c.stop = c.s.Hub.SubscribeSubagents()
+			} else {
+				msgs, c.stop = c.s.Hub.Subscribe()
+			}
 			c.authed = true
 			c.onAuth()
 			c.ws.SetReadLimit(authedReadLimit)
@@ -516,7 +520,11 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		if m.Limit != nil {
 			limit = int(*m.Limit)
 		}
-		items, older := a.Timeline.Page(since, limit)
+		page := a.Timeline.Page
+		if slices.Contains(c.caps, proto.CapSubagents) {
+			page = a.Timeline.PageWithSubagents
+		}
+		items, older := page(since, limit)
 		epoch, maxSeq := a.Timeline.State()
 		c.send(proto.NewAgentTimeline(m.ID, a.ID(), epoch, items, older, maxSeq))
 		return nil
@@ -526,6 +534,33 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		err = a.Driver().Interrupt()
 	case "agent.compact":
 		err = a.Driver().Compact()
+	case "agent.settings":
+		if m.Access != "" {
+			if f := launch.CheckAccess(launchWho(c.who), m.Access, c.s.Launch.PhoneMaxAccess()); f != nil {
+				c.send(proto.NewCodedError(m.ID, f.Code, f.Message, f.Detail))
+				return nil
+			}
+		}
+		if m.Model != "" || m.Effort != "" {
+			err = launch.ValidSwitch(a.Provider(), m.Model, m.Effort)
+			if err == nil {
+				err = a.Driver().Settings(m.Model, m.Effort)
+			}
+		}
+		if err == nil && m.Access != "" {
+			err = a.Driver().Access(m.Access)
+		}
+	case "agent.commands":
+		// Claude takes a while to list them; the conn's other messages don't wait.
+		go func() {
+			list, err := a.Driver().Commands()
+			if err != nil {
+				c.send(errorReply(m.ID, err))
+				return
+			}
+			c.send(proto.NewAgentCommands(m.ID, a.ID(), list))
+		}()
+		return nil
 	case "agent.close":
 		a.Driver().Close()
 	case "agent.pin":

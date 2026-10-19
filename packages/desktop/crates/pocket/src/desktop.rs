@@ -13,6 +13,7 @@ use crate::accounts::Accounts;
 use crate::add_to_chat::ChatComposer;
 use crate::automations::AutomationsState;
 use crate::browser::Browsers;
+use crate::chat::ChatState;
 use crate::creating::Creates;
 use crate::desktop::alerts::Alerts;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
@@ -81,6 +82,7 @@ pub struct Desktop {
     pub(crate) repos: HashMap<String, Repo>,
     pub(crate) diff: DiffState,
     pub(crate) chat: ChatComposer,
+    pub(crate) chats: ChatState,
     pub(crate) changes: ChangesState,
     pub(crate) prs: PullRequests,
     pub(crate) gh_accounts: GhAccounts,
@@ -129,6 +131,7 @@ impl Desktop {
         let (fleet, fleet_subs) = Fleet::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
         let (chat, chat_subs) = ChatComposer::new(window, cx);
+        let (chats, chats_subs) = ChatState::new(window, cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
@@ -164,6 +167,7 @@ impl Desktop {
         _subs.extend(fleet_subs);
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
+        _subs.extend(chats_subs);
         _subs.extend(changes_subs);
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
@@ -195,6 +199,7 @@ impl Desktop {
             repos: HashMap::new(),
             diff,
             chat,
+            chats,
             changes,
             prs: PullRequests::default(),
             gh_accounts: GhAccounts::default(),
@@ -420,7 +425,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -437,6 +442,7 @@ impl Desktop {
         self.clone_form.group_menu = false;
         self.explorer.close_menu();
         self.terminal.menu = None;
+        self.chats.files = None;
         open
     }
 
@@ -462,7 +468,7 @@ impl Desktop {
 
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let body = match self.session_tree() {
-            _ if self.shown_create().is_some() => self.creating_page(cx),
+            _ if self.shown_create().is_some() => self.creating_page(window, cx),
             Some(_) if self.idle_main() => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
@@ -474,8 +480,8 @@ impl Desktop {
             }
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
-            None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(cx),
-            None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(cx),
+            None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(window, cx),
+            None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(window, cx),
             None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
             None => self.blank_page(cx),
         };

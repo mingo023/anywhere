@@ -36,10 +36,16 @@ type Message struct {
 		Branch            string `json:"branch"`
 		Attached          bool   `json:"attached"`
 		Account           string `json:"account"`
+		Model             string `json:"model"`
+		Effort            string `json:"effort"`
+		Failed            bool   `json:"failed"`
+		ChatOnly          bool   `json:"chatOnly"`
+		Restore           string `json:"restore"`
 	} `json:"agent"`
 	Agents []struct {
-		ID      string `json:"id"`
-		Restore string `json:"restore"`
+		ID       string `json:"id"`
+		Restore  string `json:"restore"`
+		ChatOnly bool   `json:"chatOnly"`
 	} `json:"agents"`
 	Host struct {
 		UpgradeFailed string `json:"upgradeFailed"`
@@ -150,6 +156,12 @@ func statusOf(agentID, status string) func(Message) bool {
 func (p *Phone) WaitStream(agentID, kind, text string) Message {
 	p.t.Helper()
 	return p.WaitFor(fmt.Sprintf("%s %q", kind, text), streamOf(agentID, kind, text))
+}
+
+// Prompt sends text to the agent from the chat.
+func (p *Phone) Prompt(agentID, text string) {
+	p.t.Helper()
+	p.Send(map[string]any{"type": "agent.prompt", "id": "prompt-" + text, "agentId": agentID, "text": text})
 }
 
 func (p *Phone) WaitStatus(agentID, status string) {

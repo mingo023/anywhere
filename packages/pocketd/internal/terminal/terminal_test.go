@@ -48,6 +48,24 @@ func TestPromptReachesProcess(t *testing.T) {
 	waitScreen(t, s, "got:hi")
 }
 
+func TestPromptOverReplacesWhatTheInputHolds(t *testing.T) {
+	s := spawn(t, NewManager(), `printf 'ready\n'; read x; echo "got:$x"; sleep 5`)
+	waitScreen(t, s, "ready")
+	s.Write([]byte("stopped prompt"))
+	if err := s.PromptOver("hi"); err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, s, "got:hi")
+}
+
+func TestTwoPromptsTypeOneAfterTheOther(t *testing.T) {
+	s := spawn(t, NewManager(), `printf 'ready\n'; read a; read b; echo "got:$a,$b"; sleep 5`)
+	waitScreen(t, s, "ready")
+	s.Prompt("one")
+	s.Prompt("two")
+	waitScreen(t, s, "got:one,two")
+}
+
 func TestOnInputSeesEachWriteBeforeTheProcess(t *testing.T) {
 	var mu sync.Mutex
 	var got []string

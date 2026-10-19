@@ -49,11 +49,11 @@ pub struct LaunchPick {
 
 impl LaunchPick {
     /// The agents a session can start.
-    pub const PROVIDERS: [&str; 2] = ["claude", "codex"];
+    pub const PROVIDERS: [&str; agents::providers::COUNT] = agents::providers::IDS;
 
     /// The agent a remembered pick names; anything else starts Claude.
     pub fn known_provider(provider: &str) -> &'static str {
-        if provider == "codex" { "codex" } else { "claude" }
+        agents::providers::known(provider).id
     }
 
     /// This pick with its agent one this app knows.
@@ -365,6 +365,9 @@ pub struct Store {
     /// The sidebar's pins and project groups.
     #[serde(deserialize_with = "lenient")]
     pub sections: sections::Sections,
+    /// Terminals of sessions started as a chat, which show their agent's chat for good.
+    #[serde(deserialize_with = "lenient")]
+    pub chats: BTreeSet<String>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -563,6 +566,7 @@ mod tests {
         s.sections.set_group("/w", Some(work));
         s.sections.toggle_pin(sections::Pin::Tree { project: "/w".into(), tree: "/t/fix".into() });
         s.sections.sort = sections::Sort::Recent;
+        s.chats.insert("t1".into());
         s.save();
         let back = Store::load(&dir);
         assert_eq!(back, s);
@@ -771,7 +775,6 @@ mod tests {
         s.sounds.all = false;
         s.worktree.root = "/wt".into();
         (s.agents.close_on_exit, s.agents.chat_to) = (true, "ask".into());
-        s.agents.move_starter(0, 3);
         s.keys = BTreeMap::from([("desktop::OpenPalette".into(), "cmd-shift-p".into()), ("desktop::Reload in Browser".into(), String::new())]);
         s.save();
         assert_eq!(Store::load(&dir), s);

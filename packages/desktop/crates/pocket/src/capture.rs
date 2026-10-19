@@ -1,5 +1,7 @@
 use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
 use crate::add_to_chat::Quote;
+use crate::chat::composer::suggest::Prompt;
+use crate::chat::tool_row::{self, Tools};
 use crate::composer::Menu;
 use crate::creating::Create;
 use crate::desktop::Desktop;
@@ -12,22 +14,241 @@ use crate::git_ui::graph::GraphState;
 use crate::settings::Section;
 use crate::status::Status;
 use crate::updates::Update;
+use chat::{Block, Command, Row, ToolKind};
 use git::Kind;
 use git::github::{Check, Checks, Comment, Mergeable, Outcome, Pr, PrState, Review, Thread};
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use workspace::Doc;
+use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 144] = [
-    ("session", |d, window, cx| {
-        if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
-            d.focus_agent(&card.id, window, cx);
+const STEPS: [(&str, Step); 204] = [
+    ("session", session),
+    ("chat", |d, window, cx| {
+        session(d, window, cx);
+        if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
+            d.store.chats.insert(t.clone());
+            d.focus_chat_or_terminal(t, window, cx);
         }
     }),
+    ("compose", |d, window, cx| d.new_session(Some("Fix the flaky parser test".into()), true, window, cx)),
+    ("compose-send", |d, window, cx| d.start_session(window, cx)),
+    ("chat-fold-open", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        let Some(view) = d.chats.views.get(&agent) else { return };
+        let s = &view.session;
+        let Some(ix) = s.rows.iter().position(|r| matches!(r, Row::Fold { turn } if !chat::at_work_on(&s.transcript, chat::folded(&s.transcript, *turn)))) else { return };
+        let id = s.ids[ix].clone();
+        view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+        d.chat_toggle(&agent, &id, false, cx);
+    }),
+    ("chat-tools-open", |d, _, cx| _ = open_phase(d, is_call, cx)),
+    ("chat-thinking-open", |d, _, cx| {
+        if let Some((tools, Block::Thinking(m))) = open_phase(d, |b| matches!(b, Block::Thinking(_)), cx) {
+            tools.update(cx, |t, cx| t.toggle(&m.id, false, None, cx));
+        }
+    }),
+    ("chat-detail-open", |d, _, cx| {
+        if let Some((tools, Block::Tool(call))) = open_phase(d, opens, cx) {
+            tools.update(cx, |t, cx| t.toggle(&call.id, false, tool_row::colour(&call), cx));
+        }
+    }),
+    ("chat-sub-open", |d, _, cx| open_agent(d, |c| c.status != chat::ToolStatus::Running, cx)),
+    ("chat-details-open", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        let Some(v) = d.chats.views.get(&agent) else { return };
+        let s = &v.session;
+        let shut: Vec<String> = s.rows.iter().zip(&s.ids).filter(|(r, id)| matches!(r, Row::Fold { .. } | Row::Phase { .. }) && !s.open(id, false)).map(|(_, id)| id.clone()).collect();
+        let calls: Vec<_> = s.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| opens(b)).cloned().collect();
+        let tools = v.tools.clone();
+        for id in shut {
+            d.chat_toggle(&agent, &id, false, cx);
+        }
+        tools.update(cx, |t, cx| {
+            for b in calls {
+                if let Block::Tool(call) = b {
+                    t.toggle(&call.id, false, tool_row::colour(&call), cx);
+                }
+            }
+        });
+    }),
+    ("chat-mcp-open", |d, _, cx| _ = open_phase(d, |b| matches!(b, Block::Tool(c) if c.name.starts_with("mcp__")), cx)),
+    ("chat-scrolled-down", |d, _, cx| {
+        if let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) {
+            v.list.scroll_by(px(560.));
+            cx.notify();
+        }
+    }),
+    ("chat-sub-open-running", |d, _, cx| open_agent(d, |c| c.status == chat::ToolStatus::Running, cx)),
+    // Streams into the sub-agent fixture's running `tu-t2` as pocketd would: its command finishes, it reports, and
+    // spawns a sub-agent of its own that searches. A finished tool keeps the time it started, as in pocketd.
+    ("chat-sub-live", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let items = serde_json::json!([
+            {"id": "c4", "seq": 100, "ts": ts - 61_000, "kind": "tool", "parentToolUseId": "tu-t2", "call": {"toolUseId": "tu-c4", "name": "Bash", "detail": {"kind": "shell", "command": "npx depcheck"}, "status": "ok", "output": "Unused dependencies\n* left-pad", "durationMs": 4100}},
+            {"id": "c5", "seq": 101, "ts": ts, "kind": "tool", "parentToolUseId": "tu-t2", "call": {"toolUseId": "tu-c5", "name": "Task", "detail": {"kind": "task", "description": "Check who imports left-pad"}}},
+            {"id": "c6", "seq": 102, "ts": ts, "kind": "tool", "parentToolUseId": "tu-c5", "call": {"toolUseId": "tu-c6", "name": "Grep", "detail": {"kind": "search", "query": "left-pad"}, "status": "ok", "output": "no matches", "durationMs": 30}},
+            {"id": "c7", "seq": 103, "ts": ts, "kind": "assistant", "parentToolUseId": "tu-c5", "text": "Nothing imports left-pad."},
+        ]);
+        if let Ok(items) = serde_json::from_value(items) {
+            d.agents.apply(agents::Event::Items(agent, items));
+            cx.notify();
+        }
+    }),
+    ("chat-background-folded", |d, _, cx| {
+        d.chats.composer.background_folded = true;
+        cx.notify();
+    }),
+    ("chat-background-show", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        let task = d.chats.views.get(&agent).and_then(|v| chat::in_background(&v.session.transcript.turns).last().map(|(turn, block, _)| (turn, block)));
+        if let Some((turn, block)) = task {
+            d.chat_show_block(&agent, turn, block, cx);
+        }
+    }),
+    ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
+    ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),
+    ("chat-jump", |d, window, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_jump_to_bottom(&agent, window, cx);
+        }
+    }),
+    ("chat-code-copied", |d, _, cx| {
+        if let Some((agent, row, code)) = last_code(d) {
+            d.chat_copy(&agent, format!("code:{row}"), code, cx);
+        }
+    }),
+    ("chat-code-wrapped", |d, _, cx| {
+        if let Some((agent, row, _)) = last_code(d) {
+            d.chat_toggle_wrap(&agent, &row, cx);
+        }
+    }),
+    ("chat-typed", |d, window, cx| d.set_chat_text("Refactor the parser", window, cx)),
+    ("chat-model-open", |d, _, cx| {
+        d.chats.composer.draft.toggle(Menu::Model);
+        cx.notify();
+    }),
+    ("chat-access", |d, _, cx| {
+        if let Some(a) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)) {
+            (a.chat_only, a.access) = (true, Some("edits".into()));
+        }
+        cx.notify();
+    }),
+    ("chat-access-open", |d, _, cx| {
+        d.chats.composer.draft.toggle(Menu::Access);
+        cx.notify();
+    }),
+    ("chat-model-effort", |d, _, cx| {
+        d.chats.composer.draft.side = Some(crate::composer::model_menu::Side::Effort);
+        cx.notify();
+    }),
+    ("chat-model-models", |d, _, cx| {
+        d.chats.composer.draft.side = Some(crate::composer::model_menu::Side::Model);
+        cx.notify();
+    }),
+    ("chat-slash", |d, window, cx| d.type_text(Prompt::Chat, "/", window, cx)),
+    ("chat-slash-re", |d, window, cx| d.type_text(Prompt::Chat, "/re", window, cx)),
+    ("chat-mention", |d, window, cx| d.type_text(Prompt::Chat, "Look at @", window, cx)),
+    ("chat-mention-rea", |d, window, cx| d.type_text(Prompt::Chat, "Look at @rea", window, cx)),
+    ("new-slash", |d, window, cx| d.type_text(Prompt::Launch, "/", window, cx)),
+    ("new-mention", |d, window, cx| d.type_text(Prompt::Launch, "Look at @", window, cx)),
+    ("chat-marked", |d, window, cx| d.set_chat_text("/review 482 then check @src/fold.rs and @docs/", window, cx)),
+    ("chat-marked-sent", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("Look at @src/parser.rs and @docs/adr/0003-desktop-code-layout.md, then fold the tool runs. Mail dev@pocket.app".into()), cx);
+        }
+    }),
+    ("chat-command-sent", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("/review 482".into()), cx);
+        }
+    }),
+    ("chat-goal", |d, _, cx| {
+        let goal = agents::Goal { objective: "Every parser test passes and the CI lint job is green".into(), status: agents::GoalStatus::Active, tokens_used: 16510, token_budget: 50000 };
+        if let Some(a) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)) {
+            a.goal = Some(goal);
+        }
+        cx.notify();
+    }),
+    ("chat-typed-long", |d, window, cx| {
+        let text = "Refactor the parser so each tool call folds into its turn.\nKeep the row ids stable and add a test for every kind.";
+        d.set_chat_text(text, window, cx);
+    }),
+    ("chat-sent", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("Now run the parser tests".into()), cx);
+        }
+    }),
+    // Queues a send as the composer does while the agent works, without the fixture echoing it.
+    ("chat-queued", |d, _, cx| {
+        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
+            v.session.outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
+            cx.notify();
+        }
+    }),
+    ("chat-queued-away", |d, window, cx| {
+        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
+            v.session.outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
+        }
+        d.new_session(None, true, window, cx);
+    }),
+    ("chat-sent-commit", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("Then commit the rename".into()), cx);
+        }
+    }),
+    ("chat-stop", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Interrupt, cx);
+        }
+    }),
+    ("chat-queue-remove", |d, window, cx| {
+        if let Some((agent, send)) = first_queued(d) {
+            d.chat_queue_remove(&agent, send, window, cx);
+        }
+    }),
+    ("chat-queue-edit", |d, window, cx| {
+        if let Some((agent, send)) = first_queued(d) {
+            d.chat_queue_edit(&agent, send, window, cx);
+        }
+    }),
+    ("chat-queue-steer", |d, window, cx| {
+        if let Some((agent, send)) = first_queued(d) {
+            d.chat_queue_steer(&agent, send, window, cx);
+        }
+    }),
+    ("chat-resume", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_queue_resume(&agent, cx);
+        }
+    }),
+    ("chat-slash", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("/compact".into()), cx);
+        }
+    }),
+    // Another agent's chat: one already open, else the first other agent's.
+    ("chat-other", |d, window, cx| {
+        let here = d.session().map(str::to_string);
+        let others: Vec<(String, String)> = d.agents.list.iter().filter(|a| Some(&a.id) != here.as_ref()).map(|a| (a.id.clone(), a.terminal_id.clone())).collect();
+        let Some((agent, terminal)) = others.iter().find(|(_, t)| d.store.chats.contains(t)).or(others.first()).cloned() else { return };
+        d.store.chats.insert(terminal.clone());
+        d.focus_agent(&agent, window, cx);
+        d.focus_chat_or_terminal(terminal, window, cx);
+    }),
+    ("chat-exit", |d, _, _| fixture(d, "exit")),
+    ("chat-compacted", |d, _, _| fixture(d, "compaction-after-result")),
+    ("chat-clear", |d, _, _| fixture(d, "clear")),
+    ("chat-restart", |d, _, _| fixture(d, "restart")),
+    ("chat-permission", |d, _, _| fixture(d, "permission")),
+    ("chat-question", |d, _, _| fixture(d, "question")),
+    ("chat-sub-agent", |d, _, _| fixture(d, "sub-agent")),
+    ("chat-perf", |d, _, _| fixture(d, "perf-1200")),
+    ("chat-stream-code", |d, _, _| fixture(d, "stream-code")),
     ("worktree", |d, _, _| d.worktree = d.cwd().and_then(|cwd| d.worktree_of(&cwd)).map(|w| w.path.clone())),
     ("rail", |d, window, cx| d.toggle_rail(&ToggleRail, window, cx)),
     ("focus", |d, window, cx| d.toggle_focus(&ToggleFocus, window, cx)),
@@ -109,6 +330,11 @@ const STEPS: [(&str, Step); 144] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("chat-only-done", |d, _, _| {
+        for a in d.agents.list.iter_mut() {
+            (a.chat_only, a.status) = if a.id == "parser" { (true, "done".into()) } else { (a.chat_only, "idle".into()) };
+        }
+    }),
     ("automations", |d, window, cx| d.open_automations(&crate::actions::OpenAutomations, window, cx)),
     ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
     ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
@@ -214,8 +440,8 @@ const STEPS: [(&str, Step); 144] = [
     ("settings-browser", |d, _, _| d.settings.section = Section::Browser),
     ("settings-git", |d, _, _| d.settings.section = Section::Git),
     ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
-    ("settings-claude", |d, _, _| d.settings.section = Section::Claude),
-    ("settings-codex", |d, _, _| d.settings.section = Section::Codex),
+    ("settings-claude", |d, _, _| d.settings.section = Section::Provider(0)),
+    ("settings-codex", |d, _, _| d.settings.section = Section::Provider(1)),
     ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
     ("account-signin", |d, window, cx| {
@@ -232,7 +458,7 @@ const STEPS: [(&str, Step); 144] = [
     }),
     ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
         (_, Section::Git) => "ai-model",
-        (_, Section::Codex) => "codex-model",
+        (_, Section::Provider(1)) => "codex-model",
         _ => "claude-model",
     })),
     ("service-down", |d, _, _| d.terminals.link.down(Instant::now())),
@@ -251,6 +477,8 @@ const STEPS: [(&str, Step); 144] = [
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("form-model", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Model, cx)),
+    ("form-model-list", |d, _, _| crate::modals::new_session::slot(d).draft.side = Some(crate::composer::model_menu::Side::Model)),
+    ("form-effort-list", |d, _, _| crate::modals::new_session::slot(d).draft.side = Some(crate::composer::model_menu::Side::Effort)),
     ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
@@ -459,6 +687,175 @@ const STEPS: [(&str, Step); 144] = [
     ("service-stale", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER)),
 ];
 
+/// Steps that drive real input through the window, each taking its next argument from the environment:
+/// `key` from `CAPTURE_KEYS` ("enter;cmd-shift-l"), `type` from `CAPTURE_TYPE` ("text|text"), `click` from
+/// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `paste-image` from `CAPTURE_PASTE` (a PNG).
+const INPUT_STEPS: [(&str, Step); 8] = [
+    ("key", |_, window, cx| {
+        let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse(&k).ok()) else { return };
+        window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
+    }),
+    ("type", |_, window, cx| {
+        let Some(text) = next_arg("CAPTURE_TYPE", '|') else { return };
+        window.defer(cx, move |window, cx| {
+            for c in text.chars() {
+                let key = if c == ' ' { "space".to_string() } else { c.to_string() };
+                if let Ok(k) = Keystroke::parse(&key) {
+                    window.dispatch_keystroke(k, cx);
+                }
+            }
+        });
+    }),
+    ("click", |_, window, cx| {
+        let Some(at) = next_arg("CAPTURE_CLICKS", ';').and_then(|a| point_arg(&a)) else { return };
+        window.defer(cx, move |window, cx| {
+            let modifiers = Modifiers::default();
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
+            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1 }), cx);
+        });
+    }),
+    // A pointer over the window for hover. AppKit drops mouse moves posted to an inactive window, since GPUI's window
+    // takes them only through its tracking area, which follows the real cursor.
+    ("move", |_, window, cx| {
+        let Some(at) = next_arg("CAPTURE_MOVES", ';').and_then(|a| point_arg(&a)) else { return };
+        window.defer(cx, move |window, cx| {
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }), cx);
+        });
+    }),
+    // A Finder drop, but ending in a plain mouse up: the platform's Submit would activate the app.
+    ("drop", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_DROPS", ';') else { return };
+        let Some((at, file)) = arg.rsplit_once(',').and_then(|(at, file)| Some((point_arg(at)?, PathBuf::from(file)))) else { return };
+        window.defer(cx, move |window, cx| {
+            window.dispatch_event(PlatformInput::FileDrop(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file].into()) }), cx);
+            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1 }), cx);
+        });
+    }),
+    // Pastes the PNG with cmd-v, then puts back what the clipboard held.
+    ("paste-image", |_, window, cx| {
+        let Some(bytes) = next_arg("CAPTURE_PASTE", ';').and_then(|p| std::fs::read(p).ok()) else { return };
+        let held = cx.read_from_clipboard();
+        cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, bytes)));
+        window.defer(cx, move |window, cx| {
+            if let Ok(k) = Keystroke::parse("cmd-v") {
+                window.dispatch_keystroke(k, cx);
+            }
+            if let Some(held) = held {
+                cx.write_to_clipboard(held);
+            }
+        });
+    }),
+    ("pause", |_, _, _| {}),
+    // The fixture's clock override: the shown chat's sends age past their two minutes.
+    ("chat-age-sends", |d, _, cx| {
+        let Some((id, working)) = d.session().and_then(|a| d.agents.get(a)).map(|a| (a.id.clone(), crate::status::Status::of(a) == Some(crate::status::Status::Working))) else { return };
+        if let Some(v) = d.chats.views.get_mut(&id) {
+            v.session.outgoing.settle(&v.session.transcript, working, crate::util::now_ms() + 121_000);
+            cx.notify();
+        }
+    }),
+];
+
+thread_local! {
+    static TAKEN: std::cell::RefCell<std::collections::HashMap<&'static str, usize>> = Default::default();
+}
+
+/// The next of `var`'s `sep`-separated arguments.
+fn next_arg(var: &'static str, sep: char) -> Option<String> {
+    let all = std::env::var(var).ok()?;
+    let n = TAKEN.with(|t| {
+        let mut t = t.borrow_mut();
+        let n = t.entry(var).or_default();
+        *n += 1;
+        *n - 1
+    });
+    all.split(sep).nth(n).map(str::to_string)
+}
+
+fn point_arg(s: &str) -> Option<Point<Pixels>> {
+    let (x, y) = s.split_once(',')?;
+    Some(point(px(x.trim().parse().ok()?), px(y.trim().parse().ok()?)))
+}
+
+fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
+        d.focus_agent(&card.id, window, cx);
+    }
+}
+
+fn is_call(b: &Block) -> bool {
+    matches!(b, Block::Tool(c) if !matches!(c.kind, ToolKind::Agent(_)))
+}
+
+/// A call that opens: a failed one to its error, an edit to its diff.
+fn opens(b: &Block) -> bool {
+    matches!(b, Block::Tool(c) if is_call(b) && (c.status == chat::ToolStatus::Failed || tool_row::colour(c).is_some()))
+}
+
+/// Opens the shown chat's first phase holding a block `pick` takes, and the fold over it, and returns that block.
+fn open_phase(d: &mut Desktop, pick: fn(&Block) -> bool, cx: &mut Context<Desktop>) -> Option<(Entity<Tools>, Block)> {
+    let agent = d.session()?.to_string();
+    let view = d.chats.views.get(&agent)?;
+    let s = &view.session;
+    let (ix, block) = s.rows.iter().enumerate().find_map(|(ix, row)| match row {
+        Row::Phase { turn, blocks } => s.transcript.turns[*turn].blocks[blocks.clone()].iter().find(|b| pick(b)).map(|b| (ix, b.clone())),
+        _ => None,
+    })?;
+    let (phase, open, tools) = (s.ids[ix].clone(), s.open(&s.ids[ix], false), view.tools.clone());
+    d.chat_reveal(&agent, ix, cx);
+    if !open {
+        d.chat_toggle(&agent, &phase, false, cx);
+    }
+    Some((tools, block))
+}
+
+/// Opens the shown chat's first sub-agent whose call `pick` takes.
+fn open_agent(d: &mut Desktop, pick: fn(&chat::ToolCall) -> bool, cx: &mut Context<Desktop>) {
+    let Some(agent) = d.session().map(str::to_string) else { return };
+    let Some(view) = d.chats.views.get(&agent) else { return };
+    let s = &view.session;
+    let found = s.rows.iter().enumerate().find_map(|(ix, row)| match row {
+        Row::Agent { turn, block } => match s.transcript.turns[*turn].blocks.get(*block) {
+            Some(Block::Tool(c)) if pick(c) => Some((ix, c.status == chat::ToolStatus::Failed)),
+            _ => None,
+        },
+        _ => None,
+    });
+    let Some((ix, failed)) = found else { return };
+    let (id, open) = (s.ids[ix].clone(), s.open(&s.ids[ix], failed));
+    d.chat_reveal(&agent, ix, cx);
+    if !open {
+        d.chat_toggle(&agent, &id, failed, cx);
+    }
+}
+
+/// The shown chat's last code block: its agent, row id and code.
+fn last_code(d: &Desktop) -> Option<(String, String, String)> {
+    let agent = d.session()?.to_string();
+    let s = &d.chats.views.get(&agent)?.session;
+    s.rows.iter().zip(&s.ids).rev().find_map(|(row, id)| {
+        let Row::Text { turn, block, range } = row else { return None };
+        let Some(Block::Text(m)) = s.transcript.turns.get(*turn)?.blocks.get(*block) else { return None };
+        let (_, code) = crate::chat::markdown::fence(m.text.get(range.clone())?)?;
+        Some((agent.clone(), id.clone(), code.to_string()))
+    })
+}
+
+/// The shown chat's agent and its first send held in the queue.
+fn first_queued(d: &Desktop) -> Option<(String, u64)> {
+    let agent = d.session()?.to_string();
+    let send = d.chats.views.get(&agent)?.session.outgoing.list().iter().find(|p| p.delivery == chat::Delivery::Queued)?.id;
+    Some((agent, send))
+}
+
+/// Asks the fixture's pocketd to play `scenario` into the shown agent's timeline: a `.ui-review/fixture/chat/<scenario>.json`, or an ask.
+fn fixture(d: &mut Desktop, scenario: &str) {
+    if let Some(agent) = d.session().map(str::to_string) {
+        d.outbox.prompt(&agent, &format!("/fixture {scenario}"));
+    }
+}
+
 /// `pocket-desktop --capture <dir> <name>=<step>,<step> …` renders each screen in an off-screen,
 /// unfocused window, writes `<dir>/impl-<name>.png` and quits.
 pub struct Capture {
@@ -497,8 +894,8 @@ impl Capture {
             .map(|spec| {
                 let (name, steps) = spec.split_once('=').unwrap_or((spec, ""));
                 let steps = steps.split(',').filter(|s| !s.is_empty()).map(|s| {
-                    STEPS.iter().find(|(n, _)| *n == s).map(|(_, f)| *f).unwrap_or_else(|| {
-                        let known: Vec<&str> = STEPS.iter().map(|(n, _)| *n).collect();
+                    STEPS.iter().chain(&INPUT_STEPS).find(|(n, _)| *n == s).map(|(_, f)| *f).unwrap_or_else(|| {
+                        let known: Vec<&str> = STEPS.iter().chain(&INPUT_STEPS).map(|(n, _)| *n).collect();
                         fail(&format!("unknown step '{s}' in {spec}; known: {}", known.join(", ")))
                     })
                 });
@@ -509,7 +906,12 @@ impl Capture {
     }
 
     /// Never ordered on screen; parked far away too, so the real cursor can't trigger hover styles.
+    /// With `CAPTURE_HOLD` set it is shown instead, still unfocused, so it can be measured and driven from outside.
     pub fn hide(opts: &mut WindowOptions) {
+        if holding() {
+            opts.focus = false;
+            return;
+        }
         if let Some(WindowBounds::Windowed(bounds)) = &mut opts.window_bounds {
             bounds.origin = point(px(-10000.), px(-10000.));
         }
@@ -536,14 +938,23 @@ impl Capture {
                     Err(e) => eprintln!("{name}: {e}"),
                 }
             }
-            cx.update(|cx| cx.quit());
+            if !holding() {
+                cx.update(|cx| cx.quit());
+            }
         })
         .detach();
     }
 }
 
+/// `CAPTURE_HOLD=1` keeps the window shown and the app running after the last screen.
+fn holding() -> bool {
+    std::env::var_os("CAPTURE_HOLD").is_some()
+}
+
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.cancel_chat(window, cx);
+    d.store.chats.clear();
+    d.set_chat_text("", window, cx);
     d.close_overlay(window, cx);
     d.automations.reset();
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);

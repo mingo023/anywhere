@@ -50,6 +50,7 @@ fn desktop_copy_uses_no_avoid_list_words() {
     let mut files = Vec::new();
     sources(&crates.join("pocket/src"), &mut files);
     sources(&crates.join("ui/src"), &mut files);
+    sources(&crates.join("chat/src"), &mut files);
     files.sort();
     let mut hits = Vec::new();
     for file in files {

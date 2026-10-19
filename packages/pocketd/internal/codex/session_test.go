@@ -17,9 +17,10 @@ import (
 )
 
 type sink struct {
-	mu     sync.Mutex
-	events []string
-	title  string
+	mu            sync.Mutex
+	events        []string
+	title         string
+	model, effort string
 }
 
 func (s *sink) Apply(e timeline.Event) {
@@ -55,6 +56,18 @@ func (s *sink) SetTokens(used, window int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, fmt.Sprintf("tokens:%d:%d", used, window))
+}
+
+func (s *sink) SetModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = model
+}
+
+func (s *sink) SetEffort(effort string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.effort = effort
 }
 
 func (s *sink) wait(t *testing.T, want ...string) {
@@ -140,6 +153,22 @@ func TestLiveTurnStreamsOnce(t *testing.T) {
 	if snk.title != "Greeting" {
 		t.Fatal(snk.title)
 	}
+}
+
+func TestAMessageUnderWayAtResumeShowsWholeOnceItCompletes(t *testing.T) {
+	srv, _, snk, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(`{"thread":{"turns":[{"id":"t1","status":"inProgress","items":[{"type":"userMessage","id":"u1","content":[{"type":"text","text":"count"}]}]}]}}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	srv.Push("item/agentMessage/delta", nil, `{"threadId":"th1","turnId":"t1","itemId":"a1","delta":"3"}`)
+	srv.Push("item/completed", nil, `{"threadId":"th1","turnId":"t1","item":{"type":"agentMessage","id":"a1","text":"123"}}`)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":{"type":"agentMessage","id":"a2","text":""}}`)
+	srv.Push("item/agentMessage/delta", nil, `{"threadId":"th1","turnId":"t1","itemId":"a2","delta":"done"}`)
+	srv.Push("item/completed", nil, `{"threadId":"th1","turnId":"t1","item":{"type":"agentMessage","id":"a2","text":"done"}}`)
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":{"id":"t1","items":[],"status":"completed"}}`)
+	snk.wait(t, "user:count", "assistant_text:123", "assistant_text:done", "result:true:0:")
 }
 
 func TestPhoneAnswersApproval(t *testing.T) {
@@ -325,4 +354,18 @@ func TestTokenUsageReportsTheLastTurnAndTheWindow(t *testing.T) {
 	srv.Push("thread/tokenUsage/updated", nil, fmt.Sprintf(usage, 1200, "258400"))
 	srv.Push("thread/tokenUsage/updated", nil, fmt.Sprintf(usage, 1500, "null"))
 	snk.wait(t, "tokens:1200:258400", "tokens:1500:0")
+}
+
+func TestResumeNamesTheThreadsModelAndEffort(t *testing.T) {
+	_, _, snk, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(`{"thread":{"turns":[]},"model":"gpt-6-sol","reasoningEffort":"xhigh"}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	snk.mu.Lock()
+	defer snk.mu.Unlock()
+	if snk.model != "gpt-6-sol" || snk.effort != "xhigh" {
+		t.Fatalf("model %q, effort %q", snk.model, snk.effort)
+	}
 }

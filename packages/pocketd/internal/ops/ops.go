@@ -126,7 +126,9 @@ type Server struct {
 	Terminals *terminal.Manager
 	Spawn     func(Msg) (*terminal.Terminal, error)
 	Hook      func(ctx context.Context, who peer.Principal, m Msg) ([]byte, error)
-	Devices   *devices.Store
+	// Pipe serves the conn of `pocketd pipe` until it closes. An error refuses it.
+	Pipe    func(ctx context.Context, who peer.Principal, m Msg, c *Conn) error
+	Devices *devices.Store
 	// Kick closes a revoked device's live phone sockets.
 	Kick    func(id, reason string)
 	Pairing *pairing.Manager
@@ -296,6 +298,15 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				c.Send(Msg{Ev: "hook", Data: data})
 			}()
 			continue
+		case "pipe":
+			if s.Pipe == nil {
+				c.Send(Msg{Ev: "error", Error: "pipes unsupported"})
+				continue
+			}
+			if err := s.Pipe(ctx, who, m, c); err != nil {
+				c.Send(refused(m.ID, err))
+			}
+			return
 		case "launch-exit":
 			if who.Terminal != m.ID {
 				c.Send(refused(m.ID, &peer.Refusal{Code: proto.CodeNotOwnTerminal, Message: "launch exits are accepted only from the Terminal itself"}))

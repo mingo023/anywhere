@@ -76,9 +76,23 @@ export type TimelineBody = typeof TimelineBody.Type;
 
 export const TimelineItem = Schema.extend(
   TimelineBody,
-  Schema.Struct({ id: Schema.String, seq: Schema.Number, ts: Schema.Number }),
+  Schema.Struct({
+    id: Schema.String,
+    seq: Schema.Number,
+    ts: Schema.Number,
+    /** The tool call that spawned the sub-agent this item belongs to. */
+    parentToolUseId: Schema.optional(Schema.String),
+  }),
 );
 export type TimelineItem = typeof TimelineItem.Type;
+
+export const Goal = Schema.Struct({
+  objective: Schema.String,
+  status: Schema.String,
+  tokensUsed: Schema.optional(Schema.Number),
+  tokenBudget: Schema.optional(Schema.Number),
+});
+export type Goal = typeof Goal.Type;
 
 export const AgentSummary = Schema.Struct({
   id: Schema.String,
@@ -88,6 +102,7 @@ export const AgentSummary = Schema.Struct({
   provider: Schema.String,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
+  access: Schema.optional(Schema.String),
   status: AgentStatus,
   failed: Schema.optional(Schema.Boolean),
   attached: Schema.Boolean,
@@ -96,6 +111,7 @@ export const AgentSummary = Schema.Struct({
   pinned: Schema.optional(Schema.Boolean),
   epoch: Schema.Number,
   maxSeq: Schema.Number,
+  resets: Schema.optional(Schema.Number),
   providerSessionId: Schema.optional(Schema.String),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
@@ -108,6 +124,8 @@ export const AgentSummary = Schema.Struct({
   origin: Schema.optional(Schema.String),
   activity: Schema.optional(Schema.String),
   account: Schema.optional(Schema.String),
+  chatOnly: Schema.optional(Schema.Boolean),
+  goal: Schema.optional(Goal),
 });
 export type AgentSummary = typeof AgentSummary.Type;
 export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;

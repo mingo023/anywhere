@@ -50,6 +50,7 @@ type Daemon struct {
 	present  map[string]*presence          // by terminal id
 	watchers map[string]context.CancelFunc // by app-server socket
 	watch    sync.Mutex                    // one observe at a time: the poller and hooks both run it
+	binding  sync.Mutex                    // one claude binds a transcript it found at a time
 
 	restoring map[string]*hint // by terminal id; under mu
 }
@@ -203,6 +204,10 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 		d.sessionStart(pr, in)
 		d.resumed(pr, in.SessionID)
 	case "PermissionRequest":
+		// A chat agent asks through its stream.
+		if pr.stream != nil {
+			return nil, nil
+		}
 		return d.permission(ctx, pr, in), nil
 	case "PreCompact":
 		pr.a.SetCompacting()
@@ -211,7 +216,7 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 			d.OnPrompt(pr.a, in.Prompt, pr.env)
 		}
 	}
-	if reported {
+	if reported || pr.stream != nil {
 		return nil, nil
 	}
 	switch in.Event {
@@ -231,6 +236,16 @@ func (d *Daemon) Hook(ctx context.Context, p peer.Principal, m ops.Msg) ([]byte,
 
 // permission asks the phone until pr ends; nil lets Claude's dialog decide.
 func (d *Daemon) permission(ctx context.Context, pr *presence, in hookInput) []byte {
+	decision := d.decide(ctx, pr, in)
+	if decision == nil {
+		return nil
+	}
+	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": decision}})
+	return out
+}
+
+// decide asks the phone about in's tool until ctx or pr ends, which is nil.
+func (d *Daemon) decide(ctx context.Context, pr *presence, in hookInput) *hookDecision {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer context.AfterFunc(pr.ctx, cancel)()
@@ -267,8 +282,7 @@ func (d *Daemon) permission(ctx context.Context, pr *presence, in hookInput) []b
 			go promptAfterTurn(ag, ag.Summary().MaxSeq, a.Message)
 		}
 	}
-	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": decision}})
-	return out
+	return &decision
 }
 
 var FeedbackWait = 30 * time.Second

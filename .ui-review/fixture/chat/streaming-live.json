@@ -1,0 +1,12 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Why does the transcript jump when a tool finishes?"
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "The transcript jumped because a finished tool's row grew by its output before the"
+ }
+]

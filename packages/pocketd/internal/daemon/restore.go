@@ -60,10 +60,13 @@ func (p pending) refuse() error {
 	return agent.ErrResuming
 }
 
-func (p pending) Prompt(string) error { return p.refuse() }
-func (p pending) Interrupt() error    { return p.refuse() }
-func (p pending) Compact() error      { return p.refuse() }
-func (p pending) Close()              { p.d.drop(p.h) }
+func (p pending) Prompt(string) error                { return p.refuse() }
+func (p pending) Interrupt() error                   { return p.refuse() }
+func (p pending) Compact() error                     { return p.refuse() }
+func (p pending) Settings(string, string) error      { return p.refuse() }
+func (p pending) Access(string) error                { return p.refuse() }
+func (p pending) Commands() ([]proto.Command, error) { return nil, p.refuse() }
+func (p pending) Close()                             { p.d.drop(p.h) }
 
 // Snapshot is what a restart needs to bring every Terminal back. An Agent
 // still resuming keeps its saved entry, so a second restart doesn't lose it.
@@ -144,7 +147,7 @@ func (d *Daemon) reopen(e state.Terminal, shell string) (*terminal.Terminal, str
 func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, carried *handoff.Agent) {
 	h := &hint{saved: e, started: time.Now(), handoff: carried != nil}
 	x := agent.Restored{ID: e.AgentID, Cwd: e.LaunchDir, Provider: e.Provider, Conversation: e.ConversationID,
-		Origin: e.Origin, Fallback: filepath.Base(e.LaunchDir), CreatedAt: e.CreatedAt, Done: e.Status == "done", Failed: e.Failed, Pinned: e.Pinned, Account: e.Account}
+		Origin: e.Origin, Fallback: filepath.Base(e.LaunchDir), CreatedAt: e.CreatedAt, Done: e.Status == "done", Failed: e.Failed, Pinned: e.Pinned, Account: e.Account, ChatOnly: e.Chat}
 	if carried != nil {
 		x.Named, x.Phase, x.Epoch, x.Seq = carried.Named, carried.Phase, carried.Epoch, carried.Seq
 	}

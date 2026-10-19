@@ -15,6 +15,13 @@ export const ProjectList = Schema.Struct({
   projects: Schema.Array(Project),
 });
 
+export const Command = Schema.Struct({
+  name: Schema.String,
+  description: Schema.optional(Schema.String),
+  argumentHint: Schema.optional(Schema.String),
+});
+export type Command = typeof Command.Type;
+
 export const Range = Schema.Struct({ min: Schema.Int, max: Schema.Int });
 export const Scope = Schema.Literal("observe", "drive", "approve", "spawn", "owner");
 
@@ -42,6 +49,15 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("agent.interrupt"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.compact"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.close"), id: Schema.String, agentId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("agent.commands"), id: Schema.String, agentId: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("agent.settings"),
+    id: Schema.String,
+    agentId: Schema.String,
+    model: Schema.optional(Schema.String),
+    effort: Schema.optional(Schema.String),
+    access: Schema.optional(Schema.Literal("ask", "edits", "auto", "full")),
+  }),
   Schema.Struct({ type: Schema.Literal("agent.pin"), id: Schema.String, agentId: Schema.String, pinned: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("agent.view"), id: Schema.String, agentIds: Schema.Array(Schema.String) }),
   Schema.Struct({ type: Schema.Literal("agent.seen"), id: Schema.String, agentIds: Schema.Array(Schema.String) }),
@@ -121,6 +137,12 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("pair.done"), deviceId: Schema.String, name: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.list"), id: Schema.optional(Schema.String), agents: Schema.Array(AgentSummary) }),
   Schema.Struct({ type: Schema.Literal("agent.update"), agent: AgentSummary }),
+  Schema.Struct({
+    type: Schema.Literal("agent.commands"),
+    id: Schema.String,
+    agentId: Schema.String,
+    commands: Schema.Array(Command),
+  }),
   Schema.Struct({ type: Schema.Literal("agent.stream"), agentId: Schema.String, epoch: Schema.Number, item: TimelineItem }),
   Schema.Struct({
     type: Schema.Literal("agent.timeline"),

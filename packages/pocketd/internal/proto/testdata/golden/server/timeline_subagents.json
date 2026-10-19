@@ -1,0 +1,117 @@
+{
+  "type": "agent.timeline",
+  "id": "t1",
+  "agentId": "a1",
+  "epoch": 1,
+  "items": [
+    {
+      "kind": "user",
+      "id": "i1",
+      "seq": 1,
+      "ts": 1,
+      "text": "Run two sub-agents: one lists the repo, one counts to 3"
+    },
+    {
+      "kind": "tool",
+      "id": "i2",
+      "seq": 2,
+      "ts": 2,
+      "call": {
+        "toolUseId": "toolu_list",
+        "name": "Agent",
+        "detail": {
+          "kind": "task",
+          "description": "List the repo"
+        },
+        "status": "ok",
+        "output": "README.md and src/\nagentId: a1157000000000001",
+        "durationMs": 0
+      }
+    },
+    {
+      "kind": "tool",
+      "id": "i3",
+      "seq": 3,
+      "ts": 3,
+      "call": {
+        "toolUseId": "toolu_count",
+        "name": "Agent",
+        "detail": {
+          "kind": "task",
+          "description": "Count 1 to 3"
+        },
+        "status": "ok",
+        "output": "1, 2, 3\nagentId: ac0c0000000000002",
+        "durationMs": 0
+      }
+    },
+    {
+      "kind": "user",
+      "id": "i4",
+      "seq": 4,
+      "ts": 4,
+      "parentToolUseId": "toolu_list",
+      "text": "Run ls in /w and report what is there"
+    },
+    {
+      "kind": "tool",
+      "id": "i5",
+      "seq": 5,
+      "ts": 5,
+      "parentToolUseId": "toolu_list",
+      "call": {
+        "toolUseId": "toolu_ls",
+        "name": "Bash",
+        "detail": {
+          "kind": "shell",
+          "command": "ls /w",
+          "description": "List files in /w"
+        },
+        "status": "ok",
+        "output": "README.md\nsrc",
+        "durationMs": 0
+      }
+    },
+    {
+      "kind": "assistant",
+      "id": "i6",
+      "seq": 6,
+      "ts": 6,
+      "parentToolUseId": "toolu_list",
+      "text": "README.md and src/"
+    },
+    {
+      "kind": "user",
+      "id": "i7",
+      "seq": 7,
+      "ts": 7,
+      "parentToolUseId": "toolu_count",
+      "text": "Count from 1 to 3. Reply with exactly: 1, 2, 3"
+    },
+    {
+      "kind": "assistant",
+      "id": "i8",
+      "seq": 8,
+      "ts": 8,
+      "parentToolUseId": "toolu_count",
+      "text": "1, 2, 3"
+    },
+    {
+      "kind": "assistant",
+      "id": "i9",
+      "seq": 9,
+      "ts": 9,
+      "text": "The repo holds README.md and src/; the count was 1, 2, 3."
+    },
+    {
+      "kind": "result",
+      "id": "i10",
+      "seq": 10,
+      "ts": 10,
+      "ok": true,
+      "durationMs": 10781
+    }
+  ],
+  "hasOlder": false,
+  "maxSeq": 10
+}

@@ -1,0 +1,27 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Summarise what changed in the fold."
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "Consecutive tool calls now fold into one group, and a group reopens when a new call joins it."
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 4200,
+  "usage": {
+   "inputTokens": 152000,
+   "outputTokens": 240
+  }
+ },
+ {
+  "id": "c1",
+  "kind": "compact",
+  "trigger": "manual"
+ }
+]

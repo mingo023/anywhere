@@ -8,11 +8,15 @@ use theme::*;
 const COPIED_FOR: Duration = Duration::from_millis(2400);
 /// Long enough to reach for Undo.
 const TRASHED_FOR: Duration = Duration::from_secs(6);
+/// Long enough to read a sentence.
+const READ_FOR: Duration = Duration::from_secs(5);
 
 pub(crate) enum Notice {
     Copied(String),
     Trashed(PathBuf),
     Mentioned { provider: String, title: String },
+    /// Why the chat sent nothing to `agent`, pointing at its terminal. It shows in that chat's footer.
+    InTerminal { agent: String, text: String },
 }
 
 /// What the last trash moved, and the focused file it closed.
@@ -47,7 +51,11 @@ pub fn unrestored(e: &std::io::Error, name: &str) -> String {
 
 impl Desktop {
     pub(crate) fn show_notice(&mut self, notice: Notice, cx: &mut Context<Self>) {
-        let showing = if matches!(notice, Notice::Trashed(_)) { TRASHED_FOR } else { COPIED_FOR };
+        let showing = match notice {
+            Notice::Trashed(_) => TRASHED_FOR,
+            Notice::InTerminal { .. } => READ_FOR,
+            _ => COPIED_FOR,
+        };
         let hide = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(showing).await;
             this.update(cx, |d, cx| {
@@ -130,10 +138,8 @@ impl Desktop {
 
     pub(crate) fn tree_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (notice, _) = self.explorer.notice.as_ref()?;
-        let toast = ui::pop(div().id("tree-toast"))
-            .absolute()
-            .right(px(16.))
-            .bottom(px(16.))
+        let toast = self
+            .float(ui::pop(div().id("tree-toast")), 16.)
             .h(px(32.))
             .px(px(12.))
             .flex()
@@ -148,6 +154,7 @@ impl Desktop {
             Notice::Mentioned { provider, title } => toast
                 .child(provider_icon(provider, 13., TEXT_2))
                 .child(div().flex().gap(px(4.)).child("Mentioned in").child(div().max_w(px(240.)).truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title.clone()))),
+            Notice::InTerminal { .. } => return None,
             Notice::Trashed(from) => toast
                 .child(icon("trash", 14., TEXT_3))
                 .child(

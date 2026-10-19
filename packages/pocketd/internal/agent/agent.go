@@ -19,6 +19,12 @@ type Driver interface {
 	Prompt(text string) error
 	Interrupt() error
 	Compact() error
+	// Settings switches the model, the effort or both; "" keeps one as it is.
+	Settings(model, effort string) error
+	// Access switches what the agent may do without asking: ask, edits, auto or full.
+	Access(access string) error
+	// Commands lists the slash commands the agent takes beyond the chat's own.
+	Commands() ([]proto.Command, error)
 	Close()
 }
 
@@ -40,6 +46,7 @@ type Agent struct {
 	conversations   int    // Conversations so far, so a late name for an older one is dropped
 	model           string
 	effort          string
+	access          string
 	phase           string // idle, working or needsYou
 	unseenEnd       bool
 	failed          bool
@@ -60,7 +67,11 @@ type Agent struct {
 	tokensUsed      int64
 	contextWindow   int64
 	origin          string
+	chatOnly        bool
 	activity        string // the provider's live line; each report replaces it
+	stopped         bool   // the user stopped the turn; the next one forgets it
+	refilled        bool   // stopped since the last typed prompt: Claude may have put it back in its input
+	goal            proto.Goal
 }
 
 type Registry struct {
@@ -117,6 +128,7 @@ type Restored struct {
 	CreatedAt                                 int64
 	Done, Failed, Pinned                      bool
 	Account                                   string
+	ChatOnly                                  bool
 	// Named, Phase, Epoch and Seq carry an Agent across an upgrade's exec.
 	Named, Phase string
 	Epoch, Seq   int64
@@ -124,7 +136,7 @@ type Restored struct {
 
 func (r *Registry) Restore(x Restored, d Driver) *Agent {
 	a := &Agent{id: x.ID, cwd: x.Cwd, provider: x.Provider, hub: r.hub, reg: r, Timeline: timeline.New(), driver: d, terminal: x.Terminal,
-		conversation: x.Conversation, named: x.Named, fallback: x.Fallback, phase: cmp.Or(x.Phase, "idle"), unseenEnd: x.Done, failed: x.Failed, pinned: x.Pinned, account: x.Account, attached: true,
+		conversation: x.Conversation, named: x.Named, fallback: x.Fallback, phase: cmp.Or(x.Phase, "idle"), unseenEnd: x.Done, failed: x.Failed, pinned: x.Pinned, account: x.Account, chatOnly: x.ChatOnly, attached: true,
 		origin: cmp.Or(x.Origin, "desktop"), createdAt: x.CreatedAt, updatedAt: now()}
 	if x.Seq > 0 {
 		a.Timeline.Continue(x.Epoch, x.Seq)
@@ -230,11 +242,11 @@ func (a *Agent) summary() proto.AgentSummary {
 	epoch, maxSeq := a.Timeline.State()
 	status := a.status()
 	return proto.AgentSummary{
-		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort,
+		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort, Access: a.access,
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account,
-		Epoch: epoch, MaxSeq: maxSeq, ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
+		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
-		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity,
+		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal,
 	}
 }
 
@@ -288,6 +300,7 @@ func (a *Agent) Working() {
 	a.update(true, func() {
 		a.enter("working")
 		a.unseenEnd, a.failed, a.restore = false, false, ""
+		a.stopped = false
 	})
 }
 
@@ -324,6 +337,52 @@ func (a *Agent) Clear() {
 			a.endCompactFromIdle()
 		}
 	})
+}
+
+// Stop notes a stop asked for from a client.
+func (a *Agent) Stop() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stopped, a.refilled = true, true
+}
+
+// Escaped notes an Esc or Ctrl+C typed to the agent, a stop only while it works.
+func (a *Agent) Escaped() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.phase == "working" {
+		a.stopped, a.refilled = true, true
+	}
+}
+
+// Sent notes the user sent what the agent's input held, a stopped prompt it
+// put back included.
+func (a *Agent) Sent() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.refilled = false
+}
+
+// Refilled says whether a stop came since the last call, so the agent's input
+// may hold the stopped prompt.
+func (a *Agent) Refilled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.refilled
+	a.refilled = false
+	return r
+}
+
+// EndStopped ends a turn the user stopped before any reply as interrupted,
+// if nothing reached the timeline past seq since: Claude marks no such stop.
+func (a *Agent) EndStopped(seq int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	_, now := a.Timeline.State()
+	if a.stopped && a.phase == "idle" && now == seq && a.Timeline.Unanswered() {
+		a.stopped = false
+		a.record(timeline.Event{Kind: "result", Error: "interrupted"})
+	}
 }
 
 func (a *Agent) endCompactFromIdle() {
@@ -390,9 +449,15 @@ func (a *Agent) SetConversation(id string) {
 			a.naming = false
 			a.conversations++
 			a.tokensUsed = 0
+			a.goal = proto.Goal{}
 		}
 		a.conversation = id
 	})
+}
+
+// ClearTimeline starts the timeline over in the same conversation and tells clients.
+func (a *Agent) ClearTimeline() {
+	a.update(false, a.Timeline.Clear)
 }
 
 // SetTitle takes the provider's title; it outranks the one taken from the first prompt.
@@ -430,6 +495,10 @@ func (a *Agent) SetEffort(effort string) {
 	a.update(false, func() { a.effort = effort })
 }
 
+func (a *Agent) SetAccess(access string) {
+	a.update(false, func() { a.access = access })
+}
+
 // SetAccount names the managed account the agent runs on; "" is the built-in login.
 func (a *Agent) SetAccount(id string) {
 	a.update(false, func() { a.account = id })
@@ -458,7 +527,17 @@ func (a *Agent) SetOrigin(origin string) {
 	a.update(false, func() { a.origin = origin })
 }
 
+func (a *Agent) SetChatOnly() { a.update(false, func() { a.chatOnly = true }) }
+
 func (a *Agent) SetActivity(text string) { a.update(false, func() { a.activity = text }) }
+
+// SetGoal takes the agent's /goal; the zero Goal is none, as is a met one.
+func (a *Agent) SetGoal(g proto.Goal) {
+	if g.Status == proto.GoalComplete {
+		g = proto.Goal{}
+	}
+	a.update(false, func() { a.goal = g })
+}
 
 func firstLine(text string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
@@ -470,7 +549,8 @@ func firstLine(text string) string {
 
 // Record adds one provider event to the timeline and tells every phone. It leaves the status alone.
 func (a *Agent) Record(e timeline.Event) {
-	if e.Kind == "user" {
+	sub := e.ParentToolUseID != ""
+	if e.Kind == "user" && !sub {
 		a.Timeline.StartEpoch()
 		a.update(false, func() {
 			if a.title == "" {
@@ -480,11 +560,20 @@ func (a *Agent) Record(e timeline.Event) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.record(e)
+}
+
+func (a *Agent) record(e timeline.Event) {
+	sub := e.ParentToolUseID != ""
 	if a.closed {
 		return
 	}
 	if item, ok := a.Timeline.Apply(e, now()); ok {
 		epoch, _ := a.Timeline.State()
-		a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
+		if sub {
+			a.hub.PublishSubagent(proto.NewAgentStream(a.id, epoch, item))
+		} else {
+			a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
+		}
 	}
 }

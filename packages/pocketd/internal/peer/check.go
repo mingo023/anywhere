@@ -22,11 +22,13 @@ var Needs = map[string]Scope{
 	"ws:agent.interrupt":    Drive,
 	"ws:agent.compact":      Drive,
 	"ws:agent.close":        Drive,
+	"ws:agent.settings":     Drive,
 	"ws:agent.pin":          Drive,
 	"ws:permission.resolve": Approve,
 	"ws:pair.begin":         Own,
 	"ws:agent.create":       Spawn,
 	"ws:agent.providers":    Observe,
+	"ws:agent.commands":     Observe,
 	"ws:config.set":         Own,
 	"ws:worktree.rename":    Own,
 	"ws:local.create":       Own,
@@ -42,6 +44,7 @@ var Needs = map[string]Scope{
 	"ops:list":              Observe,
 	"ops:status":            Observe,
 	"ops:hook":              Observe,
+	"ops:pipe":              Observe,
 	"ops:spawn":             Own,
 	"ops:attach":            Own,
 	"ops:screen":            Own,
@@ -73,7 +76,7 @@ var Needs = map[string]Scope{
 }
 
 var guarded = map[string]bool{
-	"ws:agent.prompt": true, "ws:agent.interrupt": true, "ws:agent.compact": true, "ws:agent.close": true,
+	"ws:agent.prompt": true, "ws:agent.interrupt": true, "ws:agent.compact": true, "ws:agent.close": true, "ws:agent.settings": true,
 	"ops:input": true, "ops:prompt": true,
 }
 

@@ -65,6 +65,21 @@ func TestABogusModelFailsWithoutWaiting(t *testing.T) {
 	}
 }
 
+func TestABogusModelFailsTheFirstChatTurnWithoutWaiting(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner()
+	start := time.Now()
+	create(o, "r1", inRepo(h, map[string]any{"model": "bogus", "prompt": "hi", "chat": true}))
+	done := reply(o, "agent.created", "error")
+	if done.Type != "agent.created" {
+		t.Fatalf("got %s", done.Raw)
+	}
+	o.WaitFor("the failed turn", func(m Message) bool { return m.Type == "agent.update" && m.Agent.ID == done.AgentID && m.Agent.Failed })
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("took %v", took)
+	}
+}
+
 func TestASetupFailureIsSpawnFailed(t *testing.T) {
 	h := Start(t, launchReady("echo npm ERR! missing script: setup; false"))
 	o := h.Owner()

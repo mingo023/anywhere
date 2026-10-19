@@ -8,6 +8,7 @@
     "provider": "claude",
     "model": "claude-opus-5-5",
     "effort": "high",
+    "access": "edits",
     "status": "idle",
     "attached": true,
     "epoch": 1,

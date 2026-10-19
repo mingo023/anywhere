@@ -1,9 +1,8 @@
 use super::catalog::{Look, Setting};
-use super::{action, row};
+use agents::providers;
 use crate::desktop::Desktop;
 use crate::status::Status;
 use crate::util::tilde;
-use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::LaunchPick;
@@ -12,14 +11,10 @@ use theme::*;
 
 const NEW: &str = "New sessions";
 
-/// A starter prompt being dragged, by its place in the list.
-#[derive(Clone)]
-struct DragStarter(usize);
-
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("providers", "Providers", "Providers", |d, _, cx| d.providers_row(cx)).hint("Claude Code and Codex, found on your login PATH"),
     Setting::custom("provider-status", "Providers", "Status", |d, _, _| d.provider_status()).hint("How Anywhere reads status"),
-    Setting::choice("default-agent", NEW, "Default agent", &["Claude Code", "Codex"], Look::Dropdown, default_index, |s, i| {
+    Setting::choice("default-agent", NEW, "Default agent", &PROVIDER_NAMES, Look::Dropdown, default_index, |s, i| {
         s.agents.default = LaunchPick::PROVIDERS[i].into();
         s.agents.set_enabled(LaunchPick::PROVIDERS[i], true);
     })
@@ -29,6 +24,8 @@ pub(super) const ROWS: &[Setting] = &[
     })
     .hint("Agent's settings uses the agent's own config. Full skips every approval"),
     Setting::switch("plan-mode", NEW, "Start in plan mode", |s| s.agents.plan, |s, on| s.agents.plan = on).hint("For providers that support plan mode"),
+    Setting::switch("start-as-chat", NEW, "Start as a chat", |s| s.agents.start_as_chat, |s, on| s.agents.start_as_chat = on)
+        .hint("Experimental. New chat in a tab's + menu always starts one"),
     Setting::choice("runs-in", NEW, "Runs in", &["Local", "Worktree"], Look::Segmented, |s| s.agents.new_worktree as usize, |s, i| s.agents.new_worktree = i == 1)
         .hint("A new worktree keeps the agent's edits off your branch"),
     Setting::choice("agent-exits", "Tabs", "When an agent exits", &["Return to shell", "Close tab"], Look::Segmented, |s| s.agents.close_on_exit as usize, |s, i| {
@@ -37,8 +34,6 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::choice("new-tabs-open", "Tabs", "New tabs and splits open", &["Shell", "Default agent"], Look::Segmented, |s| s.agents.tabs_open_agent as usize, |s, i| {
         s.agents.tabs_open_agent = i == 1
     }),
-    Setting::custom("starter-prompts", "Composer", "Starter prompts", |d, s, cx| d.starters_row(s, cx))
-        .resets(|s| format!("{} prompts", s.agents.starters.len()), |s, d| s.agents.starters = d.agents.starters.clone()).hint("Shown under the new session composer. Drag to reorder"),
     Setting::choice("add-to-chat", "Composer", "\u{201c}Add to chat\u{201d}", &["Send now", "Paste only"], Look::Segmented, |s| (!s.agents.send_now) as usize, |s, i| {
         s.agents.send_now = i == 0
     })
@@ -77,7 +72,7 @@ fn provider_line(path: Option<&str>) -> String {
 
 /// How Anywhere learns a provider's sessions need you, are done or failed.
 pub(super) fn status_source(provider: &str) -> String {
-    let how = if provider == "codex" { "reads Codex session events" } else { "uses Claude Code hooks" };
+    let how = providers::known(provider).status_via;
     let [needs, done, failed] = [Status::NeedsYou, Status::Done, Status::Failed].map(Status::label);
     format!("Built in \u{b7} {how} for {needs}, {done} and {failed}")
 }
@@ -140,58 +135,17 @@ impl Desktop {
         });
         div().flex().flex_col().children(rows)
     }
-
-    fn starters_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
-        let items = self.store.agents.starters.clone().into_iter().enumerate().map(|(i, text)| {
-            let remove = ui::icon_button_sized(("starter-remove", i), "x", 20., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if i < this.store.agents.starters.len() {
-                    this.store.agents.starters.remove(i);
-                    this.save_soon(cx);
-                    cx.notify();
-                }
-            }));
-            div()
-                .id(("starter", i))
-                .h(px(30.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .border_b(px(0.5))
-                .border_color(SEPARATOR)
-                .cursor_grab()
-                .on_drag(DragStarter(i), |_, _, _, cx| cx.new(|_| EmptyView))
-                .drag_over::<DragStarter>(move |s, d, _, _| if d.0 == i { s } else { s.shadow(ui::drop_line(d.0 < i)) })
-                .on_drop(cx.listener(move |this, d: &DragStarter, _, cx| {
-                    this.store.agents.move_starter(d.0, i);
-                    this.save_soon(cx);
-                    cx.notify();
-                }))
-                .child(icon("grip", 12., TEXT_3))
-                .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(TEXT).child(text))
-                .child(remove)
-        });
-        let add = action("starter-add", "Add").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_starter(window, cx)));
-        let input = div().h(px(32.)).px(px(10.)).flex().items_center().gap(px(8.)).child(div().flex_1().min_w_0().child(Input::new(&self.settings.host.starter).appearance(false).p_0().text_size(px(12.5)))).child(add);
-        let list = div().mt(px(8.)).rounded(px(8.)).bg(FILL_1).border(px(0.5)).border_color(SEPARATOR).overflow_hidden().flex().flex_col().children(items).child(input);
-        let head = row(setting.label, setting.hint, div());
-        div().flex().flex_col().child(head.pb(px(4.))).child(div().px(px(14.)).pb(px(12.)).child(list))
-    }
-
-    pub(super) fn add_starter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.settings.host.starter.read(cx).value().to_string();
-        if self.store.agents.add_starter(&text) {
-            self.settings.host.starter.update(cx, |f, cx| f.set_value("", window, cx));
-            self.save_soon(cx);
-            cx.notify();
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{access_index, enabled_provider, provider_line, status_source};
     use store::Store;
+
+    #[test]
+    fn brands_follow_the_provider_table() {
+        assert_eq!(theme::BRANDS.map(|b| b.id), agents::providers::IDS);
+    }
 
     #[test]
     fn a_provider_picker_lists_only_enabled_providers() {

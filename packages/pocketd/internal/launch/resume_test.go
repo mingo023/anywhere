@@ -120,6 +120,36 @@ func TestAResumeRunsTheProvidersConfiguredCommand(t *testing.T) {
 	}
 }
 
+func TestAChatClaudeResumesForTheChatBehindAPipe(t *testing.T) {
+	s := saved("claude", state.Launch{Access: "ask", Model: "opus"})
+	s.Chat = true
+	found := func(string) (string, bool) { return "/bin/claude", true }
+	_, args, reason := resumeCmd(s, config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, found)
+	want := "/pd pipe /bin/claude --resume c-1 --permission-mode default --model opus -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"
+	if reason != "" || !strings.Contains(strings.Join(args, " "), want) {
+		t.Fatalf("resumeCmd = %q %q", args, reason)
+	}
+}
+
+func TestAClaudeChatResumedFromFullStartsAtAskYetCanSwitchToFull(t *testing.T) {
+	s := saved("claude", state.Launch{Access: "full"})
+	s.Chat = true
+	argv, _ := resumeOf(s)
+	if !slices.Contains(argv, "default") || slices.Contains(argv, "bypassPermissions") || slices.Contains(argv, "--dangerously-skip-permissions") || !slices.Contains(argv, "--allow-dangerously-skip-permissions") {
+		t.Fatalf("got %q", argv)
+	}
+}
+
+func TestAChatCodexResumesAsAnAppServerAtAskWhenItWasFull(t *testing.T) {
+	s := saved("codex", state.Launch{Access: "full", Model: "gpt-6-luna", Effort: "low"})
+	s.Chat = true
+	argv, f := resumeOf(s)
+	want := `codex app-server -c sandbox_mode="read-only" -c approval_policy="on-request" -c model="gpt-6-luna" -c model_reasoning_effort="low"`
+	if f != nil || strings.Join(argv, " ") != want {
+		t.Fatalf("got %q %v", argv, f)
+	}
+}
+
 func TestResumeUsesTheResumeArgsAndRefusesWithoutThem(t *testing.T) {
 	argv, f := Resume(saved("claude", state.Launch{Access: "settings"}), config.AgentArgs{Resume: []string{"-r"}})
 	if f != nil || strings.Join(argv, " ") != "claude -r c-1" {

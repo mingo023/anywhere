@@ -926,6 +926,14 @@ name = "channel"
 version = "0.0.0"
 
 [[package]]
+name = "chat"
+version = "0.0.0"
+dependencies = [
+ "agents",
+ "serde_json",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5572,6 +5580,7 @@ dependencies = [
  "base64",
  "block2 0.6.2",
  "channel",
+ "chat",
  "chrono",
  "daemon",
  "futures",
@@ -7121,6 +7130,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "store"
 version = "0.0.0"
 dependencies = [
+ "agents",
  "hosts",
  "serde",
  "serde_json",

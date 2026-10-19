@@ -29,6 +29,16 @@ pub fn is_dark() -> bool {
     DARK.load(Ordering::Relaxed)
 }
 
+/// Black in light mode and white in dark at `a`, for fills and chip plates.
+pub fn ink(a: f32) -> Hsla {
+    if is_dark() { hsla(0., 0., 1., a) } else { hsla(0., 0., 0., a) }
+}
+
+/// `ink` for borders and rings: light mode's black is boosted to read as strongly as dark mode's white.
+pub fn hairline(a: f32) -> Hsla {
+    if is_dark() { hsla(0., 0., 1., a) } else { hsla(0., 0., 0., (a * 1.35).min(0.5)) }
+}
+
 /// Paints diffs blue and orange instead of green and red, from the next frame.
 pub fn set_blue_orange(on: bool) {
     BLUE_ORANGE.store(on, Ordering::Relaxed);
@@ -239,6 +249,12 @@ pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
 pub const WORKING: Token = Token::new(0xcc4e00ff, 0xf76b15ff);
 pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
 
+/// A chat's work rail: the line a reply's phases and steps hang from.
+pub const RAIL: Token = Token::new(0xdcdcdeff, 0x323237ff);
+pub const BUBBLE: Token = Token::new(0xf1f1f2ff, 0x2c2c30ff);
+pub const MENTION: Token = Token::new(0x0284c7ff, 0x5bb8f0ff);
+/// A prompt's opening `/command`.
+pub const COMMAND: Token = Token::new(0x5b5bd6ff, 0xb1a9ffff);
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
 pub const AGENT_CODEX: Token = Token::fixed(0x0f9d8aff);
 
@@ -396,17 +412,47 @@ pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {
 /// Colours a repository can take in the rail, the menu and the new-session form.
 pub const PALETTE: [u32; 6] = [0xd97757ff, 0x0f9d8aff, 0x7b61ffff, 0xe8a317ff, 0x3b82f6ff, 0x8b8b94ff];
 
-pub fn provider_color(provider: &str) -> Token {
-    match provider {
-        "codex" => AGENT_CODEX,
-        "claude" => AGENT_CLAUDE,
-        _ => TEXT_3,
+/// How a provider looks; ids and order follow `agents::providers::ALL`, which this crate can't depend on.
+pub struct Brand {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// What the chat calls it mid-sentence: "Claude working…".
+    pub short: &'static str,
+    pub color: Token,
+    pub glyph: &'static str,
+    /// Its icon takes `color` rather than the caller's ink.
+    pub tinted: bool,
+}
+
+pub const BRANDS: [Brand; 2] = [
+    Brand { id: "claude", name: "Claude Code", short: "Claude", color: AGENT_CLAUDE, glyph: "claude", tinted: true },
+    Brand { id: "codex", name: "Codex", short: "Codex", color: AGENT_CODEX, glyph: "openai", tinted: false },
+];
+
+pub const PROVIDER_NAMES: [&str; BRANDS.len()] = {
+    let mut names = [""; BRANDS.len()];
+    let mut i = 0;
+    while i < BRANDS.len() {
+        names[i] = BRANDS[i].name;
+        i += 1;
     }
+    names
+};
+
+pub fn brand(provider: &str) -> Option<&'static Brand> {
+    BRANDS.iter().find(|b| b.id == provider)
+}
+
+pub fn provider_color(provider: &str) -> Token {
+    brand(provider).map_or(TEXT_3, |b| b.color)
 }
 
 /// Claude's spark in its orange; OpenAI's knot, or a terminal for anything else, in `ink`.
 pub fn provider_icon(provider: &str, size: f32, ink: impl Into<Hsla>) -> Svg {
-    let ink = if provider == "claude" { AGENT_CLAUDE.into() } else { ink.into() };
+    let ink = match brand(provider) {
+        Some(b) if b.tinted => b.color.into(),
+        _ => ink.into(),
+    };
     icon(provider_glyph(provider), size, ink)
 }
 
@@ -416,20 +462,12 @@ pub fn provider_svg(provider: &str) -> &'static [u8] {
     ICONS.iter().find(|(p, _)| *p == path).map_or(&[], |(_, bytes)| bytes)
 }
 
-fn provider_glyph(provider: &str) -> &'static str {
-    match provider {
-        "claude" => "claude",
-        "codex" => "openai",
-        _ => "terminal",
-    }
+pub fn provider_glyph(provider: &str) -> &'static str {
+    brand(provider).map_or("terminal", |b| b.glyph)
 }
 
 pub fn provider_name(provider: &str) -> &'static str {
-    match provider {
-        "codex" => "Codex",
-        "claude" => "Claude Code",
-        _ => "Shell",
-    }
+    brand(provider).map_or("Shell", |b| b.name)
 }
 
 pub fn icon(name: &str, size: f32, color: impl Into<Hsla>) -> Svg {
@@ -455,8 +493,17 @@ fn material_icon(path: &str, folder: bool, open: bool) -> &'static str {
     }
 }
 
+/// Whether `path` names a file the icon theme has its own icon for.
+pub fn has_file_icon(path: &str) -> bool {
+    material_icon(path, false, false) != "file"
+}
+
+pub fn file_icon_path(path: &str, folder: bool, open: bool) -> SharedString {
+    format!("icons/material/{}.svg", material_icon(path, folder, open)).into()
+}
+
 pub fn file_icon(path: &str, folder: bool, open: bool, size: f32) -> Img {
-    img(format!("icons/material/{}.svg", material_icon(path, folder, open))).size(px(size)).flex_none()
+    img(file_icon_path(path, folder, open)).size(px(size)).flex_none()
 }
 
 pub fn spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) -> impl IntoElement {
@@ -504,9 +551,9 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "bolt", "branch", "check", "chevron-down", "chevron-right", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple", "diff-split",
-    "discard", "explorer", "external", "file", "filter", "flow", "folder", "folder-plus", "forward", "globe", "grip", "inbox", "keyboard", "laptop", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "reload", "run-cancelled", "run-skipped", "search", "send", "server", "sessions", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "trash", "unfold", "warning", "worktree", "x", "x-bold",
+    "agent-arc", "agent-done", "agent-failed", "agent-ring", "agent-starting", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "circle-x", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple", "diff-split",
+    "discard", "explorer", "external", "file", "file-plus", "filter", "flow", "folder", "folder-plus", "forward", "globe", "grip", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
 
 const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));

@@ -1,3 +1,4 @@
+use agents::providers;
 use serde::{Deserialize, Serialize};
 
 /// How an AI-written commit message reads.
@@ -43,8 +44,8 @@ impl Default for Git {
             commit_all: true,
             force_with_lease: false,
             ai: true,
-            agent: "claude".into(),
-            model: "haiku".into(),
+            agent: providers::ALL[0].id.into(),
+            model: providers::ALL[0].oneshot.model.into(),
             style: Style::Recent,
             prompt: String::new(),
             draft: false,
@@ -80,13 +81,10 @@ impl Git {
     }
 
     fn agent_argv(&self, command: &str, prompt: &str) -> Vec<String> {
-        let mut argv: Vec<String> = match self.agent.as_str() {
-            "codex" => [command, "exec", "-s", "read-only", "--skip-git-repo-check", "--color", "never"].map(String::from).to_vec(),
-            _ => vec![command.into(), "-p".into()],
-        };
+        let o = &providers::known(&self.agent).oneshot;
+        let mut argv: Vec<String> = std::iter::once(command).chain(o.args.iter().copied()).map(String::from).collect();
         if !self.model.is_empty() {
-            let flag = if self.agent == "codex" { "-m" } else { "--model" };
-            argv.extend([flag.into(), self.model.clone()]);
+            argv.extend([o.model_flag.into(), self.model.clone()]);
         }
         argv.push(prompt.into());
         argv
@@ -95,7 +93,7 @@ impl Git {
     /// Picks the agent; a model chosen for the other one goes back to this one's default.
     pub fn set_agent(&mut self, agent: &str) {
         if agent != self.agent {
-            self.model = if agent == "claude" { Git::default().model } else { String::new() };
+            self.model = providers::get(agent).map_or("", |b| b.oneshot.model).into();
             self.agent = agent.into();
         }
     }

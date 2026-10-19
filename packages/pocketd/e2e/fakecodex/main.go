@@ -1,5 +1,6 @@
 // Command fakecodex stands in for the codex CLI in e2e tests: it prints its
-// arguments and echoes input.
+// arguments and echoes input. As `codex app-server` it speaks JSON-RPC, as
+// for Pocket's chat; see appserver.go.
 package main
 
 import (
@@ -10,6 +11,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "app-server" {
+		appServerMain()
+		return
+	}
 	fmt.Printf("fake codex ready %s\r\n", strings.Join(os.Args[1:], " "))
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {

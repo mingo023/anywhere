@@ -20,6 +20,7 @@ import (
 	"pocketd/internal/names"
 	"pocketd/internal/naming"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
@@ -157,6 +158,9 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: fl}
 	}
 	argv[0] = exe
+	if Chat(s) {
+		argv = Piped(l.d.Exe, argv)
+	}
 	cwd, setup, fl := l.checkout(w, f, s, env, progress)
 	if fl != nil {
 		return Result{Err: fl}
@@ -194,6 +198,13 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	creating(Creating{Terminal: id, Cwd: cwd, Setup: setup != ""})
 	r := l.wait(t, id, exits, progress)
 	r.Cwd = cwd
+	if r.Err == nil && s.Prompt != "" && Chat(s) {
+		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
+			if err := a.Driver().Prompt(s.Prompt); err != nil {
+				r.Err = &Failure{Code: "spawn_failed", Message: "Couldn't send the prompt", Detail: err.Error()}
+			}
+		}
+	}
 	if r.Err == nil && s.Prompt != "" {
 		j := job{provider: s.Provider, exe: exe, env: env, prompt: s.Prompt, local: local}
 		if n := s.Checkout.New; n != nil && n.AutoName {
@@ -316,13 +327,14 @@ func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step
 
 func on(b *bool) bool { return b == nil || *b }
 
-// trust refuses a phone's claude where Claude would wait on its trust dialog:
+// trust refuses a phone's agent where it would wait on a trust dialog:
 // nobody at the Mac would see it.
 func trust(w Who, s proto.LaunchSpec, dir string, env []string) *Failure {
-	if w.Owner || s.Provider != "claude" || trustedAt(env, dir) {
+	c := clis[s.Provider]
+	if w.Owner || c == nil {
 		return nil
 	}
-	return fail("folder_not_trusted", "Trust this folder in Claude on your Mac first")
+	return c.untrusted(env, dir)
 }
 
 func gitFailure(err error) *Failure {
@@ -419,30 +431,31 @@ func (l *Launcher) Exited(terminalID, phase string, status int) {
 // Providers lists the agents the user's shell can run. maxAccess is w's ceiling.
 func (l *Launcher) Providers(w Who) (list []proto.ProviderInfo, maxAccess, phoneMax string) {
 	env := l.d.LoginEnv()
-	_, claude := l.find("claude", env)
-	_, codex := l.find("codex", env)
+	for _, p := range providers.All {
+		_, ok := l.find(p.ID, env)
+		list = append(list, proto.ProviderInfo{ID: p.ID, Available: ok, Efforts: p.Efforts, Plan: p.Plan, Chat: p.Chat})
+	}
 	phoneMax = l.set.PhoneMaxAccess()
 	maxAccess = phoneMax
 	if w.Owner {
 		maxAccess = "full"
 	}
-	return []proto.ProviderInfo{
-		{ID: "claude", Available: claude, Efforts: ClaudeEfforts, Plan: true},
-		{ID: "codex", Available: codex, Efforts: []string{}, Plan: false},
-	}, maxAccess, phoneMax
+	return list, maxAccess, phoneMax
 }
 
 // Paths is what runs each built-in agent: a path, a shell function's name, or empty.
 func (l *Launcher) Paths() map[string]string {
 	env := l.d.LoginEnv()
 	paths := map[string]string{}
-	for _, p := range []string{"claude", "codex"} {
-		paths[p], _ = l.find(p, env)
+	for _, p := range providers.All {
+		paths[p.ID], _ = l.find(p.ID, env)
 	}
 	return paths
 }
 
 func (l *Launcher) SetPhoneMaxAccess(v string) error { return l.set.SetPhoneMaxAccess(v) }
+
+func (l *Launcher) PhoneMaxAccess() string { return l.set.PhoneMaxAccess() }
 
 func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 	env := l.d.LoginEnv()

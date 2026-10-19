@@ -9,7 +9,7 @@ use theme::*;
 use ui::{self, State, Variant, kbd};
 
 impl Desktop {
-    pub fn inbox_detail(&mut self, cx: &mut Context<Self>) -> Div {
+    pub fn inbox_detail(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Some(n) = self.shown_notes().into_iter().nth(self.inbox.selected) else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("You're all caught up.");
         };
@@ -38,7 +38,8 @@ impl Desktop {
             .child(ui::button("open-session", Variant::Secondary, None, "Open session").child(icon("forward", 14., TEXT)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.focus_agent(&agent, window, cx)
             })));
-        let pane = self.pane(&n.terminal, &surface::Metrics::of(&self.store.terminal), cx);
+        let chat = self.chat_shown(&n.terminal);
+        let pane = if chat { self.chat_view(&n.terminal, window, cx) } else { self.pane(&n.terminal, &surface::Metrics::of(&self.store.terminal), cx) };
         let hints = div()
             .h(px(36.))
             .flex_none()
@@ -48,7 +49,7 @@ impl Desktop {
             .gap(px(6.))
             .text_size(px(12.))
             .text_color(TEXT_2)
-            .child("Answer in the terminal ·")
+            .child(if chat { "Answer in the chat ·" } else { "Answer in the terminal ·" })
             .child(kbd("J"))
             .child(kbd("K"))
             .child("next / previous ·")

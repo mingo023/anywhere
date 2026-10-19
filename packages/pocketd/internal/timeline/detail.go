@@ -18,12 +18,27 @@ func (in toolInput) get(key string) string {
 	return s
 }
 
+// taskOf is the background task a call reads or stops, by the tool's name and input.
+func taskOf(name string, raw json.RawMessage) string {
+	var in toolInput
+	_ = json.Unmarshal(raw, &in)
+	switch name {
+	case "TaskOutput", "TaskStop":
+		return in.get("task_id")
+	case "BashOutput":
+		return in.get("bash_id")
+	case "KillShell":
+		return in.get("shell_id")
+	}
+	return ""
+}
+
 // Detail maps a Claude tool call to the card the phone draws.
 func Detail(name string, raw json.RawMessage) proto.ToolDetail {
 	var in toolInput
 	_ = json.Unmarshal(raw, &in)
 	switch name {
-	case "Bash", "BashOutput":
+	case "Bash":
 		return proto.ToolDetail{Kind: "shell", Command: in.get("command"), Description: in.get("description")}
 	case "Read", "NotebookRead":
 		return proto.ToolDetail{Kind: "read", Path: in.get("file_path")}

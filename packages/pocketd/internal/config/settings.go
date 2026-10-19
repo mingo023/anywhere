@@ -17,6 +17,7 @@ import (
 
 	"pocketd/internal/atomicfile"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 )
 
 var ErrInvalid = errors.New("phone.maxAccess is ask, edits or auto")
@@ -133,12 +134,11 @@ func (s *Settings) Values() map[string]any {
 		"automations.history":    s.AutomationHistory(),
 		"listen":                 s.Listen(),
 		"port":                   s.Port(),
-		"claude.command":         s.command("claude"),
-		"codex.command":          s.command("codex"),
 	}
-	for _, p := range []string{"claude", "codex"} {
+	for _, p := range providers.All {
+		v[p.ID+".command"] = s.command(p.ID)
 		for _, key := range ArgKeys {
-			v[p+"."+key] = s.argText(p, key)
+			v[p.ID+"."+key] = s.argText(p.ID, key)
 		}
 	}
 	return v
@@ -196,18 +196,20 @@ func (s *Settings) Set(key, value string) error {
 		return s.setNumber(key, value, 0, 24)
 	case "automations.history":
 		return s.setNumber(key, value, 10, 500)
-	case "claude.command", "codex.command":
-		if err := ValidCommand(value); err != nil {
-			return err
-		}
-		provider, _, _ := strings.Cut(key, ".")
-		return s.set(provider, "command", value)
 	}
-	if provider, name, _ := strings.Cut(key, "."); (provider == "claude" || provider == "codex") && slices.Contains(ArgKeys, name) {
-		if err := ValidArgs(name, value); err != nil {
-			return err
+	if id, name, _ := strings.Cut(key, "."); providers.Get(id) != nil {
+		if name == "command" {
+			if err := ValidCommand(value); err != nil {
+				return err
+			}
+			return s.set(id, "command", value)
 		}
-		return s.set(provider, name, value)
+		if slices.Contains(ArgKeys, name) {
+			if err := ValidArgs(name, value); err != nil {
+				return err
+			}
+			return s.set(id, name, value)
+		}
 	}
 	return fmt.Errorf("unknown key %q", key)
 }

@@ -23,17 +23,8 @@ fn access_text(access: &str) -> (&'static str, &'static str) {
 }
 
 /// Full skips every approval, so it stands out.
-fn access_color(access: &str) -> Token {
+pub(crate) fn access_color(access: &str) -> Token {
     if access == "full" { WAITING_TEXT } else { TEXT }
-}
-
-/// The model a launch starts with: the one picked, else `app`'s from Settings.
-pub(crate) fn model_shown(picked: &str, app: &str) -> String {
-    match (picked, app) {
-        ("", "") => "Default model".into(),
-        ("", app) => model_label(app),
-        (picked, _) => model_label(picked),
-    }
 }
 
 /// The access a launch starts with: the one picked, else `app`'s from Settings.
@@ -56,12 +47,14 @@ pub(crate) fn access_choices(app: &str) -> Vec<(String, String, String)> {
     })).collect()
 }
 
+/// What a running agent switches between: each of `ACCESSES` but its own settings, which only a launch reads.
+pub(crate) fn switch_choices() -> Vec<(String, String, String)> {
+    access_choices("").into_iter().filter(|(v, _, _)| !v.is_empty() && v != "settings").collect()
+}
+
 /// A composer chip led by `glyph`; `toggle` opens or closes its menu.
 pub(crate) fn chip(id: &'static str, open: bool, glyph: &str, label: impl Into<SharedString>, color: Token, toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
-    ui::menu_chip(id, open)
-        .child(icon(glyph, 13., TEXT_2))
-        .child(div().font_weight(FontWeight::MEDIUM).text_color(color).child(label.into()))
-        .child(icon("chevron-down", 12., TEXT_4))
+    super::picker(super::pill().child(icon(glyph, 14., TEXT_2)).child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(color).child(label.into())), id, open)
         .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             cx.stop_propagation();
             toggle(this, cx);
@@ -71,19 +64,6 @@ pub(crate) fn chip(id: &'static str, open: bool, glyph: &str, label: impl Into<S
 pub(crate) fn access_chip(id: &'static str, open: bool, picked: &str, app: &str, toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
     let access = if picked.is_empty() { app } else { picked };
     chip(id, open, "shield", access_shown(picked, app), access_color(access), toggle, cx)
-}
-
-pub(crate) fn model_rows(id: &'static str, choices: Vec<(String, String)>, picked: &str, pick: Pick, cx: &mut Context<Desktop>) -> Vec<AnyElement> {
-    choices
-        .into_iter()
-        .enumerate()
-        .map(|(i, (value, label))| {
-            let pick = pick.clone();
-            ui::pick_row((id, i), value == picked, None::<Div>, div().child(label), None)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| pick(this, value.clone(), cx)))
-                .into_any_element()
-        })
-        .collect()
 }
 
 pub(crate) fn access_rows(id: &'static str, choices: Vec<(String, String, String)>, picked: &str, pick: Pick, cx: &mut Context<Desktop>) -> Vec<AnyElement> {
@@ -129,11 +109,10 @@ pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, lead: Option<
 
 #[cfg(test)]
 mod tests {
-    use super::{access_choices, access_shown, model_choices, model_shown};
+    use super::{access_choices, access_shown, model_choices, switch_choices};
 
     #[test]
     fn a_chip_names_the_pick_else_what_settings_start_with() {
-        assert_eq!((model_shown("", ""), model_shown("", "opus"), model_shown("haiku", "opus")), ("Default model".to_string(), "Opus".to_string(), "Haiku".to_string()));
         assert_eq!((access_shown("", "settings"), access_shown("", "auto"), access_shown("full", "auto")), ("Agent's settings", "Auto", "Full"));
     }
 
@@ -144,5 +123,10 @@ mod tests {
         let access: Vec<_> = access_choices("ask").into_iter().map(|(v, l, _)| (v, l)).collect();
         assert_eq!(access[0], (String::new(), "Default · Ask".to_string()));
         assert_eq!(access[1..].iter().map(|(v, _)| v.as_str()).collect::<Vec<_>>(), ["settings", "ask", "edits", "auto", "full"]);
+    }
+
+    #[test]
+    fn a_running_agent_switches_between_ask_edits_auto_and_full() {
+        assert_eq!(switch_choices().into_iter().map(|(v, l, _)| (v, l)).collect::<Vec<_>>(), [("ask", "Ask"), ("edits", "Edits"), ("auto", "Auto"), ("full", "Full")].map(|(v, l)| (v.to_string(), l.to_string())));
     }
 }

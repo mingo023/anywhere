@@ -3,6 +3,8 @@ package proto
 import (
 	"encoding/json"
 	"slices"
+
+	"pocketd/internal/providers"
 )
 
 const CapLaunch = "launch.v1"
@@ -39,6 +41,8 @@ type LaunchSpec struct {
 	Fork string `json:"fork,omitempty"`
 	// Account is an account id, or "builtin"; empty is the provider's default.
 	Account string `json:"account,omitempty"`
+	// Chat runs the agent for the chat where its provider can; without it, in its TUI.
+	Chat bool `json:"chat,omitempty"`
 }
 
 // Checkout is exactly one of Worktree, New and Local.
@@ -124,10 +128,11 @@ func NewAgentCreated(id, requestID, agentID, terminalID string) AgentCreated {
 }
 
 type ProviderInfo struct {
-	ID        string   `json:"id"`
-	Available bool     `json:"available"`
-	Efforts   []string `json:"efforts"`
-	Plan      bool     `json:"plan"`
+	ID        string         `json:"id"`
+	Available bool           `json:"available"`
+	Efforts   []string       `json:"efforts"`
+	Plan      bool           `json:"plan"`
+	Chat      providers.Chat `json:"chat"`
 }
 
 type AgentProviders struct {
@@ -159,7 +164,7 @@ func strictObject(raw json.RawMessage, allowed ...string) (map[string]json.RawMe
 }
 
 func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
-	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account")
+	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account", "chat")
 	if !ok {
 		return false
 	}
@@ -191,7 +196,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 	if set != 1 || c.New != nil && !c.New.valid() || c.Local != "" && !ValidLocalID(c.Local) {
 		return false
 	}
-	if s.Provider != "claude" && s.Provider != "codex" || !slices.Contains(Accesses, s.Access) || len(s.Prompt) > MaxPrompt {
+	if providers.Get(s.Provider) == nil || !slices.Contains(Accesses, s.Access) || len(s.Prompt) > MaxPrompt {
 		return false
 	}
 	*dst = &s

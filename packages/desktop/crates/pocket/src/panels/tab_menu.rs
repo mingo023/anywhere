@@ -18,7 +18,7 @@ impl Desktop {
 
     pub(crate) fn tab_menu_view(&self, pane: PaneId, cx: &mut Context<Self>) -> Stateful<Div> {
         let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
-        let item = |id: &'static str, lead: AnyElement, label: String, hint: Option<String>, keys: Option<&str>| {
+        let item = |id: ElementId, lead: AnyElement, label: String, hint: Option<String>, keys: Option<&str>| {
             div()
                 .id(id)
                 .h(px(32.))
@@ -35,8 +35,8 @@ impl Desktop {
                 .child(div().flex_1().flex().whitespace_nowrap().child(label).children(hint.map(|h| div().ml(px(7.)).text_color(TEXT_3).child(h))))
                 .children(keys.map(|k| div().text_size(px(11.5)).text_color(TEXT_4).child(k.to_string())))
         };
-        let agent = |id: &'static str, provider: &'static str, cx: &mut Context<Self>| {
-            item(id, provider_icon(provider, 14., TEXT).into_any_element(), self.agent_name(provider), self.model_hint(provider), None)
+        let agent = |provider: &'static str, cx: &mut Context<Self>| {
+            item(format!("tab-menu-{provider}").into(), provider_icon(provider, 14., TEXT).into_any_element(), self.agent_name(provider), self.model_hint(provider), None)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.panels.menu = None;
                     this.new_agent_tab(provider, Place::Pane(Some(pane)), cx);
@@ -61,18 +61,25 @@ impl Desktop {
                     .child(div().font_family(MONO).font_weight(FontWeight::MEDIUM).child(branch)),
             )
             .child(
-                item("tab-menu-shell", icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T"))
+                item("tab-menu-shell".into(), icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T"))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.panels.menu = None;
                         this.new_shell(Place::Pane(Some(pane)), cx);
                     })),
             )
             .child(
-                item("tab-menu-browser", icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
+                item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx))),
             )
+            .child(
+                item("tab-menu-chat".into(), icon("comment", 14., TEXT_2).into_any_element(), "New chat".into(), None, None)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.panels.menu = None;
+                        this.new_chat_tab(Place::Pane(Some(pane)), cx);
+                    })),
+            )
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))
-            .children(self.store.agents.enabled().into_iter().map(|p| agent(if p == "codex" { "tab-menu-codex" } else { "tab-menu-claude" }, p, cx)))
+            .children(self.store.agents.enabled().into_iter().map(|p| agent(p, cx)))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.panels.menu = None;
                 cx.notify();

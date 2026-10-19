@@ -706,6 +706,14 @@ impl ListState {
         state.logical_scroll_top = Some(scroll_top);
     }
 
+    /// The height of the items from `ix` on, or `None` while any of them is unmeasured.
+    pub fn height_from(&self, ix: usize) -> Option<Pixels> {
+        let state = &*self.0.borrow();
+        let mut cursor = state.items.cursor::<Count>(());
+        cursor.seek(&Count(ix), Bias::Right);
+        cursor.try_fold(px(0.), |height, item| Some(height + item.size()?.height))
+    }
+
     /// Get the bounds for the given item in window coordinates, if it's
     /// been rendered.
     pub fn bounds_for_item(&self, ix: usize) -> Option<Bounds<Pixels>> {

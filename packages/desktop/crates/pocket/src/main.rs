@@ -7,6 +7,7 @@ mod add_to_chat;
 mod automations;
 mod browser;
 mod capture;
+mod chat;
 mod composer;
 mod creating;
 mod desktop;

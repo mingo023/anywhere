@@ -1,6 +1,10 @@
 package state
 
-import "testing"
+import (
+	"testing"
+
+	"pocketd/internal/providers"
+)
 
 func TestParseReadsBackWhatEveryLaunchArgvAsksFor(t *testing.T) {
 	for _, c := range []struct {
@@ -20,6 +24,8 @@ func TestParseReadsBackWhatEveryLaunchArgvAsksFor(t *testing.T) {
 		{"codex", []string{"codex", "--approve-for-me"}, Launch{Access: "auto"}},
 		{"codex", []string{"codex", "-s", "danger-full-access", "-a", "never"}, Launch{Access: "full"}},
 		{"codex", []string{"codex", "--dangerously-bypass-approvals-and-sandbox"}, Launch{Access: "full"}},
+		{"codex", []string{"codex", "app-server", "-c", `sandbox_mode="read-only"`, "-c", `approval_policy="on-request"`, "-c", `model="gpt-6-luna"`, "-c", `model_reasoning_effort="low"`}, Launch{Access: "ask", Model: "gpt-6-luna", Effort: "low"}},
+		{"codex", []string{"codex", "app-server", "-c", `sandbox_mode="workspace-write"`, "-c", `approvals_reviewer="auto_review"`}, Launch{Access: "auto"}},
 		{"codex", []string{"codex", "--sandbox=workspace-write", "-m", "gpt-5.5", "--", "-s danger-full-access"}, Launch{Access: "edits", Model: "gpt-5.5"}},
 	} {
 		if got := Parse(c.provider, c.argv); got != c.want {
@@ -54,5 +60,21 @@ func TestModeFollowsClaudePermissionModes(t *testing.T) {
 	}
 	if got := Mode(l, "dontAsk"); got != l {
 		t.Errorf("unknown: %+v", got)
+	}
+}
+
+func TestEveryProviderHasAParser(t *testing.T) {
+	for _, p := range providers.All {
+		if parsers[p.ID] == nil {
+			t.Errorf("%s has no parser", p.ID)
+		}
+	}
+}
+
+func TestASwitchedPermissionModeReadsBackAsItsAccess(t *testing.T) {
+	for _, access := range []string{"ask", "edits", "auto", "full"} {
+		if got := Mode(Launch{Access: "settings", Plan: true}, PermissionMode(access)); got.Access != access || got.Plan {
+			t.Errorf("%s: got %+v", access, got)
+		}
 	}
 }

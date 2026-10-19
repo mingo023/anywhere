@@ -8,8 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
+
+	"pocketd/internal/providers"
 )
 
 func store(t *testing.T) *Store {
@@ -261,5 +264,23 @@ func TestUsageReadsBothProvidersLimits(t *testing.T) {
 	}
 	if b, _ := find(list, codex); b.Usage.Stale {
 		t.Fatal("refreshing one account touched another")
+	}
+}
+
+func TestEveryProviderHasALogin(t *testing.T) {
+	for _, p := range providers.All {
+		if _, ok := logins[p.ID]; !ok {
+			t.Errorf("%s has no login", p.ID)
+		}
+	}
+	if !reflect.DeepEqual(Providers, []string{"claude", "codex"}) {
+		t.Fatal(Providers)
+	}
+}
+
+func TestUnsetIsEveryLoginsKeysInProviderOrder(t *testing.T) {
+	want := []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
+	if !reflect.DeepEqual(Unset, want) {
+		t.Fatal(Unset)
 	}
 }

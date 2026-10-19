@@ -40,6 +40,9 @@ type ClientMessage struct {
 	Enabled         bool
 	LocalID         string
 	Project         string
+	Model           string
+	Effort          string
+	Access          string
 }
 
 var ErrMalformed = errors.New("Malformed message")
@@ -109,8 +112,11 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "agent.list", m.Type == "pair.begin", m.Type == "project.list", m.Type == "agent.providers":
 	case m.Type == "agent.prompt":
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
-	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close":
+	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
 		ok = get("agentId", &m.AgentID)
+	case m.Type == "agent.settings":
+		ok = get("agentId", &m.AgentID) && optionalString("model", &m.Model) && optionalString("effort", &m.Effort) && optionalString("access", &m.Access) &&
+			(m.Access == "" || m.Access != "settings" && slices.Contains(Accesses, m.Access)) && (m.Model != "" || m.Effort != "" || m.Access != "")
 	case m.Type == "agent.pin":
 		ok = get("agentId", &m.AgentID) && get("pinned", &m.Pinned)
 	case m.Type == "agent.view", m.Type == "agent.seen":
@@ -211,6 +217,27 @@ func NewAgentList(id string, agents []AgentSummary) AgentList {
 		agents = []AgentSummary{}
 	}
 	return AgentList{"agent.list", id, agents}
+}
+
+// Command is a slash command an agent's chat takes.
+type Command struct {
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	ArgumentHint string `json:"argumentHint,omitempty"`
+}
+
+type AgentCommands struct {
+	Type     string    `json:"type"`
+	ID       string    `json:"id"`
+	AgentID  string    `json:"agentId"`
+	Commands []Command `json:"commands"`
+}
+
+func NewAgentCommands(id, agentID string, commands []Command) AgentCommands {
+	if commands == nil {
+		commands = []Command{}
+	}
+	return AgentCommands{"agent.commands", id, agentID, commands}
 }
 
 type Worktree struct {

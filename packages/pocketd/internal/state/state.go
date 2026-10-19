@@ -42,6 +42,8 @@ type Terminal struct {
 	Account string `json:"account,omitempty"`
 	// Typed is whether the user started the agent in a shell, rather than Pocket.
 	Typed bool `json:"typed,omitempty"`
+	// Chat is whether the agent ran behind `pocketd pipe`, driven only by the chat.
+	Chat bool `json:"chat,omitempty"`
 }
 
 type File struct {

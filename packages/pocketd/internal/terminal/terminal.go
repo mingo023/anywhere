@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -72,7 +73,8 @@ type Terminal struct {
 	osc    scanner
 	last   *Report
 	report func(id string, r Report)
-	exit   func() // forgets the Terminal once its process ends
+	exit   func()     // forgets the Terminal once its process ends
+	typing sync.Mutex // held by a Prompt until its Enter goes out
 }
 
 type Manager struct {
@@ -487,16 +489,47 @@ func (s *Terminal) Replace(cmd string, args, env []string, origin string) error 
 }
 
 // Prompt types text, then Enter. TUIs treat a fast "text\r" burst as a paste
-// and keep the newline, so Enter goes out after a pause.
+// and keep the newline, so Enter goes out after a pause. A later Prompt waits
+// for that Enter, so two prompts never run together.
 func (s *Terminal) Prompt(text string) error {
+	return s.prompt(text)
+}
+
+// PromptOver is Prompt into an input that may hold text, as Claude's does
+// after a stop before its reply: Ctrl+U first clears it. Claude clears one
+// line per Ctrl+U and takes a longer burst as a paste, so they go out in short
+// bursts, enough for a long prompt.
+func (s *Terminal) PromptOver(text string) error {
+	clear := bytes.Repeat([]byte{0x15}, 16)
+	return s.prompt(text, clear, clear, clear, clear)
+}
+
+// PromptStashed is Prompt into an input that holds the user's draft: Claude's
+// Ctrl+S puts the draft aside, and Claude puts it back once text is sent.
+func (s *Terminal) PromptStashed(text string) error {
+	return s.prompt(text, []byte{0x13})
+}
+
+// prompt types each of keys, a burst at a time, before text.
+func (s *Terminal) prompt(text string, keys ...[]byte) error {
 	text, err := Sanitize(text)
 	if err != nil {
 		return err
 	}
+	s.typing.Lock()
+	for _, k := range keys {
+		if err := s.Write(k); err != nil {
+			s.typing.Unlock()
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if err := s.Write([]byte(text)); err != nil {
+		s.typing.Unlock()
 		return err
 	}
 	go func() {
+		defer s.typing.Unlock()
 		time.Sleep(150 * time.Millisecond)
 		s.Write([]byte("\r"))
 	}()

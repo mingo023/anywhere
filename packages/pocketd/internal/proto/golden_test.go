@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"pocketd/internal/providers"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/golden")
@@ -35,10 +37,19 @@ var serverGolden = map[string]any{
 		s.Status, s.Compacting, s.Attached, s.ProviderSessionID = "working", true, false, ""
 	})),
 	"agent_update_restore_cleared": NewAgentUpdate(with(func(s *AgentSummary) { s.Status = "working" })),
-	"agent_update_model":           NewAgentUpdate(with(func(s *AgentSummary) { s.Model, s.Effort = "claude-opus-5-5", "high" })),
+	"agent_update_model":           NewAgentUpdate(with(func(s *AgentSummary) { s.Model, s.Effort, s.Access = "claude-opus-5-5", "high", "edits" })),
 	"agent_update_pinned":          NewAgentUpdate(with(func(s *AgentSummary) { s.Pinned = true })),
 	"agent_update_activity":        NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Activity = "needsYou", "Approve Bash: rm marker" })),
 	"agent_update_account":         NewAgentUpdate(with(func(s *AgentSummary) { s.Account = "3f9a0c1b2d4e" })),
+	"agent_update_resets":          NewAgentUpdate(with(func(s *AgentSummary) { s.Resets, s.ProviderSessionID = 1, "s2" })),
+	"agent_update_chat_only":       NewAgentUpdate(with(func(s *AgentSummary) { s.ChatOnly = true })),
+	"agent_update_goal": NewAgentUpdate(with(func(s *AgentSummary) {
+		s.Status, s.Goal = "working", Goal{Objective: "tests pass", Status: "active", TokensUsed: 16510, TokenBudget: 50000}
+	})),
+	"agent_commands": NewAgentCommands("p9", "a1", []Command{
+		{Name: "goal", Description: "Set a goal — keep working until the condition is met"},
+		{Name: "review", Description: "Review a pull request", ArgumentHint: "<pr>"},
+	}),
 	"agent_list_restored": NewAgentList("l1", []AgentSummary{
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),
@@ -57,6 +68,9 @@ var serverGolden = map[string]any{
 	"stream_tool_other": NewAgentStream("a1", 1, Item{ID: "i3", Seq: 3, Ts: 12, Kind: "tool", Call: &ToolCall{
 		ToolUseID: "t3", Name: "mcp__x", Status: "error", Detail: ToolDetail{Kind: "other", Name: "mcp__x", Input: json.RawMessage(`{"q":1}`)},
 	}}),
+	"stream_subagent": NewAgentStream("a1", 1, Item{ID: "i7", Seq: 7, Ts: 16, Kind: "tool", ParentToolUseID: "t4", Call: &ToolCall{
+		ToolUseID: "t5", Name: "Read", Status: "running", Detail: ToolDetail{Kind: "read", Path: "a.go"},
+	}}),
 	"stream_tasks":   NewAgentStream("a1", 1, Item{ID: "i4", Seq: 4, Ts: 13, Kind: "tasks", Tasks: []TaskItem{{Text: "x", Status: "in_progress"}}}),
 	"stream_compact": NewAgentStream("a1", 1, Item{ID: "i5", Seq: 5, Ts: 14, Kind: "compact", Trigger: "manual"}),
 	"stream_result":  NewAgentStream("a1", 1, Item{ID: "i6", Seq: 6, Ts: 15, Kind: "result", OK: false, Error: "interrupted"}),
@@ -73,8 +87,10 @@ var serverGolden = map[string]any{
 	"agent_created":       NewAgentCreated("c1", "r1", "a1", "t1"),
 	"agent_progress":      NewAgentProgress("c1", "r1", StepFetch, "Couldn't fetch, using local main"),
 	"agent_providers": NewAgentProviders("p1", []ProviderInfo{
-		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true},
-		{ID: "codex", Available: false, Efforts: []string{}, Plan: false},
+		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true,
+			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true}},
+		{ID: "codex", Available: false, Efforts: []string{}, Plan: false,
+			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}},
 	}, "full", "ask"),
 	"error_detail":  NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
 	"hello_ok_host": helloOKHost(),
@@ -164,6 +180,9 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.close","id":null,"agentId":"a"}`,
 		`{"type":"agent.view","id":"1"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a"}`,
+		`{"type":"agent.settings","id":"1","agentId":"a"}`,
+		`{"type":"agent.settings","id":"1","agentId":"a","access":"settings"}`,
+		`{"type":"agent.settings","id":"1","agentId":"a","access":"root"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a","pinned":"yes"}`,
 		`{"type":"agent.view","id":"1","agentIds":null}`,
 		`{"type":"agent.seen","id":"1","agentIds":"a1"}`,

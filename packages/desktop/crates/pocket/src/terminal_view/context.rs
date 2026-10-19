@@ -12,7 +12,7 @@ pub(crate) fn glyph(level: Level) -> Token {
     }
 }
 
-fn thousands(n: u64) -> String {
+pub(crate) fn thousands(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {

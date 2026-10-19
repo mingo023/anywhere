@@ -252,7 +252,7 @@ impl Desktop {
             ]
         });
         // Codex signs in with a code typed into the browser, so only Claude can be handed one back.
-        let paste = (provider == "claude").then(|| field_box().w(px(230.)).child(div().flex_1().min_w_0().child(Input::new(&code_input).appearance(false).p_0().font_family(MONO).text_size(px(12.)))));
+        let paste = agents::providers::get(&provider).is_some_and(|b| b.pastes_code).then(|| field_box().w(px(230.)).child(div().flex_1().min_w_0().child(Input::new(&code_input).appearance(false).p_0().font_family(MONO).text_size(px(12.)))));
         let cancel = {
             let (host, provider) = (host.clone(), provider.clone());
             action(id("cancel"), "Cancel").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.cancel_sign_in(&host, &provider, cx)))

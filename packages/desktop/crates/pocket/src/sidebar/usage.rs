@@ -5,7 +5,7 @@ use store::prefs::Sidebar;
 /// Context left in each provider's newest session, and how full it is against the sidebar's thresholds.
 fn usage(agents: &Agents, s: &Sidebar) -> Vec<(&'static str, u64, Level)> {
     let latest = |p: &str| agents.list.iter().filter(|a| a.provider == p).max_by_key(|a| a.updated_at)?.context();
-    ["claude", "codex"].into_iter().filter_map(|p| latest(p).map(|(used, window)| (p, 100 - percent(used, window), level(used, window, s.warn_at, s.critical_at)))).collect()
+    agents::providers::IDS.into_iter().filter_map(|p| latest(p).map(|(used, window)| (p, 100 - percent(used, window), level(used, window, s.warn_at, s.critical_at)))).collect()
 }
 
 impl Desktop {

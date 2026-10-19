@@ -20,6 +20,8 @@ pub(crate) struct BlinkCursor {
     visible: bool,
     paused: bool,
     epoch: usize,
+    /// Whether the window is active. An inactive one draws no caret, so blinking there would only redraw the window.
+    active: bool,
 
     _task: Task<()>,
 }
@@ -30,6 +32,7 @@ impl BlinkCursor {
             visible: false,
             paused: false,
             epoch: 0,
+            active: true,
             _task: Task::ready(()),
         }
     }
@@ -44,13 +47,17 @@ impl BlinkCursor {
         cx.notify();
     }
 
+    pub(crate) fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+
     fn next_epoch(&mut self) -> usize {
         self.epoch += 1;
         self.epoch
     }
 
     fn blink(&mut self, epoch: usize, cx: &mut Context<Self>) {
-        if self.paused || epoch != self.epoch {
+        if self.paused || epoch != self.epoch || !self.active {
             self.visible = true;
             return;
         }
@@ -115,6 +122,26 @@ mod tests {
         assert!(!cursor.read_with(cx, |cursor, _| cursor.visible()));
         cx.executor().advance_clock(INTERVAL);
         cx.run_until_parked();
+        assert!(cursor.read_with(cx, |cursor, _| cursor.visible()));
+    }
+
+    #[gpui::test]
+    fn a_cursor_in_an_inactive_window_stops_blinking(cx: &mut TestAppContext) {
+        let cursor = cx.new(|_| BlinkCursor::new());
+        let blinks = std::rc::Rc::new(std::cell::Cell::new(0));
+        let _counting = cx.update(|cx| {
+            let blinks = blinks.clone();
+            cx.observe(&cursor, move |_, _| blinks.set(blinks.get() + 1))
+        });
+        cursor.update(cx, |cursor, cx| cursor.start(cx));
+        cx.run_until_parked();
+        cursor.update(cx, |cursor, _| cursor.set_active(false));
+        let before = blinks.get();
+        for _ in 0..4 {
+            cx.executor().advance_clock(INTERVAL);
+            cx.run_until_parked();
+        }
+        assert_eq!(blinks.get(), before);
         assert!(cursor.read_with(cx, |cursor, _| cursor.visible()));
     }
 }

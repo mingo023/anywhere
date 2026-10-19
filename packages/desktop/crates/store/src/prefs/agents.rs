@@ -1,4 +1,5 @@
 use crate::LaunchPick;
+use agents::providers;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -7,17 +8,6 @@ pub const ACCESSES: [&str; 5] = ["settings", "ask", "edits", "auto", "full"];
 
 /// Where "Add to chat" sends a quote when no agent is picked; "ask" never picks one.
 pub const CHAT_TO: [&str; 3] = ["focused", "recent", "ask"];
-
-/// Claude Code's model aliases; its CLI lists no models.
-pub const CLAUDE_MODELS: [&str; 3] = ["haiku", "sonnet", "opus"];
-
-/// The efforts pocketd passes to Claude Code.
-pub const CLAUDE_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-
-/// The efforts `provider` takes; pocketd refuses one for Codex.
-pub fn efforts(provider: &str) -> &'static [&'static str] {
-    if provider == PLANS { &CLAUDE_EFFORTS } else { &[] }
-}
 
 /// A provider's own settings; empty leaves each to the agent.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
@@ -60,12 +50,10 @@ impl Args {
 
     /// pocketd's default when config.json sets none; pocketd's config/args.go holds the same.
     pub fn default_text(self, provider: &str) -> &'static str {
-        match (self, provider) {
-            (Self::Prompt, _) => "--",
-            (Self::Resume, "codex") => "resume",
-            (Self::Resume, _) => "--resume",
-            (Self::Fork, "codex") => "fork {sessionId}",
-            (Self::Fork, _) => "--resume {sessionId} --fork-session",
+        match self {
+            Self::Prompt => "--",
+            Self::Resume => providers::known(provider).resume_args,
+            Self::Fork => providers::known(provider).fork_args,
         }
     }
 }
@@ -93,13 +81,14 @@ pub struct Agents {
     pub new_worktree: bool,
     /// ⌘T and splits open the default agent instead of a shell.
     pub tabs_open_agent: bool,
-    pub starters: Vec<String>,
     /// "Add to chat" presses Return after the quote.
     pub send_now: bool,
     /// One of `CHAT_TO`.
     pub chat_to: String,
     /// A tab closes when its agent exits, instead of returning to the shell.
     pub close_on_exit: bool,
+    /// New sessions start as a chat rather than in the agent's TUI.
+    pub start_as_chat: bool,
     /// By provider.
     pub providers: BTreeMap<String, Provider>,
 }
@@ -113,10 +102,10 @@ impl Default for Agents {
             plan: false,
             new_worktree: false,
             tabs_open_agent: false,
-            starters: ["Review my uncommitted changes", "Fix the failing tests", "Summarise what this branch changes", "Write the commit message"].map(String::from).to_vec(),
             send_now: false,
             chat_to: "focused".into(),
             close_on_exit: false,
+            start_as_chat: false,
             providers: BTreeMap::new(),
         }
     }
@@ -183,18 +172,21 @@ impl Agents {
         LaunchPick { account: String::new(), ..remembered.switched(provider) }
     }
 
-    /// A create spec with plan mode where its agent has one, and this permission mode and its provider's model and effort where it names none.
-    pub fn launch(&self, spec: &mut serde_json::Value) {
+    /// A create spec with plan mode where its agent has one (`plan`), and this permission mode, chat or TUI, and its provider's model and effort, if one of its `efforts`, where it names none.
+    pub fn launch(&self, spec: &mut serde_json::Value, plan: bool, efforts: &[String]) {
         if spec.get("access").is_none() {
             spec["access"] = self.access().into();
         }
-        spec["plan"] = (self.plan && spec["provider"] == PLANS).into();
+        if self.start_as_chat && spec.get("chat").is_none() {
+            spec["chat"] = true.into();
+        }
+        spec["plan"] = (self.plan && plan).into();
         let provider = spec["provider"].as_str().unwrap_or_default().to_string();
         let own = self.provider(&provider);
         if spec.get("model").is_none() && !own.model.is_empty() {
             spec["model"] = own.model.into();
         }
-        if spec.get("effort").is_none() && efforts(&provider).contains(&own.effort.as_str()) {
+        if spec.get("effort").is_none() && efforts.contains(&own.effort) {
             spec["effort"] = own.effort.into();
         }
     }
@@ -203,41 +195,15 @@ impl Agents {
     pub fn chat_to(&self) -> &'static str {
         CHAT_TO.into_iter().find(|t| *t == self.chat_to).unwrap_or("focused")
     }
-
-    /// Moves starter prompt `from` to where `to` is, shifting the ones between.
-    pub fn move_starter(&mut self, from: usize, to: usize) {
-        if from < self.starters.len() && to < self.starters.len() {
-            let s = self.starters.remove(from);
-            self.starters.insert(to, s);
-        }
-    }
-
-    /// Adds a starter prompt at the end; refuses a blank one or one already there.
-    pub fn add_starter(&mut self, text: &str) -> bool {
-        let text = text.trim();
-        let fresh = !text.is_empty() && !self.starters.iter().any(|s| s == text);
-        if fresh {
-            self.starters.push(text.into());
-        }
-        fresh
-    }
 }
-
-/// The one agent with a plan mode; pocketd refuses plan for Codex.
-const PLANS: &str = "claude";
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn a_blank_or_repeated_starter_prompt_is_not_added() {
-        let mut a = Agents::default();
-        assert!(a.add_starter("  Explain this repo "));
-        assert!(!a.add_starter("Explain this repo"));
-        assert!(!a.add_starter("   "));
-        assert_eq!(a.starters.last().map(String::as_str), Some("Explain this repo"));
+    fn claude_efforts() -> Vec<String> {
+        ["low", "medium", "high", "xhigh", "max"].map(String::from).to_vec()
     }
 
     #[test]
@@ -288,7 +254,9 @@ mod tests {
         *a.provider_mut("claude") = Provider { model: "opus".into(), effort: "high".into(), ..Provider::default() };
         *a.provider_mut("codex") = Provider { model: "gpt-5".into(), effort: "high".into(), ..Provider::default() };
         let (mut claude, mut named, mut codex) = (json!({"provider": "claude"}), json!({"provider": "claude", "model": "haiku"}), json!({"provider": "codex"}));
-        [&mut claude, &mut named, &mut codex].into_iter().for_each(|s| a.launch(s));
+        a.launch(&mut claude, true, &claude_efforts());
+        a.launch(&mut named, true, &claude_efforts());
+        a.launch(&mut codex, false, &[]);
         assert_eq!((&claude["model"], &claude["effort"]), (&json!("opus"), &json!("high")));
         assert_eq!((&named["model"], &named["effort"]), (&json!("haiku"), &json!("high")));
         assert_eq!((&codex["model"], codex.get("effort")), (&json!("gpt-5"), None));
@@ -323,8 +291,8 @@ mod tests {
     fn plan_mode_goes_only_to_the_agent_that_has_one() {
         let a = Agents { access: "auto".into(), plan: true, ..Agents::default() };
         let (mut claude, mut codex) = (serde_json::json!({"provider": "claude"}), serde_json::json!({"provider": "codex"}));
-        a.launch(&mut claude);
-        a.launch(&mut codex);
+        a.launch(&mut claude, true, &claude_efforts());
+        a.launch(&mut codex, false, &[]);
         assert_eq!((&claude["access"], &claude["plan"], &codex["access"], &codex["plan"]), (&"auto".into(), &true.into(), &"auto".into(), &false.into()));
     }
 
@@ -332,26 +300,25 @@ mod tests {
     fn a_launch_takes_the_app_s_permission_mode_unless_it_names_its_own() {
         let a = Agents { access: "auto".into(), ..Agents::default() };
         let mut named = json!({"provider": "claude", "access": "ask"});
-        a.launch(&mut named);
+        a.launch(&mut named, true, &claude_efforts());
         assert_eq!(named["access"], "ask");
+    }
+
+    #[test]
+    fn a_launch_starts_as_a_chat_only_when_set_unless_it_names_its_own() {
+        let (off, on) = (Agents::default(), Agents { start_as_chat: true, ..Agents::default() });
+        let (mut tui, mut chat, mut named) = (json!({"provider": "claude"}), json!({"provider": "claude"}), json!({"provider": "claude", "chat": true}));
+        off.launch(&mut tui, true, &claude_efforts());
+        on.launch(&mut chat, true, &claude_efforts());
+        off.launch(&mut named, true, &claude_efforts());
+        assert_eq!((tui.get("chat"), &chat["chat"], &named["chat"]), (None, &true.into(), &true.into()));
     }
 
     #[test]
     fn a_file_without_agent_settings_keeps_todays_behaviour() {
         let a: Agents = serde_json::from_str("{}").unwrap();
-        assert_eq!((a.access(), a.plan, a.new_worktree, a.tabs_open_agent, a.send_now, a.starters.len()), ("settings", false, false, false, false, 4));
-        assert_eq!((a.chat_to(), a.close_on_exit, a.provider("claude")), ("focused", false, Provider::default()));
-    }
-
-    #[test]
-    fn a_dragged_starter_prompt_lands_where_it_was_dropped() {
-        let mut a = Agents { starters: ["a", "b", "c", "d"].map(String::from).to_vec(), ..Agents::default() };
-        a.move_starter(0, 2);
-        assert_eq!(a.starters, ["b", "c", "a", "d"]);
-        a.move_starter(3, 0);
-        assert_eq!(a.starters, ["d", "b", "c", "a"]);
-        a.move_starter(1, 9);
-        assert_eq!(a.starters, ["d", "b", "c", "a"]);
+        assert_eq!((a.access(), a.plan, a.new_worktree, a.tabs_open_agent, a.send_now), ("settings", false, false, false, false));
+        assert_eq!((a.chat_to(), a.close_on_exit, a.start_as_chat, a.provider("claude")), ("focused", false, false, Provider::default()));
     }
 
     #[test]

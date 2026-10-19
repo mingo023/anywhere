@@ -2,6 +2,11 @@ pub(crate) mod picker;
 
 use agents::locals::Local;
 use agents::{Agents, CreateReply, Event};
+use chat::Action;
+use crate::chat::composer::send_button::send_button;
+use crate::chat::composer::suggest::Prompt;
+use crate::chat::composer::{MAX_ROWS, PLACEHOLDER};
+use crate::chat::mention;
 use crate::composer::{self, Composer};
 use crate::creating::Create;
 use crate::desktop::Desktop;
@@ -58,7 +63,7 @@ impl Access {
 pub struct NewForm {
     /// The new-session page fills the main area.
     pub(crate) shown: bool,
-    composer: Composer,
+    pub(crate) composer: Composer,
     search: Entity<InputState>,
     pr: Entity<InputState>,
     draft: Draft,
@@ -379,6 +384,11 @@ fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, curren
 }
 
 impl NewForm {
+    /// The project the session starts in.
+    pub(crate) fn project(&self) -> Option<&str> {
+        self.draft.repo.as_deref()
+    }
+
     /// pocketd's caps change on every connect.
     pub(crate) fn offer_locals(&mut self, offered: bool) {
         self.draft.locals_offered = offered;
@@ -386,19 +396,21 @@ impl NewForm {
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let dropped = composer::drop_images(cx.entity().downgrade(), slot);
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe what the agent should do…").rows(4).on_drop_paths(dropped));
-        let composer = Composer::new(prompt.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
+        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true).on_drop_paths(dropped).decorate(mention::decorations));
+        let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
+        let composer = Composer::new(prompt.clone(), models.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
         let subs = vec![
             cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| {
                 match ev {
-                    InputEvent::PressEnter { secondary: true, .. } => this.start_session(window, cx),
-                    InputEvent::Change => cx.notify(),
+                    InputEvent::PressEnter { shift: false, .. } => this.start_session(window, cx),
+                    InputEvent::Change => this.draft_changed(Prompt::Launch, cx),
                     _ => {}
                 }
             }),
             cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe(&models, |_, _, _: &InputEvent, cx| cx.notify()),
             cx.subscribe_in(&pr, window, |this, pr, ev: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { secondary, .. } = ev {
                     let typed = pr.read(cx).value().to_string();
@@ -489,7 +501,7 @@ impl Desktop {
     }
 
     /// The agent the page starts, picked here or the Project's last.
-    fn new_form_pick(&self) -> LaunchPick {
+    pub(crate) fn new_form_pick(&self) -> LaunchPick {
         let repo = self.new_form.draft.repo.as_deref();
         self.new_form.composer.draft.pick(repo, || self.last_pick(repo))
     }
@@ -531,7 +543,8 @@ impl Desktop {
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
-        self.store.agents.launch(&mut spec);
+        let info = self.agents.provider_info(&pick.provider);
+        self.store.agents.launch(&mut spec, info.plan, &info.efforts);
         self.store.repos.entry(project.clone()).or_default().launch = pick;
         if worktree {
             self.store.collapsed.remove(&project);
@@ -553,10 +566,17 @@ impl Desktop {
     pub(crate) fn on_launch(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             Event::Creating { request, terminal, cwd, setup } => {
+                if self.terminals.tab_chats.contains_key(&request) {
+                    self.store.chats.insert(terminal.clone());
+                    self.save_soon(cx);
+                }
                 self.terminals.created(&request, terminal.clone(), cwd.clone(), setup);
                 self.daemon.send(json!({"op": "list"}));
                 if self.creates.get(&request).is_some() {
                     self.store.track(&cwd);
+                    if self.store.agents.start_as_chat {
+                        self.store.chats.insert(terminal.clone());
+                    }
                     self.save_soon(cx);
                 }
                 if let Some(expected) = self.creates.started(&request, cwd.clone(), &mut self.worktrees) {
@@ -565,6 +585,10 @@ impl Desktop {
                     }
                     self.refresh_git(cx);
                 } else if self.new_form.draft.reply.answer(&request, None) {
+                    if self.store.agents.start_as_chat {
+                        self.store.chats.insert(terminal);
+                        self.save_soon(cx);
+                    }
                     self.clear_new_form(window, cx);
                     if self.new_form.shown {
                         self.leave_new_session(window, cx);
@@ -576,10 +600,13 @@ impl Desktop {
                     c.reach(&step, &note, Instant::now());
                 }
             }
-            Event::Created { request, .. } => {
-                self.creates.remove(&request);
+            Event::Created { request, agent } => {
+                if let Some(c) = self.creates.get(&request) {
+                    c.finish(agent, Instant::now());
+                }
             }
             Event::CreateFailed { request, message, detail, .. } => {
+                self.terminals.tab_chats.remove(&request);
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());
                 } else if let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown)
@@ -634,7 +661,7 @@ impl Desktop {
         f.source = Source::of(c.asked());
     }
 
-    pub fn new_session_page(&mut self, cx: &mut Context<Self>) -> Div {
+    pub fn new_session_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
         let name = self.repo_name(&repo);
@@ -646,11 +673,11 @@ impl Desktop {
             None => (f.target() == Target::Worktree).then(|| self.branch_select(cx)),
         };
         let link = (pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
+        let prompt = &self.new_form.composer.prompt;
+        let empty = prompt.read(cx).value().trim().is_empty() && self.new_form.composer.draft.images.is_empty();
+        let typing = !empty || prompt.read(cx).focus_handle(cx).is_focused(window);
         let ready = self.session_ready();
-        let send = ui::primary(div().id("form-start").size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(16.)).cursor_pointer())
-            .child(icon("arrow-up", 16., ON_PRIMARY))
-            .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))))
-            .when(!ready, |d| d.opacity(0.5).cursor_default());
+        let send = send_button("form-start".into(), Action::Send, empty, !ready).when(ready && !empty, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))));
         let pill = pr.map(|n| {
             let unlink = div()
                 .id("pr-unlink")
@@ -668,11 +695,11 @@ impl Desktop {
                 }));
             div().h(px(26.)).pl(px(9.)).pr(px(4.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).bg(FILL_2).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(icon("pull-request", 13., TEXT_2)).child(format!("#{n}")).child(unlink).into_any_element()
         });
-        let textarea = Textarea::new(&self.new_form.composer.prompt).h(px(105.)).line_height(px(23.25));
-        let trailing = link.map(IntoElement::into_any_element).into_iter().chain([ui::kbd("⌘↵").mr(px(8.)).into_any_element(), send.into_any_element()]).collect();
-        let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, pill.into_iter().collect(), trailing, cx);
+        let textarea = Textarea::new(&self.new_form.composer.prompt);
+        let trailing = link.map(IntoElement::into_any_element).into_iter().collect();
+        let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, typing, pill.into_iter().collect(), trailing, send, cx);
+        let composer = self.suggest_keys(Prompt::Launch, composer, cx).children(self.suggest_list(Prompt::Launch, cx));
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
-        let chips = self.new_form.composer.prompt.read(cx).value().is_empty().then(|| starters(&self.store.agents.starters, cx));
         let footer = div()
             .w_full()
             .max_w(px(600.))
@@ -693,38 +720,10 @@ impl Desktop {
             .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("What should we build next?"))
             .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
             .children(error)
-            .child(footer)
-            .children(chips.map(|s| div().w_full().max_w(px(600.)).mt(px(18.)).flex().flex_wrap().justify_center().gap(px(6.)).children(s)));
+            .child(footer);
         let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx);
         div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
     }
-}
-
-fn starters(prompts: &[String], cx: &mut Context<Desktop>) -> Vec<Stateful<Div>> {
-    prompts.iter().enumerate().map(|(i, text)| {
-        let text: SharedString = text.clone().into();
-        div()
-            .id(("form-starter", i))
-            .h(px(30.))
-            .px(px(12.))
-            .flex()
-            .items_center()
-            .rounded(px(15.))
-            .bg(SURFACE_SUNKEN)
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
-            .text_size(px(12.5))
-            .text_color(TEXT_2)
-            .whitespace_nowrap()
-            .cursor_pointer()
-            .hover(|s| s.bg(SURFACE).text_color(TEXT))
-            .child(text.clone())
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.new_form.composer.prompt.update(cx, |s, cx| {
-                    s.set_value(text.clone(), window, cx);
-                    s.focus(window, cx);
-                })
-            }))
-    }).collect()
 }
 
 #[cfg(test)]

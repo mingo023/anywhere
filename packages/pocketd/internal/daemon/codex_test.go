@@ -66,6 +66,23 @@ func TestACodexThreadBindsToTheCodexThatGotEnter(t *testing.T) {
 	})
 }
 
+func TestRebindingTheSameCodexThreadTellsClientsTheTimelineStartedOver(t *testing.T) {
+	d := newDaemon(t)
+	home, srv := codexHome(t)
+	term, pr := codexIn(t, d, home)
+	term.Write([]byte("\r"))
+	srv.Broadcast("thread/status/changed", active("th1"))
+	eventually(t, "the thread's history", func() bool { return pr.a.Summary().MaxSeq > 0 })
+	if got := pr.a.Summary().Resets; got != 0 {
+		t.Fatalf("first bind: resets %d", got)
+	}
+	d.bind(pr, "th1")
+	eventually(t, "the history again", func() bool {
+		items, _ := pr.a.Timeline.Page(0, 200)
+		return pr.a.Summary().Resets == 1 && len(items) > 0
+	})
+}
+
 func TestACodexStartedOnAPromptBindsItsFirstThreadWithoutEnter(t *testing.T) {
 	d := newDaemon(t)
 	home, srv := codexHome(t)
@@ -323,5 +340,26 @@ func TestAnEmbeddedCodexIsNotAttached(t *testing.T) {
 	w.ThreadStatus("th1", "active", nil)
 	if a := pr.a.Summary(); a.Attached || a.Status != "idle" || boundTo(pr) != "" || len(d.watchers) != 0 {
 		t.Fatalf("agent %+v, bound %q, %d watchers", a, boundTo(pr), len(d.watchers))
+	}
+}
+
+func TestSwitchingCodexUpdatesItsThreadOnceBound(t *testing.T) {
+	d := newDaemon(t)
+	home, srv := codexHome(t)
+	term, pr := codexIn(t, d, home)
+	if err := pr.a.Driver().Settings("gpt-6-sol", "low"); err != errNoThread {
+		t.Fatalf("unbound: %v", err)
+	}
+	term.Write([]byte("\r"))
+	srv.Broadcast("thread/status/changed", active("th1"))
+	eventually(t, "bound", func() bool { return boundTo(pr) == "th1" })
+	if err := pr.a.Driver().Settings("gpt-6-sol", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(srv.Next("thread/settings/update").Params); got != `{"effort":"low","model":"gpt-6-sol","threadId":"th1"}` {
+		t.Fatalf("update %s", got)
+	}
+	if s := pr.a.Summary(); s.Model != "gpt-6-sol" || s.Effort != "low" {
+		t.Fatalf("summary %s %s", s.Model, s.Effort)
 	}
 }

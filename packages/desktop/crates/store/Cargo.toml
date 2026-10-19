@@ -8,6 +8,7 @@ publish.workspace = true
 path = "src/store.rs"
 
 [dependencies]
+agents.workspace = true
 hosts.workspace = true
 serde.workspace = true
 serde_json.workspace = true

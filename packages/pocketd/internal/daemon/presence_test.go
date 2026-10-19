@@ -40,6 +40,8 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
+	// Set once: a test's tails may outlive it and read it.
+	StopSettle = 50 * time.Millisecond
 	os.Exit(m.Run())
 }
 
@@ -116,6 +118,18 @@ func TestAnAgentReportsTheEffortItWasStartedWith(t *testing.T) {
 	}
 	t.Cleanup(term.Close)
 	if a := waitAgent(t, d, term); a.Effort != "high" {
+		t.Fatalf("agent = %+v", a)
+	}
+}
+
+func TestAnAgentReportsTheModelItWasStartedWithBeforeItsFirstReply(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Args: []string{"--model", "haiku"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	if a := waitAgent(t, d, term); a.Model != "haiku" {
 		t.Fatalf("agent = %+v", a)
 	}
 }
@@ -288,5 +302,27 @@ func TestPocketSpawnedClaudeRunsPlainAndIsDetected(t *testing.T) {
 	}
 	if p, _ := proc.Read(d.present[term.Info().ID].pid); !slices.Equal(p.Argv, []string{bin, "--resume"}) {
 		t.Fatalf("argv = %q", p.Argv)
+	}
+}
+
+func TestSwitchingClaudeTypesItsCommandsAndKeepsThemForAResume(t *testing.T) {
+	d := newDaemon(t)
+	term := shell(t, d)
+	term.Write([]byte(fakeAgent(t, "claude") + " --model sonnet\r"))
+	a := waitAgent(t, d, term)
+	ag, _ := d.Agents.Get(a.ID)
+	if err := ag.Driver().Settings("opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "both commands, each on its own line", func() bool {
+		s := term.Screen()
+		return strings.Contains(s, "/model opus\n") && strings.Contains(s, "/effort high")
+	})
+	pr := d.presentIn(term.Info().ID)
+	pr.mu.Lock()
+	launch := pr.launch
+	pr.mu.Unlock()
+	if s := ag.Summary(); s.Model != "opus" || s.Effort != "high" || launch.Model != "opus" || launch.Effort != "high" {
+		t.Fatalf("summary %s %s, launch %+v", s.Model, s.Effort, launch)
 	}
 }

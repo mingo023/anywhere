@@ -1,7 +1,12 @@
 pub(crate) mod launch;
+pub(crate) mod model_menu;
 
+use crate::chat::composer::attachments::attach_button;
+use crate::chat::composer::suggest::Suggest;
+use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, mention_icons};
 use crate::desktop::Desktop;
-use gpui_kit::component::input::{Textarea, TextareaState};
+use gpui_kit::component::input::{InputState, Textarea, TextareaState};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use launch::Pick;
 use std::path::{Path, PathBuf};
@@ -16,7 +21,10 @@ pub(crate) type Slot = fn(&mut Desktop) -> &mut Composer;
 /// The prompt box that starts an agent: the words, the agent, model and access to start it with, and pasted images.
 pub(crate) struct Composer {
     pub(crate) prompt: Entity<TextareaState>,
+    /// Narrows the model menu's list.
+    search: Entity<InputState>,
     pub(crate) draft: Draft,
+    pub(crate) suggest: Suggest,
     slot: Slot,
     /// Closes the host's own menus as one of the composer's opens.
     opened: fn(&mut Desktop),
@@ -25,15 +33,14 @@ pub(crate) struct Composer {
 }
 
 impl Composer {
-    pub(crate) fn new(prompt: Entity<TextareaState>, slot: Slot, opened: fn(&mut Desktop), unsaved: fn(&mut Desktop, (String, String))) -> Self {
-        Self { prompt, draft: Draft::default(), slot, opened, unsaved }
+    pub(crate) fn new(prompt: Entity<TextareaState>, search: Entity<InputState>, slot: Slot, opened: fn(&mut Desktop), unsaved: fn(&mut Desktop, (String, String))) -> Self {
+        Self { prompt, search, draft: Draft::default(), suggest: Suggest::default(), slot, opened, unsaved }
     }
 }
 
 /// The chip whose menu is open.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Menu {
-    Agent,
     Model,
     Access,
 }
@@ -44,6 +51,10 @@ pub(crate) struct Draft {
     /// The agent picked here, and the Project it was picked for; another Project starts with its own.
     chosen: Option<(Option<String>, LaunchPick)>,
     pub(crate) menu: Option<Menu>,
+    /// The model menu's side menu, opened by pointing at its row.
+    pub(crate) side: Option<model_menu::Side>,
+    /// The agent whose models the side menu lists, once one is pointed at.
+    viewing: Option<&'static str>,
     pub(crate) images: Vec<Attachment>,
 }
 
@@ -64,8 +75,9 @@ impl Draft {
     }
 
     /// Whether `menu` is open now.
-    fn toggle(&mut self, menu: Menu) -> bool {
+    pub(crate) fn toggle(&mut self, menu: Menu) -> bool {
         self.menu = (self.menu != Some(menu)).then_some(menu);
+        (self.side, self.viewing) = (None, None);
         self.menu.is_some()
     }
 
@@ -83,7 +95,7 @@ impl Draft {
     }
 
     /// Attaches the dropped images where they lie and hands back the other files.
-    fn drop_images(&mut self, paths: &[PathBuf]) -> Vec<PathBuf> {
+    pub(crate) fn drop_images(&mut self, paths: &[PathBuf]) -> Vec<PathBuf> {
         let (images, rest): (Vec<PathBuf>, _) = paths.iter().cloned().partition(|p| is_image(p));
         for path in images {
             self.attach(Attachment { image: path.clone().into(), path });
@@ -105,8 +117,24 @@ impl Draft {
             return typed.to_string();
         }
         let list: Vec<String> = self.images.iter().map(|a| format!("- {}", a.path.display())).collect();
-        let block = format!("# Attached images\n\n{}", list.join("\n"));
+        let block = format!("{IMAGES}{}", list.join("\n"));
         if typed.is_empty() { block } else { format!("{typed}\n\n{block}") }
+    }
+}
+
+const IMAGES: &str = "# Attached images\n\n";
+
+/// Undoes [`Draft::prompt`]: the typed text and the attached image paths.
+pub(crate) fn split_images(prompt: &str) -> (&str, Vec<&str>) {
+    let at = match prompt.rfind(&format!("\n\n{IMAGES}")) {
+        Some(i) => Some((i, i + 2)),
+        None => prompt.starts_with(IMAGES).then_some((0, 0)),
+    };
+    let Some((end, block)) = at else { return (prompt, Vec::new()) };
+    let paths: Option<Vec<&str>> = prompt[block + IMAGES.len()..].lines().map(|l| l.strip_prefix("- ")).collect();
+    match paths {
+        Some(paths) if !paths.is_empty() => (&prompt[..end], paths),
+        _ => (prompt, Vec::new()),
     }
 }
 
@@ -144,13 +172,21 @@ fn save_image(image: &Image, path: &Path) -> std::io::Result<()> {
 }
 
 /// The image shows at once and its file is written behind it, so starting never waits on a write; the agent opens it long after.
-fn paste_image(desktop: &WeakEntity<Desktop>, slot: Slot, item: &ClipboardItem, window: &mut Window, cx: &mut App) -> bool {
+/// Attaches a pasted image to the draft `draft` picks; `unsaved` shows why it couldn't be saved.
+pub(crate) fn paste_image(
+    desktop: &WeakEntity<Desktop>,
+    draft: impl Fn(&mut Desktop) -> &mut Draft + 'static,
+    unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static,
+    item: &ClipboardItem,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
     let (Some(image), Some(d)) = (pasted_image(item), desktop.upgrade()) else { return false };
     let image = Arc::new(image);
     let path = attachment_path(&image, &d.read(cx).store.home().join("attachments"));
     let new = d.update(cx, |d, cx| {
         cx.notify();
-        slot(d).draft.attach(Attachment { path: path.clone(), image: image.clone().into() })
+        draft(d).attach(Attachment { path: path.clone(), image: image.clone().into() })
     });
     if !new {
         return true;
@@ -165,8 +201,7 @@ fn paste_image(desktop: &WeakEntity<Desktop>, slot: Slot, item: &ClipboardItem, 
             if let Err(e) = save.await {
                 desktop
                     .update(cx, |d, cx| {
-                        let unsaved = slot(d).unsaved;
-                        if slot(d).draft.unsaved(&path) {
+                        if draft(d).unsaved(&path) {
                             unsaved(d, ("Couldn't save the pasted image".into(), e.to_string()));
                         }
                         cx.notify();
@@ -190,8 +225,10 @@ pub(crate) fn drop_images(desktop: WeakEntity<Desktop>, slot: Slot) -> impl Fn(&
 }
 
 impl Desktop {
-    /// The box around `textarea`; `pills` lead the attachments above it, `trailing` follows the chips.
-    pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
+    /// The box around `textarea`, as the chat's; `pills` lead the attachments above it, `trailing` comes before the
+    /// model and `send`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, typing: bool, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, send: Stateful<Div>, cx: &mut Context<Self>) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
         let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let attached = (!pills.is_empty() || !c.draft.images.is_empty()).then(|| {
@@ -218,30 +255,29 @@ impl Desktop {
                 div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(img(a.image.clone()).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover)).child(remove)
             }))
         });
-        div()
+        let textarea = textarea
+            .appearance(false)
+            .text_size(px(INPUT_TEXT_SIZE))
+            .line_height(px(INPUT_LINE_HEIGHT))
+            .on_paste(move |item, window, cx| paste_image(&desktop, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx));
+        let bar = div()
             .flex()
-            .flex_col()
-            .rounded(px(14.))
-            .bg(SURFACE)
-            .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
+            .items_center()
+            .gap(px(4.))
+            .pt(px(4.))
+            .px(px(7.))
+            .pb(px(7.))
+            .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
+            .child(self.access_chip(c, &pick, project.clone(), cx))
+            .child(div().flex_1())
+            .children(trailing)
+            .child(self.model_pill(c, &pick, project, cx))
+            .child(send);
+        frame(typing)
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))
             .children(attached)
-            // The textarea pads itself 8px × 10px and wraps 10px short of its edge; the frame restores the design's 14/16/4 and its line breaks.
-            .child(div().pt(px(6.)).pl(px(6.)).mr(px(-6.)).child(textarea.appearance(false).text_size(px(15.)).on_paste(move |item, window, cx| paste_image(&desktop, slot, item, window, cx))))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(2.))
-                    .pt(px(4.))
-                    .px(px(10.))
-                    .pb(px(10.))
-                    .text_size(px(13.))
-                    .child(self.agent_chip(c, &pick, project.clone(), cx))
-                    .child(self.model_chip(c, &pick, project.clone(), cx))
-                    .child(self.access_chip(c, &pick, project, cx))
-                    .child(div().flex_1())
-                    .children(trailing),
-            )
+            .child(div().pt(px(5.)).px(px(5.)).child(textarea).child(mention_icons(c.prompt.clone())))
+            .child(bar)
     }
 
     pub(crate) fn toggle_composer(&mut self, slot: Slot, menu: Menu, cx: &mut Context<Self>) {
@@ -258,44 +294,6 @@ impl Desktop {
         cx.notify();
     }
 
-    fn agent_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Agent));
-        let chip = ui::menu_chip("composer-agent", open)
-            .child(provider_icon(&pick.provider, 13., TEXT))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(self.agent_name(&pick.provider)))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_composer(slot, Menu::Agent, cx);
-            }));
-        let menu = open.then(|| {
-            let rows = self.store.agents.enabled().into_iter().map(|p| {
-                let (project, switched) = (project.clone(), pick.switched(p));
-                ui::pick_row(p, p == pick.provider, Some(provider_icon(p, 13., TEXT)), div().child(self.agent_name(p)), None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.choose_launch(slot, project.clone(), switched.clone(), cx)))
-                    .into_any_element()
-            });
-            menu("composer-agent-menu", 260., rows.collect(), slot, cx)
-        });
-        div().relative().child(chip).children(menu)
-    }
-
-    fn model_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Model));
-        let app = self.store.agents.provider(&pick.provider).model;
-        let chip = launch::chip("composer-model", open, "sparkle", launch::model_shown(&pick.model, &app), TEXT, move |this, cx| {
-            this.load_models(cx);
-            this.toggle_composer(slot, Menu::Model, cx);
-        }, cx);
-        let menu = open.then(|| {
-            let current = pick.clone();
-            let choose: Pick = Rc::new(move |this, model, cx| this.choose_launch(slot, project.clone(), LaunchPick { model, ..current.clone() }, cx));
-            let rows = launch::model_rows("composer-model-row", launch::model_choices(&pick.provider, self.codex_models(), &pick.model, &app), &pick.model, choose, cx);
-            menu("composer-model-menu", 220., rows, slot, cx)
-        });
-        div().relative().child(chip).children(menu)
-    }
-
     fn access_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Access));
         let app = self.store.agents.access();
@@ -309,6 +307,16 @@ impl Desktop {
     }
 }
 
+/// A setting in the prompt box's bar, as model or access.
+pub(crate) fn pill() -> Div {
+    div().h(px(30.)).flex_none().flex().items_center().gap(px(6.)).pl(px(7.)).pr(px(6.)).rounded(px(9.)).text_size(px(12.5))
+}
+
+/// `pill` as a picker, shaded while its menu is open.
+pub(crate) fn picker(pill: Div, id: impl Into<ElementId>, open: bool) -> Stateful<Div> {
+    pill.id(id).cursor_pointer().when(open, |d| d.bg(FILL_2)).hover(|s| s.bg(FILL_2)).child(icon("chevron-down", 12., TEXT_4))
+}
+
 /// A chip's menu, closed by a press outside it.
 fn menu(id: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mut Context<Desktop>) -> Div {
     let menu = ui::pop(div().id(id))
@@ -318,6 +326,7 @@ fn menu(id: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mu
         .p(px(5.))
         .flex()
         .flex_col()
+        .gap(px(2.))
         // Menus hang over the page; without this a click on one also lands on what it covers.
         .occlude()
         .children(rows)
@@ -330,7 +339,7 @@ fn menu(id: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mu
 
 #[cfg(test)]
 mod tests {
-    use super::{Attachment, Draft, Menu, attachment_path, pasted_image, save_image};
+    use super::{Attachment, Draft, Menu, attachment_path, pasted_image, save_image, split_images};
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
     use store::LaunchPick;
 
@@ -356,9 +365,19 @@ mod tests {
         assert!(draft.toggle(Menu::Access));
         assert!(draft.menu == Some(Menu::Access));
         assert!(!draft.toggle(Menu::Access));
-        draft.toggle(Menu::Agent);
+        draft.toggle(Menu::Model);
         draft.choose(None, codex());
         assert!(draft.menu.is_none());
+    }
+
+    #[test]
+    fn reopening_the_model_menu_closes_its_side_menu_and_points_at_the_picked_agent() {
+        let mut draft = Draft::default();
+        draft.toggle(Menu::Model);
+        (draft.side, draft.viewing) = (Some(super::model_menu::Side::Model), Some("codex"));
+        draft.toggle(Menu::Model);
+        draft.toggle(Menu::Model);
+        assert_eq!((draft.side, draft.viewing), (None, None));
     }
 
     #[test]
@@ -407,5 +426,17 @@ mod tests {
         assert_eq!(draft.prompt(" Fix CI "), format!("Fix CI\n\n{block}"));
         assert_eq!(draft.prompt(""), block);
         assert_eq!(Draft::default().prompt(" Fix CI "), "Fix CI");
+    }
+
+    #[test]
+    fn a_sent_prompt_splits_back_into_its_text_and_image_paths() {
+        let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
+        let at = |path: &str| Attachment { path: path.into(), image: image.clone().into() };
+        let draft = Draft { images: vec![at("/h/a.png"), at("/h/b c.png")], ..Draft::default() };
+        assert_eq!(split_images(&draft.prompt("Fix CI")), ("Fix CI", vec!["/h/a.png", "/h/b c.png"]));
+        assert_eq!(split_images(&draft.prompt("")), ("", vec!["/h/a.png", "/h/b c.png"]));
+        assert_eq!(split_images("Fix CI"), ("Fix CI", vec![]));
+        let typed = "Explain\n\n# Attached images\n\nthis heading";
+        assert_eq!(split_images(typed), (typed, vec![]));
     }
 }

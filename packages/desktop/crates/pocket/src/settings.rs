@@ -24,6 +24,7 @@ mod terminal;
 
 pub(crate) use appearance::{forced, reduce_motion};
 
+use ::agents::providers;
 use crate::actions::OpenSettings;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen, drag_area};
@@ -56,9 +57,8 @@ pub enum Section {
     Browser,
     Git,
     Diff,
-    /// A provider's own page, opened from Agents.
-    Claude,
-    Codex,
+    /// The page of `providers::ALL[i]`, opened from Agents.
+    Provider(usize),
 }
 
 impl Section {
@@ -99,8 +99,7 @@ impl Section {
             Section::Browser => "Browser",
             Section::Git => "Git & GitHub",
             Section::Diff => "Diff & Graph",
-            Section::Claude => "Claude Code",
-            Section::Codex => "Codex",
+            Section::Provider(i) => PROVIDER_NAMES[i],
         }
     }
 
@@ -123,15 +122,14 @@ impl Section {
             Section::Browser => "browser",
             Section::Git => "git",
             Section::Diff => "diff",
-            Section::Claude => "claude",
-            Section::Codex => "codex",
+            Section::Provider(i) => providers::IDS[i],
         }
     }
 
     fn group(self) -> &'static str {
         match self {
             Section::General | Section::Appearance | Section::Notifications | Section::Keyboard => "App",
-            Section::Agents | Section::Accounts | Section::Automations | Section::Phone | Section::Hosts | Section::Claude | Section::Codex => "Agents",
+            Section::Agents | Section::Accounts | Section::Automations | Section::Phone | Section::Hosts | Section::Provider(_) => "Agents",
             Section::Projects | Section::Sidebar | Section::Terminal | Section::Files | Section::Browser => "Projects",
             Section::Git | Section::Diff => "Git",
         }
@@ -155,7 +153,7 @@ impl Section {
             Section::Browser => "The in-app browser for docs, pull requests and your dev servers.",
             Section::Git => "Committing, pushing, AI commit messages and pull requests.",
             Section::Diff => "How changes and history are shown in Changes and the commit graph.",
-            Section::Claude | Section::Codex => "",
+            Section::Provider(_) => "",
         }
     }
 
@@ -165,7 +163,7 @@ impl Section {
             Section::Appearance => "appearance",
             Section::Notifications => "bell",
             Section::Keyboard => "keyboard",
-            Section::Agents | Section::Claude | Section::Codex => "sparkle",
+            Section::Agents | Section::Provider(_) => "sparkle",
             Section::Accounts => "shield",
             Section::Automations => "clock",
             Section::Phone => "phone",
@@ -198,15 +196,14 @@ impl Section {
             Section::Browser => browser::ROWS,
             Section::Git => git::ROWS,
             Section::Diff => diff::ROWS,
-            Section::Claude => provider::CLAUDE_ROWS,
-            Section::Codex => provider::CODEX_ROWS,
+            Section::Provider(i) => provider::PAGES[i],
         }
     }
 
     /// The nav item that stays selected; a provider's page sits under Agents.
     fn nav(self) -> Section {
         match self {
-            Section::Claude | Section::Codex => Section::Agents,
+            Section::Provider(_) => Section::Agents,
             s => s,
         }
     }
@@ -270,7 +267,7 @@ impl SettingsState {
         })];
         let mut fields = HashMap::new();
         // The provider pages are reached from Agents, so ALL leaves them out.
-        for setting in Section::ALL.iter().chain(&[Section::Claude, Section::Codex]).flat_map(|s| s.rows()) {
+        for setting in Section::ALL.into_iter().chain((0..providers::COUNT).map(Section::Provider)).flat_map(|s| s.rows()) {
             let Control::Text { placeholder, get, set } = setting.control else { continue };
             let value = get(store);
             let field = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(value));
@@ -481,7 +478,7 @@ impl Desktop {
         if self.settings.section == Section::Git && self.prs.gh.is_none() {
             self.check_gh(cx);
         }
-        if matches!(self.settings.section, Section::Git | Section::Codex) {
+        if matches!(self.settings.section, Section::Git) || matches!(self.settings.section, Section::Provider(i) if providers::ALL[i].models == providers::Models::Catalog) {
             self.load_models(cx);
         }
         if self.settings.section == Section::Accounts {
@@ -793,7 +790,7 @@ impl Desktop {
                 Section::Notifications => self.notification_settings(cx),
                 Section::Automations => self.automations_settings(cx),
                 Section::Accounts => self.accounts_settings(cx),
-                Section::Claude | Section::Codex => self.provider_page(section, cx),
+                Section::Provider(i) => self.provider_page(i, cx),
                 _ => div().flex().flex_col().gap(px(22.)).children(self.setting_groups(section, cx)),
             };
             // Keyboard's Reset all sits above its list.
@@ -848,8 +845,8 @@ mod tests {
 
     #[test]
     fn a_provider_s_page_sits_under_agents() {
-        assert_eq!((Section::Claude.nav(), Section::General.nav()), (Section::Agents, Section::General));
-        assert_eq!((breadcrumb(Section::Codex), breadcrumb(Section::Git)), ("Agents \u{203a} Codex".to_string(), "Git & GitHub".to_string()));
+        assert_eq!((Section::Provider(0).nav(), Section::General.nav()), (Section::Agents, Section::General));
+        assert_eq!((breadcrumb(Section::Provider(1)), breadcrumb(Section::Git)), ("Agents \u{203a} Codex".to_string(), "Git & GitHub".to_string()));
     }
 
     #[test]

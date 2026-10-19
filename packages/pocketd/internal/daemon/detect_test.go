@@ -4,7 +4,16 @@ import (
 	"testing"
 
 	"pocketd/internal/proc"
+	"pocketd/internal/providers"
 )
+
+func TestEveryProviderHasAKind(t *testing.T) {
+	for _, p := range providers.All {
+		if kindOf[p.ID] == nil {
+			t.Errorf("%s has no kind", p.ID)
+		}
+	}
+}
 
 func TestProvider(t *testing.T) {
 	for _, c := range []struct {
@@ -56,6 +65,10 @@ func TestAgentProcIsTheFirstMatchInPidOrder(t *testing.T) {
 		{[]proc.Proc{{Pid: 100, Argv: []string{"sh"}}, {Pid: 101, Argv: []string{"sleep", "30"}}}, "", 0},
 		{npmCodex, "codex", 201},
 		{nested, "claude", 300},
+		{[]proc.Proc{{Pid: 400, Argv: []string{"/bin/claude", "-p"}}, {Pid: 401, Argv: []string{"/bin/pocketd", "pipe", "/bin/claude", "-p"}}}, "claude", 401},
+		{[]proc.Proc{{Pid: 500, Argv: []string{"/bin/pocketd", "pipe", "ls"}}}, "", 0},
+		{[]proc.Proc{{Pid: 600, Argv: []string{"/bin/pocketd", "pipe", "/bin/codex", "app-server", "-c", "model=\"m\""}}, {Pid: 601, Argv: []string{"/bin/codex", "app-server"}}}, "codex", 600},
+		{[]proc.Proc{{Pid: 700, Argv: []string{"/bin/codex", "app-server"}}}, "", 0},
 	} {
 		provider, p, ok := agentProc(c.procs)
 		if provider != c.provider || p.Pid != c.pid || ok != (c.pid != 0) {

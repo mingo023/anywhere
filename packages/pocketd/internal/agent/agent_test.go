@@ -13,10 +13,13 @@ import (
 
 type fakeDriver struct{}
 
-func (fakeDriver) Prompt(string) error { return nil }
-func (fakeDriver) Interrupt() error    { return nil }
-func (fakeDriver) Compact() error      { return nil }
-func (fakeDriver) Close()              {}
+func (fakeDriver) Prompt(string) error                { return nil }
+func (fakeDriver) Interrupt() error                   { return nil }
+func (fakeDriver) Compact() error                     { return nil }
+func (fakeDriver) Settings(string, string) error      { return nil }
+func (fakeDriver) Commands() ([]proto.Command, error) { return nil, nil }
+func (fakeDriver) Access(string) error                { return nil }
+func (fakeDriver) Close()                             {}
 
 type msg struct {
 	Type  string `json:"type"`
@@ -70,6 +73,18 @@ func TestTurnLifecycle(t *testing.T) {
 	s := a.Summary()
 	if s.Title != "fix the tests" || s.Epoch != 1 || s.MaxSeq != 3 || s.Provider != "claude" {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestAMetGoalLeavesTheAgent(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetGoal(proto.Goal{Objective: "tests pass", Status: "active"})
+	if g := a.Summary().Goal; g.Objective != "tests pass" {
+		t.Fatalf("set: %+v", g)
+	}
+	a.SetGoal(proto.Goal{Objective: "tests pass", Status: proto.GoalComplete})
+	if g := a.Summary().Goal; g != (proto.Goal{}) {
+		t.Fatalf("met: %+v", g)
 	}
 }
 
@@ -264,12 +279,88 @@ func TestConversationSwitchStartsOver(t *testing.T) {
 	}
 }
 
+// resetsPublished reads the resets of each agent.update a client got.
+func resetsPublished(ch <-chan []byte) []int64 {
+	var out []int64
+	for {
+		select {
+		case raw := <-ch:
+			var m struct {
+				Type  string `json:"type"`
+				Agent struct {
+					Resets int64 `json:"resets"`
+				} `json:"agent"`
+			}
+			json.Unmarshal(raw, &m)
+			if m.Type == "agent.update" {
+				out = append(out, m.Agent.Resets)
+			}
+		default:
+			return out
+		}
+	}
+}
+
+func TestSwitchingConversationBumpsTheCounter(t *testing.T) {
+	h := hub.New()
+	a := NewRegistry(h).Add("a1", "/w", "claude", fakeDriver{})
+	ch, _ := h.Subscribe()
+	a.SetConversation("c1")
+	a.SetConversation("c1")
+	if got := a.Summary().Resets; got != 0 {
+		t.Fatalf("same conversation: resets %d", got)
+	}
+	a.SetConversation("c2")
+	if got := a.Summary().Resets; got != 1 {
+		t.Fatalf("after switch: resets %d", got)
+	}
+	if got := resetsPublished(ch); len(got) != 2 || got[1] != 1 {
+		t.Fatalf("published %v", got)
+	}
+}
+
+func TestClearingTheTimelineBumpsTheCounterForClients(t *testing.T) {
+	h := hub.New()
+	a := NewRegistry(h).Add("a1", "/w", "codex", fakeDriver{})
+	a.SetConversation("th1")
+	a.Record(timeline.Event{Kind: "user", Text: "one"})
+	ch, _ := h.Subscribe()
+	a.ClearTimeline()
+	items, _ := a.Timeline.Page(0, 200)
+	if s := a.Summary(); s.Resets != 1 || s.ProviderSessionID != "th1" || s.Title != "one" || len(items) != 0 {
+		t.Fatalf("%+v %v", s, items)
+	}
+	if got := resetsPublished(ch); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("published %v", got)
+	}
+}
+
 func TestRecordLeavesStatusAlone(t *testing.T) {
 	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
 	a.Record(timeline.Event{Kind: "user", Text: "hi"})
 	a.Record(timeline.Event{Kind: "result", OK: false})
 	if s := a.Summary(); s.Status != "idle" || s.Title != "hi" || s.MaxSeq != 2 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestASubagentsPromptNeitherTitlesTheAgentNorReachesOldClients(t *testing.T) {
+	h := hub.New()
+	plain, _ := h.Subscribe()
+	subs, _ := h.SubscribeSubagents()
+	a := NewRegistry(h).Add("a1", "/w", "claude", fakeDriver{})
+	drain(plain)
+	drain(subs)
+	epoch := a.Summary().Epoch
+	a.Record(timeline.Event{Kind: "user", Text: "Find the parser", ParentToolUseID: "t1"})
+	if s := a.Summary(); s.Title != "" || s.Epoch != epoch {
+		t.Fatalf("%+v", s)
+	}
+	if got := drain(plain); len(got) != 0 {
+		t.Fatalf("an old client got %+v", got)
+	}
+	if got := drain(subs); len(got) != 1 || got[0].Item.Kind != "user" {
+		t.Fatalf("%+v", got)
 	}
 }
 

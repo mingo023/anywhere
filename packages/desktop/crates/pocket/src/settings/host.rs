@@ -14,7 +14,6 @@ pub(crate) struct Host {
     /// None until pocketd lists them.
     pub devices: Option<Vec<Device>>,
     pub time: Entity<InputState>,
-    pub starter: Entity<InputState>,
     pub port: Entity<InputState>,
     pub renaming: Option<Rename>,
 }
@@ -29,7 +28,6 @@ pub(crate) struct Rename {
 impl Host {
     pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let time = cx.new(|cx| InputState::new(window, cx).placeholder("09:00").default_value(store.automations.time.clone()));
-        let starter = cx.new(|cx| InputState::new(window, cx).placeholder("Add a starter prompt"));
         let port = cx.new(|cx| InputState::new(window, cx).placeholder(channel::phone_port().to_string()).default_value(port_field(store.phone.port)));
         let subs = vec![
             cx.subscribe_in(&time, window, |this, field, ev: &InputEvent, _, cx| {
@@ -39,18 +37,13 @@ impl Host {
                     this.save_soon(cx);
                 }
             }),
-            cx.subscribe_in(&starter, window, |this, _, ev: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = ev {
-                    this.add_starter(window, cx);
-                }
-            }),
             cx.subscribe_in(&port, window, |this, _, ev: &InputEvent, window, cx| {
                 if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                     this.commit_port(window, cx);
                 }
             }),
         ];
-        (Self { status: None, devices: None, time, starter, port, renaming: None }, subs)
+        (Self { status: None, devices: None, time, port, renaming: None }, subs)
     }
 }
 
