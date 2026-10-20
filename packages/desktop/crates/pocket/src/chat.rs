@@ -32,6 +32,14 @@ use gpui_kit::*;
 use std::collections::HashMap;
 use theme::*;
 
+pub(crate) const CONTEXT: &str = "Chat";
+
+/// ⌃⏎ steers like ⌘⏎ in the chat's inputs, as it sends in the agent's terminal; off macOS ⌘⏎ already is ⌃⏎.
+pub(crate) fn bindings() -> Vec<KeyBinding> {
+    let steer = KeyBinding::new("ctrl-enter", gpui_kit::base::input::Enter { secondary: true, shift: false }, Some(&format!("{CONTEXT} > Input")));
+    if cfg!(target_os = "macos") { vec![steer] } else { vec![] }
+}
+
 /// Whether an agent's terminal shows its chat: one started from the New session page does, and one without its TUI has nothing else to show.
 pub(crate) fn can_chat(started_for_chat: bool, summary: Option<&Summary>) -> bool {
     summary.is_some_and(|a| started_for_chat || a.chat_only)
@@ -128,13 +136,30 @@ impl Desktop {
             None => composer,
         };
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
-        div().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(transcript).child(composer).children(files)
+        div().key_context(CONTEXT).flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(transcript).child(composer).children(files)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Summary, can_chat, unsent_notice};
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_enter_steers_from_a_chat_input_only() {
+        use super::{CONTEXT, bindings};
+        use gpui_kit::{KeyContext, Keymap, Keystroke, base::input::Enter};
+        let mut keymap = Keymap::default();
+        keymap.add_bindings(bindings());
+        let action = |stack: &[&str]| {
+            let stack: Vec<KeyContext> = stack.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
+            keymap.bindings_for_input(&[Keystroke::parse("ctrl-enter").unwrap()], &stack).0.first().map(|b| b.action().boxed_clone())
+        };
+        let steer = action(&["Root", CONTEXT, "Input"]).expect("bound in the chat's input");
+        assert!(steer.partial_eq(&Enter { secondary: true, shift: false }));
+        assert!(action(&["Root", "Input"]).is_none(), "other inputs keep ⌃⏎ as it was");
+        assert!(action(&["Root", CONTEXT]).is_none());
+    }
 
     #[test]
     fn chat_shows_only_for_terminals_that_run_an_agent() {
