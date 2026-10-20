@@ -176,7 +176,8 @@ fn card(
         .border_1()
         .border_color(hairline(0.2))
         .bg(bg)
-        .shadow(vec![ui::shadow(rgba(0x0000002e).opacity(lift(top)), 4., 14.), ui::shadow(rgba(0x0000001f).opacity(lift(top)), 1., 3.)])
+        // Short enough to fade out inside the top margin rather than be cut off at the chat's top edge.
+        .shadow(vec![ui::shadow(rgba(0x0000002e).opacity(lift(top)), 3., 6.), ui::shadow(rgba(0x0000001f).opacity(lift(top)), 1., 3.)])
         .text_size(px(SIZE))
         .line_height(px(LINE))
         .text_color(TEXT)
