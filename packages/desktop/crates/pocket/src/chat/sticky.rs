@@ -15,6 +15,8 @@ const PAD_Y: f32 = 10.;
 const RADIUS: f32 = 12.;
 /// The row under a cut-off prompt that holds Show more, padded as the card's top is.
 const MORE_ROW: f32 = LINE + PAD_Y;
+/// How far a card is pushed before its shadow is gone.
+const SETTLE: f32 = 12.;
 /// Past this an opened prompt scrolls.
 const OPEN_MAX_HEIGHT: f32 = 160.;
 /// The time the prompt was sent, at the end of its first line.
@@ -60,6 +62,12 @@ fn height(lines: usize, open: bool) -> f32 {
 /// under it; `bottom` is where the card ends.
 fn pushed(bottom: f32, next: Option<f32>) -> f32 {
     next.map_or(0., |next| (next - bottom).min(0.))
+}
+
+/// How much of its shadow a card keeps when pushed `shift` px up: it settles onto the next bubble over the first
+/// `SETTLE` px, so the shadow doesn't darken that bubble.
+fn lift(shift: f32) -> f32 {
+    (1. + shift / SETTLE).clamp(0., 1.)
 }
 
 /// A prompt hung from the top of the chat: cut to two lines, the second fading out above Show more, with the time it
@@ -120,7 +128,7 @@ fn card(
         .border_b_1()
         .border_color(hairline(0.2))
         .bg(bg)
-        .shadow(vec![ui::shadow(rgba(0x0000002e), 4., 14.), ui::shadow(rgba(0x0000001f), 1., 3.)])
+        .shadow(vec![ui::shadow(rgba(0x0000002e).opacity(lift(top)), 4., 14.), ui::shadow(rgba(0x0000001f).opacity(lift(top)), 1., 3.)])
         .text_size(px(SIZE))
         .line_height(px(LINE))
         .text_color(TEXT)
@@ -204,7 +212,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{FOLDED_LINES, LINE, height, next_prompt, pushed, stuck, top_at_end};
+    use super::{FOLDED_LINES, LINE, height, lift, next_prompt, pushed, stuck, top_at_end};
     use chat::Row;
 
     fn rows() -> Vec<Row> {
@@ -250,6 +258,13 @@ mod tests {
         assert_eq!(pushed(80., None), 0.);
         assert_eq!(pushed(80., Some(200.)), 0.);
         assert_eq!(pushed(80., Some(50.)), -30.);
+    }
+
+    #[test]
+    fn a_pushed_card_loses_its_shadow_over_its_first_12px() {
+        assert_eq!(lift(0.), 1.);
+        assert_eq!(lift(-6.), 0.5);
+        assert_eq!(lift(-30.), 0.);
     }
 
     #[test]
