@@ -95,7 +95,8 @@ impl View {
     /// How far under the viewport's top row `ix` starts; None while that's unmeasured.
     pub(super) fn row_top(&self, ix: usize) -> Option<f32> {
         if self.list.logical_scroll_top().item_ix < self.list.item_count() {
-            return self.list.bounds_for_item(ix).map(|b| f32::from(b.top() - self.list.viewport_bounds().top()));
+            // The list paints its rows under its top padding, which `bounds_for_item` leaves out.
+            return self.list.bounds_for_item(ix).map(|b| f32::from(b.top() - self.list.viewport_bounds().top()) + pin::TOP);
         }
         Some(self.shown_at_end() - f32::from(self.list.height_from(ix)?))
     }
