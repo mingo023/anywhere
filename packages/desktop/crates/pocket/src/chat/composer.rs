@@ -26,7 +26,7 @@ use theme::*;
 use workspace::Place;
 
 pub(crate) const PLACEHOLDER: &str = "Ask, build, / for commands, @ for files";
-const BUSY_PLACEHOLDER: &str = "Queue a follow-up, or ⌘⏎ to steer…";
+const BUSY_PLACEHOLDER: &str = "Send a follow-up into this turn…";
 const STOPPING_PLACEHOLDER: &str = "Queue a follow-up…";
 const MAX_WIDTH: f32 = 744.;
 pub(crate) const RADIUS: f32 = 16.;
@@ -63,7 +63,7 @@ pub(super) fn hint(mode: Mode, working: bool, stopping: bool, empty: bool, can_q
         Mode::Prompt if !working => None,
         Mode::Prompt if stopping => Some("Stopping…"),
         Mode::Prompt if empty || !can_queue => Some("Working · esc to stop"),
-        Mode::Prompt => Some("⏎ queue · ⌘⏎ steer now"),
+        Mode::Prompt => Some("⏎ send into this turn"),
     }
 }
 
@@ -76,14 +76,9 @@ fn placeholder(working: bool, stopping: bool, can_queue: bool) -> &'static str {
     }
 }
 
-/// Whether ⌘⏎ sends into the turn underway; once it's being stopped the send queues instead.
-fn steers(steer: bool, working: bool, stopping: bool) -> bool {
-    steer && working && !stopping
-}
-
-/// Whether Stop stands beside Queue: while the agent can be stopped and isn't already.
-fn stop_beside_queue(action: Action, interrupt: bool, stopping: bool) -> bool {
-    action == Action::Queue && interrupt && !stopping
+/// Whether Stop stands beside Steer: while the agent can be stopped. Once stopping, a draft queues and the stop is on its way.
+fn stop_beside_steer(action: Action, interrupt: bool) -> bool {
+    action == Action::Steer && interrupt
 }
 
 /// The prompt input, built here since dropped files and Enter are wired at construction.
@@ -115,7 +110,7 @@ impl ComposerState {
         let answer = cx.new(|cx| TextareaState::new(window, cx).placeholder(super::question::PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true));
         let subs = vec![
             cx.subscribe_in(input, window, |this, _, ev: &InputEvent, window, cx| match ev {
-                InputEvent::PressEnter { shift: false, secondary } => this.chat_enter(*secondary, window, cx),
+                InputEvent::PressEnter { shift: false, .. } => this.chat_enter(window, cx),
                 InputEvent::Change => this.draft_changed(Prompt::Chat, cx),
                 _ => {}
             }),
@@ -276,15 +271,15 @@ impl Desktop {
         self.terminal.focused.clone().filter(|t| self.chat_shown(t))
     }
 
-    fn chat_enter(&mut self, steer: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn chat_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(t) = self.focused_chat() {
-            self.chat_send(&t, steer, window, cx);
+            self.chat_send(&t, window, cx);
         }
     }
 
     /// Sends the draft unless the agent can't take it now; Enter never stops.
-    /// While the agent works a send waits its turn, unless `steer` sends it into the running turn.
-    fn chat_send(&mut self, terminal: &str, steer: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// While the agent works a send goes into the running turn, as the CLI's does; behind a stop it waits for the turn to end.
+    fn chat_send(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
         if composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a)) != Mode::Prompt {
             return;
@@ -293,7 +288,7 @@ impl Desktop {
         if busy && !self.chat_caps(&a.provider).send_while_working {
             return;
         }
-        let steer = steers(steer, busy, self.chat_stopping(a));
+        let steer = busy && !self.chat_stopping(a);
         let (agent, provider, chat_only) = (a.id.clone(), a.provider.clone(), a.chat_only);
         self.chat_take_input(&agent, window, cx);
         let typed = self.chats.input.read(cx).value().to_string();
@@ -352,7 +347,7 @@ impl Desktop {
             let agent = a.id.clone();
             self.chat_command(&agent, Command::Interrupt, cx);
         } else {
-            self.chat_send(terminal, false, window, cx);
+            self.chat_send(terminal, window, cx);
         }
     }
 
@@ -479,7 +474,7 @@ impl Desktop {
             let t = t.to_string();
             cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, window, cx))
         };
-        let ghost = (!view_only && stop_beside_queue(action, caps.interrupt, stopping)).then(|| {
+        let ghost = (!view_only && stop_beside_steer(action, caps.interrupt)).then(|| {
             let t = terminal.to_string();
             send_button::ghost_stop(id(format!("chat-stop:{terminal}"))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_stop(&t, cx)))
         });
@@ -543,7 +538,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, busy, composer_mode, hint, placeholder, said_in_terminal, steers, stop_beside_queue, terminal_only_said, working};
+    use super::{Mode, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, working};
     use crate::explorer::toast::Notice;
     use agents::Summary;
     use chat::{Action, Ask, End, Message, Question, Session, ToolKind, Transcript, Turn};
@@ -602,8 +597,8 @@ mod tests {
     fn the_footer_hints_at_what_enter_does_now() {
         assert_eq!(hint(Mode::Prompt, false, false, true, true), None);
         assert_eq!(hint(Mode::Prompt, true, false, true, true), Some("Working · esc to stop"));
-        assert_eq!(hint(Mode::Prompt, true, false, false, true), Some("⏎ queue · ⌘⏎ steer now"));
-        assert_eq!(hint(Mode::Prompt, true, false, false, false), Some("Working · esc to stop"), "an agent that can't take a send mid-turn has nothing to queue");
+        assert_eq!(hint(Mode::Prompt, true, false, false, true), Some("⏎ send into this turn"));
+        assert_eq!(hint(Mode::Prompt, true, false, false, false), Some("Working · esc to stop"), "an agent that can't take a send mid-turn has nothing to send");
         assert_eq!(hint(Mode::Permission { answerable: true }, true, false, true, true), Some("Answer the request above to continue"));
         assert_eq!(hint(Mode::ViewOnly, false, false, true, true), None);
     }
@@ -611,16 +606,13 @@ mod tests {
     #[test]
     fn a_turn_being_stopped_reads_stopping_and_takes_sends_only_into_the_queue() {
         assert_eq!(hint(Mode::Prompt, true, true, true, true), Some("Stopping…"));
-        assert_eq!(hint(Mode::Prompt, true, true, false, true), Some("Stopping…"), "Enter queues, but ⌘⏎ no longer steers");
+        assert_eq!(hint(Mode::Prompt, true, true, false, true), Some("Stopping…"), "Enter queues instead of steering");
         assert_eq!(hint(Mode::Prompt, false, true, true, true), None, "the turn ended");
         assert_eq!(placeholder(true, true, true), "Queue a follow-up…");
-        assert_eq!(placeholder(true, false, true), "Queue a follow-up, or ⌘⏎ to steer…");
-        assert!(steers(true, true, false));
-        assert!(!steers(true, true, true), "⌘⏎ queues behind the stop instead of typing into the agent");
-        assert!(!steers(true, false, false));
-        assert!(stop_beside_queue(Action::Queue, true, false));
-        assert!(!stop_beside_queue(Action::Queue, true, true), "the stop is already on its way");
-        assert!(!stop_beside_queue(Action::Queue, false, false));
+        assert_eq!(placeholder(true, false, true), "Send a follow-up into this turn…");
+        assert!(stop_beside_steer(Action::Steer, true));
+        assert!(!stop_beside_steer(Action::Queue, true), "the stop is already on its way");
+        assert!(!stop_beside_steer(Action::Steer, false));
     }
 
     #[test]
