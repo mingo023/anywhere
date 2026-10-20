@@ -33,7 +33,8 @@ struct List {
 }
 
 enum Rows {
-    Commands { query: String, rows: Vec<Slash> },
+    /// `at` is where the `/` stands.
+    Commands { at: usize, query: String, rows: Vec<Slash> },
     /// `at` is where the `@` stands.
     Files { at: usize, query: String, paths: Vec<String> },
 }
@@ -52,10 +53,10 @@ impl Suggest {
         self.commands.insert(agent, commands);
     }
 
-    /// Whether to ask `agent` for its commands: each time a `/` starts the draft, as they can change, and while none
+    /// Whether to ask `agent` for its commands: each time a `/` starts a word, as they can change, and while none
     /// came yet.
     fn asks_commands(&mut self, agent: &str, text: &str, cursor: usize) -> bool {
-        let ask = typing_command(text, cursor).is_some() && (text == "/" || !self.commands.contains_key(agent));
+        let ask = word(text, cursor, '/').is_some_and(|(_, q)| q.is_empty() || !self.commands.contains_key(agent));
         if ask {
             self.commands.entry(agent.into()).or_default();
         }
@@ -64,7 +65,7 @@ impl Suggest {
 
     /// Whether to list `cwd`'s files: each time an `@` starts a mention, and while none came yet.
     fn loads_files(&mut self, cwd: &str, text: &str, cursor: usize) -> bool {
-        let load = mention(text, cursor).is_some_and(|(_, q)| q.is_empty() || !self.files.contains_key(cwd));
+        let load = word(text, cursor, '@').is_some_and(|(_, q)| q.is_empty() || !self.files.contains_key(cwd));
         if load {
             self.files.entry(cwd.into()).or_default();
         }
@@ -78,10 +79,9 @@ impl Suggest {
     }
 }
 
-/// The command name typed so far, while the draft starts with `/` and the cursor is still in its first word.
-fn typing_command(text: &str, cursor: usize) -> Option<&str> {
-    let name = text.get(..cursor)?.strip_prefix('/')?;
-    (!name.contains(char::is_whitespace)).then_some(name)
+/// Whether the `/` at `at` starts the draft as `chat::slash` takes it, after whitespace at most.
+fn starts_draft(text: &str, at: usize) -> bool {
+    text[..at].trim().is_empty()
 }
 
 /// The draft with command `name` and `arg`, and where the cursor goes: after the name, ready for the argument.
@@ -89,11 +89,12 @@ fn named(name: &str, arg: &str) -> (String, usize) {
     (format!("/{name} {arg}"), name.len() + 2)
 }
 
-/// Where the `@` word the cursor ends starts, and what follows the `@`; it starts the draft or follows whitespace.
-fn mention(text: &str, cursor: usize) -> Option<(usize, &str)> {
+/// Where the `sigil` word the cursor ends starts, and what follows the `sigil`; it starts the draft or follows
+/// whitespace.
+fn word(text: &str, cursor: usize, sigil: char) -> Option<(usize, &str)> {
     let before = text.get(..cursor)?;
     let start = before.char_indices().rev().find(|(_, c)| c.is_whitespace()).map_or(0, |(i, c)| i + c.len_utf8());
-    before[start..].strip_prefix('@').map(|query| (start, query))
+    before[start..].strip_prefix(sigil).map(|query| (start, query))
 }
 
 /// The `files` that hold the query: those the agent touched, latest first, then those changed, then
@@ -117,9 +118,9 @@ fn window(selected: usize, total: usize) -> Range<usize> {
     start..total.min(start + SHOWN)
 }
 
-/// The draft with `path` in place of the `@` word from `at` to `cursor`, and where the cursor goes after it.
-fn mentioned(text: &str, at: usize, cursor: usize, path: &str) -> (String, usize) {
-    let (head, rest) = (format!("{}@{path}", &text[..at]), &text[cursor..]);
+/// The draft with `put` in place of the word from `at` to `cursor`, and where the cursor goes after it.
+fn replaced(text: &str, at: usize, cursor: usize, put: &str) -> (String, usize) {
+    let (head, rest) = (format!("{}{put}", &text[..at]), &text[cursor..]);
     let gap = if rest.starts_with(char::is_whitespace) { "" } else { " " };
     (format!("{head}{gap}{rest}"), head.len() + 1)
 }
@@ -189,23 +190,23 @@ impl Desktop {
         self.suggest(p, cx);
     }
 
-    /// Works the list out again for the draft as it stands. A new session lists only the commands it can start
-    /// with, as nothing runs yet to take the rest.
+    /// Works the list out again for the draft as it stands. A new session, or a `/` past the draft's start, lists
+    /// only the commands sent as prompts: nothing runs yet, and a command runs only from the start.
     pub(crate) fn suggest(&mut self, p: Prompt, cx: &mut Context<Self>) {
         let t = self.suggest_target(p);
         let input = self.suggest_input(p).read(cx);
         let (text, cursor) = (input.value().to_string(), input.cursor());
         let s = self.suggest_state(p);
         let rows = t.as_ref().and_then(|t| {
-            if let Some(query) = typing_command(&text, cursor) {
+            if let Some((at, query)) = word(&text, cursor, '/') {
                 let listed = s.commands.get(&t.key).map_or(&[][..], Vec::as_slice);
                 let mut rows = chat::menu(chat::for_provider(&t.provider), listed, query);
-                if p == Prompt::Launch {
+                if p == Prompt::Launch || !starts_draft(&text, at) {
                     rows.retain(|r| r.kind == Kind::Send);
                 }
-                return Some(Rows::Commands { query: query.into(), rows });
+                return Some(Rows::Commands { at, query: query.into(), rows });
             }
-            let (at, query) = mention(&text, cursor)?;
+            let (at, query) = word(&text, cursor, '@')?;
             let root = format!("{}/", hosts::split(&t.cwd).1.trim_end_matches('/'));
             let views = (p == Prompt::Chat).then(|| self.chats.views.get(&t.key)).flatten();
             let touched: Vec<String> = views.map(|v| touched(&v.session.transcript)).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
@@ -263,6 +264,12 @@ impl Desktop {
         }
         let Some(list) = self.suggest_state_mut(p).list.take() else { return false };
         match list.rows {
+            Rows::Commands { at, rows, .. } if !starts_draft(&list.text, at) => {
+                let Some(c) = rows.get(ix) else { return true };
+                let cursor = self.suggest_input(p).read(cx).cursor();
+                let (text, cursor) = replaced(&list.text, at, cursor, &format!("/{}", c.name));
+                self.put_text(p, text, Some(cursor), window, cx);
+            }
             Rows::Commands { rows, .. } => {
                 let Some(c) = rows.get(ix) else { return true };
                 let arg = chat::slash(&list.text).map_or("", |(_, arg)| arg);
@@ -282,7 +289,7 @@ impl Desktop {
             Rows::Files { at, paths, .. } => {
                 let Some(path) = paths.get(ix) else { return true };
                 let cursor = self.suggest_input(p).read(cx).cursor();
-                let (text, cursor) = mentioned(&list.text, at, cursor, path);
+                let (text, cursor) = replaced(&list.text, at, cursor, &format!("@{path}"));
                 self.put_text(p, text, Some(cursor), window, cx);
             }
         }
@@ -342,7 +349,7 @@ impl Desktop {
             .map(|i| {
                 let r = row(("chat-suggest", i), i == selected).on_click(pick(i));
                 match &list.rows {
-                    Rows::Commands { query, rows } => {
+                    Rows::Commands { query, rows, .. } => {
                         let c = &rows[i];
                         r.child(div().flex_none().font_family(code_font()).child(marked(format!("/{}", c.name), &[query.to_lowercase()])))
                             .when(!c.hint.is_empty(), |r| r.child(div().flex_none().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone())))
@@ -376,7 +383,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHOWN, Suggest, mention, mentioned, named, rank, typing_command, window};
+    use super::{SHOWN, Suggest, named, rank, replaced, starts_draft, window, word};
     use std::collections::HashSet;
 
     fn owned(paths: &[&str]) -> Vec<String> {
@@ -384,13 +391,13 @@ mod tests {
     }
 
     #[test]
-    fn a_command_is_typed_only_from_the_drafts_first_character_to_its_first_space() {
-        assert_eq!(typing_command("/mo", 3), Some("mo"));
-        assert_eq!(typing_command("/", 1), Some(""));
-        assert_eq!(typing_command("/model haiku", 12), None);
-        assert_eq!(typing_command("/model haiku", 3), Some("mo"));
-        assert_eq!(typing_command(" /mo", 4), None);
-        assert_eq!(typing_command("see /mo", 7), None);
+    fn a_command_is_typed_from_a_slash_that_starts_a_word_to_its_first_space() {
+        assert_eq!(word("/mo", 3, '/'), Some((0, "mo")));
+        assert_eq!(word("/", 1, '/'), Some((0, "")));
+        assert_eq!(word("/model haiku", 12, '/'), None);
+        assert_eq!(word("/model haiku", 3, '/'), Some((0, "mo")));
+        assert_eq!(word("see /mo", 7, '/'), Some((4, "mo")));
+        assert_eq!(word("src/main", 8, '/'), None);
     }
 
     #[test]
@@ -403,12 +410,12 @@ mod tests {
 
     #[test]
     fn a_mention_starts_the_draft_or_follows_whitespace() {
-        assert_eq!(mention("@src", 4), Some((0, "src")));
-        assert_eq!(mention("look at @src/ma", 15), Some((8, "src/ma")));
-        assert_eq!(mention("line\n@", 6), Some((5, "")));
-        assert_eq!(mention("mail me@host", 12), None);
-        assert_eq!(mention("@src done", 9), None, "a space closes it");
-        assert_eq!(mention("tiếng @a", "tiếng @a".len()), Some(("tiếng ".len(), "a")));
+        assert_eq!(word("@src", 4, '@'), Some((0, "src")));
+        assert_eq!(word("look at @src/ma", 15, '@'), Some((8, "src/ma")));
+        assert_eq!(word("line\n@", 6, '@'), Some((5, "")));
+        assert_eq!(word("mail me@host", 12, '@'), None);
+        assert_eq!(word("@src done", 9, '@'), None, "a space closes it");
+        assert_eq!(word("tiếng @a", "tiếng @a".len(), '@'), Some(("tiếng ".len(), "a")));
     }
 
     #[test]
@@ -430,13 +437,14 @@ mod tests {
     }
 
     #[test]
-    fn commands_are_asked_for_each_time_a_slash_starts_the_draft_and_while_none_came() {
+    fn commands_are_asked_for_each_time_a_slash_starts_a_word_and_while_none_came() {
         let mut s = Suggest::default();
         assert!(s.asks_commands("a", "/", 1));
         assert!(!s.asks_commands("a", "/mo", 3), "asked already");
         assert!(s.asks_commands("a", "/", 1));
         assert!(s.asks_commands("b", "/mo", 3));
-        assert!(!s.asks_commands("c", "no /", 4));
+        assert!(s.asks_commands("a", "ok /", 4), "a slash past the start asks too");
+        assert!(!s.asks_commands("c", "a/b", 3));
     }
 
     #[test]
@@ -471,9 +479,23 @@ mod tests {
 
     #[test]
     fn a_picked_file_replaces_the_mention_and_the_cursor_follows_it() {
-        let (text, cursor) = mentioned("fix @ma please", 4, 7, "src/main.rs");
+        let (text, cursor) = replaced("fix @ma please", 4, 7, "@src/main.rs");
         assert_eq!(text, "fix @src/main.rs please");
         assert_eq!(cursor, "fix @src/main.rs ".len());
-        assert_eq!(mentioned("@ma", 0, 3, "main.rs"), ("@main.rs ".to_string(), "@main.rs ".len()));
+        assert_eq!(replaced("@ma", 0, 3, "@main.rs"), ("@main.rs ".to_string(), "@main.rs ".len()));
+    }
+
+    #[test]
+    fn a_command_picked_past_the_drafts_start_replaces_only_its_word() {
+        assert!(!starts_draft("ok /imp", 3));
+        assert_eq!(replaced("ok /imp", 3, 7, "/implement"), ("ok /implement ".to_string(), "ok /implement ".len()));
+        assert_eq!(replaced("ok /imp then", 3, 7, "/implement"), ("ok /implement then".to_string(), "ok /implement ".len()));
+    }
+
+    #[test]
+    fn a_slash_after_only_whitespace_still_starts_the_draft() {
+        assert!(starts_draft("/mo", 0));
+        assert!(starts_draft(" \n/mo", 2));
+        assert_eq!(chat::slash(" \n/model"), Some(("model", "")), "as a send takes it");
     }
 }
