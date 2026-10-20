@@ -13,8 +13,8 @@ const LINE: f32 = 20.;
 const PAD_X: f32 = 12.;
 const PAD_Y: f32 = 10.;
 const RADIUS: f32 = 12.;
-/// The row under a cut-off prompt that holds Show more.
-const MORE_ROW: f32 = 26.;
+/// The row under a cut-off prompt that holds Show more, padded as the card's top is.
+const MORE_ROW: f32 = LINE + PAD_Y;
 /// Past this an opened prompt scrolls.
 const OPEN_MAX_HEIGHT: f32 = 160.;
 /// The time the prompt was sent, at the end of its first line.
@@ -76,20 +76,19 @@ fn card(
     on_jump: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    // Opaque and lifted off the transcript, which scrolls under it.
-    let bg = Hsla::from(POPOVER).blend(FILL_4.into()).blend(FILL_2.into());
+    // The prompt's own bubble, which is opaque, so the transcript scrolls under it unseen.
+    let bg = Hsla::from(BUBBLE);
     // Quiet, as a prompt bubble's own Show more.
     let more = div()
         .id(SharedString::from(format!("sticky-more-{id}")))
         .group("sticky-more")
         .absolute()
         .right(px(PAD_X))
-        .bottom_0()
-        .h(px(MORE_ROW))
+        .bottom(px(PAD_Y))
+        .h(px(LINE))
         .flex()
         .items_center()
         .gap(px(5.))
-        .text_size(px(13.))
         .text_color(TEXT_2)
         .cursor_pointer()
         .hover(|d| d.text_color(TEXT))
@@ -121,7 +120,7 @@ fn card(
         .border_b_1()
         .border_color(hairline(0.2))
         .bg(bg)
-        .shadow(vec![ui::shadow(rgba(0x00000066), 6., 18.), ui::shadow(rgba(0x00000033), 1., 4.)])
+        .shadow(vec![ui::shadow(rgba(0x0000002e), 4., 14.), ui::shadow(rgba(0x0000001f), 1., 3.)])
         .text_size(px(SIZE))
         .line_height(px(LINE))
         .text_color(TEXT)
@@ -178,7 +177,8 @@ impl Desktop {
         let time_width = time.as_ref().map_or(0., |(_, width)| *width);
         let lines = user_bubble::wrapped_lines(text, SIZE, width - INSET - time_width, window);
         let open = view.sticky_open.as_deref() == Some(id.as_str());
-        let next = next_prompt(&s.rows, top).and_then(|n| view.row_top(n));
+        // The next prompt's bubble, under the gap its row keeps over it.
+        let next = next_prompt(&s.rows, top).and_then(|n| Some(view.row_top(n)? + chat::top_gap(n.checked_sub(1).and_then(|i| s.rows.get(i)), &s.rows[n])));
         let bottom = height(lines, open);
         let shift = pushed(bottom, next);
         if shift <= -bottom {
@@ -256,6 +256,6 @@ mod tests {
     fn a_folded_card_holds_two_lines_and_an_opened_one_grows_to_160px() {
         assert_eq!(height(1, false), 1. + 20. + LINE);
         assert_eq!(height(FOLDED_LINES + 3, false), height(FOLDED_LINES + 1, false));
-        assert_eq!(height(50, true), 1. + 10. + 160. + 26.);
+        assert_eq!(height(50, true), 1. + 10. + 160. + 30.);
     }
 }
