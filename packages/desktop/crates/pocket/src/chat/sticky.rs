@@ -1,34 +1,42 @@
-use super::{meta, transcript, user_bubble};
+use super::{meta, user_bubble};
 use crate::composer::split_images;
 use crate::desktop::Desktop;
 use chat::Row;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::path::PathBuf;
+use std::time::Duration;
 use theme::*;
 
-/// Lines a stuck prompt shows until it is opened, so a long one never takes over the chat.
-const FOLDED_LINES: usize = 2;
-const SIZE: f32 = 14.;
+/// The pill's height while folded to one line.
+const HEIGHT: f32 = 34.;
+const SIZE: f32 = 13.;
 const LINE: f32 = 20.;
-const PAD_X: f32 = 12.;
-const PAD_Y: f32 = 10.;
-const RADIUS: f32 = 12.;
-/// The row under a cut-off prompt that holds Show more, padded as the card's top is.
-const MORE_ROW: f32 = LINE + PAD_Y;
-/// How far a card is pushed before its shadow is gone.
-const SETTLE: f32 = 12.;
+/// The arrow and the chevron, inset from the pill's ends as far as from its top.
+const KNOB: f32 = 22.;
+const INSET: f32 = (HEIGHT - KNOB) / 2.;
+/// The padding after the time when no chevron ends the pill.
+const PAD_END: f32 = 12.;
+const GAP: f32 = 8.;
+const MAX_WIDTH: f32 = 560.;
+/// A prompt's first images, before its text; the rest are counted as +N.
+const THUMB: f32 = 20.;
+const THUMBS: usize = 2;
+const THUMB_GAP: f32 = 3.;
+const TIME_SIZE: f32 = 12.;
+/// An opened pill's padding over and under its text.
+const OPEN_TOP: f32 = 6.;
+const OPEN_BOTTOM: f32 = 8.;
 /// Past this an opened prompt scrolls.
 const OPEN_MAX_HEIGHT: f32 = 160.;
-/// The time the prompt was sent, at the end of its first line.
-const TIME_SIZE: f32 = 12.;
-const TIME_GAP: f32 = 8.;
-/// The card's padding and border, on both sides.
-const INSET: f32 = 2. * (PAD_X + 1.);
-/// The transcript's side padding, which the card lines up with.
+/// How far a card is pushed before its shadow is gone.
+const SETTLE: f32 = 12.;
+/// The transcript's side padding, which the card keeps inside.
 const SIDE: f32 = 32.;
-/// The card floats this far under the chat's top and in from each side of its column, as VS Code's does.
-const MARGIN_TOP: f32 = 8.;
-const MARGIN_X: f32 = 12.;
+const MARGIN_TOP: f32 = 10.;
+const ENTER: Duration = Duration::from_millis(220);
+const DROP: Token = Token::new(0x00000024, 0x00000080);
+const DROP_NEAR: Token = Token::new(0x00000014, 0x0000004d);
 
 /// The prompt row whose turn the top of the list is in, once that prompt has scrolled up past the top: none while it
 /// shows from its top, or above the first prompt. `top` is the row at the list's top and `offset` how far into it.
@@ -55,10 +63,28 @@ fn next_prompt(rows: &[Row], top: usize) -> Option<usize> {
     rows.iter().enumerate().skip(top + 1).find(|(_, r)| matches!(r, Row::Prompt { .. } | Row::Pending(_))).map(|(ix, _)| ix)
 }
 
-/// The card's height for a prompt that wraps to `lines` lines, border included.
+/// The card's height for a prompt that wraps to `lines` lines when opened.
 fn height(lines: usize, open: bool) -> f32 {
-    let text = if open { (lines as f32 * LINE).min(OPEN_MAX_HEIGHT) } else { lines.min(FOLDED_LINES) as f32 * LINE };
-    2. + PAD_Y + text + if lines > FOLDED_LINES { MORE_ROW } else { PAD_Y }
+    if !open {
+        return HEIGHT;
+    }
+    // The text sits 1px down, so its first line is level with the arrow.
+    OPEN_TOP + (1. + (lines as f32 * LINE).min(OPEN_MAX_HEIGHT)).max(KNOB) + OPEN_BOTTOM
+}
+
+/// The width an opened prompt's text wraps at in a card `max` px wide, beside parts this wide, each `GAP` from the next.
+fn text_width(max: f32, beside: &[f32]) -> f32 {
+    max - 2. * INSET - beside.iter().map(|w| w + GAP).sum::<f32>()
+}
+
+/// A prompt folded onto one line, its line breaks read as spaces.
+fn one_line(text: &str) -> String {
+    text.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
+/// What a prompt with no text shows.
+fn image_count(n: usize) -> String {
+    format!("{n} image{}", if n == 1 { "" } else { "s" })
 }
 
 /// How far the card moves up so the next prompt, `next` px under the list's top, pushes it out rather than slides
@@ -119,99 +145,101 @@ impl Element for Below {
     }
 }
 
-/// A prompt floating over the top of the chat: cut to two lines, the second fading out above Show more, with the time it
-/// was sent at the end of its first line.
+/// One of a prompt's images, as small as a letter.
+fn thumb(path: &str) -> Div {
+    let image = img(PathBuf::from(path)).size(px(THUMB)).rounded(px(5.)).object_fit(ObjectFit::Cover);
+    div().size(px(THUMB)).flex_none().rounded(px(5.)).shadow(vec![ui::ring(hairline(0.16), 0.5)]).child(image)
+}
+
+/// A prompt floating over the top of the chat as a pill: an arrow back to it, its first images, the prompt folded to
+/// one line and the time it was sent. A chevron opens a prompt too long for the line.
 #[allow(clippy::too_many_arguments)]
 fn card(
     id: &str,
     text: &str,
-    time: Option<(String, f32)>,
+    images: &[&str],
+    time: Option<String>,
     long: bool,
     open: bool,
-    width: f32,
+    max: f32,
     top: f32,
     cover: f32,
+    enter: bool,
     on_jump: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    // The prompt's own bubble, which is opaque, so the transcript scrolls under it unseen.
-    let bg = Hsla::from(BUBBLE);
-    // Quiet, as a prompt bubble's own Show more.
-    let more = div()
-        .id(SharedString::from(format!("sticky-more-{id}")))
-        .group("sticky-more")
-        .absolute()
-        .right(px(PAD_X))
-        .bottom(px(PAD_Y))
-        .h(px(LINE))
-        .flex()
-        .items_center()
-        .gap(px(5.))
-        .text_color(TEXT_2)
-        .cursor_pointer()
-        .hover(|d| d.text_color(TEXT))
-        .on_click(move |e, window, cx| {
-            cx.stop_propagation();
-            on_more(e, window, cx);
-        })
-        .child(if open { "Show less" } else { "Show more" })
-        .child(
-            icon("chevron-down", 12., TEXT_2)
-                .when(open, |i| i.with_transformation(Transformation::rotate(radians(std::f32::consts::PI))))
-                .group_hover("sticky-more", |s| s.text_color(TEXT)),
-        );
-    let room = time.as_ref().map_or(0., |(_, width)| *width);
-    let time = time.map(|(time, _)| div().absolute().top(px(PAD_Y)).right(px(PAD_X)).text_size(px(TIME_SIZE)).line_height(px(LINE)).text_color(TEXT_2).child(time));
+    let knob = || div().size(px(KNOB)).flex_none().rounded_full().flex().items_center().justify_center();
+    let arrow = knob().bg(ink(0.07)).group_hover("sticky", |s| s.bg(ink(0.12))).child(icon("arrow-up", 12., TEXT_2).group_hover("sticky", |s| s.text_color(TEXT)));
+    // A prompt of only images counts them in its label instead.
+    let rest = if text.is_empty() { 0 } else { images.len().saturating_sub(THUMBS) };
+    let thumbs = (!images.is_empty()).then(|| {
+        let rest = (rest > 0).then(|| div().px(px(2.)).text_size(px(11.)).text_color(TEXT_3).child(format!("+{rest}")));
+        div().flex().flex_none().items_center().gap(px(THUMB_GAP)).children(images.iter().take(THUMBS).map(|path| thumb(path))).children(rest)
+    });
+    let body = if text.is_empty() {
+        div().flex_none().text_color(TEXT_2).child(image_count(images.len())).into_any_element()
+    } else if open {
+        let text = div().id(SharedString::from(format!("sticky-text-{id}"))).max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll().child(user_bubble::styled(&format!("sticky-{id}"), text));
+        div().flex_1().min_w_0().pt(px(1.)).text_color(TEXT_BODY).child(text).into_any_element()
+    } else {
+        div().min_w_0().truncate().child(user_bubble::styled(&format!("sticky-{id}"), &one_line(text))).into_any_element()
+    };
+    let time = time.map(|time| div().flex().flex_none().gap(px(GAP)).text_size(px(TIME_SIZE)).line_height(px(KNOB)).child(div().text_color(TEXT_5).child("·")).child(div().text_color(TEXT_3).child(time)));
+    let chevron = long.then(|| {
+        knob()
+            .id(SharedString::from(format!("sticky-more-{id}")))
+            .group("sticky-more")
+            .hover(|d| d.bg(FILL_3))
+            .on_click(move |e, window, cx| {
+                cx.stop_propagation();
+                on_more(e, window, cx);
+            })
+            .child(
+                icon("chevron-down", 12., TEXT_3)
+                    .when(open, |i| i.with_transformation(Transformation::rotate(radians(std::f32::consts::PI))))
+                    .group_hover("sticky-more", |s| s.text_color(TEXT)),
+            )
+    });
+    let lift = lift(top);
     let card = div()
         .id(SharedString::from(format!("sticky-{id}")))
+        .group("sticky")
         // An opened prompt scrolls itself; a folded one lets the wheel through to the transcript.
         .when(open, |d| d.occlude())
         .when(!open, |d| d.block_mouse_except_scroll())
-        .relative()
-        .w_full()
-        .px(px(PAD_X))
-        .pt(px(PAD_Y))
-        .pb(px(if long { MORE_ROW } else { PAD_Y }))
-        .rounded(px(RADIUS))
-        .border_1()
-        .border_color(hairline(0.2))
-        .bg(bg)
-        // Short enough to fade out inside the top margin rather than be cut off at the chat's top edge.
-        .shadow(vec![ui::shadow(rgba(0x0000002e).opacity(lift(top)), 3., 6.), ui::shadow(rgba(0x0000001f).opacity(lift(top)), 1., 3.)])
+        .flex()
+        .gap(px(GAP))
+        .min_w_0()
+        .max_w(px(max))
+        .when(open, |d| d.w_full().items_start().pt(px(OPEN_TOP)).pb(px(OPEN_BOTTOM)).rounded(px(16.)))
+        .when(!open, |d| d.h(px(HEIGHT)).items_center().rounded(px(HEIGHT / 2.)))
+        .pl(px(INSET))
+        .pr(px(if long { INSET } else { PAD_END }))
+        // Opaque, as GPUI has no backdrop blur; the transcript isn't painted around it.
+        .bg(POPOVER)
+        .shadow(vec![
+            ui::ring(hairline(0.11), 0.5),
+            BoxShadow { inset: true, ..ui::shadow(HIGHLIGHT, 0.5, 0.) },
+            ui::shadow(Hsla::from(DROP).opacity(lift), 10., 28.),
+            ui::shadow(Hsla::from(DROP_NEAR).opacity(lift), 2., 6.),
+        ])
         .text_size(px(SIZE))
         .line_height(px(LINE))
         .text_color(TEXT)
         .cursor_pointer()
         .on_click(on_jump)
-        // The text keeps clear of the time on every line, not only the first, as `wrapped_lines` counts it. A row of the
-        // two would wrap the text at the row's width.
-        .child(
-            div()
-                .id(SharedString::from(format!("sticky-text-{id}")))
-                .pr(px(room))
-                .when(open, |d| d.max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll())
-                // A height, not a line clamp: a clamp cuts each paragraph on its own.
-                .when(!open, |d| d.max_h(px(FOLDED_LINES as f32 * LINE)).overflow_hidden())
-                .child(user_bubble::styled(&format!("sticky-{id}"), text)),
-        )
+        .child(arrow)
+        .children(thumbs)
+        .child(body)
         .children(time)
-        .when(long && !open, |d| {
-            d.child(div().absolute().left_0().right_0().top(px(PAD_Y + LINE)).h(px(LINE)).bg(linear_gradient(
-                180.,
-                linear_color_stop(bg.opacity(0.), 0.),
-                linear_color_stop(bg, 1.),
-            )))
-        })
-        .when(long, |d| d.child(more));
-    let card = div()
-        .absolute()
-        .top(px(MARGIN_TOP + top))
-        .left_0()
-        .right_0()
-        .px(px(SIDE))
-        .flex()
-        .justify_center()
-        .child(div().w_full().max_w(px(width)).px(px(MARGIN_X)).child(card));
+        .children(chevron);
+    let card = if enter {
+        let rise = Animation::new(ENTER).with_easing(ease_out_quint());
+        card.with_animation(SharedString::from(format!("sticky-in-{id}")), rise, |d, t| d.opacity(t).mt(px(-6. * (1. - t)))).into_any_element()
+    } else {
+        card.into_any_element()
+    };
+    let card = div().absolute().top(px(MARGIN_TOP + top)).left_0().right_0().px(px(SIDE)).flex().justify_center().child(card);
     // The transcript isn't painted under `cover`, so its rows there take no clicks or hover either; the wheel still
     // scrolls them.
     let cover = div().absolute().top_0().left_0().right_0().h(px(cover)).block_mouse_except_scroll();
@@ -220,9 +248,9 @@ fn card(
 }
 
 impl Desktop {
-    /// The prompt whose turn the top of `agent`'s chat is in, floated over the top once it scrolls past, as VS Code's
-    /// Claude panel pins it. A click scrolls back to the prompt; the next prompt pushes it out as it arrives.
-    /// Also how far down its card ends, which the transcript paints only below.
+    /// The prompt whose turn the top of `agent`'s chat is in, floated over the top once it scrolls past. A click scrolls
+    /// back to the prompt; the next prompt pushes it out as it arrives. Also how far down its card ends, which the
+    /// transcript paints only below.
     pub(super) fn chat_sticky(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(Div, f32)> {
         let view = self.chats.views.get(agent)?;
         let s = &view.session;
@@ -230,22 +258,29 @@ impl Desktop {
         let ix = stuck(&s.rows, top, offset)?;
         let Row::Prompt { turn } = s.rows[ix] else { return None };
         let prompt = s.transcript.turns.get(turn)?.prompt.as_ref()?;
-        let text = split_images(&prompt.text).0.trim();
-        if text.is_empty() {
-            return None;
-        }
+        let (text, images) = split_images(&prompt.text);
+        let text = text.trim();
         let id = s.ids.get(ix)?.clone();
         let viewport = view.list.viewport_bounds();
-        let width = transcript::content_width(transcript::WIDTH).min(f32::from(viewport.size.width) - 2. * SIDE);
+        let max = MAX_WIDTH.min(f32::from(viewport.size.width) - 2. * SIDE);
         let time = (prompt.at > 0).then(|| meta::format_timestamp(prompt.at, &chrono::Local));
-        let time = time.map(|time| {
-            let run = window.text_style().to_run(time.len());
-            let width = TIME_GAP + f32::from(window.text_system().shape_line(time.clone().into(), px(TIME_SIZE), &[run], None).width);
-            (time, width)
-        });
-        let time_width = time.as_ref().map_or(0., |(_, width)| *width);
-        let lines = user_bubble::wrapped_lines(text, SIZE, width - 2. * MARGIN_X - INSET - time_width, window);
-        let open = view.sticky_open.as_deref() == Some(id.as_str());
+        let measure = |s: &str, size: f32| {
+            let run = window.text_style().to_run(s.len());
+            f32::from(window.text_system().shape_line(s.to_string().into(), px(size), &[run], None).width)
+        };
+        // Opened, the text wraps beside the same parts the folded line has.
+        let lines = if text.is_empty() {
+            0
+        } else {
+            let shown = images.len().min(THUMBS);
+            let rest = images.len() - shown;
+            let thumbs = (shown > 0).then(|| shown as f32 * (THUMB + THUMB_GAP) - THUMB_GAP + if rest > 0 { THUMB_GAP + 4. + measure(&format!("+{rest}"), 11.) } else { 0. });
+            let time = time.as_ref().map(|t| measure("·", TIME_SIZE) + GAP + measure(t, TIME_SIZE));
+            let beside: Vec<f32> = [Some(KNOB), thumbs, time, Some(KNOB)].into_iter().flatten().collect();
+            user_bubble::wrapped_lines(text, SIZE, text_width(max, &beside), window)
+        };
+        let long = lines > 1;
+        let open = long && view.sticky_open.as_deref() == Some(id.as_str());
         // The next prompt's bubble, under the gap its row keeps over it.
         let next = next_prompt(&s.rows, top).and_then(|n| Some(view.row_top(n)? + chat::top_gap(n.checked_sub(1).and_then(|i| s.rows.get(i)), &s.rows[n])));
         let bottom = MARGIN_TOP + height(lines, open);
@@ -262,7 +297,7 @@ impl Desktop {
             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_sticky(&agent, &row, cx))
         };
         let cover = bottom + shift;
-        Some((card(&id, text, time, lines > FOLDED_LINES, open, width, shift, cover, on_jump, on_more), cover))
+        Some((card(&id, text, &images, time, long, open, max, shift, cover, !cx.reduce_motion(), on_jump, on_more), cover))
     }
 
     fn chat_toggle_sticky(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
@@ -274,7 +309,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{FOLDED_LINES, LINE, height, lift, next_prompt, pushed, stuck, top_at_end};
+    use super::{HEIGHT, KNOB, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, height, image_count, lift, next_prompt, one_line, pushed, stuck, top_at_end};
     use chat::Row;
 
     fn rows() -> Vec<Row> {
@@ -330,9 +365,20 @@ mod tests {
     }
 
     #[test]
-    fn a_folded_card_holds_two_lines_and_an_opened_one_grows_to_160px() {
-        assert_eq!(height(1, false), 2. + 20. + LINE);
-        assert_eq!(height(FOLDED_LINES + 3, false), height(FOLDED_LINES + 1, false));
-        assert_eq!(height(50, true), 2. + 10. + 160. + 30.);
+    fn a_folded_card_is_one_line_tall_and_an_opened_one_grows_to_160px() {
+        assert_eq!(height(9, false), HEIGHT);
+        assert_eq!(height(1, true), OPEN_TOP + KNOB + OPEN_BOTTOM, "one line sits level with the arrow");
+        assert_eq!(height(50, true), OPEN_TOP + 1. + OPEN_MAX_HEIGHT + OPEN_BOTTOM);
+    }
+
+    #[test]
+    fn a_folded_prompt_reads_its_line_breaks_as_spaces() {
+        assert_eq!(one_line("Fix these:\n1) filter\n\n  2) sort "), "Fix these: 1) filter 2) sort");
+    }
+
+    #[test]
+    fn a_prompt_of_only_images_counts_them() {
+        assert_eq!(image_count(1), "1 image");
+        assert_eq!(image_count(4), "4 images");
     }
 }
