@@ -23,8 +23,8 @@ use theme::*;
 const WIDTH: f32 = 720.;
 /// How long a row shown from the background tray stays lit.
 const FLASH: Duration = Duration::from_millis(900);
-/// A sent prompt rises from under the list's end, out from behind the composer.
-const SENT: creating::Part = (0., 48.);
+/// A sent prompt fades in where it's held, from just below.
+const SENT: creating::Part = (0., 12.);
 
 /// A reading width held between 560 and 1200, in 16px steps.
 pub(super) fn content_width(width: f32) -> f32 {
@@ -81,10 +81,10 @@ impl View {
     }
 
     /// Sizes the room that holds the sent prompt at the top and keeps the list on it, until its reply fills the viewport.
-    fn hold_pin(&mut self, rise: Duration, window: &mut Window) {
+    fn hold_pin(&mut self, window: &mut Window) {
         let scrolled = self.scrolled.take();
         let Some(pin) = &mut self.pin else { return };
-        if let Some(at_end) = scrolled.or_else(|| (!pin.rising() && !pin.anchored && self.list.is_following_tail()).then_some(true)) {
+        if let Some(at_end) = scrolled.or_else(|| (!pin.unmeasured() && !pin.anchored && self.list.is_following_tail()).then_some(true)) {
             pin.moved(at_end);
         }
         let Some(ix) = pin.row(&self.session.rows) else {
@@ -92,7 +92,7 @@ impl View {
             return;
         };
         let viewport = f32::from(self.list.viewport_bounds().size.height);
-        if !pin.step(viewport, self.list.height_from(ix).map(f32::from), Instant::now(), rise) {
+        if !pin.step(viewport, self.list.height_from(ix).map(f32::from)) {
             // On the prompt the list follows the tail from here; scrolled away, it stays put until back at the end.
             let (anchored, top) = (pin.anchored, self.list.logical_scroll_top());
             self.pin = None;
@@ -102,7 +102,7 @@ impl View {
             }
             return;
         }
-        if pin.rising() {
+        if pin.unmeasured() {
             window.request_animation_frame();
         } else if pin.anchored {
             // Held by the item rather than by following the end: a row growing under the prompt can't push it up for a frame
@@ -112,7 +112,7 @@ impl View {
         }
     }
 
-    /// Holds the prompt just sent at the top once its row shows, rising from the end.
+    /// Holds the prompt just sent at the top once its row shows.
     pub(super) fn pin(&mut self) {
         self.pin = Some(Pin::new());
         self.sent = Some(Instant::now());
@@ -135,16 +135,17 @@ impl View {
     fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item]) -> Vec<(u64, String)> {
         let before: HashMap<String, usize> = latest_texts(&self.session.transcript).map(|m| (m.id.clone(), m.text.len())).collect();
         let tail = chat::live_tail(&self.session.transcript).map(|f| self.session.transcript.turns[f].id.clone());
-        if let Some((range, count)) = self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms()) {
+        if let Some((changed, range, count)) = self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms()) {
             if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
                 self.settled = Some((format!("{turn}#fold"), Instant::now()));
             }
             self.pace(&before, Instant::now());
-            self.list.splice(range.clone(), count);
+            self.list.remeasure_items(changed.clone());
+            self.list.splice(range, count);
             // Rows kept above the change can show or hide as their reply settles; the list measured them as they were.
-            let rows = &self.session.rows[..range.start.min(self.session.rows.len())];
+            let rows = &self.session.rows[..changed.start.min(self.session.rows.len())];
             if let Some(fold) = rows.iter().rposition(|r| matches!(r, Row::Fold { .. })) {
-                self.list.remeasure_items(fold..range.start);
+                self.list.remeasure_items(fold..changed.start);
             }
             self.code.retain(|row| self.session.ids.contains(row));
         }
@@ -296,10 +297,11 @@ fn toggle(agent: &str, id: &str, default: bool, cx: &mut Context<Desktop>) -> im
 }
 
 impl Desktop {
-    /// Sends each chat's next queued send once its agent goes idle, on screen or not.
-    pub(crate) fn release_queued(&mut self) {
+    /// Refolds every chat as its timeline moves, on screen or not, and sends each one's next queued send once its agent goes
+    /// idle. A chat away from the screen streams its text in as it arrives, so it isn't let out again on return.
+    pub(crate) fn refresh_chats(&mut self) {
         let mut released = Vec::new();
-        for (id, view) in self.chats.views.iter_mut().filter(|(_, v)| v.session.outgoing.holds()) {
+        for (id, view) in self.chats.views.iter_mut() {
             let Some(agent) = self.agents.get(id) else { continue };
             let items = self.agents.timelines.get(id).map_or(&[][..], Vec::as_slice);
             released.extend(view.refresh(agent, self.agents.revision(id), items).into_iter().map(|(send, text)| (id.clone(), send, text)));
@@ -333,8 +335,7 @@ impl Desktop {
         if view.list.item_count() == 0 {
             return div().flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("Send a message to start.");
         }
-        let rise = if cx.reduce_motion() { Duration::ZERO } else { pin::RISE };
-        view.hold_pin(rise, window);
+        view.hold_pin(window);
         view.jump = view.glide.is_none() && jump::jump_visibility(view.jump, view.distance());
         let spacer = view.pin.as_ref().map_or(0., |p| p.spacer);
         let rows = {
@@ -665,6 +666,9 @@ impl Desktop {
             }
             None => inner,
         };
+        // Until its row is measured the prompt sits at the list's end; shown there, it would leap to the top a frame later.
+        let unheld = view.pin.as_ref().filter(|p| p.unmeasured()).and_then(|p| p.row(&s.rows)).is_some_and(|p| ix >= p);
+        let inner = if unheld { inner.opacity(0.) } else { inner };
         let inner = match &view.flash {
             Some((row, at)) if *row == id && at.elapsed() < FLASH => {
                 let flash = inner.rounded(px(8.)).with_animation(SharedString::from(format!("flash-{id}")), Animation::new(FLASH).with_easing(ease_out_quint()), |d, t| d.bg(Hsla::from(FILL_4).opacity(1. - t)));
