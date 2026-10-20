@@ -45,10 +45,12 @@ type line struct {
 	// ToolUseResult is a string for some tools, so it is read only when needed.
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
 	Attachment    struct {
-		Type      string `json:"type"`
-		Met       bool   `json:"met"`
-		Failed    bool   `json:"failed"`
-		Condition string `json:"condition"`
+		Type        string          `json:"type"`
+		Met         bool            `json:"met"`
+		Failed      bool            `json:"failed"`
+		Condition   string          `json:"condition"`
+		CommandMode string          `json:"commandMode"`
+		Prompt      json.RawMessage `json:"prompt"`
 	} `json:"attachment"`
 	CommandRun struct {
 		Command string `json:"command"`
@@ -145,6 +147,11 @@ func (l line) events() (events []timeline.Event) {
 			}
 		case "compact_boundary":
 			return []timeline.Event{{Kind: "compacted", Trigger: l.CompactMetadata.Trigger}}
+		}
+	case "attachment":
+		// A task notification that comes mid-turn joins the turn as a queued command, not a user line.
+		if l.Attachment.Type == "queued_command" && l.Attachment.CommandMode == "task-notification" {
+			return taskEnd(l.Attachment.Prompt)
 		}
 	case "assistant":
 		// claude -p ends a failed turn with the error, and no Stop.
