@@ -38,6 +38,8 @@ func TestMap(t *testing.T) {
 		{"bash mode output", `{"type":"user","parentUuid":"b1","message":{"content":"<bash-stdout>hi</bash-stdout><bash-stderr></bash-stderr>"}}`, []string{"tool_end"}},
 		{"task notification", `{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}`, nil},
 		{"background task stops", `{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n</task-notification>"}}`, []string{"tool_end"}},
+		{"background task stops mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n</task-notification>"}}`, []string{"tool_end"}},
+		{"other queued command", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"hi"}}`, nil},
 		{"background agent launched", `{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched successfully."}]}}`, []string{"tool_background"}},
 		{"command sent to the background", `{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"b1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: b1."}]}}`, []string{"tool_background"}},
 		{"tool result as a string", `{"type":"user","toolUseResult":"Error: no such file","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"x","is_error":true}]}}`, []string{"tool_end"}},
@@ -88,6 +90,10 @@ func TestMapDetails(t *testing.T) {
 	ev = Map([]byte(`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent finished</summary>\n<result>Docs &amp; ADRs, then </result> quoted</result>\n</task-notification>"}}`))
 	if ev[0].ToolUseID != "t1" || !ev[0].OK || *ev[0].Output != "Docs & ADRs, then </result> quoted" {
 		t.Errorf("task end: %+v", ev[0])
+	}
+	ev = Map([]byte(`{"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<tool-use-id>t2</tool-use-id>\n<status>completed</status>\n<result>Task 2.2 is done</result>\n</task-notification>"}}`))
+	if ev[0].ToolUseID != "t2" || !ev[0].OK || *ev[0].Output != "Task 2.2 is done" {
+		t.Errorf("mid-turn task end: %+v", ev[0])
 	}
 	ev = Map([]byte(`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification><tool-use-id>t1</tool-use-id><status>failed</status></task-notification>"}}`))
 	if ev[0].OK || ev[0].Output != nil {
