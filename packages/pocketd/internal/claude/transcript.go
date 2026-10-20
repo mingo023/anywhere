@@ -193,7 +193,12 @@ func (l line) events() (events []timeline.Event) {
 		if events, ok := l.bash(); ok {
 			return events
 		}
-		return userEvents(l.Message.Content)
+		events = userEvents(l.Message.Content)
+		// Claude writes no notification for a command or workflow the agent stopped, so the stop's result ends it.
+		if task, ok := l.stopped(); ok {
+			events = append(events, timeline.Event{Kind: "tool_end", TaskID: task, OK: true})
+		}
+		return events
 	}
 	return events
 }
@@ -215,16 +220,32 @@ func (l line) bash() ([]timeline.Event, bool) {
 	return []timeline.Event{{Kind: "tool_end", ToolUseID: l.ParentUUID, OK: true, Output: &out}}, true
 }
 
-// background says whether the call went on in the background, an agent launched async or a command, and the command's task id.
+// background says whether the call went on in the background, an agent launched async or a command, and its task id.
 func (l line) background() (string, bool) {
 	var r struct {
 		IsAsync          bool   `json:"isAsync"`
+		AgentID          string `json:"agentId"`
 		BackgroundTaskID string `json:"backgroundTaskId"`
 	}
 	if json.Unmarshal(l.ToolUseResult, &r) != nil {
 		return "", false
 	}
-	return r.BackgroundTaskID, r.IsAsync || r.BackgroundTaskID != ""
+	if r.IsAsync {
+		return r.AgentID, true
+	}
+	return r.BackgroundTaskID, r.BackgroundTaskID != ""
+}
+
+// stopped says whether the line is a TaskStop's result, and the task it stopped.
+func (l line) stopped() (string, bool) {
+	var r struct {
+		TaskID   string `json:"task_id"`
+		TaskType string `json:"task_type"`
+	}
+	if json.Unmarshal(l.ToolUseResult, &r) != nil || r.TaskType == "" {
+		return "", false
+	}
+	return r.TaskID, true
 }
 
 // taskEnd ends the tool call a background task ran under, from the notification Claude writes when it stops.

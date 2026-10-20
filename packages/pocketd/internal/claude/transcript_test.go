@@ -107,6 +107,22 @@ func TestMapDetails(t *testing.T) {
 	if ev[0].ToolUseID != "t1" || ev[0].TaskID != "b1" || ev[0].Output != nil {
 		t.Errorf("background command: %+v", ev[0])
 	}
+	ev = Map([]byte(`{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched"}]}}`))
+	if ev[0].Kind != "tool_background" || ev[0].ToolUseID != "t1" || ev[0].TaskID != "a1" {
+		t.Errorf("background agent: %+v", ev[0])
+	}
+	ev = Map([]byte(`{"type":"user","toolUseResult":{"message":"Successfully stopped task: b1 (bun run dev)","task_id":"b1","task_type":"local_bash","command":"bun run dev"},"message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"stopped"}]}}`))
+	if len(ev) != 2 || ev[0].ToolUseID != "t2" || ev[1].Kind != "tool_end" || ev[1].TaskID != "b1" || ev[1].ToolUseID != "" || !ev[1].OK {
+		t.Errorf("stop ends the stopped task: %+v", ev)
+	}
+	ev = Map([]byte(`{"type":"user","toolUseResult":"Error: No task found with ID: b9","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"Error: No task found with ID: b9","is_error":true}]}}`))
+	if len(ev) != 1 || ev[0].ToolUseID != "t3" || ev[0].OK {
+		t.Errorf("a failed stop ends nothing else: %+v", ev)
+	}
+	ev = Map([]byte(`{"type":"user","toolUseResult":{"taskId":"m1","persistent":false,"timeoutMs":60000},"message":{"content":[{"type":"tool_result","tool_use_id":"t4","content":"watching"}]}}`))
+	if len(ev) != 1 || ev[0].ToolUseID != "t4" {
+		t.Errorf("only a stop ends a task: %+v", ev)
+	}
 	ev = Map([]byte(`{"type":"system","subtype":"turn_duration","durationMs":7}`))
 	if !ev[0].OK || ev[0].DurationMs != 7 {
 		t.Errorf("result: %+v", ev[0])

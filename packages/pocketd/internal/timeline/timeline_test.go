@@ -200,6 +200,22 @@ func TestABackgroundCommandEndsAfterTheNextPromptAndNamesWhatStopsIt(t *testing.
 	}
 }
 
+func TestABackgroundCallTheAgentStoppedEndsAtTheStopsResult(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"npx wrangler login","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 2)
+	tl.StartEpoch()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"b1"}`)}, 3)
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "t2", OK: true}, 4)
+	it, ok := tl.Apply(Event{Kind: "tool_end", TaskID: "b1", OK: true}, 4)
+	if !ok || it.Call.ToolUseID != "t1" || it.Call.Status != "ok" || *it.Call.DurationMs != 3 {
+		t.Fatalf("stopped: %+v", it)
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_end", TaskID: "b9", OK: true}, 5); ok {
+		t.Fatal("an unknown task ended something")
+	}
+}
+
 func TestAPromptIsUnansweredUntilTheAgentWritesAndASubAgentOrCompactionIsNoAnswer(t *testing.T) {
 	tl := New()
 	if tl.Unanswered() {
