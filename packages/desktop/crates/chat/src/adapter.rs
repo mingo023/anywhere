@@ -27,7 +27,7 @@ impl Capabilities {
     pub fn allows(&self, action: Action) -> bool {
         match action {
             Action::Stop => self.interrupt,
-            Action::Queue => self.send_while_working,
+            Action::Steer | Action::Queue => self.send_while_working,
             Action::Send => true,
             Action::Stopping => false,
         }
@@ -100,10 +100,10 @@ mod tests {
     #[test]
     fn the_composer_blocks_only_what_the_agent_cant_do() {
         let all = for_provider("codex").capabilities();
-        assert!([Action::Send, Action::Queue, Action::Stop].into_iter().all(|a| all.allows(a)));
+        assert!([Action::Send, Action::Steer, Action::Queue, Action::Stop].into_iter().all(|a| all.allows(a)));
         let none = Capabilities::default();
-        assert_eq!([Action::Send, Action::Queue, Action::Stop].map(|a| none.allows(a)), [true, false, false]);
-        assert!(Gemini.capabilities().allows(Action::Stop) && !Gemini.capabilities().allows(Action::Queue));
+        assert_eq!([Action::Send, Action::Steer, Action::Queue, Action::Stop].map(|a| none.allows(a)), [true, false, false, false]);
+        assert!(Gemini.capabilities().allows(Action::Stop) && !Gemini.capabilities().allows(Action::Steer));
         assert!(!all.allows(Action::Stopping), "a stop under way has nothing to press");
     }
 

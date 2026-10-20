@@ -284,19 +284,23 @@ fn tidy(text: &str) -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Send,
+    /// Sends into the turn underway; the agent reads it at its next step.
+    Steer,
+    /// A stop is on its way, so the send waits for the turn to end.
     Queue,
     Stop,
     /// A stop is on its way; nothing to press until the turn ends.
     Stopping,
 }
 
-/// Stop while working with an empty draft, Queue while working with one, else Send. Enter never stops, and once
-/// `stopping`, nothing does again.
+/// Stop while working with an empty draft, Steer while working with one, else Send. Enter never stops, and once
+/// `stopping`, nothing does again: a draft then queues.
 pub fn action(working: bool, stopping: bool, empty: bool) -> Action {
     match (working, empty) {
         (true, true) if stopping => Action::Stopping,
         (true, true) => Action::Stop,
-        (true, false) => Action::Queue,
+        (true, false) if stopping => Action::Queue,
+        (true, false) => Action::Steer,
         (false, _) => Action::Send,
     }
 }
@@ -851,8 +855,8 @@ mod tests {
     }
 
     #[test]
-    fn working_with_a_draft_offers_queue() {
-        assert_eq!(action(true, false, false), Action::Queue);
+    fn working_with_a_draft_offers_steer() {
+        assert_eq!(action(true, false, false), Action::Steer);
     }
 
     #[test]
