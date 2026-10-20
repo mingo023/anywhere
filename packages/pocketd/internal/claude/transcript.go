@@ -108,7 +108,11 @@ func Map(raw []byte) []timeline.Event {
 
 // Turns maps a transcript's lines in order. claude -p writes no turn_duration,
 // so it times those turns from their first event to their end.
-type Turns struct{ start time.Time }
+type Turns struct {
+	start time.Time
+	// Claude writes a caveat before a command it runs itself, like /goal clear; no model turn follows to end it.
+	local bool
+}
 
 func (t *Turns) Map(raw []byte) []timeline.Event {
 	var l line
@@ -116,6 +120,10 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		return nil
 	}
 	events := l.events()
+	if t.local && len(events) > 0 && events[len(events)-1].Kind == "user" {
+		events = append(events, timeline.Event{Kind: "result", OK: true})
+	}
+	t.local = l.caveat()
 	at, _ := time.Parse(time.RFC3339Nano, l.Timestamp)
 	for i, e := range events {
 		// A prompt the agent took mid-turn starts the reply that answers it.
@@ -207,6 +215,11 @@ func (l line) events() (events []timeline.Event) {
 		return events
 	}
 	return events
+}
+
+func (l line) caveat() bool {
+	var text string
+	return l.IsMeta && json.Unmarshal(l.Message.Content, &text) == nil && strings.HasPrefix(text, "<local-command-caveat>")
 }
 
 // bash maps a bash mode line. Claude answers the command as it would a prompt,
