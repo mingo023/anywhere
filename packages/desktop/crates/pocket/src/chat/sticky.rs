@@ -68,7 +68,7 @@ fn pushed(bottom: f32, next: Option<f32>) -> f32 {
 fn card(
     id: &str,
     text: &str,
-    time: Option<String>,
+    time: Option<(String, f32)>,
     long: bool,
     open: bool,
     width: f32,
@@ -78,27 +78,33 @@ fn card(
 ) -> Div {
     // Opaque and lifted off the transcript, which scrolls under it.
     let bg = Hsla::from(POPOVER).blend(FILL_4.into()).blend(FILL_2.into());
-    let more = ui::control(div().id(SharedString::from(format!("sticky-more-{id}"))))
+    // Quiet, as a prompt bubble's own Show more.
+    let more = div()
+        .id(SharedString::from(format!("sticky-more-{id}")))
+        .group("sticky-more")
         .absolute()
-        .right_0()
+        .right(px(PAD_X))
         .bottom_0()
         .h(px(MORE_ROW))
-        .px(px(10.))
         .flex()
         .items_center()
-        .rounded_tl(px(6.))
-        .rounded_br(px(RADIUS - 1.))
-        .bg(TEXT_BODY)
-        .text_color(ON_TEXT)
+        .gap(px(5.))
         .text_size(px(13.))
+        .text_color(TEXT_2)
         .cursor_pointer()
-        .hover(|s| s.bg(TEXT))
+        .hover(|d| d.text_color(TEXT))
         .on_click(move |e, window, cx| {
             cx.stop_propagation();
             on_more(e, window, cx);
         })
-        .child(if open { "Show less" } else { "Show more" });
-    let time = time.map(|time| div().flex_none().ml(px(TIME_GAP)).text_size(px(TIME_SIZE)).line_height(px(LINE)).text_color(TEXT_2).child(time));
+        .child(if open { "Show less" } else { "Show more" })
+        .child(
+            icon("chevron-down", 12., TEXT_2)
+                .when(open, |i| i.with_transformation(Transformation::rotate(radians(std::f32::consts::PI))))
+                .group_hover("sticky-more", |s| s.text_color(TEXT)),
+        );
+    let room = time.as_ref().map_or(0., |(_, width)| *width);
+    let time = time.map(|(time, _)| div().absolute().top(px(PAD_Y)).right(px(PAD_X)).text_size(px(TIME_SIZE)).line_height(px(LINE)).text_color(TEXT_2).child(time));
     let card = div()
         .id(SharedString::from(format!("sticky-{id}")))
         // An opened prompt scrolls itself; a folded one lets the wheel through to the transcript.
@@ -121,30 +127,29 @@ fn card(
         .text_color(TEXT)
         .cursor_pointer()
         .on_click(on_jump)
+        // The text keeps clear of the time on every line, not only the first, as `wrapped_lines` counts it. A row of the
+        // two would wrap the text at the row's width.
         .child(
             div()
-                .flex()
-                .items_start()
-                .child(
-                    div()
-                        .id(SharedString::from(format!("sticky-text-{id}")))
-                        .flex_1()
-                        .min_w_0()
-                        .when(open, |d| d.max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll())
-                        .when(!open, |d| d.line_clamp(FOLDED_LINES))
-                        .child(user_bubble::styled(&format!("sticky-{id}"), text)),
-                )
-                .children(time),
+                .id(SharedString::from(format!("sticky-text-{id}")))
+                .pr(px(room))
+                .when(open, |d| d.max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll())
+                // A height, not a line clamp: a clamp cuts each paragraph on its own.
+                .when(!open, |d| d.max_h(px(FOLDED_LINES as f32 * LINE)).overflow_hidden())
+                .child(user_bubble::styled(&format!("sticky-{id}"), text)),
         )
+        .children(time)
         .when(long && !open, |d| {
             d.child(div().absolute().left_0().right_0().top(px(PAD_Y + LINE)).h(px(LINE)).bg(linear_gradient(
                 180.,
-                linear_color_stop(bg.opacity(0.2), 0.),
-                linear_color_stop(bg.opacity(0.85), 1.),
+                linear_color_stop(bg.opacity(0.), 0.),
+                linear_color_stop(bg, 1.),
             )))
         })
         .when(long, |d| d.child(more));
-    div().absolute().top(px(top)).left_0().right_0().px(px(SIDE)).flex().justify_center().child(div().w_full().max_w(px(width)).child(card))
+    let card = div().absolute().top(px(top)).left_0().right_0().px(px(SIDE)).flex().justify_center().child(div().w_full().max_w(px(width)).child(card));
+    // Clipped at the transcript's top, so a pushed card and the shadow slide out under the toolbar, not over it.
+    div().absolute().inset_0().overflow_hidden().child(card)
 }
 
 impl Desktop {
@@ -165,10 +170,12 @@ impl Desktop {
         let viewport = view.list.viewport_bounds();
         let width = transcript::content_width(transcript::WIDTH).min(f32::from(viewport.size.width) - 2. * SIDE);
         let time = (prompt.at > 0).then(|| meta::format_timestamp(prompt.at, &chrono::Local));
-        let time_width = time.as_ref().map_or(0., |time| {
+        let time = time.map(|time| {
             let run = window.text_style().to_run(time.len());
-            TIME_GAP + f32::from(window.text_system().shape_line(time.clone().into(), px(TIME_SIZE), &[run], None).width)
+            let width = TIME_GAP + f32::from(window.text_system().shape_line(time.clone().into(), px(TIME_SIZE), &[run], None).width);
+            (time, width)
         });
+        let time_width = time.as_ref().map_or(0., |(_, width)| *width);
         let lines = user_bubble::wrapped_lines(text, SIZE, width - INSET - time_width, window);
         let open = view.sticky_open.as_deref() == Some(id.as_str());
         let next = next_prompt(&s.rows, top).and_then(|n| view.row_top(n));
