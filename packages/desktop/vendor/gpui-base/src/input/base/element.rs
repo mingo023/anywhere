@@ -1864,6 +1864,34 @@ impl<M: InputModeKind> Element for TextElement<M> {
             });
         }
 
+        // The text is measured now, and the visible rows not yet picked: reveal
+        // the cursor here so they are picked from where it scrolls to.
+        if self.state.read(cx).reveal_cursor_after_layout {
+            let line_height = window.line_height();
+            let height = bounds.size.height;
+            self.state.update(cx, |state, _| {
+                state.reveal_cursor_after_layout = false;
+                let point = state.text.offset_to_point(state.cursor());
+                let row = state
+                    .display_map
+                    .buffer_pos_to_display_pos(crate::input::BufferPoint::new(
+                        point.row,
+                        point.column,
+                    ))
+                    .row;
+                let top = line_height * row;
+                let mut offset = state
+                    .deferred_scroll_offset
+                    .unwrap_or(state.scroll_handle.offset());
+                if top + line_height > height - offset.y {
+                    offset.y = height - top - line_height;
+                } else if top < -offset.y {
+                    offset.y = -top;
+                }
+                state.deferred_scroll_offset = Some(offset);
+            });
+        }
+
         let state = self.state.read(cx);
         let line_height = window.line_height();
 
