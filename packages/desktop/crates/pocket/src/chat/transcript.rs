@@ -372,7 +372,8 @@ impl Desktop {
             jump::pill(cx.listener(move |this, _, window, cx| this.chat_jump_to_bottom(&id, window, cx)))
         });
         let sticky = self.chat_sticky(&id, window, cx);
-        div().relative().flex_1().min_h_0().child(rows).children(sticky).children(pill)
+        let cover = sticky.as_ref().map_or(0., |(_, cover)| *cover);
+        div().relative().flex_1().min_h_0().child(sticky::below(cover, rows)).children(sticky.map(|(card, _)| card)).children(pill)
     }
 
     /// Opens a page in the browser the settings pick, or a file in the preview.

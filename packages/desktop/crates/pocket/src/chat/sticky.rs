@@ -73,6 +73,52 @@ fn lift(shift: f32) -> f32 {
     (1. + shift / SETTLE).clamp(0., 1.)
 }
 
+/// Paints `child` only below `top`, where a stuck prompt's card ends, so the margins around the card show the chat's
+/// background rather than transcript text cut off by the card. Only the paint is cut: the list under it still takes
+/// the wheel there.
+pub(super) struct Below {
+    top: Pixels,
+    child: AnyElement,
+}
+
+pub(super) fn below(top: f32, child: impl IntoElement) -> Below {
+    Below { top: px(top), child: child.into_any_element() }
+}
+
+impl IntoElement for Below {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Below {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) {
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), _: &mut (), window: &mut Window, cx: &mut App) {
+        let shown = Bounds::from_corners(point(bounds.left(), (bounds.top() + self.top).min(bounds.bottom())), bounds.bottom_right());
+        window.with_content_mask(Some(ContentMask { bounds: shown }), |window| self.child.paint(window, cx));
+    }
+}
+
 /// A prompt floating over the top of the chat: cut to two lines, the second fading out above Show more, with the time it
 /// was sent at the end of its first line.
 #[allow(clippy::too_many_arguments)]
@@ -84,6 +130,7 @@ fn card(
     open: bool,
     width: f32,
     top: f32,
+    cover: f32,
     on_jump: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
@@ -164,14 +211,18 @@ fn card(
         .flex()
         .justify_center()
         .child(div().w_full().max_w(px(width)).px(px(MARGIN_X)).child(card));
+    // The transcript isn't painted under `cover`, so its rows there take no clicks or hover either; the wheel still
+    // scrolls them.
+    let cover = div().absolute().top_0().left_0().right_0().h(px(cover)).block_mouse_except_scroll();
     // Clipped at the transcript's top, so a pushed card and the shadow slide out under the toolbar, not over it.
-    div().absolute().inset_0().overflow_hidden().child(card)
+    div().absolute().inset_0().overflow_hidden().child(cover).child(card)
 }
 
 impl Desktop {
     /// The prompt whose turn the top of `agent`'s chat is in, floated over the top once it scrolls past, as VS Code's
     /// Claude panel pins it. A click scrolls back to the prompt; the next prompt pushes it out as it arrives.
-    pub(super) fn chat_sticky(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
+    /// Also how far down its card ends, which the transcript paints only below.
+    pub(super) fn chat_sticky(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(Div, f32)> {
         let view = self.chats.views.get(agent)?;
         let s = &view.session;
         let (top, offset) = view.top_row()?;
@@ -209,7 +260,8 @@ impl Desktop {
             let (agent, row) = (agent.to_string(), id.clone());
             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_sticky(&agent, &row, cx))
         };
-        Some(card(&id, text, time, lines > FOLDED_LINES, open, width, shift, on_jump, on_more))
+        let cover = bottom + shift;
+        Some((card(&id, text, time, lines > FOLDED_LINES, open, width, shift, cover, on_jump, on_more), cover))
     }
 
     fn chat_toggle_sticky(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
