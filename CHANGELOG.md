@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.8
+
+- Chat stream keeps background chats current, holds a scroll up, and clears on send (#93): (5301cb7)
+- A new worktree reuses the main checkout's build and third_party (#92): (65e6a1e)
+- Chat sends a message typed mid-turn into the turn, as the CLI does (#91): (28d1a07)
+- A chat table too wide to fit sits in a frame and keeps its scrollbar showing (#95): (9822711)
+- Chat pins the prompt being answered as a floating card, as VS Code does (#94): (8c54d4f)
+- Settings segmented controls take a click when another one sits above them (#90): (895b60a)
+- Chat asks a question on a card, with Skip (#89): (86a6b74)
+- Chat grows a double-click selection word by word as it drags, and a prompt's text is selectable (#88): (47dd990)
+- Chat shows a prompt Claude took mid-turn, so its send stops reading Sending… (#87): (0779666)
+- The / list opens for a slash past the draft's start (#86): (84e1b82)
+- A long paste scrolls the composer to its end (#85): (71c66bc)
+
 ## 0.1.7
 
 - Chat ends a background task the agent stopped (#84): (d827cc1)
