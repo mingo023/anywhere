@@ -39,7 +39,8 @@ func TestMap(t *testing.T) {
 		{"task notification", `{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}`, nil},
 		{"background task stops", `{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n</task-notification>"}}`, []string{"tool_end"}},
 		{"background task stops mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n</task-notification>"}}`, []string{"tool_end"}},
-		{"other queued command", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"hi"}}`, nil},
+		{"prompt sent mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"hi"}}`, []string{"user"}},
+		{"other queued command", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"bash","prompt":"ls"}}`, nil},
 		{"background agent launched", `{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched successfully."}]}}`, []string{"tool_background"}},
 		{"command sent to the background", `{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"b1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: b1."}]}}`, []string{"tool_background"}},
 		{"tool result as a string", `{"type":"user","toolUseResult":"Error: no such file","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"x","is_error":true}]}}`, []string{"tool_end"}},
@@ -148,6 +149,25 @@ func TestAClaudePTurnEndsAtItsStopHooksTimedFromItsFirstEvent(t *testing.T) {
 	}
 	if !got[2].OK || got[2].DurationMs != 2500 || got[4].DurationMs != 1000 {
 		t.Fatalf("ends: %+v %+v", got[2], got[4])
+	}
+}
+
+func TestAPromptTheAgentTookMidTurnShowsAndTimesTheReplyAfterIt(t *testing.T) {
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		`{"type":"user","entrypoint":"sdk-cli","timestamp":"2026-10-20T04:03:00.000Z","message":{"content":"redo it"}}`,
+		`{"type":"assistant","entrypoint":"sdk-cli","timestamp":"2026-10-20T04:12:00.000Z","message":{"content":[{"type":"text","text":"checking"}]}}`,
+		`{"type":"attachment","entrypoint":"sdk-cli","timestamp":"2026-10-20T04:13:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"use headless"}}`,
+		`{"type":"system","subtype":"stop_hook_summary","entrypoint":"sdk-cli","timestamp":"2026-10-20T04:15:00.000Z"}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user", "assistant_text", "user", "result"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+	if got[2].Text != "use headless" || got[3].DurationMs != 120_000 {
+		t.Fatalf("prompt %+v, end %+v", got[2], got[3])
 	}
 }
 

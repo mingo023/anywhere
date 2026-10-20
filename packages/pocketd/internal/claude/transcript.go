@@ -118,7 +118,8 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 	events := l.events()
 	at, _ := time.Parse(time.RFC3339Nano, l.Timestamp)
 	for i, e := range events {
-		if t.start.IsZero() {
+		// A prompt the agent took mid-turn starts the reply that answers it.
+		if t.start.IsZero() || e.Kind == "user" {
 			t.start = at
 		}
 		if e.Kind == "result" {
@@ -149,9 +150,14 @@ func (l line) events() (events []timeline.Event) {
 			return []timeline.Event{{Kind: "compacted", Trigger: l.CompactMetadata.Trigger}}
 		}
 	case "attachment":
-		// A task notification that comes mid-turn joins the turn as a queued command, not a user line.
-		if l.Attachment.Type == "queued_command" && l.Attachment.CommandMode == "task-notification" {
-			return taskEnd(l.Attachment.Prompt)
+		// A task notification or prompt that comes mid-turn joins the turn as a queued command, not a user line.
+		if l.Attachment.Type == "queued_command" {
+			switch l.Attachment.CommandMode {
+			case "task-notification":
+				return taskEnd(l.Attachment.Prompt)
+			case "prompt":
+				return userEvents(l.Attachment.Prompt)
+			}
 		}
 	case "assistant":
 		// claude -p ends a failed turn with the error, and no Stop.
