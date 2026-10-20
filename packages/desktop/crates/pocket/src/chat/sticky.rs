@@ -26,6 +26,9 @@ const TIME_GAP: f32 = 8.;
 const INSET: f32 = 2. * (PAD_X + 1.);
 /// The transcript's side padding, which the card lines up with.
 const SIDE: f32 = 32.;
+/// The card floats this far under the chat's top and in from each side of its column, as VS Code's does.
+const MARGIN_TOP: f32 = 8.;
+const MARGIN_X: f32 = 12.;
 
 /// The prompt row whose turn the top of the list is in, once that prompt has scrolled up past the top: none while it
 /// shows from its top, or above the first prompt. `top` is the row at the list's top and `offset` how far into it.
@@ -52,10 +55,10 @@ fn next_prompt(rows: &[Row], top: usize) -> Option<usize> {
     rows.iter().enumerate().skip(top + 1).find(|(_, r)| matches!(r, Row::Prompt { .. } | Row::Pending(_))).map(|(ix, _)| ix)
 }
 
-/// The card's height for a prompt that wraps to `lines` lines. It hangs from the top, so only its bottom has a border.
+/// The card's height for a prompt that wraps to `lines` lines, border included.
 fn height(lines: usize, open: bool) -> f32 {
     let text = if open { (lines as f32 * LINE).min(OPEN_MAX_HEIGHT) } else { lines.min(FOLDED_LINES) as f32 * LINE };
-    1. + PAD_Y + text + if lines > FOLDED_LINES { MORE_ROW } else { PAD_Y }
+    2. + PAD_Y + text + if lines > FOLDED_LINES { MORE_ROW } else { PAD_Y }
 }
 
 /// How far the card moves up so the next prompt, `next` px under the list's top, pushes it out rather than slides
@@ -70,7 +73,7 @@ fn lift(shift: f32) -> f32 {
     (1. + shift / SETTLE).clamp(0., 1.)
 }
 
-/// A prompt hung from the top of the chat: cut to two lines, the second fading out above Show more, with the time it
+/// A prompt floating over the top of the chat: cut to two lines, the second fading out above Show more, with the time it
 /// was sent at the end of its first line.
 #[allow(clippy::too_many_arguments)]
 fn card(
@@ -122,10 +125,8 @@ fn card(
         .px(px(PAD_X))
         .pt(px(PAD_Y))
         .pb(px(if long { MORE_ROW } else { PAD_Y }))
-        // Flush with the top, so no transcript shows over it.
-        .rounded_b(px(RADIUS))
-        .border_x_1()
-        .border_b_1()
+        .rounded(px(RADIUS))
+        .border_1()
         .border_color(hairline(0.2))
         .bg(bg)
         .shadow(vec![ui::shadow(rgba(0x0000002e).opacity(lift(top)), 4., 14.), ui::shadow(rgba(0x0000001f).opacity(lift(top)), 1., 3.)])
@@ -154,7 +155,15 @@ fn card(
             )))
         })
         .when(long, |d| d.child(more));
-    let card = div().absolute().top(px(top)).left_0().right_0().px(px(SIDE)).flex().justify_center().child(div().w_full().max_w(px(width)).child(card));
+    let card = div()
+        .absolute()
+        .top(px(MARGIN_TOP + top))
+        .left_0()
+        .right_0()
+        .px(px(SIDE))
+        .flex()
+        .justify_center()
+        .child(div().w_full().max_w(px(width)).px(px(MARGIN_X)).child(card));
     // Clipped at the transcript's top, so a pushed card and the shadow slide out under the toolbar, not over it.
     div().absolute().inset_0().overflow_hidden().child(card)
 }
@@ -183,11 +192,11 @@ impl Desktop {
             (time, width)
         });
         let time_width = time.as_ref().map_or(0., |(_, width)| *width);
-        let lines = user_bubble::wrapped_lines(text, SIZE, width - INSET - time_width, window);
+        let lines = user_bubble::wrapped_lines(text, SIZE, width - 2. * MARGIN_X - INSET - time_width, window);
         let open = view.sticky_open.as_deref() == Some(id.as_str());
         // The next prompt's bubble, under the gap its row keeps over it.
         let next = next_prompt(&s.rows, top).and_then(|n| Some(view.row_top(n)? + chat::top_gap(n.checked_sub(1).and_then(|i| s.rows.get(i)), &s.rows[n])));
-        let bottom = height(lines, open);
+        let bottom = MARGIN_TOP + height(lines, open);
         let shift = pushed(bottom, next);
         if shift <= -bottom {
             return None;
@@ -269,8 +278,8 @@ mod tests {
 
     #[test]
     fn a_folded_card_holds_two_lines_and_an_opened_one_grows_to_160px() {
-        assert_eq!(height(1, false), 1. + 20. + LINE);
+        assert_eq!(height(1, false), 2. + 20. + LINE);
         assert_eq!(height(FOLDED_LINES + 3, false), height(FOLDED_LINES + 1, false));
-        assert_eq!(height(50, true), 1. + 10. + 160. + 30.);
+        assert_eq!(height(50, true), 2. + 10. + 160. + 30.);
     }
 }
