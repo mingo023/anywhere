@@ -24,7 +24,8 @@ type Event struct {
 	Usage      *proto.TurnUsage
 	// ParentToolUseID tags a sub-agent's event with the tool call that spawned it.
 	ParentToolUseID string
-	// TaskID names a command sent to the background, for the calls that later read or stop it.
+	// TaskID names a call sent to the background, for the calls that later read or stop it.
+	// On a tool_end without ToolUseID it names the call that ended.
 	TaskID string
 }
 
@@ -39,8 +40,8 @@ type Timeline struct {
 	folded   map[string]bool
 	// lasting holds the calls that run on in the background past their turn.
 	lasting map[string]bool
-	// tasks maps a background command's task id to the command.
-	tasks map[string]string
+	// tasks maps a background call's task id to its index in items.
+	tasks map[string]int
 }
 
 func New() *Timeline {
@@ -52,7 +53,7 @@ func New() *Timeline {
 
 func (t *Timeline) forget() {
 	t.lasting = map[string]bool{}
-	t.tasks = map[string]string{}
+	t.tasks = map[string]int{}
 }
 
 func (t *Timeline) reset() {
@@ -171,8 +172,10 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		if e.Detail != nil {
 			detail = *e.Detail
 		}
-		if command := t.tasks[taskOf(e.Name, e.Input)]; command != "" {
-			detail = proto.ToolDetail{Kind: "shell", Command: command}
+		if n, ok := t.tasks[taskOf(e.Name, e.Input)]; ok {
+			if command := t.items[n].Call.Detail.Command; command != "" {
+				detail = proto.ToolDetail{Kind: "shell", Command: command}
+			}
 		}
 		it := t.append(proto.Item{Kind: "tool", Call: &proto.ToolCall{ToolUseID: e.ToolUseID, Name: e.Name, Detail: detail, Status: "running"}}, e.ParentToolUseID, ts)
 		t.tools[e.ToolUseID] = len(t.items) - 1
@@ -182,12 +185,15 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		if n, ok := t.tools[e.ToolUseID]; ok {
 			t.lasting[e.ToolUseID] = true
 			if e.TaskID != "" {
-				t.tasks[e.TaskID] = t.items[n].Call.Detail.Command
+				t.tasks[e.TaskID] = n
 			}
 		}
 		return proto.Item{}, false
 
 	case "tool_end":
+		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
+			e.ToolUseID = t.items[n].Call.ToolUseID
+		}
 		n, ok := t.tools[e.ToolUseID]
 		if t.folded[e.ToolUseID] || !ok {
 			return proto.Item{}, false
