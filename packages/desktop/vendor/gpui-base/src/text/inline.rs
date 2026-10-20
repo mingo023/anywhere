@@ -923,7 +923,10 @@ impl Element for Inline {
                         return;
                     }
 
+                    // A window selection layer takes a double click, so a
+                    // drag after it extends the selection word by word.
                     let kind = match event.click_count {
+                        2 if crate::text_selection::has_layer(window, cx) => return,
                         2 => TextViewMultiClickKind::Word,
                         3 => TextViewMultiClickKind::Paragraph,
                         _ => return,

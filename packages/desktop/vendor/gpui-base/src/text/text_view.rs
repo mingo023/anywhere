@@ -2649,6 +2649,57 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_drag_after_a_double_click_selects_whole_words(cx: &mut TestAppContext) {
+        struct LayerRoot {
+            text_view: Entity<TextViewState>,
+        }
+        impl Render for LayerRoot {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+                    .w(px(300.))
+                    .child(crate::TextSelectionLayer)
+                    .child(TextView::new(&self.text_view).selectable(true))
+            }
+        }
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, cx| LayerRoot {
+            text_view: cx.new(|cx| TextViewState::markdown("quick select value", cx)),
+        });
+        let cx: &mut VisualTestContext = cx;
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let (down, over) = (point(px(10.), px(10.)), point(px(60.), px(10.)));
+        cx.simulate_event(MouseDownEvent {
+            position: down,
+            modifiers: Modifiers::default(),
+            button: MouseButton::Left,
+            click_count: 2,
+            first_mouse: false,
+        });
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.simulate_mouse_move(over, Some(MouseButton::Left), Modifiers::default());
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.simulate_event(MouseUpEvent {
+            position: over,
+            modifiers: Modifiers::default(),
+            button: MouseButton::Left,
+            click_count: 2,
+        });
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+
+        let selected = view.read_with(cx, |root, cx| root.text_view.read(cx).selected_text());
+        assert_eq!(selected.trim(), "quick select");
+    }
+
+    #[gpui::test]
     fn long_press_selects_word_then_drag_extends_selection(cx: &mut TestAppContext) {
         struct TouchRoot {
             text_view: Entity<TextViewState>,
