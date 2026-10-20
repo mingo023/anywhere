@@ -346,7 +346,7 @@ impl Desktop {
     }
 
     /// Opens a page in the browser the settings pick, or a file in the preview.
-    fn chat_open(&mut self, agent: &str, link: &str, cwd: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn chat_open(&mut self, agent: &str, link: &str, cwd: &str, window: &mut Window, cx: &mut Context<Self>) {
         match markdown::target(link, cwd) {
             markdown::Target::Web(url) if self.store.terminal.system_browser => cx.open_url(&url),
             markdown::Target::Web(url) => self.open_browser(Some(url), window, cx),
