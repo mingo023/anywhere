@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"pocketd/internal/claude"
 	"pocketd/internal/proc"
+	"pocketd/internal/providers"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
@@ -478,5 +480,30 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 	return func() {
 		cancel()
 		<-done
+	}
+}
+
+// Retitle names the Claude conversations followed in the Terminals that
+// match, as /rename in each would, so `claude --resume` lists them by the
+// name Pocket shows.
+func (d *Daemon) Retitle(match func(terminal.Info) bool, title string) {
+	d.mu.Lock()
+	var prs []*presence
+	for _, pr := range d.present {
+		if pr.provider == providers.Claude.ID && match(pr.t.Info()) {
+			prs = append(prs, pr)
+		}
+	}
+	d.mu.Unlock()
+	for _, pr := range prs {
+		pr.mu.Lock()
+		path := pr.transcript
+		pr.mu.Unlock()
+		if path == "" || !claude.InProjects(path, pr.env) {
+			continue
+		}
+		if err := claude.Retitle(path, title); err != nil {
+			log.Printf("retitle %s: %v", pr.a.ID(), err)
+		}
 	}
 }

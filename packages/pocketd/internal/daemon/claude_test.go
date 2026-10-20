@@ -1558,3 +1558,38 @@ func TestATranscriptUpToAPromptFromBeforeItWasSentIsNotTheAgents(t *testing.T) {
 		t.Fatalf("got %q; Claude stamps milliseconds", got)
 	}
 }
+
+func TestRetitleNamesTheConversationOfEachClaudeThatMatches(t *testing.T) {
+	d := newDaemon(t)
+	cfg := t.TempDir()
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin", "CLAUDE_CONFIG_DIR=" + cfg}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	waitAgent(t, d, term)
+	pr := d.presentIn(term.Info().ID)
+	path := filepath.Join(cfg, "projects", "-w", "s1.jsonl")
+	os.MkdirAll(filepath.Dir(path), 0o700)
+	os.WriteFile(path, []byte(userLine("hi")+"\n"), 0o600)
+	hookFrom(d, pr, sessionStart("s1", path))
+
+	d.Retitle(func(i terminal.Info) bool { return i.ID != term.Info().ID }, "Not this one")
+	d.Retitle(func(i terminal.Info) bool { return i.ID == term.Info().ID }, "Fix login")
+	raw, _ := os.ReadFile(path)
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 || lines[1] != `{"type":"custom-title","customTitle":"Fix login","sessionId":"s1"}` {
+		t.Fatalf("%s", raw)
+	}
+}
+
+func TestRetitleLeavesATranscriptOutsideClaudesProjectsAlone(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	path := transcript(t, "hi")
+	hookFrom(d, pr, sessionStart("s1", path))
+	d.Retitle(func(terminal.Info) bool { return true }, "Fix login")
+	if raw, _ := os.ReadFile(path); strings.Contains(string(raw), "custom-title") {
+		t.Fatalf("%s", raw)
+	}
+}

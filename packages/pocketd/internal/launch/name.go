@@ -8,6 +8,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/naming"
+	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
 )
 
@@ -19,6 +20,8 @@ type job struct {
 	project, tree, branch string
 	// local is the Local the session started in, which naming names while its name is a placeholder.
 	local string
+	// retitle: the claude Pocket started was named a placeholder, which naming names its conversation over.
+	retitle bool
 }
 
 const tries = 3
@@ -101,6 +104,10 @@ func (l *Launcher) title(a *agent.Agent, claim int, j job, title string) {
 		return
 	}
 	a.SetNamed(claim, title)
+	if j.retitle {
+		term := a.Summary().TerminalID
+		l.d.Retitle(func(t terminal.Info) bool { return t.ID == term }, title)
+	}
 	if j.tree != "" && l.Names != nil {
 		l.Names.Auto(j.tree, title)
 	}
