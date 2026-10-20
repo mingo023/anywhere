@@ -171,6 +171,26 @@ func TestAPromptTheAgentTookMidTurnShowsAndTimesTheReplyAfterIt(t *testing.T) {
 	}
 }
 
+func TestACommandClaudeRunsItselfEndsItsTurnAndOneThatAsksTheModelDoesNot(t *testing.T) {
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		`{"type":"user","isMeta":true,"entrypoint":"sdk-cli","timestamp":"2026-10-20T09:02:03.940Z","message":{"content":"<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request.</local-command-caveat>"}}`,
+		`{"type":"user","entrypoint":"sdk-cli","timestamp":"2026-10-20T09:02:03.939Z","message":{"content":"<command-name>/goal</command-name>\n            <command-message>goal</command-message>\n            <command-args>clear</command-args>"}}`,
+		`{"type":"system","subtype":"local_command","entrypoint":"sdk-cli","timestamp":"2026-10-20T09:02:03.940Z","content":"<local-command-stdout>Goal cleared</local-command-stdout>","commandRun":{"command":"goal","args":"clear"}}`,
+		`{"type":"user","entrypoint":"sdk-cli","timestamp":"2026-10-20T09:03:00.000Z","message":{"content":"<command-name>/goal</command-name>\n<command-args>tests pass</command-args>"}}`,
+		`{"type":"system","subtype":"local_command","entrypoint":"sdk-cli","timestamp":"2026-10-20T09:03:00.000Z","content":"<local-command-stdout>Goal set: tests pass</local-command-stdout>","commandRun":{"command":"goal","args":"tests pass"}}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user", "result", "user"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+	if got[0].Text != "/goal clear" || !got[1].OK {
+		t.Fatalf("command %+v, end %+v", got[0], got[1])
+	}
+}
+
 func TestAClaudePTurnThatFailsEndsWithTheErrorAlone(t *testing.T) {
 	got := Map([]byte(`{"type":"assistant","entrypoint":"sdk-cli","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"There's an issue with the selected model."}]}}`))
 	if len(got) != 1 || got[0].Kind != "result" || got[0].OK || got[0].Error != "There's an issue with the selected model." {
