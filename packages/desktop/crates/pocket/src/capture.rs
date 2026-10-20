@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 204] = [
+const STEPS: [(&str, Step); 207] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -112,6 +112,15 @@ const STEPS: [(&str, Step); 204] = [
     }),
     ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
     ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),
+    ("chat-sticky", |d, _, cx| scroll_past_prompt(d, 0, 240., cx)),
+    ("chat-sticky-pushed", |d, _, cx| scroll_past_prompt(d, 1, -60., cx)),
+    ("chat-sticky-open", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        if let Some(v) = d.chats.views.get_mut(&agent) {
+            v.sticky_open = v.session.rows.iter().position(|r| matches!(r, Row::Prompt { .. })).map(|ix| v.session.ids[ix].clone());
+            cx.notify();
+        }
+    }),
     ("chat-jump", |d, window, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_jump_to_bottom(&agent, window, cx);
@@ -944,6 +953,15 @@ impl Capture {
         })
         .detach();
     }
+}
+
+/// Scrolls the shown chat to `by` px past the top of its `n`th prompt.
+fn scroll_past_prompt(d: &mut Desktop, n: usize, by: f32, cx: &mut Context<Desktop>) {
+    let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
+    let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
+    v.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+    v.list.scroll_by(px(by));
+    cx.notify();
 }
 
 /// `CAPTURE_HOLD=1` keeps the window shown and the app running after the last screen.

@@ -49,7 +49,7 @@ fn shown(text: &str) -> Shown {
 }
 
 /// The prompt's text, its mentions' icons painted over their slots and their paths on hover.
-fn styled(id: &str, text: &str) -> Div {
+pub(super) fn styled(id: &str, text: &str) -> Div {
     let Shown { text, highlights, mentions } = shown(text);
     let text = SharedString::from(text);
     let styled = StyledText::new(text.clone()).with_highlights(highlights);
@@ -73,11 +73,16 @@ fn styled(id: &str, text: &str) -> Div {
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.
 pub(super) fn lines(text: &str, width: f32, window: &Window) -> usize {
+    wrapped_lines(text, TEXT_SIZE, width * WIDTH - 32., window)
+}
+
+/// The lines a prompt's `text` wraps to at `size` px in `width` px, as a bubble shows it.
+pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
     let text = shown(split_images(text).0).text;
     let run = window.text_style().to_run(text.len());
     window
         .text_system()
-        .shape_text(text.into(), px(TEXT_SIZE), &[run], Some(px(width * WIDTH - 32.)), None)
+        .shape_text(text.into(), px(size), &[run], Some(px(width)), None)
         .map_or(1, |lines| lines.iter().map(|l| l.wrap_boundaries().len() + 1).sum())
 }
 
