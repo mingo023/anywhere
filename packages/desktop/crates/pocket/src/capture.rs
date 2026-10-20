@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 204] = [
+const STEPS: [(&str, Step); 208] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -112,6 +112,26 @@ const STEPS: [(&str, Step); 204] = [
     }),
     ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
     ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),
+    // Into the first reply, so the first prompt sticks.
+    ("chat-sticky", |d, _, cx| scroll_from_prompt(d, 0, 2, cx)),
+    // The row over the second prompt at the top, so that prompt shows just under it and pushes the first one's card.
+    ("chat-sticky-pushed", |d, _, cx| scroll_from_prompt(d, 1, -1, cx)),
+    // After `chat-sticky-pushed` has laid that row out: on until the second prompt's bubble is 30px from the top, partway into the card.
+    ("chat-sticky-push-in", |d, _, cx| {
+        let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
+        let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(1).map(|(ix, _)| ix) else { return };
+        let Some(above) = ix.checked_sub(1).and_then(|i| v.list.bounds_for_item(i)) else { return };
+        let gap = chat::top_gap(v.session.rows.get(ix - 1), &v.session.rows[ix]);
+        v.list.scroll_to(ListOffset { item_ix: ix - 1, offset_in_item: px((f32::from(above.size.height) + gap - 30.).max(0.)) });
+        cx.notify();
+    }),
+    ("chat-sticky-open", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        if let Some(v) = d.chats.views.get_mut(&agent) {
+            v.sticky_open = v.session.rows.iter().position(|r| matches!(r, Row::Prompt { .. })).map(|ix| v.session.ids[ix].clone());
+            cx.notify();
+        }
+    }),
     ("chat-jump", |d, window, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_jump_to_bottom(&agent, window, cx);
@@ -944,6 +964,15 @@ impl Capture {
         })
         .detach();
     }
+}
+
+/// Scrolls the shown chat to `rows` rows after its `n`th prompt (before, if negative). By row, not by pixels: the list
+/// knows only measured heights, so a pixel scroll lands wherever the rows it skips were never laid out.
+fn scroll_from_prompt(d: &mut Desktop, n: usize, rows: isize, cx: &mut Context<Desktop>) {
+    let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
+    let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
+    v.list.scroll_to(ListOffset { item_ix: ix.saturating_add_signed(rows), offset_in_item: px(0.) });
+    cx.notify();
 }
 
 /// `CAPTURE_HOLD=1` keeps the window shown and the app running after the last screen.

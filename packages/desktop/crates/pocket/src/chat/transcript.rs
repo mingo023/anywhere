@@ -5,7 +5,7 @@ use super::markdown::{self, Highlights};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
-use super::{end_row, meta, phase, question_marker, sub_agent, todos, user_bubble};
+use super::{end_row, meta, phase, question_marker, sticky, sub_agent, todos, user_bubble};
 use crate::creating;
 use crate::desktop::Desktop;
 use crate::util::now_ms;
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use theme::*;
 
 /// The transcript's reading width.
-const WIDTH: f32 = 720.;
+pub(super) const WIDTH: f32 = 720.;
 /// How long a row shown from the background tray stays lit.
 const FLASH: Duration = Duration::from_millis(900);
 /// A sent prompt rises from under the list's end, out from behind the composer.
@@ -58,6 +58,8 @@ pub(crate) struct View {
     code: Highlights,
     /// Messages still streaming onto the screen, by id.
     reveals: HashMap<String, Reveal>,
+    /// The prompt row whose card over the top is opened in full.
+    pub(crate) sticky_open: Option<String>,
     /// Whether the chat has shown what it opened with; text after that streams in.
     primed: bool,
 }
@@ -72,12 +74,36 @@ impl View {
             move |e, _, _| scrolled.set(Some(!e.is_scrolled))
         });
         let tools = cx.new(|_| Tools::default());
-        Self { session: Session::default(), list, tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), primed: false }
+        Self { session: Session::default(), list, tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
     }
 
     /// How far the list sits above its end.
     fn distance(&self) -> f32 {
         f32::from(self.list.max_offset_for_scrollbar().y + self.list.scroll_px_offset_for_scrollbar().y).max(0.)
+    }
+
+    /// The row at the top of the viewport and how far into it. At its end the list keeps no top row, so it's found
+    /// from the end; None while those rows are unmeasured.
+    pub(super) fn top_row(&self) -> Option<(usize, f32)> {
+        let (top, count) = (self.list.logical_scroll_top(), self.list.item_count());
+        if top.item_ix < count {
+            return Some((top.item_ix, f32::from(top.offset_in_item)));
+        }
+        sticky::top_at_end(count, self.shown_at_end(), |ix| self.list.height_from(ix).map(f32::from))
+    }
+
+    /// How far under the viewport's top row `ix` starts; None while that's unmeasured.
+    pub(super) fn row_top(&self, ix: usize) -> Option<f32> {
+        if self.list.logical_scroll_top().item_ix < self.list.item_count() {
+            // The list paints its rows under its top padding, which `bounds_for_item` leaves out.
+            return self.list.bounds_for_item(ix).map(|b| f32::from(b.top() - self.list.viewport_bounds().top()) + pin::TOP);
+        }
+        Some(self.shown_at_end() - f32::from(self.list.height_from(ix)?))
+    }
+
+    /// The height the rows show in at the list's end, over the room padded under them.
+    fn shown_at_end(&self) -> f32 {
+        f32::from(self.list.viewport_bounds().size.height) - pin::BOTTOM - self.pin.as_ref().map_or(0., |p| p.spacer)
     }
 
     /// Sizes the room that holds the sent prompt at the top and keeps the list on it, until its reply fills the viewport.
@@ -341,8 +367,13 @@ impl Desktop {
             let id = id.clone();
             list(view.list.clone(), cx.processor(move |this, ix, window, cx| this.chat_row(&id, ix, window, cx))).size_full().pt(px(pin::TOP)).pb(px(pin::BOTTOM + spacer))
         };
-        let pill = view.jump.then(|| jump::pill(cx.listener(move |this, _, window, cx| this.chat_jump_to_bottom(&id, window, cx))));
-        div().relative().flex_1().min_h_0().child(rows).children(pill)
+        let pill = view.jump.then(|| {
+            let id = id.clone();
+            jump::pill(cx.listener(move |this, _, window, cx| this.chat_jump_to_bottom(&id, window, cx)))
+        });
+        let sticky = self.chat_sticky(&id, window, cx);
+        let cover = sticky.as_ref().map_or(0., |(_, cover)| *cover);
+        div().relative().flex_1().min_h_0().child(sticky::below(cover, rows)).children(sticky.map(|(card, _)| card)).children(pill)
     }
 
     /// Opens a page in the browser the settings pick, or a file in the preview.
@@ -392,6 +423,15 @@ impl Desktop {
         if shut {
             self.chat_toggle(agent, &id, false, cx);
         }
+        cx.notify();
+    }
+
+    /// Scrolls `agent`'s chat to its prompt row `ix`, as a click on the prompt stuck over the top does.
+    pub(super) fn chat_jump_to_prompt(&mut self, agent: &str, ix: usize, cx: &mut Context<Self>) {
+        let Some(view) = self.chats.views.get_mut(agent) else { return };
+        // A prompt held at the top, or a glide to the end, would scroll the list off the prompt.
+        (view.pin, view.glide) = (None, None);
+        view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
         cx.notify();
     }
 

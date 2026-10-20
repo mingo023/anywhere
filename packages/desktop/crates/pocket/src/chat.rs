@@ -16,6 +16,7 @@ mod question_marker;
 mod reveal;
 mod selectable;
 mod shimmer;
+mod sticky;
 mod sub_agent;
 mod thinking;
 mod todos;
