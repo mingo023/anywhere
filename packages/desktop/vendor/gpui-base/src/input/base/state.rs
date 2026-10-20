@@ -9037,6 +9037,42 @@ mod tests {
         // One clipboard line per cursor.
         assert_cursors(&mut cx, &input, "x|1\ny|2\nz|3");
     }
+
+    /// A paste taller than the textarea scrolls to its end. The scroll used to
+    /// be clamped to the height of the text before the paste, which left the
+    /// view at the top with the cursor out of sight below it.
+    #[gpui::test]
+    fn test_long_paste_scrolls_to_the_cursor(cx: &mut TestAppContext) {
+        let mut input = None;
+        let window = cx.open_window(size(px(400.), px(100.)), |window, cx| {
+            cx.set_global(Theme::default());
+            super::super::init(cx);
+            let state = cx.new(|cx| crate::input::TextareaState::new(window, cx).auto_grow(1, 4));
+            input = Some(state.clone());
+            TestRoot(state)
+        });
+        let input = input.unwrap();
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+
+        let text: String = (1..=50).map(|i| format!("line {i}\n")).collect();
+        cx.update(|window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            input.update(cx, |state, cx| state.paste(&Paste, window, cx));
+        });
+        cx.run_until_parked();
+
+        input.read_with(&mut cx, |state, _| {
+            let line_height = state.last_layout.as_ref().unwrap().line_height;
+            let cursor_top = line_height * state.text.offset_to_point(state.cursor()).row;
+            let view_top = -state.scroll_handle.offset().y;
+            let view_bottom = view_top + state.input_bounds.size.height;
+            assert!(
+                cursor_top >= view_top && cursor_top + line_height <= view_bottom,
+                "cursor at {cursor_top:?} is outside the visible {view_top:?}..{view_bottom:?}"
+            );
+        });
+    }
 }
 
 /// Methods that only a single-line input offers.
