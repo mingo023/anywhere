@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 208] = [
+const STEPS: [(&str, Step); 211] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -132,6 +132,19 @@ const STEPS: [(&str, Step); 208] = [
             cx.notify();
         }
     }),
+    // The first reply's last two blocks over its wide table (chat/wide-table.json), so the narrow table above shows
+    // too. By row, not by pixels: the list knows only measured heights, so a pixel scroll lands wherever the rows it
+    // skips were never laid out.
+    ("chat-table", |d, _, cx| {
+        let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
+        let Some(ix) = first_reply_end(&v.session.rows) else { return };
+        v.list.scroll_to(ListOffset { item_ix: ix.saturating_sub(2), offset_in_item: px(0.) });
+        cx.notify();
+    }),
+    // A sideways swipe over the wide table, so it shows scrolled partway.
+    ("chat-table-swipe", |d, window, cx| swipe_table(d, -160., window, cx)),
+    // A swipe past its far end, so it shows scrolled all the way.
+    ("chat-table-end", |d, window, cx| swipe_table(d, -4000., window, cx)),
     ("chat-jump", |d, window, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_jump_to_bottom(&agent, window, cx);
@@ -973,6 +986,22 @@ fn scroll_from_prompt(d: &mut Desktop, n: usize, rows: isize, cx: &mut Context<D
     let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
     v.list.scroll_to(ListOffset { item_ix: ix.saturating_add_signed(rows), offset_in_item: px(0.) });
     cx.notify();
+}
+
+/// Swipes the first reply's last block sideways by `dx` px.
+fn swipe_table(d: &mut Desktop, dx: f32, window: &mut Window, cx: &mut Context<Desktop>) {
+    let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
+    let Some(at) = first_reply_end(&v.session.rows).and_then(|ix| v.list.bounds_for_item(ix)).map(|b| b.center()) else { return };
+    window.defer(cx, move |window, cx| {
+        window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }), cx);
+        let delta = ScrollDelta::Pixels(point(px(dx), px(0.)));
+        window.dispatch_event(PlatformInput::ScrollWheel(ScrollWheelEvent { position: at, delta, ..Default::default() }), cx);
+    });
+}
+
+/// The last markdown block of the first reply.
+fn first_reply_end(rows: &[Row]) -> Option<usize> {
+    rows.iter().rposition(|r| matches!(r, Row::Text { turn: 0, .. }))
 }
 
 /// `CAPTURE_HOLD=1` keeps the window shown and the app running after the last screen.

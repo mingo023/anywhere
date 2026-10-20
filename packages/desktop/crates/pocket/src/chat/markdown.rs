@@ -148,8 +148,9 @@ impl MarkdownPlugin for Paths {
 
 fn style() -> TextViewStyle {
     let accent = Hsla::from(ACCENT_FILL);
-    // Columns sized to their measured content, so a short one isn't squeezed letter by letter.
-    let mut table = StyleRefinement::default();
+    // Columns sized to their measured content, so a short one isn't squeezed letter by letter. Framed as a code block
+    // is, so a table too wide to fit ends at the frame, not mid-column on the page; a shade stronger, having no fill.
+    let mut table = StyleRefinement::default().rounded(px(10.)).border_1().border_color(SEPARATOR_STRONG);
     table.overflow.x = Some(Overflow::Scroll);
     let quote = StyleRefinement::default().border_l_2().border_color(accent.opacity(0.6)).bg(accent.opacity(0.05)).rounded_r(px(6.)).pl(px(12.)).pr(px(10.)).py(px(6.)).text_color(TEXT);
     TextViewStyle::default()

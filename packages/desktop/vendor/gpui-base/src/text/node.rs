@@ -15,7 +15,7 @@ use gpui::{
 use markdown::mdast;
 
 use crate::{
-    StyledExt, h_flex,
+    Scrollbar, ScrollbarMode, StyledExt, h_flex,
     scrollable_mask::horizontal_scroll_area,
     text::{
         CodeBlockActionsFn, CodeBlockHighlighterFn, LinkClickHandlerFn, MarkdownExtensions,
@@ -2949,33 +2949,64 @@ impl BlockNode {
             );
         }
 
+        // A table narrower than the page gets a frame only as wide as its
+        // rows, so the border ends where the rules between them do.
+        let border = &style.table().border_widths;
+        let frame_x: f32 = [border.left, border.right]
+            .into_iter()
+            .flatten()
+            .map(|w| f32::from(w.to_pixels(window.rem_size())))
+            .sum();
+
         div()
             .w_full()
             .child(
-                // Scroll viewport owns the visible frame, including any
-                // caller-provided radius. Keeping the border here makes the
-                // rounded frame stable while the wider row track moves below it.
-                //
-                // `horizontal_scroll_area` clips with `overflow_hidden` and
-                // delegates the wheel to a sibling `ScrollableMask`, so the
-                // gesture is locked to its starting axis and a horizontal swipe
-                // is consumed before an ancestor scroller (`gpui::list` under
-                // `TextView::scrollable`) can take its vertical component.
-                horizontal_scroll_area(
-                    block_element_id("table", table.span, options.ix),
-                    &scroll_handle,
-                    style.table(),
-                    // Row track as wide as its content, capped by the
-                    // viewport while the columns can still shrink-to-fit
-                    // (their text wrapping); `min_w(min_total_w)` keeps the
-                    // floors once they are reached, letting the track exceed
-                    // the viewport and scroll.
-                    div()
-                        .w_full()
-                        .max_w(px(col_w.iter().sum()))
-                        .min_w(px(min_total_w))
-                        .children(rows),
-                ),
+                div()
+                    .relative()
+                    .w_full()
+                    .max_w(px(col_w.iter().sum::<f32>() + frame_x))
+                    .child(
+                        // Scroll viewport owns the visible frame, including any
+                        // caller-provided radius. Keeping the border here makes the
+                        // rounded frame stable while the wider row track moves below it.
+                        //
+                        // `horizontal_scroll_area` clips with `overflow_hidden` and
+                        // delegates the wheel to a sibling `ScrollableMask`, so the
+                        // gesture is locked to its starting axis and a horizontal swipe
+                        // is consumed before an ancestor scroller (`gpui::list` under
+                        // `TextView::scrollable`) can take its vertical component.
+                        horizontal_scroll_area(
+                            block_element_id("table", table.span, options.ix),
+                            &scroll_handle,
+                            style.table(),
+                            // Row track as wide as its content, capped by the
+                            // viewport while the columns can still shrink-to-fit
+                            // (their text wrapping); `min_w(min_total_w)` keeps the
+                            // floors once they are reached, letting the track exceed
+                            // the viewport and scroll.
+                            div()
+                                .w_full()
+                                .max_w(px(col_w.iter().sum()))
+                                .min_w(px(min_total_w))
+                                .children(rows),
+                        ),
+                    )
+                    // A table wider than its frame keeps its scrollbar
+                    // showing, so its clipped column reads as a swipe away
+                    // rather than cut off. It stays hidden while it fits.
+                    .child(
+                        div().absolute().inset_0().child(
+                            Scrollbar::horizontal(&scroll_handle)
+                                .id(block_element_id("table-scrollbar", table.span, options.ix))
+                                .mode(ScrollbarMode::Always)
+                                // Clear of the rounded frame's edge and corners.
+                                .styles(|s| {
+                                    s.thumb(|t| t.inset(px(6.)))
+                                        .thumb_active(|t| t.inset(px(6.)))
+                                })
+                                .viewport_from_layout(),
+                        ),
+                    ),
             )
             // Custom actions row (e.g. copy / download) rendered below the
             // table. The hook's element spans full width; alignment is up to
