@@ -128,7 +128,7 @@ impl Desktop {
     pub(crate) fn chat_queue_resume(&mut self, agent: &str, cx: &mut Context<Self>) {
         if let Some(v) = self.chats.views.get_mut(agent) {
             v.session.outgoing.resume(&v.session.transcript);
-            self.release_queued();
+            self.refresh_chats();
             cx.notify();
         }
     }

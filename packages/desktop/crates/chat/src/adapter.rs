@@ -165,7 +165,7 @@ mod tests {
         let backend: &dyn Backend<Item = Line, Ask = Confirm> = &Gemini;
         let mut s = Session::default();
         let mut items = vec![Line::User("fix the build")];
-        assert_eq!(s.update(backend, 1, &items, false, 0), Some((0..0, 3)));
+        assert_eq!(s.update(backend, 1, &items, false, 0), Some((0..0, 0..0, 3)));
         assert_eq!(s.ids, ["g0", "g0#fold", "g0#live"]);
 
         items.extend([Line::Model("Running make."), Line::Shell("make", None)]);
@@ -175,7 +175,7 @@ mod tests {
 
         items[2] = Line::Shell("make", Some(true));
         items.push(Line::Done);
-        assert_eq!(s.update(backend, 3, &items, false, 0), Some((2..4, 2)), "the finished phase is measured afresh and the end takes the live line's place");
+        assert_eq!(s.update(backend, 3, &items, false, 0), Some((2..3, 3..4, 1)), "the finished phase is measured afresh and the end takes the live line's place");
         assert_eq!(s.ids, ["g0", "g0#fold", "g0#p0", "g0#end"]);
         assert!(matches!(&s.transcript.turns[0].blocks[1], Block::Tool(c) if c.status == ToolStatus::Ok));
 

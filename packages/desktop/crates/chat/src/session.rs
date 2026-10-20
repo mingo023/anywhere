@@ -5,6 +5,10 @@ use std::ops::Range;
 /// Open/closed choices the user made, by row id: folds, phases and sub-agents.
 pub type Folds = std::collections::HashMap<String, bool>;
 
+/// How the rows moved: those in the first range hold their ids but show something new, and the second range's rows
+/// gave way to as many others as the count.
+pub type Change = (Range<usize>, Range<usize>, usize);
+
 /// One agent's chat as the view shows it; rebuilt only when the agent's items change.
 #[derive(Default)]
 pub struct Session {
@@ -21,8 +25,8 @@ pub struct Session {
 
 impl Session {
     /// Refolds when `revision` moved, settles outgoing sends by the transcript and pocketd's status (`working`), and
-    /// returns the list splice to apply, if any.
-    pub fn update<B: Backend + ?Sized>(&mut self, backend: &B, revision: u64, items: &[B::Item], working: bool, now_ms: i64) -> Option<(Range<usize>, usize)> {
+    /// returns how the rows moved, if they did.
+    pub fn update<B: Backend + ?Sized>(&mut self, backend: &B, revision: u64, items: &[B::Item], working: bool, now_ms: i64) -> Option<Change> {
         let old = (revision != self.revision).then(|| {
             self.revision = revision;
             self.outgoing.moved();
@@ -40,8 +44,8 @@ impl Session {
         self.resplice(from, &replaced)
     }
 
-    /// Shows a transcript folded elsewhere, such as a sub-agent's inside its parent's, and returns the list splice, if any.
-    pub fn show(&mut self, transcript: Transcript) -> Option<(Range<usize>, usize)> {
+    /// Shows a transcript folded elsewhere, such as a sub-agent's inside its parent's, and returns how the rows moved, if they did.
+    pub fn show(&mut self, transcript: Transcript) -> Option<Change> {
         if transcript == self.transcript {
             return None;
         }
@@ -51,22 +55,19 @@ impl Session {
     }
 
     /// Rebuilds the rows of turns from `from` on, which `old` held before, and the trailer under them.
-    fn resplice(&mut self, from: usize, old: &[Turn]) -> Option<(Range<usize>, usize)> {
+    fn resplice(&mut self, from: usize, old: &[Turn]) -> Option<Change> {
         let keep = self.rows.partition_point(|r| r.turn().is_some_and(|turn| turn < from));
         let old_rows = self.rows.split_off(keep);
         rows_from(&mut self.rows, &self.transcript, from, self.sends.0, self.sends.1);
         let ids: Vec<String> = self.rows[keep..].iter().map(|r| r.id(&self.transcript)).collect();
-        let (range, mut count) = splice(&self.ids[keep..], &ids);
-        let mut start = range.start;
-        // Ids hold while a row's content changes (a tool finishing, text streaming in), so those rows are
-        // replaced too, letting the list measure them afresh.
-        if let Some(first) = (0..start).find(|&i| old_rows[i] != self.rows[keep + i] || !same_content(old, from, &self.transcript, &self.rows[keep + i])) {
-            count += start - first;
-            start = first;
-        }
+        let (range, count) = splice(&self.ids[keep..], &ids);
+        // Ids hold while a row's content changes (a tool finishing, text streaming in): the list measures those rows
+        // afresh where they are, keeping their height until then, rather than replacing them.
+        let first = (0..range.start).find(|&i| old_rows[i] != self.rows[keep + i] || !same_content(old, from, &self.transcript, &self.rows[keep + i]));
+        let first = first.unwrap_or(range.start);
         self.ids.truncate(keep);
         self.ids.extend(ids);
-        (start < range.end || count > 0).then_some((keep + start..keep + range.end, count))
+        (first < range.end || count > 0).then_some((keep + first..keep + range.start, keep + range.start..keep + range.end, count))
     }
 
     /// Whether the row `id` shows open: the user's choice, else `default`.
@@ -158,12 +159,12 @@ mod tests {
         let backend = for_provider("claude");
         let mut s = Session::default();
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"}))];
-        assert_eq!(s.update(backend, 1, &items, false, 0), Some((0..0, 3)));
+        assert_eq!(s.update(backend, 1, &items, false, 0), Some((0..0, 0..0, 3)));
         assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#live"]);
         items.push(item(2, json!({"kind": "assistant", "text": "on it"})));
         assert_eq!(s.update(backend, 1, &items, false, 0), None, "same revision, nothing refolded");
         assert_eq!(s.transcript.turns[0].blocks.len(), 0);
-        assert_eq!(s.update(backend, 2, &items, false, 0), Some((2..3, 2)), "the prompt and fold rows stay");
+        assert_eq!(s.update(backend, 2, &items, false, 0), Some((2..2, 2..3, 2)), "the prompt and fold rows stay");
         assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#0.0", "i1#live"]);
     }
 
@@ -174,7 +175,7 @@ mod tests {
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"})), bash(2, "t1", "running")];
         s.update(backend, 1, &items, false, 0);
         items[1] = bash(2, "t1", "ok");
-        assert_eq!(s.update(backend, 2, &items, false, 0), Some((2..4, 2)), "the prompt and fold stay, the phase and the live line under it are measured afresh");
+        assert_eq!(s.update(backend, 2, &items, false, 0), Some((2..4, 4..4, 0)), "the prompt and fold stay, the phase and the live line under it are measured afresh");
         assert_eq!(s.update(backend, 3, &items, false, 0), None, "a refold that changes nothing splices nothing");
     }
 
@@ -185,7 +186,7 @@ mod tests {
         let mut items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "assistant", "text": "a\n\nb"}))];
         s.update(backend, 1, &items, false, 0);
         items[1] = item(2, json!({"kind": "assistant", "text": "a\n\nbc"}));
-        assert_eq!(s.update(backend, 2, &items, false, 0), Some((3..5, 2)));
+        assert_eq!(s.update(backend, 2, &items, false, 0), Some((3..5, 5..5, 0)));
     }
 
     #[test]
@@ -210,11 +211,11 @@ mod tests {
             assert_eq!(s.ids, ["i1", "i1#fold", "i1#0.0", "i1#live"], "chunk {n}");
             assert_eq!(super::text(&s.transcript.turns[0], 0), text);
             if n > 0 {
-                assert_eq!(splice, Some((2..4, 2)), "only the growing reply and the live line under it are re-measured");
+                assert_eq!(splice, Some((2..4, 4..4, 0)), "only the growing reply and the live line under it are re-measured");
             }
         }
         items.push(item(3, json!({"kind": "result", "ok": true, "durationMs": 1200})));
-        assert_eq!(s.update(backend, 9, &items, false, 0), Some((3..4, 1)), "the end takes the live line's place");
+        assert_eq!(s.update(backend, 9, &items, false, 0), Some((3..3, 3..4, 1)), "the end takes the live line's place");
         assert_eq!(s.ids, ["i1", "i1#fold", "i1#0.0", "i1#end"]);
     }
 
@@ -225,7 +226,7 @@ mod tests {
         let items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
         s.update(backend, 1, &items, false, 0);
         s.outgoing.push("next".into(), false, 10);
-        assert_eq!(s.update(backend, 1, &items, false, 10), Some((3..3, 2)));
+        assert_eq!(s.update(backend, 1, &items, false, 10), Some((3..3, 3..3, 2)));
         assert_eq!(s.ids[3..], ["pending-0", "working"]);
     }
 
@@ -237,7 +238,7 @@ mod tests {
         s.update(backend, 1, &items, false, 0);
         s.outgoing.push("next".into(), false, 10);
         s.update(backend, 1, &items, false, 10);
-        assert_eq!(s.update(backend, 1, &items, false, 200_000), Some((4..5, 0)));
+        assert_eq!(s.update(backend, 1, &items, false, 200_000), Some((4..4, 4..5, 0)));
         assert_eq!(s.ids[3..], ["pending-0"]);
     }
 
@@ -277,7 +278,7 @@ mod tests {
         let backend = for_provider("claude");
         let t = backend.transcript(&[item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "assistant", "text": "on it"}))]);
         let mut s = Session::default();
-        assert_eq!(s.show(t.clone()), Some((0..0, 4)));
+        assert_eq!(s.show(t.clone()), Some((0..0, 0..0, 4)));
         assert_eq!(s.ids, vec!["i1", "i1#fold", "i1#0.0", "i1#live"]);
         assert_eq!(s.show(t), None);
     }
@@ -304,15 +305,12 @@ mod tests {
     }
 
     /// The splice from rebuilding and comparing every row, as the session did before it refolded only the tail.
-    fn full_splice(old: &Transcript, new: &Transcript) -> Option<(Range<usize>, usize)> {
+    fn full_splice(old: &Transcript, new: &Transcript) -> Option<Change> {
         let (old_rows, new_rows) = (rows(old, 0, false), rows(new, 0, false));
         let ids = |t: &Transcript, rows: &[Row]| rows.iter().map(|r| r.id(t)).collect::<Vec<_>>();
-        let (mut range, mut count) = splice(&ids(old, &old_rows), &ids(new, &new_rows));
-        if let Some(first) = (0..range.start).find(|&i| old_rows[i] != new_rows[i] || !same_content(&old.turns, 0, new, &new_rows[i])) {
-            count += range.start - first;
-            range.start = first;
-        }
-        (!range.is_empty() || count > 0).then_some((range, count))
+        let (range, count) = splice(&ids(old, &old_rows), &ids(new, &new_rows));
+        let first = (0..range.start).find(|&i| old_rows[i] != new_rows[i] || !same_content(&old.turns, 0, new, &new_rows[i])).unwrap_or(range.start);
+        (first < range.end || count > 0).then_some((first..range.start, range, count))
     }
 
     /// Feeds the session one item at a time, checking each refold against folding everything afresh.

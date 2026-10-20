@@ -191,7 +191,7 @@ impl Desktop {
         }
         self.hand_off_creates();
         self.focus_arrived_chat(window, cx);
-        self.release_queued();
+        self.refresh_chats();
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.tab_of(t).is_some())) {
             self.close_pane(&term, cx);
         }
