@@ -14,6 +14,7 @@ mod pin;
 mod question;
 mod question_marker;
 mod reveal;
+mod selectable;
 mod shimmer;
 mod sub_agent;
 mod thinking;

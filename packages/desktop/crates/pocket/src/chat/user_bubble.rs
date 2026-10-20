@@ -1,4 +1,5 @@
 use super::mention::{paint_icons, hidden, tint};
+use super::selectable::selectable;
 use crate::composer::split_images;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -50,7 +51,8 @@ fn shown(text: &str) -> Shown {
 /// The prompt's text, its mentions' icons painted over their slots and their paths on hover.
 fn styled(id: &str, text: &str) -> Div {
     let Shown { text, highlights, mentions } = shown(text);
-    let styled = StyledText::new(text).with_highlights(highlights);
+    let text = SharedString::from(text);
+    let styled = StyledText::new(text.clone()).with_highlights(highlights);
     let layout = styled.layout().clone();
     let slots: Vec<(usize, String)> = mentions.iter().map(|(r, path)| (r.start, path.clone())).collect();
     let icons = canvas(
@@ -65,7 +67,8 @@ fn styled(id: &str, text: &str) -> Div {
     .absolute()
     .size_0();
     let tip = move |ix: usize, window: &mut Window, cx: &mut App| mentions.iter().find(|(r, _)| r.contains(&ix)).map(|(_, path)| Tooltip::new(path.clone()).build(window, cx));
-    div().child(InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip)).child(icons)
+    let shown = selectable(SharedString::from(format!("{id}-select")), text, styled.layout().clone(), InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip));
+    div().child(shown).child(icons)
 }
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.

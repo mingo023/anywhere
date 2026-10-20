@@ -1008,6 +1008,14 @@ impl TouchSelection {
     }
 }
 
+#[derive(Clone)]
+struct MultiClick {
+    click_count: usize,
+    start: SelectionEndpoint,
+    end: SelectionEndpoint,
+    line_height: Pixels,
+}
+
 /// Window-local generic text-selection state.
 #[derive(Default)]
 struct WindowSelectionState {
@@ -1016,6 +1024,9 @@ struct WindowSelectionState {
     anchor: Option<SelectionEndpoint>,
     cursor: Option<SelectionEndpoint>,
     pending_extension_anchor: Option<SelectionEndpoint>,
+    /// The word or line a double or triple click took; a drag after the
+    /// click grows the selection from it a whole unit at a time.
+    multi_click: Option<MultiClick>,
     is_selecting: bool,
     did_hit_text: bool,
     frame_generation: u64,
@@ -1247,6 +1258,7 @@ impl WindowSelectionState {
     /// Ends the current gesture and keeps its selection visible.
     pub fn end(&mut self, cx: &mut App) {
         self.pending_extension_anchor = None;
+        self.multi_click = None;
         if !self.is_selecting {
             return;
         }
@@ -1270,6 +1282,7 @@ impl WindowSelectionState {
         self.anchor = None;
         self.cursor = None;
         self.pending_extension_anchor = None;
+        self.multi_click = None;
         self.is_selecting = false;
         self.did_hit_text = false;
         if self.touch.reset() {
@@ -1390,6 +1403,7 @@ impl WindowSelectionState {
         self.anchor = None;
         self.cursor = None;
         self.pending_extension_anchor = None;
+        self.multi_click = None;
         self.is_selecting = false;
         self.did_hit_text = false;
         if self.touch.reset() {
@@ -1711,23 +1725,52 @@ impl WindowSelectionState {
         if GlobalState::is_text_selection_suppressed(cx) {
             return;
         }
-        let hit = self.endpoint(position, Some(window), cx);
-        if !hit.inside_text {
+        let Some((start, end)) = self.unit_at(position, click_count, Some(window), cx) else {
             return;
-        }
-        let Some(participant) = hit
+        };
+        let Some(participant) = start
             .participant
+            .as_ref()
             .and_then(|participant| participant.upgrade())
         else {
             return;
         };
-        let points = points_for_multi_click(&participant.read(cx).runs, position, click_count);
-        let Some((anchor, cursor)) = points else {
-            return;
-        };
-        let Some(registration) = self.participants.get(&participant.entity_id()) else {
-            return;
-        };
+        let line_height = participant
+            .read(cx)
+            .runs
+            .iter()
+            .find(|run| run.bounds.contains(&position))
+            .map_or(Pixels::ZERO, |run| run.layout.line_height());
+        self.anchor = Some(start.clone());
+        self.cursor = Some(end.clone());
+        self.multi_click = Some(MultiClick {
+            click_count,
+            start,
+            end,
+            line_height,
+        });
+        self.did_hit_text = true;
+        self.is_selecting = true;
+        participant.update(cx, |state, cx| state.focus(window, cx));
+        self.publish_snapshots(cx);
+    }
+
+    /// The word (two clicks) or line (three) at `position`, as its two ends.
+    fn unit_at(
+        &mut self,
+        position: Point<Pixels>,
+        click_count: usize,
+        window: Option<&Window>,
+        cx: &App,
+    ) -> Option<(SelectionEndpoint, SelectionEndpoint)> {
+        let hit = self.endpoint(position, window, cx);
+        if !hit.inside_text {
+            return None;
+        }
+        let participant = hit.participant?.upgrade()?;
+        let (start, end) =
+            points_for_multi_click(&participant.read(cx).runs, position, click_count)?;
+        let registration = self.participants.get(&participant.entity_id())?;
         let content_key_resolver = participant.read(cx).content_key_resolver.clone();
         let to_endpoint = |point: Point<Pixels>| {
             let content_point = point
@@ -1744,12 +1787,30 @@ impl WindowSelectionState {
                     .map(|resolver| (resolver, content_point)),
             }
         };
-        self.anchor = Some(to_endpoint(anchor));
-        self.cursor = Some(to_endpoint(cursor));
-        self.did_hit_text = true;
-        self.is_selecting = false;
-        participant.update(cx, |state, cx| state.focus(window, cx));
-        self.publish_snapshots(cx);
+        Some((to_endpoint(start), to_endpoint(end)))
+    }
+
+    /// Re-anchors a multi-click drag for `position` and returns its cursor:
+    /// the clicked unit stays selected, and the selection grows from its far
+    /// end to the edge of the unit under the pointer, as a browser does.
+    fn extend_multi_click(
+        &mut self,
+        click: &MultiClick,
+        position: Point<Pixels>,
+        window: Option<&Window>,
+        cx: &App,
+    ) -> Option<SelectionEndpoint> {
+        let start = click.start.resolve(&self.participants)?;
+        let backwards = position.y < start.y
+            || (position.y < start.y + click.line_height && position.x < start.x);
+        let unit = self.unit_at(position, click.click_count, window, cx);
+        let (anchor, cursor) = if backwards {
+            (&click.end, unit.map(|(start, _)| start))
+        } else {
+            (&click.start, unit.map(|(_, end)| end))
+        };
+        self.anchor = Some(anchor.clone());
+        cursor
     }
 
     #[cfg(test)]
@@ -1811,7 +1872,11 @@ impl WindowSelectionState {
         if !self.is_selecting {
             return;
         }
-        let endpoint = self.endpoint(position, window, cx);
+        let endpoint = self
+            .multi_click
+            .clone()
+            .and_then(|click| self.extend_multi_click(&click, position, window, cx))
+            .unwrap_or_else(|| self.endpoint(position, window, cx));
         self.did_hit_text |= endpoint.inside_text;
         self.cursor = Some(endpoint);
         if window.is_none() {
@@ -2783,6 +2848,11 @@ fn live_text_selection_state(
     cx: &mut App,
 ) -> Option<Entity<WindowSelectionState>> {
     WindowSelectionState::existing(window, cx)
+}
+
+/// Whether `window` renders a [`TextSelectionLayer`].
+pub(crate) fn has_layer(window: &Window, cx: &App) -> bool {
+    WindowSelectionState::existing(window, cx).is_some()
 }
 
 pub(crate) fn clear_window_text_selection(window_id: gpui::WindowId, cx: &mut App) {
@@ -4399,5 +4469,52 @@ mod tests {
             selection.update_runs(&[text_run(0, text, layout)], cx);
             assert_eq!(TextSelection::selected_text(window, cx), "alpha beta");
         });
+    }
+
+    #[gpui::test]
+    fn a_drag_after_a_double_click_extends_the_selection_by_whole_words(cx: &mut TestAppContext) {
+        let (text, layout) = laid_out_runs(&["alpha beta gamma"], cx).pop().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| DoubleSelectionElementView {
+            selection: TextSelectionHandle::new("", cx),
+        });
+        let selection = view.read_with(cx, |view, _| view.selection.clone());
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+            selection.update_runs(&[text_run(0, text.clone(), layout.clone())], cx);
+        });
+        let at = |ix| layout.position_for_index(ix).unwrap() + point(px(1.), px(1.));
+        let selected = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|window, cx| {
+                selection.update_runs(&[text_run(0, text.clone(), layout.clone())], cx);
+                TextSelection::selected_text(window, cx)
+            })
+        };
+
+        cx.simulate_event(MouseDownEvent {
+            position: at(7),
+            modifiers: gpui::Modifiers::default(),
+            button: MouseButton::Left,
+            click_count: 2,
+            first_mouse: false,
+        });
+        let drag = |position, cx: &mut gpui::VisualTestContext| {
+            cx.simulate_event(MouseMoveEvent {
+                position,
+                pressed_button: Some(MouseButton::Left),
+                modifiers: gpui::Modifiers::default(),
+            })
+        };
+        drag(at(13), cx);
+        assert_eq!(selected(cx), "beta gamma");
+        drag(at(2), cx);
+        assert_eq!(selected(cx), "alpha beta");
+        cx.simulate_event(MouseUpEvent {
+            position: at(2),
+            modifiers: gpui::Modifiers::default(),
+            button: MouseButton::Left,
+            click_count: 2,
+        });
+        drag(at(13), cx);
+        assert_eq!(selected(cx), "alpha beta");
     }
 }
