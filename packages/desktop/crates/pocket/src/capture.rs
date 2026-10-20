@@ -112,8 +112,10 @@ const STEPS: [(&str, Step); 207] = [
     }),
     ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
     ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),
-    ("chat-sticky", |d, _, cx| scroll_past_prompt(d, 0, 240., cx)),
-    ("chat-sticky-pushed", |d, _, cx| scroll_past_prompt(d, 1, -60., cx)),
+    // Into the first reply, so the first prompt sticks.
+    ("chat-sticky", |d, _, cx| scroll_from_prompt(d, 0, 2, cx)),
+    // The row over the second prompt at the top, so that prompt shows just under it and pushes the first one's card.
+    ("chat-sticky-pushed", |d, _, cx| scroll_from_prompt(d, 1, -1, cx)),
     ("chat-sticky-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
         if let Some(v) = d.chats.views.get_mut(&agent) {
@@ -955,12 +957,12 @@ impl Capture {
     }
 }
 
-/// Scrolls the shown chat to `by` px past the top of its `n`th prompt.
-fn scroll_past_prompt(d: &mut Desktop, n: usize, by: f32, cx: &mut Context<Desktop>) {
+/// Scrolls the shown chat to `rows` rows after its `n`th prompt (before, if negative). By row, not by pixels: the list
+/// knows only measured heights, so a pixel scroll lands wherever the rows it skips were never laid out.
+fn scroll_from_prompt(d: &mut Desktop, n: usize, rows: isize, cx: &mut Context<Desktop>) {
     let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
     let Some(ix) = v.session.rows.iter().enumerate().filter(|(_, r)| matches!(r, Row::Prompt { .. })).nth(n).map(|(ix, _)| ix) else { return };
-    v.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
-    v.list.scroll_by(px(by));
+    v.list.scroll_to(ListOffset { item_ix: ix.saturating_add_signed(rows), offset_in_item: px(0.) });
     cx.notify();
 }
 

@@ -12,13 +12,14 @@ const SIZE: f32 = 14.;
 const LINE: f32 = 20.;
 const PAD_X: f32 = 12.;
 const PAD_Y: f32 = 10.;
-const RADIUS: f32 = 8.;
+const RADIUS: f32 = 12.;
 /// The row under a cut-off prompt that holds Show more.
 const MORE_ROW: f32 = 26.;
 /// Past this an opened prompt scrolls.
 const OPEN_MAX_HEIGHT: f32 = 160.;
-/// The room over the card that holds the time it was sent.
-const ABOVE: f32 = 24.;
+/// The time the prompt was sent, at the end of its first line.
+const TIME_SIZE: f32 = 12.;
+const TIME_GAP: f32 = 8.;
 /// The card's padding and border, on both sides.
 const INSET: f32 = 2. * (PAD_X + 1.);
 /// The transcript's side padding, which the card lines up with.
@@ -49,10 +50,10 @@ fn next_prompt(rows: &[Row], top: usize) -> Option<usize> {
     rows.iter().enumerate().skip(top + 1).find(|(_, r)| matches!(r, Row::Prompt { .. } | Row::Pending(_))).map(|(ix, _)| ix)
 }
 
-/// The card's height, under the room for its time, for a prompt that wraps to `lines` lines.
+/// The card's height for a prompt that wraps to `lines` lines. It hangs from the top, so only its bottom has a border.
 fn height(lines: usize, open: bool) -> f32 {
     let text = if open { (lines as f32 * LINE).min(OPEN_MAX_HEIGHT) } else { lines.min(FOLDED_LINES) as f32 * LINE };
-    2. + PAD_Y + text + if lines > FOLDED_LINES { MORE_ROW } else { PAD_Y }
+    1. + PAD_Y + text + if lines > FOLDED_LINES { MORE_ROW } else { PAD_Y }
 }
 
 /// How far the card moves up so the next prompt, `next` px under the list's top, pushes it out rather than slides
@@ -61,13 +62,13 @@ fn pushed(bottom: f32, next: Option<f32>) -> f32 {
     next.map_or(0., |next| (next - bottom).min(0.))
 }
 
-/// A prompt floated over the top of the chat: cut to two lines, the second fading out above Show more, with the time
-/// it was sent over its right edge.
+/// A prompt hung from the top of the chat: cut to two lines, the second fading out above Show more, with the time it
+/// was sent at the end of its first line.
 #[allow(clippy::too_many_arguments)]
 fn card(
     id: &str,
     text: &str,
-    at: i64,
+    time: Option<String>,
     long: bool,
     open: bool,
     width: f32,
@@ -97,19 +98,7 @@ fn card(
             on_more(e, window, cx);
         })
         .child(if open { "Show less" } else { "Show more" });
-    let time = (at > 0).then(|| {
-        div()
-            .absolute()
-            .top(px(-20.))
-            .right(px(10.))
-            .px(px(6.))
-            .rounded(px(4.))
-            .bg(bg)
-            .text_size(px(12.))
-            .line_height(px(16.))
-            .text_color(TEXT_2)
-            .child(meta::format_timestamp(at, &chrono::Local))
-    });
+    let time = time.map(|time| div().flex_none().ml(px(TIME_GAP)).text_size(px(TIME_SIZE)).line_height(px(LINE)).text_color(TEXT_2).child(time));
     let card = div()
         .id(SharedString::from(format!("sticky-{id}")))
         // An opened prompt scrolls itself; a folded one lets the wheel through to the transcript.
@@ -120,9 +109,11 @@ fn card(
         .px(px(PAD_X))
         .pt(px(PAD_Y))
         .pb(px(if long { MORE_ROW } else { PAD_Y }))
-        .rounded(px(RADIUS))
-        .border_1()
-        .border_color(SEPARATOR_STRONG)
+        // Flush with the top, so no transcript shows over it.
+        .rounded_b(px(RADIUS))
+        .border_x_1()
+        .border_b_1()
+        .border_color(hairline(0.2))
         .bg(bg)
         .shadow(vec![ui::shadow(rgba(0x00000066), 6., 18.), ui::shadow(rgba(0x00000033), 1., 4.)])
         .text_size(px(SIZE))
@@ -132,10 +123,18 @@ fn card(
         .on_click(on_jump)
         .child(
             div()
-                .id(SharedString::from(format!("sticky-text-{id}")))
-                .when(open, |d| d.max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll())
-                .when(!open, |d| d.line_clamp(FOLDED_LINES))
-                .child(user_bubble::styled(&format!("sticky-{id}"), text)),
+                .flex()
+                .items_start()
+                .child(
+                    div()
+                        .id(SharedString::from(format!("sticky-text-{id}")))
+                        .flex_1()
+                        .min_w_0()
+                        .when(open, |d| d.max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll())
+                        .when(!open, |d| d.line_clamp(FOLDED_LINES))
+                        .child(user_bubble::styled(&format!("sticky-{id}"), text)),
+                )
+                .children(time),
         )
         .when(long && !open, |d| {
             d.child(div().absolute().left_0().right_0().top(px(PAD_Y + LINE)).h(px(LINE)).bg(linear_gradient(
@@ -144,9 +143,8 @@ fn card(
                 linear_color_stop(bg.opacity(0.85), 1.),
             )))
         })
-        .children(time)
         .when(long, |d| d.child(more));
-    div().absolute().top(px(top)).left_0().right_0().px(px(SIDE)).pt(px(ABOVE)).flex().justify_center().child(div().w_full().max_w(px(width)).child(card))
+    div().absolute().top(px(top)).left_0().right_0().px(px(SIDE)).flex().justify_center().child(div().w_full().max_w(px(width)).child(card))
 }
 
 impl Desktop {
@@ -166,10 +164,15 @@ impl Desktop {
         let id = s.ids.get(ix)?.clone();
         let viewport = view.list.viewport_bounds();
         let width = transcript::content_width(transcript::WIDTH).min(f32::from(viewport.size.width) - 2. * SIDE);
-        let lines = user_bubble::wrapped_lines(text, SIZE, width - INSET, window);
+        let time = (prompt.at > 0).then(|| meta::format_timestamp(prompt.at, &chrono::Local));
+        let time_width = time.as_ref().map_or(0., |time| {
+            let run = window.text_style().to_run(time.len());
+            TIME_GAP + f32::from(window.text_system().shape_line(time.clone().into(), px(TIME_SIZE), &[run], None).width)
+        });
+        let lines = user_bubble::wrapped_lines(text, SIZE, width - INSET - time_width, window);
         let open = view.sticky_open.as_deref() == Some(id.as_str());
         let next = next_prompt(&s.rows, top).and_then(|n| view.row_top(n));
-        let bottom = ABOVE + height(lines, open);
+        let bottom = height(lines, open);
         let shift = pushed(bottom, next);
         if shift <= -bottom {
             return None;
@@ -182,7 +185,7 @@ impl Desktop {
             let (agent, row) = (agent.to_string(), id.clone());
             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_sticky(&agent, &row, cx))
         };
-        Some(card(&id, text, prompt.at, lines > FOLDED_LINES, open, width, shift, on_jump, on_more))
+        Some(card(&id, text, time, lines > FOLDED_LINES, open, width, shift, on_jump, on_more))
     }
 
     fn chat_toggle_sticky(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
@@ -244,8 +247,8 @@ mod tests {
 
     #[test]
     fn a_folded_card_holds_two_lines_and_an_opened_one_grows_to_160px() {
-        assert_eq!(height(1, false), 2. + 20. + LINE);
+        assert_eq!(height(1, false), 1. + 20. + LINE);
         assert_eq!(height(FOLDED_LINES + 3, false), height(FOLDED_LINES + 1, false));
-        assert_eq!(height(50, true), 2. + 10. + 160. + 26.);
+        assert_eq!(height(50, true), 1. + 10. + 160. + 26.);
     }
 }
