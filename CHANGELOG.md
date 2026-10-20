@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+- Chat ends a background task the agent stopped (#84): (d827cc1)
+- Chat ends a background agent whose notification comes mid-turn (#83): (2a2f662)
+- Renaming a Worktree or Local renames its Claude conversations too (#82): (8e76a2b)
+
 ## 0.1.6
 
 - Experimental chat for Claude Code and Codex: New chat in a tab's + menu, or Settings › Agents › Start as a chat for new sessions (#80): (d7c9adc)
