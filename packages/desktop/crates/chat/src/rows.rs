@@ -13,7 +13,7 @@ pub enum Row {
     Notice { turn: usize },
     /// The turn's latest todo list, as a card after its work.
     Tasks { turn: usize, block: usize },
-    /// One markdown block (`range` into the message text) of a Text or Plan block. Text between steps folds with them.
+    /// One markdown block (`range` into the message text) of a Text or Plan block.
     Text { turn: usize, block: usize, range: Range<usize> },
     /// An AskUserQuestion call: a marker that ends the phase before it.
     Question { turn: usize, block: usize },
@@ -147,7 +147,7 @@ fn work_end(turn: &Turn) -> usize {
     turn.blocks.iter().rposition(is_work).map_or(0, |b| b + 1)
 }
 
-/// Whether block `block` of `turn` is text the agent wrote between its steps, which folds away with them.
+/// Whether block `block` of `turn` is text the agent wrote between its steps rather than its answer.
 pub fn narrates(turn: &Turn, block: usize) -> bool {
     block < work_end(turn) && matches!(turn.blocks.get(block), Some(Block::Text(_)))
 }
@@ -510,7 +510,7 @@ mod tests {
         let t = one(vec![shell(), text("Now the tests.\n\nThey cover both paths."), think(), shell(), text("All green.")]);
         assert_eq!(ids_of(&t), ["u1", "u1#fold", "u1#p0", "u1#1.0", "u1#1.16", "u1#p2", "u1#4.0", "u1#end"]);
         assert_eq!(rows(&t, 0, false)[5], Row::Phase { turn: 0, blocks: 2..4 });
-        assert!(narrates(&t.turns[0], 1) && !narrates(&t.turns[0], 4), "the answer after the last step doesn't fold");
+        assert!(narrates(&t.turns[0], 1) && !narrates(&t.turns[0], 4), "the answer after the last step isn't between steps");
     }
 
     #[test]
