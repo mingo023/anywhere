@@ -2,9 +2,11 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -326,5 +328,214 @@ func TestGoalFollowsWhatClaudeWritesForEachGoalStep(t *testing.T) {
 		if got != c.want || ok != c.ok {
 			t.Errorf("%s: got %+v %v, want %+v %v", c.name, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+// replay maps transcript lines in order onto a timeline, each prompt starting a new epoch as an agent does.
+func replay(lines ...string) *timeline.Timeline {
+	tl := timeline.New()
+	var turns Turns
+	for n, l := range lines {
+		for _, e := range turns.Map([]byte(l)) {
+			if e.Kind == "user" {
+				tl.StartEpoch()
+			}
+			tl.Apply(e, int64(n))
+		}
+	}
+	return tl
+}
+
+func callOf(t *testing.T, tl *timeline.Timeline, id string) proto.ToolCall {
+	t.Helper()
+	items, _ := tl.Page(0, 1000)
+	for _, it := range items {
+		if it.Call != nil && it.Call.ToolUseID == id {
+			return *it.Call
+		}
+	}
+	t.Fatalf("no call %s", id)
+	return proto.ToolCall{}
+}
+
+func output(c proto.ToolCall) string {
+	if c.Output == nil {
+		return "<nil>"
+	}
+	return *c.Output
+}
+
+const (
+	asyncAgent    = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"description":"Review the branch","run_in_background":true}}]}}`
+	agentLaunched = `{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched successfully."}]}}`
+	nextPrompt    = `{"type":"user","message":{"content":"and the docs?"}}`
+)
+
+func notification(body string) string {
+	b, _ := json.Marshal("<task-notification>\n" + body + "\n</task-notification>")
+	return `{"type":"user","origin":{"kind":"task-notification"},"message":{"content":` + string(b) + `}}`
+}
+
+func TestANotificationNamingOnlyItsTaskEndsItsCallAfterTheNextPrompt(t *testing.T) {
+	tl := replay(asyncAgent, agentLaunched, nextPrompt,
+		notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>No issues.</result>"))
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "No issues." {
+		t.Fatalf("%+v %s", c, output(c))
+	}
+	if tl.Lasting() != nil || tl.BackgroundAgents() != 0 {
+		t.Fatalf("still lasting: %v", tl.Lasting())
+	}
+}
+
+func TestAMonitorsEventsAndAGoalCheckInEndNothing(t *testing.T) {
+	got := Map([]byte(notification("<task-id>m1</task-id>\n<summary>Monitor event: \"build log\"</summary>\n<event>warning: unused import</event>")))
+	got = append(got, Map([]byte(notification("<summary>Goal check-in: background work still running</summary>")))...)
+	if got != nil {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAnAgentWaitingOnItsOwnBackgroundWorkRunsOnUntilItNotifiesAgain(t *testing.T) {
+	waiting := notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" is waiting on its own background work</summary>\n<result>Waiting for the e2e run to finish.</result>")
+	tl := replay(asyncAgent, agentLaunched, waiting)
+	if c := callOf(t, tl, "t1"); c.Status != "running" || tl.BackgroundAgents() != 1 {
+		t.Fatalf("waiting ended it: %+v", c)
+	}
+	tl = replay(asyncAgent, agentLaunched, waiting, nextPrompt,
+		notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>All green.</result>"))
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "All green." {
+		t.Fatalf("%+v %s", c, output(c))
+	}
+}
+
+func backgroundBash(id, task string) []string {
+	return []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"` + id + `","name":"Bash","input":{"command":"pnpm dev","run_in_background":true}}]}}`,
+		`{"type":"user","toolUseResult":{"backgroundTaskId":"` + task + `"},"message":{"content":[{"type":"tool_result","tool_use_id":"` + id + `","content":"Command running in background with ID: ` + task + `."}]}}`,
+	}
+}
+
+func TestAnOrphanSummaryEndsEveryTaskItNames(t *testing.T) {
+	lines := append(backgroundBash("t1", "b1"), backgroundBash("t2", "b2")...)
+	lines = append(lines, nextPrompt, notification("<task-id>b1</task-id>\n<task-id>b2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>2 background shell command tasks didn't finish before the previous session ended. Task ids: b1, b2.</summary>"))
+	tl := replay(lines...)
+	for _, id := range []string{"t1", "t2"} {
+		if c := callOf(t, tl, id); c.Status != "ok" {
+			t.Errorf("%s: %+v", id, c)
+		}
+	}
+	if tl.Lasting() != nil {
+		t.Fatalf("still lasting: %v", tl.Lasting())
+	}
+}
+
+func TestKillingEveryAgentEndsTheBackgroundAgentsAndLeavesCommandsRunning(t *testing.T) {
+	lines := []string{asyncAgent, agentLaunched,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Agent","input":{"description":"Done already","run_in_background":true}}]}}`,
+		`{"type":"user","toolUseResult":{"isAsync":true,"agentId":"a2"},"message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"Async agent launched successfully."}]}}`,
+		notification("<task-id>a2</task-id>\n<tool-use-id>t2</tool-use-id>\n<status>failed</status>"),
+	}
+	lines = append(lines, backgroundBash("t3", "b3")...)
+	lines = append(lines, nextPrompt,
+		`{"type":"system","subtype":"agents_killed"}`,
+		`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"Background agent \"Review the branch\" was stopped by the user."}}`)
+	tl := replay(lines...)
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || tl.BackgroundAgents() != 0 {
+		t.Fatalf("agent: %+v", c)
+	}
+	if c := callOf(t, tl, "t2"); c.Status != "error" {
+		t.Fatalf("an agent that had ended changed: %+v", c)
+	}
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b3"}) {
+		t.Fatalf("lasting %v", got)
+	}
+}
+
+func TestABackgroundAgentsHandBackIsItsReportWhicheverArrivesFirst(t *testing.T) {
+	const preamble = "[Subagent hand-back] The text below is the final report of a subagent this session delegated to. The harness indents every line of the report. The report follows:\n"
+	body, _ := json.Marshal(preamble + "  ## Findings\n  \n  - one\n    - nested")
+	handback := `{"type":"user","isMeta":true,"origin":{"kind":"peer","from":"a1","senderTaskId":"a1","handback":true,"body":` + string(body) + `},"message":{"content":"Another Claude session sent a message: ..."}}`
+	queued := `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","isMeta":true,"prompt":"<agent-message from=\"a1\">...</agent-message>","origin":{"kind":"peer","from":"a1","senderTaskId":"a1","handback":true,"body":` + string(body) + `,"handbackReportText":"## Findings\n\n- one\n  - nested"}}}`
+	done := notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>This agent's report was delivered to you as a message from \"a1\" (its SubagentHandback call). Read it there; it is not repeated here.\n</result>\n<usage><subagent_tokens>5</subagent_tokens></usage>")
+	for name, lines := range map[string][]string{
+		"hand-back first":       {asyncAgent, agentLaunched, handback, done},
+		"notification first":    {asyncAgent, agentLaunched, done, handback},
+		"queued mid-turn":       {asyncAgent, agentLaunched, queued, done},
+		"after the next prompt": {asyncAgent, agentLaunched, done, nextPrompt, handback},
+	} {
+		tl := replay(lines...)
+		if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "## Findings\n\n- one\n  - nested" {
+			t.Errorf("%s: %+v %q", name, c, output(c))
+		}
+		items, _ := tl.Page(0, 100)
+		for _, it := range items {
+			if it.Kind == "user" && it.Text != "and the docs?" {
+				t.Errorf("%s: the hand-back showed as a prompt", name)
+			}
+		}
+	}
+}
+
+func TestASubAgentsReportLosesTheHarnessTrailerAndPreamble(t *testing.T) {
+	const trailer = "agentId: a1 (use SendMessage with to: 'a1', summary: '<5-10 word recap>' to continue this agent)\n<usage>subagent_tokens: 67502\ntool_uses: 9\nduration_ms: 77279</usage>"
+	for name, content := range map[string]string{
+		"blocks":    `[{"type":"text","text":"First part."},{"type":"text","text":"Two judgement calls."},{"type":"text","text":` + strconv.Quote(trailer) + `}]`,
+		"glued":     strconv.Quote("First part.\n\nTwo judgement calls.\n" + trailer),
+		"hand-back": strconv.Quote("[Subagent hand-back] The text below is the final report of a subagent. The report follows:\n  First part.\n  \n  Two judgement calls.\n" + trailer),
+	} {
+		ev := Map([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":` + content + `}]}}`))
+		if len(ev) != 1 || output(proto.ToolCall{Output: ev[0].Output}) != "First part.\n\nTwo judgement calls." {
+			t.Errorf("%s: %+v", name, ev)
+		}
+	}
+}
+
+func TestAFinishedBackgroundCommandShowsWhatBecameOfItAndTheEndOfItsOutput(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "b1.output")
+	os.WriteFile(log, []byte(strings.Repeat("compiling\n", 1000)+"error[E0425]: cannot find value `x`\n"), 0o600)
+	ev := Map([]byte(notification("<task-id>b1</task-id>\n<tool-use-id>t1</tool-use-id>\n<output-file>" + log + "</output-file>\n<status>failed</status>\n<summary>Background command \"cargo test 2&gt;&amp;1\" failed with exit code 101</summary>")))
+	out := output(proto.ToolCall{Output: ev[0].Output})
+	if ev[0].OK || !strings.HasPrefix(out, "Background command \"cargo test 2>&1\" failed with exit code 101\n\ncompiling\n") || !strings.HasSuffix(out, "compiling\nerror[E0425]: cannot find value `x`") || len(out) > 2200 {
+		t.Fatalf("%q", out)
+	}
+	// An agent's output file links to its transcript, which is no output.
+	transcript := filepath.Join(dir, "agent-a1.jsonl")
+	os.WriteFile(transcript, []byte(`{"type":"user"}`+"\n"), 0o600)
+	os.Symlink(transcript, filepath.Join(dir, "a1.output"))
+	ev = Map([]byte(notification("<task-id>a1</task-id>\n<tool-use-id>t2</tool-use-id>\n<output-file>" + filepath.Join(dir, "a1.output") + "</output-file>\n<status>failed</status>\n<summary>Agent \"Review\" failed: API Error</summary>")))
+	if out := output(proto.ToolCall{Output: ev[0].Output}); out != "Agent \"Review\" failed: API Error" {
+		t.Fatalf("%q", out)
+	}
+}
+
+func TestAMonitorWatchesInTheBackgroundUntilItsStreamEndsOrItExpires(t *testing.T) {
+	monitor := func(id, task string) []string {
+		return []string{
+			`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"` + id + `","name":"Monitor","input":{"command":"tail -f /tmp/build.log","description":"build log","timeout_ms":1800000}}]}}`,
+			`{"type":"user","toolUseResult":{"taskId":"` + task + `","timeoutMs":1800000,"persistent":false},"message":{"content":[{"type":"tool_result","tool_use_id":"` + id + `","content":"Monitor started (task ` + task + `, expires in 30m)."}]}}`,
+		}
+	}
+	lines := append(monitor("t1", "m1"), monitor("t2", "m2")...)
+	lines = append(lines, nextPrompt, notification("<task-id>m1</task-id>\n<summary>Monitor event: \"build log\"</summary>\n<event>warning: unused</event>"))
+	tl := replay(lines...)
+	if c := callOf(t, tl, "t1"); c.Status != "running" || c.Detail.Kind != "shell" || c.Detail.Command != "tail -f /tmp/build.log" {
+		t.Fatalf("watching: %+v", c)
+	}
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"m1", "m2"}) {
+		t.Fatalf("lasting %v", got)
+	}
+	lines = append(lines,
+		notification("<task-id>m1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Monitor \"build log\" stream ended</summary>"),
+		notification("<task-id>m2</task-id>\n<summary>Monitor event: \"build log\"</summary>\n<event>[Monitor expired after 30m with 1 event delivered. Re-arm it if you still need the watch.]</event>"))
+	tl = replay(lines...)
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "Monitor \"build log\" stream ended" {
+		t.Fatalf("ended: %+v %q", c, output(c))
+	}
+	if c := callOf(t, tl, "t2"); c.Status != "ok" || !strings.HasPrefix(output(c), "[Monitor expired after 30m") {
+		t.Fatalf("expired: %+v %q", c, output(c))
+	}
+	if tl.Lasting() != nil {
+		t.Fatalf("still lasting: %v", tl.Lasting())
 	}
 }

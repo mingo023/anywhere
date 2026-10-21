@@ -237,6 +237,14 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	case "tool_end":
 		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
 			e.ToolUseID = t.items[n].Call.ToolUseID
+			// An agent's report can come after its call ended and its turn closed.
+			if _, open := t.tools[e.ToolUseID]; !open && e.Output != nil {
+				call := *t.items[n].Call
+				out := clamp(*e.Output)
+				call.Output = &out
+				t.items[n].Call = &call
+				return t.items[n], true
+			}
 		}
 		n, ok := t.tools[e.ToolUseID]
 		if t.folded[e.ToolUseID] || !ok {
