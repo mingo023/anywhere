@@ -387,7 +387,7 @@ func (c streamDriver) Prompt(text string) error {
 	}
 	// Claude runs a command sent mid-turn once the turn ends, and a goal can keep it going for long.
 	if name, arg, ok := slashCommand(text); ok && name == "goal" && arg == "clear" && midTurn(c.a.Summary().Status) {
-		if err := c.Interrupt(); err != nil {
+		if err := c.interrupt(false); err != nil {
 			return err
 		}
 	}
@@ -396,10 +396,14 @@ func (c streamDriver) Prompt(text string) error {
 }
 
 // Interrupt stops the turn and the background sub-agents the chat holds it
-// for. Like Claude's own Stop, it leaves background commands running.
+// for. Like Claude's own Stop, it leaves background commands running. It drops
+// the prompts sent mid-turn that claude hadn't taken: the chat puts them back
+// in its queue, as a terminal claude hands them back on Esc.
+func (c streamDriver) Interrupt() error { return c.interrupt(true) }
+
 // Claude may write no notification for a task it stops, so the call ends here.
 // Tasks stop at once, so a silent claude costs one ControlWait, not one per task.
-func (c streamDriver) Interrupt() error {
+func (c streamDriver) interrupt(cancelQueued bool) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
@@ -429,7 +433,7 @@ func (c streamDriver) Interrupt() error {
 		c.a.Record(timeline.Event{Kind: "tool_end", TaskID: id, OK: true, Output: &out})
 	}
 	if turn {
-		if _, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "interrupt"}); err != nil {
+		if _, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "interrupt", "cancel_queued": cancelQueued}); err != nil {
 			c.pr.stream.stopped(true)
 			return err
 		}

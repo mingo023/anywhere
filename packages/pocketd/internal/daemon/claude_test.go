@@ -637,6 +637,41 @@ func TestAStopFromAClientBeforeAnyReplyEndsTheTurnInterrupted(t *testing.T) {
 	})
 }
 
+func TestAStopFromTheChatDropsWhatClaudeQueuedMidTurn(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "pocketd"), Args: []string{"pipe", "claude", "-p"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	waitAgent(t, d, term)
+	pr := d.presentIn(term.Info().ID)
+	pr.working("")
+	stopped := make(chan error, 1)
+	go func() { stopped <- pr.a.Driver().Interrupt() }()
+	var sent struct {
+		RequestID string         `json:"request_id"`
+		Request   map[string]any `json:"request"`
+	}
+	eventually(t, "the interrupt", func() bool {
+		pr.stream.mu.Lock()
+		defer pr.stream.mu.Unlock()
+		for _, line := range pr.stream.inbox {
+			if json.Unmarshal([]byte(line), &sent) == nil && sent.Request["subtype"] == "interrupt" {
+				return true
+			}
+		}
+		return false
+	})
+	pr.stream.replied(sent.RequestID, "success", "", nil)
+	if err := <-stopped; err != nil {
+		t.Fatal(err)
+	}
+	if sent.Request["cancel_queued"] != true {
+		t.Fatalf("interrupt = %v; a prompt sent mid-turn would run once stopped", sent.Request)
+	}
+}
+
 // noResultsAfter fails when pr's timeline ends a turn within a few settles.
 func noResultsAfter(t *testing.T, pr *presence) {
 	t.Helper()

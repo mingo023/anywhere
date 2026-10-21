@@ -29,7 +29,7 @@ import (
 // state in FAKE_AGENT_REPORT: the first at start, the rest after a line of input.
 func TestMain(m *testing.M) {
 	switch filepath.Base(os.Args[0]) {
-	case "claude", "codex":
+	case "claude", "codex", "pocketd":
 		lines := bufio.NewScanner(os.Stdin)
 		for i, state := range strings.Fields(os.Getenv("FAKE_AGENT_REPORT")) {
 			if i > 0 {

@@ -22,6 +22,8 @@ pub struct Pending {
     pub delivery: Delivery,
     /// The id it went to pocketd under, which a refusal names.
     request: Option<String>,
+    /// A stop put it back in the queue after it went out; should the agent run it after all, its echo settles it.
+    stopped: bool,
 }
 
 /// A prompt must reach the transcript within this long of being sent, or it reads as not delivered.
@@ -88,7 +90,7 @@ impl Outgoing {
         let delivery = if working { Delivery::Queued } else { Delivery::Sending };
         self.after_stop |= working && self.stopping.is_some();
         self.next_id += 1;
-        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery, request: None });
+        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery, request: None, stopped: false });
         (!working).then_some(self.next_id)
     }
 
@@ -98,7 +100,7 @@ impl Outgoing {
             self.command = Some(Ran::new(now_ms));
         }
         self.next_id += 1;
-        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery: Delivery::Steered, request: None });
+        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery: Delivery::Steered, request: None, stopped: false });
         self.next_id
     }
 
@@ -131,7 +133,7 @@ impl Outgoing {
         self.sends.retain(|s| !(s.delivery == Delivery::Steered && command(&s.text) && ((idle && s.sent_at <= since) || now_ms - s.sent_at > COMMAND_MS)));
         let (claimed, before) = (&mut self.claimed, self.sends.len());
         self.sends.retain(|send| {
-            if send.delivery == Delivery::Queued {
+            if send.delivery == Delivery::Queued && !send.stopped {
                 return true;
             }
             let prompt = t
@@ -159,7 +161,7 @@ impl Outgoing {
         // The agent drops a steer it hadn't taken when stopped; it waits in the queue for the user rather than going on its own.
         if self.stopping.is_some() && idle {
             for send in self.sends.iter_mut().filter(|s| s.delivery == Delivery::Steered && !command(&s.text)) {
-                send.delivery = Delivery::Queued;
+                (send.delivery, send.stopped) = (Delivery::Queued, true);
                 self.after_stop = false;
             }
         }
@@ -840,6 +842,31 @@ mod tests {
         let ended = Transcript { turns: vec![turn("u1", 0, "long job", false), stopped("u2", 1_500, "refactor the parser")] };
         o.settle(&ended, false, 3_000);
         assert!(o.list().is_empty());
+    }
+
+    #[test]
+    fn a_stopped_steer_the_agent_runs_after_all_settles_on_its_echo_and_is_never_sent_again() {
+        let mut o = Outgoing::default();
+        o.steer_text("refactor the parser".into(), 1_000);
+        o.stop(2_000);
+        let ended = Transcript { turns: vec![stopped("u1", 0, "long job")] };
+        o.settle(&ended, false, 3_000);
+        assert_eq!(deliveries(&o), [Delivery::Queued]);
+        let ran = Transcript { turns: vec![stopped("u1", 0, "long job"), turn("u2", 3_500, "refactor the parser", false)] };
+        o.settle(&ran, true, 4_000);
+        assert!(o.list().is_empty(), "its echo settles it");
+        let done = Transcript { turns: vec![stopped("u1", 0, "long job"), turn("u2", 3_500, "refactor the parser", true)] };
+        o.settle(&done, false, 5_000);
+        assert!(released(&mut o).is_empty());
+    }
+
+    #[test]
+    fn a_queued_send_never_sent_ignores_an_echo_of_the_same_text() {
+        let mut o = Outgoing::default();
+        o.push("refactor the parser".into(), true, 1_000);
+        let typed = Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 1_500, "refactor the parser", false)] };
+        o.settle(&typed, true, 2_000);
+        assert_eq!(deliveries(&o), [Delivery::Queued], "the user typed it in the terminal; this one still waits");
     }
 
     #[test]
