@@ -9,8 +9,10 @@ pub enum Row {
     Fold { turn: usize },
     /// A run of work: thinking and tool calls.
     Phase { turn: usize, blocks: Range<usize> },
-    /// Sub-agents that finished in the background, heading the turn the agent began itself to report on them.
+    /// Sub-agents and commands that finished in the background, heading the turn the agent began itself to report on them.
     Notice { turn: usize },
+    /// A `Block::Notice`: why the agent went on, heading the turn it set going, or an error it went on after, in place.
+    Note { turn: usize, block: usize },
     /// The turn's latest todo list, as a card after its work.
     Tasks { turn: usize, block: usize },
     /// One markdown block (`range` into the message text) of a Text or Plan block.
@@ -37,7 +39,7 @@ impl Row {
             Row::Fold { turn: ix } => format!("{}#fold", turn(*ix)),
             Row::Phase { turn: ix, blocks } => format!("{}#p{}", turn(*ix), blocks.start),
             Row::Text { turn: ix, block, range } => format!("{}#{block}.{}", turn(*ix), range.start),
-            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } => {
+            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } => {
                 format!("{}#{block}", turn(*ix))
             }
             Row::End { turn: ix } => format!("{}#end", turn(*ix)),
@@ -51,6 +53,7 @@ impl Row {
         match self {
             Row::Prompt { turn }
             | Row::Notice { turn }
+            | Row::Note { turn, .. }
             | Row::Fold { turn }
             | Row::Phase { turn, .. }
             | Row::Tasks { turn, .. }
@@ -71,8 +74,8 @@ pub fn rows(t: &Transcript, pending: usize, sending: bool) -> Vec<Row> {
 }
 
 /// Appends the rows of `t`'s turns from `from` on, then the trailer `rows` describes.
-/// A turn lays out as its prompt or what it reports, the fold if it starts a reply, its phases and the text between
-/// them, its todos, then its answer.
+/// A turn lays out as its prompt or what it reports, the notices that set it going, the fold if it starts a reply, its
+/// phases and the text between them, its todos, then its answer.
 pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pending: usize, sending: bool) {
     for (ix, turn) in t.turns.iter().enumerate().skip(from) {
         if turn.prompt.is_some() {
@@ -81,6 +84,8 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
         if !reported(t, ix).is_empty() {
             rows.push(Row::Notice { turn: ix });
         }
+        let lead = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. })).count();
+        rows.extend((0..lead).map(|block| Row::Note { turn: ix, block }));
         // A turn stopped or failed before anything came has nothing to fold.
         if folds_at(t, ix) && !(matches!(turn.end, Some(End::Failed { .. })) && turn.blocks.is_empty()) {
             rows.push(Row::Fold { turn: ix });
@@ -88,7 +93,7 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
         // Text after the turn's last step is the answer.
         let work = work_end(turn);
         let mut phase: Option<usize> = None;
-        for (b, block) in turn.blocks[..work].iter().enumerate() {
+        for (b, block) in turn.blocks[..work].iter().enumerate().skip(lead) {
             match block {
                 _ if is_work(block) => _ = phase.get_or_insert(b),
                 Block::Todos { .. } => {}
@@ -102,7 +107,7 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
         if let Some(b) = turn.blocks.iter().rposition(|b| matches!(b, Block::Todos { .. })) {
             rows.push(Row::Tasks { turn: ix, block: b });
         }
-        for (b, block) in turn.blocks.iter().enumerate().skip(work) {
+        for (b, block) in turn.blocks.iter().enumerate().skip(work.max(lead)) {
             plain(rows, ix, b, block);
         }
         if turn.end.is_some() {
@@ -124,6 +129,7 @@ fn plain(rows: &mut Vec<Row>, turn: usize, b: usize, block: &Block) {
         Block::Text(m) | Block::Plan(m) => rows.extend(markdown_blocks(&m.text).into_iter().map(|range| Row::Text { turn, block: b, range })),
         Block::Tool(c) if matches!(c.kind, ToolKind::Question(_)) => rows.push(Row::Question { turn, block: b }),
         Block::Compacted { .. } => rows.push(Row::Compacted { turn, block: b }),
+        Block::Notice { .. } => rows.push(Row::Note { turn, block: b }),
         _ => {}
     }
 }
@@ -223,8 +229,8 @@ pub fn row_of(rows: &[Row], turn: usize, block: usize) -> Option<usize> {
     rows.iter().position(|row| matches!(row, Row::Phase { turn: t, blocks } if *t == turn && blocks.contains(&block)))
 }
 
-/// The sub-agents turn `ix` reports on: it's one the agent began itself, and they finished after their own turn ended,
-/// since the turn before `ix` began and by the time `ix` did.
+/// The sub-agents and commands turn `ix` reports on: it's one the agent began itself, and they finished after their own
+/// turn ended, since the turn before `ix` began and by the time `ix` did.
 pub fn reported(t: &Transcript, ix: usize) -> Vec<&ToolCall> {
     let turn = &t.turns[ix];
     let (Some(at), Some(since)) = (start(turn), ix.checked_sub(1).and_then(|p| start(&t.turns[p]))) else { return Vec::new() };
@@ -235,7 +241,7 @@ pub fn reported(t: &Transcript, ix: usize) -> Vec<&ToolCall> {
     ended
         .flat_map(|(own, end)| {
             own.blocks.iter().filter_map(move |b| match b {
-                Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)) && c.status != ToolStatus::Running => {
+                Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) && c.status != ToolStatus::Running => {
                     let done = c.at + c.duration_ms? as i64;
                     (done > end && done > since && done <= at).then_some(c)
                 }
@@ -248,7 +254,7 @@ pub fn reported(t: &Transcript, ix: usize) -> Vec<&ToolCall> {
 /// When the agent began `turn`: its prompt, else its first timed block.
 fn start(turn: &Turn) -> Option<i64> {
     let block_at = |b: &Block| match b {
-        Block::Text(m) | Block::Thinking(m) | Block::Plan(m) => Some(m.at),
+        Block::Text(m) | Block::Thinking(m) | Block::Plan(m) | Block::Notice { message: m, .. } => Some(m.at),
         Block::Tool(c) => Some(c.at),
         _ => None,
     };
@@ -317,7 +323,7 @@ pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
         (_, Row::Phase { .. } | Row::Working) => 0.,
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
-        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. }) => 8.,
+        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. }) => 8.,
         _ => 6.,
     }
 }
@@ -738,6 +744,23 @@ mod tests {
         assert_eq!(reply(&t, 3), Some(3..4), "a compaction is no part of a reply");
         assert_eq!(worked(&t, 0..3), Some((12_001, Some(Usage { input: 30, output: 2, cache_read: 0 }))));
         assert_eq!(worked(&t, 4..5), None, "an open turn hasn't worked yet");
+    }
+
+    #[test]
+    fn what_set_the_agent_going_heads_its_turn_and_an_error_it_went_on_after_stands_in_place() {
+        let notice = |text: &str, error| Block::Notice { message: msg(text), error };
+        let own = Turn { prompt: None, ..turn("n1", vec![notice("Stop hook: run the tests", false), shell(), notice("API Error", true), shell(), text("Done.")], done()) };
+        let t = Transcript { turns: vec![turn("u1", vec![text("Hi.")], done()), own] };
+        assert_eq!(ids_of(&t)[4..], ["n1#0", "n1#p1", "n1#2", "n1#p3", "n1#4.0", "n1#end"]);
+        assert_eq!(rows(&t, 0, false)[4], Row::Note { turn: 1, block: 0 });
+    }
+
+    #[test]
+    fn a_command_that_finished_in_the_background_is_reported_like_a_sub_agent() {
+        let cmd = Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into() }, status: ToolStatus::Failed, output: None, duration_ms: Some(10_000), at: 100 });
+        let own = Turn { prompt: None, ..turn("n1", vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "It failed.".into() })], done()) };
+        let t = Transcript { turns: vec![turn("u1", vec![cmd], Some(End::Done { duration_ms: 1_000, usage: None })), own] };
+        assert_eq!(reported(&t, 1).len(), 1);
     }
 
     #[test]

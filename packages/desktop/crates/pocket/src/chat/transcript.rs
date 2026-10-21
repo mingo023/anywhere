@@ -219,7 +219,7 @@ fn live(t: &Transcript, turn: usize) -> bool {
 
 pub(super) fn block_at(b: &Block) -> Option<i64> {
     match b {
-        Block::Text(m) | Block::Thinking(m) | Block::Plan(m) => Some(m.at),
+        Block::Text(m) | Block::Thinking(m) | Block::Plan(m) | Block::Notice { message: m, .. } => Some(m.at),
         Block::Tool(t) => Some(t.at),
         _ => None,
     }
@@ -313,11 +313,20 @@ fn find_call(t: &Transcript, id: &str) -> Option<(usize, usize)> {
     t.turns.iter().enumerate().find_map(|(ix, turn)| Some((ix, turn.blocks.iter().position(|b| matches!(b, Block::Tool(c) if c.id == id))?)))
 }
 
-/// "Audit deps is done", "3 subagents are done".
+/// "Audit deps is done", "Background command `cargo test` failed", "3 subagents are done"; backticks mark code.
 fn notice_label(calls: &[&chat::ToolCall]) -> String {
     match calls {
         [chat::ToolCall { kind: ToolKind::Agent(a), .. }] => format!("{} is done", sub_agent::name(a)),
-        _ => format!("{} subagents are done", calls.len()),
+        [c @ chat::ToolCall { kind: ToolKind::Shell { command }, .. }] => {
+            let command = command.lines().next().unwrap_or_default();
+            match (c.name.as_str(), c.status) {
+                ("Monitor", _) => format!("Monitor `{command}` ended"),
+                (_, ToolStatus::Failed) => format!("Background command `{command}` failed"),
+                _ => format!("Background command `{command}` is done"),
+            }
+        }
+        _ if calls.iter().all(|c| matches!(c.kind, ToolKind::Agent(_))) => format!("{} subagents are done", calls.len()),
+        _ => format!("{} background tasks are done", calls.len()),
     }
 }
 
@@ -637,8 +646,12 @@ impl Desktop {
                     .gap(px(7.))
                     .text_size(px(13.))
                     .text_color(TEXT_3)
-                    .child(icon("agent-done", 14., TEXT_4))
-                    .child(notice_label(&calls));
+                    .whitespace_nowrap()
+                    .child(icon(if calls.iter().all(|c| matches!(c.kind, ToolKind::Agent(_))) { "agent-done" } else { "terminal" }, 14., TEXT_4))
+                    .child(div().min_w_0().flex().items_center().children(notice_label(&calls).split('`').enumerate().map(|(i, part)| {
+                        let part = div().child(part.to_string());
+                        if i % 2 == 1 { part.min_w_0().truncate().font_family(code_font()).text_size(px(12.)) } else { part.flex_none() }
+                    })));
                 match at {
                     Some((turn, block)) => {
                         let agent = agent.to_string();
@@ -647,6 +660,10 @@ impl Desktop {
                     None => div().child(line),
                 }
             }
+            Row::Note { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+                Some(Block::Notice { message, error }) => end_row::note(&message.text, *error),
+                _ => div(),
+            },
             Row::Tasks { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
                 Some(Block::Todos { todos, .. }) => todos::card(&id, todos),
                 _ => div(),
@@ -779,7 +796,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Live, answer, content_width, in_fold, live_state, phase_live, shown, stream_in, took};
+    use super::{Live, answer, content_width, in_fold, live_state, notice_label, phase_live, shown, stream_in, took};
     use chat::{Block, End, Message, Row, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -798,6 +815,18 @@ mod tests {
 
     fn turn(blocks: Vec<Block>, end: Option<End>) -> Transcript {
         Transcript { turns: vec![Turn { id: "a".into(), prompt: Some(msg("go", 1_000)), blocks, end }] }
+    }
+
+    #[test]
+    fn a_notice_names_the_command_that_finished_in_the_background_and_how() {
+        let call = |name: &str, kind, status| ToolCall { id: "t".into(), name: name.into(), kind, status, output: None, duration_ms: None, at: 0 };
+        let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into() };
+        assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Failed)]), "Background command `cargo test` failed");
+        assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Ok)]), "Background command `cargo test` is done");
+        assert_eq!(notice_label(&[&call("Monitor", cmd(), ToolStatus::Ok)]), "Monitor `cargo test` ended");
+        let agent = call("Agent", ToolKind::Agent(SubAgent::default()), ToolStatus::Ok);
+        assert_eq!(notice_label(&[&agent, &agent]), "2 subagents are done");
+        assert_eq!(notice_label(&[&agent, &call("Bash", cmd(), ToolStatus::Ok)]), "2 background tasks are done");
     }
 
     #[test]

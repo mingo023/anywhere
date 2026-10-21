@@ -44,7 +44,7 @@ func TestMap(t *testing.T) {
 		{"prompt sent mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"hi"}}`, []string{"user"}},
 		{"typed prompt sent mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"hi","origin":{"kind":"human"}}}`, []string{"user"}},
 		{"sub-agent hand-back mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<agent-message from=\"a1\">\n[Subagent hand-back] report\n</agent-message>","origin":{"kind":"peer","from":"a1"}}}`, nil},
-		{"goal continuation mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"Goal set: tests pass","origin":{"kind":"auto-continuation"}}}`, nil},
+		{"goal continuation mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"Goal set: tests pass","origin":{"kind":"auto-continuation"}}}`, []string{"notice"}},
 		{"other queued command", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"bash","prompt":"ls"}}`, nil},
 		{"background agent launched", `{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched successfully."}]}}`, []string{"tool_background"}},
 		{"command sent to the background", `{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"b1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: b1."}]}}`, []string{"tool_background"}},
@@ -448,11 +448,21 @@ func TestANotificationNamingOnlyItsTaskEndsItsCallAfterTheNextPrompt(t *testing.
 	}
 }
 
-func TestAMonitorsEventsAndAGoalCheckInEndNothing(t *testing.T) {
-	got := Map([]byte(notification("<task-id>m1</task-id>\n<summary>Monitor event: \"build log\"</summary>\n<event>warning: unused import</event>")))
-	got = append(got, Map([]byte(notification("<summary>Goal check-in: background work still running</summary>")))...)
-	if got != nil {
-		t.Fatalf("got %+v", got)
+func TestWhatSetClaudeGoingWithoutAPromptIsANotice(t *testing.T) {
+	cases := []struct{ name, line, want string }{
+		{"stop hook", `{"type":"user","isMeta":true,"message":{"content":"Stop hook feedback:\n[make test]: 3 tests fail.\nFix them first."}}`, "Stop hook: 3 tests fail."},
+		{"goal check-in", `{"type":"user","isMeta":true,"message":{"content":"Goal check-in: «tests pass» is still active\nKeep going."}}`, "Goal check-in: «tests pass» is still active"},
+		{"scheduled", `{"type":"user","isMeta":true,"turnOrigin":"scheduled","message":{"content":"Report progress\nin one line"}}`, "Scheduled: Report progress"},
+		{"goal continuation", `{"type":"user","origin":{"kind":"auto-continuation"},"message":{"content":"Goal set: tests pass"}}`, "Goal set: tests pass"},
+		{"goal continuation mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"Goal set: tests pass","origin":{"kind":"auto-continuation"}}}`, "Goal set: tests pass"},
+		{"monitor event", notification("<task-id>m1</task-id>\n<summary>Monitor event: \"build log\"</summary>\n<event>warning: unused import\nin rows.rs</event>"), "Monitor: build log · warning: unused import"},
+		{"goal check-in notification", notification("<summary>Goal check-in: background work still running</summary>"), "Goal check-in: background work still running"},
+	}
+	for _, c := range cases {
+		got := Map([]byte(c.line))
+		if len(got) != 1 || got[0].Kind != "notice" || got[0].Text != c.want {
+			t.Errorf("%s: got %+v", c.name, got)
+		}
 	}
 }
 

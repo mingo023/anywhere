@@ -1,0 +1,17 @@
+[
+  { "id": "u1", "kind": "user", "text": "Run the full test suite in the background, and have a sub-agent review the parser meanwhile" },
+  { "id": "b1", "kind": "tool", "call": { "toolUseId": "tu-b1", "name": "Bash", "detail": { "kind": "shell", "command": "cargo test --workspace", "description": "Run the full test suite" }, "status": "error", "output": "test result: FAILED. 3 failed", "durationMs": 300 } },
+  { "id": "t1", "kind": "tool", "call": { "toolUseId": "tu-t1", "name": "Agent", "detail": { "kind": "task", "description": "Review the parser" }, "status": "ok", "output": "The parser looks sound, with one nit about error recovery.", "durationMs": 450 } },
+  { "id": "a1", "kind": "assistant", "text": "Both are running in the background. I'll report back when they finish." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 300, "usage": { "inputTokens": 3000, "outputTokens": 90 } },
+  { "id": "a2", "kind": "assistant", "text": "The test suite **failed**: 3 tests in `chat::rows` fail on the new fold rule." },
+  { "id": "r2", "kind": "result", "ok": true, "durationMs": 100, "usage": { "inputTokens": 3100, "outputTokens": 60 } },
+  { "id": "a3", "kind": "assistant", "text": "The parser review is in: it looks sound, with one nit about error recovery." },
+  { "id": "r3", "kind": "result", "ok": true, "durationMs": 100, "usage": { "inputTokens": 3300, "outputTokens": 70 } },
+  { "id": "u2", "kind": "user", "text": "Fix the three failing tests" },
+  { "id": "c1", "kind": "tool", "call": { "toolUseId": "tu-c1", "name": "Read", "detail": { "kind": "read", "path": "crates/chat/src/rows.rs" }, "status": "ok", "durationMs": 10 } },
+  { "id": "n1", "kind": "notice", "error": "API Error: Your computer went to sleep mid-response. The response above may be incomplete." },
+  { "id": "c2", "kind": "tool", "call": { "toolUseId": "tu-c2", "name": "Edit", "detail": { "kind": "edit", "path": "crates/chat/src/rows.rs" }, "status": "ok", "durationMs": 10 } },
+  { "id": "a4", "kind": "assistant", "text": "Fixed: the three tests now expect each continuation to head its own reply." },
+  { "id": "r4", "kind": "result", "ok": true, "durationMs": 600, "usage": { "inputTokens": 4000, "outputTokens": 200 } }
+]

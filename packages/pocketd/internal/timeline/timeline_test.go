@@ -291,6 +291,14 @@ func TestAnErrorAfterADoneTurnEndsATurnOfItsOwn(t *testing.T) {
 	}
 }
 
+func TestANoticeSaysWhyTheAgentWentOn(t *testing.T) {
+	tl := New()
+	it, ok := tl.Apply(Event{Kind: "notice", Text: "Stop hook: tests fail"}, 1)
+	if !ok || it.Kind != "notice" || it.Text != "Stop hook: tests fail" {
+		t.Fatalf("got %+v", it)
+	}
+}
+
 func TestPastedImagesJoinTheNewestPrompt(t *testing.T) {
 	const images = "# Attached images\n\n- /tmp/1.png"
 	tl := New()

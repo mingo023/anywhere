@@ -28,6 +28,7 @@ type line struct {
 	IsSidechain      bool            `json:"isSidechain"`
 	IsCompactSummary bool            `json:"isCompactSummary"`
 	IsAPIError       bool            `json:"isApiErrorMessage"`
+	TurnOrigin       string          `json:"turnOrigin"`
 	Entrypoint       string          `json:"entrypoint"`
 	Timestamp        string          `json:"timestamp"`
 	Content          json.RawMessage `json:"content"`
@@ -209,6 +210,9 @@ func (l line) events() (events []timeline.Event) {
 		return []timeline.Event{e}
 	}
 	if l.IsMeta && l.Type == "user" {
+		if cause := l.cause(); cause != "" {
+			return []timeline.Event{{Kind: "notice", Text: cause}}
+		}
 		return pastedImages(l.Message.Content)
 	}
 	if l.IsMeta || l.IsCompactSummary {
@@ -238,6 +242,8 @@ func (l line) events() (events []timeline.Event) {
 				switch l.Attachment.Origin.Kind {
 				case "", "human":
 					return userEvents(l.Attachment.Prompt)
+				case "auto-continuation":
+					return notice(textOf(l.Attachment.Prompt))
 				}
 			}
 		}
@@ -270,6 +276,8 @@ func (l line) events() (events []timeline.Event) {
 		case "", "human":
 		case "task-notification":
 			return taskEnd(l.Message.Content)
+		case "auto-continuation":
+			return notice(textOf(l.Message.Content))
 		default:
 			return nil
 		}
@@ -294,6 +302,37 @@ func (l line) events() (events []timeline.Event) {
 		return events
 	}
 	return events
+}
+
+// cause is why Claude goes on without a prompt, from a line the harness writes to set it going, or "".
+func (l line) cause() string {
+	text := textOf(l.Message.Content)
+	switch {
+	case l.TurnOrigin == "scheduled":
+		return "Scheduled: " + firstLine(text)
+	case strings.HasPrefix(text, "Stop hook feedback:"):
+		// Claude names the hook, or the goal it checks, before the reason it gives.
+		reason := strings.TrimSpace(strings.TrimPrefix(text, "Stop hook feedback:"))
+		if _, after, ok := strings.Cut(reason, "]: "); ok && strings.HasPrefix(reason, "[") {
+			reason = after
+		}
+		return "Stop hook: " + firstLine(reason)
+	case strings.HasPrefix(text, "Goal check-in:"):
+		return firstLine(text)
+	}
+	return ""
+}
+
+func notice(text string) []timeline.Event {
+	if text = firstLine(text); text == "" {
+		return nil
+	}
+	return []timeline.Event{{Kind: "notice", Text: text}}
+}
+
+func firstLine(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	return line
 }
 
 // localOutput is what a command Claude ran itself printed.
@@ -393,9 +432,16 @@ func taskEnd(content json.RawMessage) []timeline.Event {
 		return each(e, head)
 	}
 	expired := strings.HasPrefix(event, "[Monitor timed out") || strings.HasPrefix(event, "[Monitor expired")
-	// A monitor's other events, and a goal check-in, end nothing.
+	// A monitor's other events, and a goal check-in, end nothing; they only set Claude going.
 	if id == "" && status == "" && !expired {
-		return nil
+		if desc, ok := strings.CutPrefix(summary, "Monitor event: "); ok {
+			desc = "Monitor: " + strings.Trim(desc, `"`)
+			if event != "" {
+				desc += " · " + event
+			}
+			return notice(desc)
+		}
+		return notice(summary)
 	}
 	// A task the agent stopped ended as asked, not in error.
 	e := timeline.Event{Kind: "tool_end", ToolUseID: id, OK: status != "failed", Output: taskOutput(text, summary)}

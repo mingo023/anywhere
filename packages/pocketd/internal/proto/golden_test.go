@@ -78,6 +78,7 @@ var serverGolden = map[string]any{
 	"stream_tasks":   NewAgentStream("a1", 1, Item{ID: "i4", Seq: 4, Ts: 13, Kind: "tasks", Tasks: []TaskItem{{Text: "x", Status: "in_progress"}}}),
 	"stream_compact": NewAgentStream("a1", 1, Item{ID: "i5", Seq: 5, Ts: 14, Kind: "compact", Trigger: "manual"}),
 	"stream_result":  NewAgentStream("a1", 1, Item{ID: "i6", Seq: 6, Ts: 15, Kind: "result", OK: false, Error: "interrupted"}),
+	"stream_notice":  NewAgentStream("a1", 1, Item{ID: "i7", Seq: 7, Ts: 16, Kind: "notice", Text: "Stop hook: 3 tests fail"}),
 	"timeline": NewAgentTimeline("t1", "a1", 1, []Item{
 		{ID: "i1", Seq: 1, Ts: 10, Kind: "assistant", Text: "hey"},
 		{ID: "i2", Seq: 2, Ts: 11, Kind: "result", OK: true, DurationMs: 5, Usage: &TurnUsage{InputTokens: 1, OutputTokens: 2}},

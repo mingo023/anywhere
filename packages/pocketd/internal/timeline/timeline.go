@@ -12,7 +12,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, compacted, error
+	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, notice, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -324,6 +324,9 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 			}
 		}
 		return t.append(proto.Item{Kind: "result", OK: e.OK, DurationMs: e.DurationMs, Error: e.Error, Usage: e.Usage}, e.ParentToolUseID, ts), true
+
+	case "notice":
+		return t.append(proto.Item{Kind: "notice", Text: e.Text}, e.ParentToolUseID, ts), true
 
 	case "compacted":
 		return t.append(proto.Item{Kind: "compact", Trigger: e.Trigger}, e.ParentToolUseID, ts), true

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 /// - `user` starts a turn, and `result` ends it.
 /// - `assistant` → `Block::Text`, `thinking` → `Block::Thinking`, `tasks` → `Block::Todos`, `plan` → `Block::Plan`.
 /// - `compact` → `Block::Compacted`.
+/// - `notice` → `Block::Notice`, saying why the agent went on.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
 /// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
 /// - AskUserQuestion → `ToolKind::Question`.
@@ -194,6 +195,7 @@ fn block(item: &Item) -> Option<Block> {
         "plan" if !blank => Block::Plan(message(item)),
         "tasks" => Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() },
         "compact" => Block::Compacted { id: item.id.clone(), auto: item.trigger == "auto" },
+        "notice" if !blank => Block::Notice { message: message(item), error: false },
         _ => return None,
     })
 }
@@ -549,6 +551,19 @@ mod tests {
     fn a_compact_item_becomes_a_compacted_marker() {
         let t = fold(&items(json!([{"kind": "user", "text": "go"}, {"kind": "compact", "trigger": "manual"}])));
         assert_eq!(t.turns[0].blocks, vec![Block::Compacted { id: "i2".into(), auto: false }]);
+    }
+
+    #[test]
+    fn a_notice_after_an_ended_turn_heads_a_turn_the_agent_began_itself() {
+        let t = fold(&items(json!([
+            {"kind": "user", "text": "go"},
+            {"kind": "result", "ok": true, "durationMs": 5},
+            {"kind": "notice", "text": "Stop hook: tests fail"},
+            {"kind": "assistant", "text": "Fixing them."},
+        ])));
+        assert_eq!(t.turns.len(), 2);
+        assert_eq!(t.turns[1].prompt, None);
+        assert_eq!(t.turns[1].blocks[0], Block::Notice { message: Message { id: "i3".into(), at: 3000, text: "Stop hook: tests fail".into() }, error: false });
     }
 
     #[test]

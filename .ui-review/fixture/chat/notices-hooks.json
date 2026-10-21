@@ -1,0 +1,18 @@
+[
+  { "id": "u1", "kind": "user", "text": "Migrate the schema, then keep going until the tests pass" },
+  { "id": "a1", "kind": "assistant", "text": "Migration applied. Three tables updated; nothing was committed." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 12000, "usage": { "inputTokens": 3000, "outputTokens": 90 } },
+  { "id": "n1", "kind": "notice", "text": "Stop hook: run make test and fix what fails before stopping" },
+  { "id": "b1", "kind": "tool", "call": { "toolUseId": "tu-b1", "name": "Bash", "detail": { "kind": "shell", "command": "make test" }, "status": "ok", "output": "ok  42 passed", "durationMs": 50 } },
+  { "id": "a2", "kind": "assistant", "text": "Tests pass after the migration too." },
+  { "id": "r2", "kind": "result", "ok": true, "durationMs": 34000, "usage": { "inputTokens": 3100, "outputTokens": 40 } },
+  { "id": "n2", "kind": "notice", "text": "Goal set: all tests pass and the migration is documented" },
+  { "id": "a3", "kind": "assistant", "text": "Documented the migration in `docs/migrations.md`." },
+  { "id": "r3", "kind": "result", "ok": true, "durationMs": 8000, "usage": { "inputTokens": 3200, "outputTokens": 40 } },
+  { "id": "n3", "kind": "notice", "text": "Monitor: Watch the build for errors · warning: unused import in rows.rs" },
+  { "id": "a4", "kind": "assistant", "text": "A warning came up: an unused import in `crates/chat/src/rows.rs`. The build carries on." },
+  { "id": "r4", "kind": "result", "ok": true, "durationMs": 5000, "usage": { "inputTokens": 3300, "outputTokens": 40 } },
+  { "id": "n4", "kind": "notice", "text": "Scheduled: Report progress on the migration" },
+  { "id": "a5", "kind": "assistant", "text": "Progress: migration applied, tests green, docs written. Nothing left to do." },
+  { "id": "r5", "kind": "result", "ok": true, "durationMs": 3000, "usage": { "inputTokens": 3400, "outputTokens": 40 } }
+]

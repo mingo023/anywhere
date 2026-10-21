@@ -51,6 +51,8 @@ pub enum Block {
     /// A plan-mode plan, markdown.
     Plan(Message),
     Compacted { id: String, auto: bool },
+    /// Why the agent went on without a prompt, as "Stop hook: tests fail", or an `error` it went on after.
+    Notice { message: Message, error: bool },
 }
 
 #[derive(Clone, Debug, PartialEq)]

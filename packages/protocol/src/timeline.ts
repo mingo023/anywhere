@@ -77,6 +77,8 @@ export const TimelineBody = Schema.Union(
     error: Schema.optional(Schema.String),
     usage: Schema.optional(TurnUsage),
   }),
+  /** Why the agent went on without a prompt, or an error it went on after. */
+  Schema.Struct({ kind: Schema.Literal("notice"), text: Schema.optional(Schema.String), error: Schema.optional(Schema.String) }),
 );
 export type TimelineBody = typeof TimelineBody.Type;
 

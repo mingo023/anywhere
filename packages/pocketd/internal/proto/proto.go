@@ -178,6 +178,12 @@ func (it Item) MarshalJSON() ([]byte, error) {
 			Error      string     `json:"error,omitempty"`
 			Usage      *TurnUsage `json:"usage,omitempty"`
 		}{h, it.OK, it.DurationMs, it.Error, it.Usage})
+	case "notice":
+		return json.Marshal(struct {
+			head
+			Text  string `json:"text,omitempty"`
+			Error string `json:"error,omitempty"`
+		}{h, it.Text, it.Error})
 	}
 	return nil, errors.New("proto: unknown item kind " + it.Kind)
 }
