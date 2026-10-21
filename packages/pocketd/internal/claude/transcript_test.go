@@ -395,16 +395,52 @@ func TestAMonitorsEventsAndAGoalCheckInEndNothing(t *testing.T) {
 	}
 }
 
+const stillWorking = "<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>"
+
 func TestAnAgentWaitingOnItsOwnBackgroundWorkRunsOnUntilItNotifiesAgain(t *testing.T) {
-	waiting := notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" is waiting on its own background work</summary>\n<result>Waiting for the e2e run to finish.</result>")
-	tl := replay(asyncAgent, agentLaunched, waiting)
-	if c := callOf(t, tl, "t1"); c.Status != "running" || tl.BackgroundAgents() != 1 {
-		t.Fatalf("waiting ended it: %+v", c)
+	for name, waiting := range map[string]string{
+		"summary":          notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" is waiting on its own background work</summary>\n<result>Waiting for the e2e run to finish.</result>"),
+		"note":             notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n" + stillWorking + "\n<result>Waiting for the e2e run to finish.</result>"),
+		"not reported yet": notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n" + stillWorking + "\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>"),
+	} {
+		tl := replay(asyncAgent, agentLaunched, waiting, nextPrompt)
+		if c := callOf(t, tl, "t1"); c.Status != "running" || tl.BackgroundAgents() != 1 || !reflect.DeepEqual(tl.Lasting(), []string{"a1"}) {
+			t.Errorf("%s: waiting ended it: %+v", name, c)
+		}
+		tl = replay(asyncAgent, agentLaunched, waiting, nextPrompt,
+			notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>All green: the e2e run passed and lint is clean.</result>"))
+		if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "All green: the e2e run passed and lint is clean." {
+			t.Errorf("%s: %+v %s", name, c, output(c))
+		}
 	}
-	tl = replay(asyncAgent, agentLaunched, waiting, nextPrompt,
-		notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>All green.</result>"))
-	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "All green." {
-		t.Fatalf("%+v %s", c, output(c))
+}
+
+func TestAReportAnAgentGaveBeforeItsBackgroundWorkEndedStaysAboveAShorterLastWord(t *testing.T) {
+	const report = "**APPROVED.** The design works on an auth-enabled deployment, and the two findings below don't block it."
+	tl := replay(asyncAgent, agentLaunched,
+		notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n"+stillWorking+"\n<result>"+report+"</result>"),
+		nextPrompt,
+		notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>That notice is for a test run I stopped.</result>"))
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != report+"\n\nThat notice is for a test run I stopped." {
+		t.Fatalf("%+v %q", c, output(c))
+	}
+}
+
+func TestANotificationAfterACallEndedLeavesWhatItShowed(t *testing.T) {
+	tl := replay(asyncAgent, agentLaunched,
+		notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>No issues.</result>"),
+		nextPrompt,
+		notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>That notice was a stale background command being killed, which changes nothing in my review.</result>"))
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "No issues." {
+		t.Errorf("agent: %+v %q", c, output(c))
+	}
+	lines := append(backgroundBash("t2", "b2"),
+		notification("<task-id>b2</task-id>\n<tool-use-id>t2</tool-use-id>\n<status>completed</status>\n<summary>Background command \"pnpm dev\" completed (exit code 0)</summary>"),
+		nextPrompt,
+		notification("<task-id>b2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command task didn't finish before the previous session ended. Task ids: b2.</summary>"))
+	tl = replay(lines...)
+	if c := callOf(t, tl, "t2"); c.Status != "ok" || output(c) != "Background command \"pnpm dev\" completed (exit code 0)" {
+		t.Errorf("command: %+v %q", c, output(c))
 	}
 }
 

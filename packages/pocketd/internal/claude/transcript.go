@@ -374,10 +374,12 @@ func taskEnd(content json.RawMessage) []timeline.Event {
 	// The result is the agent's own text, which may hold any tag.
 	head, _, _ := strings.Cut(text, "<result>")
 	summary := html.UnescapeString(tag(head, "summary"))
-	if strings.HasSuffix(summary, "is waiting on its own background work") {
-		return nil
-	}
 	id, status, event := tag(head, "tool-use-id"), tag(head, "status"), tag(head, "event")
+	// An agent that stopped with background work of its own still running resumes when it ends; what it said so far may be all it reports.
+	if strings.HasSuffix(summary, "is waiting on its own background work") || strings.Contains(tag(head, "note"), "background work of its own still running") {
+		e := timeline.Event{Kind: "tool_background", ToolUseID: id, Output: taskOutput(text, summary)}
+		return each(e, head)
+	}
 	expired := strings.HasPrefix(event, "[Monitor timed out") || strings.HasPrefix(event, "[Monitor expired")
 	// A monitor's other events, and a goal check-in, end nothing.
 	if id == "" && status == "" && !expired {
@@ -388,10 +390,15 @@ func taskEnd(content json.RawMessage) []timeline.Event {
 	if expired {
 		e.Output = &event
 	}
-	if id != "" {
+	return each(e, head)
+}
+
+// each is e for the call a notification names, or for each task it names when it leaves the call out, as Claude does
+// for an agent's later run and for the tasks a previous session left behind.
+func each(e timeline.Event, head string) []timeline.Event {
+	if e.ToolUseID != "" {
 		return []timeline.Event{e}
 	}
-	// Claude leaves the call out when it ends an agent's later run or the tasks a previous session left behind.
 	var events []timeline.Event
 	for _, task := range tags(head, "task-id") {
 		if !strings.HasPrefix(task, "__orphan_summary__") {
@@ -407,8 +414,8 @@ func taskOutput(text, summary string) *string {
 	if _, rest, ok := strings.Cut(text, "<result>"); ok {
 		if end := strings.LastIndex(rest, "</result>"); end >= 0 {
 			out := html.UnescapeString(strings.TrimSpace(rest[:end]))
-			// The agent handed its report back in a line of its own.
-			if strings.Contains(out, "report was delivered to you as a message from") {
+			// The agent hands its report back in a line of its own.
+			if strings.Contains(out, "report was delivered to you as a message from") || strings.HasPrefix(out, "This agent has not reported yet") {
 				return nil
 			}
 			return &out

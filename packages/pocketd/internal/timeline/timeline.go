@@ -27,7 +27,7 @@ type Event struct {
 	// ParentToolUseID tags a sub-agent's event with the tool call that spawned it.
 	ParentToolUseID string
 	// TaskID names a call sent to the background, for the calls that later read or stop it.
-	// On a tool_end without ToolUseID it names the call that ended.
+	// On a tool_end or tool_background without ToolUseID it names the call.
 	TaskID string
 	// Draft names the streamed block a draft's text belongs to.
 	Draft string
@@ -226,20 +226,36 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.items[n], true
 
 	case "tool_background":
-		if n, ok := t.tools[e.ToolUseID]; ok {
-			t.lasting[e.ToolUseID] = true
-			if e.TaskID != "" {
-				t.tasks[e.TaskID] = n
-			}
+		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
+			e.ToolUseID = t.items[n].Call.ToolUseID
 		}
-		return proto.Item{}, false
+		n, ok := t.tools[e.ToolUseID]
+		if !ok || t.items[n].Call.Status != "running" {
+			return proto.Item{}, false
+		}
+		t.lasting[e.ToolUseID] = true
+		if e.TaskID != "" {
+			t.tasks[e.TaskID] = n
+		}
+		if e.Output == nil {
+			return proto.Item{}, false
+		}
+		call := *t.items[n].Call
+		out := clamp(after(call.Output, *e.Output))
+		call.Output = &out
+		t.items[n].Call = &call
+		return t.items[n], true
 
 	case "tool_end":
 		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
 			e.ToolUseID = t.items[n].Call.ToolUseID
-			// An agent's report can come after its call ended and its turn closed.
-			if _, open := t.tools[e.ToolUseID]; !open && e.Output != nil {
-				call := *t.items[n].Call
+			// Claude names a task again after its call ended for an agent's afterthought or a summary of the tasks a
+			// session left; only a report the call lacks lands, or one from the run that followed its failure.
+			if c := t.items[n].Call; c.Status != "running" {
+				if e.Output == nil || c.Output != nil && c.Status == "ok" {
+					return proto.Item{}, false
+				}
+				call := *c
 				out := clamp(*e.Output)
 				call.Output = &out
 				t.items[n].Call = &call
@@ -252,6 +268,7 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		}
 		delete(t.lasting, e.ToolUseID)
 		call := *t.items[n].Call
+		running := call.Status == "running"
 		call.Status = "error"
 		if e.OK {
 			call.Status = "ok"
@@ -259,7 +276,12 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		d := ts - t.items[n].Ts
 		call.DurationMs = &d
 		if e.Output != nil {
-			out := clamp(*e.Output)
+			out := *e.Output
+			// Only a call in the background holds output while it runs, what its agent said before it ended.
+			if running {
+				out = after(call.Output, out)
+			}
+			out = clamp(out)
 			call.Output = &out
 		}
 		// Published items are shared with subscribers, so replace the call instead of mutating it.
@@ -283,6 +305,15 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.append(proto.Item{Kind: "result", OK: false, Error: e.Error}, e.ParentToolUseID, ts), true
 	}
 	return proto.Item{}, false
+}
+
+// after is what a background agent said last. An agent that has reported often adds a short line about a stray
+// notification as it ends, so a shorter last word follows what it said before instead of hiding it.
+func after(before *string, last string) string {
+	if before == nil || len(last) >= len(*before) {
+		return last
+	}
+	return *before + "\n\n" + last
 }
 
 func textKind(kind string) string {
