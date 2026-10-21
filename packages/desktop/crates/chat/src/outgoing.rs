@@ -232,12 +232,13 @@ impl Outgoing {
     }
 
     /// Whether queued sends wait for the user because the last turn ended in a stop or an error, or is being stopped,
-    /// or a send was refused.
+    /// or holds a steer the stop beat, or a send was refused.
     pub fn paused(&self, t: &Transcript) -> bool {
         let last = t.turns.last();
         let failed = last.is_some_and(|turn| matches!(turn.end, Some(End::Failed { .. })));
+        let beaten = self.sends.iter().any(|s| s.stopped && s.delivery == Delivery::Queued);
         let resumed = last.is_some_and(|turn| self.resumed.as_ref() == Some(&turn.id));
-        self.holds() && (self.refused || (self.stopping.is_some() || failed) && !resumed)
+        self.holds() && (self.refused || (self.stopping.is_some() || failed || beaten) && !resumed)
     }
 
     /// Lets the queue go on past the failed turn or refusal it waits behind.
@@ -832,6 +833,20 @@ mod tests {
         assert!(o.paused(&ended) && released(&mut o).is_empty(), "it waits for the user");
         o.settle(&ended, false, 300_000);
         assert_eq!(deliveries(&o), [Delivery::Queued], "never reads as not delivered");
+    }
+
+    #[test]
+    fn a_steer_the_stop_beat_waits_for_the_user_though_the_turn_ended_done() {
+        let mut o = Outgoing::default();
+        o.steer_text("refactor the parser".into(), 1_000);
+        o.stop(2_000);
+        let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
+        o.settle(&ended, false, 3_000);
+        assert_eq!(deliveries(&o), [Delivery::Queued]);
+        assert!(o.paused(&ended) && released(&mut o).is_empty(), "the user stopped; it waits for Resume");
+        o.resume(&ended);
+        o.settle(&ended, false, 4_000);
+        assert_eq!(released(&mut o).len(), 1);
     }
 
     #[test]
