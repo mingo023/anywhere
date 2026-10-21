@@ -70,7 +70,7 @@ var serverGolden = map[string]any{
 		ToolUseID: "t3", Name: "mcp__x", Status: "error", Detail: ToolDetail{Kind: "other", Name: "mcp__x", Input: json.RawMessage(`{"q":1}`)},
 	}}),
 	"stream_tool_described": NewAgentStream("a1", 1, Item{ID: "i3", Seq: 3, Ts: 12, Kind: "tool", Call: &ToolCall{
-		ToolUseID: "t3", Name: "Monitor", Status: "running", Detail: ToolDetail{Kind: "other", Name: "Monitor", Input: json.RawMessage(`{"description":"build log"}`), Description: "build log"},
+		ToolUseID: "t3", Name: "TaskStop", Status: "running", Detail: ToolDetail{Kind: "other", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"a1"}`), Description: "Standards review"},
 	}}),
 	"stream_subagent": NewAgentStream("a1", 1, Item{ID: "i7", Seq: 7, Ts: 16, Kind: "tool", ParentToolUseID: "t4", Call: &ToolCall{
 		ToolUseID: "t5", Name: "Read", Status: "running", Detail: ToolDetail{Kind: "read", Path: "a.go"},

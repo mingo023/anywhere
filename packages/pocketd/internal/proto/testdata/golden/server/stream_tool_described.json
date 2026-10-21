@@ -9,14 +9,14 @@
     "ts": 12,
     "call": {
       "toolUseId": "t3",
-      "name": "Monitor",
+      "name": "TaskStop",
       "detail": {
         "kind": "other",
-        "name": "Monitor",
+        "name": "TaskStop",
         "input": {
-          "description": "build log"
+          "task_id": "a1"
         },
-        "description": "build log"
+        "description": "Standards review"
       },
       "status": "running"
     }

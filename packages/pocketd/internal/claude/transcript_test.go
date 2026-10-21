@@ -465,7 +465,7 @@ func TestAnAgentWaitingOnItsOwnBackgroundWorkRunsOnUntilItNotifiesAgain(t *testi
 		"not reported yet": notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n" + stillWorking + "\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>"),
 	} {
 		tl := replay(asyncAgent, agentLaunched, waiting, nextPrompt)
-		if c := callOf(t, tl, "t1"); c.Status != "running" || tl.BackgroundAgents() != 1 || !reflect.DeepEqual(tl.Lasting(), []string{"a1"}) {
+		if c := callOf(t, tl, "t1"); c.Status != "running" || tl.BackgroundAgents() != 1 || !reflect.DeepEqual(tl.Lasting(), []string{"t1"}) {
 			t.Errorf("%s: waiting ended it: %+v", name, c)
 		}
 		tl = replay(asyncAgent, agentLaunched, waiting, nextPrompt,
@@ -543,7 +543,7 @@ func TestKillingEveryAgentEndsTheBackgroundAgentsAndLeavesCommandsRunning(t *tes
 	if c := callOf(t, tl, "t2"); c.Status != "error" {
 		t.Fatalf("an agent that had ended changed: %+v", c)
 	}
-	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b3"}) {
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"t3"}) {
 		t.Fatalf("lasting %v", got)
 	}
 }
@@ -619,7 +619,7 @@ func TestAMonitorWatchesInTheBackgroundUntilItsStreamEndsOrItExpires(t *testing.
 	if c := callOf(t, tl, "t1"); c.Status != "running" || c.Detail.Kind != "shell" || c.Detail.Command != "tail -f /tmp/build.log" {
 		t.Fatalf("watching: %+v", c)
 	}
-	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"m1", "m2"}) {
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"t1", "t2"}) {
 		t.Fatalf("lasting %v", got)
 	}
 	lines = append(lines,

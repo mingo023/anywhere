@@ -66,8 +66,6 @@ func Detail(name string, raw json.RawMessage) proto.ToolDetail {
 		return proto.ToolDetail{Kind: "search", Query: in.get("pattern"), Path: in.get("path")}
 	case "Task", "Agent":
 		return proto.ToolDetail{Kind: "task", Description: in.get("description"), Model: in.get("model")}
-	case "Monitor":
-		return proto.ToolDetail{Kind: "other", Name: name, Input: raw, Description: in.get("description")}
 	}
 	return proto.ToolDetail{Kind: "other", Name: name, Input: raw}
 }

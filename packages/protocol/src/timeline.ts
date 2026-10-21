@@ -33,7 +33,7 @@ export const ToolDetail = Schema.Union(
     kind: Schema.Literal("other"),
     name: Schema.String,
     input: Schema.Unknown,
-    /** What the call is about in words: a Monitor's own description, or the task a TaskStop or TaskOutput acts on. */
+    /** What the call is about in words: the task a TaskStop or TaskOutput acts on. */
     description: Schema.optional(Schema.String),
   }),
 );
