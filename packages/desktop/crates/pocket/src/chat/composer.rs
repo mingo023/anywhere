@@ -65,7 +65,7 @@ pub(super) fn hint(mode: Mode, working: bool, stopping: bool, empty: bool, can_q
         Mode::Prompt if !working => None,
         Mode::Prompt if stopping => Some("Stopping…"),
         Mode::Prompt if empty || !can_queue => Some("Working · esc to stop"),
-        Mode::Prompt => Some("⏎ send into this turn"),
+        Mode::Prompt => Some("⏎ send into this turn · ⌘⏎ queue for after"),
     }
 }
 
@@ -114,7 +114,7 @@ impl ComposerState {
         let answer = cx.new(|cx| TextareaState::new(window, cx).placeholder(super::question::PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true));
         let subs = vec![
             cx.subscribe_in(input, window, |this, _, ev: &InputEvent, window, cx| match ev {
-                InputEvent::PressEnter { shift: false, .. } => this.chat_enter(window, cx),
+                InputEvent::PressEnter { shift: false, secondary } => this.chat_enter(*secondary, window, cx),
                 InputEvent::Change => this.draft_changed(Prompt::Chat, cx),
                 _ => {}
             }),
@@ -281,15 +281,15 @@ impl Desktop {
         self.terminal.focused.clone().filter(|t| self.chat_shown(t))
     }
 
-    fn chat_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn chat_enter(&mut self, queue: bool, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(t) = self.focused_chat() {
-            self.chat_send(&t, window, cx);
+            self.chat_send(&t, queue, window, cx);
         }
     }
 
     /// Sends the draft unless the agent can't take it now; Enter never stops.
-    /// While the agent works a send goes into the running turn, as the CLI's does; behind a stop it waits for the turn to end.
-    fn chat_send(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
+    /// While the agent works a send goes into the running turn, as the CLI's does; behind a stop, or to `queue`, it waits for the turn to end.
+    fn chat_send(&mut self, terminal: &str, queue: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
         if composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a)) != Mode::Prompt {
             return;
@@ -298,7 +298,7 @@ impl Desktop {
         if busy && !self.chat_caps(&a.provider).send_while_working {
             return;
         }
-        let steer = busy && !self.chat_stopping(a);
+        let steer = busy && !self.chat_stopping(a) && !queue;
         let (agent, provider, chat_only) = (a.id.clone(), a.provider.clone(), a.chat_only);
         self.chat_take_input(&agent, window, cx);
         let typed = self.chats.input.read(cx).value().to_string();
@@ -360,7 +360,7 @@ impl Desktop {
             let agent = a.id.clone();
             self.chat_command(&agent, Command::Interrupt, cx);
         } else {
-            self.chat_send(terminal, window, cx);
+            self.chat_send(terminal, false, window, cx);
         }
     }
 
@@ -630,7 +630,7 @@ mod tests {
     fn the_footer_hints_at_what_enter_does_now() {
         assert_eq!(hint(Mode::Prompt, false, false, true, true), None);
         assert_eq!(hint(Mode::Prompt, true, false, true, true), Some("Working · esc to stop"));
-        assert_eq!(hint(Mode::Prompt, true, false, false, true), Some("⏎ send into this turn"));
+        assert_eq!(hint(Mode::Prompt, true, false, false, true), Some("⏎ send into this turn · ⌘⏎ queue for after"));
         assert_eq!(hint(Mode::Prompt, true, false, false, false), Some("Working · esc to stop"), "an agent that can't take a send mid-turn has nothing to send");
         assert_eq!(hint(Mode::Permission { answerable: true }, true, false, true, true), Some("Answer the request above to continue"));
         assert_eq!(hint(Mode::ViewOnly, false, false, true, true), None);
