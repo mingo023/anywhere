@@ -278,18 +278,24 @@ fn answer(t: &Transcript, turns: Range<usize>) -> String {
     texts.collect::<Vec<_>>().join("\n\n")
 }
 
-/// Whether `row` hangs off its fold's rail: a phase. The live tail's fold shows no header, its line having moved
-/// to the bottom, so nothing hangs off it.
+/// Whether `row` hangs off its fold's rail: a phase or the text between phases. The live tail's fold shows no header,
+/// its line having moved to the bottom, so nothing hangs off it.
 fn in_fold(t: &Transcript, live_tail: Option<usize>, row: &Row) -> bool {
     let headed = row.turn().and_then(|turn| chat::fold_of(t, turn)).is_some_and(|fold| live_tail != Some(fold));
-    headed && matches!(row, Row::Phase { .. })
+    headed && (matches!(row, Row::Phase { .. }) || narration(t, row))
 }
 
-/// Whether a row under a fold shows: the work does while the fold is open; a phase holding a failed sub-agent always does.
+fn narration(t: &Transcript, row: &Row) -> bool {
+    matches!(row, Row::Text { turn, block, .. } if chat::narrates(&t.turns[*turn], *block))
+}
+
+/// Whether a row under a fold shows: the work and the text between it do while the fold is open; a phase holding a
+/// failed sub-agent always does.
 fn shown(t: &Transcript, row: &Row, fold_open: bool) -> bool {
     match row {
         Row::Phase { turn, blocks } => fold_open || t.turns[*turn].blocks[blocks.clone()].iter().any(failed_agent),
         Row::Tasks { .. } => fold_open,
+        Row::Text { .. } if narration(t, row) => fold_open,
         _ => true,
     }
 }
@@ -869,7 +875,15 @@ mod tests {
         assert!(!shown(&t, &phase(0..2), false));
         assert!(shown(&t, &phase(2..3), false));
         assert!(shown(&t, &phase(0..2), true));
-        assert!(shown(&t, &Row::Text { turn: 0, block: 0, range: 0..1 }, false));
+    }
+
+    #[test]
+    fn a_closed_fold_hides_the_text_between_its_work_but_not_the_answer() {
+        let t = turn(vec![Block::Text(msg("Let me look.", 1)), shell(2), Block::Text(msg("All good.", 3))], Some(End::Done { duration_ms: 1, usage: None }));
+        let text = |block| Row::Text { turn: 0, block, range: 0..1 };
+        assert!(!shown(&t, &text(0), false) && shown(&t, &text(0), true));
+        assert!(shown(&t, &text(2), false));
+        assert!(in_fold(&t, None, &text(0)) && !in_fold(&t, None, &text(2)));
     }
 
     #[test]

@@ -53,7 +53,7 @@ pub(crate) fn kind_icon(blocks: &[Block]) -> &'static str {
     }
 }
 
-/// The phase's steps: its thinking and tool calls, without the text heading it.
+/// The phase's steps: its thinking and tool calls, without the todos updated among them.
 pub(crate) fn steps(blocks: &[Block]) -> Vec<(usize, &Block)> {
     blocks.iter().enumerate().filter(|(_, b)| chat::is_work(b)).collect()
 }
@@ -107,16 +107,15 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, tools: &Entity<Tools>
     }
 }
 
-/// A phase in the fold: a title line that opens to its steps, or, for a lone untitled step, just that step.
+/// A phase in the fold: a title line that opens to its steps, or, for a lone step, just that step.
 /// `next_at` is when whatever follows the phase began; `live` forces it open with its newest steps showing, as a
 /// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, cx: &App) -> Div {
     let steps = steps(blocks);
-    let titled = matches!(blocks.first(), Some(Block::Text(m)) if !m.text.trim().is_empty());
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
-    if !titled && let [(i, b)] = steps[..]
+    if let [(i, b)] = steps[..]
         && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
     {
         let icon_name = kind_icon(blocks);
@@ -169,9 +168,9 @@ mod tests {
     }
 
     #[test]
-    fn a_phases_steps_leave_out_the_text_heading_it() {
-        let blocks = [text("Let me look."), tool(ToolKind::Read { path: "a".into() }), Block::Thinking(Message::default())];
-        assert_eq!(steps(&blocks).iter().map(|(i, _)| *i).collect::<Vec<_>>(), [1, 2]);
+    fn a_phases_steps_leave_out_its_todos() {
+        let blocks = [tool(ToolKind::Read { path: "a".into() }), Block::Todos { id: "t".into(), todos: vec![] }, Block::Thinking(Message::default())];
+        assert_eq!(steps(&blocks).iter().map(|(i, _)| *i).collect::<Vec<_>>(), [0, 2]);
     }
 
     #[test]

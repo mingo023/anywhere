@@ -170,21 +170,21 @@ mod tests {
 
         items.extend([Line::Model("Running make."), Line::Shell("make", None)]);
         s.update(backend, 2, &items, false, 0);
-        assert_eq!(s.ids, ["g0", "g0#fold", "g0#p0", "g0#live"]);
-        assert_eq!(s.rows[2], Row::Phase { turn: 0, blocks: 0..2 });
+        assert_eq!(s.ids, ["g0", "g0#fold", "g0#0.0", "g0#p1", "g0#live"]);
+        assert_eq!(s.rows[3], Row::Phase { turn: 0, blocks: 1..2 });
 
         items[2] = Line::Shell("make", Some(true));
         items.push(Line::Done);
-        assert_eq!(s.update(backend, 3, &items, false, 0), Some((2..3, 3..4, 1)), "the finished phase is measured afresh and the end takes the live line's place");
-        assert_eq!(s.ids, ["g0", "g0#fold", "g0#p0", "g0#end"]);
+        assert_eq!(s.update(backend, 3, &items, false, 0), Some((3..4, 4..5, 1)), "the finished phase is measured afresh and the end takes the live line's place");
+        assert_eq!(s.ids, ["g0", "g0#fold", "g0#0.0", "g0#p1", "g0#end"]);
         assert!(matches!(&s.transcript.turns[0].blocks[1], Block::Tool(c) if c.status == ToolStatus::Ok));
 
         s.outgoing.push("again".into(), false, 4);
         s.update(backend, 3, &items, false, 4);
-        assert_eq!(s.ids[4..], ["pending-0", "working"]);
+        assert_eq!(s.ids[5..], ["pending-0", "working"]);
         items.push(Line::User("again"));
         s.update(backend, 4, &items, false, 5);
-        assert_eq!(s.ids[4..], ["g4", "g4#fold", "g4#live"], "the echoed prompt settles the send");
+        assert_eq!(s.ids[5..], ["g4", "g4#fold", "g4#live"], "the echoed prompt settles the send");
         assert!(s.outgoing.list().is_empty());
 
         let ask = backend.ask(&Confirm("r1", "rm -rf target"));

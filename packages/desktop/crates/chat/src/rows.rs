@@ -7,13 +7,13 @@ pub enum Row {
     Prompt { turn: usize },
     /// The line heading a reply: who worked and for how long. It opens the reply's phases.
     Fold { turn: usize },
-    /// A run of work: thinking and tool calls, led by the text that starts it, if any.
+    /// A run of work: thinking and tool calls.
     Phase { turn: usize, blocks: Range<usize> },
     /// Sub-agents that finished in the background, heading the turn the agent began itself to report on them.
     Notice { turn: usize },
     /// The turn's latest todo list, as a card after its work.
     Tasks { turn: usize, block: usize },
-    /// One markdown block (`range` into the message text) of a Text or Plan block.
+    /// One markdown block (`range` into the message text) of a Text or Plan block. Text between steps folds with them.
     Text { turn: usize, block: usize, range: Range<usize> },
     /// An AskUserQuestion call: a marker that ends the phase before it.
     Question { turn: usize, block: usize },
@@ -71,7 +71,8 @@ pub fn rows(t: &Transcript, pending: usize, sending: bool) -> Vec<Row> {
 }
 
 /// Appends the rows of `t`'s turns from `from` on, then the trailer `rows` describes.
-/// A turn lays out as its prompt or what it reports, the fold if it starts a reply, its phases, its todos, then its answer.
+/// A turn lays out as its prompt or what it reports, the fold if it starts a reply, its phases and the text between
+/// them, its todos, then its answer.
 pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pending: usize, sending: bool) {
     for (ix, turn) in t.turns.iter().enumerate().skip(from) {
         if turn.prompt.is_some() {
@@ -84,15 +85,11 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
         if folds_at(t, ix) && !(matches!(turn.end, Some(End::Failed { .. })) && turn.blocks.is_empty()) {
             rows.push(Row::Fold { turn: ix });
         }
-        // Text before the turn's last step heads a phase; text after it is the answer.
-        let work = turn.blocks.iter().rposition(is_work).map_or(0, |b| b + 1);
+        // Text after the turn's last step is the answer.
+        let work = work_end(turn);
         let mut phase: Option<usize> = None;
         for (b, block) in turn.blocks[..work].iter().enumerate() {
             match block {
-                Block::Text(_) => {
-                    flush(rows, ix, &mut phase, b);
-                    phase = Some(b);
-                }
                 _ if is_work(block) => _ = phase.get_or_insert(b),
                 Block::Todos { .. } => {}
                 _ => {
@@ -144,6 +141,15 @@ pub fn is_work(b: &Block) -> bool {
         Block::Tool(c) => !matches!(c.kind, ToolKind::Question(_)),
         _ => false,
     }
+}
+
+fn work_end(turn: &Turn) -> usize {
+    turn.blocks.iter().rposition(is_work).map_or(0, |b| b + 1)
+}
+
+/// Whether block `block` of `turn` is text the agent wrote between its steps, which folds away with them.
+pub fn narrates(turn: &Turn, block: usize) -> bool {
+    block < work_end(turn) && matches!(turn.blocks.get(block), Some(Block::Text(_)))
 }
 
 fn compaction(turn: &Turn) -> bool {
@@ -309,14 +315,9 @@ pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
     }
 }
 
-/// A phase's headline: its leading text's first sentence. Without one, what the work did, as "Edited a.rs · Ran 2 commands",
-/// in the present tense while `live`; sub-agents go by their own state, as "Using a subagent".
+/// A phase's headline: what the work did, as "Edited a.rs · Ran 2 commands", in the present tense while `live`;
+/// sub-agents go by their own state, as "Using a subagent".
 pub fn phase_title(blocks: &[Block], live: bool) -> String {
-    if let Some(Block::Text(m)) = blocks.first()
-        && !m.text.trim().is_empty()
-    {
-        return first_sentence(&m.text).to_string();
-    }
     let calls = || blocks.iter().filter_map(|b| if let Block::Tool(c) = b { Some(c) } else { None });
     let mut edited: Vec<&str> = Vec::new();
     for c in calls() {
@@ -353,14 +354,6 @@ pub fn phase_title(blocks: &[Block], live: bool) -> String {
         return if live { "Thinking" } else { "Thought" }.to_string();
     }
     if parts.is_empty() { "Working".to_string() } else { parts.join(" · ") }
-}
-
-/// `text` up to the end of its first sentence or line.
-pub fn first_sentence(text: &str) -> &str {
-    let text = text.trim();
-    let line = text.lines().next().unwrap_or_default();
-    let end = line.char_indices().find(|&(i, c)| matches!(c, '.' | '!' | '?' | ':') && line[i + c.len_utf8()..].starts_with(char::is_whitespace)).map(|(i, c)| i + c.len_utf8());
-    end.map_or(line, |end| &line[..end])
 }
 
 /// The range of `old` to replace and how many new rows replace it, sharing the longest equal prefix.
@@ -513,10 +506,11 @@ mod tests {
     }
 
     #[test]
-    fn text_between_steps_heads_the_phase_after_it() {
-        let t = one(vec![shell(), text("Now the tests."), think(), shell(), text("All green.")]);
-        assert_eq!(ids_of(&t), ["u1", "u1#fold", "u1#p0", "u1#p1", "u1#4.0", "u1#end"]);
-        assert_eq!(rows(&t, 0, false)[3], Row::Phase { turn: 0, blocks: 1..4 });
+    fn text_between_steps_stands_whole_between_their_phases() {
+        let t = one(vec![shell(), text("Now the tests.\n\nThey cover both paths."), think(), shell(), text("All green.")]);
+        assert_eq!(ids_of(&t), ["u1", "u1#fold", "u1#p0", "u1#1.0", "u1#1.16", "u1#p2", "u1#4.0", "u1#end"]);
+        assert_eq!(rows(&t, 0, false)[5], Row::Phase { turn: 0, blocks: 2..4 });
+        assert!(narrates(&t.turns[0], 1) && !narrates(&t.turns[0], 4), "the answer after the last step doesn't fold");
     }
 
     #[test]
@@ -528,9 +522,12 @@ mod tests {
     }
 
     #[test]
-    fn narration_before_a_sub_agent_heads_its_phase() {
+    fn narration_before_a_sub_agent_stands_above_its_phase() {
         let t = one(vec![text("I'll hand the audit to a subagent."), agent(), text("It's on it.")]);
-        assert_eq!(rows(&t, 0, false)[2..4], [Row::Phase { turn: 0, blocks: 0..2 }, Row::Text { turn: 0, block: 2, range: 0..11 }]);
+        assert_eq!(
+            rows(&t, 0, false)[2..5],
+            [Row::Text { turn: 0, block: 0, range: 0..34 }, Row::Phase { turn: 0, blocks: 1..2 }, Row::Text { turn: 0, block: 2, range: 0..11 }]
+        );
     }
 
     #[test]
@@ -573,11 +570,9 @@ mod tests {
     }
 
     #[test]
-    fn a_phase_is_titled_by_its_first_sentence_else_by_its_work() {
+    fn a_phase_is_titled_by_its_work() {
         let edit = |p: &str| call(ToolKind::Edit { path: p.into(), diff: None }, ToolStatus::Ok);
         let read = call(ToolKind::Read { path: "a".into() }, ToolStatus::Ok);
-        assert_eq!(phase_title(&[text("Now I'll add the view. Tests after."), shell()], false), "Now I'll add the view.");
-        assert_eq!(phase_title(&[text("Checking:\n- a"), shell()], false), "Checking:");
         assert_eq!(phase_title(&[edit("src/a.rs"), edit("src/a.rs"), shell()], false), "Edited a.rs · Ran a command");
         assert_eq!(phase_title(&[read.clone(), edit("a"), edit("b"), shell(), shell()], true), "Editing 2 files · Exploring the project · Executing 2 commands");
         assert_eq!(phase_title(&[think()], false), "Thought");
