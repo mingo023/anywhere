@@ -435,7 +435,8 @@ impl Desktop {
         let tray = (mode == Mode::Prompt).then(|| self.queue_tray(&agent.id, pending, paused, cx)).flatten();
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
         let goal = (mode == Mode::Prompt).then(|| self.goal_strip(agent, cx)).flatten();
-        let stop = mode == Mode::Prompt && background::stops(agent.chat_only, self.chat_caps(&agent.provider).interrupt);
+        let interrupt = self.chat_caps(&agent.provider).interrupt;
+        let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
         let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx))).flatten();
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
         let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
