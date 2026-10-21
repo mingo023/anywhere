@@ -1,0 +1,24 @@
+[
+ {
+  "kind": "user",
+  "id": "i1",
+  "seq": 1,
+  "ts": 1792566659000,
+  "text": "Why is the Save button misaligned here? [Image #1]\n\n\u003cpasted_content id=\"6c20\"\u003e\nwarn: layout overflow in Toolbar (x=412)\nwarn: layout overflow in Toolbar (x=418)\n\u003c/pasted_content id=\"6c20\"\u003e\n\nThe log is above."
+ },
+ {
+  "kind": "assistant",
+  "id": "i2",
+  "seq": 2,
+  "ts": 1792566665000,
+  "text": "The toolbar overflows by 6px, so the flex row wraps the Save button."
+ },
+ {
+  "kind": "result",
+  "id": "i3",
+  "seq": 3,
+  "ts": 1792566668000,
+  "ok": true,
+  "durationMs": 8000
+ }
+]

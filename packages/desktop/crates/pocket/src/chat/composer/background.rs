@@ -1,24 +1,18 @@
-use super::queue::surface;
-use crate::chat::sub_agent::{self, Mark};
-use crate::chat::tool_row::{self, Arg};
+use super::queue::{control, surface};
+use super::send_button::stop_square;
+use crate::chat::sub_agent::{self, Mark, step};
 use crate::chat::working::format_elapsed;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::util::now_ms;
-use chat::{Block, ToolCall, ToolKind, Transcript};
+use chat::{Command, ToolCall, ToolKind, Transcript};
 use gpui_kit::*;
 use theme::*;
-
-/// A call as the tray reads it: "Read docs/adr/0003.md", or the command it ran.
-fn step(call: &ToolCall) -> String {
-    let (verb, Arg::File(arg) | Arg::Text(arg) | Arg::Raw(arg)) = tool_row::line(call);
-    if verb.is_empty() { arg } else { format!("{verb} {arg}") }
-}
 
 /// A sub-agent's newest tool call; none for a command.
 fn latest(call: &ToolCall) -> Option<&ToolCall> {
     let ToolKind::Agent(a) = &call.kind else { return None };
-    a.transcript.turns.iter().rev().flat_map(|t| t.blocks.iter().rev()).find_map(|b| if let Block::Tool(c) = b { Some(c) } else { None })
+    sub_agent::latest(a)
 }
 
 /// What a task does now: a sub-agent's newest step, "Starting…" before it took one; none for a command.
@@ -42,16 +36,24 @@ fn name(call: &ToolCall) -> String {
     }
 }
 
+/// Whether the tray offers Stop: a chat's own agent stops the sub-agents it left in the background, where a terminal
+/// agent's Esc doesn't reach them. pocketd leaves background commands running, and while a turn runs the composer's Stop
+/// ends it and them, so the tray offers it only for sub-agents outliving their turn. The composer offers Send meanwhile.
+pub(super) fn stops(chat_only: bool, interrupt: bool, busy: bool, tasks: &[&ToolCall]) -> bool {
+    chat_only && interrupt && !busy && tasks.iter().any(|c| matches!(c.kind, ToolKind::Agent(_)))
+}
+
 impl Desktop {
     /// The tray over the box: the sub-agents and commands the agent left at work past their turn, each showing its row on a
-    /// click; none when nothing is. Folded, it's one line: how many, and the newest step.
-    pub(super) fn background_tray(&self, agent: &str, t: &Transcript, cx: &mut Context<Self>) -> Option<Div> {
+    /// click; none when nothing is. Folded, it's one line: how many, and the newest step. With `stop`, Stop ends the sub-agents.
+    pub(super) fn background_tray(&self, agent: &str, t: &Transcript, stop: impl FnOnce(&[&ToolCall]) -> bool, cx: &mut Context<Self>) -> Option<Div> {
         let tasks: Vec<_> = chat::in_background(&t.turns).collect();
         if tasks.is_empty() {
             return None;
         }
         let folded = self.chats.composer.background_folded;
         let calls: Vec<_> = tasks.iter().map(|(_, _, c)| *c).collect();
+        let stop = stop(&calls);
         let line = |d: Div| d.min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_3);
         let header = div()
             .id(id(format!("chat-background:{agent}")))
@@ -68,6 +70,19 @@ impl Desktop {
             .child(icon("bot", 13., TEXT_2))
             .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{} in background", tasks.len())))
             .child(line(div().flex_1()).children(folded.then(|| newest(&calls)).flatten()))
+            .children(stop.then(|| {
+                let agent = agent.to_string();
+                control(format!("chat-background-stop:{agent}"), "Stop the background agents")
+                    .px(px(8.))
+                    .gap(px(6.))
+                    .text_color(TEXT_2)
+                    .child(stop_square(TEXT_2).size(px(8.)).rounded(px(2.)))
+                    .child("Stop")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.chat_command(&agent, Command::Interrupt, cx);
+                    }))
+            }))
             .child(icon(if folded { "chevron-right" } else { "chevron-down" }, 13., TEXT_4))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.chats.composer.background_folded ^= true;
@@ -107,7 +122,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{doing, name, newest};
+    use super::{doing, name, newest, stops};
     use chat::{Block, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn call(kind: ToolKind, at: i64) -> ToolCall {
@@ -135,5 +150,20 @@ mod tests {
         let server = call(ToolKind::Shell { command: "bun run dev".into() }, 20);
         assert_eq!(newest(&[&a, &b, &server]).as_deref(), Some("Find left-pad"));
         assert_eq!(newest(&[&server]), None);
+    }
+
+    #[test]
+    fn a_chat_left_with_only_background_work_still_offers_a_stop() {
+        let (a, server) = (agent("Review", vec![]), call(ToolKind::Shell { command: "bun run dev".into() }, 0));
+        assert!(stops(true, true, false, &[&a, &server]));
+        assert!(!stops(false, true, false, &[&a]), "a terminal agent's Esc doesn't reach what it left in the background");
+        assert!(!stops(true, false, false, &[&a]));
+    }
+
+    #[test]
+    fn the_tray_offers_no_stop_that_would_end_a_turn_or_reach_no_sub_agent() {
+        let (a, server) = (agent("Review", vec![]), call(ToolKind::Shell { command: "bun run dev".into() }, 0));
+        assert!(!stops(true, true, true, &[&a]), "the composer's Stop ends the turn and its sub-agents");
+        assert!(!stops(true, true, false, &[&server]), "pocketd leaves background commands running");
     }
 }

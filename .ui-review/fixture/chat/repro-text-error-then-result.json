@@ -1,0 +1,33 @@
+[
+ {
+  "kind": "user",
+  "id": "e1",
+  "text": "Summarize the open PRs",
+  "seq": 1,
+  "ts": 1792566603000
+ },
+ {
+  "kind": "assistant",
+  "id": "e2",
+  "text": "Looking at the open PRs now.",
+  "seq": 2,
+  "ts": 1792566606000
+ },
+ {
+  "kind": "result",
+  "id": "e3",
+  "ok": false,
+  "durationMs": 3000,
+  "error": "You've hit your session limit \u00b7 resets 4:40am",
+  "seq": 3,
+  "ts": 1792566609000
+ },
+ {
+  "kind": "result",
+  "id": "e4",
+  "ok": true,
+  "durationMs": 100,
+  "seq": 4,
+  "ts": 1792566612000
+ }
+]

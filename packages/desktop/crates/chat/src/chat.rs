@@ -51,6 +51,8 @@ pub enum Block {
     /// A plan-mode plan, markdown.
     Plan(Message),
     Compacted { id: String, auto: bool },
+    /// Why the agent went on without a prompt, as "Stop hook: tests fail", or an `error` it went on after.
+    Notice { message: Message, error: bool },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -82,8 +84,8 @@ pub enum ToolKind {
     Fetch { url: String },
     Question(Vec<Question>),
     Agent(SubAgent),
-    /// Any other tool; `input` is its JSON input, pretty-printed.
-    Other { input: String },
+    /// Any other tool; `input` is its JSON input, pretty-printed, and `description` what it is about in words, when known.
+    Other { input: String, description: String },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -146,7 +148,7 @@ pub struct Choice {
 #[derive(Clone, Debug, PartialEq)]
 pub enum End {
     Done { duration_ms: u64, usage: Option<Usage> },
-    Failed { error: String },
+    Failed { error: String, duration_ms: u64 },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

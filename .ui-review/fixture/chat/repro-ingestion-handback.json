@@ -1,0 +1,71 @@
+[
+ {
+  "kind": "user",
+  "id": "i1",
+  "seq": 1,
+  "ts": 1792566602000,
+  "text": "Research the two main competitors in the background and tell me how we compare"
+ },
+ {
+  "kind": "tool",
+  "id": "i2",
+  "seq": 2,
+  "ts": 1792566605000,
+  "call": {
+   "toolUseId": "toolu_A1",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "Competitor research"
+   },
+   "status": "ok",
+   "output": "This agent's report was delivered to you as a message from \"aaa111\" (its SubagentHandback call). Read it there; it is not repeated here.",
+   "durationMs": 21000
+  }
+ },
+ {
+  "kind": "assistant",
+  "id": "i3",
+  "seq": 3,
+  "ts": 1792566611000,
+  "text": "The research agent is running in the background; I'll report back when it's done."
+ },
+ {
+  "kind": "result",
+  "id": "i4",
+  "seq": 4,
+  "ts": 1792566614000,
+  "ok": true,
+  "durationMs": 4000
+ },
+ {
+  "kind": "assistant",
+  "id": "i5",
+  "seq": 5,
+  "ts": 1792566620000,
+  "text": "The competitor research is back: Alpha wins on price, Beta on onboarding."
+ },
+ {
+  "kind": "result",
+  "id": "i6",
+  "seq": 6,
+  "ts": 1792566623000,
+  "ok": true,
+  "durationMs": 3000
+ },
+ {
+  "kind": "assistant",
+  "id": "i7",
+  "seq": 7,
+  "ts": 1792566629000,
+  "text": "Both findings are in; nothing else is running."
+ },
+ {
+  "kind": "result",
+  "id": "i8",
+  "seq": 8,
+  "ts": 1792566632000,
+  "ok": true,
+  "durationMs": 1500
+ }
+]

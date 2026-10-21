@@ -200,6 +200,17 @@ func TestABackgroundCommandEndsAfterTheNextPromptAndNamesWhatStopsIt(t *testing.
 	}
 }
 
+func TestAStopOnABackgroundAgentNamesItsTask(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: json.RawMessage(`{"description":"Standards review","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "a1"}, 2)
+	stop, _ := tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"a1"}`)}, 3)
+	want := proto.ToolDetail{Kind: "other", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"a1"}`), Description: "Standards review"}
+	if !reflect.DeepEqual(stop.Call.Detail, want) {
+		t.Fatalf("stop: %+v", stop.Call.Detail)
+	}
+}
+
 func TestABackgroundCallTheAgentStoppedEndsAtTheStopsResult(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"npx wrangler login","run_in_background":true}`)}, 1)
@@ -240,8 +251,126 @@ func TestASecondInterruptInARowEndsNothing(t *testing.T) {
 	if _, ok := tl.Apply(Event{Kind: "result", Error: "interrupted"}, 3); ok {
 		t.Fatal("a turn ended twice")
 	}
-	if _, ok := tl.Apply(Event{Kind: "result", OK: true}, 4); !ok {
-		t.Fatal("a result after an interrupt was dropped")
+}
+
+func TestATurnAnInterruptOrErrorEndedIsNotTimedAsDone(t *testing.T) {
+	for _, end := range []Event{{Kind: "result", Error: "interrupted", DurationMs: 9000}, {Kind: "result", Error: "API Error: 500"}} {
+		tl := New()
+		tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+		tl.Apply(end, 2)
+		if _, ok := tl.Apply(Event{Kind: "result", OK: true, DurationMs: 963584}, 3); ok {
+			t.Errorf("%s: Claude's turn_duration ended the turn again", end.Error)
+		}
+		if items, _ := tl.Page(0, 10); len(items) != 2 || items[1].OK || items[1].DurationMs != end.DurationMs {
+			t.Errorf("%s: got %+v", end.Error, items)
+		}
+	}
+}
+
+func TestAnInterruptAfterClaudeTimedTheTurnEndsItInterrupted(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	done, _ := tl.Apply(Event{Kind: "result", OK: true, DurationMs: 5000}, 2)
+	end, ok := tl.Apply(Event{Kind: "result", Error: "interrupted"}, 3)
+	if !ok || end.ID != done.ID || end.OK || end.Error != "interrupted" || end.DurationMs != 5000 {
+		t.Fatalf("got %+v from %+v", end, done)
+	}
+	if items, _ := tl.Page(0, 10); len(items) != 2 {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestAnErrorAfterADoneTurnEndsATurnOfItsOwn(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	tl.Apply(Event{Kind: "result", OK: true}, 2)
+	tl.Apply(Event{Kind: "result", Error: "You've hit your session limit"}, 3)
+	tl.Apply(Event{Kind: "result", OK: true}, 4)
+	if items, _ := tl.Page(0, 10); len(items) != 3 || !items[1].OK || items[2].OK {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestAnErrorClaudeRetriedBecomesANoticeInTheTurnItLeftGoing(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	failed, _ := tl.Apply(Event{Kind: "result", Error: "API Error: Your computer went to sleep mid-response."}, 2)
+	notice, ok := tl.Apply(Event{Kind: "retried"}, 3)
+	if !ok || notice.ID != failed.ID || notice.Kind != "notice" || notice.Error != failed.Error {
+		t.Fatalf("got %+v from %+v", notice, failed)
+	}
+	tl.Apply(Event{Kind: "assistant_text", Text: "Picking up where I left off."}, 4)
+	tl.Apply(Event{Kind: "result", OK: true, DurationMs: 9000}, 5)
+	if items, _ := tl.Page(0, 10); len(items) != 4 || items[3].Kind != "result" || !items[3].OK {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestAnErrorClaudeRetriedBecomesANoticeThoughItsStreamDraftedTheRetryFirst(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	failed, _ := tl.Apply(Event{Kind: "result", Error: "API Error: Your computer went to sleep mid-response."}, 2)
+	draft, _ := tl.Apply(Event{Kind: "assistant_draft", Text: "Picking", Draft: "2:0"}, 3)
+	if notice, ok := tl.Apply(Event{Kind: "retried"}, 4); !ok || notice.ID != failed.ID || notice.Kind != "notice" {
+		t.Fatalf("got %+v from %+v", notice, failed)
+	}
+	if it, _ := tl.Apply(Event{Kind: "assistant_text", Text: "Picking up where I left off."}, 4); it.ID != draft.ID {
+		t.Fatalf("the retry's text left its draft: %+v", it)
+	}
+	tl.Apply(Event{Kind: "result", OK: true, DurationMs: 9000}, 5)
+	items, _ := tl.Page(0, 10)
+	if len(items) != 4 || items[1].Kind != "notice" || items[2].Text != "Picking up where I left off." || !items[3].OK {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestOnlyATurnAnErrorEndedIsRetried(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	if _, ok := tl.Apply(Event{Kind: "retried"}, 2); ok {
+		t.Fatal("retried a prompt")
+	}
+	tl.Apply(Event{Kind: "result", Error: "interrupted"}, 3)
+	if _, ok := tl.Apply(Event{Kind: "retried"}, 4); ok {
+		t.Fatal("retried an interrupt")
+	}
+}
+
+func TestANoticeSaysWhyTheAgentWentOn(t *testing.T) {
+	tl := New()
+	it, ok := tl.Apply(Event{Kind: "notice", Text: "Stop hook: tests fail"}, 1)
+	if !ok || it.Kind != "notice" || it.Text != "Stop hook: tests fail" {
+		t.Fatalf("got %+v", it)
+	}
+}
+
+func TestPastedImagesJoinTheNewestPrompt(t *testing.T) {
+	const images = "# Attached images\n\n- /tmp/1.png"
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "brief", ParentToolUseID: "t1"}, 1)
+	if _, ok := tl.Apply(Event{Kind: "user_images", Text: images}, 1); ok {
+		t.Fatal("images joined no prompt, or a sub-agent's")
+	}
+	for prompt, want := range map[string]string{"look": "look\n\n" + images, "": images} {
+		sent, _ := tl.Apply(Event{Kind: "user", Text: prompt}, 2)
+		got, ok := tl.Apply(Event{Kind: "user_images", Text: images}, 3)
+		if !ok || got.ID != sent.ID || got.Text != want {
+			t.Errorf("%q: got %+v", prompt, got)
+		}
+	}
+}
+
+func TestPastedImagesJoinOnlyThePromptTheyFollow(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "fix the screenshots"}, 1)
+	tl.Apply(Event{Kind: "assistant_text", Text: "done"}, 2)
+	tl.Apply(Event{Kind: "result", OK: true}, 3)
+	// An image-only prompt, or a slash command typed with an image, writes no prompt of its own.
+	if got, ok := tl.Apply(Event{Kind: "user_images", Text: "# Attached images\n\n- /tmp/6.webp"}, 4); ok {
+		t.Fatalf("images joined an earlier turn's prompt: %+v", got)
+	}
+	if items, _ := tl.Page(0, 10); items[0].Text != "fix the screenshots" {
+		t.Fatalf("got %+v", items[0])
 	}
 }
 
@@ -306,18 +435,33 @@ func TestASubagentsModelShowsOnItsCall(t *testing.T) {
 	}
 }
 
-func TestLastingNamesTheBackgroundTasksAndCountsItsAgents(t *testing.T) {
+func TestLastingNamesTheBackgroundCallsAndCountsItsAgents(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
 	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 1)
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)}, 2)
 	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2"}, 2)
 	tl.StartEpoch()
-	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b1", "a2"}) || tl.BackgroundAgents() != 1 {
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"t1", "t2"}) || tl.BackgroundAgents() != 1 {
 		t.Fatalf("%v, %d agents", got, tl.BackgroundAgents())
 	}
 	tl.Apply(Event{Kind: "tool_end", TaskID: "a2", OK: true}, 3)
-	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b1"}) || tl.BackgroundAgents() != 0 {
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"t1"}) || tl.BackgroundAgents() != 0 {
 		t.Fatalf("%v, %d agents", got, tl.BackgroundAgents())
+	}
+}
+
+func TestLastingAgentsNamesTheTasksOfBackgroundSubagentsOnly(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)}, 2)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2"}, 2)
+	if got := tl.LastingAgents(); !reflect.DeepEqual(got, []string{"a2"}) {
+		t.Fatalf("%v", got)
+	}
+	tl.Apply(Event{Kind: "tool_end", TaskID: "a2", OK: true}, 3)
+	if got := tl.LastingAgents(); len(got) != 0 {
+		t.Fatalf("%v", got)
 	}
 }

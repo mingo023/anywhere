@@ -29,7 +29,13 @@ export const ToolDetail = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("write"), path: Schema.String, diff: Schema.optional(FileDiff) }),
   Schema.Struct({ kind: Schema.Literal("search"), query: Schema.String, path: Schema.optional(Schema.String) }),
   Schema.Struct({ kind: Schema.Literal("task"), description: Schema.String, model: Schema.optional(Schema.String) }),
-  Schema.Struct({ kind: Schema.Literal("other"), name: Schema.String, input: Schema.Unknown }),
+  Schema.Struct({
+    kind: Schema.Literal("other"),
+    name: Schema.String,
+    input: Schema.Unknown,
+    /** What the call is about in words: the task a TaskStop or TaskOutput acts on. */
+    description: Schema.optional(Schema.String),
+  }),
 );
 export type ToolDetail = typeof ToolDetail.Type;
 
@@ -71,6 +77,8 @@ export const TimelineBody = Schema.Union(
     error: Schema.optional(Schema.String),
     usage: Schema.optional(TurnUsage),
   }),
+  /** Why the agent went on without a prompt, or an error it went on after. */
+  Schema.Struct({ kind: Schema.Literal("notice"), text: Schema.optional(Schema.String), error: Schema.optional(Schema.String) }),
 );
 export type TimelineBody = typeof TimelineBody.Type;
 

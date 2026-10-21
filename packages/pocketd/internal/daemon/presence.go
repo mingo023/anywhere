@@ -429,6 +429,9 @@ type termDriver struct {
 
 var errNotForeground = errors.New("Agent is no longer in the foreground")
 
+// errAgentsRunOn refuses a stop between turns: Esc would stop no sub-agent.
+var errAgentsRunOn = errors.New("Claude has no turn to stop; its background agents keep running")
+
 // Prompt, Interrupt and Compact refuse once pid left the foreground: the
 // poller may not have noticed yet, and whatever they type would reach the shell.
 func (c termDriver) Prompt(text string) error {
@@ -446,7 +449,12 @@ func (c termDriver) Interrupt() error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
-	c.a.Stop()
+	if !c.a.Stop() {
+		if c.a.Timeline.BackgroundAgents() > 0 {
+			return errAgentsRunOn
+		}
+		return nil
+	}
 	return c.t.Write([]byte{0x1b})
 }
 

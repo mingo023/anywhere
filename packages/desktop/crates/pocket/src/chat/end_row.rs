@@ -45,6 +45,13 @@ pub(super) fn error(id: &str, message: String, copied: bool, on_copy: impl Fn(&C
     div().py(px(4.)).w_full().child(frame)
 }
 
+/// One muted line: why the agent went on by itself, or an error it went on after.
+pub(super) fn note(text: &str, error: bool) -> Div {
+    let glyph = if error { icon("warning", 14., Hsla::from(FAILED_TEXT).opacity(0.8)) } else { icon("redo", 14., TEXT_4) };
+    let line = text.lines().next().unwrap_or_default().to_string();
+    div().py(px(4.)).flex().items_center().gap(px(7.)).text_size(px(13.)).text_color(TEXT_3).child(glyph).child(div().flex_1().min_w_0().truncate().child(line))
+}
+
 /// A rule either side of "Context compacted".
 pub(super) fn compacted(auto: bool) -> Div {
     let rule = || div().flex_1().h(px(1.)).bg(SEPARATOR_STRONG);

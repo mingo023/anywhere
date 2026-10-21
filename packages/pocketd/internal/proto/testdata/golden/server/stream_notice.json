@@ -1,0 +1,12 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "notice",
+    "id": "i7",
+    "seq": 7,
+    "ts": 16,
+    "text": "Stop hook: 3 tests fail"
+  }
+}

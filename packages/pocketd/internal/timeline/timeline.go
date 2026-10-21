@@ -12,7 +12,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, compacted, error
+	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, retried, notice, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -27,7 +27,7 @@ type Event struct {
 	// ParentToolUseID tags a sub-agent's event with the tool call that spawned it.
 	ParentToolUseID string
 	// TaskID names a call sent to the background, for the calls that later read or stop it.
-	// On a tool_end without ToolUseID it names the call that ended.
+	// On a tool_end or tool_background without ToolUseID it names the call.
 	TaskID string
 	// Draft names the streamed block a draft's text belongs to.
 	Draft string
@@ -135,12 +135,23 @@ func (t *Timeline) append(it proto.Item, parent string, ts int64) proto.Item {
 
 // last is the newest item outside sub-agents, skipping compactions.
 func (t *Timeline) last() proto.Item {
-	for i := len(t.items) - 1; i >= 0; i-- {
-		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind != "compact" {
-			return it
-		}
+	if n := t.lastAt(); n >= 0 {
+		return t.items[n]
 	}
 	return proto.Item{}
+}
+
+func (t *Timeline) lastAt() int {
+	return t.lastBefore(len(t.items))
+}
+
+func (t *Timeline) lastBefore(end int) int {
+	for i := end - 1; i >= 0; i-- {
+		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind != "compact" {
+			return i
+		}
+	}
+	return -1
 }
 
 // Unanswered says whether the newest prompt has nothing after it yet.
@@ -157,6 +168,16 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	switch e.Kind {
 	case "user":
 		return t.append(proto.Item{Kind: "user", Text: e.Text}, e.ParentToolUseID, ts), true
+
+	case "user_images":
+		// Claude writes the images right after their prompt, so any other item before them means that prompt showed nothing.
+		n := t.lastAt()
+		if n < 0 || t.items[n].Kind != "user" {
+			return proto.Item{}, false
+		}
+		it := &t.items[n]
+		it.Text = strings.TrimPrefix(it.Text+"\n\n"+e.Text, "\n\n")
+		return *it, true
 
 	case "assistant_draft", "thinking_draft":
 		kind := textKind(strings.TrimSuffix(e.Kind, "_draft"))
@@ -207,8 +228,10 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 			detail = *e.Detail
 		}
 		if n, ok := t.tasks[taskOf(e.Name, e.Input)]; ok {
-			if command := t.items[n].Call.Detail.Command; command != "" {
-				detail = proto.ToolDetail{Kind: "shell", Command: command}
+			if target := t.items[n].Call.Detail; target.Command != "" {
+				detail = proto.ToolDetail{Kind: "shell", Command: target.Command}
+			} else {
+				detail.Description = target.Description
 			}
 		}
 		it := t.append(proto.Item{Kind: "tool", Call: &proto.ToolCall{ToolUseID: e.ToolUseID, Name: e.Name, Detail: detail, Status: "running"}}, e.ParentToolUseID, ts)
@@ -226,17 +249,41 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.items[n], true
 
 	case "tool_background":
-		if n, ok := t.tools[e.ToolUseID]; ok {
-			t.lasting[e.ToolUseID] = true
-			if e.TaskID != "" {
-				t.tasks[e.TaskID] = n
-			}
+		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
+			e.ToolUseID = t.items[n].Call.ToolUseID
 		}
-		return proto.Item{}, false
+		n, ok := t.tools[e.ToolUseID]
+		if !ok || t.items[n].Call.Status != "running" {
+			return proto.Item{}, false
+		}
+		t.lasting[e.ToolUseID] = true
+		if e.TaskID != "" {
+			t.tasks[e.TaskID] = n
+		}
+		if e.Output == nil {
+			return proto.Item{}, false
+		}
+		call := *t.items[n].Call
+		out := clamp(after(call.Output, *e.Output))
+		call.Output = &out
+		t.items[n].Call = &call
+		return t.items[n], true
 
 	case "tool_end":
 		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
 			e.ToolUseID = t.items[n].Call.ToolUseID
+			// Claude names a task again after its call ended for an agent's afterthought or a summary of the tasks a
+			// session left; only a report the call lacks lands, or one from the run that followed its failure.
+			if c := t.items[n].Call; c.Status != "running" {
+				if e.Output == nil || c.Output != nil && c.Status == "ok" {
+					return proto.Item{}, false
+				}
+				call := *c
+				out := clamp(*e.Output)
+				call.Output = &out
+				t.items[n].Call = &call
+				return t.items[n], true
+			}
 		}
 		n, ok := t.tools[e.ToolUseID]
 		if t.folded[e.ToolUseID] || !ok {
@@ -244,6 +291,7 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		}
 		delete(t.lasting, e.ToolUseID)
 		call := *t.items[n].Call
+		running := call.Status == "running"
 		call.Status = "error"
 		if e.OK {
 			call.Status = "ok"
@@ -251,7 +299,12 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		d := ts - t.items[n].Ts
 		call.DurationMs = &d
 		if e.Output != nil {
-			out := clamp(*e.Output)
+			out := *e.Output
+			// Only a call in the background holds output while it runs, what its agent said before it ended.
+			if running {
+				out = after(call.Output, out)
+			}
+			out = clamp(out)
 			call.Output = &out
 		}
 		// Published items are shared with subscribers, so replace the call instead of mutating it.
@@ -262,11 +315,36 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		if e.ParentToolUseID == "" {
 			t.closeDrafts()
 		}
-		// A stop pocketd ended for Claude may be marked again by Claude itself.
-		if e.Error == "interrupted" && e.ParentToolUseID == "" && t.last().Kind == "result" && t.last().Error == "interrupted" {
-			return proto.Item{}, false
+		if n := t.lastAt(); e.ParentToolUseID == "" && n >= 0 && t.items[n].Kind == "result" {
+			last := &t.items[n]
+			switch {
+			// Claude times a turn an interrupt or error ended, and may mark a stop pocketd ended for it again.
+			case !last.OK && (e.OK || e.Error == "interrupted" && last.Error == "interrupted"):
+				return proto.Item{}, false
+			// Claude times a turn it goes on with, as for a goal not yet met, before the user interrupts it.
+			case last.OK && e.Error == "interrupted":
+				last.OK, last.Error = false, e.Error
+				return *last, true
+			}
 		}
 		return t.append(proto.Item{Kind: "result", OK: e.OK, DurationMs: e.DurationMs, Error: e.Error, Usage: e.Usage}, e.ParentToolUseID, ts), true
+
+	// Claude went on after an error it ended the turn with, so the error only interrupted it.
+	case "retried":
+		n := t.lastAt()
+		// Claude's stream drafts the reply it retried with before its transcript writes it.
+		for _, open := t.draft[n]; open; _, open = t.draft[n] {
+			n = t.lastBefore(n)
+		}
+		if n < 0 || t.items[n].Kind != "result" || t.items[n].OK || t.items[n].Error == "interrupted" {
+			return proto.Item{}, false
+		}
+		last := &t.items[n]
+		*last = proto.Item{ID: last.ID, Seq: last.Seq, Ts: last.Ts, Kind: "notice", Error: last.Error}
+		return *last, true
+
+	case "notice":
+		return t.append(proto.Item{Kind: "notice", Text: e.Text}, e.ParentToolUseID, ts), true
 
 	case "compacted":
 		return t.append(proto.Item{Kind: "compact", Trigger: e.Trigger}, e.ParentToolUseID, ts), true
@@ -275,6 +353,15 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.append(proto.Item{Kind: "result", OK: false, Error: e.Error}, e.ParentToolUseID, ts), true
 	}
 	return proto.Item{}, false
+}
+
+// after is what a background agent said last. An agent that has reported often adds a short line about a stray
+// notification as it ends, so a shorter last word follows what it said before instead of hiding it.
+func after(before *string, last string) string {
+	if before == nil || len(last) >= len(*before) {
+		return last
+	}
+	return *before + "\n\n" + last
 }
 
 func textKind(kind string) string {
@@ -297,13 +384,25 @@ func (t *Timeline) call(toolUseID string) int {
 	return -1
 }
 
-// Lasting returns the task ids of the calls running on in the background, sub-agents and commands, oldest first.
+// Lasting returns the tool use ids of the calls running on in the background, sub-agents and commands, oldest first.
 func (t *Timeline) Lasting() []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var ids []string
+	for id := range t.lasting {
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
+	return ids
+}
+
+// LastingAgents returns the task ids of the sub-agents running on in the background, oldest first.
+func (t *Timeline) LastingAgents() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var ids []string
 	for id, n := range t.tasks {
-		if t.lasting[t.items[n].Call.ToolUseID] {
+		if c := t.items[n].Call; t.lasting[c.ToolUseID] && c.Detail.Kind == "task" {
 			ids = append(ids, id)
 		}
 	}

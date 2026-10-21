@@ -69,12 +69,17 @@ var serverGolden = map[string]any{
 	"stream_tool_other": NewAgentStream("a1", 1, Item{ID: "i3", Seq: 3, Ts: 12, Kind: "tool", Call: &ToolCall{
 		ToolUseID: "t3", Name: "mcp__x", Status: "error", Detail: ToolDetail{Kind: "other", Name: "mcp__x", Input: json.RawMessage(`{"q":1}`)},
 	}}),
+	"stream_tool_described": NewAgentStream("a1", 1, Item{ID: "i3", Seq: 3, Ts: 12, Kind: "tool", Call: &ToolCall{
+		ToolUseID: "t3", Name: "TaskStop", Status: "running", Detail: ToolDetail{Kind: "other", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"a1"}`), Description: "Standards review"},
+	}}),
 	"stream_subagent": NewAgentStream("a1", 1, Item{ID: "i7", Seq: 7, Ts: 16, Kind: "tool", ParentToolUseID: "t4", Call: &ToolCall{
 		ToolUseID: "t5", Name: "Read", Status: "running", Detail: ToolDetail{Kind: "read", Path: "a.go"},
 	}}),
-	"stream_tasks":   NewAgentStream("a1", 1, Item{ID: "i4", Seq: 4, Ts: 13, Kind: "tasks", Tasks: []TaskItem{{Text: "x", Status: "in_progress"}}}),
-	"stream_compact": NewAgentStream("a1", 1, Item{ID: "i5", Seq: 5, Ts: 14, Kind: "compact", Trigger: "manual"}),
-	"stream_result":  NewAgentStream("a1", 1, Item{ID: "i6", Seq: 6, Ts: 15, Kind: "result", OK: false, Error: "interrupted"}),
+	"stream_tasks":        NewAgentStream("a1", 1, Item{ID: "i4", Seq: 4, Ts: 13, Kind: "tasks", Tasks: []TaskItem{{Text: "x", Status: "in_progress"}}}),
+	"stream_compact":      NewAgentStream("a1", 1, Item{ID: "i5", Seq: 5, Ts: 14, Kind: "compact", Trigger: "manual"}),
+	"stream_result":       NewAgentStream("a1", 1, Item{ID: "i6", Seq: 6, Ts: 15, Kind: "result", OK: false, Error: "interrupted"}),
+	"stream_notice":       NewAgentStream("a1", 1, Item{ID: "i7", Seq: 7, Ts: 16, Kind: "notice", Text: "Stop hook: 3 tests fail"}),
+	"stream_notice_error": NewAgentStream("a1", 1, Item{ID: "i8", Seq: 8, Ts: 17, Kind: "notice", Error: "API Error: 500"}),
 	"timeline": NewAgentTimeline("t1", "a1", 1, []Item{
 		{ID: "i1", Seq: 1, Ts: 10, Kind: "assistant", Text: "hey"},
 		{ID: "i2", Seq: 2, Ts: 11, Kind: "result", OK: true, DurationMs: 5, Usage: &TurnUsage{InputTokens: 1, OutputTokens: 2}},

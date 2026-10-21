@@ -64,6 +64,7 @@ func TestDetail(t *testing.T) {
 		{"Agent", `{"description":"review"}`, proto.ToolDetail{Kind: "task", Description: "review"}},
 		{"Edit", `{"file_path":"/a"}`, proto.ToolDetail{Kind: "edit", Path: "/a"}},
 		{"mcp__x", `{"q":1}`, proto.ToolDetail{Kind: "other", Name: "mcp__x", Input: json.RawMessage(`{"q":1}`)}},
+		{"Monitor", `{"command":"tail -f b.log","description":"build log"}`, proto.ToolDetail{Kind: "shell", Command: "tail -f b.log", Description: "build log"}},
 	}
 	for _, c := range cases {
 		if got := Detail(c.name, json.RawMessage(c.input)); !reflect.DeepEqual(got, c.want) {

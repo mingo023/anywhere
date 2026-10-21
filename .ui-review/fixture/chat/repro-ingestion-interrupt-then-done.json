@@ -1,0 +1,91 @@
+[
+ {
+  "kind": "user",
+  "id": "i1",
+  "seq": 1,
+  "ts": 1792566635000,
+  "text": "Ask me which retry policy to use, then apply it"
+ },
+ {
+  "kind": "assistant",
+  "id": "i2",
+  "seq": 2,
+  "ts": 1792566638000,
+  "text": "There are two reasonable policies."
+ },
+ {
+  "kind": "tool",
+  "id": "i3",
+  "seq": 3,
+  "ts": 1792566638000,
+  "call": {
+   "toolUseId": "toolu_Q1",
+   "name": "AskUserQuestion",
+   "detail": {
+    "kind": "other",
+    "name": "AskUserQuestion",
+    "input": {
+     "questions": [
+      {
+       "question": "Which retry policy?",
+       "header": "Retry",
+       "options": [
+        {
+         "label": "Exponential",
+         "description": "Back off 2x"
+        },
+        {
+         "label": "Fixed",
+         "description": "Every 5s"
+        }
+       ],
+       "multiSelect": false
+      }
+     ]
+    }
+   },
+   "status": "error",
+   "output": "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+   "durationMs": 3000
+  }
+ },
+ {
+  "kind": "result",
+  "id": "i4",
+  "seq": 4,
+  "ts": 1792566644000,
+  "ok": false,
+  "durationMs": 9000,
+  "error": "interrupted"
+ },
+ {
+  "kind": "result",
+  "id": "i5",
+  "seq": 5,
+  "ts": 1792566647000,
+  "ok": true,
+  "durationMs": 963584
+ },
+ {
+  "kind": "user",
+  "id": "i6",
+  "seq": 6,
+  "ts": 1792566650000,
+  "text": "Use exponential and continue"
+ },
+ {
+  "kind": "assistant",
+  "id": "i7",
+  "seq": 7,
+  "ts": 1792566653000,
+  "text": "Applied exponential backoff to the webhook retries."
+ },
+ {
+  "kind": "result",
+  "id": "i8",
+  "seq": 8,
+  "ts": 1792566656000,
+  "ok": true,
+  "durationMs": 12000
+ }
+]

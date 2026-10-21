@@ -4,6 +4,7 @@ use gpui_kit::component::input::Rope;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -11,8 +12,14 @@ use theme::*;
 
 pub(super) type Styles = Arc<Vec<(Range<usize>, HighlightStyle)>>;
 
+/// How far a list item's text sits from its marker's edge.
+pub(super) const LIST_INDENT: f32 = 14. * 1.9;
+
 /// A fenced code block's language and code; `None` for any other markdown. An unclosed fence (still streaming) runs to the end.
-pub(crate) fn fence(text: &str) -> Option<(&str, &str)> {
+/// A fence indented under a list item takes that indent off each code line, as CommonMark does.
+pub(crate) fn fence(text: &str) -> Option<(&str, Cow<'_, str>)> {
+    let first = text.lines().find(|l| !l.trim().is_empty())?;
+    let indent = first.len() - first.trim_start_matches(' ').len();
     let text = text.trim();
     let marker = ["```", "~~~"].into_iter().find(|m| text.starts_with(m))?;
     let (info, body) = text.split_once('\n').unwrap_or((text, ""));
@@ -22,7 +29,11 @@ pub(crate) fn fence(text: &str) -> Option<(&str, &str)> {
         _ if body.trim().starts_with(marker) => "",
         _ => body,
     };
-    Some((lang, code))
+    if indent == 0 {
+        return Some((lang, Cow::Borrowed(code)));
+    }
+    let dedent = |l: &str| l[(l.len() - l.trim_start_matches(' ').len()).min(indent)..].to_string();
+    Some((lang, Cow::Owned(code.split('\n').map(dedent).collect::<Vec<_>>().join("\n"))))
 }
 
 /// Code-block highlights by row id, for the code length and appearance they were computed for.
@@ -160,7 +171,7 @@ fn style() -> TextViewStyle {
         .with_strong(TEXT.into())
         .with_link_underline(TEXT_2.into())
         .with_list_marker(accent)
-        .with_list_indent(px(14. * 1.9))
+        .with_list_indent(px(LIST_INDENT))
         .with_list_item_gap(px(8.))
         .with_selection(SELECTION.into())
         .with_border(SEPARATOR.into())
@@ -279,9 +290,14 @@ mod tests {
 
     #[test]
     fn a_fenced_block_reads_its_language_and_code() {
-        assert_eq!(fence("```rust\nfn main() {}\n```\n"), Some(("rust", "fn main() {}")));
-        assert_eq!(fence("~~~\na\nb"), Some(("", "a\nb")));
+        assert_eq!(fence("```rust\nfn main() {}\n```\n"), Some(("rust", "fn main() {}".into())));
+        assert_eq!(fence("~~~\na\nb"), Some(("", "a\nb".into())));
         assert_eq!(fence("Some *text*"), None);
+    }
+
+    #[test]
+    fn a_fence_under_a_list_item_loses_its_indent_from_each_line() {
+        assert_eq!(fence("   ```sh\n   brew install\n     --cask x\n  y\n   ```"), Some(("sh", "brew install\n  --cask x\ny".into())));
     }
 
     #[test]

@@ -637,6 +637,41 @@ func TestAStopFromAClientBeforeAnyReplyEndsTheTurnInterrupted(t *testing.T) {
 	})
 }
 
+func TestAStopFromTheChatDropsWhatClaudeQueuedMidTurn(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "pocketd"), Args: []string{"pipe", "claude", "-p"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	waitAgent(t, d, term)
+	pr := d.presentIn(term.Info().ID)
+	pr.working("")
+	stopped := make(chan error, 1)
+	go func() { stopped <- pr.a.Driver().Interrupt() }()
+	var sent struct {
+		RequestID string         `json:"request_id"`
+		Request   map[string]any `json:"request"`
+	}
+	eventually(t, "the interrupt", func() bool {
+		pr.stream.mu.Lock()
+		defer pr.stream.mu.Unlock()
+		for _, line := range pr.stream.inbox {
+			if json.Unmarshal([]byte(line), &sent) == nil && sent.Request["subtype"] == "interrupt" {
+				return true
+			}
+		}
+		return false
+	})
+	pr.stream.replied(sent.RequestID, "success", "", nil)
+	if err := <-stopped; err != nil {
+		t.Fatal(err)
+	}
+	if sent.Request["cancel_queued"] != true {
+		t.Fatalf("interrupt = %v; a prompt sent mid-turn would run once stopped", sent.Request)
+	}
+}
+
 // noResultsAfter fails when pr's timeline ends a turn within a few settles.
 func noResultsAfter(t *testing.T, pr *presence) {
 	t.Helper()
@@ -736,6 +771,32 @@ func TestAPromptAfterAStopClearsTheInputClaudeRefilled(t *testing.T) {
 	}
 	if strings.Count(got(), "\x15") != 64 {
 		t.Fatalf("the prompt after cleared again: %q", got())
+	}
+}
+
+func TestAStopOnAnIdleClaudeTypesNothingAndOnAHeldOneSaysItHasNoTurn(t *testing.T) {
+	d := newDaemon(t)
+	got := typed(d)
+	_, pr := claudeIn(t, d)
+	path := transcript(t, "look around")
+	hookFrom(d, pr, sessionStart("s1", path))
+	if err := pr.a.Driver().Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	reportState(d, pr, "working")
+	appendLine(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"description":"Look","run_in_background":true}}]}}`)
+	appendLine(t, path, `{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched"}]}}`)
+	eventually(t, "the background agent", func() bool { return pr.a.Timeline.BackgroundAgents() == 1 })
+	reportState(d, pr, "done")
+	if err := pr.a.Driver().Interrupt(); err == nil {
+		t.Fatal("a held stop took")
+	}
+	if strings.Contains(got(), "\x1b") {
+		t.Fatalf("typed %q", got())
+	}
+	prompt(t, pr, "next")
+	if strings.Contains(got(), "\x15") {
+		t.Fatalf("the prompt after cleared Claude's input: %q", got())
 	}
 }
 
@@ -1556,6 +1617,41 @@ func TestATranscriptUpToAPromptFromBeforeItWasSentIsNotTheAgents(t *testing.T) {
 	}
 	if got := newSession([]string{"/p/s.jsonl"}, nil, nil, open(now.Add(-time.Millisecond)), sent, nil); got != "/p/s.jsonl" {
 		t.Fatalf("got %q; Claude stamps milliseconds", got)
+	}
+}
+
+// background writes Claude starting a command in the background as call id.
+func background(t *testing.T, path, id string) {
+	appendLine(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"`+id+`","name":"Bash","input":{"command":"npm run dev","run_in_background":true}}]}}`)
+	appendLine(t, path, `{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"b`+id+`"},"message":{"content":[{"type":"tool_result","tool_use_id":"`+id+`","content":"Command running in background."}]}}`)
+}
+
+func callOf(pr *presence, id string) proto.ToolCall {
+	items, _ := pr.a.Timeline.Page(0, 100)
+	for _, it := range items {
+		if it.Call != nil && it.Call.ToolUseID == id {
+			return *it.Call
+		}
+	}
+	return proto.ToolCall{}
+}
+
+func TestAResumedSessionEndsTheBackgroundCallsItsEarlierClaudeLeft(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	path := transcript(t, "start the server")
+	background(t, path, "t1")
+	hookFrom(d, pr, strings.Replace(sessionStart("s1", path), `"startup"`, `"resume"`, 1))
+	eventually(t, "the earlier server ended", func() bool { return callOf(pr, "t1").Status == "ok" })
+	if out := callOf(pr, "t1").Output; out == nil || *out != "Stopped when its session ended" {
+		t.Fatalf("output = %v", out)
+	}
+	appendLine(t, path, userLine("start it again"))
+	background(t, path, "t2")
+	eventually(t, "the new server", func() bool { return callOf(pr, "t2").Status == "running" })
+	time.Sleep(100 * time.Millisecond)
+	if s := callOf(pr, "t2").Status; s != "running" {
+		t.Fatalf("the new server is %s", s)
 	}
 }
 

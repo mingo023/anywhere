@@ -1,0 +1,24 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "tool",
+    "id": "i3",
+    "seq": 3,
+    "ts": 12,
+    "call": {
+      "toolUseId": "t3",
+      "name": "TaskStop",
+      "detail": {
+        "kind": "other",
+        "name": "TaskStop",
+        "input": {
+          "task_id": "a1"
+        },
+        "description": "Standards review"
+      },
+      "status": "running"
+    }
+  }
+}

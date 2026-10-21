@@ -10,6 +10,7 @@ use std::collections::HashMap;
 /// - `user` starts a turn, and `result` ends it.
 /// - `assistant` → `Block::Text`, `thinking` → `Block::Thinking`, `tasks` → `Block::Todos`, `plan` → `Block::Plan`.
 /// - `compact` → `Block::Compacted`.
+/// - `notice` → `Block::Notice`: its `text`, else the `error` the agent went on after.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
 /// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
 /// - AskUserQuestion → `ToolKind::Question`.
@@ -194,6 +195,8 @@ fn block(item: &Item) -> Option<Block> {
         "plan" if !blank => Block::Plan(message(item)),
         "tasks" => Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() },
         "compact" => Block::Compacted { id: item.id.clone(), auto: item.trigger == "auto" },
+        "notice" if !item.error.is_empty() => Block::Notice { message: Message { text: item.error.clone(), ..message(item) }, error: true },
+        "notice" if !blank => Block::Notice { message: message(item), error: false },
         _ => return None,
     })
 }
@@ -208,7 +211,7 @@ fn todo_status(status: &str) -> TodoStatus {
 
 fn end(item: &Item) -> End {
     if !item.ok {
-        return End::Failed { error: item.error.clone() };
+        return End::Failed { error: item.error.clone(), duration_ms: item.duration_ms.max(0) as u64 };
     }
     let usage = item.usage.as_ref().map(|u| Usage { input: u.input_tokens, output: u.output_tokens, cache_read: u.cache_read_tokens });
     End::Done { duration_ms: item.duration_ms.max(0) as u64, usage }
@@ -236,8 +239,8 @@ fn kind(name: &str, d: &Detail) -> ToolKind {
         _ if name == "AskUserQuestion" => ToolKind::Question(questions(d.questions())),
         _ if name == "WebFetch" => ToolKind::Fetch { url: input_text(&d.input, "url") },
         _ if name == "WebSearch" => ToolKind::Search { query: input_text(&d.input, "query") },
-        _ if d.input.is_null() => ToolKind::Other { input: String::new() },
-        _ => ToolKind::Other { input: serde_json::to_string_pretty(&d.input).unwrap_or_default() },
+        _ if d.input.is_null() => ToolKind::Other { input: String::new(), description: d.description.clone() },
+        _ => ToolKind::Other { input: serde_json::to_string_pretty(&d.input).unwrap_or_default(), description: d.description.clone() },
     }
 }
 
@@ -381,7 +384,7 @@ mod tests {
             {"kind": "user", "text": "deploy"},
             {"kind": "result", "ok": false, "durationMs": 9000, "error": "API Error: 529 Overloaded"},
         ])));
-        assert_eq!(t.turns[0].end, Some(End::Failed { error: "API Error: 529 Overloaded".into() }));
+        assert_eq!(t.turns[0].end, Some(End::Failed { error: "API Error: 529 Overloaded".into(), duration_ms: 9000 }));
     }
 
     #[test]
@@ -393,7 +396,7 @@ mod tests {
         ])));
         assert_eq!(t.turns.len(), 2);
         assert_eq!(t.turns[1].prompt, None);
-        assert_eq!(t.turns[1].end, Some(End::Failed { error: "interrupted".into() }));
+        assert_eq!(t.turns[1].end, Some(End::Failed { error: "interrupted".into(), duration_ms: 0 }));
     }
 
     #[test]
@@ -436,7 +439,14 @@ mod tests {
         assert_eq!(kinds[0], ToolKind::Fetch { url: "https://x.dev".into() });
         assert_eq!(kinds[1], ToolKind::Search { query: "gpui list".into() });
         assert_eq!(kinds[2], ToolKind::Search { query: "fn group in src".into() });
-        assert_eq!(kinds[3], ToolKind::Other { input: "{\n  \"team\": \"Desktop\"\n}".into() });
+        assert_eq!(kinds[3], ToolKind::Other { input: "{\n  \"team\": \"Desktop\"\n}".into(), description: String::new() });
+    }
+
+    #[test]
+    fn another_tool_keeps_what_pocketd_says_it_is_about() {
+        let t = fold(&items(json!([tool("s", "TaskStop", json!({"kind": "other", "name": "TaskStop", "input": {"task_id": "a1"}, "description": "Audit"}), "ok")])));
+        let Block::Tool(c) = &t.turns[0].blocks[0] else { panic!() };
+        assert_eq!(c.kind, ToolKind::Other { input: "{\n  \"task_id\": \"a1\"\n}".into(), description: "Audit".into() });
     }
 
     #[test]
@@ -542,6 +552,30 @@ mod tests {
     fn a_compact_item_becomes_a_compacted_marker() {
         let t = fold(&items(json!([{"kind": "user", "text": "go"}, {"kind": "compact", "trigger": "manual"}])));
         assert_eq!(t.turns[0].blocks, vec![Block::Compacted { id: "i2".into(), auto: false }]);
+    }
+
+    #[test]
+    fn a_notice_after_an_ended_turn_heads_a_turn_the_agent_began_itself() {
+        let t = fold(&items(json!([
+            {"kind": "user", "text": "go"},
+            {"kind": "result", "ok": true, "durationMs": 5},
+            {"kind": "notice", "text": "Stop hook: tests fail"},
+            {"kind": "assistant", "text": "Fixing them."},
+        ])));
+        assert_eq!(t.turns.len(), 2);
+        assert_eq!(t.turns[1].prompt, None);
+        assert_eq!(t.turns[1].blocks[0], Block::Notice { message: Message { id: "i3".into(), at: 3000, text: "Stop hook: tests fail".into() }, error: false });
+    }
+
+    #[test]
+    fn an_error_the_agent_went_on_after_is_a_notice_in_its_turn() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/stream_notice_error.json")).unwrap();
+        let mut notice: Item = serde_json::from_value(golden["item"].clone()).unwrap();
+        notice.seq = 2;
+        let t = fold(&[items(json!([{"kind": "user", "text": "go"}])).remove(0), notice]);
+        assert_eq!(t.turns.len(), 1);
+        assert_eq!(t.turns[0].end, None);
+        assert!(matches!(&t.turns[0].blocks[..], [Block::Notice { message, error: true }] if message.text == "API Error: 500"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use super::shimmer::shimmer;
 use super::tool_detail;
 use super::tool_row::{self, Tools};
-use super::{sub_agent, thinking, working::format_elapsed};
+use super::{markdown, sub_agent, thinking, working::format_elapsed};
 use chat::{Block, ToolKind, ToolStatus};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -92,7 +92,7 @@ fn thought(id: &str, text: &str, label: Option<String>, live: bool, tools: &Enti
 }
 
 /// One step of a phase. `next` is when the agent did its next thing, which ends a thought.
-fn step_view(block: &Block, next: Option<i64>, live: bool, tools: &Entity<Tools>, cx: &App) -> Div {
+fn step_view(block: &Block, next: Option<i64>, live: bool, links: &markdown::Open, tools: &Entity<Tools>, cx: &App) -> Div {
     match block {
         Block::Thinking(m) => thought(&m.id, &m.text, thought_for(m.at, next), live && next.is_none(), tools, cx),
         Block::Tool(c @ chat::ToolCall { kind: ToolKind::Agent(a), .. }) => {
@@ -101,7 +101,7 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, tools: &Entity<Tools>
                 let (tools, id) = (tools.clone(), c.id.clone());
                 move |_: &ClickEvent, _: &mut Window, cx: &mut App| tools.update(cx, |t, cx| t.toggle(&id, failed, None, cx))
             };
-            sub_agent::row(c, a, tools.read(cx).details.open(&c.id, failed), on_toggle, tools, cx)
+            sub_agent::row(c, a, tools.read(cx).details.open(&c.id, failed), on_toggle, links, tools, cx)
         }
         Block::Tool(c) => tool_row::row(c, !live, tools, cx),
         _ => div(),
@@ -110,9 +110,10 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, tools: &Entity<Tools>
 
 /// A phase in the fold: a title line that opens to its steps, or, for a lone step, just that step.
 /// `next_at` is when whatever follows the phase began; `live` forces it open with its newest steps showing, as a
-/// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents.
+/// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents. Links in a
+/// sub-agent's report go to `links`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, cx: &App) -> Div {
+pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, links: &markdown::Open, tools: &Entity<Tools>, cx: &App) -> Div {
     let steps = steps(blocks);
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
@@ -120,7 +121,7 @@ pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool
         && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
     {
         let icon_name = kind_icon(blocks);
-        return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(b, next(i), live, tools, cx)));
+        return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(b, next(i), live, links, tools, cx)));
     }
     let open = live || open || blocks.iter().any(chat::running_agent);
     let head_icon = if open && !live { "chevron-down" } else { kind_icon(blocks) };
@@ -141,7 +142,7 @@ pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool
     let body = open.then(|| {
         let skip = if live { steps.len().saturating_sub(LIVE_STEPS) } else { 0 };
         let n = steps.len();
-        div().flex().flex_col().children(steps.iter().enumerate().skip(skip).map(|(k, &(i, b))| step(k + 1 == n, step_view(b, next(i), live, tools, cx))))
+        div().flex().flex_col().children(steps.iter().enumerate().skip(skip).map(|(k, &(i, b))| step(k + 1 == n, step_view(b, next(i), live, links, tools, cx))))
     });
     div().flex().flex_col().child(head).children(body)
 }
@@ -161,7 +162,7 @@ mod tests {
         assert_eq!(kind_icon(&[tool(ToolKind::Edit { path: "a".into(), diff: None })]), "pencil");
         assert_eq!(kind_icon(&[tool(ToolKind::Shell { command: "ls".into() })]), "terminal");
         assert_eq!(kind_icon(&[Block::Thinking(Message::default())]), "bulb");
-        assert_eq!(kind_icon(&[tool(ToolKind::Other { input: "{}".into() })]), "tool");
+        assert_eq!(kind_icon(&[tool(ToolKind::Other { input: "{}".into(), description: String::new() })]), "tool");
     }
 
     #[test]

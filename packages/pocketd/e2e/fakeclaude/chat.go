@@ -20,6 +20,8 @@ import (
 //	run <cmd>    ask can_use_tool, then run a Bash tool with its answer
 //	ask <q>      ask AskUserQuestion through can_use_tool, then reply the answers
 //	slow <text>  reply after 3s, unless interrupted
+//	bg <cmd>     run a Bash tool in the background, then go on as slow
+//	agent <d>    start a sub-agent in the background, then go on as slow
 //	/compact     compact
 //
 // Like claude, a bogus model fails each turn rather than the start.
@@ -61,6 +63,7 @@ func (c *chatter) read(prompts chan<- string) {
 			RequestID string `json:"request_id"`
 			Request   struct {
 				Subtype  string         `json:"subtype"`
+				TaskID   string         `json:"task_id"`
 				Model    string         `json:"model"`
 				Settings map[string]any `json:"settings"`
 			} `json:"request"`
@@ -93,6 +96,8 @@ func (c *chatter) read(prompts chan<- string) {
 				note("set_model: %s", l.Request.Model)
 			case "apply_flag_settings":
 				note("effort: %v", l.Request.Settings["effortLevel"])
+			case "stop_task":
+				note("stop_task: %s", l.Request.TaskID)
 			case "interrupt":
 				note("interrupt")
 				select {
@@ -142,14 +147,14 @@ func (c *chatter) turn(text string) {
 		failed = c.run(model, id, strings.TrimPrefix(text, "run "))
 	case strings.HasPrefix(text, "ask "):
 		c.askUser(model, id, strings.TrimPrefix(text, "ask "))
+	case strings.HasPrefix(text, "bg "):
+		c.background(model, id, strings.TrimPrefix(text, "bg "))
+		failed = c.slow(model, "done")
+	case strings.HasPrefix(text, "agent "):
+		c.backgroundAgent(model, id, strings.TrimPrefix(text, "agent "))
+		failed = c.slow(model, "done")
 	case strings.HasPrefix(text, "slow "):
-		select {
-		case <-c.stop:
-			c.s.write(user("[Request interrupted by user]"))
-			failed = true
-		case <-time.After(3 * time.Second):
-			c.reply(model, strings.TrimPrefix(text, "slow "))
-		}
+		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
 	default:
 		c.reply(model, text)
 	}
@@ -183,6 +188,34 @@ func (c *chatter) run(model, id, cmd string) (failed bool) {
 	c.s.write(toolResult(id, "ran: "+cmd, false))
 	c.reply(model, "ran "+cmd)
 	return false
+}
+
+// slow replies text after 3s, unless interrupted first.
+func (c *chatter) slow(model, text string) (failed bool) {
+	select {
+	case <-c.stop:
+		c.s.write(user("[Request interrupted by user]"))
+		return true
+	case <-time.After(3 * time.Second):
+		c.reply(model, text)
+		return false
+	}
+}
+
+func (c *chatter) background(model, id, cmd string) {
+	c.s.write(assistant(map[string]any{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": cmd, "run_in_background": true}}))
+	r := toolResult(id, "Command running in background with ID: bg_"+id+".", false)
+	r["toolUseResult"] = map[string]any{"stdout": "", "backgroundTaskId": "bg_" + id}
+	c.s.write(r)
+	c.reply(model, "started "+cmd)
+}
+
+func (c *chatter) backgroundAgent(model, id, description string) {
+	c.s.write(assistant(map[string]any{"type": "tool_use", "id": id, "name": "Agent", "input": map[string]any{"description": description, "prompt": description, "run_in_background": true}}))
+	r := toolResult(id, "Async agent launched successfully.", false)
+	r["toolUseResult"] = map[string]any{"isAsync": true, "status": "async_launched", "agentId": "agent_" + id}
+	c.s.write(r)
+	c.reply(model, "started "+description)
 }
 
 func (c *chatter) askUser(model, id, q string) {

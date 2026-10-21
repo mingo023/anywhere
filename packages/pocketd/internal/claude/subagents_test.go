@@ -76,7 +76,7 @@ func TestASubagentsAnswerNamesItsModelOnTheParentsCall(t *testing.T) {
 	if len(got) != 2 || !reflect.DeepEqual(got[0], timeline.Event{Kind: "tool_model", ToolUseID: "toolu_spawn", Name: "claude-haiku-4-5"}) || got[1].ParentToolUseID != "toolu_spawn" {
 		t.Fatalf("%+v", got)
 	}
-	synthetic := []byte(`{"type":"assistant","isSidechain":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"x"}]}}`)
+	synthetic := []byte(`{"type":"assistant","isSidechain":true,"isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"Prompt is too long"}]}}`)
 	if got := MapSubagent(synthetic, "toolu_spawn"); len(got) != 1 {
 		t.Fatalf("%+v", got)
 	}

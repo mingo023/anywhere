@@ -38,7 +38,7 @@ func Detail(name string, raw json.RawMessage) proto.ToolDetail {
 	var in toolInput
 	_ = json.Unmarshal(raw, &in)
 	switch name {
-	case "Bash":
+	case "Bash", "Monitor":
 		return proto.ToolDetail{Kind: "shell", Command: in.get("command"), Description: in.get("description")}
 	case "Read", "NotebookRead":
 		return proto.ToolDetail{Kind: "read", Path: in.get("file_path")}

@@ -1,0 +1,78 @@
+[
+ {
+  "kind": "user",
+  "id": "i1",
+  "seq": 1,
+  "ts": 1792566671000,
+  "text": "Start the dev server in the background and run the e2e suite"
+ },
+ {
+  "kind": "tool",
+  "id": "i2",
+  "seq": 2,
+  "ts": 1792566674000,
+  "call": {
+   "toolUseId": "toolu_B1",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "pnpm dev",
+    "description": "Start the dev server"
+   },
+   "status": "running"
+  }
+ },
+ {
+  "kind": "tool",
+  "id": "i3",
+  "seq": 3,
+  "ts": 1792566680000,
+  "call": {
+   "toolUseId": "toolu_B2",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "pnpm e2e --watch",
+    "description": "Run e2e in watch mode"
+   },
+   "status": "running"
+  }
+ },
+ {
+  "kind": "assistant",
+  "id": "i4",
+  "seq": 4,
+  "ts": 1792566686000,
+  "text": "The dev server and the e2e watcher are running."
+ },
+ {
+  "kind": "result",
+  "id": "i5",
+  "seq": 5,
+  "ts": 1792566689000,
+  "ok": true,
+  "durationMs": 6000
+ },
+ {
+  "kind": "user",
+  "id": "i6",
+  "seq": 6,
+  "ts": 1792566695000,
+  "text": "I restarted Claude. Where were we?"
+ },
+ {
+  "kind": "assistant",
+  "id": "i7",
+  "seq": 7,
+  "ts": 1792566698000,
+  "text": "The dev server and e2e watcher from before the restart were stopped; want me to start them again?"
+ },
+ {
+  "kind": "result",
+  "id": "i8",
+  "seq": 8,
+  "ts": 1792566701000,
+  "ok": true,
+  "durationMs": 3000
+ }
+]

@@ -34,7 +34,7 @@ func (claudeKind) attach(d *Daemon, pr *presence) {
 	if h := d.hintOf(pr); h != nil && claude.InProjects(h.saved.TranscriptPath, pr.env) {
 		pr.mu.Lock()
 		if pr.transcript == "" {
-			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "")
+			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "", !h.handoff)
 		}
 		pr.mu.Unlock()
 	}
@@ -245,7 +245,7 @@ func (d *Daemon) sessionStart(pr *presence, in hookInput) {
 		pr.a.Compacted()
 	}
 	if moved {
-		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model)
+		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model, in.Source == "resume")
 	}
 }
 
@@ -312,7 +312,7 @@ func (d *Daemon) discovered(pr *presence, known map[string]bool, opened map[stri
 	}
 	known[path] = true
 	pr.a.SetConversation(strings.TrimSuffix(filepath.Base(path), ".jsonl"))
-	pr.transcript, pr.stopTail = path, d.tail(pr, path, "")
+	pr.transcript, pr.stopTail = path, d.tail(pr, path, "", false)
 	return true
 }
 
@@ -413,14 +413,16 @@ func tidy(text string) string {
 }
 
 // tail feeds pr's timeline from a transcript; hooks set the status. stop
-// returns once the lines written so far are in.
-func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
+// returns once the lines written so far are in. A resumed transcript, one a
+// new claude took over, ends the background calls it replays still running.
+func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool) (stop func()) {
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})
 	var replay int64
 	if fi, err := os.Stat(path); err == nil {
 		replay = fi.Size()
 	}
+	resumed = resumed && replay > 0
 	go func() {
 		defer close(done)
 		var spawns sync.Map
@@ -482,6 +484,10 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 				if e.Error == "interrupted" && read > replay && pr.a.Summary().Status == "needsYou" {
 					d.cleared(pr)
 				}
+			}
+			if resumed && read >= replay {
+				resumed = false
+				pr.a.EndLasting()
 			}
 		})
 	}()

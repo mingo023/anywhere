@@ -3,11 +3,15 @@ package claude
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"html"
 	"io"
+	"maps"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,6 +28,7 @@ type line struct {
 	IsSidechain      bool            `json:"isSidechain"`
 	IsCompactSummary bool            `json:"isCompactSummary"`
 	IsAPIError       bool            `json:"isApiErrorMessage"`
+	TurnOrigin       string          `json:"turnOrigin"`
 	Entrypoint       string          `json:"entrypoint"`
 	Timestamp        string          `json:"timestamp"`
 	Content          json.RawMessage `json:"content"`
@@ -40,9 +45,7 @@ type line struct {
 			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
-	Origin struct {
-		Kind string `json:"kind"`
-	} `json:"origin"`
+	Origin origin `json:"origin"`
 	// ToolUseResult is a string for some tools, so it is read only when needed.
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
 	Attachment    struct {
@@ -52,11 +55,21 @@ type line struct {
 		Condition   string          `json:"condition"`
 		CommandMode string          `json:"commandMode"`
 		Prompt      json.RawMessage `json:"prompt"`
+		Origin      origin          `json:"origin"`
 	} `json:"attachment"`
 	CommandRun struct {
 		Command string `json:"command"`
 		Args    string `json:"args"`
 	} `json:"commandRun"`
+}
+
+// origin says who wrote a line Claude didn't take from the human.
+type origin struct {
+	Kind               string `json:"kind"`
+	SenderTaskID       string `json:"senderTaskId"`
+	Handback           bool   `json:"handback"`
+	Body               string `json:"body"`
+	HandbackReportText string `json:"handbackReportText"`
 }
 
 // Model returns the model an assistant line was written by, or "".
@@ -114,6 +127,13 @@ type Turns struct {
 	// Claude writes a caveat before a command it runs itself, like /goal clear;
 	// no model turn follows, so the command's output ends its turn.
 	local, running bool
+	// agents maps the task id of each agent running in the background to its call.
+	agents map[string]string
+	// hooked is set while a hook that kept Claude going has ended the run it stopped,
+	// and retime until the next end, which Claude times from the start of both runs.
+	hooked, retime bool
+	// erred is when the turn an API error ended began, until the next line shows whether Claude went on.
+	erred *time.Time
 }
 
 func (t *Turns) Map(raw []byte) []timeline.Event {
@@ -122,6 +142,10 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		return nil
 	}
 	events := l.events()
+	if l.Type == "system" && l.Subtype == "agents_killed" {
+		events = t.killed()
+	}
+	t.follow(l, events)
 	if t.running {
 		end := timeline.Event{Kind: "result", OK: true}
 		if out, ok := l.localOutput(); ok {
@@ -139,23 +163,91 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		t.running = true
 	}
 	t.local = l.caveat()
+	if t.erred != nil && len(events) > 0 {
+		switch events[0].Kind {
+		case "assistant_text", "thinking", "tool_start":
+			events = append([]timeline.Event{{Kind: "retried"}}, events...)
+			t.start = *t.erred
+		}
+		t.erred = nil
+	}
+	hook := l.IsMeta && len(events) == 1 && events[0].Kind == "notice" && !t.start.IsZero()
+	if hook {
+		events = append([]timeline.Event{{Kind: "result", OK: true}}, events...)
+	}
 	at, _ := time.Parse(time.RFC3339Nano, l.Timestamp)
-	for i, e := range events {
+	out := events[:0]
+	for _, e := range events {
+		switch {
+		// claude -p ends the run at its stop hooks, which the hook's notice already ended.
+		case e.Kind == "result" && e.OK && t.hooked:
+			continue
+		case e.Kind != "notice":
+			t.hooked = false
+		}
 		// A prompt the agent took mid-turn starts the reply that answers it.
 		if t.start.IsZero() || e.Kind == "user" {
 			t.start = at
 		}
 		if e.Kind == "result" {
-			if e.DurationMs == 0 && !t.start.IsZero() && !at.IsZero() {
-				events[i].DurationMs = at.Sub(t.start).Milliseconds()
+			if (e.DurationMs == 0 || t.retime) && !t.start.IsZero() && !at.IsZero() {
+				e.DurationMs = at.Sub(t.start).Milliseconds()
 			}
-			t.start = time.Time{}
+			if l.IsAPIError {
+				start := t.start
+				t.erred = &start
+			}
+			t.start, t.retime = time.Time{}, false
 		}
+		out = append(out, e)
+	}
+	if hook {
+		t.hooked, t.retime = true, true
+	}
+	return out
+}
+
+// follow keeps track of the agents running in the background, which Claude can stop all at once.
+func (t *Turns) follow(l line, events []timeline.Event) {
+	for _, e := range events {
+		switch e.Kind {
+		case "tool_background":
+			if _, agent, _ := l.background(); agent {
+				if t.agents == nil {
+					t.agents = map[string]string{}
+				}
+				t.agents[e.TaskID] = e.ToolUseID
+			}
+		case "tool_end":
+			delete(t.agents, e.TaskID)
+			for task, call := range t.agents {
+				if call == e.ToolUseID {
+					delete(t.agents, task)
+				}
+			}
+		}
+	}
+}
+
+// killed ends the background agents' calls when Claude stops them all, as the user asked; it names none of them.
+func (t *Turns) killed() []timeline.Event {
+	var events []timeline.Event
+	for _, call := range slices.Sorted(maps.Values(t.agents)) {
+		events = append(events, timeline.Event{Kind: "tool_end", ToolUseID: call, OK: true})
 	}
 	return events
 }
 
 func (l line) events() (events []timeline.Event) {
+	if e, ok := l.handback(); ok {
+		return []timeline.Event{e}
+	}
+	if l.IsMeta && l.Type == "user" {
+		if cause := l.cause(); cause != "" {
+			return []timeline.Event{{Kind: "notice", Text: cause}}
+		}
+		return pastedImages(l.Message.Content)
+	}
 	if l.IsMeta || l.IsCompactSummary {
 		return nil
 	}
@@ -179,17 +271,27 @@ func (l line) events() (events []timeline.Event) {
 			case "task-notification":
 				return taskEnd(l.Attachment.Prompt)
 			case "prompt":
-				return userEvents(l.Attachment.Prompt)
+				// As on a user line, only a human's is a prompt; a sub-agent's hand-back or a goal's continuation is not.
+				switch l.Attachment.Origin.Kind {
+				case "", "human":
+					return userEvents(l.Attachment.Prompt)
+				case "auto-continuation":
+					return notice(textOf(l.Attachment.Prompt))
+				}
 			}
 		}
 	case "assistant":
-		// claude -p ends a failed turn with the error, and no Stop.
-		if l.IsAPIError && l.Entrypoint == "sdk-cli" {
+		// A failed request ends the turn with its error; claude -p writes no Stop after it.
+		if l.IsAPIError {
 			var text string
 			for _, b := range blocks(l.Message.Content) {
 				text += b.Text
 			}
 			return []timeline.Event{{Kind: "result", OK: false, Error: text}}
+		}
+		// Claude writes a reply of its own where the model gave none, as "No response requested." after an interrupt.
+		if l.Message.Model == "<synthetic>" {
+			return nil
 		}
 		for _, b := range blocks(l.Message.Content) {
 			switch {
@@ -207,11 +309,13 @@ func (l line) events() (events []timeline.Event) {
 		case "", "human":
 		case "task-notification":
 			return taskEnd(l.Message.Content)
+		case "auto-continuation":
+			return notice(textOf(l.Message.Content))
 		default:
 			return nil
 		}
 		// A background call returns as it launches; it ends with its task notification.
-		if task, ok := l.background(); ok {
+		if task, _, ok := l.background(); ok {
 			for _, b := range blocks(l.Message.Content) {
 				if b.Type == "tool_result" {
 					events = append(events, timeline.Event{Kind: "tool_background", ToolUseID: b.ToolUseID, TaskID: task})
@@ -225,11 +329,45 @@ func (l line) events() (events []timeline.Event) {
 		events = userEvents(l.Message.Content)
 		// Claude writes no notification for a command or workflow the agent stopped, so the stop's result ends it.
 		if task, ok := l.stopped(); ok {
-			events = append(events, timeline.Event{Kind: "tool_end", TaskID: task, OK: true})
+			out := "Stopped"
+			events = append(events, timeline.Event{Kind: "tool_end", TaskID: task, OK: true, Output: &out})
 		}
 		return events
 	}
 	return events
+}
+
+// cause is why Claude goes on without a prompt, from a line the harness writes to set it going, or "".
+func (l line) cause() string {
+	text := textOf(l.Message.Content)
+	switch {
+	case l.TurnOrigin == "scheduled":
+		return "Scheduled: " + firstLine(text)
+	case strings.HasPrefix(text, "Stop hook feedback:"):
+		// Claude names the hook, or the goal it checks, before the reason it gives.
+		reason := strings.TrimSpace(strings.TrimPrefix(text, "Stop hook feedback:"))
+		if _, after, ok := strings.Cut(reason, "]: "); ok && strings.HasPrefix(reason, "[") {
+			reason = after
+		}
+		return "Stop hook: " + firstLine(reason)
+	case strings.HasPrefix(text, "Goal check-in:"):
+		return firstLine(text)
+	case strings.HasPrefix(text, "Your claude.ai usage limit has reset."):
+		return "Usage limit reset"
+	}
+	return ""
+}
+
+func notice(text string) []timeline.Event {
+	if text = firstLine(text); text == "" {
+		return nil
+	}
+	return []timeline.Event{{Kind: "notice", Text: text}}
+}
+
+func firstLine(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	return line
 }
 
 // localOutput is what a command Claude ran itself printed.
@@ -266,20 +404,41 @@ func (l line) bash() ([]timeline.Event, bool) {
 	return []timeline.Event{{Kind: "tool_end", ToolUseID: l.ParentUUID, OK: true, Output: &out}}, true
 }
 
-// background says whether the call went on in the background, an agent launched async or a command, and its task id.
-func (l line) background() (string, bool) {
+// background says whether the call went on in the background, an agent launched async, a command or a monitor, and its task id.
+func (l line) background() (task string, agent, ok bool) {
 	var r struct {
 		IsAsync          bool   `json:"isAsync"`
 		AgentID          string `json:"agentId"`
 		BackgroundTaskID string `json:"backgroundTaskId"`
+		TaskID           string `json:"taskId"`
+		TimeoutMs        *int64 `json:"timeoutMs"`
 	}
-	if json.Unmarshal(l.ToolUseResult, &r) != nil {
-		return "", false
+	switch {
+	case json.Unmarshal(l.ToolUseResult, &r) != nil:
+		return "", false, false
+	case r.IsAsync:
+		return r.AgentID, true, true
+	// Other tools' results name a task too; only a monitor's has a timeout.
+	case r.TimeoutMs != nil:
+		return r.TaskID, false, r.TaskID != ""
 	}
-	if r.IsAsync {
-		return r.AgentID, true
+	return r.BackgroundTaskID, false, r.BackgroundTaskID != ""
+}
+
+// handback ends a background agent's call with the report it hands back; its notification only points here.
+func (l line) handback() (timeline.Event, bool) {
+	o := l.Origin
+	if l.Type == "attachment" {
+		o = l.Attachment.Origin
 	}
-	return r.BackgroundTaskID, r.BackgroundTaskID != ""
+	if o.Kind != "peer" || !o.Handback || o.SenderTaskID == "" {
+		return timeline.Event{}, false
+	}
+	out := o.HandbackReportText
+	if out == "" {
+		out = report(o.Body)
+	}
+	return timeline.Event{Kind: "tool_end", TaskID: o.SenderTaskID, OK: true, Output: &out}, true
 }
 
 // stopped says whether the line is a TaskStop's result, and the task it stopped.
@@ -294,24 +453,94 @@ func (l line) stopped() (string, bool) {
 	return r.TaskID, true
 }
 
-// taskEnd ends the tool call a background task ran under, from the notification Claude writes when it stops.
+// taskEnd ends the tool calls background tasks ran under, from the notification Claude writes when they stop.
 func taskEnd(content json.RawMessage) []timeline.Event {
 	var text string
 	json.Unmarshal(content, &text)
-	id := tag(text, "tool-use-id")
-	if id == "" {
-		return nil
+	// The result is the agent's own text, which may hold any tag.
+	head, _, _ := strings.Cut(text, "<result>")
+	summary := html.UnescapeString(tag(head, "summary"))
+	id, status, event := tag(head, "tool-use-id"), tag(head, "status"), tag(head, "event")
+	// An agent that stopped with background work of its own still running resumes when it ends; what it said so far may be all it reports.
+	if strings.HasSuffix(summary, "is waiting on its own background work") || strings.Contains(tag(head, "note"), "background work of its own still running") {
+		e := timeline.Event{Kind: "tool_background", ToolUseID: id, Output: taskOutput(text, summary)}
+		return each(e, head)
+	}
+	expired := strings.HasPrefix(event, "[Monitor timed out") || strings.HasPrefix(event, "[Monitor expired")
+	// A monitor's other events, and a goal check-in, end nothing; they only set Claude going.
+	if id == "" && status == "" && !expired {
+		if desc, ok := strings.CutPrefix(summary, "Monitor event: "); ok {
+			desc = "Monitor: " + strings.Trim(desc, `"`)
+			if event != "" {
+				desc += " · " + event
+			}
+			return notice(desc)
+		}
+		return notice(summary)
 	}
 	// A task the agent stopped ended as asked, not in error.
-	e := timeline.Event{Kind: "tool_end", ToolUseID: id, OK: tag(text, "status") != "failed"}
-	// The result is the agent's own text, which may hold the closing tag itself.
+	e := timeline.Event{Kind: "tool_end", ToolUseID: id, OK: status != "failed", Output: taskOutput(text, summary)}
+	if expired {
+		e.Output = &event
+	}
+	return each(e, head)
+}
+
+// each is e for the call a notification names, or for each task it names when it leaves the call out, as Claude does
+// for an agent's later run and for the tasks a previous session left behind.
+func each(e timeline.Event, head string) []timeline.Event {
+	if e.ToolUseID != "" {
+		return []timeline.Event{e}
+	}
+	var events []timeline.Event
+	for _, task := range tags(head, "task-id") {
+		if !strings.HasPrefix(task, "__orphan_summary__") {
+			e.TaskID = task
+			events = append(events, e)
+		}
+	}
+	return events
+}
+
+// taskOutput is an agent's result, or what became of a command and the end of its output.
+func taskOutput(text, summary string) *string {
 	if _, rest, ok := strings.Cut(text, "<result>"); ok {
 		if end := strings.LastIndex(rest, "</result>"); end >= 0 {
 			out := html.UnescapeString(strings.TrimSpace(rest[:end]))
-			e.Output = &out
+			// The agent hands its report back in a line of its own.
+			if strings.Contains(out, "report was delivered to you as a message from") || strings.HasPrefix(out, "This agent has not reported yet") {
+				return nil
+			}
+			return &out
 		}
 	}
-	return []timeline.Event{e}
+	out := strings.TrimSpace(summary + "\n\n" + tail(tag(text, "output-file")))
+	if out == "" {
+		return nil
+	}
+	return &out
+}
+
+// tail is the end of a command's output file. An agent's output file is a symlink to its transcript, which is not output, so it reads as "".
+func tail(path string) string {
+	const most = 2 << 10
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	from := max(fi.Size()-most, 0)
+	b := make([]byte, fi.Size()-from)
+	n, _ := f.ReadAt(b, from)
+	b = b[:n]
+	if from > 0 {
+		_, b, _ = bytes.Cut(b, []byte("\n"))
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func tag(text, name string) string {
@@ -323,6 +552,33 @@ func tag(text, name string) string {
 	return strings.TrimSpace(value)
 }
 
+func tags(text, name string) []string {
+	var values []string
+	for {
+		value := tag(text, name)
+		_, rest, ok := strings.Cut(text, "</"+name+">")
+		if !ok {
+			return values
+		}
+		values, text = append(values, value), rest
+	}
+}
+
+var trailer = regexp.MustCompile(`\s*agentId: \S+ \(use SendMessage[^\n]*\)\s*(<usage>[\s\S]*</usage>)?\s*$`)
+
+// report is a sub-agent's report without the harness's hand-back preamble and the trailer naming the agent.
+func report(text string) string {
+	text = trailer.ReplaceAllString(text, "")
+	if _, rest, ok := strings.Cut(text, "The report follows:\n"); ok && strings.HasPrefix(text, "[Subagent hand-back]") {
+		lines := strings.Split(rest, "\n")
+		for i, l := range lines {
+			lines[i] = strings.TrimPrefix(l, "  ")
+		}
+		text = strings.Join(lines, "\n")
+	}
+	return text
+}
+
 func userEvents(content json.RawMessage) []timeline.Event {
 	var text string
 	var events []timeline.Event
@@ -332,7 +588,7 @@ func userEvents(content json.RawMessage) []timeline.Event {
 			case "text":
 				text += b.Text
 			case "tool_result":
-				out := textOf(b.Content)
+				out := report(textOf(b.Content))
 				events = append(events, timeline.Event{Kind: "tool_end", ToolUseID: b.ToolUseID, OK: !b.IsError, Output: &out})
 			}
 		}
@@ -347,7 +603,48 @@ func userEvents(content json.RawMessage) []timeline.Event {
 	case strings.HasPrefix(text, "<command-"), strings.HasPrefix(text, "<local-command-"), Command(text), text == "":
 		return events
 	}
-	return append(events, timeline.Event{Kind: "user", Text: text})
+	return append(events, timeline.Event{Kind: "user", Text: unwrapPastes(text)})
+}
+
+// unwrapPastes keeps the text of each block pasted into Claude's input, which it writes between
+// <pasted_content id="…"> and </pasted_content id="…">.
+func unwrapPastes(text string) string {
+	const open = `<pasted_content id="`
+	var out strings.Builder
+	for {
+		before, rest, ok := strings.Cut(text, open)
+		out.WriteString(before)
+		if !ok {
+			return out.String()
+		}
+		id, inner, _ := strings.Cut(rest, `">`)
+		body, after, closed := strings.Cut(inner, `</pasted_content id="`+id+`">`)
+		if !closed {
+			out.WriteString(open)
+			text = rest
+			continue
+		}
+		out.WriteString(strings.TrimSuffix(strings.TrimPrefix(body, "\n"), "\n"))
+		text = after
+	}
+}
+
+// pastedImages reads the line Claude writes after a prompt with pasted images, naming the file it saved each to,
+// as the list the desktop attaches images to a prompt with.
+func pastedImages(content json.RawMessage) []timeline.Event {
+	var list []string
+	for _, b := range blocks(content) {
+		path, ok := strings.CutPrefix(b.Text, "[Image: source: ")
+		path, closed := strings.CutSuffix(path, "]")
+		if !ok || !closed || b.Type != "text" {
+			return nil
+		}
+		list = append(list, "- "+path)
+	}
+	if len(list) == 0 {
+		return nil
+	}
+	return []timeline.Event{{Kind: "user_images", Text: "# Attached images\n\n" + strings.Join(list, "\n")}}
 }
 
 // Command says whether text is a slash command, which newer Claude writes as typed; a prompt may start with a path instead.
@@ -368,11 +665,13 @@ func textOf(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &s) == nil {
 		return s
 	}
-	var out strings.Builder
+	var texts []string
 	for _, b := range blocks(raw) {
-		out.WriteString(b.Text)
+		if b.Text != "" {
+			texts = append(texts, b.Text)
+		}
 	}
-	return out.String()
+	return strings.Join(texts, "\n\n")
 }
 
 // Opening is how a transcript starts, and the prompt it is up to.

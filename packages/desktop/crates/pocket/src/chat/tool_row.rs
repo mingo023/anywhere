@@ -67,19 +67,22 @@ pub(crate) fn line(call: &ToolCall) -> (&'static str, Arg) {
         ToolKind::Write { path, .. } => ("Create", Arg::File(path.clone())),
         ToolKind::Search { query } => ("Find", Arg::Text(one(query))),
         ToolKind::Fetch { url } => ("Fetch", Arg::Text(url.clone())),
-        ToolKind::Shell { command } => {
-            // pocketd names the command a call on a background task acts on.
-            let verb = match call.name.as_str() {
-                "TaskStop" | "KillShell" => "Stop",
-                "TaskOutput" | "BashOutput" => "Read output of",
-                _ => "",
-            };
-            (verb, Arg::Raw(command.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Shell").to_string()))
-        }
-        ToolKind::Other { input } if call.name == "Skill" => ("Skill", Arg::Text(skill(input).map_or_else(String::new, |s| format!("/{s}")))),
+        // pocketd names the command, or the task, a call on a background task acts on.
+        ToolKind::Shell { command } => (verb(&call.name), Arg::Raw(command.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Shell").to_string())),
+        ToolKind::Other { description, .. } if !description.is_empty() => (verb(&call.name), Arg::Text(one(description))),
+        ToolKind::Other { input, .. } if call.name == "Skill" => ("Skill", Arg::Text(skill(input).map_or_else(String::new, |s| format!("/{s}")))),
         ToolKind::Other { .. } => ("", Arg::Raw(mcp(&call.name).unwrap_or_else(|| call.name.clone()))),
         ToolKind::Agent(a) => ("", Arg::Raw(one(&a.description))),
         ToolKind::Question(_) => ("", Arg::Raw(call.name.clone())),
+    }
+}
+
+fn verb(name: &str) -> &'static str {
+    match name {
+        "TaskStop" | "KillShell" => "Stop",
+        "TaskOutput" | "BashOutput" => "Read output of",
+        "Monitor" => "Watch",
+        _ => "",
     }
 }
 
@@ -227,6 +230,10 @@ mod tests {
         ToolCall { id: "t".into(), name: name.into(), kind, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 }
     }
 
+    fn other(description: &str) -> ToolKind {
+        ToolKind::Other { input: "{}".into(), description: description.into() }
+    }
+
     #[test]
     fn each_tool_reads_as_a_verb_and_what_it_acted_on() {
         let cases = [
@@ -236,9 +243,11 @@ mod tests {
             (call("Grep", ToolKind::Search { query: "fn  group\n".into() }), "Find", Arg::Text("fn group".into())),
             (call("Bash", ToolKind::Shell { command: "\ncargo test\nmore".into() }), "", Arg::Raw("cargo test".into())),
             (call("Bash", ToolKind::Shell { command: String::new() }), "", Arg::Raw("Shell".into())),
-            (call("mcp__linear__list", ToolKind::Other { input: "{}".into() }), "", Arg::Raw("linear · list".into())),
-            (call("Skill", ToolKind::Other { input: r#"{"skill": "apple-design"}"#.into() }), "Skill", Arg::Text("/apple-design".into())),
-            (call("NotebookEdit", ToolKind::Other { input: "{}".into() }), "", Arg::Raw("NotebookEdit".into())),
+            (call("mcp__linear__list", other("")), "", Arg::Raw("linear · list".into())),
+            (call("Skill", ToolKind::Other { input: r#"{"skill": "apple-design"}"#.into(), description: String::new() }), "Skill", Arg::Text("/apple-design".into())),
+            (call("NotebookEdit", other("")), "", Arg::Raw("NotebookEdit".into())),
+            (call("Monitor", ToolKind::Shell { command: "tail -f build.log".into() }), "Watch", Arg::Raw("tail -f build.log".into())),
+            (call("TaskStop", other("Standards review\nof quit diff")), "Stop", Arg::Text("Standards review of quit diff".into())),
             (call("TaskStop", ToolKind::Shell { command: "bun run dev".into() }), "Stop", Arg::Raw("bun run dev".into())),
             (call("TaskOutput", ToolKind::Shell { command: "bun run dev".into() }), "Read output of", Arg::Raw("bun run dev".into())),
         ];

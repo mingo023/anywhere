@@ -429,6 +429,19 @@ func TestTailFromZeroEqualsTheLiveTimeline(t *testing.T) {
 	eventually(t, "the restored timeline", func() bool { return slices.Equal(kinds(a), kinds(pr.a)) })
 }
 
+func TestARestoredAgentEndsTheBackgroundCallsItsEarlierClaudeLeft(t *testing.T) {
+	path := projectTranscript(t)
+	background(t, path, "t1")
+	d := newDaemon(t)
+	resuming(d, fakeAgent(t, "claude"), "--resume", "c1")
+	saved := savedAgent(t.TempDir(), "claude")
+	saved.Terminals[0].TranscriptPath = path
+	d.Restore(saved, "/bin/sh")
+	term, _ := restoredIn(t, d)
+	pr := waitPresent(t, d, term)
+	eventually(t, "the earlier server ended", func() bool { return callOf(pr, "t1").Status == "ok" })
+}
+
 func TestAnOutsideTranscriptPathIsNotTailed(t *testing.T) {
 	projectTranscript(t)
 	d := newDaemon(t)

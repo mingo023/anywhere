@@ -684,3 +684,32 @@ func TestATurnLeavingSubagentsInTheBackgroundEndsWithThem(t *testing.T) {
 		t.Fatalf("stopped: %q", state(c.Summary()))
 	}
 }
+
+func TestAStopIsNothingWithoutATurnOfClaudesOwn(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	if a.Stop() || a.Refilled() {
+		t.Fatal("an idle agent took a stop")
+	}
+	a.Working()
+	a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)})
+	a.Record(timeline.Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "a1"})
+	if !a.Stop() || !a.Refilled() {
+		t.Fatal("a working agent took no stop")
+	}
+	a.TurnEnded(false)
+	if a.Stop() || a.Refilled() {
+		t.Fatal("a turn held for its background sub-agent took a stop")
+	}
+}
+
+func TestAStopRightAfterAPromptStopsTheTurnItStarts(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Prompted()
+	if !a.Stop() {
+		t.Fatal("a prompt not yet begun took no stop")
+	}
+	a.Clear()
+	if a.Stop() {
+		t.Fatal("the stopped prompt still counts")
+	}
+}

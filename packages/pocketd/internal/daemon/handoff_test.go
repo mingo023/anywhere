@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -88,6 +89,28 @@ func TestAHandedOverAgentKeepsItsIDAndShowsNoRestoreNotice(t *testing.T) {
 	}
 	if d.hintOf(pr) != nil {
 		t.Fatal("the hint is still waiting")
+	}
+}
+
+func TestAHandedOverAgentKeepsItsBackgroundCallsRunning(t *testing.T) {
+	path := projectTranscript(t)
+	background(t, path, "t1")
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin", "CLAUDE_CONFIG_DIR=" + os.Getenv("CLAUDE_CONFIG_DIR")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	saved := state.Terminal{TerminalID: term.Info().ID, LaunchDir: t.TempDir(), Cols: 80, Rows: 24, Provider: "claude", ConversationID: "c1",
+		TranscriptPath: path, Launch: &state.Launch{Access: "ask"}, AgentID: "a-1", CreatedAt: 7, Status: "working"}
+
+	d.expect(saved, term, "", &handoff.Agent{Phase: "working"})
+	pr := waitPresent(t, d, term)
+
+	eventually(t, "the server", func() bool { return callOf(pr, "t1").Status == "running" })
+	time.Sleep(100 * time.Millisecond)
+	if s := callOf(pr, "t1").Status; s != "running" {
+		t.Fatalf("the server is %s", s)
 	}
 }
 

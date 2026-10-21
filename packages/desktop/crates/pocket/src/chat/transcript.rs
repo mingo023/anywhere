@@ -219,7 +219,7 @@ fn live(t: &Transcript, turn: usize) -> bool {
 
 pub(super) fn block_at(b: &Block) -> Option<i64> {
     match b {
-        Block::Text(m) | Block::Thinking(m) | Block::Plan(m) => Some(m.at),
+        Block::Text(m) | Block::Thinking(m) | Block::Plan(m) | Block::Notice { message: m, .. } => Some(m.at),
         Block::Tool(t) => Some(t.at),
         _ => None,
     }
@@ -313,12 +313,33 @@ fn find_call(t: &Transcript, id: &str) -> Option<(usize, usize)> {
     t.turns.iter().enumerate().find_map(|(ix, turn)| Some((ix, turn.blocks.iter().position(|b| matches!(b, Block::Tool(c) if c.id == id))?)))
 }
 
-/// "Audit deps is done", "3 subagents are done".
+/// "Audit deps is done", "Background command `cargo test` failed", "3 subagents are done"; backticks mark code.
 fn notice_label(calls: &[&chat::ToolCall]) -> String {
     match calls {
         [chat::ToolCall { kind: ToolKind::Agent(a), .. }] => format!("{} is done", sub_agent::name(a)),
-        _ => format!("{} subagents are done", calls.len()),
+        [c @ chat::ToolCall { kind: ToolKind::Shell { command }, .. }] => {
+            let command = command.lines().next().unwrap_or_default();
+            match (c.name.as_str(), c.status) {
+                ("Monitor", _) => format!("Monitor `{command}` ended"),
+                (_, ToolStatus::Failed) => format!("Background command `{command}` failed"),
+                _ => format!("Background command `{command}` is done"),
+            }
+        }
+        _ if all_agents(calls) => format!("{} subagents are done", calls.len()),
+        _ => format!("{} background tasks are done", calls.len()),
     }
+}
+
+/// A label's text before, inside and after its code span; the outer backticks bound it, so a command may hold its own.
+fn code_span(label: &str) -> (&str, Option<&str>, &str) {
+    match label.split_once('`').and_then(|(before, rest)| Some((before, rest.rsplit_once('`')?))) {
+        Some((before, (code, after))) => (before, Some(code), after),
+        None => (label, None, ""),
+    }
+}
+
+fn all_agents(calls: &[&chat::ToolCall]) -> bool {
+    calls.iter().all(|c| matches!(c.kind, ToolKind::Agent(_)))
 }
 
 fn message(t: &Transcript, turn: usize, block: usize) -> Option<&Message> {
@@ -624,7 +645,7 @@ impl Desktop {
             Row::Phase { turn, blocks: range } => {
                 let blocks = &t.turns[*turn].blocks[range.clone()];
                 let on_toggle = toggle(agent, &id, false, cx);
-                phase::phase(&id, blocks, next_at(t, *turn, range.end), phase_live(t, *turn, range), s.open(&id, false), on_toggle, &view.tools, cx)
+                phase::phase(&id, blocks, next_at(t, *turn, range.end), phase_live(t, *turn, range), s.open(&id, false), on_toggle, &open, &view.tools, cx)
             }
             Row::Notice { turn } => {
                 let calls = chat::reported(t, *turn);
@@ -637,8 +658,19 @@ impl Desktop {
                     .gap(px(7.))
                     .text_size(px(13.))
                     .text_color(TEXT_3)
-                    .child(icon("agent-done", 14., TEXT_4))
-                    .child(notice_label(&calls));
+                    .whitespace_nowrap()
+                    .child(icon(if all_agents(&calls) { "agent-done" } else { "terminal" }, 14., TEXT_4))
+                    .child({
+                        let label = notice_label(&calls);
+                        let (before, code, after) = code_span(&label);
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .items_center()
+                            .child(div().flex_none().child(before.to_string()))
+                            .children(code.map(|c| div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).child(c.to_string())))
+                            .child(div().flex_none().child(after.to_string()))
+                    });
                 match at {
                     Some((turn, block)) => {
                         let agent = agent.to_string();
@@ -647,6 +679,10 @@ impl Desktop {
                     None => div().child(line),
                 }
             }
+            Row::Note { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+                Some(Block::Notice { message, error }) => end_row::note(&message.text, *error),
+                _ => div(),
+            },
             Row::Tasks { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
                 Some(Block::Todos { todos, .. }) => todos::card(&id, todos),
                 _ => div(),
@@ -671,7 +707,7 @@ impl Desktop {
                 }
                 let body = match markdown::fence(text) {
                     Some((lang, code)) => {
-                        let (styles, start) = view.code.get(&id, code, is_dark());
+                        let (styles, start) = view.code.get(&id, &code, is_dark());
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
@@ -681,11 +717,13 @@ impl Desktop {
                             let (agent, row) = (agent.to_string(), id.clone());
                             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_wrap(&agent, &row, cx))
                         };
-                        let block = markdown::code_block(&id, lang, code, styles, (copied, copy(agent, key, code.to_string(), cx)), (view.wrapped.contains(&id), on_wrap));
-                        match reveal {
+                        let block = markdown::code_block(&id, lang, &code, styles, (copied, copy(agent, key, code.to_string(), cx)), (view.wrapped.contains(&id), on_wrap));
+                        let block = match reveal {
                             Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,
-                        }
+                        };
+                        // An indented fence belongs to the list item above it.
+                        if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
                     None => div().child(markdown::block(SharedString::from(format!("md-{agent}-{id}")), SharedString::from(text.to_string()), reveal.is_some() || live(t, *turn), open.clone())),
                 };
@@ -701,8 +739,8 @@ impl Desktop {
                 _ => div(),
             },
             Row::End { turn } => match t.turns.get(*turn).and_then(|t| t.end.as_ref()) {
-                Some(End::Failed { error }) if end_row::interrupted(error) => end_row::interrupted_notice(who),
-                Some(End::Failed { error }) => {
+                Some(End::Failed { error, .. }) if end_row::interrupted(error) => end_row::interrupted_notice(who),
+                Some(End::Failed { error, .. }) => {
                     let key = format!("error:{id}");
                     end_row::error(&id, error.clone(), view.copied(&key), copy(agent, key.clone(), error.clone(), cx))
                 }
@@ -777,7 +815,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Live, answer, content_width, in_fold, live_state, phase_live, shown, stream_in, took};
+    use super::{Live, answer, code_span, content_width, in_fold, live_state, notice_label, phase_live, shown, stream_in, took};
     use chat::{Block, End, Message, Row, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -796,6 +834,24 @@ mod tests {
 
     fn turn(blocks: Vec<Block>, end: Option<End>) -> Transcript {
         Transcript { turns: vec![Turn { id: "a".into(), prompt: Some(msg("go", 1_000)), blocks, end }] }
+    }
+
+    #[test]
+    fn a_notice_names_the_command_that_finished_in_the_background_and_how() {
+        let call = |name: &str, kind, status| ToolCall { id: "t".into(), name: name.into(), kind, status, output: None, duration_ms: None, at: 0 };
+        let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into() };
+        assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Failed)]), "Background command `cargo test` failed");
+        assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Ok)]), "Background command `cargo test` is done");
+        assert_eq!(notice_label(&[&call("Monitor", cmd(), ToolStatus::Ok)]), "Monitor `cargo test` ended");
+        let agent = call("Agent", ToolKind::Agent(SubAgent::default()), ToolStatus::Ok);
+        assert_eq!(notice_label(&[&agent, &agent]), "2 subagents are done");
+        assert_eq!(notice_label(&[&agent, &call("Bash", cmd(), ToolStatus::Ok)]), "2 background tasks are done");
+    }
+
+    #[test]
+    fn a_notice_keeps_a_command_with_backticks_in_one_code_span() {
+        assert_eq!(code_span("Background command `echo `date`` failed"), ("Background command ", Some("echo `date`"), " failed"));
+        assert_eq!(code_span("2 subagents are done"), ("2 subagents are done", None, ""));
     }
 
     #[test]
@@ -844,7 +900,7 @@ mod tests {
     fn a_settled_fold_counts_the_turns_time_else_its_first_to_last_move() {
         let done = turn(vec![shell(3_000)], Some(End::Done { duration_ms: 64_000, usage: None }));
         assert_eq!(took(&done, 0..1), 64_000);
-        let failed = turn(vec![shell(3_000), shell(9_000)], Some(End::Failed { error: "interrupted".into() }));
+        let failed = turn(vec![shell(3_000), shell(9_000)], Some(End::Failed { error: "interrupted".into(), duration_ms: 0 }));
         assert_eq!(took(&failed, 0..1), 8_000);
     }
 

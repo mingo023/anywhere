@@ -78,6 +78,7 @@ type Agent struct {
 	activity        string // the provider's live line; each report replaces it
 	stopped         bool   // the user stopped the turn; the next one forgets it
 	refilled        bool   // stopped since the last typed prompt: Claude may have put it back in its input
+	prompted        bool   // a prompt went to claude and its turn hasn't begun
 	goal            proto.Goal
 	holding         bool // the turn ended with sub-agents running on in the background, so it ends with them
 	holdGen         int  // holds so far, so a grace timer from an older one is dropped
@@ -319,7 +320,7 @@ func (a *Agent) Working() {
 	a.update(true, func() {
 		a.enter("working")
 		a.unseenEnd, a.failed, a.restore = false, false, ""
-		a.stopped = false
+		a.stopped, a.prompted = false, false
 		a.unhold()
 	})
 }
@@ -358,6 +359,7 @@ func (a *Agent) turnEnded(failed bool) {
 func (a *Agent) Clear() {
 	a.update(true, func() {
 		a.unhold()
+		a.prompted = false
 		if a.phase != "idle" {
 			a.enter("idle")
 			a.unseenEnd = false
@@ -384,11 +386,26 @@ func (a *Agent) holdEnds() {
 	})
 }
 
-// Stop notes a stop asked for from a client.
-func (a *Agent) Stop() {
+// Stop notes a stop asked for from a client, and says whether there is a turn
+// to stop. A held turn has none of Claude's own: like Claude's Stop, it leaves
+// background work running.
+func (a *Agent) Stop() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if !a.prompted && (a.phase == "idle" || a.holding) {
+		return false
+	}
 	a.stopped, a.refilled = true, true
+	return true
+}
+
+// EndLasting ends the background calls an earlier claude left running: they
+// ended with it, and Claude may never note it.
+func (a *Agent) EndLasting() {
+	out := "Stopped when its session ended"
+	for _, id := range a.Timeline.Lasting() {
+		a.Record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: &out})
+	}
 }
 
 // Escaped notes an Esc or Ctrl+C typed to the agent, a stop only while it works.
@@ -398,6 +415,13 @@ func (a *Agent) Escaped() {
 	if a.phase == "working" {
 		a.stopped, a.refilled = true, true
 	}
+}
+
+// Prompted notes a prompt sent to claude, so a stop before its turn begins stops it.
+func (a *Agent) Prompted() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.prompted = true
 }
 
 // Sent notes the user sent what the agent's input held, a stopped prompt it
