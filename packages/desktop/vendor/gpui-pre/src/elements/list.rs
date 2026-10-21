@@ -723,6 +723,14 @@ impl ListState {
         cursor.fold(px(0.), |height, item| height + item.size_hint().map_or(px(0.), |size| size.height))
     }
 
+    /// Whether the item at `ix` was ever laid out, though it may be being remeasured now.
+    pub fn laid_out(&self, ix: usize) -> bool {
+        let state = &*self.0.borrow();
+        let mut cursor = state.items.cursor::<Count>(());
+        cursor.seek(&Count(ix), Bias::Right);
+        cursor.item().is_some_and(|item| item.size_hint().is_some())
+    }
+
     /// Get the bounds for the given item in window coordinates, if it's
     /// been rendered.
     pub fn bounds_for_item(&self, ix: usize) -> Option<Bounds<Pixels>> {

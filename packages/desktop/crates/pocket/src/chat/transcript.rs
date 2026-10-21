@@ -118,7 +118,8 @@ impl View {
             return;
         };
         let viewport = f32::from(self.list.viewport_bounds().size.height);
-        if !pin.step(viewport, self.list.height_from(ix).map(f32::from)) {
+        let laid_out = self.list.laid_out(ix).then(|| f32::from(self.list.laid_out_height_from(ix)));
+        if !pin.step(viewport, pin.below(self.list.height_from(ix).map(f32::from), laid_out)) {
             // On the prompt the list follows the tail from here; scrolled away, it stays put until back at the end.
             let (anchored, top) = (pin.anchored, self.list.logical_scroll_top());
             self.pin = None;
@@ -318,6 +319,21 @@ fn message(t: &Transcript, turn: usize, block: usize) -> Option<&Message> {
 fn copy(agent: &str, key: String, text: String, cx: &mut Context<Desktop>) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
     let agent = agent.to_string();
     cx.listener(move |this, _, _, cx| this.chat_copy(&agent, key.clone(), text.clone(), cx))
+}
+
+/// A prompt's bubble with its copy and time. A send shows as its echo will, so the echo replacing it doesn't show.
+#[allow(clippy::too_many_arguments)]
+fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: bool, width: f32, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
+    let lines = user_bubble::lines(text, width, window);
+    let toggle = user_bubble::needs_collapse(lines).then(|| {
+        let toggled = view.toggled.as_ref().filter(|(row, _)| row == id).map(|(_, at)| *at);
+        let (agent, row) = (agent.to_string(), id.to_string());
+        (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_prompt(&agent, &row, cx)))
+    });
+    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), toggle);
+    let key = format!("prompt:{id}");
+    let actions = user_bubble::actions(id, view.copied(&key), copy(agent, key, text.to_string(), cx), Some(at));
+    div().flex().flex_col().items_end().gap(px(4.)).child(bubble).child(actions)
 }
 
 fn toggle(agent: &str, id: &str, default: bool, cx: &mut Context<Desktop>) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
@@ -578,18 +594,7 @@ impl Desktop {
         let mut highlight = None;
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
-                Some(p) => {
-                    let lines = user_bubble::lines(&p.text, width, window);
-                    let toggle = user_bubble::needs_collapse(lines).then(|| {
-                        let toggled = view.toggled.as_ref().filter(|(row, _)| *row == id).map(|(_, at)| *at);
-                        let (agent, row) = (agent.to_string(), id.clone());
-                        (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_prompt(&agent, &row, cx)))
-                    });
-                    let bubble = user_bubble::bubble(&id, p.text.clone(), width, false, view.expanded.contains(&id), toggle);
-                    let key = format!("prompt:{id}");
-                    let actions = user_bubble::actions(&id, view.copied(&key), copy(agent, key, p.text.clone(), cx), Some(p.at));
-                    div().flex().flex_col().items_end().gap(px(4.)).child(bubble).child(actions)
-                }
+                Some(p) => prompt_bubble(view, agent, &id, &p.text, p.at, false, width, window, cx),
                 None => div(),
             },
             Row::Fold { turn } => {
@@ -714,8 +719,7 @@ impl Desktop {
                         let (agent, send) = (agent.to_string(), p.id);
                         working::not_delivered(SharedString::from(format!("retry-{id}"))).on_click(cx.listener(move |this, _, window, cx| this.chat_retry(&agent, send, window, cx)))
                     });
-                    let pending = p.delivery != Delivery::Steered;
-                    div().flex().flex_col().items_end().child(user_bubble::bubble(&id, p.text.clone(), width, pending, true, None::<(user_bubble::Fold, fn(&ClickEvent, &mut Window, &mut App))>)).children(retry)
+                    prompt_bubble(view, agent, &id, &p.text, p.sent_at, p.delivery == Delivery::Failed, width, window, cx).children(retry)
                 }
                 None => div(),
             },
