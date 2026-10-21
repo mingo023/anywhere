@@ -82,8 +82,8 @@ pub enum ToolKind {
     Fetch { url: String },
     Question(Vec<Question>),
     Agent(SubAgent),
-    /// Any other tool; `input` is its JSON input, pretty-printed.
-    Other { input: String },
+    /// Any other tool; `input` is its JSON input, pretty-printed, and `description` what it is about in words, when known.
+    Other { input: String, description: String },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

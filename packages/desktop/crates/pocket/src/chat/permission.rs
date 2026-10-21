@@ -153,6 +153,6 @@ mod tests {
         assert_eq!(subject(&edit, "Edit"), ("pencil", "Edit", "src/lib.rs"));
         let shell = ToolKind::Shell { command: "rm -rf build".into() };
         assert_eq!(subject(&shell, "Bash"), ("terminal", "Run", "rm -rf build"));
-        assert_eq!(subject(&ToolKind::Other { input: "{}".into() }, "mcp__db__query"), ("blocks", "Use", "mcp__db__query"));
+        assert_eq!(subject(&ToolKind::Other { input: "{}".into(), description: String::new() }, "mcp__db__query"), ("blocks", "Use", "mcp__db__query"));
     }
 }

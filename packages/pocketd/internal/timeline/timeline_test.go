@@ -200,6 +200,17 @@ func TestABackgroundCommandEndsAfterTheNextPromptAndNamesWhatStopsIt(t *testing.
 	}
 }
 
+func TestAStopOnABackgroundAgentNamesItsTask(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: json.RawMessage(`{"description":"Standards review","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "a1"}, 2)
+	stop, _ := tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"a1"}`)}, 3)
+	want := proto.ToolDetail{Kind: "other", Name: "TaskStop", Input: json.RawMessage(`{"task_id":"a1"}`), Description: "Standards review"}
+	if !reflect.DeepEqual(stop.Call.Detail, want) {
+		t.Fatalf("stop: %+v", stop.Call.Detail)
+	}
+}
+
 func TestABackgroundCallTheAgentStoppedEndsAtTheStopsResult(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"npx wrangler login","run_in_background":true}`)}, 1)

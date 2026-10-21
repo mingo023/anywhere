@@ -583,7 +583,7 @@ mod tests {
         assert_eq!(phase_title(&[edit("src/a.rs"), edit("src/a.rs"), shell()], false), "Edited a.rs · Ran a command");
         assert_eq!(phase_title(&[read.clone(), edit("a"), edit("b"), shell(), shell()], true), "Editing 2 files · Exploring the project · Executing 2 commands");
         assert_eq!(phase_title(&[think()], false), "Thought");
-        assert_eq!(phase_title(&[call(ToolKind::Other { input: String::new() }, ToolStatus::Ok)], false), "Working");
+        assert_eq!(phase_title(&[call(ToolKind::Other { input: String::new(), description: String::new() }, ToolStatus::Ok)], false), "Working");
         let sub = |status| call(ToolKind::Agent(SubAgent::default()), status);
         assert_eq!(phase_title(&[sub(ToolStatus::Running)], false), "Using a subagent", "it runs on in the background");
         assert_eq!(phase_title(&[sub(ToolStatus::Ok), shell()], true), "Used a subagent · Executing a command");

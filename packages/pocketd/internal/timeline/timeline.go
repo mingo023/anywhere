@@ -224,8 +224,10 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 			detail = *e.Detail
 		}
 		if n, ok := t.tasks[taskOf(e.Name, e.Input)]; ok {
-			if command := t.items[n].Call.Detail.Command; command != "" {
-				detail = proto.ToolDetail{Kind: "shell", Command: command}
+			if target := t.items[n].Call.Detail; target.Command != "" {
+				detail = proto.ToolDetail{Kind: "shell", Command: target.Command}
+			} else {
+				detail.Description = target.Description
 			}
 		}
 		it := t.append(proto.Item{Kind: "tool", Call: &proto.ToolCall{ToolUseID: e.ToolUseID, Name: e.Name, Detail: detail, Status: "running"}}, e.ParentToolUseID, ts)

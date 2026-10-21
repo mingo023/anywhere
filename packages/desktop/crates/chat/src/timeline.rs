@@ -236,8 +236,8 @@ fn kind(name: &str, d: &Detail) -> ToolKind {
         _ if name == "AskUserQuestion" => ToolKind::Question(questions(d.questions())),
         _ if name == "WebFetch" => ToolKind::Fetch { url: input_text(&d.input, "url") },
         _ if name == "WebSearch" => ToolKind::Search { query: input_text(&d.input, "query") },
-        _ if d.input.is_null() => ToolKind::Other { input: String::new() },
-        _ => ToolKind::Other { input: serde_json::to_string_pretty(&d.input).unwrap_or_default() },
+        _ if d.input.is_null() => ToolKind::Other { input: String::new(), description: d.description.clone() },
+        _ => ToolKind::Other { input: serde_json::to_string_pretty(&d.input).unwrap_or_default(), description: d.description.clone() },
     }
 }
 
@@ -436,7 +436,14 @@ mod tests {
         assert_eq!(kinds[0], ToolKind::Fetch { url: "https://x.dev".into() });
         assert_eq!(kinds[1], ToolKind::Search { query: "gpui list".into() });
         assert_eq!(kinds[2], ToolKind::Search { query: "fn group in src".into() });
-        assert_eq!(kinds[3], ToolKind::Other { input: "{\n  \"team\": \"Desktop\"\n}".into() });
+        assert_eq!(kinds[3], ToolKind::Other { input: "{\n  \"team\": \"Desktop\"\n}".into(), description: String::new() });
+    }
+
+    #[test]
+    fn another_tool_keeps_what_pocketd_says_it_is_about() {
+        let t = fold(&items(json!([tool("s", "TaskStop", json!({"kind": "other", "name": "TaskStop", "input": {"task_id": "a1"}, "description": "Audit"}), "ok")])));
+        let Block::Tool(c) = &t.turns[0].blocks[0] else { panic!() };
+        assert_eq!(c.kind, ToolKind::Other { input: "{\n  \"task_id\": \"a1\"\n}".into(), description: "Audit".into() });
     }
 
     #[test]

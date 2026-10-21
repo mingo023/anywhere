@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(kind_icon(&[tool(ToolKind::Edit { path: "a".into(), diff: None })]), "pencil");
         assert_eq!(kind_icon(&[tool(ToolKind::Shell { command: "ls".into() })]), "terminal");
         assert_eq!(kind_icon(&[Block::Thinking(Message::default())]), "bulb");
-        assert_eq!(kind_icon(&[tool(ToolKind::Other { input: "{}".into() })]), "tool");
+        assert_eq!(kind_icon(&[tool(ToolKind::Other { input: "{}".into(), description: String::new() })]), "tool");
     }
 
     #[test]

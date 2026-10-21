@@ -88,10 +88,11 @@ func (d ToolDetail) MarshalJSON() ([]byte, error) {
 			input = json.RawMessage("null")
 		}
 		return json.Marshal(struct {
-			Kind  string          `json:"kind"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
-		}{d.Kind, d.Name, input})
+			Kind        string          `json:"kind"`
+			Name        string          `json:"name"`
+			Input       json.RawMessage `json:"input"`
+			Description string          `json:"description,omitempty"`
+		}{d.Kind, d.Name, input, d.Description})
 	}
 	return nil, errors.New("proto: unknown tool detail kind " + d.Kind)
 }

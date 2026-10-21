@@ -29,7 +29,13 @@ export const ToolDetail = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("write"), path: Schema.String, diff: Schema.optional(FileDiff) }),
   Schema.Struct({ kind: Schema.Literal("search"), query: Schema.String, path: Schema.optional(Schema.String) }),
   Schema.Struct({ kind: Schema.Literal("task"), description: Schema.String, model: Schema.optional(Schema.String) }),
-  Schema.Struct({ kind: Schema.Literal("other"), name: Schema.String, input: Schema.Unknown }),
+  Schema.Struct({
+    kind: Schema.Literal("other"),
+    name: Schema.String,
+    input: Schema.Unknown,
+    /** What the call is about in words: a Monitor's own description, or the task a TaskStop or TaskOutput acts on. */
+    description: Schema.optional(Schema.String),
+  }),
 );
 export type ToolDetail = typeof ToolDetail.Type;
 
