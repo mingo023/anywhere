@@ -521,7 +521,7 @@ func taskOutput(text, summary string) *string {
 	return &out
 }
 
-// tail is the end of a command's output file. An agent's links to its transcript, which is not output.
+// tail is the end of a command's output file. An agent's output file is a symlink to its transcript, which is not output, so it reads as "".
 func tail(path string) string {
 	const most = 2 << 10
 	fi, err := os.Lstat(path)
