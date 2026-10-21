@@ -146,6 +146,49 @@ func TestAStopEndsTheTurnAndTheNextPromptIsAnswered(t *testing.T) {
 	}
 }
 
+func TestAStopEndsOnlyTheTurnAndLeavesBackgroundCommandsRunning(t *testing.T) {
+	h, phone, term, id := chatClaude(t)
+	phone.Prompt(id, "bg npm run dev")
+	phone.WaitStream(id, "assistant", "echo: started npm run dev")
+	phone.Send(map[string]any{"type": "agent.interrupt", "id": "i1", "agentId": id})
+	phone.WaitAll("the stop", func(m Message) bool { return m.Type == "ack" && m.ID == "i1" }, statusOf(id, "idle"))
+	h.WaitScreen(term, "interrupt")
+	if strings.Contains(h.Screen(term), "stop_task") {
+		t.Fatalf("the stop stopped the background command:\n%s", h.Screen(term))
+	}
+}
+
+func TestAStopOnATurnHeldForBackgroundAgentsStopsThemButNotItsCommands(t *testing.T) {
+	h, phone, term, id := chatClaude(t)
+	phone.Prompt(id, "bg npm run dev")
+	phone.WaitStatus(id, "done")
+	phone.Prompt(id, "agent Look")
+	phone.WaitAll("the held turn", streamOf(id, "assistant", "echo: started Lookecho: done"), func(m Message) bool {
+		return m.Type == "agent.stream" && m.AgentID == id && m.Item.Kind == "result"
+	})
+	// The result item comes from the transcript; the held turn starts when pocketd reads claude's stream result, which phones can't see.
+	time.Sleep(time.Second)
+	phone.Send(map[string]any{"type": "agent.interrupt", "id": "i1", "agentId": id})
+	phone.WaitAll("the stop", func(m Message) bool { return m.Type == "ack" && m.ID == "i1" }, statusOf(id, "idle"))
+	h.WaitScreen(term, "stop_task: agent_")
+	if s := h.Screen(term); strings.Contains(s, "stop_task: bg_") || strings.Contains(s, "interrupt") {
+		t.Fatalf("the stop reached past the background agent:\n%s", s)
+	}
+}
+
+func TestAStopOnAnIdleChatAgentSendsClaudeNothing(t *testing.T) {
+	h, phone, term, id := chatClaude(t)
+	phone.Prompt(id, "hello")
+	phone.WaitStatus(id, "done")
+	phone.Send(map[string]any{"type": "agent.interrupt", "id": "i1", "agentId": id})
+	phone.WaitFor("the stop", func(m Message) bool { return m.Type == "ack" && m.ID == "i1" })
+	phone.Prompt(id, "again")
+	phone.WaitStream(id, "assistant", "echo: again")
+	if strings.Contains(h.Screen(term), "interrupt") {
+		t.Fatalf("an idle stop reached claude:\n%s", h.Screen(term))
+	}
+}
+
 func TestAPromptSentMidTurnIsQueuedForTheNext(t *testing.T) {
 	_, phone, _, id := chatClaude(t)
 	phone.Prompt(id, "slow first")

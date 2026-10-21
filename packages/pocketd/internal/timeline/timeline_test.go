@@ -386,3 +386,18 @@ func TestLastingNamesTheBackgroundTasksAndCountsItsAgents(t *testing.T) {
 		t.Fatalf("%v, %d agents", got, tl.BackgroundAgents())
 	}
 }
+
+func TestLastingAgentsNamesTheTasksOfBackgroundSubagentsOnly(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)}, 2)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2"}, 2)
+	if got := tl.LastingAgents(); !reflect.DeepEqual(got, []string{"a2"}) {
+		t.Fatalf("%v", got)
+	}
+	tl.Apply(Event{Kind: "tool_end", TaskID: "a2", OK: true}, 3)
+	if got := tl.LastingAgents(); len(got) != 0 {
+		t.Fatalf("%v", got)
+	}
+}

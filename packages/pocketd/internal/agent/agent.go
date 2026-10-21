@@ -384,11 +384,17 @@ func (a *Agent) holdEnds() {
 	})
 }
 
-// Stop notes a stop asked for from a client.
-func (a *Agent) Stop() {
+// Stop notes a stop asked for from a client, and says whether there is a turn
+// to stop. A held turn has none of Claude's own: like Claude's Stop, it leaves
+// background work running.
+func (a *Agent) Stop() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.phase == "idle" || a.holding {
+		return false
+	}
 	a.stopped, a.refilled = true, true
+	return true
 }
 
 // Escaped notes an Esc or Ctrl+C typed to the agent, a stop only while it works.

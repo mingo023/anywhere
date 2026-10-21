@@ -739,6 +739,32 @@ func TestAPromptAfterAStopClearsTheInputClaudeRefilled(t *testing.T) {
 	}
 }
 
+func TestAStopOnAnIdleClaudeTypesNothingAndOnAHeldOneSaysItHasNoTurn(t *testing.T) {
+	d := newDaemon(t)
+	got := typed(d)
+	_, pr := claudeIn(t, d)
+	path := transcript(t, "look around")
+	hookFrom(d, pr, sessionStart("s1", path))
+	if err := pr.a.Driver().Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	reportState(d, pr, "working")
+	appendLine(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"description":"Look","run_in_background":true}}]}}`)
+	appendLine(t, path, `{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched"}]}}`)
+	eventually(t, "the background agent", func() bool { return pr.a.Timeline.BackgroundAgents() == 1 })
+	reportState(d, pr, "done")
+	if err := pr.a.Driver().Interrupt(); err == nil {
+		t.Fatal("a held stop took")
+	}
+	if strings.Contains(got(), "\x1b") {
+		t.Fatalf("typed %q", got())
+	}
+	prompt(t, pr, "next")
+	if strings.Contains(got(), "\x15") {
+		t.Fatalf("the prompt after cleared Claude's input: %q", got())
+	}
+}
+
 func TestAPlainPromptTypesNoClear(t *testing.T) {
 	d := newDaemon(t)
 	got := typed(d)

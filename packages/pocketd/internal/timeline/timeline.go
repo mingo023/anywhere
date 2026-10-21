@@ -375,6 +375,20 @@ func (t *Timeline) Lasting() []string {
 	return ids
 }
 
+// LastingAgents returns the task ids of the sub-agents running on in the background, oldest first.
+func (t *Timeline) LastingAgents() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var ids []string
+	for id, n := range t.tasks {
+		if c := t.items[n].Call; t.lasting[c.ToolUseID] && c.Detail.Kind == "task" {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b string) int { return t.tasks[a] - t.tasks[b] })
+	return ids
+}
+
 // BackgroundAgents counts the sub-agents running on in the background past their turn.
 func (t *Timeline) BackgroundAgents() int {
 	t.mu.Lock()
