@@ -263,7 +263,7 @@ fn start(turn: &Turn) -> Option<i64> {
 
 fn ended_at(turn: &Turn) -> Option<i64> {
     match turn.end {
-        Some(End::Done { duration_ms, .. }) => Some(start(turn)? + duration_ms as i64),
+        Some(End::Done { duration_ms, .. } | End::Failed { duration_ms, .. }) => Some(start(turn)? + duration_ms as i64),
         _ => None,
     }
 }
@@ -540,7 +540,7 @@ mod tests {
 
     #[test]
     fn a_reply_stopped_before_anything_came_has_no_fold() {
-        let stopped = Some(End::Failed { error: "interrupted".into() });
+        let stopped = Some(End::Failed { error: "interrupted".into(), duration_ms: 0 });
         assert_eq!(ids_of(&Transcript { turns: vec![turn("u1", vec![], stopped)] }), ["u1", "u1#end"]);
         assert_eq!(ids_of(&Transcript { turns: vec![turn("u1", vec![], None)] }), ["u1", "u1#fold", "u1#live"], "an open one keeps it for its live line");
     }
@@ -755,6 +755,15 @@ mod tests {
         let own = Turn { prompt: None, ..turn("n1", vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "It failed.".into() })], done()) };
         let t = Transcript { turns: vec![turn("u1", vec![cmd], Some(End::Done { duration_ms: 1_000, usage: None })), own] };
         assert_eq!(reported(&t, 1).len(), 1);
+    }
+
+    #[test]
+    fn a_call_that_finished_after_its_turn_failed_is_reported_by_the_turn_it_set_going() {
+        let cmd = |ms| Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into() }, status: ToolStatus::Ok, output: None, duration_ms: Some(ms), at: 100 });
+        let failed = |blocks| turn("u1", blocks, Some(End::Failed { error: "API Error: Connection lost".into(), duration_ms: 1_000 }));
+        let own = Turn { prompt: None, ..turn("n1", vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "Tests pass.".into() })], done()) };
+        assert_eq!(reported(&Transcript { turns: vec![failed(vec![cmd(10_000)]), own.clone()] }, 1).len(), 1);
+        assert!(reported(&Transcript { turns: vec![failed(vec![cmd(500)]), own] }, 1).is_empty(), "it ended before the error did");
     }
 
     #[test]

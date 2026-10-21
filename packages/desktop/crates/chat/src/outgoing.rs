@@ -541,7 +541,7 @@ mod tests {
     }
 
     fn stopped(id: &str, at: i64, text: &str) -> Turn {
-        Turn { end: Some(End::Failed { error: "interrupted".into() }), ..turn(id, at, text, false) }
+        Turn { end: Some(End::Failed { error: "interrupted".into(), duration_ms: 0 }), ..turn(id, at, text, false) }
     }
 
     #[test]

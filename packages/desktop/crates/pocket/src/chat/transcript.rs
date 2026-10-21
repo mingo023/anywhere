@@ -720,8 +720,8 @@ impl Desktop {
                 _ => div(),
             },
             Row::End { turn } => match t.turns.get(*turn).and_then(|t| t.end.as_ref()) {
-                Some(End::Failed { error }) if end_row::interrupted(error) => end_row::interrupted_notice(who),
-                Some(End::Failed { error }) => {
+                Some(End::Failed { error, .. }) if end_row::interrupted(error) => end_row::interrupted_notice(who),
+                Some(End::Failed { error, .. }) => {
                     let key = format!("error:{id}");
                     end_row::error(&id, error.clone(), view.copied(&key), copy(agent, key.clone(), error.clone(), cx))
                 }
@@ -875,7 +875,7 @@ mod tests {
     fn a_settled_fold_counts_the_turns_time_else_its_first_to_last_move() {
         let done = turn(vec![shell(3_000)], Some(End::Done { duration_ms: 64_000, usage: None }));
         assert_eq!(took(&done, 0..1), 64_000);
-        let failed = turn(vec![shell(3_000), shell(9_000)], Some(End::Failed { error: "interrupted".into() }));
+        let failed = turn(vec![shell(3_000), shell(9_000)], Some(End::Failed { error: "interrupted".into(), duration_ms: 0 }));
         assert_eq!(took(&failed, 0..1), 8_000);
     }
 

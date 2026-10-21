@@ -148,7 +148,7 @@ pub struct Choice {
 #[derive(Clone, Debug, PartialEq)]
 pub enum End {
     Done { duration_ms: u64, usage: Option<Usage> },
-    Failed { error: String },
+    Failed { error: String, duration_ms: u64 },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

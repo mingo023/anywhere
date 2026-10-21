@@ -211,7 +211,7 @@ fn todo_status(status: &str) -> TodoStatus {
 
 fn end(item: &Item) -> End {
     if !item.ok {
-        return End::Failed { error: item.error.clone() };
+        return End::Failed { error: item.error.clone(), duration_ms: item.duration_ms.max(0) as u64 };
     }
     let usage = item.usage.as_ref().map(|u| Usage { input: u.input_tokens, output: u.output_tokens, cache_read: u.cache_read_tokens });
     End::Done { duration_ms: item.duration_ms.max(0) as u64, usage }
@@ -384,7 +384,7 @@ mod tests {
             {"kind": "user", "text": "deploy"},
             {"kind": "result", "ok": false, "durationMs": 9000, "error": "API Error: 529 Overloaded"},
         ])));
-        assert_eq!(t.turns[0].end, Some(End::Failed { error: "API Error: 529 Overloaded".into() }));
+        assert_eq!(t.turns[0].end, Some(End::Failed { error: "API Error: 529 Overloaded".into(), duration_ms: 9000 }));
     }
 
     #[test]
@@ -396,7 +396,7 @@ mod tests {
         ])));
         assert_eq!(t.turns.len(), 2);
         assert_eq!(t.turns[1].prompt, None);
-        assert_eq!(t.turns[1].end, Some(End::Failed { error: "interrupted".into() }));
+        assert_eq!(t.turns[1].end, Some(End::Failed { error: "interrupted".into(), duration_ms: 0 }));
     }
 
     #[test]

@@ -587,7 +587,7 @@ mod tests {
 
     #[test]
     fn a_send_right_after_a_stop_goes_out_even_if_status_still_says_working() {
-        let stopped = session(vec![turn(Some(End::Failed { error: "Interrupted".into() }))]);
+        let stopped = session(vec![turn(Some(End::Failed { error: "Interrupted".into(), duration_ms: 0 }))]);
         assert!(!busy(&agent("working"), Some(&stopped)));
         assert!(busy(&agent("idle"), Some(&session(vec![turn(None)]))));
         assert!(busy(&agent("working"), None), "a chat not yet opened goes by status");
