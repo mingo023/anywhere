@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.9
+
+- Chat streams its text and stays live while sub-agents work in the background (#98): (b7372b3)
+- Chat's pinned prompt is a one-line capsule that opens into a card (#97): (cb68a57)
+- Chat ends the turn of a command Claude runs itself, like /goal clear (#96): (a399691)
+
 ## 0.1.8
 
 - Chat stream keeps background chats current, holds a scroll up, and clears on send (#93): (5301cb7)
