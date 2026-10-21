@@ -466,6 +466,33 @@ func TestWhatSetClaudeGoingWithoutAPromptIsANotice(t *testing.T) {
 	}
 }
 
+func TestAStopHookThatKeepsClaudeGoingEndsTheRunItStoppedAndTimesEachRunOnItsOwn(t *testing.T) {
+	for _, entrypoint := range []string{"cli", "sdk-cli"} {
+		var turns Turns
+		var got []timeline.Event
+		for _, l := range []string{
+			`{"type":"user","timestamp":"2026-10-21T10:00:00.000Z","message":{"content":"migrate"}}`,
+			`{"type":"assistant","timestamp":"2026-10-21T10:00:02.000Z","message":{"content":[{"type":"text","text":"Migrated."}]}}`,
+			`{"type":"user","isMeta":true,"timestamp":"2026-10-21T10:00:03.000Z","message":{"content":"Stop hook feedback:\n[make test]: 3 tests fail."}}`,
+			`{"type":"system","subtype":"stop_hook_summary","entrypoint":"` + entrypoint + `","timestamp":"2026-10-21T10:00:03.100Z"}`,
+			`{"type":"assistant","timestamp":"2026-10-21T10:00:05.000Z","message":{"content":[{"type":"text","text":"Fixed them."}]}}`,
+			`{"type":"system","subtype":"stop_hook_summary","entrypoint":"` + entrypoint + `","timestamp":"2026-10-21T10:00:07.000Z"}`,
+			`{"type":"system","subtype":"turn_duration","durationMs":7000,"timestamp":"2026-10-21T10:00:07.000Z"}`,
+		} {
+			if entrypoint == "sdk-cli" && strings.Contains(l, "turn_duration") {
+				continue
+			}
+			got = append(got, turns.Map([]byte(l))...)
+		}
+		if want := []string{"user", "assistant_text", "result", "notice", "assistant_text", "result"}; !reflect.DeepEqual(kinds(got), want) {
+			t.Fatalf("%s: got %v want %v", entrypoint, kinds(got), want)
+		}
+		if got[2].DurationMs != 3000 || got[5].DurationMs != 4000 {
+			t.Errorf("%s: ends %+v %+v", entrypoint, got[2], got[5])
+		}
+	}
+}
+
 const stillWorking = "<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>"
 
 func TestAnAgentWaitingOnItsOwnBackgroundWorkRunsOnUntilItNotifiesAgain(t *testing.T) {

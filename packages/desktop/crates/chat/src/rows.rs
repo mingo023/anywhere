@@ -162,11 +162,11 @@ fn compaction(turn: &Turn) -> bool {
     turn.prompt.is_none() && !turn.blocks.is_empty() && turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. }))
 }
 
-/// Whether turn `ix` heads a reply with a fold: a prompt's turn, unless it steered the one before, or the first turn the
-/// agent begins itself after nothing or a compaction.
+/// Whether turn `ix` heads a reply with a fold: a prompt's turn, unless it steered the one before, or a turn the agent
+/// begins itself, as when a hook or a background task sets it going, other than a compaction.
 fn folds_at(t: &Transcript, ix: usize) -> bool {
     let turn = &t.turns[ix];
-    (turn.prompt.is_some() && !steered(t, ix)) || (!compaction(turn) && (ix == 0 || compaction(&t.turns[ix - 1])))
+    if turn.prompt.is_some() { !steered(t, ix) } else { !compaction(turn) }
 }
 
 /// Whether turn `ix`'s prompt came while the agent was still on the turn before, which it carries on: that turn never
@@ -273,19 +273,14 @@ pub fn running_agent(b: &Block) -> bool {
     matches!(b, Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_)))
 }
 
-/// The turns of the reply `turn` closes, or None while a later turn carries it on. A reply is a prompt's turn and
-/// the turns a steer or the agent itself begins after it, as when a background sub-agent reports back.
+/// The turns of the reply `turn` closes, or None while a later turn carries it on. A reply is a turn and the steers
+/// sent into it.
 pub fn reply(t: &Transcript, turn: usize) -> Option<Range<usize>> {
-    if turn + 1 < t.turns.len() && continues(t, turn + 1) {
+    if turn + 1 < t.turns.len() && steered(t, turn + 1) {
         return None;
     }
-    let start = (0..=turn).rev().find(|&ix| ix == 0 || !continues(t, ix))?;
+    let start = (0..=turn).rev().find(|&ix| ix == 0 || !steered(t, ix))?;
     Some(start..turn + 1)
-}
-
-fn continues(t: &Transcript, ix: usize) -> bool {
-    let turn = &t.turns[ix];
-    (turn.prompt.is_none() && !turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. }))) || steered(t, ix)
 }
 
 /// What a reply that ended well took, summed over its turns; None when its last turn failed or is still open.
@@ -562,14 +557,14 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_the_agent_begins_itself_folds_into_the_reply_before_it() {
+    fn a_turn_the_agent_begins_itself_heads_its_own_reply() {
         let own = Turn { prompt: None, ..turn("n1", vec![shell(), text("reported")], done()) };
         let compact = Turn { prompt: None, ..turn("c", vec![Block::Compacted { id: "c".into(), auto: true }], done()) };
         let after = Turn { prompt: None, ..turn("n2", vec![text("resumed")], None) };
         let t = Transcript { turns: vec![turn("u1", vec![agent()], done()), own, compact, after] };
         let folds: Vec<_> = rows(&t, 0, false).iter().filter_map(|r| if let Row::Fold { turn } = r { Some(*turn) } else { None }).collect();
-        assert_eq!(folds, [0, 3], "a compaction ends a reply, and what follows it gets its own fold");
-        assert_eq!((fold_of(&t, 1), folded(&t, 0)), (Some(0), 0..2));
+        assert_eq!(folds, [0, 1, 3], "a compaction gets none");
+        assert_eq!((fold_of(&t, 1), folded(&t, 0)), (Some(1), 0..1));
         assert_eq!((fold_of(&t, 3), folded(&t, 3)), (Some(3), 3..4));
     }
 
@@ -662,8 +657,8 @@ mod tests {
     fn the_live_line_trails_only_the_last_reply_while_the_agent_works_on_it() {
         let own = Turn { prompt: None, ..turn("n1", vec![shell()], None) };
         let t = Transcript { turns: vec![turn("u1", vec![agent()], done()), turn("u2", vec![shell()], done()), own] };
-        assert_eq!(live_tail(&t), Some(1), "the turn the agent began itself carries on u2's reply");
-        assert!(rows(&t, 1, true).ends_with(&[Row::Phase { turn: 2, blocks: 0..1 }, Row::Pending(0), Row::Working, Row::Live { turn: 1 }]), "a send waits above the live line");
+        assert_eq!(live_tail(&t), Some(2), "the turn the agent began itself heads its own reply");
+        assert!(rows(&t, 1, true).ends_with(&[Row::Phase { turn: 2, blocks: 0..1 }, Row::Pending(0), Row::Working, Row::Live { turn: 2 }]), "a send waits above the live line");
         assert_eq!(live_tail(&one(vec![shell()])), None);
         assert_eq!(live_tail(&Transcript::default()), None);
     }
@@ -673,11 +668,11 @@ mod tests {
         let own = Turn { prompt: None, ..turn("n1", vec![shell()], None) };
         let working = Transcript { turns: vec![turn("u1", vec![agent()], done()), turn("u2", vec![shell()], done()), own.clone()] };
         let ended = Transcript { turns: vec![turn("u1", vec![agent()], done()), turn("u2", vec![shell()], done()), Turn { end: done(), ..own }] };
-        assert_eq!(settled_tail(Some("u2"), &working), None);
-        assert_eq!(settled_tail(Some("u2"), &ended), None, "u1's sub-agent still works in the background");
+        assert_eq!(settled_tail(Some("n1"), &working), None);
+        assert_eq!(settled_tail(Some("n1"), &ended), None, "u1's sub-agent still works in the background");
         let mut ended = ended;
         ended.turns[0].blocks = vec![call(ToolKind::Agent(SubAgent::default()), ToolStatus::Ok)];
-        assert_eq!(settled_tail(Some("u2"), &ended).as_deref(), Some("u2"));
+        assert_eq!(settled_tail(Some("n1"), &ended).as_deref(), Some("n1"));
         assert_eq!(settled_tail(None, &ended), None);
     }
 
@@ -732,17 +727,16 @@ mod tests {
     }
 
     #[test]
-    fn turns_the_agent_begins_itself_close_the_reply_before_them() {
+    fn each_turn_the_agent_begins_itself_is_a_reply_timed_on_its_own() {
         let own = |id: &str, ms: u64, input: u64| Turn {
             prompt: None,
             ..turn(id, vec![text("a sub-agent reported")], Some(End::Done { duration_ms: ms, usage: Some(Usage { input, output: 1, cache_read: 0 }) }))
         };
         let compact = Turn { prompt: None, ..turn("c", vec![Block::Compacted { id: "c".into(), auto: true }], done()) };
         let t = Transcript { turns: vec![turn("u1", vec![agent()], done()), own("n1", 5_000, 10), own("n2", 7_000, 20), compact, turn("u2", vec![shell()], None)] };
-        assert_eq!((reply(&t, 0), reply(&t, 1)), (None, None), "one footer, under the last of them");
-        assert_eq!(reply(&t, 2), Some(0..3));
-        assert_eq!(reply(&t, 3), Some(3..4), "a compaction is no part of a reply");
-        assert_eq!(worked(&t, 0..3), Some((12_001, Some(Usage { input: 30, output: 2, cache_read: 0 }))));
+        assert_eq!((reply(&t, 0), reply(&t, 1), reply(&t, 2)), (Some(0..1), Some(1..2), Some(2..3)), "a footer under each");
+        assert_eq!(reply(&t, 3), Some(3..4));
+        assert_eq!(worked(&t, 2..3), Some((7_000, Some(Usage { input: 20, output: 1, cache_read: 0 }))));
         assert_eq!(worked(&t, 4..5), None, "an open turn hasn't worked yet");
     }
 
@@ -751,7 +745,7 @@ mod tests {
         let notice = |text: &str, error| Block::Notice { message: msg(text), error };
         let own = Turn { prompt: None, ..turn("n1", vec![notice("Stop hook: run the tests", false), shell(), notice("API Error", true), shell(), text("Done.")], done()) };
         let t = Transcript { turns: vec![turn("u1", vec![text("Hi.")], done()), own] };
-        assert_eq!(ids_of(&t)[4..], ["n1#0", "n1#p1", "n1#2", "n1#p3", "n1#4.0", "n1#end"]);
+        assert_eq!(ids_of(&t)[4..], ["n1#0", "n1#fold", "n1#p1", "n1#2", "n1#p3", "n1#4.0", "n1#end"]);
         assert_eq!(rows(&t, 0, false)[4], Row::Note { turn: 1, block: 0 });
     }
 

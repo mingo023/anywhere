@@ -129,6 +129,9 @@ type Turns struct {
 	local, running bool
 	// agents maps the task id of each agent running in the background to its call.
 	agents map[string]string
+	// hooked is set while a hook that kept Claude going has ended the run it stopped,
+	// and retime until the next end, which Claude times from the start of both runs.
+	hooked, retime bool
 }
 
 func (t *Turns) Map(raw []byte) []timeline.Event {
@@ -158,20 +161,36 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		t.running = true
 	}
 	t.local = l.caveat()
+	hook := l.IsMeta && len(events) == 1 && events[0].Kind == "notice" && !t.start.IsZero()
+	if hook {
+		events = append([]timeline.Event{{Kind: "result", OK: true}}, events...)
+	}
 	at, _ := time.Parse(time.RFC3339Nano, l.Timestamp)
-	for i, e := range events {
+	out := events[:0]
+	for _, e := range events {
+		switch {
+		// claude -p ends the run at its stop hooks, which the hook's notice already ended.
+		case e.Kind == "result" && e.OK && t.hooked:
+			continue
+		case e.Kind != "notice":
+			t.hooked = false
+		}
 		// A prompt the agent took mid-turn starts the reply that answers it.
 		if t.start.IsZero() || e.Kind == "user" {
 			t.start = at
 		}
 		if e.Kind == "result" {
-			if e.DurationMs == 0 && !t.start.IsZero() && !at.IsZero() {
-				events[i].DurationMs = at.Sub(t.start).Milliseconds()
+			if (e.DurationMs == 0 || t.retime) && !t.start.IsZero() && !at.IsZero() {
+				e.DurationMs = at.Sub(t.start).Milliseconds()
 			}
-			t.start = time.Time{}
+			t.start, t.retime = time.Time{}, false
 		}
+		out = append(out, e)
 	}
-	return events
+	if hook {
+		t.hooked, t.retime = true, true
+	}
+	return out
 }
 
 // follow keeps track of the agents running in the background, which Claude can stop all at once.
