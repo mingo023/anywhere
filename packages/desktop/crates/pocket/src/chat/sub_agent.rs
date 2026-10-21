@@ -66,13 +66,15 @@ pub(crate) fn meta(call: &ToolCall, agent: &SubAgent) -> String {
     }
 }
 
-/// What it reported back: the call's output, else the last thing it wrote. None while it runs.
+/// What it reported back: the call's output, else the last thing it wrote. While it runs, only what it said so far as
+/// it waits on its own work.
 pub(crate) fn report(call: &ToolCall, agent: &SubAgent) -> Option<String> {
+    let output = call.output.clone().filter(|o| !o.trim().is_empty());
     if call.status == ToolStatus::Running {
-        return None;
+        return output.map(|r| r.trim().to_string());
     }
     let last = || steps(agent).into_iter().rev().find_map(|b| if let Block::Text(m) = b { Some(m.text.clone()) } else { None });
-    call.output.clone().filter(|o| !o.trim().is_empty()).or_else(last).map(|r| r.trim().to_string())
+    output.or_else(last).map(|r| r.trim().to_string())
 }
 
 /// What it was asked to do: the prompt it started on, which its task only names.
@@ -250,6 +252,13 @@ mod tests {
         assert_eq!(report(&call(&a, ToolStatus::Running, None), &a), None, "nothing to report while it runs");
         assert_eq!(report(&call(&a, ToolStatus::Ok, None), &a).as_deref(), Some("left-pad is unused"));
         assert_eq!(report(&call(&a, ToolStatus::Ok, Some(" Found 2 \n")), &a).as_deref(), Some("Found 2"));
+    }
+
+    #[test]
+    fn a_sub_agent_waiting_on_its_own_work_shows_what_it_said_so_far() {
+        let a = agent(vec![tool("a", ToolStatus::Running)]);
+        assert_eq!(report(&call(&a, ToolStatus::Running, Some(" Started the build; waiting on it.\n")), &a).as_deref(), Some("Started the build; waiting on it."));
+        assert_eq!(report(&call(&a, ToolStatus::Running, Some("  ")), &a), None);
     }
 
     #[test]
