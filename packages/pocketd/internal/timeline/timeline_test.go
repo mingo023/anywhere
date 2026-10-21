@@ -306,6 +306,24 @@ func TestAnErrorClaudeRetriedBecomesANoticeInTheTurnItLeftGoing(t *testing.T) {
 	}
 }
 
+func TestAnErrorClaudeRetriedBecomesANoticeThoughItsStreamDraftedTheRetryFirst(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	failed, _ := tl.Apply(Event{Kind: "result", Error: "API Error: Your computer went to sleep mid-response."}, 2)
+	draft, _ := tl.Apply(Event{Kind: "assistant_draft", Text: "Picking", Draft: "2:0"}, 3)
+	if notice, ok := tl.Apply(Event{Kind: "retried"}, 4); !ok || notice.ID != failed.ID || notice.Kind != "notice" {
+		t.Fatalf("got %+v from %+v", notice, failed)
+	}
+	if it, _ := tl.Apply(Event{Kind: "assistant_text", Text: "Picking up where I left off."}, 4); it.ID != draft.ID {
+		t.Fatalf("the retry's text left its draft: %+v", it)
+	}
+	tl.Apply(Event{Kind: "result", OK: true, DurationMs: 9000}, 5)
+	items, _ := tl.Page(0, 10)
+	if len(items) != 4 || items[1].Kind != "notice" || items[2].Text != "Picking up where I left off." || !items[3].OK {
+		t.Fatalf("got %+v", items)
+	}
+}
+
 func TestOnlyATurnAnErrorEndedIsRetried(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)

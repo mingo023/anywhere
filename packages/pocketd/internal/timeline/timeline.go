@@ -142,7 +142,11 @@ func (t *Timeline) last() proto.Item {
 }
 
 func (t *Timeline) lastAt() int {
-	for i := len(t.items) - 1; i >= 0; i-- {
+	return t.lastBefore(len(t.items))
+}
+
+func (t *Timeline) lastBefore(end int) int {
+	for i := end - 1; i >= 0; i-- {
 		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind != "compact" {
 			return i
 		}
@@ -328,6 +332,10 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	// Claude went on after an error it ended the turn with, so the error only interrupted it.
 	case "retried":
 		n := t.lastAt()
+		// Claude's stream drafts the reply it retried with before its transcript writes it.
+		for _, open := t.draft[n]; open; _, open = t.draft[n] {
+			n = t.lastBefore(n)
+		}
 		if n < 0 || t.items[n].Kind != "result" || t.items[n].OK || t.items[n].Error == "interrupted" {
 			return proto.Item{}, false
 		}
