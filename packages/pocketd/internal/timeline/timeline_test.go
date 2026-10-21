@@ -240,8 +240,59 @@ func TestASecondInterruptInARowEndsNothing(t *testing.T) {
 	if _, ok := tl.Apply(Event{Kind: "result", Error: "interrupted"}, 3); ok {
 		t.Fatal("a turn ended twice")
 	}
-	if _, ok := tl.Apply(Event{Kind: "result", OK: true}, 4); !ok {
-		t.Fatal("a result after an interrupt was dropped")
+}
+
+func TestATurnAnInterruptOrErrorEndedIsNotTimedAsDone(t *testing.T) {
+	for _, end := range []Event{{Kind: "result", Error: "interrupted", DurationMs: 9000}, {Kind: "result", Error: "API Error: 500"}} {
+		tl := New()
+		tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+		tl.Apply(end, 2)
+		if _, ok := tl.Apply(Event{Kind: "result", OK: true, DurationMs: 963584}, 3); ok {
+			t.Errorf("%s: Claude's turn_duration ended the turn again", end.Error)
+		}
+		if items, _ := tl.Page(0, 10); len(items) != 2 || items[1].OK || items[1].DurationMs != end.DurationMs {
+			t.Errorf("%s: got %+v", end.Error, items)
+		}
+	}
+}
+
+func TestAnInterruptAfterClaudeTimedTheTurnEndsItInterrupted(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	done, _ := tl.Apply(Event{Kind: "result", OK: true, DurationMs: 5000}, 2)
+	end, ok := tl.Apply(Event{Kind: "result", Error: "interrupted"}, 3)
+	if !ok || end.ID != done.ID || end.OK || end.Error != "interrupted" || end.DurationMs != 5000 {
+		t.Fatalf("got %+v from %+v", end, done)
+	}
+	if items, _ := tl.Page(0, 10); len(items) != 2 {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestAnErrorAfterADoneTurnEndsATurnOfItsOwn(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	tl.Apply(Event{Kind: "result", OK: true}, 2)
+	tl.Apply(Event{Kind: "result", Error: "You've hit your session limit"}, 3)
+	tl.Apply(Event{Kind: "result", OK: true}, 4)
+	if items, _ := tl.Page(0, 10); len(items) != 3 || !items[1].OK || items[2].OK {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestPastedImagesJoinTheNewestPrompt(t *testing.T) {
+	const images = "# Attached images\n\n- /tmp/1.png"
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "brief", ParentToolUseID: "t1"}, 1)
+	if _, ok := tl.Apply(Event{Kind: "user_images", Text: images}, 1); ok {
+		t.Fatal("images joined no prompt, or a sub-agent's")
+	}
+	for prompt, want := range map[string]string{"look": "look\n\n" + images, "": images} {
+		sent, _ := tl.Apply(Event{Kind: "user", Text: prompt}, 2)
+		got, ok := tl.Apply(Event{Kind: "user_images", Text: images}, 3)
+		if !ok || got.ID != sent.ID || got.Text != want {
+			t.Errorf("%q: got %+v", prompt, got)
+		}
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, compacted, error
+	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -135,12 +135,19 @@ func (t *Timeline) append(it proto.Item, parent string, ts int64) proto.Item {
 
 // last is the newest item outside sub-agents, skipping compactions.
 func (t *Timeline) last() proto.Item {
-	for i := len(t.items) - 1; i >= 0; i-- {
-		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind != "compact" {
-			return it
-		}
+	if n := t.lastAt(); n >= 0 {
+		return t.items[n]
 	}
 	return proto.Item{}
+}
+
+func (t *Timeline) lastAt() int {
+	for i := len(t.items) - 1; i >= 0; i-- {
+		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind != "compact" {
+			return i
+		}
+	}
+	return -1
 }
 
 // Unanswered says whether the newest prompt has nothing after it yet.
@@ -157,6 +164,15 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	switch e.Kind {
 	case "user":
 		return t.append(proto.Item{Kind: "user", Text: e.Text}, e.ParentToolUseID, ts), true
+
+	case "user_images":
+		for n := len(t.items) - 1; n >= 0; n-- {
+			if it := &t.items[n]; it.Kind == "user" && it.ParentToolUseID == e.ParentToolUseID {
+				it.Text = strings.TrimPrefix(it.Text+"\n\n"+e.Text, "\n\n")
+				return *it, true
+			}
+		}
+		return proto.Item{}, false
 
 	case "assistant_draft", "thinking_draft":
 		kind := textKind(strings.TrimSuffix(e.Kind, "_draft"))
@@ -292,9 +308,17 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		if e.ParentToolUseID == "" {
 			t.closeDrafts()
 		}
-		// A stop pocketd ended for Claude may be marked again by Claude itself.
-		if e.Error == "interrupted" && e.ParentToolUseID == "" && t.last().Kind == "result" && t.last().Error == "interrupted" {
-			return proto.Item{}, false
+		if n := t.lastAt(); e.ParentToolUseID == "" && n >= 0 && t.items[n].Kind == "result" {
+			last := &t.items[n]
+			switch {
+			// Claude times a turn an interrupt or error ended, and may mark a stop pocketd ended for it again.
+			case !last.OK && (e.OK || e.Error == "interrupted" && last.Error == "interrupted"):
+				return proto.Item{}, false
+			// Claude times a turn it goes on with, as for a goal not yet met, before the user interrupts it.
+			case last.OK && e.Error == "interrupted":
+				last.OK, last.Error = false, e.Error
+				return *last, true
+			}
 		}
 		return t.append(proto.Item{Kind: "result", OK: e.OK, DurationMs: e.DurationMs, Error: e.Error, Usage: e.Usage}, e.ParentToolUseID, ts), true
 

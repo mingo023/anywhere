@@ -208,6 +208,9 @@ func (l line) events() (events []timeline.Event) {
 	if e, ok := l.handback(); ok {
 		return []timeline.Event{e}
 	}
+	if l.IsMeta && l.Type == "user" {
+		return pastedImages(l.Message.Content)
+	}
 	if l.IsMeta || l.IsCompactSummary {
 		return nil
 	}
@@ -231,17 +234,25 @@ func (l line) events() (events []timeline.Event) {
 			case "task-notification":
 				return taskEnd(l.Attachment.Prompt)
 			case "prompt":
-				return userEvents(l.Attachment.Prompt)
+				// As on a user line, only a human's is a prompt; a sub-agent's hand-back or a goal's continuation is not.
+				switch l.Attachment.Origin.Kind {
+				case "", "human":
+					return userEvents(l.Attachment.Prompt)
+				}
 			}
 		}
 	case "assistant":
-		// claude -p ends a failed turn with the error, and no Stop.
-		if l.IsAPIError && l.Entrypoint == "sdk-cli" {
+		// A failed request ends the turn with its error; claude -p writes no Stop after it.
+		if l.IsAPIError {
 			var text string
 			for _, b := range blocks(l.Message.Content) {
 				text += b.Text
 			}
 			return []timeline.Event{{Kind: "result", OK: false, Error: text}}
+		}
+		// Claude writes a reply of its own where the model gave none, as "No response requested." after an interrupt.
+		if l.Message.Model == "<synthetic>" {
+			return nil
 		}
 		for _, b := range blocks(l.Message.Content) {
 			switch {
@@ -510,7 +521,48 @@ func userEvents(content json.RawMessage) []timeline.Event {
 	case strings.HasPrefix(text, "<command-"), strings.HasPrefix(text, "<local-command-"), Command(text), text == "":
 		return events
 	}
-	return append(events, timeline.Event{Kind: "user", Text: text})
+	return append(events, timeline.Event{Kind: "user", Text: unwrapPastes(text)})
+}
+
+// unwrapPastes keeps the text of each block pasted into Claude's input, which it writes between
+// <pasted_content id="…"> and </pasted_content id="…">.
+func unwrapPastes(text string) string {
+	const open = `<pasted_content id="`
+	var out strings.Builder
+	for {
+		before, rest, ok := strings.Cut(text, open)
+		out.WriteString(before)
+		if !ok {
+			return out.String()
+		}
+		id, inner, _ := strings.Cut(rest, `">`)
+		body, after, closed := strings.Cut(inner, `</pasted_content id="`+id+`">`)
+		if !closed {
+			out.WriteString(open)
+			text = rest
+			continue
+		}
+		out.WriteString(strings.TrimSuffix(strings.TrimPrefix(body, "\n"), "\n"))
+		text = after
+	}
+}
+
+// pastedImages reads the line Claude writes after a prompt with pasted images, naming the file it saved each to,
+// as the list the desktop attaches images to a prompt with.
+func pastedImages(content json.RawMessage) []timeline.Event {
+	var list []string
+	for _, b := range blocks(content) {
+		path, ok := strings.CutPrefix(b.Text, "[Image: source: ")
+		path, closed := strings.CutSuffix(path, "]")
+		if !ok || !closed || b.Type != "text" {
+			return nil
+		}
+		list = append(list, "- "+path)
+	}
+	if len(list) == 0 {
+		return nil
+	}
+	return []timeline.Event{{Kind: "user_images", Text: "# Attached images\n\n" + strings.Join(list, "\n")}}
 }
 
 // Command says whether text is a slash command, which newer Claude writes as typed; a prompt may start with a path instead.

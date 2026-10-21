@@ -42,6 +42,9 @@ func TestMap(t *testing.T) {
 		{"background task stops", `{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n</task-notification>"}}`, []string{"tool_end"}},
 		{"background task stops mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n</task-notification>"}}`, []string{"tool_end"}},
 		{"prompt sent mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"hi"}}`, []string{"user"}},
+		{"typed prompt sent mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"hi","origin":{"kind":"human"}}}`, []string{"user"}},
+		{"sub-agent hand-back mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<agent-message from=\"a1\">\n[Subagent hand-back] report\n</agent-message>","origin":{"kind":"peer","from":"a1"}}}`, nil},
+		{"goal continuation mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"Goal set: tests pass","origin":{"kind":"auto-continuation"}}}`, nil},
 		{"other queued command", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"bash","prompt":"ls"}}`, nil},
 		{"background agent launched", `{"type":"user","toolUseResult":{"isAsync":true,"status":"async_launched"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Async agent launched successfully."}]}}`, []string{"tool_background"}},
 		{"command sent to the background", `{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"b1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: b1."}]}}`, []string{"tool_background"}},
@@ -50,6 +53,7 @@ func TestMap(t *testing.T) {
 		{"meta", `{"type":"user","isMeta":true,"message":{"content":"x"}}`, nil},
 		{"subagent", `{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"x"}]}}`, nil},
 		{"compact summary", `{"type":"user","isCompactSummary":true,"message":{"content":"x"}}`, nil},
+		{"synthetic filler", `{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`, nil},
 		{"assistant", `{"type":"assistant","message":{"content":[{"type":"thinking","thinking":""},{"type":"thinking","thinking":"hm"},{"type":"text","text":"ok"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}`, []string{"thinking", "assistant_text", "tool_start"}},
 		{"tool result", `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a"}],"is_error":true}]}}`, []string{"tool_end"}},
 		{"tool result and text", `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"a"},{"type":"text","text":"hi"}]}}`, []string{"tool_end", "user"}},
@@ -196,6 +200,59 @@ func TestACommandClaudeRunsItselfAnswersWithItsOutputAndOneThatAsksTheModelDoesN
 func TestAClaudePTurnThatFailsEndsWithTheErrorAlone(t *testing.T) {
 	got := Map([]byte(`{"type":"assistant","entrypoint":"sdk-cli","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"There's an issue with the selected model."}]}}`))
 	if len(got) != 1 || got[0].Kind != "result" || got[0].OK || got[0].Error != "There's an issue with the selected model." {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAnAPIErrorFailsTheTurnWhateverStartedClaude(t *testing.T) {
+	for _, entrypoint := range []string{"cli", "claude-desktop", "sdk-cli"} {
+		got := Map([]byte(`{"type":"assistant","entrypoint":"` + entrypoint + `","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error: 500 Internal server error."}]}}`))
+		if len(got) != 1 || got[0].Kind != "result" || got[0].OK || got[0].Error != "API Error: 500 Internal server error." {
+			t.Errorf("%s: got %+v", entrypoint, got)
+		}
+	}
+}
+
+func TestAnInterruptedTurnShowsNoReplyClaudeFilledIn(t *testing.T) {
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		`{"type":"user","entrypoint":"cli","message":{"content":"grep the colors"}}`,
+		`{"type":"assistant","entrypoint":"cli","message":{"model":"claude-opus-5","content":[{"type":"text","text":"Searching"}]}}`,
+		`{"type":"user","entrypoint":"cli","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}`,
+		`{"type":"queue-operation","operation":"dequeue"}`,
+		`{"type":"assistant","entrypoint":"cli","message":{"model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`,
+		`{"type":"user","entrypoint":"cli","message":{"content":"continue"}}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user", "assistant_text", "result", "user"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+}
+
+func TestACLIPromptShowsItsPastedImagesAndText(t *testing.T) {
+	var turns Turns
+	tl := timeline.New()
+	for _, l := range []string{
+		`{"type":"user","entrypoint":"cli","promptId":"p1","imagePasteIds":[1,2],"message":{"content":[{"type":"text","text":"Why is Save misaligned? [Image #1] [Image #2]\n\n<pasted_content id=\"6c20\">\nwarn: overflow\n</pasted_content id=\"6c20\">\n\nThe log is above."},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}}`,
+		`{"type":"attachment","entrypoint":"cli","attachment":{"type":"total_tokens_reminder"}}`,
+		`{"type":"user","entrypoint":"cli","promptId":"p1","isMeta":true,"message":{"content":[{"type":"text","text":"[Image: source: /tmp/s/images/1.png]"},{"type":"text","text":"[Image: source: /tmp/s/images/2.png]"}]}}`,
+	} {
+		for _, e := range turns.Map([]byte(l)) {
+			tl.Apply(e, 1)
+		}
+	}
+	items, _ := tl.Page(0, 10)
+	want := "Why is Save misaligned? [Image #1] [Image #2]\n\nwarn: overflow\n\nThe log is above.\n\n# Attached images\n\n- /tmp/s/images/1.png\n- /tmp/s/images/2.png"
+	if len(items) != 1 || items[0].Kind != "user" || items[0].Text != want {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestAPasteTagOnlyUnwrapsWhereItCloses(t *testing.T) {
+	got := Map([]byte(`{"type":"user","message":{"content":"the bug report sits in <pasted_content id=\"c859\">, then"}}`))
+	if len(got) != 1 || got[0].Text != `the bug report sits in <pasted_content id="c859">, then` {
 		t.Fatalf("got %+v", got)
 	}
 }
