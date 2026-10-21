@@ -352,6 +352,8 @@ func (l line) cause() string {
 		return "Stop hook: " + firstLine(reason)
 	case strings.HasPrefix(text, "Goal check-in:"):
 		return firstLine(text)
+	case strings.HasPrefix(text, "Your claude.ai usage limit has reset."):
+		return "Usage limit reset"
 	}
 	return ""
 }

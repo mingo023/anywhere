@@ -453,6 +453,7 @@ func TestWhatSetClaudeGoingWithoutAPromptIsANotice(t *testing.T) {
 		{"stop hook", `{"type":"user","isMeta":true,"message":{"content":"Stop hook feedback:\n[make test]: 3 tests fail.\nFix them first."}}`, "Stop hook: 3 tests fail."},
 		{"goal check-in", `{"type":"user","isMeta":true,"message":{"content":"Goal check-in: «tests pass» is still active\nKeep going."}}`, "Goal check-in: «tests pass» is still active"},
 		{"scheduled", `{"type":"user","isMeta":true,"turnOrigin":"scheduled","message":{"content":"Report progress\nin one line"}}`, "Scheduled: Report progress"},
+		{"usage limit reset", `{"type":"user","isMeta":true,"message":{"content":"Your claude.ai usage limit has reset. Continue the task you were working on when the limit was reached; do not repeat work that is already complete."}}`, "Usage limit reset"},
 		{"goal continuation", `{"type":"user","origin":{"kind":"auto-continuation"},"message":{"content":"Goal set: tests pass"}}`, "Goal set: tests pass"},
 		{"goal continuation mid-turn", `{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"Goal set: tests pass","origin":{"kind":"auto-continuation"}}}`, "Goal set: tests pass"},
 		{"monitor event", notification("<task-id>m1</task-id>\n<summary>Monitor event: \"build log\"</summary>\n<event>warning: unused import\nin rows.rs</event>"), "Monitor: build log · warning: unused import"},
