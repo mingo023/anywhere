@@ -176,6 +176,11 @@ pub(crate) fn frame(typing: bool) -> Div {
         .text_color(TEXT)
 }
 
+/// The prompt box while files are dragged over it.
+pub(crate) fn dragged_over(s: StyleRefinement) -> StyleRefinement {
+    s.border_color(ACCENT).shadow(vec![BoxShadow { inset: true, ..ui::ring(ACCENT_RING, 2.) }])
+}
+
 /// Moves focus to `to` when one of `from` holds it, so focus follows the pill into the ask that replaces it and back.
 fn hand_focus(from: Vec<FocusHandle>, to: FocusHandle) -> impl IntoElement {
     canvas(
@@ -497,14 +502,14 @@ impl Desktop {
             let shown = if typed.is_empty() { (self.chats.composer.placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };
             div().px(px(10.)).py(px(8.)).line_height(px(INPUT_LINE_HEIGHT)).text_color(shown.1).child(shown.0).into_any_element()
         } else {
-            let desktop = cx.entity().downgrade();
+            let (desktop, input) = (cx.entity().downgrade(), self.chats.input.clone());
             let textarea = Textarea::new(&self.chats.input)
                 .appearance(false)
                 .text_size(px(INPUT_TEXT_SIZE))
                 .line_height(px(INPUT_LINE_HEIGHT))
                 .on_paste(move |item, window, cx| {
                     let unsaved = |d: &mut Desktop, (title, detail): (String, String)| d.error = Some(format!("{title}: {detail}"));
-                    crate::composer::paste_image(&desktop, |d| &mut d.chats.composer.draft, unsaved, item, window, cx)
+                    crate::composer::paste(&desktop, &input, |d| &mut d.chats.composer.draft, unsaved, item, window, cx)
                 });
             div().child(textarea).child(mention_icons(self.chats.input.clone())).into_any_element()
         };
@@ -525,7 +530,15 @@ impl Desktop {
             .children(ghost)
             .children(send);
         let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
-        self.suggest_keys(Prompt::Chat, frame(typing), cx)
+        let (desktop, input, drop_agent) = (cx.entity().downgrade(), self.chats.input.clone(), agent.id.clone());
+        // Files dropped anywhere on the box go to the input, as a press here takes it. Not a `cx.listener`: the input's drop handler updates `Desktop`.
+        let framed = frame(typing).when(!view_only, |f| {
+            f.drag_over::<ExternalPaths>(|s, _, _, _| dragged_over(s)).on_drop(move |paths: &ExternalPaths, window, cx| {
+                desktop.update(cx, |d, cx| d.chat_take_input(&drop_agent, window, cx)).ok();
+                input.update(cx, |s, cx| s.drop_paths(paths, window, cx));
+            })
+        });
+        self.suggest_keys(Prompt::Chat, framed, cx)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _: &MouseDownEvent, window, cx| {

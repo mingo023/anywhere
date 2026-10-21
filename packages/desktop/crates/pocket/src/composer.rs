@@ -3,7 +3,7 @@ pub(crate) mod model_menu;
 
 use crate::chat::composer::attachments::attach_button;
 use crate::chat::composer::suggest::Suggest;
-use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, mention_icons};
+use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, mention_icons};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -138,7 +138,15 @@ pub(crate) fn split_images(prompt: &str) -> (&str, Vec<&str>) {
     }
 }
 
-/// The image a paste carries when it has no text; text, copied files included, pastes as itself.
+/// The files a paste carries: macOS reads a copied file, a screenshot tool's included, as its path, never its pixels.
+fn copied_files(item: &ClipboardItem) -> Option<&ExternalPaths> {
+    item.entries().iter().find_map(|e| match e {
+        ClipboardEntry::ExternalPaths(paths) => Some(paths),
+        _ => None,
+    })
+}
+
+/// The image a paste carries when it has no text; text pastes as itself.
 fn pasted_image(item: &ClipboardItem) -> Option<Image> {
     if item.text().is_some() {
         return None;
@@ -172,15 +180,20 @@ fn save_image(image: &Image, path: &Path) -> std::io::Result<()> {
 }
 
 /// The image shows at once and its file is written behind it, so starting never waits on a write; the agent opens it long after.
-/// Attaches a pasted image to the draft `draft` picks; `unsaved` shows why it couldn't be saved.
-pub(crate) fn paste_image(
+/// Attaches a pasted image to the draft `draft` picks; `unsaved` shows why it couldn't be saved. Copied files go to `input` as a drop.
+pub(crate) fn paste(
     desktop: &WeakEntity<Desktop>,
+    input: &Entity<TextareaState>,
     draft: impl Fn(&mut Desktop) -> &mut Draft + 'static,
     unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static,
     item: &ClipboardItem,
     window: &mut Window,
     cx: &mut App,
 ) -> bool {
+    if let Some(paths) = copied_files(item) {
+        input.update(cx, |s, cx| s.drop_paths(paths, window, cx));
+        return true;
+    }
     let (Some(image), Some(d)) = (pasted_image(item), desktop.upgrade()) else { return false };
     let image = Arc::new(image);
     let path = attachment_path(&image, &d.read(cx).store.home().join("attachments"));
@@ -259,7 +272,10 @@ impl Desktop {
             .appearance(false)
             .text_size(px(INPUT_TEXT_SIZE))
             .line_height(px(INPUT_LINE_HEIGHT))
-            .on_paste(move |item, window, cx| paste_image(&desktop, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx));
+            .on_paste({
+                let prompt = c.prompt.clone();
+                move |item, window, cx| paste(&desktop, &prompt, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx)
+            });
         let bar = div()
             .flex()
             .items_center()
@@ -273,7 +289,11 @@ impl Desktop {
             .children(trailing)
             .child(self.model_pill(c, &pick, project, cx))
             .child(send);
+        let prompt = c.prompt.clone();
         frame(typing)
+            // Files dropped anywhere on the box go to the prompt. Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
+            .drag_over::<ExternalPaths>(|s, _, _, _| dragged_over(s))
+            .on_drop(move |paths: &ExternalPaths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)))
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))
             .children(attached)
             .child(div().pt(px(5.)).px(px(5.)).child(textarea).child(mention_icons(c.prompt.clone())))
@@ -339,8 +359,8 @@ fn menu(id: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mu
 
 #[cfg(test)]
 mod tests {
-    use super::{Attachment, Draft, Menu, attachment_path, pasted_image, save_image, split_images};
-    use gpui_kit::{ClipboardItem, Image, ImageFormat};
+    use super::{Attachment, Draft, Menu, attachment_path, copied_files, pasted_image, save_image, split_images};
+    use gpui_kit::{ClipboardEntry, ClipboardItem, ClipboardString, ExternalPaths, Image, ImageFormat};
     use store::LaunchPick;
 
     fn codex() -> LaunchPick {
@@ -393,6 +413,15 @@ mod tests {
         assert_eq!(std::fs::metadata(root.join("attachments")).unwrap().permissions().mode() & 0o777, 0o700);
         assert!(pasted_image(&ClipboardItem::new_string("fix ci".into())).is_none());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_copied_file_pastes_as_its_path_even_beside_its_pixels() {
+        let shot = ExternalPaths(vec!["/r/shot.png".into()].into());
+        let png = ClipboardEntry::Image(Image::from_bytes(ImageFormat::Png, vec![1]));
+        let item = ClipboardItem { entries: vec![ClipboardEntry::ExternalPaths(shot.clone()), ClipboardEntry::String(ClipboardString::new("shot.png".into())), png] };
+        assert_eq!(copied_files(&item).map(|p| p.paths()), Some(shot.paths()));
+        assert!(copied_files(&ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, vec![1]))).is_none());
     }
 
     #[test]
