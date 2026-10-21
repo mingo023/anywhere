@@ -296,6 +296,20 @@ func TestPastedImagesJoinTheNewestPrompt(t *testing.T) {
 	}
 }
 
+func TestPastedImagesJoinOnlyThePromptTheyFollow(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "fix the screenshots"}, 1)
+	tl.Apply(Event{Kind: "assistant_text", Text: "done"}, 2)
+	tl.Apply(Event{Kind: "result", OK: true}, 3)
+	// An image-only prompt, or a slash command typed with an image, writes no prompt of its own.
+	if got, ok := tl.Apply(Event{Kind: "user_images", Text: "# Attached images\n\n- /tmp/6.webp"}, 4); ok {
+		t.Fatalf("images joined an earlier turn's prompt: %+v", got)
+	}
+	if items, _ := tl.Page(0, 10); items[0].Text != "fix the screenshots" {
+		t.Fatalf("got %+v", items[0])
+	}
+}
+
 func TestADraftGrowsUntilTheTranscriptWritesItsBlock(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)

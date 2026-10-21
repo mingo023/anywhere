@@ -166,13 +166,14 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.append(proto.Item{Kind: "user", Text: e.Text}, e.ParentToolUseID, ts), true
 
 	case "user_images":
-		for n := len(t.items) - 1; n >= 0; n-- {
-			if it := &t.items[n]; it.Kind == "user" && it.ParentToolUseID == e.ParentToolUseID {
-				it.Text = strings.TrimPrefix(it.Text+"\n\n"+e.Text, "\n\n")
-				return *it, true
-			}
+		// Claude writes the images right after their prompt, so any other item before them means that prompt showed nothing.
+		n := t.lastAt()
+		if n < 0 || t.items[n].Kind != "user" {
+			return proto.Item{}, false
 		}
-		return proto.Item{}, false
+		it := &t.items[n]
+		it.Text = strings.TrimPrefix(it.Text+"\n\n"+e.Text, "\n\n")
+		return *it, true
 
 	case "assistant_draft", "thinking_draft":
 		kind := textKind(strings.TrimSuffix(e.Kind, "_draft"))
