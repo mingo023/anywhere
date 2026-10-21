@@ -701,3 +701,15 @@ func TestAStopIsNothingWithoutATurnOfClaudesOwn(t *testing.T) {
 		t.Fatal("a turn held for its background sub-agent took a stop")
 	}
 }
+
+func TestAStopRightAfterAPromptStopsTheTurnItStarts(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Prompted()
+	if !a.Stop() {
+		t.Fatal("a prompt not yet begun took no stop")
+	}
+	a.Clear()
+	if a.Stop() {
+		t.Fatal("the stopped prompt still counts")
+	}
+}

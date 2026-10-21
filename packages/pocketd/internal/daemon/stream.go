@@ -391,6 +391,7 @@ func (c streamDriver) Prompt(text string) error {
 			return err
 		}
 	}
+	c.a.Prompted()
 	c.pr.stream.send(promptLine(text))
 	return nil
 }
