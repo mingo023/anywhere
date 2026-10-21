@@ -288,7 +288,8 @@ func (l line) events() (events []timeline.Event) {
 		events = userEvents(l.Message.Content)
 		// Claude writes no notification for a command or workflow the agent stopped, so the stop's result ends it.
 		if task, ok := l.stopped(); ok {
-			events = append(events, timeline.Event{Kind: "tool_end", TaskID: task, OK: true})
+			out := "Stopped"
+			events = append(events, timeline.Event{Kind: "tool_end", TaskID: task, OK: true, Output: &out})
 		}
 		return events
 	}

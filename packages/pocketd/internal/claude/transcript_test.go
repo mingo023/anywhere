@@ -106,8 +106,12 @@ func TestMapDetails(t *testing.T) {
 	if ev[0].OK || ev[0].Output != nil {
 		t.Errorf("failed task: %+v", ev[0])
 	}
-	ev = Map([]byte(`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification><tool-use-id>t1</tool-use-id><status>killed</status></task-notification>"}}`))
-	if !ev[0].OK {
+	ev = Map([]byte(`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification><tool-use-id>t1</tool-use-id><status>killed</status><summary>Background command &quot;dev&quot; was stopped</summary></task-notification>"}}`))
+	if !ev[0].OK || *ev[0].Output != `Background command "dev" was stopped` {
+		t.Errorf("killed task: %+v", ev[0])
+	}
+	ev = Map([]byte(`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification><tool-use-id>t1</tool-use-id><status>stopped</status><summary>Agent \"Look\" was stopped by user</summary></task-notification>"}}`))
+	if !ev[0].OK || *ev[0].Output != `Agent "Look" was stopped by user` {
 		t.Errorf("stopped task: %+v", ev[0])
 	}
 	ev = Map([]byte(`{"type":"user","toolUseResult":{"backgroundTaskId":"b1"},"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: b1."}]}}`))
@@ -119,7 +123,7 @@ func TestMapDetails(t *testing.T) {
 		t.Errorf("background agent: %+v", ev[0])
 	}
 	ev = Map([]byte(`{"type":"user","toolUseResult":{"message":"Successfully stopped task: b1 (bun run dev)","task_id":"b1","task_type":"local_bash","command":"bun run dev"},"message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"stopped"}]}}`))
-	if len(ev) != 2 || ev[0].ToolUseID != "t2" || ev[1].Kind != "tool_end" || ev[1].TaskID != "b1" || ev[1].ToolUseID != "" || !ev[1].OK {
+	if len(ev) != 2 || ev[0].ToolUseID != "t2" || ev[1].Kind != "tool_end" || ev[1].TaskID != "b1" || ev[1].ToolUseID != "" || !ev[1].OK || *ev[1].Output != "Stopped" {
 		t.Errorf("stop ends the stopped task: %+v", ev)
 	}
 	ev = Map([]byte(`{"type":"user","toolUseResult":"Error: No task found with ID: b9","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"Error: No task found with ID: b9","is_error":true}]}}`))
