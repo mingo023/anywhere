@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.10
+
+- Chat handles steers, stops, sub-agents and background work as Claude does (#105): (ffdfd52)
+- Chat keeps Claude's text in view when its fold is shut (#103): (6c95e9e)
+- Chat no longer flashes the previous prompt over a message just sent (#104): (4b2b762)
+- Chat shows what Claude writes between commands in full (#102): (97d4668)
+- Chat shows a sent message at once and keeps it steady when the agent echoes it (#101): (afc9878)
+- Composer takes files dropped anywhere on its box and copied files pasted into it (#100): (190bcec)
+- Release retries stapling when Apple's ticket lookup drops (#99): (51a8754)
+
 ## 0.1.9
 
 - Chat streams its text and stays live while sub-agents work in the background (#98): (b7372b3)
