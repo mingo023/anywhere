@@ -7,7 +7,7 @@ use theme::*;
 
 const SIZE: f32 = 34.;
 
-fn stop_square(color: impl Into<Hsla>) -> Div {
+pub(super) fn stop_square(color: impl Into<Hsla>) -> Div {
     div().size(px(10.)).rounded(px(2.5)).bg(color.into())
 }
 

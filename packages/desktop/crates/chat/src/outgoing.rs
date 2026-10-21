@@ -291,7 +291,7 @@ impl Outgoing {
 /// A send on its way counts, as the agent takes it as a turn. `working` is pocketd's status: the transcript shows a stop
 /// at once where status trails it by up to a poll, so status decides only where the transcript can't, while it has no
 /// turn (not fetched yet, or dropped as pocketd restarted). A command just sent counts until it shows its end; see `settle`.
-/// Sub-agents left in the background don't: the agent takes a send as a new turn, and Esc doesn't stop them.
+/// Sub-agents left in the background don't: the agent takes a send as a new turn. The background tray stops them instead.
 pub fn busy(t: &Transcript, out: &Outgoing, working: bool) -> bool {
     out.sends.iter().any(|p| in_flight(p.delivery)) || out.command.is_some() || on_turn(t, working)
 }

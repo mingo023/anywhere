@@ -1,11 +1,12 @@
-use super::queue::surface;
+use super::queue::{control, surface};
+use super::send_button::stop_square;
 use crate::chat::sub_agent::{self, Mark};
 use crate::chat::tool_row::{self, Arg};
 use crate::chat::working::format_elapsed;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::util::now_ms;
-use chat::{Block, ToolCall, ToolKind, Transcript};
+use chat::{Block, Command, ToolCall, ToolKind, Transcript};
 use gpui_kit::*;
 use theme::*;
 
@@ -42,10 +43,16 @@ fn name(call: &ToolCall) -> String {
     }
 }
 
+/// Whether the tray offers Stop: the chat's own agent stops what it left in the background, where a terminal agent's Esc
+/// doesn't reach it. The composer offers Send meanwhile, as a send starts a new turn.
+pub(super) fn stops(chat_only: bool, interrupt: bool) -> bool {
+    chat_only && interrupt
+}
+
 impl Desktop {
     /// The tray over the box: the sub-agents and commands the agent left at work past their turn, each showing its row on a
-    /// click; none when nothing is. Folded, it's one line: how many, and the newest step.
-    pub(super) fn background_tray(&self, agent: &str, t: &Transcript, cx: &mut Context<Self>) -> Option<Div> {
+    /// click; none when nothing is. Folded, it's one line: how many, and the newest step. With `stop`, Stop ends them all.
+    pub(super) fn background_tray(&self, agent: &str, t: &Transcript, stop: bool, cx: &mut Context<Self>) -> Option<Div> {
         let tasks: Vec<_> = chat::in_background(&t.turns).collect();
         if tasks.is_empty() {
             return None;
@@ -68,6 +75,19 @@ impl Desktop {
             .child(icon("bot", 13., TEXT_2))
             .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(format!("{} in background", tasks.len())))
             .child(line(div().flex_1()).children(folded.then(|| newest(&calls)).flatten()))
+            .children(stop.then(|| {
+                let agent = agent.to_string();
+                control(format!("chat-background-stop:{agent}"), "Stop the background work")
+                    .px(px(8.))
+                    .gap(px(6.))
+                    .text_color(TEXT_2)
+                    .child(stop_square(TEXT_2).size(px(8.)).rounded(px(2.)))
+                    .child("Stop")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.chat_command(&agent, Command::Interrupt, cx);
+                    }))
+            }))
             .child(icon(if folded { "chevron-right" } else { "chevron-down" }, 13., TEXT_4))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.chats.composer.background_folded ^= true;
@@ -107,7 +127,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{doing, name, newest};
+    use super::{doing, name, newest, stops};
     use chat::{Block, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn call(kind: ToolKind, at: i64) -> ToolCall {
@@ -135,5 +155,12 @@ mod tests {
         let server = call(ToolKind::Shell { command: "bun run dev".into() }, 20);
         assert_eq!(newest(&[&a, &b, &server]).as_deref(), Some("Find left-pad"));
         assert_eq!(newest(&[&server]), None);
+    }
+
+    #[test]
+    fn a_chat_left_with_only_background_work_still_offers_a_stop() {
+        assert!(stops(true, true));
+        assert!(!stops(false, true), "a terminal agent's Esc doesn't reach what it left in the background");
+        assert!(!stops(true, false));
     }
 }
