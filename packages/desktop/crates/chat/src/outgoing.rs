@@ -156,6 +156,13 @@ impl Outgoing {
         if self.sends.len() < before {
             self.refused = false;
         }
+        // The agent drops a steer it hadn't taken when stopped; it waits in the queue for the user rather than going on its own.
+        if self.stopping.is_some() && idle {
+            for send in self.sends.iter_mut().filter(|s| s.delivery == Delivery::Steered && !command(&s.text)) {
+                send.delivery = Delivery::Queued;
+                self.after_stop = false;
+            }
+        }
         // A stop sent before its prompt echoed leaves pocketd idle at once, though the agent has yet to take the prompt.
         if !held(t, self, working) || self.stopping.is_some_and(|at| now_ms - at > STOP_MS) {
             self.stopping = None;
@@ -812,6 +819,32 @@ mod tests {
         let t = Transcript { turns: vec![stopped("u1", 150, "hello")] };
         o.settle(&t, false, 1_000);
         assert!(!busy(&t, &o, false) && !o.stopping());
+    }
+
+    #[test]
+    fn a_steer_the_stop_beat_goes_back_to_the_queue_paused() {
+        let mut o = Outgoing::default();
+        o.steer_text("refactor the parser".into(), 1_000);
+        o.stop(2_000);
+        o.settle(&open(0), true, 2_500);
+        assert!(o.stopping() && busy(&open(0), &o, true));
+        let ended = Transcript { turns: vec![stopped("u1", 0, "long job")] };
+        o.settle(&ended, false, 3_000);
+        assert_eq!(deliveries(&o), [Delivery::Queued], "the agent never took it");
+        assert!(!o.stopping() && !busy(&ended, &o, false), "the composer is free as soon as the stop lands");
+        assert!(o.paused(&ended) && released(&mut o).is_empty(), "it waits for the user");
+        o.settle(&ended, false, 300_000);
+        assert_eq!(deliveries(&o), [Delivery::Queued], "never reads as not delivered");
+    }
+
+    #[test]
+    fn a_steer_the_agent_took_before_the_stop_stays_in_the_transcript() {
+        let mut o = Outgoing::default();
+        o.steer_text("refactor the parser".into(), 1_000);
+        o.stop(2_000);
+        let ended = Transcript { turns: vec![turn("u1", 0, "long job", false), stopped("u2", 1_500, "refactor the parser")] };
+        o.settle(&ended, false, 3_000);
+        assert!(o.list().is_empty());
     }
 
     #[test]
