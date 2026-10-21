@@ -325,9 +325,21 @@ fn notice_label(calls: &[&chat::ToolCall]) -> String {
                 _ => format!("Background command `{command}` is done"),
             }
         }
-        _ if calls.iter().all(|c| matches!(c.kind, ToolKind::Agent(_))) => format!("{} subagents are done", calls.len()),
+        _ if all_agents(calls) => format!("{} subagents are done", calls.len()),
         _ => format!("{} background tasks are done", calls.len()),
     }
+}
+
+/// A label's text before, inside and after its code span; the outer backticks bound it, so a command may hold its own.
+fn code_span(label: &str) -> (&str, Option<&str>, &str) {
+    match label.split_once('`').and_then(|(before, rest)| Some((before, rest.rsplit_once('`')?))) {
+        Some((before, (code, after))) => (before, Some(code), after),
+        None => (label, None, ""),
+    }
+}
+
+fn all_agents(calls: &[&chat::ToolCall]) -> bool {
+    calls.iter().all(|c| matches!(c.kind, ToolKind::Agent(_)))
 }
 
 fn message(t: &Transcript, turn: usize, block: usize) -> Option<&Message> {
@@ -647,11 +659,18 @@ impl Desktop {
                     .text_size(px(13.))
                     .text_color(TEXT_3)
                     .whitespace_nowrap()
-                    .child(icon(if calls.iter().all(|c| matches!(c.kind, ToolKind::Agent(_))) { "agent-done" } else { "terminal" }, 14., TEXT_4))
-                    .child(div().min_w_0().flex().items_center().children(notice_label(&calls).split('`').enumerate().map(|(i, part)| {
-                        let part = div().child(part.to_string());
-                        if i % 2 == 1 { part.min_w_0().truncate().font_family(code_font()).text_size(px(12.)) } else { part.flex_none() }
-                    })));
+                    .child(icon(if all_agents(&calls) { "agent-done" } else { "terminal" }, 14., TEXT_4))
+                    .child({
+                        let label = notice_label(&calls);
+                        let (before, code, after) = code_span(&label);
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .items_center()
+                            .child(div().flex_none().child(before.to_string()))
+                            .children(code.map(|c| div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).child(c.to_string())))
+                            .child(div().flex_none().child(after.to_string()))
+                    });
                 match at {
                     Some((turn, block)) => {
                         let agent = agent.to_string();
@@ -796,7 +815,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Live, answer, content_width, in_fold, live_state, notice_label, phase_live, shown, stream_in, took};
+    use super::{Live, answer, code_span, content_width, in_fold, live_state, notice_label, phase_live, shown, stream_in, took};
     use chat::{Block, End, Message, Row, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -827,6 +846,12 @@ mod tests {
         let agent = call("Agent", ToolKind::Agent(SubAgent::default()), ToolStatus::Ok);
         assert_eq!(notice_label(&[&agent, &agent]), "2 subagents are done");
         assert_eq!(notice_label(&[&agent, &call("Bash", cmd(), ToolStatus::Ok)]), "2 background tasks are done");
+    }
+
+    #[test]
+    fn a_notice_keeps_a_command_with_backticks_in_one_code_span() {
+        assert_eq!(code_span("Background command `echo `date`` failed"), ("Background command ", Some("echo `date`"), " failed"));
+        assert_eq!(code_span("2 subagents are done"), ("2 subagents are done", None, ""));
     }
 
     #[test]
