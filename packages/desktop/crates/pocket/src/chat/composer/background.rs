@@ -116,7 +116,7 @@ mod tests {
 
     fn agent(task: &str, blocks: Vec<ToolCall>) -> ToolCall {
         let turn = Turn { id: "t".into(), prompt: None, blocks: blocks.into_iter().map(Block::Tool).collect(), end: None };
-        call(ToolKind::Agent(SubAgent { description: task.into(), transcript: Transcript { turns: vec![turn] } }), 0)
+        call(ToolKind::Agent(SubAgent { description: task.into(), transcript: Transcript { turns: vec![turn] }, ..Default::default() }), 0)
     }
 
     #[test]

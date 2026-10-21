@@ -197,6 +197,8 @@ pub struct Detail {
     pub path: String,
     pub query: String,
     pub description: String,
+    /// A `task`'s model: the alias it was called with, then the full id once it replies.
+    pub model: String,
     pub name: String,
     pub diff: Option<FileDiff>,
     /// An `other` tool's whole input.
@@ -298,6 +300,7 @@ struct Frame {
     names: HashMap<String, String>,
     locals: Vec<Local>,
     commands: Vec<Command>,
+    answer: String,
     version: String,
     #[serde(deserialize_with = "automations::known")]
     automations: Vec<Automation>,
@@ -359,6 +362,8 @@ pub enum Event {
     InterruptFailed { agent: String, reason: String },
     /// The slash commands the agent offers; empty when pocketd couldn't list them.
     Commands { agent: String, commands: Vec<Command> },
+    /// The answer to the side question `request` asked, or why there's none.
+    Btw { request: String, answer: Result<String, String> },
 }
 
 #[derive(Default)]
@@ -441,8 +446,9 @@ impl Agents {
                 *self.revisions.entry(id.clone()).or_default() += 1;
                 let t = self.timelines.entry(id).or_default();
                 for item in items {
-                    match t.iter_mut().find(|x| x.id == item.id) {
-                        Some(x) => *x = item,
+                    // A streaming draft rewrites the newest item, so look from the end.
+                    match t.iter().rposition(|x| x.id == item.id) {
+                        Some(ix) => t[ix] = item,
                         None => t.push(item),
                     }
                 }
@@ -476,7 +482,7 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
-            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } => {}
+            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Btw { .. } => {}
         }
     }
 
@@ -613,6 +619,11 @@ pub fn model_label(a: &Summary) -> String {
         let mut p = a.provider.chars();
         return p.next().map(|c| c.to_uppercase().chain(p).collect()).unwrap_or_default();
     };
+    model_name(model)
+}
+
+/// "claude-haiku-4-5-20251001" reads as "Haiku 4.5", "haiku" as "Haiku".
+pub fn model_name(model: &str) -> String {
     let mut words = model.strip_prefix("claude-").unwrap_or(model).split('-').filter(|w| w.len() < 8);
     let family = words.next().unwrap_or_default();
     let mut f = family.chars();
@@ -670,6 +681,7 @@ const SETTINGS: &str = "settings";
 const AUTO: &str = "auto-";
 const PROMPT: &str = "prompt-";
 const COMMANDS: &str = "commands-";
+const BTW: &str = "btw-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
@@ -706,6 +718,8 @@ fn names_event(f: &Frame) -> Option<Event> {
         "naming.failed" => Some(Event::NamingFailed(f.agent_id.clone())),
         "local.list" => Some(Event::Locals(f.locals.clone())),
         "agent.commands" => Some(Event::Commands { agent: f.agent_id.clone(), commands: f.commands.clone() }),
+        "agent.btw" => Some(Event::Btw { request: f.id.clone(), answer: Ok(f.answer.clone()) }),
+        "error" if f.id.starts_with(BTW) => Some(Event::Btw { request: f.id.clone(), answer: Err(readable(&f.message)) }),
         "error" => Some(Event::Commands { agent: f.id.strip_prefix(COMMANDS)?.to_string(), commands: Vec::new() }),
         _ => None,
     }
@@ -726,6 +740,18 @@ fn automation_event(f: &Frame) -> Option<Event> {
         "error" if f.id.starts_with(AUTO) => Some(Event::AutomationError(readable(&f.message))),
         _ => None,
     }
+}
+
+/// `events` with each run of items for the same chat as one, so a burst of streamed drafts redraws once.
+pub fn coalesce(events: Vec<Event>) -> Vec<Event> {
+    let mut out: Vec<Event> = Vec::with_capacity(events.len());
+    for ev in events {
+        match (out.last_mut(), ev) {
+            (Some(Event::Items(last, items)), Event::Items(id, more)) if *last == id => items.extend(more),
+            (_, ev) => out.push(ev),
+        }
+    }
+    out
 }
 
 /**
@@ -780,6 +806,13 @@ impl Outbox {
     /// Asks for the agent's slash commands; a pocketd that can't list them answers with an empty `Commands`.
     pub fn commands(&self, agent_id: &str) {
         self.send(json!({"type": "agent.commands", "id": format!("{COMMANDS}{agent_id}"), "agentId": agent_id}));
+    }
+
+    /// Asks the agent a side question; returns the request id its `Btw` event names.
+    pub fn btw(&self, agent_id: &str, question: &str) -> String {
+        let id = format!("{BTW}{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        self.send(json!({"type": "agent.btw", "id": id, "agentId": agent_id, "text": question}));
+        id
     }
 
     /// Switches the agent's model, effort or both; "" keeps one as it is.
@@ -917,8 +950,9 @@ fn hello(token: Option<&str>) -> Value {
 fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
     let (mut ws, _) = tungstenite::client("ws://localhost/", stream).ok()?;
-    // Reads time out so the loop gets to send the queue even while pocketd is quiet.
-    ws.get_ref().set_read_timeout(Some(Duration::from_millis(100))).ok()?;
+    // Reads time out so the loop gets to send the queue even while pocketd is quiet; the timeout is as long as a
+    // send can wait, so it stays short.
+    ws.get_ref().set_read_timeout(Some(Duration::from_millis(10))).ok()?;
     ws.send(Message::text(hello(token).to_string())).ok()?;
     for m in unanswered.iter() {
         ws.send(Message::text(m.to_string())).ok()?;
@@ -1132,6 +1166,18 @@ mod tests {
         a.apply(Event::Items("a".into(), vec![item("2", 2, "b!")]));
         let t: Vec<_> = a.timelines["a"].iter().map(|i| i.text.as_str()).collect();
         assert_eq!(t, vec!["a", "b!"]);
+    }
+
+    #[test]
+    fn a_burst_of_items_for_one_chat_lands_as_one_event_with_the_last_draft_winning() {
+        let item = |id: &str, seq, text: &str| Item { id: id.into(), seq, kind: "assistant".into(), text: text.into(), ..Default::default() };
+        let items = |id: &str, it: Item| Event::Items(id.into(), vec![it]);
+        let events = coalesce(vec![items("a", item("1", 1, "h")), items("a", item("1", 1, "hi")), items("b", item("1", 1, "x")), items("a", item("2", 2, "yo"))]);
+        assert_eq!(events.len(), 3, "a different chat between keeps the order");
+        let mut a = Agents::default();
+        events.into_iter().for_each(|ev| a.apply(ev));
+        let t: Vec<_> = a.timelines["a"].iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(t, ["hi", "yo"]);
     }
 
     #[test]
@@ -1907,6 +1953,14 @@ mod tests {
         let Some(Event::Commands { agent, commands }) = names_event(&f) else { panic!("no commands") };
         assert_eq!((agent.as_str(), commands.len()), ("a1", 2));
         assert_eq!((commands[1].name.as_str(), commands[1].argument_hint.as_str()), ("review", "<pr>"));
+    }
+
+    #[test]
+    fn a_side_answer_or_its_refusal_reaches_its_agent() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_btw.json")).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::Btw { request, answer: Ok(a) }) if request == "b1" && a == "It reads the config once at start."));
+        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"btw-7","message":"The agent had no answer"}"#).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::Btw { request, answer: Err(e) }) if request == "btw-7" && e == "The agent had no answer"));
     }
 
     #[test]

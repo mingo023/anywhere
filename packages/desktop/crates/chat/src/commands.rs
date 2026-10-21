@@ -17,6 +17,8 @@ pub enum Local {
     Effort,
     Compact,
     New,
+    /// A side question, answered beside the conversation.
+    Btw,
 }
 
 /// A command an agent offers before its CLI lists any.
@@ -110,6 +112,7 @@ mod tests {
         assert_eq!(claude.command("model", ""), Kind::Local(Local::Model));
         assert_eq!(claude.command("model", "haiku"), Kind::Local(Local::Model));
         assert_eq!(claude.command("compact", ""), Kind::Local(Local::Compact));
+        assert_eq!(claude.command("btw", "why?"), Kind::Local(Local::Btw));
         assert_eq!(claude.command("compact", "keep the plan"), Kind::Send, "an instruction only Claude can take");
         assert_eq!(claude.command("clear", ""), Kind::Unsupported);
         assert_eq!(claude.command("cost", ""), Kind::Unsupported);
@@ -138,7 +141,7 @@ mod tests {
     #[test]
     fn the_menu_puts_the_agents_own_first_then_its_list_without_panels_or_twins() {
         let rows = menu(for_provider("claude"), &listed(&["goal", "cost", "clear", "review"]), "");
-        assert_eq!(names(&rows), ["model", "effort", "compact", "goal", "review"]);
+        assert_eq!(names(&rows), ["model", "effort", "compact", "btw", "goal", "review"]);
         assert_eq!(rows[0].kind, Kind::Local(Local::Model));
     }
 

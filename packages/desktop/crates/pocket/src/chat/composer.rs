@@ -1,6 +1,7 @@
 mod access_pill;
 pub(crate) mod attachments;
 mod background;
+pub(crate) mod btw;
 mod goal;
 mod model_pill;
 mod queue;
@@ -22,6 +23,7 @@ use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
+use std::collections::HashMap;
 use theme::*;
 use workspace::Place;
 
@@ -103,6 +105,8 @@ pub(crate) struct ComposerState {
     pub(crate) suggest: suggest::Suggest,
     /// Whether the background tray shows one line rather than its tasks; every chat's tray folds with it.
     pub(crate) background_folded: bool,
+    /// Each chat's side question, by agent.
+    pub(crate) btw: HashMap<String, btw::Btw>,
 }
 
 impl ComposerState {
@@ -130,6 +134,7 @@ impl ComposerState {
             placeholder: Cell::new(PLACEHOLDER),
             suggest: Default::default(),
             background_folded: false,
+            btw: HashMap::new(),
         };
         (state, subs)
     }
@@ -315,7 +320,8 @@ impl Desktop {
         }
         let request = self.outbox.prompt(&agent, &text);
         if let Some(v) = self.chats.views.get_mut(&agent) {
-            if let Some((send, request)) = v.session.outgoing.push(text, false, now_ms()).zip(request) {
+            let send = v.session.outgoing.steer_text(text, now_ms());
+            if let Some(request) = request {
                 v.session.outgoing.sent_as(send, request);
             }
             v.steered();
@@ -336,6 +342,8 @@ impl Desktop {
             (Local::Effort, effort) => self.outbox.settings(agent, "", effort),
             (Local::Compact, _) => self.chat_command(agent, Command::Compact, cx),
             (Local::New, _) => self.new_chat_tab(Place::Pane(None), cx),
+            (Local::Btw, "") => {}
+            (Local::Btw, question) => self.chat_btw_ask(agent, question),
         }
         cx.notify();
     }
@@ -424,12 +432,13 @@ impl Desktop {
         let goal = (mode == Mode::Prompt).then(|| self.goal_strip(agent, cx)).flatten();
         let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, cx))).flatten();
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
+        let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
         let (typed, images) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && images.is_empty();
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
         let footer = self.composer_footer(agent, hint(mode, busy, stopping, empty, can_queue), said, asking);
-        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(goal).children(background).children(tray).child(body).child(footer).children(handoff);
+        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(goal).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 

@@ -56,6 +56,8 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "PrevSession" => ("Previous session", Sessions),
         "JumpTo" => ("Jump to session", Sessions),
         "AddToChat" => ("Add selection to chat", Sessions),
+        "PrevPrompt" => ("Previous prompt in chat", Sessions),
+        "NextPrompt" => ("Next prompt in chat", Sessions),
         "OpenPalette" => ("Command palette", Navigation),
         "GoToFile" => ("Go to file", Navigation),
         "OpenAutomations" => ("Go to Automations", Navigation),

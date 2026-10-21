@@ -130,7 +130,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         }
         Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } => t(agent),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
-        Event::Connected { .. } | Event::SettingsFailed(_) => {}
+        Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } => {}
         Event::Host(_)
         | Event::PairCode { .. }
         | Event::Paired(_)
@@ -238,6 +238,11 @@ impl Outboxes {
 
     pub fn commands(&self, agent_id: &str) {
         self.by_id(agent_id, |o, id| o.commands(id));
+    }
+
+    pub fn btw(&self, agent_id: &str, question: &str) -> Option<String> {
+        let (host, theirs) = untag(agent_id);
+        self.to(host).map(|out| out.btw(theirs, question))
     }
 
     pub fn resolve(&self, request_id: &str, decision: Decision) {

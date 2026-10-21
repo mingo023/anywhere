@@ -30,6 +30,7 @@ impl Backend for Claude {
             "effort" => Kind::Local(Local::Effort),
             "compact" if arg.is_empty() => Kind::Local(Local::Compact),
             "new" => Kind::Local(Local::New),
+            "btw" => Kind::Local(Local::Btw),
             "clear" | "reset" | "resume" => Kind::Unsupported,
             "add-dir" if arg.is_empty() => Kind::Unsupported,
             _ if PANELS.contains(&name) => Kind::Unsupported,
@@ -46,6 +47,7 @@ const BUILTINS: &[Builtin] = &[
     Builtin { name: "model", hint: "[model]", description: "Set the model" },
     Builtin { name: "effort", hint: "[level]", description: "Set the reasoning effort" },
     Builtin { name: "compact", hint: "[instructions]", description: "Summarize the conversation to free up context" },
+    Builtin { name: "btw", hint: "[question]", description: "Ask a quick side question without interrupting" },
     Builtin { name: "goal", hint: "[<condition> | clear]", description: "Keep working until the condition is met" },
 ];
 

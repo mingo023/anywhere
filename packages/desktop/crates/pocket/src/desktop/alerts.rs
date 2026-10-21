@@ -155,6 +155,9 @@ impl Desktop {
             self.chats.composer.suggest.listed(agent, commands);
             return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
         }
+        if let Event::Btw { request, answer } = ev {
+            return self.chat_btw_answered(&request, answer, cx);
+        }
         if let Event::NamingFailed(_) = ev {
             self.error = Some("Couldn't name the session from its prompt".into());
             return cx.notify();

@@ -1,9 +1,11 @@
-use crate::rows::at_work;
-use crate::{End, Transcript};
+use crate::rows::{at_work, in_background};
+use crate::{End, ToolKind, Transcript};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Delivery {
     Sending,
+    /// Sent into the turn underway, which takes it at its next step: it shows as sent, nothing to wait on.
+    Steered,
     /// Held here while the agent works, unsent; it goes out when the turn ends, or when steered.
     Queued,
     Failed,
@@ -35,7 +37,8 @@ const COMMAND_MS: i64 = 60_000;
 /// The longest a stop reads as under way, should the turn never show it ended.
 const STOP_MS: i64 = 10_000;
 
-/// A command that went out. Claude echoes none, so only pocketd's status, or the timeline moving, tells what it did.
+/// A command that went out. One that takes a turn echoes as its prompt; one that doesn't shows only in pocketd's status,
+/// or the timeline moving.
 #[derive(Clone, Copy, Debug)]
 struct Ran {
     at: i64,
@@ -71,6 +74,8 @@ pub struct Outgoing {
     command: Option<Ran>,
     /// When the user stopped the agent, until the turn shows it ended.
     stopping: Option<i64>,
+    /// A send was queued while stopping: the user means to go on once the stop lands.
+    after_stop: bool,
 }
 
 impl Outgoing {
@@ -79,12 +84,22 @@ impl Outgoing {
     pub fn push(&mut self, text: String, working: bool, now_ms: i64) -> Option<u64> {
         if !working && command(&text) {
             self.command = Some(Ran::new(now_ms));
-            return None;
         }
         let delivery = if working { Delivery::Queued } else { Delivery::Sending };
+        self.after_stop |= working && self.stopping.is_some();
         self.next_id += 1;
         self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery, request: None });
         (!working).then_some(self.next_id)
+    }
+
+    /// Sends `text` into the turn underway; returns its id. A command shows too, until the turn it waits behind ends.
+    pub fn steer_text(&mut self, text: String, now_ms: i64) -> u64 {
+        if command(&text) {
+            self.command = Some(Ran::new(now_ms));
+        }
+        self.next_id += 1;
+        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery: Delivery::Steered, request: None });
+        self.next_id
     }
 
     /// Notes the id send `id` went to pocketd under.
@@ -111,6 +126,9 @@ impl Outgoing {
                 self.command = None;
             }
         }
+        // A command steered in echoes nothing; it runs once the turn it came into ends.
+        let since = self.idle_since;
+        self.sends.retain(|s| !(s.delivery == Delivery::Steered && command(&s.text) && ((idle && s.sent_at <= since) || now_ms - s.sent_at > COMMAND_MS)));
         let (claimed, before) = (&mut self.claimed, self.sends.len());
         self.sends.retain(|send| {
             if send.delivery == Delivery::Queued {
@@ -128,6 +146,10 @@ impl Outgoing {
             claimed.push(prompt.id.clone());
             false
         });
+        // A command that never echoes goes once it reads as done.
+        if self.command.is_none() {
+            self.sends.retain(|s| !(s.delivery == Delivery::Sending && command(&s.text)));
+        }
         if claimed.len() > CLAIMED {
             claimed.drain(..claimed.len() - CLAIMED);
         }
@@ -135,20 +157,24 @@ impl Outgoing {
             self.refused = false;
         }
         // A stop sent before its prompt echoed leaves pocketd idle at once, though the agent has yet to take the prompt.
-        if !busy(t, self, working) || self.stopping.is_some_and(|at| now_ms - at > STOP_MS) {
+        if !held(t, self, working) || self.stopping.is_some_and(|at| now_ms - at > STOP_MS) {
             self.stopping = None;
+        }
+        if self.after_stop && self.stopping.is_none() {
+            self.after_stop = false;
+            self.resume(t);
         }
         if !idle {
             return;
         }
         for send in &mut self.sends {
-            if send.delivery == Delivery::Sending && now_ms - send.sent_at.max(self.idle_since) > GRACE_MS {
+            if in_flight(send.delivery) && !command(&send.text) && now_ms - send.sent_at.max(self.idle_since) > GRACE_MS {
                 send.delivery = Delivery::Failed;
             }
         }
-        if !self.paused(t) && !busy(t, self, working) {
+        if !self.paused(t) && !held(t, self, working) {
             let id = self.sends.iter().find(|s| s.delivery == Delivery::Queued).map(|s| s.id);
-            if let Some((id, text)) = id.and_then(|id| Some((id, self.steer(id, now_ms)?))) {
+            if let Some((id, text)) = id.and_then(|id| Some((id, self.release(id, now_ms, Delivery::Sending)?))) {
                 self.released.push((id, text));
             }
         }
@@ -161,12 +187,15 @@ impl Outgoing {
 
     /// Lets a queued send go now, even mid-turn; returns its text to send.
     pub fn steer(&mut self, id: u64, now_ms: i64) -> Option<String> {
+        self.release(id, now_ms, Delivery::Steered)
+    }
+
+    fn release(&mut self, id: u64, now_ms: i64, delivery: Delivery) -> Option<String> {
         let send = self.sends.iter_mut().find(|s| s.id == id && s.delivery == Delivery::Queued)?;
         if command(&send.text) {
             self.command = Some(Ran::new(now_ms));
-            return self.take(id, Delivery::Queued);
         }
-        (send.delivery, send.sent_at) = (Delivery::Sending, now_ms);
+        (send.delivery, send.sent_at) = (delivery, now_ms);
         Some(send.text.clone())
     }
 
@@ -187,7 +216,7 @@ impl Outgoing {
 
     /// Fails the send that went under `request` at once: the agent refused it. The queue waits until a send gets through or the user resumes.
     pub fn fail(&mut self, request: &str) {
-        if let Some(send) = self.sends.iter_mut().find(|s| s.delivery == Delivery::Sending && s.request.as_deref() == Some(request)) {
+        if let Some(send) = self.sends.iter_mut().find(|s| in_flight(s.delivery) && s.request.as_deref() == Some(request)) {
             send.delivery = Delivery::Failed;
             self.refused = true;
         }
@@ -210,7 +239,7 @@ impl Outgoing {
 
     /// Takes out every send that won't reach the agent unless sent again, queued or failed, oldest first.
     pub fn drain(&mut self) -> Vec<String> {
-        let (sending, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.sends).into_iter().partition(|s| s.delivery == Delivery::Sending);
+        let (sending, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.sends).into_iter().partition(|s| in_flight(s.delivery));
         self.sends = sending;
         rest.into_iter().map(|s| s.text).collect()
     }
@@ -253,15 +282,25 @@ impl Outgoing {
 /// A send on its way counts, as the agent takes it as a turn. `working` is pocketd's status: the transcript shows a stop
 /// at once where status trails it by up to a poll, so status decides only where the transcript can't, while it has no
 /// turn (not fetched yet, or dropped as pocketd restarted). A command just sent counts until it shows its end; see `settle`.
+/// A sub-agent at work in the background counts too, so a send steers into the session rather than waiting on it.
 pub fn busy(t: &Transcript, out: &Outgoing, working: bool) -> bool {
-    out.sends.iter().any(|p| p.delivery == Delivery::Sending) || out.command.is_some() || on_turn(t, working)
+    held(t, out, working) || in_background(&t.turns).any(|(_, _, c)| matches!(c.kind, ToolKind::Agent(_)))
+}
+
+/// `busy` but for background sub-agents, which hold no queued send back: what the queue waits on.
+fn held(t: &Transcript, out: &Outgoing, working: bool) -> bool {
+    out.sends.iter().any(|p| in_flight(p.delivery)) || out.command.is_some() || on_turn(t, working)
+}
+
+fn in_flight(d: Delivery) -> bool {
+    matches!(d, Delivery::Sending | Delivery::Steered)
 }
 
 fn on_turn(t: &Transcript, working: bool) -> bool {
     if t.turns.is_empty() { working } else { at_work(t) }
 }
 
-/// A slash command, which Claude runs without echoing a prompt; a prompt may start with a path instead.
+/// A slash command, which Claude may run without echoing a prompt; a prompt may start with a path instead.
 fn command(text: &str) -> bool {
     crate::slash(text).is_some()
 }
@@ -476,9 +515,9 @@ mod tests {
         o.push("b".into(), true, 0);
         assert_eq!(o.steer(id(&o, "b"), 50_000), Some("b".into()));
         assert_eq!(o.steer(id(&o, "b"), 50_000), None, "steered once");
-        assert_eq!(deliveries(&o), vec![Delivery::Queued, Delivery::Sending]);
+        assert_eq!(deliveries(&o), vec![Delivery::Queued, Delivery::Steered]);
         o.settle(&Transcript { turns: vec![turn("u1", 0, "long job", false)] }, false, 50_100);
-        assert_eq!(deliveries(&o), vec![Delivery::Queued, Delivery::Sending]);
+        assert_eq!(deliveries(&o), vec![Delivery::Queued, Delivery::Steered]);
     }
 
     #[test]
@@ -560,7 +599,7 @@ mod tests {
         let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
         o.settle(&ended, false, 1_000);
         assert_eq!(released(&mut o), ["/compact"]);
-        assert_eq!(texts(&o), ["next"], "Claude echoes no prompt for a command");
+        assert_eq!(texts(&o), ["/compact", "next"]);
         o.moved();
         o.settle(&ended, false, 1_100);
         assert_eq!(released(&mut o), ["next"]);
@@ -669,11 +708,11 @@ mod tests {
         o.push("b".into(), true, 0);
         o.steer(id(&o, "b"), 50_000);
         o.settle(&Transcript { turns: vec![turn("u1", 0, "long job", false)] }, false, 600_000);
-        assert_eq!(deliveries(&o), vec![Delivery::Sending], "Claude holds it until its turn ends");
+        assert_eq!(deliveries(&o), vec![Delivery::Steered], "Claude holds it until its turn ends");
         let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
         o.settle(&ended, false, 601_000);
         o.settle(&ended, false, 721_000);
-        assert_eq!(deliveries(&o), vec![Delivery::Sending], "two minutes from when the agent was seen idle");
+        assert_eq!(deliveries(&o), vec![Delivery::Steered], "two minutes from when the agent was seen idle");
         o.settle(&ended, false, 721_001);
         assert_eq!(deliveries(&o), vec![Delivery::Failed], "an unsent prompt still fails after 120s idle");
     }
@@ -694,7 +733,7 @@ mod tests {
     fn a_command_just_sent_reads_as_work_before_status_shows_it() {
         let mut o = Outgoing::default();
         let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
-        assert_eq!(o.push("/compact".into(), false, 0), None);
+        o.push("/compact".into(), false, 0);
         assert!(busy(&ended, &o, false), "status trails it by a poll");
         o.settle(&ended, true, 1_000);
         assert!(busy(&ended, &o, true));
@@ -702,6 +741,7 @@ mod tests {
         assert!(o.list().is_empty(), "never Sending, never Failed");
         o.push("/compact".into(), false, 300_000);
         o.moved();
+        o.settle(&ended, true, 300_001);
         assert!(!busy(&ended, &o, true), "once the timeline moves the transcript decides again");
     }
 
@@ -846,7 +886,63 @@ mod tests {
         let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
         o.push("/compact".into(), true, 0);
         o.steer(id(&o, "/compact"), 0);
-        assert!(o.list().is_empty() && busy(&ended, &o, true));
+        assert_eq!(deliveries(&o), [Delivery::Steered]);
+        assert!(busy(&ended, &o, true));
+    }
+
+    #[test]
+    fn a_command_shows_as_sending_until_its_turn_echoes_it() {
+        let mut o = Outgoing::default();
+        o.push("/goal tests pass".into(), false, 0);
+        o.settle(&Transcript::default(), false, 1_000);
+        assert_eq!(deliveries(&o), [Delivery::Sending], "a chat just made shows it while Claude starts");
+        o.moved();
+        o.settle(&Transcript { turns: vec![turn("u1", 2_000, "/goal tests pass", false)] }, true, 2_500);
+        assert!(o.list().is_empty());
+    }
+
+    #[test]
+    fn a_steer_shows_as_sent_and_settles_by_its_echo() {
+        let mut o = Outgoing::default();
+        o.steer_text("also check the docs".into(), 1_000);
+        assert_eq!(deliveries(&o), vec![Delivery::Steered]);
+        o.settle(&open(0), true, 2_000);
+        assert_eq!(o.echoed().count(), 1);
+        o.settle(&Transcript { turns: vec![turn("u1", 0, "long job", true), turn("u2", 1_500, "also check the docs", false)] }, true, 3_000);
+        assert!(o.list().is_empty());
+    }
+
+    #[test]
+    fn a_command_steered_mid_turn_shows_until_the_turn_ends() {
+        let mut o = Outgoing::default();
+        o.steer_text("/compact".into(), 1_000);
+        o.settle(&open(0), true, 5_000);
+        assert_eq!(texts(&o), ["/compact"]);
+        o.settle(&Transcript { turns: vec![turn("u1", 0, "long job", true)] }, false, 6_000);
+        assert!(o.list().is_empty(), "it runs now, echoing nothing");
+    }
+
+    #[test]
+    fn a_send_queued_while_stopping_goes_once_the_stop_lands() {
+        let mut o = Outgoing::default();
+        o.stop(1_000);
+        o.push("next".into(), true, 1_500);
+        o.settle(&open(0), true, 2_000);
+        assert!(released(&mut o).is_empty());
+        o.settle(&Transcript { turns: vec![stopped("u1", 0, "long job")] }, false, 3_000);
+        assert_eq!(released(&mut o), ["next"], "no Resume to press");
+    }
+
+    #[test]
+    fn a_sub_agent_in_the_background_keeps_the_chat_busy_but_holds_no_queue() {
+        use crate::{Block, SubAgent, ToolCall, ToolStatus};
+        let agent = Block::Tool(ToolCall { id: "a".into(), name: String::new(), kind: ToolKind::Agent(SubAgent::default()), status: ToolStatus::Running, output: None, duration_ms: None, at: 0 });
+        let t = Transcript { turns: vec![Turn { blocks: vec![agent], ..turn("u1", 0, "audit", true) }] };
+        let mut o = Outgoing::default();
+        o.push("next".into(), true, 0);
+        assert!(busy(&t, &o, false));
+        o.settle(&t, false, 1_000);
+        assert_eq!(released(&mut o), ["next"]);
     }
 
     #[test]

@@ -714,6 +714,15 @@ impl ListState {
         cursor.try_fold(px(0.), |height, item| Some(height + item.size()?.height))
     }
 
+    /// The height of the items from `ix` on as last laid out: an item being remeasured keeps its last height, and
+    /// one never measured counts as nothing.
+    pub fn laid_out_height_from(&self, ix: usize) -> Pixels {
+        let state = &*self.0.borrow();
+        let mut cursor = state.items.cursor::<Count>(());
+        cursor.seek(&Count(ix), Bias::Right);
+        cursor.fold(px(0.), |height, item| height + item.size_hint().map_or(px(0.), |size| size.height))
+    }
+
     /// Get the bounds for the given item in window coordinates, if it's
     /// been rendered.
     pub fn bounds_for_item(&self, ix: usize) -> Option<Bounds<Pixels>> {

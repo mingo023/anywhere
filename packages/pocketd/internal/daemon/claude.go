@@ -425,9 +425,10 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 		defer close(done)
 		var spawns sync.Map
 		subagents := make(chan struct{})
+		kick := make(chan struct{}, 1)
 		go func() {
 			defer close(subagents)
-			claude.TailSubagents(ctx, path, func(id string) bool {
+			claude.TailSubagents(ctx, path, kick, func(id string) bool {
 				_, ok := spawns.Load(id)
 				return ok
 			}, func(events []timeline.Event) {
@@ -464,6 +465,13 @@ func (d *Daemon) tail(pr *presence, path, hookModel string) (stop func()) {
 			for _, e := range events {
 				if e.Kind == "tool_start" {
 					spawns.Store(e.ToolUseID, true)
+					// A sub-agent's transcript starts with its call, so look for it now.
+					if e.Name == "Task" || e.Name == "Agent" {
+						select {
+						case kick <- struct{}{}:
+						default:
+						}
+					}
 				}
 				d.dismissAnswered(pr.a.ID(), keys, e)
 				if e.Kind == "user" {

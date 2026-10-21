@@ -50,6 +50,7 @@ var serverGolden = map[string]any{
 		{Name: "goal", Description: "Set a goal — keep working until the condition is met"},
 		{Name: "review", Description: "Review a pull request", ArgumentHint: "<pr>"},
 	}),
+	"agent_btw": NewAgentBtw("b1", "a1", "It reads the config once at start."),
 	"agent_list_restored": NewAgentList("l1", []AgentSummary{
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),

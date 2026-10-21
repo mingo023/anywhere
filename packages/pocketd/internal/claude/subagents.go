@@ -25,15 +25,20 @@ func MapSubagent(raw []byte, parent string) []timeline.Event {
 	for i := range events {
 		events[i].ParentToolUseID = parent
 	}
+	// Only the sub-agent's answers name the model it runs on; its parent's call shows it.
+	if l.Type == "assistant" && l.Message.Model != "" && l.Message.Model != "<synthetic>" {
+		events = append([]timeline.Event{{Kind: "tool_model", ToolUseID: parent, Name: l.Message.Model}}, events...)
+	}
 	return events
 }
 
 // TailSubagents tails each sub-agent transcript Claude writes beside the
 // conversation at path once spawned has seen the tool call that started it,
 // so its items never come before their parent's. fn gets each line's events,
-// from one goroutine per sub-agent. It returns when ctx ends and every tail
-// has read what was written.
-func TailSubagents(ctx context.Context, path string, spawned func(toolUseID string) bool, fn func([]timeline.Event)) {
+// from one goroutine per sub-agent. A send on kick scans at once, as for a
+// call that just spawned one. It returns when ctx ends and every tail has
+// read what was written.
+func TailSubagents(ctx context.Context, path string, kick <-chan struct{}, spawned func(toolUseID string) bool, fn func([]timeline.Event)) {
 	dir := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
 	var wg sync.WaitGroup
 	defer wg.Wait()
@@ -62,6 +67,7 @@ func TailSubagents(ctx context.Context, path string, spawned func(toolUseID stri
 		select {
 		case <-ctx.Done():
 			return
+		case <-kick:
 		case <-time.After(scan):
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/state"
+	"pocketd/internal/timeline"
 )
 
 // stream is the stdio of an agent that `pocketd pipe` runs for the chat. A
@@ -29,6 +30,7 @@ type stream struct {
 	asks     map[string]context.CancelFunc // claude's open can_use_tool requests by id
 	stopping bool                          // a stop is under way, so the turn's result is no turn end
 	next     int
+	messages int // messages claude has streamed, to name each block it drafts
 }
 
 func newStream() *stream {
@@ -94,6 +96,10 @@ var errNoReply = errors.New("The agent didn't answer")
 
 // control sends claude a control request and waits for its answer.
 func (s *stream) control(ctx context.Context, request any) (json.RawMessage, error) {
+	return s.controlFor(ctx, request, ControlWait)
+}
+
+func (s *stream) controlFor(ctx context.Context, request any, wait time.Duration) (json.RawMessage, error) {
 	s.mu.Lock()
 	s.next++
 	id := "pocket-" + strconv.Itoa(s.next)
@@ -112,7 +118,7 @@ func (s *stream) control(ctx context.Context, request any) (json.RawMessage, err
 			return nil, errors.New(a.err)
 		}
 		return a.body, nil
-	case <-time.After(ControlWait):
+	case <-time.After(wait):
 		return nil, errNoReply
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -168,6 +174,28 @@ func (s *stream) stopped(starting bool) bool {
 	stopped := s.stopping
 	s.stopping = false
 	return stopped && !starting
+}
+
+// draft is the text a stream event adds to the block claude is writing; the
+// transcript writes the whole block later, in its place.
+func (s *stream) draft(l streamLine) (timeline.Event, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ev := l.Event
+	if ev.Type == "message_start" {
+		s.messages++
+	}
+	if ev.Type != "content_block_delta" {
+		return timeline.Event{}, false
+	}
+	block := strconv.Itoa(s.messages) + ":" + strconv.Itoa(ev.Index)
+	switch {
+	case ev.Delta.Type == "text_delta" && ev.Delta.Text != "":
+		return timeline.Event{Kind: "assistant_draft", Text: ev.Delta.Text, Draft: block}, true
+	case ev.Delta.Type == "thinking_delta" && ev.Delta.Thinking != "":
+		return timeline.Event{Kind: "thinking_draft", Text: ev.Delta.Thinking, Draft: block}, true
+	}
+	return timeline.Event{}, false
 }
 
 func midTurn(status string) bool { return status == "working" || status == "needsYou" }
@@ -232,6 +260,17 @@ type streamLine struct {
 	PermissionMode string `json:"permissionMode"`
 	Status         string `json:"status"`
 	IsError        bool   `json:"is_error"`
+	// A stream_event's: what claude streams of the message it writes, when run with --include-partial-messages.
+	Event struct {
+		Type  string `json:"type"`
+		Index int    `json:"index"`
+		Delta struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking string `json:"thinking"`
+		} `json:"delta"`
+	} `json:"event"`
+	ParentToolUseID *string `json:"parent_tool_use_id"`
 }
 
 type canUseTool struct {
@@ -266,6 +305,10 @@ func (d *Daemon) streamLine(pr *presence, text string) {
 		d.resumed(pr, l.SessionID)
 	case l.Type == "system" && l.Subtype == "status" && l.Status == "compacting":
 		pr.a.SetCompacting()
+	case l.Type == "stream_event" && l.ParentToolUseID == nil:
+		if e, ok := s.draft(l); ok {
+			pr.a.Record(e)
+		}
 	case l.Type == "result":
 		// A stop already ended the turn it ends.
 		if !s.stopped(false) {
@@ -352,18 +395,62 @@ func (c streamDriver) Prompt(text string) error {
 	return nil
 }
 
+// Interrupt stops the turn and what it left running in the background.
+// Claude may write no notification for a task it stops, so the call ends here.
+// Tasks stop at once, so a silent claude costs one ControlWait, not one per task.
 func (c streamDriver) Interrupt() error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
 	c.a.Stop()
 	c.pr.stream.stop()
+	ids := c.a.Timeline.Lasting()
+	stopped := make([]bool, len(ids))
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Go(func() {
+			_, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "stop_task", "task_id": id})
+			stopped[i] = err == nil
+		})
+	}
+	wg.Wait()
+	tasks := 0
+	for i, id := range ids {
+		if stopped[i] {
+			c.a.Record(timeline.Event{Kind: "tool_end", TaskID: id, OK: true})
+			tasks++
+		}
+	}
 	if _, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "interrupt"}); err != nil {
 		c.pr.stream.stopped(true)
-		return err
+		// An idle claude may refuse the interrupt; stopping its tasks was the stop.
+		if tasks == 0 {
+			return err
+		}
 	}
 	c.d.cleared(c.pr)
 	return nil
+}
+
+// BtwWait is how long claude has to answer a side question, which takes a model call.
+var BtwWait = 2 * time.Minute
+
+// Btw asks claude a side question; it answers from the conversation without adding to it.
+func (c streamDriver) Btw(question string) (string, error) {
+	if !c.inForeground() {
+		return "", errNotForeground
+	}
+	body, err := c.pr.stream.controlFor(c.pr.ctx, map[string]any{"subtype": "side_question", "question": question}, BtwWait)
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		Response *string `json:"response"`
+	}
+	if json.Unmarshal(body, &r) != nil || r.Response == nil {
+		return "", errors.New("The agent had no answer")
+	}
+	return *r.Response, nil
 }
 
 func (c streamDriver) Compact() error {

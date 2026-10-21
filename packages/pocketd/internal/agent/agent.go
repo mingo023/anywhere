@@ -5,6 +5,8 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +28,11 @@ type Driver interface {
 	// Commands lists the slash commands the agent takes beyond the chat's own.
 	Commands() ([]proto.Command, error)
 	Close()
+}
+
+// SideAsker is a driver that answers a question beside the conversation, leaving it as it was.
+type SideAsker interface {
+	Btw(question string) (string, error)
 }
 
 type Agent struct {
@@ -72,7 +79,19 @@ type Agent struct {
 	stopped         bool   // the user stopped the turn; the next one forgets it
 	refilled        bool   // stopped since the last typed prompt: Claude may have put it back in its input
 	goal            proto.Goal
+	holding         bool // the turn ended with sub-agents running on in the background, so it ends with them
+	holdGen         int  // holds so far, so a grace timer from an older one is dropped
+	drafts          map[string]proto.Item
+	draftTimer      *time.Timer
 }
+
+// draftEvery spaces the publishes of the text Claude streams: it comes a few
+// characters at a time and every publish redraws each client.
+const draftEvery = 33 * time.Millisecond
+
+// holdGrace is how long a turn held for its background sub-agents waits, once
+// they end, for the turn Claude starts on their reports.
+var holdGrace = 15 * time.Second
 
 type Registry struct {
 	mu     sync.Mutex
@@ -301,6 +320,7 @@ func (a *Agent) Working() {
 		a.enter("working")
 		a.unseenEnd, a.failed, a.restore = false, false, ""
 		a.stopped = false
+		a.unhold()
 	})
 }
 
@@ -321,6 +341,12 @@ func (a *Agent) TurnEnded(failed bool) {
 }
 
 func (a *Agent) turnEnded(failed bool) {
+	a.unhold()
+	// Claude reports on background sub-agents in a turn of its own once they end, so the work isn't Done yet.
+	if a.phase != "idle" && !failed && a.Timeline.BackgroundAgents() > 0 {
+		a.holding = true
+		return
+	}
 	if a.phase != "idle" {
 		a.enter("idle")
 		a.unseenEnd, a.failed = !a.seen, failed
@@ -331,11 +357,30 @@ func (a *Agent) turnEnded(failed bool) {
 // Clear ends a turn the user stopped, so it is not Done.
 func (a *Agent) Clear() {
 	a.update(true, func() {
+		a.unhold()
 		if a.phase != "idle" {
 			a.enter("idle")
 			a.unseenEnd = false
 			a.endCompactFromIdle()
 		}
+	})
+}
+
+func (a *Agent) unhold() {
+	a.holding = false
+	a.holdGen++
+}
+
+// holdEnds ends a held turn after holdGrace, unless a turn Claude starts first takes over.
+func (a *Agent) holdEnds() {
+	a.holdGen++
+	gen := a.holdGen
+	time.AfterFunc(holdGrace, func() {
+		a.update(true, func() {
+			if a.holding && a.holdGen == gen {
+				a.turnEnded(false)
+			}
+		})
 	})
 }
 
@@ -568,12 +613,56 @@ func (a *Agent) record(e timeline.Event) {
 	if a.closed {
 		return
 	}
-	if item, ok := a.Timeline.Apply(e, now()); ok {
-		epoch, _ := a.Timeline.State()
-		if sub {
-			a.hub.PublishSubagent(proto.NewAgentStream(a.id, epoch, item))
-		} else {
-			a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
-		}
+	item, ok := a.Timeline.Apply(e, now())
+	if !ok {
+		return
+	}
+	if strings.HasSuffix(e.Kind, "_draft") {
+		a.queueDraft(item)
+		return
+	}
+	a.flushDrafts()
+	epoch, _ := a.Timeline.State()
+	if sub {
+		a.hub.PublishSubagent(proto.NewAgentStream(a.id, epoch, item))
+	} else {
+		a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
+	}
+	if a.holding && e.Kind == "tool_end" && a.Timeline.BackgroundAgents() == 0 {
+		a.holdEnds()
+	}
+}
+
+// queueDraft publishes a draft's latest text with the next batch.
+func (a *Agent) queueDraft(it proto.Item) {
+	if a.drafts == nil {
+		a.drafts = map[string]proto.Item{}
+	}
+	a.drafts[it.ID] = it
+	if a.draftTimer == nil {
+		a.draftTimer = time.AfterFunc(draftEvery, func() {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			if !a.closed {
+				a.flushDrafts()
+			}
+		})
+	}
+}
+
+// flushDrafts publishes the queued drafts, so they reach clients before what follows them.
+func (a *Agent) flushDrafts() {
+	if a.draftTimer != nil {
+		a.draftTimer.Stop()
+		a.draftTimer = nil
+	}
+	if len(a.drafts) == 0 {
+		return
+	}
+	items := slices.SortedFunc(maps.Values(a.drafts), func(x, y proto.Item) int { return cmp.Compare(x.Seq, y.Seq) })
+	clear(a.drafts)
+	epoch, _ := a.Timeline.State()
+	for _, it := range items {
+		a.hub.Publish(proto.NewAgentStream(a.id, epoch, it))
 	}
 }

@@ -77,9 +77,8 @@ pub(crate) fn glyph(id: &str, mark: Mark) -> AnyElement {
     }
 }
 
-/// A sub-agent as one line: its mark, its task, then how far it got. Opened, its steps on a rail and its report.
-/// `background` says it runs on after the turn that started it ended.
-pub(crate) fn row(call: &ToolCall, agent: &SubAgent, background: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, cx: &App) -> Div {
+/// A sub-agent as one line: its mark, its task, its model, then how far it got. Opened, its steps on a rail and its report.
+pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, cx: &App) -> Div {
     let m = mark(call, agent);
     let steps = steps(agent);
     let report = report(call, agent);
@@ -96,7 +95,7 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, background: bool, open: boo
         .gap(px(8.))
         .text_size(px(12.))
         .text_color(TEXT_4)
-        .when(background && call.status == ToolStatus::Running, |d| d.child("background"))
+        .when(!agent.model.is_empty(), |d| d.child(agents::model_name(&agent.model)))
         .child(meta(call, agent))
         .when(openable, |d| d.child(icon(if open { "chevron-down" } else { "chevron-right" }, 14., TEXT_5)));
     let head = div()
@@ -146,7 +145,7 @@ mod tests {
     }
 
     fn agent(blocks: Vec<Block>) -> SubAgent {
-        SubAgent { description: "Audit deps".into(), transcript: Transcript { turns: vec![Turn { id: "t".into(), prompt: None, blocks, end: None }] } }
+        SubAgent { description: "Audit deps".into(), transcript: Transcript { turns: vec![Turn { id: "t".into(), prompt: None, blocks, end: None }] }, ..Default::default() }
     }
 
     fn call(a: &SubAgent, status: ToolStatus, output: Option<&str>) -> ToolCall {

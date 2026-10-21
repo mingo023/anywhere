@@ -87,6 +87,14 @@ impl Session {
         Some(format!("{}#fold", t.turns[f].id)).filter(|id| !self.open(id, false))
     }
 
+    /// The fold whose live line shows under the newest exchange, read off the trailer rather than the whole transcript.
+    pub fn live_tail(&self) -> Option<usize> {
+        match self.rows.last() {
+            Some(Row::Live { turn }) => Some(*turn),
+            _ => None,
+        }
+    }
+
     /// Whether row `ix` is a phase that shows shut.
     pub fn shut_phase(&self, ix: usize) -> bool {
         matches!(self.rows[ix], Row::Phase { .. }) && !self.open(&self.ids[ix], false)
@@ -101,9 +109,9 @@ fn same_content(old: &[Turn], from: usize, new: &Transcript, row: &Row) -> bool 
         Row::Prompt { .. } => a.prompt == b.prompt,
         Row::Text { block, range, .. } => text(a, *block).get(range.clone()) == text(b, *block).get(range.clone()),
         Row::Phase { blocks, .. } => a.blocks.get(blocks.clone()) == b.blocks.get(blocks.clone()),
-        Row::Agent { block, .. } | Row::Tasks { block, .. } | Row::Question { block, .. } | Row::Compacted { block, .. } => a.blocks.get(*block) == b.blocks.get(*block),
+        Row::Tasks { block, .. } | Row::Question { block, .. } | Row::Compacted { block, .. } => a.blocks.get(*block) == b.blocks.get(*block),
         // One line, whatever the reply it heads does.
-        Row::Fold { .. } => true,
+        Row::Fold { .. } | Row::Notice { .. } => true,
         Row::End { .. } => a.end == b.end,
         Row::Live { .. } | Row::Working | Row::Pending(_) => true,
     }
@@ -150,7 +158,7 @@ mod tests {
         let task = json!({"kind": "tool", "call": {"toolUseId": "tu", "name": "Task", "status": "running", "detail": {"kind": "task", "description": "audit"}}});
         let mut s = Session::default();
         s.update(backend, 1, &[item(1, json!({"kind": "user", "text": "go"})), item(2, task), item(3, json!({"kind": "result", "ok": true}))], false, 0);
-        let agent = s.rows.iter().position(|r| matches!(r, Row::Agent { .. })).unwrap();
+        let agent = s.rows.iter().position(|r| matches!(r, Row::Phase { .. })).unwrap();
         assert_eq!(s.shut_fold_over(agent), None, "its sub-agent still at work holds the fold open");
     }
 

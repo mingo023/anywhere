@@ -30,6 +30,7 @@ type msg struct {
 	} `json:"agent"`
 	Item struct {
 		Kind string `json:"kind"`
+		Text string `json:"text"`
 	} `json:"item"`
 }
 
@@ -618,5 +619,68 @@ func TestARestoredAgentWithoutAPhaseIsIdle(t *testing.T) {
 	a := NewRegistry(hub.New()).Restore(Restored{ID: "a-1", Provider: "claude"}, fakeDriver{})
 	if s := a.Summary(); s.Status != "idle" || s.MaxSeq != 0 {
 		t.Fatalf("summary = %+v", s)
+	}
+}
+
+func TestDraftsGoOutBatchedAndBeforeWhatFollows(t *testing.T) {
+	h := hub.New()
+	ch, _ := h.Subscribe()
+	a := NewRegistry(h).Add("a1", "/w", "claude", fakeDriver{})
+	a.Record(timeline.Event{Kind: "user", Text: "hi"})
+	for _, text := range []string{"He", "ll", "o"} {
+		a.Record(timeline.Event{Kind: "assistant_draft", Text: text, Draft: "1:0"})
+	}
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "Hello."})
+
+	var got []string
+	for _, m := range drain(ch) {
+		if m.Type != "agent.update" {
+			got = append(got, m.Item.Kind+":"+m.Item.Text)
+		}
+	}
+	if want := "user:hi assistant:Hello assistant:Hello."; strings.Join(got, " ") != want {
+		t.Fatalf("got  %s\nwant %s", strings.Join(got, " "), want)
+	}
+}
+
+func TestATurnLeavingSubagentsInTheBackgroundEndsWithThem(t *testing.T) {
+	holdGrace = 20 * time.Millisecond
+	defer func() { holdGrace = 15 * time.Second }()
+	background := func(a *Agent) {
+		a.Working()
+		a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)})
+		a.Record(timeline.Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "a1"})
+		a.TurnEnded(false)
+	}
+
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	background(a)
+	if got := state(a.Summary()); got != "working" {
+		t.Fatalf("with its sub-agent running: %q", got)
+	}
+	a.Record(timeline.Event{Kind: "tool_end", TaskID: "a1", OK: true})
+	a.Working()
+	if time.Sleep(50 * time.Millisecond); state(a.Summary()) != "working" {
+		t.Fatal("the grace ended the turn Claude started on the report")
+	}
+	if a.TurnEnded(false); state(a.Summary()) != "done" {
+		t.Fatalf("after the report: %q", state(a.Summary()))
+	}
+
+	b := NewRegistry(hub.New()).Add("b1", "/w", "claude", fakeDriver{})
+	background(b)
+	b.Record(timeline.Event{Kind: "tool_end", TaskID: "a1", OK: true})
+	deadline := time.Now().Add(time.Second)
+	for state(b.Summary()) != "done" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no report came, still %q", state(b.Summary()))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	c := NewRegistry(hub.New()).Add("c1", "/w", "claude", fakeDriver{})
+	background(c)
+	if c.Clear(); state(c.Summary()) != "idle" {
+		t.Fatalf("stopped: %q", state(c.Summary()))
 	}
 }

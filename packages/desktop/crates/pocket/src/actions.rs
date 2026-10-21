@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, ZoomIn, ZoomOut, ResetZoom]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -101,6 +101,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         bind("cmd-{", PrevTab, None),
         bind("cmd-}", NextTab, None),
         bind("cmd-shift-enter", ZoomPane, None),
+        // A text field keeps ⌥↑/⌥↓ for its cursor, being deeper.
+        bind("alt-up", PrevPrompt, None),
+        bind("alt-down", NextPrompt, None),
         bind("cmd-ctrl-=", EqualizePanes, None),
         bind("cmd-l", FocusAddress, Some(browser::CONTEXT)),
         bind("cmd-r", Reload, Some(browser::CONTEXT)),

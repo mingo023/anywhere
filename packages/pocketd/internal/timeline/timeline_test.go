@@ -244,3 +244,80 @@ func TestASecondInterruptInARowEndsNothing(t *testing.T) {
 		t.Fatal("a result after an interrupt was dropped")
 	}
 }
+
+func TestADraftGrowsUntilTheTranscriptWritesItsBlock(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	think, _ := tl.Apply(Event{Kind: "thinking_draft", Text: "Let", Draft: "1:0"}, 2)
+	tl.Apply(Event{Kind: "thinking_draft", Text: " me see", Draft: "1:0"}, 2)
+	first, _ := tl.Apply(Event{Kind: "assistant_draft", Text: "Hel", Draft: "1:1"}, 3)
+	grown, _ := tl.Apply(Event{Kind: "assistant_draft", Text: "lo", Draft: "1:1"}, 3)
+	if grown.ID != first.ID || grown.Text != "Hello" {
+		t.Fatalf("grown: %+v", grown)
+	}
+	second, _ := tl.Apply(Event{Kind: "assistant_draft", Text: "And", Draft: "2:0"}, 4)
+	if second.ID == first.ID {
+		t.Fatal("a new block merged into the last")
+	}
+	if it, _ := tl.Apply(Event{Kind: "thinking", Text: "Let me see."}, 5); it.ID != think.ID || it.Text != "Let me see." {
+		t.Fatalf("thinking: %+v", it)
+	}
+	if it, _ := tl.Apply(Event{Kind: "assistant_text", Text: "Hello!"}, 5); it.ID != first.ID || it.Text != "Hello!" {
+		t.Fatalf("first: %+v", it)
+	}
+	if it, _ := tl.Apply(Event{Kind: "assistant_text", Text: "And done."}, 6); it.ID != second.ID || it.Text != "And done." {
+		t.Fatalf("second: %+v", it)
+	}
+	if it, _ := tl.Apply(Event{Kind: "assistant_text", Text: "More"}, 7); it.ID == second.ID {
+		t.Fatal("text after the drafts merged into a written one")
+	}
+	if items, _ := tl.Page(0, 10); len(items) != 5 {
+		t.Fatalf("%d items", len(items))
+	}
+}
+
+func TestATurnsEndLeavesADraftTheTranscriptNeverWrote(t *testing.T) {
+	tl := New()
+	draft, _ := tl.Apply(Event{Kind: "assistant_draft", Text: "Half", Draft: "1:0"}, 1)
+	tl.Apply(Event{Kind: "result", OK: true}, 2)
+	if it, _ := tl.Apply(Event{Kind: "assistant_text", Text: "Next turn"}, 3); it.ID == draft.ID {
+		t.Fatal("the next turn's text replaced the old draft")
+	}
+}
+
+func TestASubagentsModelShowsOnItsCall(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: json.RawMessage(`{"description":"Look","model":"haiku"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}, 1)
+	before, _ := tl.Page(0, 10)
+	if before[0].Call.Detail.Model != "haiku" {
+		t.Fatalf("from input: %+v", before[0].Call.Detail)
+	}
+	tl.StartEpoch()
+	it, ok := tl.Apply(Event{Kind: "tool_model", ToolUseID: "t1", Name: "claude-haiku-4-5"}, 2)
+	if !ok || it.Call.Detail.Model != "claude-haiku-4-5" || before[0].Call.Detail.Model != "haiku" {
+		t.Fatalf("%+v", it)
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_model", ToolUseID: "t1", Name: "claude-haiku-4-5"}, 3); ok {
+		t.Fatal("the same model changed what shows")
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_model", ToolUseID: "t2", Name: "claude-haiku-4-5"}, 3); ok {
+		t.Fatal("a command got a model")
+	}
+}
+
+func TestLastingNamesTheBackgroundTasksAndCountsItsAgents(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)}, 2)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2"}, 2)
+	tl.StartEpoch()
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b1", "a2"}) || tl.BackgroundAgents() != 1 {
+		t.Fatalf("%v, %d agents", got, tl.BackgroundAgents())
+	}
+	tl.Apply(Event{Kind: "tool_end", TaskID: "a2", OK: true}, 3)
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b1"}) || tl.BackgroundAgents() != 0 {
+		t.Fatalf("%v, %d agents", got, tl.BackgroundAgents())
+	}
+}

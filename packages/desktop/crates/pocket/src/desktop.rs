@@ -608,6 +608,8 @@ impl Render for Desktop {
             }))
             .on_action(cx.listener(|this, _: &crate::actions::OpenPalette, window, cx| this.open(Overlay::Palette, window, cx)))
             .on_action(cx.listener(|this, _: &crate::actions::StartSession, window, cx| this.new_session(None, false, window, cx)))
+            .on_action(cx.listener(|this, _: &crate::actions::PrevPrompt, _, cx| this.chat_step_prompt(false, cx)))
+            .on_action(cx.listener(|this, _: &crate::actions::NextPrompt, _, cx| this.chat_step_prompt(true, cx)))
             .on_action(cx.listener(Self::go_to_file))
             .on_action(cx.listener(Self::new_worktree))
             .on_action(cx.listener(Self::project_settings))

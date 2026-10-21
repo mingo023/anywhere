@@ -827,7 +827,7 @@ fn opens(b: &Block) -> bool {
 }
 
 /// Opens the shown chat's first phase holding a block `pick` takes, and the fold over it, and returns that block.
-fn open_phase(d: &mut Desktop, pick: fn(&Block) -> bool, cx: &mut Context<Desktop>) -> Option<(Entity<Tools>, Block)> {
+fn open_phase(d: &mut Desktop, pick: impl Fn(&Block) -> bool, cx: &mut Context<Desktop>) -> Option<(Entity<Tools>, Block)> {
     let agent = d.session()?.to_string();
     let view = d.chats.views.get(&agent)?;
     let s = &view.session;
@@ -845,22 +845,14 @@ fn open_phase(d: &mut Desktop, pick: fn(&Block) -> bool, cx: &mut Context<Deskto
 
 /// Opens the shown chat's first sub-agent whose call `pick` takes.
 fn open_agent(d: &mut Desktop, pick: fn(&chat::ToolCall) -> bool, cx: &mut Context<Desktop>) {
-    let Some(agent) = d.session().map(str::to_string) else { return };
-    let Some(view) = d.chats.views.get(&agent) else { return };
-    let s = &view.session;
-    let found = s.rows.iter().enumerate().find_map(|(ix, row)| match row {
-        Row::Agent { turn, block } => match s.transcript.turns[*turn].blocks.get(*block) {
-            Some(Block::Tool(c)) if pick(c) => Some((ix, c.status == chat::ToolStatus::Failed)),
-            _ => None,
-        },
-        _ => None,
+    let agent_call = |b: &Block| matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)) && pick(c));
+    let Some((tools, Block::Tool(c))) = open_phase(d, agent_call, cx) else { return };
+    let failed = c.status == chat::ToolStatus::Failed;
+    tools.update(cx, |t, cx| {
+        if !t.details.open(&c.id, failed) {
+            t.toggle(&c.id, failed, None, cx);
+        }
     });
-    let Some((ix, failed)) = found else { return };
-    let (id, open) = (s.ids[ix].clone(), s.open(&s.ids[ix], failed));
-    d.chat_reveal(&agent, ix, cx);
-    if !open {
-        d.chat_toggle(&agent, &id, failed, cx);
-    }
 }
 
 /// The shown chat's last code block: its agent, row id and code.
