@@ -28,7 +28,7 @@ export const ToolDetail = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("edit"), path: Schema.String, diff: Schema.optional(FileDiff) }),
   Schema.Struct({ kind: Schema.Literal("write"), path: Schema.String, diff: Schema.optional(FileDiff) }),
   Schema.Struct({ kind: Schema.Literal("search"), query: Schema.String, path: Schema.optional(Schema.String) }),
-  Schema.Struct({ kind: Schema.Literal("task"), description: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("task"), description: Schema.String, model: Schema.optional(Schema.String) }),
   Schema.Struct({ kind: Schema.Literal("other"), name: Schema.String, input: Schema.Unknown }),
 );
 export type ToolDetail = typeof ToolDetail.Type;

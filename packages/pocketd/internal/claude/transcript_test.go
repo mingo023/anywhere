@@ -171,7 +171,7 @@ func TestAPromptTheAgentTookMidTurnShowsAndTimesTheReplyAfterIt(t *testing.T) {
 	}
 }
 
-func TestACommandClaudeRunsItselfEndsItsTurnAndOneThatAsksTheModelDoesNot(t *testing.T) {
+func TestACommandClaudeRunsItselfAnswersWithItsOutputAndOneThatAsksTheModelDoesNot(t *testing.T) {
 	var turns Turns
 	var got []timeline.Event
 	for _, l := range []string{
@@ -183,11 +183,11 @@ func TestACommandClaudeRunsItselfEndsItsTurnAndOneThatAsksTheModelDoesNot(t *tes
 	} {
 		got = append(got, turns.Map([]byte(l))...)
 	}
-	if want := []string{"user", "result", "user"}; !reflect.DeepEqual(kinds(got), want) {
+	if want := []string{"user", "assistant_text", "result", "user"}; !reflect.DeepEqual(kinds(got), want) {
 		t.Fatalf("got %v want %v", kinds(got), want)
 	}
-	if got[0].Text != "/goal clear" || !got[1].OK {
-		t.Fatalf("command %+v, end %+v", got[0], got[1])
+	if got[0].Text != "/goal clear" || got[1].Text != "Goal cleared" || !got[2].OK {
+		t.Fatalf("command %+v, reply %+v, end %+v", got[0], got[1], got[2])
 	}
 }
 

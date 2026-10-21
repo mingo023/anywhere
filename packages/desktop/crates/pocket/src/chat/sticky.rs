@@ -48,14 +48,14 @@ pub(super) fn stuck(rows: &[Row], top: usize, offset: f32) -> Option<usize> {
 
 /// The row at the top of a list scrolled to its end, and how far into it, from each row's height to the end and the
 /// height its rows show in. Rows too few to fill it show from the first.
-pub(super) fn top_at_end(count: usize, shown: f32, from: impl Fn(usize) -> Option<f32>) -> Option<(usize, f32)> {
+pub(super) fn top_at_end(count: usize, shown: f32, from: impl Fn(usize) -> f32) -> (usize, f32) {
     for ix in (0..count).rev() {
-        let height = from(ix)?;
+        let height = from(ix);
         if height >= shown {
-            return Some((ix, height - shown));
+            return (ix, height - shown);
         }
     }
-    Some((0, 0.))
+    (0, 0.)
 }
 
 /// The next prompt under the list's top, which pushes the card up as it arrives.
@@ -254,7 +254,7 @@ impl Desktop {
     pub(super) fn chat_sticky(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(Div, f32)> {
         let view = self.chats.views.get(agent)?;
         let s = &view.session;
-        let (top, offset) = view.top_row()?;
+        let (top, offset) = view.top_row();
         let ix = stuck(&s.rows, top, offset)?;
         let Row::Prompt { turn } = s.rows[ix] else { return None };
         let prompt = s.transcript.turns.get(turn)?.prompt.as_ref()?;
@@ -336,11 +336,10 @@ mod tests {
     #[test]
     fn at_its_end_the_top_row_is_the_first_that_reaches_the_top() {
         let heights = [100., 300., 50.];
-        let from = |ix: usize| Some(heights[ix..].iter().sum::<f32>());
-        assert_eq!(top_at_end(3, 200., from), Some((1, 150.)));
-        assert_eq!(top_at_end(3, 350., from), Some((1, 0.)));
-        assert_eq!(top_at_end(3, 900., from), Some((0, 0.)), "a short chat shows from its first row");
-        assert_eq!(top_at_end(3, 200., |ix| (ix > 1).then_some(50.)), None, "unmeasured rows say nothing");
+        let from = |ix: usize| heights[ix..].iter().sum::<f32>();
+        assert_eq!(top_at_end(3, 200., from), (1, 150.));
+        assert_eq!(top_at_end(3, 350., from), (1, 0.));
+        assert_eq!(top_at_end(3, 900., from), (0, 0.), "a short chat shows from its first row");
     }
 
     #[test]

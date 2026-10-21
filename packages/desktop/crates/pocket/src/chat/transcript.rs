@@ -83,13 +83,13 @@ impl View {
     }
 
     /// The row at the top of the viewport and how far into it. At its end the list keeps no top row, so it's found
-    /// from the end; None while those rows are unmeasured.
-    pub(super) fn top_row(&self) -> Option<(usize, f32)> {
+    /// from the end, by the heights last laid out: render runs before the list remeasures the rows that changed.
+    pub(super) fn top_row(&self) -> (usize, f32) {
         let (top, count) = (self.list.logical_scroll_top(), self.list.item_count());
         if top.item_ix < count {
-            return Some((top.item_ix, f32::from(top.offset_in_item)));
+            return (top.item_ix, f32::from(top.offset_in_item));
         }
-        sticky::top_at_end(count, self.shown_at_end(), |ix| self.list.height_from(ix).map(f32::from))
+        sticky::top_at_end(count, self.shown_at_end(), |ix| f32::from(self.list.laid_out_height_from(ix)))
     }
 
     /// How far under the viewport's top row `ix` starts; None while that's unmeasured.
@@ -98,7 +98,7 @@ impl View {
             // The list paints its rows under its top padding, which `bounds_for_item` leaves out.
             return self.list.bounds_for_item(ix).map(|b| f32::from(b.top() - self.list.viewport_bounds().top()) + pin::TOP);
         }
-        Some(self.shown_at_end() - f32::from(self.list.height_from(ix)?))
+        Some(self.shown_at_end() - f32::from(self.list.laid_out_height_from(ix)))
     }
 
     /// The height the rows show in at the list's end, over the room padded under them.
@@ -160,7 +160,7 @@ impl View {
     /// Refolds the session when its timeline moved and lays out what changed; returns the queued sends it let go.
     fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item]) -> Vec<(u64, String)> {
         let before: HashMap<String, usize> = latest_texts(&self.session.transcript).map(|m| (m.id.clone(), m.text.len())).collect();
-        let tail = chat::live_tail(&self.session.transcript).map(|f| self.session.transcript.turns[f].id.clone());
+        let tail = self.session.live_tail().map(|f| self.session.transcript.turns[f].id.clone());
         if let Some((changed, range, count)) = self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms()) {
             if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
                 self.settled = Some((format!("{turn}#fold"), Instant::now()));
@@ -229,10 +229,6 @@ fn started(turn: &Turn) -> Option<i64> {
     turn.prompt.as_ref().map(|p| p.at).or_else(|| turn.blocks.iter().find_map(block_at))
 }
 
-fn agent_call(b: &Block) -> bool {
-    matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
-}
-
 /// What a live fold says: stopping once the user stopped it, waiting on the user, thinking before anything else, else
 /// working for `now` less the start.
 fn live_state(t: &Transcript, turns: Range<usize>, ask: Option<bool>, stopping: bool, now: i64) -> Live {
@@ -245,11 +241,12 @@ fn live_state(t: &Transcript, turns: Range<usize>, ask: Option<bool>, stopping: 
         None => {}
     }
     let blocks = || t.turns[turns.clone()].iter().flat_map(|turn| &turn.blocks);
-    if blocks().all(|b| matches!(b, Block::Thinking(_))) {
+    let background = chat::in_background(&t.turns).count();
+    if background == 0 && blocks().all(|b| matches!(b, Block::Thinking(_))) {
         return Live::Thinking;
     }
     let secs = started(&t.turns[turns.start]).map_or(0, |at| (now - at).max(0) / 1000);
-    Live::Working { secs }
+    Live::Working { secs, background }
 }
 
 /// How long a settled reply took: its turns' own count, else from its start to its last move.
@@ -264,9 +261,9 @@ fn took(t: &Transcript, turns: Range<usize>) -> u64 {
     }
 }
 
-/// Whether a phase is its turn's newest work: the turn goes on and nothing but sub-agents and todos came after it.
+/// Whether a phase is its turn's newest work: the turn goes on and nothing but todos came after it.
 fn phase_live(t: &Transcript, turn: usize, blocks: &Range<usize>) -> bool {
-    live(t, turn) && t.turns[turn].blocks[blocks.end..].iter().all(|b| matches!(b, Block::Todos { .. }) || agent_call(b))
+    live(t, turn) && t.turns[turn].blocks[blocks.end..].iter().all(|b| matches!(b, Block::Todos { .. }))
 }
 
 /// When what follows a phase began: its next timed block, else the next turn's start.
@@ -281,30 +278,36 @@ fn answer(t: &Transcript, turns: Range<usize>) -> String {
     texts.collect::<Vec<_>>().join("\n\n")
 }
 
-fn status(t: &Transcript, turn: usize, block: usize) -> Option<ToolStatus> {
-    match t.turns.get(turn)?.blocks.get(block)? {
-        Block::Tool(c) => Some(c.status),
-        _ => None,
-    }
+/// Whether `row` hangs off its fold's rail: a phase. The live tail's fold shows no header, its line having moved
+/// to the bottom, so nothing hangs off it.
+fn in_fold(t: &Transcript, live_tail: Option<usize>, row: &Row) -> bool {
+    let headed = row.turn().and_then(|turn| chat::fold_of(t, turn)).is_some_and(|fold| live_tail != Some(fold));
+    headed && matches!(row, Row::Phase { .. })
 }
 
-/// Whether `row` hangs off its fold's rail: a phase, or a sub-agent that finished well. The live
-/// tail's fold shows no header, its line having moved to the bottom, so nothing hangs off it.
-fn in_fold(t: &Transcript, row: &Row) -> bool {
-    let headed = row.turn().and_then(|turn| chat::fold_of(t, turn)).is_some_and(|fold| chat::live_tail(t) != Some(fold));
-    headed && match row {
-        Row::Phase { .. } => true,
-        Row::Agent { turn, block } => status(t, *turn, *block) == Some(ToolStatus::Ok),
-        _ => false,
-    }
-}
-
-/// Whether a row under a fold shows: the work does while the fold is open; a sub-agent still running or failed always does.
+/// Whether a row under a fold shows: the work does while the fold is open; a phase holding a failed sub-agent always does.
 fn shown(t: &Transcript, row: &Row, fold_open: bool) -> bool {
     match row {
-        Row::Phase { .. } | Row::Tasks { .. } => fold_open,
-        Row::Agent { turn, block } => fold_open || status(t, *turn, *block) != Some(ToolStatus::Ok),
+        Row::Phase { turn, blocks } => fold_open || t.turns[*turn].blocks[blocks.clone()].iter().any(failed_agent),
+        Row::Tasks { .. } => fold_open,
         _ => true,
+    }
+}
+
+fn failed_agent(b: &Block) -> bool {
+    matches!(b, Block::Tool(c) if c.status == ToolStatus::Failed && matches!(c.kind, ToolKind::Agent(_)))
+}
+
+/// Where the call with use id `id` sits: its turn and block.
+fn find_call(t: &Transcript, id: &str) -> Option<(usize, usize)> {
+    t.turns.iter().enumerate().find_map(|(ix, turn)| Some((ix, turn.blocks.iter().position(|b| matches!(b, Block::Tool(c) if c.id == id))?)))
+}
+
+/// "Audit deps is done", "3 subagents are done".
+fn notice_label(calls: &[&chat::ToolCall]) -> String {
+    match calls {
+        [chat::ToolCall { kind: ToolKind::Agent(a), .. }] => format!("{} is done", sub_agent::name(a)),
+        _ => format!("{} subagents are done", calls.len()),
     }
 }
 
@@ -393,7 +396,7 @@ impl Desktop {
         s.toggle(id, default);
         if let Some(ix) = s.ids.iter().position(|i| i == id) {
             let end = match s.rows[ix] {
-                Row::Fold { .. } => (ix + 1..s.rows.len()).find(|&i| matches!(s.rows[i], Row::Prompt { .. } | Row::Fold { .. } | Row::Live { .. } | Row::Pending(_) | Row::Working)).unwrap_or(s.rows.len()),
+                Row::Fold { .. } => (ix + 1..s.rows.len()).find(|&i| matches!(s.rows[i], Row::Prompt { .. } | Row::Notice { .. } | Row::Fold { .. } | Row::Live { .. } | Row::Pending(_) | Row::Working)).unwrap_or(s.rows.len()),
                 _ => ix + 1,
             };
             view.list.remeasure_items(ix..end);
@@ -434,6 +437,15 @@ impl Desktop {
         (view.pin, view.glide) = (None, None);
         view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
         cx.notify();
+    }
+
+    /// Scrolls the shown chat a prompt up or down from the exchange at its top.
+    pub(crate) fn chat_step_prompt(&mut self, down: bool, cx: &mut Context<Self>) {
+        let Some(agent) = self.session().map(str::to_string) else { return };
+        let Some(view) = self.chats.views.get(&agent) else { return };
+        if let Some(ix) = chat::step_prompt(&view.session.rows, view.top_row().0, down) {
+            self.chat_jump_to_prompt(&agent, ix, cx);
+        }
     }
 
     /// Scrolls the shown chat to `rows` rows before its end; the list knows only measured heights, so a pixel scroll stops short.
@@ -551,8 +563,8 @@ impl Desktop {
         if !shown(t, &row, fold_open) {
             return div().id(SharedString::from(id)).into_any_element();
         }
-        let rail = in_fold(t, &row);
-        let last_on_rail = rail && !s.rows.get(ix + 1).is_some_and(|next| in_fold(t, next));
+        let rail = in_fold(t, s.live_tail(), &row);
+        let last_on_rail = rail && !s.rows.get(ix + 1).is_some_and(|next| in_fold(t, s.live_tail(), next));
         let gap = if rail { 0. } else { chat::top_gap(ix.checked_sub(1).and_then(|i| s.rows.get(i)), &row) };
         let width = content_width(WIDTH);
 
@@ -582,10 +594,8 @@ impl Desktop {
             },
             Row::Fold { turn } => {
                 let turns = chat::folded(t, *turn);
-                if chat::live_tail(t) == Some(*turn) {
+                if s.live_tail() == Some(*turn) {
                     div()
-                } else if fold_live {
-                    fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, turns, ask, s.outgoing.stopping(), now_ms())))
                 } else {
                     let settled = fold::settled(&id, &provider, fold::settled_label(who, took(t, turns)), fold_open, toggle(agent, &id, false, cx));
                     match &view.settled {
@@ -601,14 +611,27 @@ impl Desktop {
                 let on_toggle = toggle(agent, &id, false, cx);
                 phase::phase(&id, blocks, next_at(t, *turn, range.end), phase_live(t, *turn, range), s.open(&id, false), on_toggle, &view.tools, cx)
             }
-            Row::Agent { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::Tool(call @ chat::ToolCall { kind: ToolKind::Agent(a), .. })) => {
-                    let failed = call.status == ToolStatus::Failed;
-                    let background = t.turns[*turn].end.is_some() && call.status == ToolStatus::Running;
-                    sub_agent::row(call, a, background, s.open(&id, failed), toggle(agent, &id, failed, cx), &view.tools, cx)
+            Row::Notice { turn } => {
+                let calls = chat::reported(t, *turn);
+                let at = calls.first().and_then(|c| find_call(t, &c.id));
+                let line = div()
+                    .id(SharedString::from(format!("notice-{id}")))
+                    .py(px(4.))
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .text_size(px(13.))
+                    .text_color(TEXT_3)
+                    .child(icon("agent-done", 14., TEXT_4))
+                    .child(notice_label(&calls));
+                match at {
+                    Some((turn, block)) => {
+                        let agent = agent.to_string();
+                        div().child(line.cursor_pointer().hover(|s| s.text_color(TEXT_2)).on_click(cx.listener(move |this, _, _, cx| this.chat_show_block(&agent, turn, block, cx))))
+                    }
+                    None => div().child(line),
                 }
-                _ => div(),
-            },
+            }
             Row::Tasks { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
                 Some(Block::Todos { todos, .. }) => todos::card(&id, todos),
                 _ => div(),
@@ -691,7 +714,8 @@ impl Desktop {
                         let (agent, send) = (agent.to_string(), p.id);
                         working::not_delivered(SharedString::from(format!("retry-{id}"))).on_click(cx.listener(move |this, _, window, cx| this.chat_retry(&agent, send, window, cx)))
                     });
-                    div().flex().flex_col().items_end().child(user_bubble::bubble(&id, p.text.clone(), width, true, true, None::<(user_bubble::Fold, fn(&ClickEvent, &mut Window, &mut App))>)).children(retry)
+                    let pending = p.delivery != Delivery::Steered;
+                    div().flex().flex_col().items_end().child(user_bubble::bubble(&id, p.text.clone(), width, pending, true, None::<(user_bubble::Fold, fn(&ClickEvent, &mut Window, &mut App))>)).children(retry)
                 }
                 None => div(),
             },
@@ -789,7 +813,7 @@ mod tests {
         let thinking = turn(vec![Block::Thinking(msg("hm", 2_000))], None);
         assert_eq!(live_state(&thinking, 0..1, None, false, 9_000), Live::Thinking);
         let working = turn(vec![Block::Thinking(msg("hm", 2_000)), shell(3_000)], None);
-        assert_eq!(live_state(&working, 0..1, None, false, 8_500), Live::Working { secs: 7 });
+        assert_eq!(live_state(&working, 0..1, None, false, 8_500), Live::Working { secs: 7, background: 0 });
         assert_eq!(live_state(&working, 0..1, Some(false), false, 8_500), Live::Approval);
         assert_eq!(live_state(&working, 0..1, Some(true), false, 8_500), Live::Answer);
     }
@@ -821,25 +845,30 @@ mod tests {
     }
 
     #[test]
-    fn a_finished_sub_agent_hangs_off_its_fold_only_once_the_live_line_leaves_it() {
-        let agent = |status| tool(ToolKind::Agent(SubAgent::default()), status, 1);
-        let done = Row::Agent { turn: 0, block: 0 };
-        let live = turn(vec![agent(ToolStatus::Ok), agent(ToolStatus::Running)], None);
-        assert!(!in_fold(&live, &done), "the live tail's fold has no header to hang from");
-        let settled = turn(vec![agent(ToolStatus::Ok)], Some(End::Done { duration_ms: 1, usage: None }));
-        assert!(in_fold(&settled, &done));
+    fn a_live_fold_counts_the_sub_agents_working_on_in_the_background() {
+        let agent = tool(ToolKind::Agent(SubAgent::default()), ToolStatus::Running, 2_000);
+        let t = turn(vec![agent], Some(End::Done { duration_ms: 1, usage: None }));
+        assert_eq!(live_state(&t, 0..1, None, false, 5_000), Live::Working { secs: 4, background: 1 });
     }
 
     #[test]
-    fn a_closed_fold_hides_its_work_but_not_a_running_or_failed_sub_agent() {
+    fn a_phase_hangs_off_its_fold_only_once_the_live_line_leaves_it() {
         let agent = |status| tool(ToolKind::Agent(SubAgent::default()), status, 1);
-        let t = turn(vec![shell(1), agent(ToolStatus::Ok), agent(ToolStatus::Running), agent(ToolStatus::Failed)], None);
-        let row = |block| Row::Agent { turn: 0, block };
-        assert!(!shown(&t, &Row::Phase { turn: 0, blocks: 0..1 }, false));
-        assert!(!shown(&t, &row(1), false));
-        assert!(shown(&t, &row(2), false));
-        assert!(shown(&t, &row(3), false));
-        assert!(shown(&t, &row(1), true));
+        let phase = Row::Phase { turn: 0, blocks: 0..1 };
+        let live = turn(vec![agent(ToolStatus::Running)], Some(End::Done { duration_ms: 1, usage: None }));
+        assert!(!in_fold(&live, chat::live_tail(&live), &phase), "the live tail's fold has no header to hang from");
+        let settled = turn(vec![agent(ToolStatus::Ok)], Some(End::Done { duration_ms: 1, usage: None }));
+        assert!(in_fold(&settled, chat::live_tail(&settled), &phase));
+    }
+
+    #[test]
+    fn a_closed_fold_hides_its_work_but_not_a_failed_sub_agent() {
+        let agent = |status| tool(ToolKind::Agent(SubAgent::default()), status, 1);
+        let t = turn(vec![shell(1), agent(ToolStatus::Ok), agent(ToolStatus::Failed)], None);
+        let phase = |blocks| Row::Phase { turn: 0, blocks };
+        assert!(!shown(&t, &phase(0..2), false));
+        assert!(shown(&t, &phase(2..3), false));
+        assert!(shown(&t, &phase(0..2), true));
         assert!(shown(&t, &Row::Text { turn: 0, block: 0, range: 0..1 }, false));
     }
 

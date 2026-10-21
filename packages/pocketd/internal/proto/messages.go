@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"slices"
+	"strings"
 )
 
 type ClientMessage struct {
@@ -112,6 +113,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "agent.list", m.Type == "pair.begin", m.Type == "project.list", m.Type == "agent.providers":
 	case m.Type == "agent.prompt":
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
+	case m.Type == "agent.btw":
+		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && strings.TrimSpace(m.Text) != ""
 	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
 		ok = get("agentId", &m.AgentID)
 	case m.Type == "agent.settings":
@@ -238,6 +241,18 @@ func NewAgentCommands(id, agentID string, commands []Command) AgentCommands {
 		commands = []Command{}
 	}
 	return AgentCommands{"agent.commands", id, agentID, commands}
+}
+
+// AgentBtw answers a side question, which leaves the conversation as it was.
+type AgentBtw struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	AgentID string `json:"agentId"`
+	Answer  string `json:"answer"`
+}
+
+func NewAgentBtw(id, agentID, answer string) AgentBtw {
+	return AgentBtw{"agent.btw", id, agentID, answer}
 }
 
 type Worktree struct {

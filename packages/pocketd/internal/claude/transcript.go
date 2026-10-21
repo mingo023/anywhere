@@ -16,17 +16,18 @@ import (
 )
 
 type line struct {
-	Type             string `json:"type"`
-	UUID             string `json:"uuid"`
-	ParentUUID       string `json:"parentUuid"`
-	Subtype          string `json:"subtype"`
-	IsMeta           bool   `json:"isMeta"`
-	IsSidechain      bool   `json:"isSidechain"`
-	IsCompactSummary bool   `json:"isCompactSummary"`
-	IsAPIError       bool   `json:"isApiErrorMessage"`
-	Entrypoint       string `json:"entrypoint"`
-	Timestamp        string `json:"timestamp"`
-	DurationMs       int64  `json:"durationMs"`
+	Type             string          `json:"type"`
+	UUID             string          `json:"uuid"`
+	ParentUUID       string          `json:"parentUuid"`
+	Subtype          string          `json:"subtype"`
+	IsMeta           bool            `json:"isMeta"`
+	IsSidechain      bool            `json:"isSidechain"`
+	IsCompactSummary bool            `json:"isCompactSummary"`
+	IsAPIError       bool            `json:"isApiErrorMessage"`
+	Entrypoint       string          `json:"entrypoint"`
+	Timestamp        string          `json:"timestamp"`
+	Content          json.RawMessage `json:"content"`
+	DurationMs       int64           `json:"durationMs"`
 	CompactMetadata  struct {
 		Trigger string `json:"trigger"`
 	} `json:"compactMetadata"`
@@ -110,8 +111,9 @@ func Map(raw []byte) []timeline.Event {
 // so it times those turns from their first event to their end.
 type Turns struct {
 	start time.Time
-	// Claude writes a caveat before a command it runs itself, like /goal clear; no model turn follows to end it.
-	local bool
+	// Claude writes a caveat before a command it runs itself, like /goal clear;
+	// no model turn follows, so the command's output ends its turn.
+	local, running bool
 }
 
 func (t *Turns) Map(raw []byte) []timeline.Event {
@@ -120,8 +122,21 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		return nil
 	}
 	events := l.events()
+	if t.running {
+		end := timeline.Event{Kind: "result", OK: true}
+		if out, ok := l.localOutput(); ok {
+			t.running = false
+			events = []timeline.Event{end}
+			if out != "" {
+				events = []timeline.Event{{Kind: "assistant_text", Text: out}, end}
+			}
+		} else if len(events) > 0 {
+			t.running = false
+			events = append([]timeline.Event{end}, events...)
+		}
+	}
 	if t.local && len(events) > 0 && events[len(events)-1].Kind == "user" {
-		events = append(events, timeline.Event{Kind: "result", OK: true})
+		t.running = true
 	}
 	t.local = l.caveat()
 	at, _ := time.Parse(time.RFC3339Nano, l.Timestamp)
@@ -215,6 +230,18 @@ func (l line) events() (events []timeline.Event) {
 		return events
 	}
 	return events
+}
+
+// localOutput is what a command Claude ran itself printed.
+func (l line) localOutput() (string, bool) {
+	var text string
+	if l.Type != "system" || l.Subtype != "local_command" || json.Unmarshal(l.Content, &text) != nil {
+		return "", false
+	}
+	if out := tag(text, "local-command-stdout"); out != "" {
+		return out, true
+	}
+	return tag(text, "local-command-stderr"), true
 }
 
 func (l line) caveat() bool {

@@ -115,7 +115,12 @@ fn main() {
                 .detach();
                 cx.spawn_in(window, async move |this, cx| {
                     while let Some(ev) = agent_rx.next().await {
-                        if this.update_in(cx, |d: &mut Desktop, window, cx| d.on_agents(ev, window, cx)).is_err() {
+                        let mut events = vec![ev];
+                        while let Ok(ev) = agent_rx.try_recv() {
+                            events.push(ev);
+                        }
+                        let events = agents::coalesce(events);
+                        if this.update_in(cx, |d: &mut Desktop, window, cx| events.into_iter().for_each(|ev| d.on_agents(ev, window, cx))).is_err() {
                             break;
                         }
                     }

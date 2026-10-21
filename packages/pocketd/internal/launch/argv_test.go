@@ -35,12 +35,12 @@ func TestArgvMatchesTheF14TableForEveryProviderAccessAndPlan(t *testing.T) {
 		{"codex", "edits", false, false, "codex -s workspace-write -a on-request"},
 		{"codex", "auto", false, false, "codex --approve-for-me"},
 		{"codex", "full", false, false, "codex -s danger-full-access -a never"},
-		{"claude", "settings", false, true, "claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "ask", false, true, "claude --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "edits", false, true, "claude --permission-mode acceptEdits -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "auto", false, true, "claude --permission-mode auto -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "full", false, true, "claude --permission-mode bypassPermissions -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
-		{"claude", "full", true, true, "claude --permission-mode plan -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "settings", false, true, "claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "ask", false, true, "claude --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "edits", false, true, "claude --permission-mode acceptEdits -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "auto", false, true, "claude --permission-mode auto -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "full", false, true, "claude --permission-mode bypassPermissions -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "full", true, true, "claude --permission-mode plan -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
 		{"codex", "settings", false, true, "codex app-server"},
 		{"codex", "ask", false, true, `codex app-server -c sandbox_mode="read-only" -c approval_policy="on-request"`},
 		{"codex", "edits", false, true, `codex app-server -c sandbox_mode="workspace-write" -c approval_policy="on-request"`},
@@ -97,7 +97,7 @@ func TestClaudeRunsForTheChatAndLeavesItsPromptOut(t *testing.T) {
 	s := spec("claude", "ask", false)
 	s.Model, s.Effort, s.Prompt, s.Chat = "opus", "high", "-rf fix the flaky tests now please", true
 	argv, _ := argvOf(s, "")
-	want := []string{"claude", "--permission-mode", "default", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--allow-dangerously-skip-permissions",
+	want := []string{"claude", "--permission-mode", "default", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio", "--allow-dangerously-skip-permissions",
 		"--model", "opus", "--effort", "high", "-n", "rf-fix-the-flaky"}
 	if !slices.Equal(argv, want) {
 		t.Fatalf("got %q", argv)
@@ -183,7 +183,7 @@ func TestPromptOnlyArgsComeBeforeThePrompt(t *testing.T) {
 
 func TestAForkPutsTheSessionIdInItsArgsBeforeTheFlags(t *testing.T) {
 	for _, c := range []struct{ provider, want string }{
-		{"claude", "claude --resume c-1 --fork-session --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
+		{"claude", "claude --resume c-1 --fork-session --permission-mode default -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"},
 		{"codex", "codex fork c-1 -s read-only -a on-request"},
 	} {
 		s := spec(c.provider, "ask", false)

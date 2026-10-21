@@ -1,0 +1,6 @@
+{
+  "type": "agent.btw",
+  "id": "b1",
+  "agentId": "a1",
+  "answer": "It reads the config once at start."
+}

@@ -565,6 +565,21 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 			c.send(proto.NewAgentCommands(m.ID, a.ID(), list))
 		}()
 		return nil
+	case "agent.btw":
+		asker, ok := a.Driver().(agent.SideAsker)
+		if !ok {
+			return errors.New("This agent can't take a side question")
+		}
+		// The answer takes a model call; the conn's other messages don't wait.
+		go func() {
+			answer, err := asker.Btw(m.Text)
+			if err != nil {
+				c.send(errorReply(m.ID, err))
+				return
+			}
+			c.send(proto.NewAgentBtw(m.ID, a.ID(), answer))
+		}()
+		return nil
 	case "agent.close":
 		a.Driver().Close()
 	case "agent.pin":

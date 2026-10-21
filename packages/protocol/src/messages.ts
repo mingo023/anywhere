@@ -50,6 +50,7 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("agent.compact"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.close"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.commands"), id: Schema.String, agentId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("agent.btw"), id: Schema.String, agentId: Schema.String, text: Schema.String }),
   Schema.Struct({
     type: Schema.Literal("agent.settings"),
     id: Schema.String,
@@ -143,6 +144,7 @@ export const ServerMessage = Schema.Union(
     agentId: Schema.String,
     commands: Schema.Array(Command),
   }),
+  Schema.Struct({ type: Schema.Literal("agent.btw"), id: Schema.String, agentId: Schema.String, answer: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.stream"), agentId: Schema.String, epoch: Schema.Number, item: TimelineItem }),
   Schema.Struct({
     type: Schema.Literal("agent.timeline"),

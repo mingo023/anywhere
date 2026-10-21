@@ -1,8 +1,8 @@
 use super::shimmer::shimmer;
 use super::tool_detail;
 use super::tool_row::{self, Tools};
-use super::{thinking, working::format_elapsed};
-use chat::{Block, ToolKind};
+use super::{sub_agent, thinking, working::format_elapsed};
+use chat::{Block, ToolKind, ToolStatus};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -94,24 +94,35 @@ fn thought(id: &str, text: &str, label: Option<String>, live: bool, tools: &Enti
 fn step_view(block: &Block, next: Option<i64>, live: bool, tools: &Entity<Tools>, cx: &App) -> Div {
     match block {
         Block::Thinking(m) => thought(&m.id, &m.text, thought_for(m.at, next), live && next.is_none(), tools, cx),
+        Block::Tool(c @ chat::ToolCall { kind: ToolKind::Agent(a), .. }) => {
+            let failed = c.status == ToolStatus::Failed;
+            let on_toggle = {
+                let (tools, id) = (tools.clone(), c.id.clone());
+                move |_: &ClickEvent, _: &mut Window, cx: &mut App| tools.update(cx, |t, cx| t.toggle(&id, failed, None, cx))
+            };
+            sub_agent::row(c, a, tools.read(cx).details.open(&c.id, failed), on_toggle, tools, cx)
+        }
         Block::Tool(c) => tool_row::row(c, !live, tools, cx),
         _ => div(),
     }
 }
 
 /// A phase in the fold: a title line that opens to its steps, or, for a lone untitled step, just that step.
-/// `next_at` is when whatever follows the phase began; `live` forces it open with its newest steps showing.
+/// `next_at` is when whatever follows the phase began; `live` forces it open with its newest steps showing, as a
+/// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, cx: &App) -> Div {
     let steps = steps(blocks);
     let titled = matches!(blocks.first(), Some(Block::Text(m)) if !m.text.trim().is_empty());
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
-    if !titled && let [(i, b)] = steps[..] {
+    if !titled && let [(i, b)] = steps[..]
+        && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
+    {
         let icon_name = kind_icon(blocks);
         return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(b, next(i), live, tools, cx)));
     }
-    let open = live || open;
+    let open = live || open || blocks.iter().any(chat::running_agent);
     let head_icon = if open && !live { "chevron-down" } else { kind_icon(blocks) };
     let label = chat::phase_title(blocks, live);
     let title = div().min_w_0().flex_1().overflow_hidden().text_color(TEXT_3);

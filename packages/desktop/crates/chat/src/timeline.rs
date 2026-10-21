@@ -232,7 +232,7 @@ fn kind(name: &str, d: &Detail) -> ToolKind {
         "write" => ToolKind::Write { path: d.path.clone(), diff: d.diff.as_ref().map(diff) },
         "search" if d.path.is_empty() => ToolKind::Search { query: d.query.clone() },
         "search" => ToolKind::Search { query: format!("{} in {}", d.query, d.path) },
-        "task" => ToolKind::Agent(SubAgent { description: d.description.clone(), transcript: Transcript::default() }),
+        "task" => ToolKind::Agent(SubAgent { description: d.description.clone(), model: d.model.clone(), ..Default::default() }),
         _ if name == "AskUserQuestion" => ToolKind::Question(questions(d.questions())),
         _ if name == "WebFetch" => ToolKind::Fetch { url: input_text(&d.input, "url") },
         _ if name == "WebSearch" => ToolKind::Search { query: input_text(&d.input, "query") },
@@ -457,7 +457,7 @@ mod tests {
     fn a_task_call_becomes_a_sub_agent() {
         let t = fold(&items(json!([tool("tu-t", "Task", json!({"kind": "task", "description": "Audit packages/app"}), "running")])));
         let call = only_tool(&t);
-        assert_eq!(call.kind, ToolKind::Agent(SubAgent { description: "Audit packages/app".into(), transcript: Transcript::default() }));
+        assert_eq!(call.kind, ToolKind::Agent(SubAgent { description: "Audit packages/app".into(), ..Default::default() }));
         assert_eq!(call.status, ToolStatus::Running);
     }
 
@@ -504,6 +504,7 @@ mod tests {
         assert_eq!(t.turns.len(), 1);
         let [Block::Tool(list), Block::Tool(count), Block::Text(answer)] = &t.turns[0].blocks[..] else { panic!("{:?}", t.turns[0].blocks) };
         assert!(answer.text.starts_with("The repo holds"));
+        assert!(matches!(&list.kind, ToolKind::Agent(a) if a.model == "claude-haiku-4-5-20251001"), "the model it replied as");
         let list = sub_agent(list);
         assert_eq!(list.turns[0].prompt.as_ref().map(|m| m.text.as_str()), Some("Run ls in /w and report what is there"));
         assert!(matches!(&list.turns[0].blocks[..], [Block::Tool(ToolCall { kind: ToolKind::Shell { command }, status: ToolStatus::Ok, .. }), Block::Text(m)]
