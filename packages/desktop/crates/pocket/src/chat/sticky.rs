@@ -39,11 +39,12 @@ const DROP: Token = Token::new(0x00000024, 0x00000080);
 const DROP_NEAR: Token = Token::new(0x00000014, 0x0000004d);
 
 /// The prompt row whose turn the top of the list is in, once that prompt has scrolled up past the top: none while it
-/// shows from its top, or above the first prompt. `top` is the row at the list's top and `offset` how far into it.
+/// shows from its top, above the first prompt, or under a send not yet echoed, which ends the turn before it.
+/// `top` is the row at the list's top and `offset` how far into it.
 pub(super) fn stuck(rows: &[Row], top: usize, offset: f32) -> Option<usize> {
     let last = top.min(rows.len().checked_sub(1)?);
-    let ix = rows[..=last].iter().rposition(|r| matches!(r, Row::Prompt { .. }))?;
-    (ix < top || offset > 0.).then_some(ix)
+    let ix = rows[..=last].iter().rposition(|r| matches!(r, Row::Prompt { .. } | Row::Pending(_)))?;
+    (matches!(rows[ix], Row::Prompt { .. }) && (ix < top || offset > 0.)).then_some(ix)
 }
 
 /// The row at the top of a list scrolled to its end, and how far into it, from each row's height to the end and the
@@ -323,6 +324,13 @@ mod tests {
         assert_eq!(stuck(&rows(), 2, 0.), Some(0));
         assert_eq!(stuck(&rows(), 3, 0.), None, "the next prompt shows from its top");
         assert_eq!(stuck(&rows(), 5, 40.), Some(3));
+    }
+
+    #[test]
+    fn a_send_held_at_the_top_before_its_echo_sticks_nothing() {
+        let rows = [Row::Prompt { turn: 0 }, Row::Fold { turn: 0 }, Row::End { turn: 0 }, Row::Pending(0), Row::Working];
+        assert_eq!(stuck(&rows, 3, 0.), None);
+        assert_eq!(stuck(&rows, 4, 10.), None, "the previous prompt's turn ended above the send");
     }
 
     #[test]
