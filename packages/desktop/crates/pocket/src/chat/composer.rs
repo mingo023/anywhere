@@ -563,7 +563,7 @@ mod tests {
     use super::{Mode, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, working};
     use crate::explorer::toast::Notice;
     use agents::Summary;
-    use chat::{Action, Ask, End, Message, Question, Session, ToolKind, Transcript, Turn};
+    use chat::{Action, Ask, Block, End, Message, Question, Session, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn ask(questions: Vec<Question>) -> Ask {
         Ask { request_id: "r".into(), tool: ToolKind::Shell { command: "ls".into() }, tool_name: "Bash".into(), questions }
@@ -589,6 +589,17 @@ mod tests {
         assert!(!busy(&agent("working"), Some(&stopped)));
         assert!(busy(&agent("idle"), Some(&session(vec![turn(None)]))));
         assert!(busy(&agent("working"), None), "a chat not yet opened goes by status");
+    }
+
+    #[test]
+    fn sub_agents_left_in_the_background_leave_the_composer_free() {
+        let running = Block::Tool(ToolCall { id: "a".into(), name: "Task".into(), kind: ToolKind::Agent(SubAgent::default()), status: ToolStatus::Running, output: None, duration_ms: None, at: 0 });
+        let ended = session(vec![Turn { blocks: vec![running], ..turn(Some(End::Done { duration_ms: 5, usage: None })) }]);
+        let busy = busy(&agent("idle"), Some(&ended));
+        assert!(!busy, "a send starts a new turn");
+        assert_eq!(placeholder(busy, false, true), super::PLACEHOLDER);
+        assert_eq!(hint(Mode::Prompt, busy, false, true, true), None, "no esc to stop");
+        assert_eq!(chat::action(busy, false, true), Action::Send, "no Stop");
     }
 
     #[test]

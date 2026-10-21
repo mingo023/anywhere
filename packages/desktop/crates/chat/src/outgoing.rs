@@ -1,5 +1,5 @@
-use crate::rows::{at_work, in_background};
-use crate::{End, ToolKind, Transcript};
+use crate::rows::at_work;
+use crate::{End, Transcript};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Delivery {
@@ -164,7 +164,7 @@ impl Outgoing {
             }
         }
         // A stop sent before its prompt echoed leaves pocketd idle at once, though the agent has yet to take the prompt.
-        if !held(t, self, working) || self.stopping.is_some_and(|at| now_ms - at > STOP_MS) {
+        if !busy(t, self, working) || self.stopping.is_some_and(|at| now_ms - at > STOP_MS) {
             self.stopping = None;
         }
         if self.after_stop && self.stopping.is_none() {
@@ -179,7 +179,7 @@ impl Outgoing {
                 send.delivery = Delivery::Failed;
             }
         }
-        if !self.paused(t) && !held(t, self, working) {
+        if !self.paused(t) && !busy(t, self, working) {
             let id = self.sends.iter().find(|s| s.delivery == Delivery::Queued).map(|s| s.id);
             if let Some((id, text)) = id.and_then(|id| Some((id, self.release(id, now_ms, Delivery::Sending)?))) {
                 self.released.push((id, text));
@@ -285,17 +285,12 @@ impl Outgoing {
     }
 }
 
-/// Whether the agent is on a turn as the chat sees it: a send waits its turn and Stop shows, and the queue holds.
+/// Whether the agent is on a turn as the chat sees it: a send steers into it and Stop shows, and the queue holds.
 /// A send on its way counts, as the agent takes it as a turn. `working` is pocketd's status: the transcript shows a stop
 /// at once where status trails it by up to a poll, so status decides only where the transcript can't, while it has no
 /// turn (not fetched yet, or dropped as pocketd restarted). A command just sent counts until it shows its end; see `settle`.
-/// A sub-agent at work in the background counts too, so a send steers into the session rather than waiting on it.
+/// Sub-agents left in the background don't: the agent takes a send as a new turn, and Esc doesn't stop them.
 pub fn busy(t: &Transcript, out: &Outgoing, working: bool) -> bool {
-    held(t, out, working) || in_background(&t.turns).any(|(_, _, c)| matches!(c.kind, ToolKind::Agent(_)))
-}
-
-/// `busy` but for background sub-agents, which hold no queued send back: what the queue waits on.
-fn held(t: &Transcript, out: &Outgoing, working: bool) -> bool {
     out.sends.iter().any(|p| in_flight(p.delivery)) || out.command.is_some() || on_turn(t, working)
 }
 
@@ -967,13 +962,13 @@ mod tests {
     }
 
     #[test]
-    fn a_sub_agent_in_the_background_keeps_the_chat_busy_but_holds_no_queue() {
-        use crate::{Block, SubAgent, ToolCall, ToolStatus};
+    fn a_sub_agent_in_the_background_leaves_the_chat_free_and_holds_no_queue() {
+        use crate::{Block, SubAgent, ToolCall, ToolKind, ToolStatus};
         let agent = Block::Tool(ToolCall { id: "a".into(), name: String::new(), kind: ToolKind::Agent(SubAgent::default()), status: ToolStatus::Running, output: None, duration_ms: None, at: 0 });
         let t = Transcript { turns: vec![Turn { blocks: vec![agent], ..turn("u1", 0, "audit", true) }] };
         let mut o = Outgoing::default();
+        assert!(!busy(&t, &o, false), "a send starts a turn rather than steering into one");
         o.push("next".into(), true, 0);
-        assert!(busy(&t, &o, false));
         o.settle(&t, false, 1_000);
         assert_eq!(released(&mut o), ["next"]);
     }
