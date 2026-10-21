@@ -129,7 +129,12 @@ notarize() {
   fi
   xcrun notarytool submit "$DMG" "$@" --wait
   # A rejected submission leaves no ticket, so stapling fails; `xcrun notarytool log <id>` says why.
-  xcrun stapler staple "$DMG"
+  # An accepted one can still fail to staple for a while: the ticket's CloudKit lookup drops or lags (Error 68).
+  for attempt in 1 2 3 4 5; do
+    xcrun stapler staple "$DMG" && break
+    [ "$attempt" = 5 ] && exit 1
+    sleep 30
+  done
   spctl -a -vvv -t install "$DMG"
 }
 
