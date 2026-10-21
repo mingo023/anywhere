@@ -10,26 +10,27 @@ use theme::*;
 /// Steps a live phase keeps in view; older ones scroll away above them.
 const LIVE_STEPS: usize = 9;
 
-/// A rail's spine down the left and an elbow into `child`; the last one's spine stops at its elbow.
-/// `top` lowers the elbow, for a row that starts with space above.
-fn rail(last: bool, top: f32, child: impl IntoElement) -> Div {
+/// A rail's spine down the left and, with `elbow`, an elbow into `child`; the last one's spine stops at its elbow, and
+/// a last one without an elbow has none. `top` lowers the elbow, for a row that starts with space above.
+fn rail(last: bool, elbow: bool, top: f32, child: impl IntoElement) -> Div {
     div()
         .relative()
         .pl(px(20.))
         .min_w_0()
-        .child(div().absolute().left(px(7.)).top_0().w(px(1.)).bg(RAIL).map(|d| if last { d.h(px(top + 7.)) } else { d.h_full() }))
-        .child(div().absolute().left(px(7.)).top(px(top + 6.)).size(px(8.)).border_l_1().border_b_1().border_color(RAIL).rounded_bl(px(8.)))
+        .when(elbow || !last, |d| d.child(div().absolute().left(px(7.)).top_0().w(px(1.)).bg(RAIL).map(|d| if last { d.h(px(top + 7.)) } else { d.h_full() })))
+        .when(elbow, |d| d.child(div().absolute().left(px(7.)).top(px(top + 6.)).size(px(8.)).border_l_1().border_b_1().border_color(RAIL).rounded_bl(px(8.))))
         .child(child)
 }
 
 /// One step on a phase's or a sub-agent's rail.
 pub(super) fn step(last: bool, child: impl IntoElement) -> Div {
-    rail(last, 0., child)
+    rail(last, true, 0., child)
 }
 
-/// A row inside the fold, hung off its rail; `last` ends the rail.
-pub(super) fn in_fold(last: bool, child: impl IntoElement) -> Div {
-    rail(last, 6., div().pt(px(6.)).pb(px(4.)).child(child))
+/// A row inside the fold, hung off its rail; `last` ends the rail, and a row going on with the message above has no
+/// elbow of its own.
+pub(super) fn in_fold(last: bool, elbow: bool, child: impl IntoElement) -> Div {
+    rail(last, elbow, 6., div().pt(px(6.)).pb(px(4.)).child(child))
 }
 
 /// Text the agent wrote between steps.
@@ -154,13 +155,9 @@ mod tests {
         Block::Tool(ToolCall { id: "t".into(), name: "x".into(), kind, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 })
     }
 
-    fn text(s: &str) -> Block {
-        Block::Text(Message { id: s.into(), at: 0, text: s.into() })
-    }
-
     #[test]
     fn a_phase_is_headed_by_the_kind_of_its_first_step() {
-        assert_eq!(kind_icon(&[text("Let me look."), tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into() })]), "search");
+        assert_eq!(kind_icon(&[tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into() })]), "search");
         assert_eq!(kind_icon(&[tool(ToolKind::Edit { path: "a".into(), diff: None })]), "pencil");
         assert_eq!(kind_icon(&[tool(ToolKind::Shell { command: "ls".into() })]), "terminal");
         assert_eq!(kind_icon(&[Block::Thinking(Message::default())]), "bulb");

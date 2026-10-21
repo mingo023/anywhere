@@ -289,6 +289,11 @@ fn narration(t: &Transcript, row: &Row) -> bool {
     matches!(row, Row::Text { turn, block, .. } if chat::narrates(&t.turns[*turn], *block))
 }
 
+/// Whether `a` and `b` are markdown blocks of one message.
+fn same_message(a: &Row, b: &Row) -> bool {
+    matches!((a, b), (Row::Text { turn: x, block: i, .. }, Row::Text { turn: y, block: j, .. }) if (x, i) == (y, j))
+}
+
 /// Whether a row under a fold shows: the work and the text between it do while the fold is open; a phase holding a
 /// failed sub-agent always does.
 fn shown(t: &Transcript, row: &Row, fold_open: bool) -> bool {
@@ -570,7 +575,8 @@ impl Desktop {
             return div().id(SharedString::from(id)).into_any_element();
         }
         let rail = in_fold(t, s.live_tail(), &row);
-        let last_on_rail = rail && !s.rows.get(ix + 1).is_some_and(|next| in_fold(t, s.live_tail(), next));
+        let last_on_rail = rail && !s.rows[ix + 1..].iter().find(|next| !same_message(&row, next)).is_some_and(|next| in_fold(t, s.live_tail(), next));
+        let elbow = !ix.checked_sub(1).and_then(|i| s.rows.get(i)).is_some_and(|prev| same_message(prev, &row));
         let gap = if rail { 0. } else { chat::top_gap(ix.checked_sub(1).and_then(|i| s.rows.get(i)), &row) };
         let width = content_width(WIDTH);
 
@@ -726,7 +732,7 @@ impl Desktop {
                 None => div(),
             },
         };
-        let inner = if rail { phase::in_fold(last_on_rail, inner) } else { inner };
+        let inner = if rail { phase::in_fold(last_on_rail, elbow, inner) } else { inner };
         let prompt = |r: &Row| matches!(r, Row::Prompt { .. } | Row::Pending(_));
         let rising = view.sent.and_then(|at| creating::rise(at.elapsed(), SENT, cx.reduce_motion())).filter(|_| prompt(&row) && !s.rows[ix + 1..].iter().any(prompt));
         let inner = match rising {
@@ -887,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn a_replys_answer_leaves_out_the_text_heading_its_work() {
+    fn a_replys_answer_leaves_out_the_text_between_its_work() {
         let t = turn(vec![Block::Text(msg("Let me look.", 1)), shell(2), Block::Text(msg("All good.", 3))], Some(End::Done { duration_ms: 1, usage: None }));
         assert_eq!(answer(&t, 0..1), "All good.");
     }
