@@ -493,6 +493,44 @@ func TestAStopHookThatKeepsClaudeGoingEndsTheRunItStoppedAndTimesEachRunOnItsOwn
 	}
 }
 
+func TestAnAPIErrorClaudeRetriesLeavesTheTurnGoing(t *testing.T) {
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		`{"type":"user","timestamp":"2026-10-21T10:00:00.000Z","message":{"content":"fix the tests"}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T10:00:01.000Z","message":{"content":[{"type":"text","text":"Looking."}]}}`,
+		`{"type":"assistant","isApiErrorMessage":true,"timestamp":"2026-10-21T10:00:02.000Z","message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error: Your computer went to sleep mid-response."}]}}`,
+		`{"type":"attachment","timestamp":"2026-10-21T10:00:03.000Z","attachment":{"type":"todo_reminder"}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T10:00:04.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make test"}}]}}`,
+		`{"type":"system","subtype":"stop_hook_summary","entrypoint":"sdk-cli","timestamp":"2026-10-21T10:00:06.000Z"}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user", "assistant_text", "result", "retried", "tool_start", "result"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+	if got[5].DurationMs != 6000 {
+		t.Fatalf("end %+v", got[5])
+	}
+}
+
+func TestAnAPIErrorThatEndsTheTurnIsNotRetriedByTheNextOne(t *testing.T) {
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		`{"type":"user","message":{"content":"fix the tests"}}`,
+		`{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"API Error: 500"}]}}`,
+		`{"type":"system","subtype":"turn_duration","durationMs":7}`,
+		notification("<task-id>b1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>"),
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"The build finished."}]}}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user", "result", "result", "tool_end", "assistant_text"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+}
+
 const stillWorking = "<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>"
 
 func TestAnAgentWaitingOnItsOwnBackgroundWorkRunsOnUntilItNotifiesAgain(t *testing.T) {

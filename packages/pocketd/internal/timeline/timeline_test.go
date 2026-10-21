@@ -291,6 +291,33 @@ func TestAnErrorAfterADoneTurnEndsATurnOfItsOwn(t *testing.T) {
 	}
 }
 
+func TestAnErrorClaudeRetriedBecomesANoticeInTheTurnItLeftGoing(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	failed, _ := tl.Apply(Event{Kind: "result", Error: "API Error: Your computer went to sleep mid-response."}, 2)
+	notice, ok := tl.Apply(Event{Kind: "retried"}, 3)
+	if !ok || notice.ID != failed.ID || notice.Kind != "notice" || notice.Error != failed.Error {
+		t.Fatalf("got %+v from %+v", notice, failed)
+	}
+	tl.Apply(Event{Kind: "assistant_text", Text: "Picking up where I left off."}, 4)
+	tl.Apply(Event{Kind: "result", OK: true, DurationMs: 9000}, 5)
+	if items, _ := tl.Page(0, 10); len(items) != 4 || items[3].Kind != "result" || !items[3].OK {
+		t.Fatalf("got %+v", items)
+	}
+}
+
+func TestOnlyATurnAnErrorEndedIsRetried(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	if _, ok := tl.Apply(Event{Kind: "retried"}, 2); ok {
+		t.Fatal("retried a prompt")
+	}
+	tl.Apply(Event{Kind: "result", Error: "interrupted"}, 3)
+	if _, ok := tl.Apply(Event{Kind: "retried"}, 4); ok {
+		t.Fatal("retried an interrupt")
+	}
+}
+
 func TestANoticeSaysWhyTheAgentWentOn(t *testing.T) {
 	tl := New()
 	it, ok := tl.Apply(Event{Kind: "notice", Text: "Stop hook: tests fail"}, 1)

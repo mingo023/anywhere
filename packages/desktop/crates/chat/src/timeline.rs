@@ -10,7 +10,7 @@ use std::collections::HashMap;
 /// - `user` starts a turn, and `result` ends it.
 /// - `assistant` → `Block::Text`, `thinking` → `Block::Thinking`, `tasks` → `Block::Todos`, `plan` → `Block::Plan`.
 /// - `compact` → `Block::Compacted`.
-/// - `notice` → `Block::Notice`, saying why the agent went on.
+/// - `notice` → `Block::Notice`: its `text`, else the `error` the agent went on after.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
 /// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
 /// - AskUserQuestion → `ToolKind::Question`.
@@ -195,6 +195,7 @@ fn block(item: &Item) -> Option<Block> {
         "plan" if !blank => Block::Plan(message(item)),
         "tasks" => Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() },
         "compact" => Block::Compacted { id: item.id.clone(), auto: item.trigger == "auto" },
+        "notice" if !item.error.is_empty() => Block::Notice { message: Message { text: item.error.clone(), ..message(item) }, error: true },
         "notice" if !blank => Block::Notice { message: message(item), error: false },
         _ => return None,
     })
@@ -564,6 +565,17 @@ mod tests {
         assert_eq!(t.turns.len(), 2);
         assert_eq!(t.turns[1].prompt, None);
         assert_eq!(t.turns[1].blocks[0], Block::Notice { message: Message { id: "i3".into(), at: 3000, text: "Stop hook: tests fail".into() }, error: false });
+    }
+
+    #[test]
+    fn an_error_the_agent_went_on_after_is_a_notice_in_its_turn() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/stream_notice_error.json")).unwrap();
+        let mut notice: Item = serde_json::from_value(golden["item"].clone()).unwrap();
+        notice.seq = 2;
+        let t = fold(&[items(json!([{"kind": "user", "text": "go"}])).remove(0), notice]);
+        assert_eq!(t.turns.len(), 1);
+        assert_eq!(t.turns[0].end, None);
+        assert!(matches!(&t.turns[0].blocks[..], [Block::Notice { message, error: true }] if message.text == "API Error: 500"));
     }
 
     #[test]

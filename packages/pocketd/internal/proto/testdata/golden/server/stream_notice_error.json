@@ -1,0 +1,12 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "notice",
+    "id": "i8",
+    "seq": 8,
+    "ts": 17,
+    "error": "API Error: 500"
+  }
+}

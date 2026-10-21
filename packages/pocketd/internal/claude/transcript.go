@@ -132,6 +132,8 @@ type Turns struct {
 	// hooked is set while a hook that kept Claude going has ended the run it stopped,
 	// and retime until the next end, which Claude times from the start of both runs.
 	hooked, retime bool
+	// erred is when the turn an API error ended began, until the next line shows whether Claude went on.
+	erred *time.Time
 }
 
 func (t *Turns) Map(raw []byte) []timeline.Event {
@@ -161,6 +163,14 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		t.running = true
 	}
 	t.local = l.caveat()
+	if t.erred != nil && len(events) > 0 {
+		switch events[0].Kind {
+		case "assistant_text", "thinking", "tool_start":
+			events = append([]timeline.Event{{Kind: "retried"}}, events...)
+			t.start = *t.erred
+		}
+		t.erred = nil
+	}
 	hook := l.IsMeta && len(events) == 1 && events[0].Kind == "notice" && !t.start.IsZero()
 	if hook {
 		events = append([]timeline.Event{{Kind: "result", OK: true}}, events...)
@@ -182,6 +192,10 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		if e.Kind == "result" {
 			if (e.DurationMs == 0 || t.retime) && !t.start.IsZero() && !at.IsZero() {
 				e.DurationMs = at.Sub(t.start).Milliseconds()
+			}
+			if l.IsAPIError {
+				start := t.start
+				t.erred = &start
 			}
 			t.start, t.retime = time.Time{}, false
 		}

@@ -12,7 +12,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, notice, compacted, error
+	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, retried, notice, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -324,6 +324,16 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 			}
 		}
 		return t.append(proto.Item{Kind: "result", OK: e.OK, DurationMs: e.DurationMs, Error: e.Error, Usage: e.Usage}, e.ParentToolUseID, ts), true
+
+	// Claude went on after an error it ended the turn with, so the error only interrupted it.
+	case "retried":
+		n := t.lastAt()
+		if n < 0 || t.items[n].Kind != "result" || t.items[n].OK || t.items[n].Error == "interrupted" {
+			return proto.Item{}, false
+		}
+		last := &t.items[n]
+		*last = proto.Item{ID: last.ID, Seq: last.Seq, Ts: last.Ts, Kind: "notice", Error: last.Error}
+		return *last, true
 
 	case "notice":
 		return t.append(proto.Item{Kind: "notice", Text: e.Text}, e.ParentToolUseID, ts), true
