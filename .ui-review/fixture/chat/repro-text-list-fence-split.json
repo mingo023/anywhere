@@ -1,0 +1,24 @@
+[
+ {
+  "kind": "user",
+  "id": "l1",
+  "text": "How do I set up the project locally?",
+  "seq": 1,
+  "ts": 1792566603000
+ },
+ {
+  "kind": "assistant",
+  "id": "l2",
+  "text": "Three steps:\n\n1. Install the toolchain:\n\n   ```sh\n   brew install go bun\n   ```\n\n2. Build the daemon:\n   ```sh\n   cd packages/pocketd && go build ./...\n   ```\n3. Start the app.\n\nThat is all.",
+  "seq": 2,
+  "ts": 1792566606000
+ },
+ {
+  "kind": "result",
+  "id": "l3",
+  "ok": true,
+  "durationMs": 3000,
+  "seq": 3,
+  "ts": 1792566609000
+ }
+]

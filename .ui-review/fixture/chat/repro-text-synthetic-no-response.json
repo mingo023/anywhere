@@ -1,0 +1,54 @@
+[
+ {
+  "kind": "user",
+  "id": "s1",
+  "text": "Render the settings page as a static HTML mock",
+  "seq": 1,
+  "ts": 1792566603000
+ },
+ {
+  "kind": "assistant",
+  "id": "s2",
+  "text": "```html\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <title>Settings</title>\n</head>\n<body>\n  <h1>Settings</h1>\n",
+  "seq": 2,
+  "ts": 1792566606000
+ },
+ {
+  "kind": "result",
+  "id": "s3",
+  "ok": false,
+  "durationMs": 4000,
+  "error": "interrupted",
+  "seq": 3,
+  "ts": 1792566609000
+ },
+ {
+  "kind": "assistant",
+  "id": "s4",
+  "text": "No response requested.",
+  "seq": 4,
+  "ts": 1792566612000
+ },
+ {
+  "kind": "user",
+  "id": "s5",
+  "text": "Show me a table of the config keys instead",
+  "seq": 5,
+  "ts": 1792566615000
+ },
+ {
+  "kind": "assistant",
+  "id": "s6",
+  "text": "| Key | Default |\n|---|---|\n| theme | system |\n| fontSize | 13 |",
+  "seq": 6,
+  "ts": 1792566618000
+ },
+ {
+  "kind": "result",
+  "id": "s7",
+  "ok": true,
+  "durationMs": 6000,
+  "seq": 7,
+  "ts": 1792566621000
+ }
+]

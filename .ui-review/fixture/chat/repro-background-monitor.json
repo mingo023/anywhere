@@ -1,0 +1,11 @@
+[
+  { "id": "u1", "kind": "user", "text": "Start the release build and tell me when it finishes" },
+  { "id": "b1", "kind": "tool", "call": { "toolUseId": "tu-b1", "name": "Bash", "detail": { "kind": "shell", "command": "cargo build --release 2>&1 > /tmp/build.log", "description": "Release build" }, "status": "ok", "durationMs": 9000 } },
+  { "id": "m1", "kind": "tool", "call": { "toolUseId": "tu-m1", "name": "Monitor", "detail": { "kind": "other", "name": "Monitor", "input": { "command": "tail -f /tmp/build.log | grep --line-buffered -E 'error|warning|Finished'", "description": "Watch the build for errors", "timeout_ms": 1800000 } }, "status": "ok", "output": "Monitor started (task bq4x7, expires in 30m unless the source ends first; you get one notice at expiry — re-arm if you still need the watch). You will be notified on each event. Keep working — do not poll or sleep.", "durationMs": 20 } },
+  { "id": "a1", "kind": "assistant", "text": "The build is running and I'm watching its log. I'll tell you as soon as it finishes or hits an error." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 4000, "usage": { "inputTokens": 3000, "outputTokens": 90 } },
+  { "id": "a2", "kind": "assistant", "text": "A warning came up: unused import in `crates/chat/src/rows.rs`. The build carries on." },
+  { "id": "r2", "kind": "result", "ok": true, "durationMs": 1500, "usage": { "inputTokens": 3100, "outputTokens": 40 } },
+  { "id": "a3", "kind": "assistant", "text": "The release build finished in 3m 12s with that one warning." },
+  { "id": "r3", "kind": "result", "ok": true, "durationMs": 1500, "usage": { "inputTokens": 3200, "outputTokens": 40 } }
+]

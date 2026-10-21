@@ -1,0 +1,11 @@
+[
+  { "id": "u1", "kind": "user", "text": "Run the full test suite in the background, and have a sub-agent review the parser meanwhile" },
+  { "id": "b1", "kind": "tool", "call": { "toolUseId": "tu-b1", "name": "Bash", "detail": { "kind": "shell", "command": "cargo test --workspace 2>&1 | tail -40", "description": "Run the full test suite" }, "status": "error", "durationMs": 400 } },
+  { "id": "t1", "kind": "tool", "call": { "toolUseId": "tu-t1", "name": "Agent", "detail": { "kind": "task", "description": "Review the parser" }, "status": "ok", "output": "Done.", "durationMs": 400 } },
+  { "id": "a1", "kind": "assistant", "text": "Both are running in the background. I'll report back when they finish." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 150, "usage": { "inputTokens": 3000, "outputTokens": 90 } },
+  { "id": "a2", "kind": "assistant", "text": "The parser review is in: it looks sound, with one nit about error recovery." },
+  { "id": "r2", "kind": "result", "ok": true, "durationMs": 1500, "usage": { "inputTokens": 3100, "outputTokens": 60 } },
+  { "id": "a3", "kind": "assistant", "text": "The test suite **failed**: 3 tests in `chat::rows` fail on the new fold rule. Want me to fix them?" },
+  { "id": "r3", "kind": "result", "ok": true, "durationMs": 1800, "usage": { "inputTokens": 3300, "outputTokens": 70 } }
+]

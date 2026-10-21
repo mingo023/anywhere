@@ -1,0 +1,11 @@
+[
+  { "id": "u1", "kind": "user", "text": "Spawn 2 sub-agents to review the branch, and start the dev server" },
+  { "id": "s1", "kind": "tool", "call": { "toolUseId": "tu-s1", "name": "Bash", "detail": { "kind": "shell", "command": "bun run dev", "description": "Start the dev server" }, "status": "running" } },
+  { "id": "t1", "kind": "tool", "call": { "toolUseId": "tu-t1", "name": "Agent", "detail": { "kind": "task", "description": "Standards review of the branch" }, "status": "running" } },
+  { "id": "t2", "kind": "tool", "call": { "toolUseId": "tu-t2", "name": "Agent", "detail": { "kind": "task", "description": "Spec review of the branch" }, "status": "running" } },
+  { "id": "a1", "kind": "assistant", "text": "Two reviewers are running in the background and the dev server is up." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 9000, "usage": { "inputTokens": 3000, "outputTokens": 90 } },
+  { "id": "u2", "kind": "user", "text": "I restarted the session. Where were we?" },
+  { "id": "a2", "kind": "assistant", "text": "The two reviewers and the dev server didn't finish before the previous session ended, so nothing is running now. Want me to start the reviews again?" },
+  { "id": "r2", "kind": "result", "ok": true, "durationMs": 3000, "usage": { "inputTokens": 3100, "outputTokens": 60 } }
+]

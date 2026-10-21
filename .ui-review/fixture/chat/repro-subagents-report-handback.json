@@ -1,0 +1,153 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Run the spec and standards reviews in the background, and fix #1 in parallel."
+ },
+ {
+  "id": "t1",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-t1",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "Spec review of quit diff"
+   },
+   "status": "ok",
+   "output": "This agent's report was delivered to you as a message from \"a71f4bf234315ceda\" (its SubagentHandback call). Read it there; it is not repeated here.",
+   "durationMs": 61000
+  }
+ },
+ {
+  "id": "t2",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-t2",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "Fix #1 lookup + #4 auto_number"
+   },
+   "status": "ok",
+   "output": "Waiting for the wider e2e run to finish.",
+   "durationMs": 94000
+  }
+ },
+ {
+  "id": "t3",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-t3",
+   "name": "Agent",
+   "detail": {
+    "kind": "task",
+    "description": "Standards review of branch"
+   },
+   "status": "running"
+  }
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "Three agents are running in the background. I'll report when they finish."
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 81000,
+  "usage": {
+   "inputTokens": 9000,
+   "outputTokens": 700
+  }
+ },
+ {
+  "id": "c1",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-c1",
+   "name": "Read",
+   "detail": {
+    "kind": "read",
+    "path": "src/quit.rs"
+   },
+   "status": "ok",
+   "durationMs": 10
+  },
+  "parentToolUseId": "tu-t1"
+ },
+ {
+  "id": "c2",
+  "kind": "assistant",
+  "text": "The diff matches the spec except for the missing test.",
+  "parentToolUseId": "tu-t1"
+ },
+ {
+  "id": "c3",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-c3",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "pnpm test:e2e --filter lookup"
+   },
+   "status": "ok",
+   "output": "32 passed",
+   "durationMs": 40000
+  },
+  "parentToolUseId": "tu-t2"
+ },
+ {
+  "id": "c4",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-c4",
+   "name": "Bash",
+   "detail": {
+    "kind": "shell",
+    "command": "pnpm test:e2e"
+   },
+   "status": "running"
+  },
+  "parentToolUseId": "tu-t2"
+ },
+ {
+  "id": "c5",
+  "kind": "tool",
+  "call": {
+   "toolUseId": "tu-c5",
+   "name": "Grep",
+   "detail": {
+    "kind": "search",
+    "query": "static mut"
+   },
+   "status": "ok",
+   "output": "no matches",
+   "durationMs": 20
+  },
+  "parentToolUseId": "tu-t3"
+ },
+ {
+  "id": "c6",
+  "kind": "assistant",
+  "text": "No mutable statics remain. Report ready.",
+  "parentToolUseId": "tu-t3"
+ },
+ {
+  "id": "n1",
+  "kind": "assistant",
+  "text": "The spec review is back: the diff matches except for one missing test. Agent 1 says it is waiting on its e2e run."
+ },
+ {
+  "id": "r2",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 81000,
+  "usage": {
+   "inputTokens": 9000,
+   "outputTokens": 700
+  }
+ }
+]
