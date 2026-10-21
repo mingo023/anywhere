@@ -12,7 +12,7 @@ pub use adapter::{capabilities, for_provider, Backend, Capabilities};
 pub use commands::{menu, skips_queue, slash, Builtin, Kind, Local, Slash};
 pub use marks::{marks, mention_name, Marks};
 pub use outgoing::{action, busy, Action, Delivery, Outgoing, Pending};
-pub use rows::{at_work, at_work_on, first_sentence, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, phase_title, reply, reported, row_of, rows, running_agent, settled_tail, splice, step_prompt, top_gap, worked, Row};
+pub use rows::{at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows, running_agent, settled_tail, splice, step_prompt, top_gap, worked, Row};
 pub use session::{Folds, Session};
 pub use timeline::Fold;
 

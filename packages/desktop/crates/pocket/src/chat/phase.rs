@@ -10,26 +10,27 @@ use theme::*;
 /// Steps a live phase keeps in view; older ones scroll away above them.
 const LIVE_STEPS: usize = 9;
 
-/// A rail's spine down the left and an elbow into `child`; the last one's spine stops at its elbow.
-/// `top` lowers the elbow, for a row that starts with space above.
-fn rail(last: bool, top: f32, child: impl IntoElement) -> Div {
+/// A rail's spine down the left and, with `elbow`, an elbow into `child`; the last one's spine stops at its elbow, and
+/// a last one without an elbow has none. `top` lowers the elbow, for a row that starts with space above.
+fn rail(last: bool, elbow: bool, top: f32, child: impl IntoElement) -> Div {
     div()
         .relative()
         .pl(px(20.))
         .min_w_0()
-        .child(div().absolute().left(px(7.)).top_0().w(px(1.)).bg(RAIL).map(|d| if last { d.h(px(top + 7.)) } else { d.h_full() }))
-        .child(div().absolute().left(px(7.)).top(px(top + 6.)).size(px(8.)).border_l_1().border_b_1().border_color(RAIL).rounded_bl(px(8.)))
+        .when(elbow || !last, |d| d.child(div().absolute().left(px(7.)).top_0().w(px(1.)).bg(RAIL).map(|d| if last { d.h(px(top + 7.)) } else { d.h_full() })))
+        .when(elbow, |d| d.child(div().absolute().left(px(7.)).top(px(top + 6.)).size(px(8.)).border_l_1().border_b_1().border_color(RAIL).rounded_bl(px(8.))))
         .child(child)
 }
 
 /// One step on a phase's or a sub-agent's rail.
 pub(super) fn step(last: bool, child: impl IntoElement) -> Div {
-    rail(last, 0., child)
+    rail(last, true, 0., child)
 }
 
-/// A row inside the fold, hung off its rail; `last` ends the rail.
-pub(super) fn in_fold(last: bool, child: impl IntoElement) -> Div {
-    rail(last, 6., div().pt(px(6.)).pb(px(4.)).child(child))
+/// A row inside the fold, hung off its rail; `last` ends the rail, and a row going on with the message above has no
+/// elbow of its own.
+pub(super) fn in_fold(last: bool, elbow: bool, child: impl IntoElement) -> Div {
+    rail(last, elbow, 6., div().pt(px(6.)).pb(px(4.)).child(child))
 }
 
 /// Text the agent wrote between steps.
@@ -53,7 +54,7 @@ pub(crate) fn kind_icon(blocks: &[Block]) -> &'static str {
     }
 }
 
-/// The phase's steps: its thinking and tool calls, without the text heading it.
+/// The phase's steps: its thinking and tool calls, without the todos updated among them.
 pub(crate) fn steps(blocks: &[Block]) -> Vec<(usize, &Block)> {
     blocks.iter().enumerate().filter(|(_, b)| chat::is_work(b)).collect()
 }
@@ -107,16 +108,15 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, tools: &Entity<Tools>
     }
 }
 
-/// A phase in the fold: a title line that opens to its steps, or, for a lone untitled step, just that step.
+/// A phase in the fold: a title line that opens to its steps, or, for a lone step, just that step.
 /// `next_at` is when whatever follows the phase began; `live` forces it open with its newest steps showing, as a
 /// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, cx: &App) -> Div {
     let steps = steps(blocks);
-    let titled = matches!(blocks.first(), Some(Block::Text(m)) if !m.text.trim().is_empty());
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
-    if !titled && let [(i, b)] = steps[..]
+    if let [(i, b)] = steps[..]
         && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
     {
         let icon_name = kind_icon(blocks);
@@ -155,13 +155,9 @@ mod tests {
         Block::Tool(ToolCall { id: "t".into(), name: "x".into(), kind, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 })
     }
 
-    fn text(s: &str) -> Block {
-        Block::Text(Message { id: s.into(), at: 0, text: s.into() })
-    }
-
     #[test]
     fn a_phase_is_headed_by_the_kind_of_its_first_step() {
-        assert_eq!(kind_icon(&[text("Let me look."), tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into() })]), "search");
+        assert_eq!(kind_icon(&[tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into() })]), "search");
         assert_eq!(kind_icon(&[tool(ToolKind::Edit { path: "a".into(), diff: None })]), "pencil");
         assert_eq!(kind_icon(&[tool(ToolKind::Shell { command: "ls".into() })]), "terminal");
         assert_eq!(kind_icon(&[Block::Thinking(Message::default())]), "bulb");
@@ -169,9 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn a_phases_steps_leave_out_the_text_heading_it() {
-        let blocks = [text("Let me look."), tool(ToolKind::Read { path: "a".into() }), Block::Thinking(Message::default())];
-        assert_eq!(steps(&blocks).iter().map(|(i, _)| *i).collect::<Vec<_>>(), [1, 2]);
+    fn a_phases_steps_leave_out_its_todos() {
+        let blocks = [tool(ToolKind::Read { path: "a".into() }), Block::Todos { id: "t".into(), todos: vec![] }, Block::Thinking(Message::default())];
+        assert_eq!(steps(&blocks).iter().map(|(i, _)| *i).collect::<Vec<_>>(), [0, 2]);
     }
 
     #[test]
