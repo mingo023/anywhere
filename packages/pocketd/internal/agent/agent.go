@@ -397,6 +397,15 @@ func (a *Agent) Stop() bool {
 	return true
 }
 
+// EndLasting ends the background calls an earlier claude left running: they
+// ended with it, and Claude may never note it.
+func (a *Agent) EndLasting() {
+	out := "Stopped when its session ended"
+	for _, id := range a.Timeline.Lasting() {
+		a.Record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: &out})
+	}
+}
+
 // Escaped notes an Esc or Ctrl+C typed to the agent, a stop only while it works.
 func (a *Agent) Escaped() {
 	a.mu.Lock()

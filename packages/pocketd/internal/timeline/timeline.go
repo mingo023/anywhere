@@ -361,17 +361,15 @@ func (t *Timeline) call(toolUseID string) int {
 	return -1
 }
 
-// Lasting returns the task ids of the calls running on in the background, sub-agents and commands, oldest first.
+// Lasting returns the tool use ids of the calls running on in the background, sub-agents and commands, oldest first.
 func (t *Timeline) Lasting() []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var ids []string
-	for id, n := range t.tasks {
-		if t.lasting[t.items[n].Call.ToolUseID] {
-			ids = append(ids, id)
-		}
+	for id := range t.lasting {
+		ids = append(ids, id)
 	}
-	slices.SortFunc(ids, func(a, b string) int { return t.tasks[a] - t.tasks[b] })
+	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
 	return ids
 }
 

@@ -371,18 +371,18 @@ func TestASubagentsModelShowsOnItsCall(t *testing.T) {
 	}
 }
 
-func TestLastingNamesTheBackgroundTasksAndCountsItsAgents(t *testing.T) {
+func TestLastingNamesTheBackgroundCallsAndCountsItsAgents(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
 	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 1)
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: json.RawMessage(`{"description":"Look","run_in_background":true}`)}, 2)
 	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2"}, 2)
 	tl.StartEpoch()
-	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b1", "a2"}) || tl.BackgroundAgents() != 1 {
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"t1", "t2"}) || tl.BackgroundAgents() != 1 {
 		t.Fatalf("%v, %d agents", got, tl.BackgroundAgents())
 	}
 	tl.Apply(Event{Kind: "tool_end", TaskID: "a2", OK: true}, 3)
-	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"b1"}) || tl.BackgroundAgents() != 0 {
+	if got := tl.Lasting(); !reflect.DeepEqual(got, []string{"t1"}) || tl.BackgroundAgents() != 0 {
 		t.Fatalf("%v, %d agents", got, tl.BackgroundAgents())
 	}
 }

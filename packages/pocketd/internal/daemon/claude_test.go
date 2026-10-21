@@ -1585,6 +1585,41 @@ func TestATranscriptUpToAPromptFromBeforeItWasSentIsNotTheAgents(t *testing.T) {
 	}
 }
 
+// background writes Claude starting a command in the background as call id.
+func background(t *testing.T, path, id string) {
+	appendLine(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"`+id+`","name":"Bash","input":{"command":"npm run dev","run_in_background":true}}]}}`)
+	appendLine(t, path, `{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"b`+id+`"},"message":{"content":[{"type":"tool_result","tool_use_id":"`+id+`","content":"Command running in background."}]}}`)
+}
+
+func callOf(pr *presence, id string) proto.ToolCall {
+	items, _ := pr.a.Timeline.Page(0, 100)
+	for _, it := range items {
+		if it.Call != nil && it.Call.ToolUseID == id {
+			return *it.Call
+		}
+	}
+	return proto.ToolCall{}
+}
+
+func TestAResumedSessionEndsTheBackgroundCallsItsEarlierClaudeLeft(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	path := transcript(t, "start the server")
+	background(t, path, "t1")
+	hookFrom(d, pr, strings.Replace(sessionStart("s1", path), `"startup"`, `"resume"`, 1))
+	eventually(t, "the earlier server ended", func() bool { return callOf(pr, "t1").Status == "ok" })
+	if out := callOf(pr, "t1").Output; out == nil || *out != "Stopped when its session ended" {
+		t.Fatalf("output = %v", out)
+	}
+	appendLine(t, path, userLine("start it again"))
+	background(t, path, "t2")
+	eventually(t, "the new server", func() bool { return callOf(pr, "t2").Status == "running" })
+	time.Sleep(100 * time.Millisecond)
+	if s := callOf(pr, "t2").Status; s != "running" {
+		t.Fatalf("the new server is %s", s)
+	}
+}
+
 func TestRetitleNamesTheConversationOfEachClaudeThatMatches(t *testing.T) {
 	d := newDaemon(t)
 	cfg := t.TempDir()
