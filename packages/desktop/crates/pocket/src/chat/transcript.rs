@@ -671,7 +671,7 @@ impl Desktop {
                 }
                 let body = match markdown::fence(text) {
                     Some((lang, code)) => {
-                        let (styles, start) = view.code.get(&id, code, is_dark());
+                        let (styles, start) = view.code.get(&id, &code, is_dark());
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
@@ -681,11 +681,13 @@ impl Desktop {
                             let (agent, row) = (agent.to_string(), id.clone());
                             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_wrap(&agent, &row, cx))
                         };
-                        let block = markdown::code_block(&id, lang, code, styles, (copied, copy(agent, key, code.to_string(), cx)), (view.wrapped.contains(&id), on_wrap));
-                        match reveal {
+                        let block = markdown::code_block(&id, lang, &code, styles, (copied, copy(agent, key, code.to_string(), cx)), (view.wrapped.contains(&id), on_wrap));
+                        let block = match reveal {
                             Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,
-                        }
+                        };
+                        // An indented fence belongs to the list item above it.
+                        if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
                     None => div().child(markdown::block(SharedString::from(format!("md-{agent}-{id}")), SharedString::from(text.to_string()), reveal.is_some() || live(t, *turn), open.clone())),
                 };
