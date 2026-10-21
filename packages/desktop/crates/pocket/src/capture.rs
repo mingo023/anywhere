@@ -722,8 +722,8 @@ const STEPS: [(&str, Step); 211] = [
 
 /// Steps that drive real input through the window, each taking its next argument from the environment:
 /// `key` from `CAPTURE_KEYS` ("enter;cmd-shift-l"), `type` from `CAPTURE_TYPE` ("text|text"), `click` from
-/// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `paste-image` from `CAPTURE_PASTE` (a PNG).
-const INPUT_STEPS: [(&str, Step); 8] = [
+/// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG).
+const INPUT_STEPS: [(&str, Step); 9] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse(&k).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -764,6 +764,12 @@ const INPUT_STEPS: [(&str, Step); 8] = [
             window.dispatch_event(PlatformInput::FileDrop(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file].into()) }), cx);
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1 }), cx);
         });
+    }),
+    // A Finder drag held over a point, not yet dropped.
+    ("drag", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_DRAGS", ';') else { return };
+        let Some((at, file)) = arg.rsplit_once(',').and_then(|(at, file)| Some((point_arg(at)?, PathBuf::from(file)))) else { return };
+        window.defer(cx, move |window, cx| _ = window.dispatch_event(PlatformInput::FileDrop(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file].into()) }), cx));
     }),
     // Pastes the PNG with cmd-v, then puts back what the clipboard held.
     ("paste-image", |_, window, cx| {

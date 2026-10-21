@@ -786,7 +786,12 @@ impl<M: InputModeKind> InputBaseState<M> {
         self
     }
 
-    fn drop_paths(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+    /// Takes dropped files as a drop on this input would, for an element around
+    /// it to forward its own drops to.
+    pub fn drop_paths(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.is_editable() {
+            return;
+        }
         let paths = match self.drop_handler.clone() {
             Some(handler) => handler(paths.paths(), window, cx),
             None => paths.paths().to_vec(),
@@ -4374,6 +4379,19 @@ mod tests {
         let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
         cx.update(|_, cx| view.input.update(cx, |s, cx| s.set_readonly(true, cx)));
         drop_files(&mut cx, &["/r/a.rs"]);
+        cx.update(|_, cx| assert_eq!(view.input.read(cx).value(), ""));
+    }
+
+    #[gpui::test]
+    fn a_readonly_input_ignores_files_forwarded_to_it(cx: &mut TestAppContext) {
+        let view = InputView::build_textarea(cx, |s| s);
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        cx.update(|window, cx| {
+            view.input.update(cx, |s, cx| {
+                s.set_readonly(true, cx);
+                s.drop_paths(&ExternalPaths(vec![PathBuf::from("/r/a.rs")].into()), window, cx);
+            })
+        });
         cx.update(|_, cx| assert_eq!(view.input.read(cx).value(), ""));
     }
 
