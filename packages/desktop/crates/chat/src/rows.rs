@@ -156,11 +156,17 @@ fn compaction(turn: &Turn) -> bool {
     turn.prompt.is_none() && !turn.blocks.is_empty() && turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. }))
 }
 
-/// Whether turn `ix` heads a reply with a fold: a prompt's turn, or the first turn the agent begins itself after nothing
-/// or a compaction.
+/// Whether turn `ix` heads a reply with a fold: a prompt's turn, unless it steered the one before, or the first turn the
+/// agent begins itself after nothing or a compaction.
 fn folds_at(t: &Transcript, ix: usize) -> bool {
     let turn = &t.turns[ix];
-    turn.prompt.is_some() || (!compaction(turn) && (ix == 0 || compaction(&t.turns[ix - 1])))
+    (turn.prompt.is_some() && !steered(t, ix)) || (!compaction(turn) && (ix == 0 || compaction(&t.turns[ix - 1])))
+}
+
+/// Whether turn `ix`'s prompt came while the agent was still on the turn before, which it carries on: that turn never
+/// ends, as the agent ends and times the two as one.
+fn steered(t: &Transcript, ix: usize) -> bool {
+    t.turns[ix].prompt.is_some() && ix.checked_sub(1).is_some_and(|prev| working(&t.turns[prev]))
 }
 
 /// The turn whose fold heads the reply `turn` belongs to.
@@ -262,17 +268,18 @@ pub fn running_agent(b: &Block) -> bool {
 }
 
 /// The turns of the reply `turn` closes, or None while a later turn carries it on. A reply is a prompt's turn and
-/// the turns the agent begins itself after it, as when a background sub-agent reports back.
+/// the turns a steer or the agent itself begins after it, as when a background sub-agent reports back.
 pub fn reply(t: &Transcript, turn: usize) -> Option<Range<usize>> {
-    if t.turns.get(turn + 1).is_some_and(continues) {
+    if turn + 1 < t.turns.len() && continues(t, turn + 1) {
         return None;
     }
-    let start = (0..=turn).rev().find(|&ix| ix == 0 || !continues(&t.turns[ix]))?;
+    let start = (0..=turn).rev().find(|&ix| ix == 0 || !continues(t, ix))?;
     Some(start..turn + 1)
 }
 
-fn continues(turn: &Turn) -> bool {
-    turn.prompt.is_none() && !turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. }))
+fn continues(t: &Transcript, ix: usize) -> bool {
+    let turn = &t.turns[ix];
+    (turn.prompt.is_none() && !turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. }))) || steered(t, ix)
 }
 
 /// What a reply that ended well took, summed over its turns; None when its last turn failed or is still open.
@@ -731,6 +738,22 @@ mod tests {
         assert_eq!(reply(&t, 3), Some(3..4), "a compaction is no part of a reply");
         assert_eq!(worked(&t, 0..3), Some((12_001, Some(Usage { input: 30, output: 2, cache_read: 0 }))));
         assert_eq!(worked(&t, 4..5), None, "an open turn hasn't worked yet");
+    }
+
+    #[test]
+    fn a_prompt_sent_mid_turn_carries_on_the_reply_it_came_into() {
+        let t = Transcript { turns: vec![turn("u1", vec![think(), shell()], None), turn("u2", vec![shell(), text("Done.")], done())] };
+        assert_eq!(ids_of(&t), ["u1", "u1#fold", "u1#p0", "u2", "u2#p0", "u2#1.0", "u2#end"], "the steer stands between the work it divides");
+        assert_eq!((fold_of(&t, 1), folded(&t, 0)), (Some(0), 0..2));
+        assert_eq!((reply(&t, 0), reply(&t, 1)), (None, Some(0..2)), "one footer for the whole reply");
+        assert_eq!(worked(&t, 0..2), Some((1, None)), "the agent times the turn once");
+    }
+
+    #[test]
+    fn a_reply_stays_at_work_while_the_agent_works_past_a_steer() {
+        let t = Transcript { turns: vec![turn("u1", vec![think(), shell()], None), turn("u2", vec![shell()], None)] };
+        assert!(at_work_on(&t, folded(&t, 0)), "the work before the steer stays open");
+        assert_eq!(live_tail(&t), Some(0));
     }
 
     #[test]
