@@ -1,25 +1,18 @@
 use super::queue::{control, surface};
 use super::send_button::stop_square;
-use crate::chat::sub_agent::{self, Mark};
-use crate::chat::tool_row::{self, Arg};
+use crate::chat::sub_agent::{self, Mark, step};
 use crate::chat::working::format_elapsed;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::util::now_ms;
-use chat::{Block, Command, ToolCall, ToolKind, Transcript};
+use chat::{Command, ToolCall, ToolKind, Transcript};
 use gpui_kit::*;
 use theme::*;
-
-/// A call as the tray reads it: "Read docs/adr/0003.md", or the command it ran.
-fn step(call: &ToolCall) -> String {
-    let (verb, Arg::File(arg) | Arg::Text(arg) | Arg::Raw(arg)) = tool_row::line(call);
-    if verb.is_empty() { arg } else { format!("{verb} {arg}") }
-}
 
 /// A sub-agent's newest tool call; none for a command.
 fn latest(call: &ToolCall) -> Option<&ToolCall> {
     let ToolKind::Agent(a) = &call.kind else { return None };
-    a.transcript.turns.iter().rev().flat_map(|t| t.blocks.iter().rev()).find_map(|b| if let Block::Tool(c) = b { Some(c) } else { None })
+    sub_agent::latest(a)
 }
 
 /// What a task does now: a sub-agent's newest step, "Starting…" before it took one; none for a command.

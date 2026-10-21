@@ -624,7 +624,7 @@ impl Desktop {
             Row::Phase { turn, blocks: range } => {
                 let blocks = &t.turns[*turn].blocks[range.clone()];
                 let on_toggle = toggle(agent, &id, false, cx);
-                phase::phase(&id, blocks, next_at(t, *turn, range.end), phase_live(t, *turn, range), s.open(&id, false), on_toggle, &view.tools, cx)
+                phase::phase(&id, blocks, next_at(t, *turn, range.end), phase_live(t, *turn, range), s.open(&id, false), on_toggle, &open, &view.tools, cx)
             }
             Row::Notice { turn } => {
                 let calls = chat::reported(t, *turn);

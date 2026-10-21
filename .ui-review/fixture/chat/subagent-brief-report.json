@@ -1,0 +1,10 @@
+[
+  { "id": "u1", "kind": "user", "text": "Have a sub-agent audit the quit flow." },
+  { "id": "t1", "kind": "tool", "call": { "toolUseId": "tu-t1", "name": "Agent", "detail": { "kind": "task", "description": "Audit the quit flow", "model": "claude-sonnet-4-5" }, "status": "ok", "durationMs": 64000,
+    "output": "## Quit flow audit\n\nThe quit prompt works, but its state is scattered.\n\n### Findings\n\n1. **State in the wrong module.** `explorer/preview.rs` holds `ASKING_TO_QUIT`; it belongs in `desktop/quit.rs`.\n2. **Untested decision.** Whether to ask lives in `Desktop::on_quit`, which can't be built in a test.\n3. **Two timers.** The prompt and the daemon poll both call `cx.notify()` each second.\n\n### Suggested order\n\n- Move the static into a `Quit` value type with `begin()` and `finish()`.\n- Test `Quit` on its own.\n- Drop the prompt's own timer.\n\n```rust\nstruct Quit { asked_at: Option<Instant> }\n```\n\nNothing here blocks a release." } },
+  { "id": "s0", "kind": "user", "parentToolUseId": "tu-t1", "text": "Audit how the desktop app quits. Read docs/adr/0003-desktop-code-layout.md first, then every file that touches the quit prompt.\n\nFor each problem give the file, what is wrong, and the smallest fix. Report hard violations of CLAUDE.md first, then judgement calls.\n\nDo not edit anything; this is read-only. Keep the report under 300 words." },
+  { "id": "c1", "kind": "tool", "parentToolUseId": "tu-t1", "call": { "toolUseId": "tu-c1", "name": "Read", "detail": { "kind": "read", "path": "docs/adr/0003-desktop-code-layout.md" }, "status": "ok", "durationMs": 10 } },
+  { "id": "c2", "kind": "tool", "parentToolUseId": "tu-t1", "call": { "toolUseId": "tu-c2", "name": "Grep", "detail": { "kind": "search", "query": "ASKING_TO_QUIT" }, "status": "ok", "output": "preview.rs:12", "durationMs": 30 } },
+  { "id": "a1", "kind": "assistant", "text": "The audit found three judgement calls and nothing blocking." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 70000, "usage": { "inputTokens": 8000, "outputTokens": 500 } }
+]
