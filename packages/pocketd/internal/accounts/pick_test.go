@@ -3,6 +3,7 @@ package accounts
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func used(s *Store, provider, id string, session, week float64) {
@@ -108,5 +109,26 @@ func TestSwitchingAtALimitIsOnUntilTurnedOff(t *testing.T) {
 	s.SetAutoSwitch(true)
 	if !s.AutoSwitch() {
 		t.Fatal("still off")
+	}
+}
+
+func TestALimitThatHasResetSinceTheReadIsNoLimit(t *testing.T) {
+	past, ahead := time.Now().Add(-time.Minute).UnixMilli(), time.Now().Add(time.Hour).UnixMilli()
+	if (&Usage{Session: &Window{Percent: 100, ResetsAt: past}}).Limited() {
+		t.Fatal("limited after its reset")
+	}
+	if !(&Usage{Session: &Window{Percent: 100, ResetsAt: ahead}}).Limited() {
+		t.Fatal("not limited before its reset")
+	}
+}
+
+func TestAnAccountWhoseUsageWasNeverReadComesAfterOneWithRoomLeft(t *testing.T) {
+	s := store(t)
+	signInClaude(t, s, BuiltIn, "me@home.dev")
+	work := add(t, s, "claude", "me@work.dev")
+	add(t, s, "claude", "me@acme.dev")
+	used(s, "claude", work, 40, 60)
+	if got, _ := s.Best("claude", BuiltIn); got != work {
+		t.Fatalf("best %q", got)
 	}
 }

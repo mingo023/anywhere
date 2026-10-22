@@ -306,16 +306,25 @@ func TestASignedOutAccountCannotBePicked(t *testing.T) {
 	}
 }
 
-func TestAnAgentWithoutATranscriptStays(t *testing.T) {
+func TestAChatWithNoConversationYetSwitchesOnceItHasOne(t *testing.T) {
 	s := onBuiltIn(t)
 	asks := asking(s, func(state.Terminal) (string, []string, string) { return "/bin/sh", nil, "" })
+	transcript := filepath.Join(t.TempDir(), "first-turn.jsonl")
 	s.pr.mu.Lock()
-	s.pr.transcript = filepath.Join(t.TempDir(), "never-written.jsonl")
+	s.pr.transcript = transcript
 	s.pr.mu.Unlock()
 
 	s.d.Switch("a-1", "work")
 
 	noAsk(t, asks, "resumed a conversation that has no transcript")
+	if got := s.pr.a.Summary().Switching; got != "work" {
+		t.Fatalf("switching %q before the first turn ended", got)
+	}
+	os.WriteFile(transcript, []byte("{}\n"), 0o600)
+	s.d.switchPending(s.pr)
+	if asked := <-asks; asked.Account != "work" {
+		t.Fatalf("resumed on %q", asked.Account)
+	}
 }
 
 func TestAMovedAgentKeepsFullAccessWithoutANotice(t *testing.T) {

@@ -14,7 +14,7 @@ use theme::*;
 
 pub(super) const ROWS: &[Setting] = &[];
 
-fn tag(label: String, tone: Tone) -> Div {
+pub(crate) fn tag(label: String, tone: Tone) -> Div {
     let (bg, ink) = match tone {
         Tone::Plain => (FILL_3, TEXT_2),
         Tone::Accent => (ACCENT_BG, ACCENT),

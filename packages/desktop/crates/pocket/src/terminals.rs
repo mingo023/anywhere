@@ -390,7 +390,7 @@ impl Desktop {
             (None, _) => op(&cwd),
         };
         if let Some(agent) = agent {
-            (op["agent"], op["argv"]) = (agent.into(), argv.into());
+            daemon::as_agent(&mut op, agent, argv);
         }
         if is_local(&tree) {
             op["local"] = tree.clone().into();

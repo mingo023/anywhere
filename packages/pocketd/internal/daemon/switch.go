@@ -57,16 +57,18 @@ func (d *Daemon) limitHit(pr *presence) {
 	d.Accounts.Refresh(ctx, "")
 	cancel()
 	s := pr.a.Summary()
-	if s.Switching == "" {
-		best, ok := d.Accounts.Best(pr.provider, cmpBuiltIn(s.Account))
-		if !ok {
+	best := s.Switching
+	if best == "" {
+		var ok bool
+		if best, ok = d.Accounts.Best(pr.provider, named(s.Account)); !ok {
 			return
 		}
-		pr.a.SetSwitching(best)
 	}
+	// Set before the switch, which a turn ending may carry out at once.
 	pr.mu.Lock()
 	pr.resend = pr.a.Timeline.LastPrompt()
 	pr.mu.Unlock()
+	pr.a.SetSwitching(best)
 	d.switchPending(pr)
 }
 
@@ -74,16 +76,24 @@ func (d *Daemon) limitHit(pr *presence) {
 // between turns. An agent still settling switches once it has.
 func (d *Daemon) switchPending(pr *presence) {
 	id := pr.a.Summary().Switching
-	if id == "" || !d.settled(pr) || !movable(pr.a.Summary(), want(id)) {
+	if id == "" || !d.settled(pr) || !movable(pr.a.Summary(), want(id)) || !d.resumable(pr) {
 		return
 	}
 	pr.mu.Lock()
 	resend := pr.resend
 	pr.mu.Unlock()
 	// One that didn't move while it still could won't: the switch is dropped.
-	if d.move(pr, want(id), resend) || movable(pr.a.Summary(), want(id)) {
+	if d.move(pr, want(id), resend) || d.settled(pr) && movable(pr.a.Summary(), want(id)) {
 		pr.a.SetSwitching("")
 	}
+}
+
+// resumable is whether pr has a conversation its provider can resume; a chat
+// has none until its first turn ends.
+func (d *Daemon) resumable(pr *presence) bool {
+	var e state.Terminal
+	pr.save(&e)
+	return e.AgentID != "" && kindOf[pr.provider].resumable(e)
 }
 
 // want is how an agent's summary names account id.
@@ -94,7 +104,8 @@ func want(id string) string {
 	return id
 }
 
-func cmpBuiltIn(account string) string {
+// named is how the account store names a summary's account, the inverse of want.
+func named(account string) string {
 	if account == "" {
 		return accounts.BuiltIn
 	}
@@ -138,9 +149,6 @@ func (d *Daemon) move(pr *presence, want, resend string) bool {
 	e := state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows, Local: info.Local}
 	pr.save(&e)
 	if e.AgentID == "" {
-		return false
-	}
-	if !kindOf[pr.provider].resumable(e) {
 		return false
 	}
 	if e.Account != "" && d.Accounts != nil {

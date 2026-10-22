@@ -259,13 +259,13 @@ func (d *Daemon) finish(h *hint, reason string) {
 	if reason != "" {
 		h.a.SetAttached(false)
 	}
-	status := h.a.Summary().Status
-	outcome := state.Outcome(h.saved, status, reason != "")
 	if h.moved && reason == "" {
 		// Moving keeps the access it had: no restart worth a notice.
 		go d.moved(h)
 		return
 	}
+	status := h.a.Summary().Status
+	outcome := state.Outcome(h.saved, status, reason != "")
 	// A turn already running has had the Working that clears the notice.
 	if reason != "" || status != "working" {
 		h.a.SetRestore(outcome)

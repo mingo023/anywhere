@@ -1,4 +1,4 @@
-mod accounts;
+pub(crate) mod accounts;
 mod agents;
 mod appearance;
 mod automations;

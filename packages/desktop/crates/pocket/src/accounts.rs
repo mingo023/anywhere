@@ -198,7 +198,12 @@ pub(crate) fn in_use<'a>(list: &'a [Account], provider: &str, account: &str) -> 
 /// The fuller of an account's 5-hour and weekly windows, in whole percent; none before its usage is read.
 pub(crate) fn peak(a: &Account) -> Option<u32> {
     let usage = a.usage.as_ref()?;
-    [&usage.session, &usage.week].into_iter().flatten().map(|w| w.percent.round().clamp(0., 100.) as u32).max()
+    [&usage.session, &usage.week].into_iter().flatten().map(percent).max()
+}
+
+/// How much of a limit is used, in whole percent.
+pub(crate) fn percent(w: &daemon::Window) -> u32 {
+    w.percent.round().clamp(0., 100.) as u32
 }
 
 /// How full a percent of a limit reads: high from 80, full at 100.
@@ -285,7 +290,7 @@ pub(crate) fn meter<Tz: TimeZone>(w: &daemon::Window, now: i64, tz: &Tz) -> (u32
 where
     Tz::Offset: Display,
 {
-    let percent = w.percent.round().clamp(0., 100.) as u32;
+    let percent = percent(w);
     let tone = tone(percent);
     let at = if w.resets_at > 0 { when(w.resets_at, now, tz) } else { String::new() };
     let reset = if tone == Tone::Bad && !at.is_empty() { format!("back {at}") } else { at };
@@ -684,6 +689,16 @@ mod tests {
         let mut here = json!({"project": "/src/app", "provider": "claude", "account": "work"});
         accounts.offer(&mut here);
         assert!(here.get("account").is_none());
+    }
+
+    #[test]
+    fn a_machine_whose_pocketd_names_no_switching_at_a_limit_shows_no_toggle() {
+        let mut accounts = Accounts::default();
+        let reply = |auto_switch| daemon::Msg { auto_switch, accounts: vec![account("claude", "work")], ..daemon::Msg::default() };
+        accounts.take(&None, reply(Some(false)));
+        assert_eq!(accounts.auto_switch.get(&None), Some(&false));
+        accounts.take(&None, reply(None));
+        assert_eq!((accounts.auto_switch.get(&None), accounts.list(&None).len()), (None, 1));
     }
 
     fn screen(output: &str) -> Vec<String> {

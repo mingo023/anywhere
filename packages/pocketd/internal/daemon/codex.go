@@ -218,7 +218,7 @@ func (d *Daemon) bind(pr *presence, thread string) {
 }
 
 func (d *Daemon) follow(ctx context.Context, pr *presence, thread string) {
-	s, err := codex.Open(ctx, pr.sock, thread, pr.a.ID(), codexSink{pr.a, func() { go d.limitHit(pr) }}, d.Broker)
+	s, err := codex.Open(ctx, pr.sock, thread, pr.a.ID(), d.codexSink(pr), d.Broker)
 	if err != nil {
 		return
 	}
@@ -234,6 +234,10 @@ func (d *Daemon) follow(ctx context.Context, pr *presence, thread string) {
 type codexSink struct {
 	*agent.Agent
 	limited func()
+}
+
+func (d *Daemon) codexSink(pr *presence) codexSink {
+	return codexSink{pr.a, func() { go d.limitHit(pr) }}
 }
 
 func (s codexSink) Apply(e timeline.Event) {

@@ -318,6 +318,11 @@ pub fn agent_op(argv: &[String], cwd: &str) -> Value {
     spawn_op(login_shell(), agent_args(login_shell(), argv), terminal_env(), cwd)
 }
 
+/// Has pocketd start `op`'s `argv`, `provider`'s agent, on the account a new session in its folder would take, as a session it may switch at a limit.
+pub fn as_agent(op: &mut Value, provider: &str, argv: &[String]) {
+    (op["agent"], op["argv"]) = (provider.into(), argv.into());
+}
+
 /// The agent's argv goes to the shell as arguments rather than inside the script, so no shell's quoting rules can garble a prompt.
 #[cfg(unix)]
 fn agent_args(shell: &str, argv: &[String]) -> Vec<String> {

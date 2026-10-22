@@ -1,6 +1,9 @@
 package accounts
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // Peak is the larger of an account's 5-hour and weekly use, in percent; 0
 // when its usage isn't known.
@@ -17,8 +20,20 @@ func (u *Usage) Peak() float64 {
 	return peak
 }
 
-// Limited is whether the account has used up one of its limits.
-func (u *Usage) Limited() bool { return u.Peak() >= 100 }
+// Limited is whether the account has used up one of its limits, and it
+// hasn't reset since the read.
+func (u *Usage) Limited() bool {
+	if u == nil {
+		return false
+	}
+	now := time.Now().UnixMilli()
+	for _, w := range []*Window{u.Session, u.Week} {
+		if w != nil && w.Percent >= 100 && (w.ResetsAt == 0 || w.ResetsAt > now) {
+			return true
+		}
+	}
+	return false
+}
 
 // Pick is the account a new session of provider runs on: id when the launch
 // names one, else prefer, the Project's choice, else the default, else the
@@ -55,16 +70,17 @@ func (s *Store) Pick(provider, id, prefer string) (string, error) {
 }
 
 // Best is the signed-in account of provider other than except with the most
-// left of its limits, as of the last usage read; false when every one is at
-// a limit.
+// left of its limits, as of the last usage read, one never read coming last;
+// false when every one is at a limit.
 func (s *Store) Best(provider, except string) (string, bool) {
-	best, ok, peak := "", false, 0.0
+	best, ok, unread, peak := "", false, false, 0.0
 	for _, a := range s.List(func(string, string) int { return 0 }) {
 		if a.Provider != provider || a.ID == except || a.Pending || !a.SignedIn || a.Usage.Limited() {
 			continue
 		}
-		if p := a.Usage.Peak(); !ok || p < peak {
-			best, ok, peak = a.ID, true, p
+		u, p := a.Usage == nil, a.Usage.Peak()
+		if !ok || unread && !u || unread == u && p < peak {
+			best, ok, unread, peak = a.ID, true, u, p
 		}
 	}
 	return best, ok
