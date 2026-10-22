@@ -4,7 +4,7 @@ use crate::{End, Transcript};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Delivery {
     Sending,
-    /// Sent into the turn underway, which takes it at its next step: it shows as sent, nothing to wait on.
+    /// Sent into the turn underway, which takes it at its next step; it waits until its prompt reaches the transcript.
     Steered,
     /// Held here while the agent works, unsent; it goes out when the turn ends, or when steered.
     Queued,
@@ -38,6 +38,8 @@ const STATUS_LAG_MS: i64 = 3_000;
 const COMMAND_MS: i64 = 60_000;
 /// The longest a stop reads as under way, should the turn never show it ended.
 const STOP_MS: i64 = 10_000;
+/// The longest a Send now reads as under way, should what waits never show.
+const SEND_NOW_MS: i64 = 10_000;
 
 /// A command that went out. One that takes a turn echoes as its prompt; one that doesn't shows only in pocketd's status,
 /// or the timeline moving.
@@ -78,6 +80,8 @@ pub struct Outgoing {
     stopping: Option<i64>,
     /// A send was queued while stopping: the user means to go on once the stop lands.
     after_stop: bool,
+    /// When the user pressed Send now, until what waited shows.
+    sent_now: Option<i64>,
 }
 
 impl Outgoing {
@@ -169,6 +173,9 @@ impl Outgoing {
         if !busy(t, self, working) || self.stopping.is_some_and(|at| now_ms - at > STOP_MS) {
             self.stopping = None;
         }
+        if self.waiting().next().is_none() || self.sent_now.is_some_and(|at| now_ms - at > SEND_NOW_MS) {
+            self.sent_now = None;
+        }
         if self.after_stop && self.stopping.is_none() {
             self.after_stop = false;
             self.resume(t);
@@ -187,6 +194,26 @@ impl Outgoing {
                 self.released.push((id, text));
             }
         }
+    }
+
+    /// The sends steered into the turn that the agent hasn't taken yet; it takes them all at its next step. A command
+    /// echoes nothing, so it never shows as waiting.
+    pub fn waiting(&self) -> impl Iterator<Item = &Pending> {
+        self.sends.iter().filter(|s| s.delivery == Delivery::Steered && !command(&s.text))
+    }
+
+    /// Asks for every waiting send to go now; false when none waits or a Send now is already on its way.
+    pub fn send_now(&mut self, now_ms: i64) -> bool {
+        if self.waiting().next().is_none() || self.sending_now() {
+            return false;
+        }
+        self.sent_now = Some(now_ms);
+        true
+    }
+
+    /// Whether a Send now is on its way and what it was for hasn't shown yet.
+    pub fn sending_now(&self) -> bool {
+        self.sent_now.is_some()
     }
 
     /// The queued sends `settle` let go since last asked, with their ids, to send to the agent.
@@ -777,6 +804,51 @@ mod tests {
 
     fn open(at: i64) -> Transcript {
         Transcript { turns: vec![turn("u1", at, "long job", false)] }
+    }
+
+    fn waiting(o: &Outgoing) -> Vec<&str> {
+        o.waiting().map(|p| p.text.as_str()).collect()
+    }
+
+    #[test]
+    fn a_steer_waits_until_its_prompt_reaches_the_transcript_and_a_command_never_does() {
+        let mut o = Outgoing::default();
+        o.steer_text("also check the docs".into(), 1_000);
+        o.steer_text("/compact".into(), 1_000);
+        o.settle(&open(0), true, 2_000);
+        assert_eq!(waiting(&o), ["also check the docs"]);
+        o.settle(&Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 1_500, "also check the docs", false)] }, true, 3_000);
+        assert!(waiting(&o).is_empty());
+    }
+
+    #[test]
+    fn send_now_goes_once_for_everything_waiting_until_it_shows() {
+        let mut o = Outgoing::default();
+        o.steer_text("ok?".into(), 1_000);
+        o.steer_text("run the store tests too".into(), 1_100);
+        assert!(o.send_now(2_000));
+        assert!(o.sending_now() && !o.send_now(2_100), "one Send now covers every waiting send");
+        o.settle(&open(0), true, 2_500);
+        assert!(o.sending_now());
+        let taken = Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 1_000, "ok?", false), turn("u3", 1_100, "run the store tests too", false)] };
+        o.settle(&taken, true, 3_000);
+        assert!(waiting(&o).is_empty() && !o.sending_now());
+    }
+
+    #[test]
+    fn a_send_now_nothing_came_of_can_be_pressed_again() {
+        let mut o = Outgoing::default();
+        o.steer_text("ok?".into(), 1_000);
+        assert!(o.send_now(2_000));
+        o.settle(&open(0), true, 2_000 + SEND_NOW_MS + 1);
+        assert!(!o.sending_now() && o.send_now(20_000));
+    }
+
+    #[test]
+    fn send_now_has_nothing_to_send_for_a_queued_send() {
+        let mut o = Outgoing::default();
+        o.push("after this turn".into(), true, 1_000);
+        assert!(!o.send_now(2_000) && !o.sending_now());
     }
 
     #[test]

@@ -672,6 +672,44 @@ func TestAStopFromTheChatDropsWhatClaudeQueuedMidTurn(t *testing.T) {
 	}
 }
 
+func TestSendNowFromTheChatAsksClaudeToTakeItsQueueWithoutStopping(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "pocketd"), Args: []string{"pipe", "claude", "-p"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	waitAgent(t, d, term)
+	pr := d.presentIn(term.Info().ID)
+	pr.working("")
+	sent := make(chan error, 1)
+	go func() { sent <- pr.a.Driver().(agent.SendNower).SendNow() }()
+	var req struct {
+		RequestID string         `json:"request_id"`
+		Request   map[string]any `json:"request"`
+	}
+	eventually(t, "the send now", func() bool {
+		pr.stream.mu.Lock()
+		defer pr.stream.mu.Unlock()
+		for _, line := range pr.stream.inbox {
+			if json.Unmarshal([]byte(line), &req) == nil && req.Request["subtype"] == "interrupt" {
+				return true
+			}
+		}
+		return false
+	})
+	pr.stream.replied(req.RequestID, "success", "", nil)
+	if err := <-sent; err != nil {
+		t.Fatal(err)
+	}
+	if req.Request["send_now"] != true || req.Request["cancel_queued"] != nil {
+		t.Fatalf("interrupt = %v; want a send now, which drops nothing queued", req.Request)
+	}
+	if pr.a.Summary().Status != "working" {
+		t.Fatalf("status = %q; a send now is no stop", pr.a.Summary().Status)
+	}
+}
+
 // noResultsAfter fails when pr's timeline ends a turn within a few settles.
 func noResultsAfter(t *testing.T, pr *presence) {
 	t.Helper()

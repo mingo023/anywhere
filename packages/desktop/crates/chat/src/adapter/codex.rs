@@ -9,7 +9,7 @@ impl Backend for Codex {
     type Ask = agents::Permission;
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { interrupt: true, compact: true, send_while_working: true, sub_agents: false }
+        Capabilities { interrupt: true, compact: true, send_while_working: true, sub_agents: false, send_now: false }
     }
 
     fn transcript(&self, items: &[agents::Item]) -> Transcript {

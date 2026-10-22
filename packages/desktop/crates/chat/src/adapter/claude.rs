@@ -9,7 +9,7 @@ impl Backend for Claude {
     type Ask = agents::Permission;
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { interrupt: true, compact: true, send_while_working: true, sub_agents: true }
+        Capabilities { interrupt: true, compact: true, send_while_working: true, sub_agents: true, send_now: false }
     }
 
     fn transcript(&self, items: &[agents::Item]) -> Transcript {

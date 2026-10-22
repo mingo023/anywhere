@@ -172,6 +172,8 @@ pub struct Ask {
 pub enum Command {
     Send(String),
     Interrupt,
+    /// Has the agent take what waits for its next step now.
+    SendNow,
     Compact,
     Allow(String),
     Deny(String),

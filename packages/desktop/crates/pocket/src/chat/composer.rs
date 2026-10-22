@@ -230,7 +230,7 @@ impl Desktop {
         busy(agent, self.chats.views.get(&agent.id).map(|v| &v.session))
     }
 
-    fn chat_caps(&self, provider: &str) -> chat::Capabilities {
+    pub(super) fn chat_caps(&self, provider: &str) -> chat::Capabilities {
         chat::capabilities(provider, self.agents.provider_info(provider).chat)
     }
 
@@ -266,6 +266,11 @@ impl Desktop {
                 self.outbox.interrupt(agent);
                 if let Some(v) = self.chats.views.get_mut(agent) {
                     v.session.outgoing.stop(now_ms());
+                }
+            }
+            Command::SendNow => {
+                if self.chats.views.get_mut(agent).is_some_and(|v| v.session.outgoing.send_now(now_ms())) {
+                    self.outbox.send_now(agent);
                 }
             }
             Command::Compact => self.outbox.compact(agent),

@@ -46,6 +46,7 @@ export const ChatCaps = Schema.Struct({
   compact: Schema.Boolean,
   sendWhileWorking: Schema.Boolean,
   subAgents: Schema.Boolean,
+  sendNow: Schema.optional(Schema.Boolean),
 });
 export type ChatCaps = typeof ChatCaps.Type;
 

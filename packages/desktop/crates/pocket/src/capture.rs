@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 211] = [
+const STEPS: [(&str, Step); 212] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -237,6 +237,11 @@ const STEPS: [(&str, Step); 211] = [
     ("chat-stop", |d, _, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_command(&agent, Command::Interrupt, cx);
+        }
+    }),
+    ("chat-send-now", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::SendNow, cx);
         }
     }),
     ("chat-queue-remove", |d, window, cx| {

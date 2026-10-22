@@ -351,9 +351,10 @@ fn copy(agent: &str, key: String, text: String, cx: &mut Context<Desktop>) -> im
     cx.listener(move |this, _, _, cx| this.chat_copy(&agent, key.clone(), text.clone(), cx))
 }
 
-/// A prompt's bubble with its copy and time. A send shows as its echo will, so the echo replacing it doesn't show.
+/// A prompt's bubble with its copy and time, or `under` in their place. A send shows as its echo will, so the echo
+/// replacing it doesn't show.
 #[allow(clippy::too_many_arguments)]
-fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: bool, width: f32, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
+fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: bool, under: Option<Div>, width: f32, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
     let lines = user_bubble::lines(text, width, window);
     let toggle = user_bubble::needs_collapse(lines).then(|| {
         let toggled = view.toggled.as_ref().filter(|(row, _)| row == id).map(|(_, at)| *at);
@@ -361,9 +362,11 @@ fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: b
         (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_prompt(&agent, &row, cx)))
     });
     let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), toggle);
-    let key = format!("prompt:{id}");
-    let actions = user_bubble::actions(id, view.copied(&key), copy(agent, key, text.to_string(), cx), Some(at));
-    div().flex().flex_col().items_end().gap(px(4.)).child(bubble).child(actions)
+    let under = under.unwrap_or_else(|| {
+        let key = format!("prompt:{id}");
+        user_bubble::actions(id, view.copied(&key), copy(agent, key, text.to_string(), cx), Some(at))
+    });
+    div().flex().flex_col().items_end().gap(px(4.)).child(bubble).child(under)
 }
 
 fn toggle(agent: &str, id: &str, default: bool, cx: &mut Context<Desktop>) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
@@ -592,6 +595,7 @@ impl Desktop {
     fn chat_row(&mut self, agent: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let (provider, model) = self.agents.get(agent).map(|a| (a.provider.clone(), agents::model_label(a))).unwrap_or_default();
         let ask = self.agents.pending.iter().find(|p| p.agent_id == agent).map(|p| !chat::for_provider(&provider).ask(p).questions.is_empty());
+        let send_now = self.chat_caps(&provider).send_now;
         let open: markdown::Open = {
             let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
@@ -625,7 +629,7 @@ impl Desktop {
         let mut highlight = None;
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
-                Some(p) => prompt_bubble(view, agent, &id, &p.text, p.at, false, width, window, cx),
+                Some(p) => prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, window, cx),
                 None => div(),
             },
             Row::Fold { turn } => {
@@ -767,7 +771,24 @@ impl Desktop {
                         let (agent, send) = (agent.to_string(), p.id);
                         working::not_delivered(SharedString::from(format!("retry-{id}"))).on_click(cx.listener(move |this, _, window, cx| this.chat_retry(&agent, send, window, cx)))
                     });
-                    prompt_bubble(view, agent, &id, &p.text, p.sent_at, p.delivery == Delivery::Failed, width, window, cx).children(retry)
+                    // What waits for the agent's next step goes all at once, so only the last of it says so.
+                    let waiting: Vec<u64> = s.outgoing.waiting().map(|w| w.id).collect();
+                    let under = waiting.contains(&p.id).then(|| {
+                        if waiting.last() != Some(&p.id) {
+                            return div();
+                        }
+                        let action = if s.outgoing.sending_now() {
+                            Some(div().child("Sending…").into_any_element())
+                        } else {
+                            send_now.then(|| {
+                                let agent = agent.to_string();
+                                user_bubble::send_now(&id).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_command(&agent, Command::SendNow, cx))).into_any_element()
+                            })
+                        };
+                        user_bubble::waiting(who, waiting.len(), action)
+                    });
+                    let dim = p.delivery == Delivery::Failed || under.is_some();
+                    prompt_bubble(view, agent, &id, &p.text, p.sent_at, dim, under, width, window, cx).children(retry)
                 }
                 None => div(),
             },

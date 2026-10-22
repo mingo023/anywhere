@@ -21,6 +21,8 @@ type Chat struct {
 	Compact          bool `json:"compact"`
 	SendWhileWorking bool `json:"sendWhileWorking"`
 	SubAgents        bool `json:"subAgents"`
+	// SendNow has the agent take what was sent mid-turn at once rather than after its current step.
+	SendNow bool `json:"sendNow"`
 }
 
 // All is every provider, in the order clients list them.

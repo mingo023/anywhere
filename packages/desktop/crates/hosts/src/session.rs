@@ -224,6 +224,10 @@ impl Outboxes {
         self.by_id(agent_id, |o, id| o.interrupt(id));
     }
 
+    pub fn send_now(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.send_now(id));
+    }
+
     pub fn compact(&self, agent_id: &str) {
         self.by_id(agent_id, |o, id| o.compact(id));
     }

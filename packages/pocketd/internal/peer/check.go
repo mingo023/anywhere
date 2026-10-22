@@ -20,6 +20,7 @@ var Needs = map[string]Scope{
 	"ws:project.list":       Observe,
 	"ws:agent.prompt":       Drive,
 	"ws:agent.interrupt":    Drive,
+	"ws:agent.send_now":     Drive,
 	"ws:agent.compact":      Drive,
 	"ws:agent.close":        Drive,
 	"ws:agent.settings":     Drive,
@@ -76,7 +77,7 @@ var Needs = map[string]Scope{
 }
 
 var guarded = map[string]bool{
-	"ws:agent.prompt": true, "ws:agent.interrupt": true, "ws:agent.compact": true, "ws:agent.close": true, "ws:agent.settings": true,
+	"ws:agent.prompt": true, "ws:agent.interrupt": true, "ws:agent.send_now": true, "ws:agent.compact": true, "ws:agent.close": true, "ws:agent.settings": true,
 	"ops:input": true, "ops:prompt": true,
 }
 

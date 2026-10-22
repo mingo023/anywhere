@@ -113,6 +113,38 @@ pub(super) fn actions(id: &str, copied: bool, copy: impl Fn(&ClickEvent, &mut Wi
         .children(at.map(|at| div().pl(px(6.)).text_size(px(12.)).child(super::meta::format_timestamp(at, &chrono::Local))))
 }
 
+/// Under the last prompt the agent hasn't taken: when it will, and `action` to have it take them sooner.
+pub(super) fn waiting(who: &str, count: usize, action: Option<AnyElement>) -> Div {
+    let what = if count > 1 { format!("{who} reads these {count} after its current step") } else { format!("{who} reads this after its current step") };
+    div()
+        .h(px(28.))
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .pr(px(4.))
+        .text_size(px(12.))
+        .text_color(TEXT_3)
+        .child(div().size(px(6.)).flex_none().rounded_full().bg(TEXT_3))
+        .child(what)
+        .when_some(action, |d, action| d.child("·").child(action))
+}
+
+pub(super) fn send_now(id: &str) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(format!("send-now-{id}")))
+        .px(px(4.))
+        .mx(px(-4.))
+        .py(px(2.))
+        .rounded(px(5.))
+        .text_color(TEXT)
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_pointer()
+        .hover(|d| d.bg(FILL_3))
+        .active(|d| d.bg(FILL_4))
+        .tooltip(|window, cx| Tooltip::new("Have it read them now, not after this step").build(window, cx))
+        .child("Send now")
+}
+
 /// A prompt, right-aligned in a wash; one over five lines clips to five with "Show more".
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
 pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {

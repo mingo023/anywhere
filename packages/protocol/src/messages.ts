@@ -47,6 +47,7 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("pair.begin"), id: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.prompt"), id: Schema.String, agentId: Schema.String, text: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.interrupt"), id: Schema.String, agentId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("agent.send_now"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.compact"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.close"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.commands"), id: Schema.String, agentId: Schema.String }),

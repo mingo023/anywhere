@@ -115,7 +115,7 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
 	case m.Type == "agent.btw":
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && strings.TrimSpace(m.Text) != ""
-	case m.Type == "agent.interrupt", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
+	case m.Type == "agent.interrupt", m.Type == "agent.send_now", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
 		ok = get("agentId", &m.AgentID)
 	case m.Type == "agent.settings":
 		ok = get("agentId", &m.AgentID) && optionalString("model", &m.Model) && optionalString("effort", &m.Effort) && optionalString("access", &m.Access) &&

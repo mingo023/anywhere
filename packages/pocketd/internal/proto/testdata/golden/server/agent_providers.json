@@ -17,7 +17,8 @@
         "interrupt": true,
         "compact": true,
         "sendWhileWorking": true,
-        "subAgents": true
+        "subAgents": true,
+        "sendNow": true
       }
     },
     {
@@ -29,7 +30,8 @@
         "interrupt": true,
         "compact": true,
         "sendWhileWorking": true,
-        "subAgents": false
+        "subAgents": false,
+        "sendNow": false
       }
     }
   ],

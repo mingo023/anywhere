@@ -80,7 +80,7 @@ impl Desktop {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(TEXT_3)
                 .child((n + 1).to_string());
-            let steer = control(key("steer"), "Send now, into the turn underway")
+            let steer = control(key("steer"), "Send into the turn underway")
                 .px(px(8.))
                 .gap(px(5.))
                 .text_size(px(12.))
