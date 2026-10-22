@@ -19,6 +19,11 @@ pub fn projects<'a>(saved: &[String], cwds: impl IntoIterator<Item = &'a str>, w
     out
 }
 
+/// Whether every `saved` project git can read has its worktrees listed. Until then, a terminal in a worktree would pass for a project of its own.
+pub fn all_listed(saved: &[String], worktrees: &Worktrees, readable: impl Fn(&str) -> bool) -> bool {
+    saved.iter().all(|p| worktrees.contains_key(p) || !readable(p))
+}
+
 /// The project owning `cwd`: the one whose folder or worktree holds it most closely.
 pub fn project_of<'a>(cwd: &str, projects: &'a [String], worktrees: &Worktrees) -> Option<&'a String> {
     let reach = |p: &String| {
@@ -190,6 +195,17 @@ mod tests {
         let worktrees = trees("/a/foo", &["/a/foo", "/w/fix"]);
         let cwds = ["/a/foo/src", "/x", "/w/fix", "/c", "/x"];
         assert_eq!(projects(&saved, cwds, &worktrees), list(&["/b", "/a/foo", "/x", "/c"]));
+    }
+
+    #[test]
+    fn worktrees_are_all_listed_once_every_project_git_can_read_has_its_own() {
+        let saved = list(&["/a/foo", "/b", "//devbox/app"]);
+        let local = |p: &str| !p.starts_with("//");
+        let mut worktrees = trees("/a/foo", &["/a/foo", "/w/fix"]);
+        assert!(!all_listed(&saved, &worktrees, local));
+        worktrees.extend(trees("/b", &[]));
+        assert!(all_listed(&saved, &worktrees, local), "an offline host's project isn't waited on");
+        assert!(!all_listed(&saved, &worktrees, |_| true));
     }
 
     #[test]
