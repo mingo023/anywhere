@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{RowMenu, Screen};
+use crate::desktop::chrome::{RowMenu, Screen, id};
 use crate::sidebar::filter::FIELD_H;
 use crate::sidebar::fold::{self, Fold};
 use crate::sidebar::rename::rename_field;
@@ -152,7 +152,11 @@ impl Desktop {
             .filter_map(|pin| match pin {
                 Pin::Project(p) => block(projects.iter().position(|x| x == p)?).map(Item::Project),
                 Pin::Tree { project, tree } => {
-                    let row = self.tree_rows(project, &self.trees_shown(project)?).into_iter().find(|r| &r.key == tree)?;
+                    // Kept shut until its project's trees are listed, so it springs open then.
+                    let Some(trees) = self.trees_shown(project) else {
+                        return query.is_empty().then(|| Item::Tree { project: project.clone(), key: tree.clone() });
+                    };
+                    let row = self.tree_rows(project, &trees).into_iter().find(|r| &r.key == tree)?;
                     let shows = query.is_empty() || matches(&self.repo_name(project), query) || matches(&row.label, query);
                     shows.then(|| Item::Tree { project: project.clone(), key: row.key })
                 }
@@ -313,9 +317,14 @@ impl Desktop {
                 listed
                     .pinned
                     .iter()
-                    .filter_map(|item| match item {
-                        Item::Project(b) => Some(self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Pinned, cx)),
-                        Item::Tree { project, key } => self.pinned_tree(project, key, cx).map(|row| (row, ui::SIDEBAR_ROW_H)),
+                    .map(|item| match item {
+                        Item::Project(b) => self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Pinned, cx),
+                        Item::Tree { project, key } => {
+                            let row = self.pinned_tree(project, key, cx);
+                            let open = row.is_some();
+                            let height = if open { ui::SIDEBAR_ROW_H } else { 0. };
+                            (fold::springing(id(format!("aside-pin-fold:{key}")), open, ui::SIDEBAR_ROW_H, div().children(row)).into_any_element(), height)
+                        }
                     })
                     .collect()
             } else {

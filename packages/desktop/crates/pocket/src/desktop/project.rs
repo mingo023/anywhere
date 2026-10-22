@@ -17,7 +17,31 @@ use workspace::Workspace;
 
 impl Desktop {
     pub fn projects(&self) -> Vec<String> {
-        project::projects(&self.store.projects, self.terminals.sessions.items.iter().map(|s| s.info.cwd.as_str()), &self.worktrees)
+        let placeable = self.git_done > 0 || project::all_listed(&self.store.projects, &self.worktrees, readable);
+        let sessions = if placeable { self.terminals.sessions.items.as_slice() } else { &[] };
+        project::projects(&self.store.projects, sessions.iter().map(|s| s.info.cwd.as_str()), &self.worktrees)
+    }
+
+    /// Lists each saved project's worktrees on its own, so the sidebar fills in as each lands instead of after the first `refresh_git`.
+    pub(crate) fn list_worktrees(&mut self, cx: &mut Context<Self>) {
+        for p in self.store.projects.iter().filter(|p| readable(p)).cloned() {
+            let task = cx.background_executor().spawn({
+                let p = p.clone();
+                async move { git::worktrees(&hosts::runner_for(&p), &p) }
+            });
+            cx.spawn(async move |this, cx| {
+                let trees = task.await;
+                this.update(cx, |d, cx| {
+                    // A finished refresh_git has listed them already.
+                    if d.git_done == 0 {
+                        d.worktrees.entry(p).or_insert(trees);
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
     }
 
     pub fn project_of<'a>(&self, cwd: &str, projects: &'a [String]) -> Option<&'a String> {
@@ -172,7 +196,7 @@ impl Desktop {
                 let listing = util::list_dir(&d, &shown);
                 (d, listing)
             }).collect();
-            let (projects, unread): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| hosts::split(p).0.is_none_or(|h| hosts::remote::connected(h).is_some()));
+            let (projects, unread): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| readable(p));
             let worktrees: HashMap<String, Vec<git::Worktree>> = projects.into_iter().map(|p| {
                 let w = git::worktrees(&hosts::runner_for(&p), &p);
                 (p, w)
@@ -297,6 +321,11 @@ impl Desktop {
         }
         cx.notify();
     }
+}
+
+/// Whether git can read `p` now: it is on this Mac, or on a connected host.
+fn readable(p: &str) -> bool {
+    hosts::split(p).0.is_none_or(|h| hosts::remote::connected(h).is_some())
 }
 
 /// Applies `read`, keeping folders it skipped so switching back shows them at once. Returns whether anything changed.
