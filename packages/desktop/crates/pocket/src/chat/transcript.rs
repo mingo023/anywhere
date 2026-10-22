@@ -109,8 +109,9 @@ impl View {
         f32::from(self.list.viewport_bounds().size.height) - pin::BOTTOM - self.pin.as_ref().map_or(0., |p| p.spacer)
     }
 
-    /// Sizes the room that holds the sent prompt at the top and keeps the list on it, until its reply fills the viewport.
-    fn hold_pin(&mut self, window: &mut Window) {
+    /// Sizes the room that holds the sent prompt a quarter down and keeps the list on it, gliding it there, until its
+    /// reply fills what's under it.
+    fn hold_pin(&mut self, glide: bool, window: &mut Window) {
         let scrolled = self.scrolled.take();
         let Some(pin) = &mut self.pin else { return };
         if let Some(at_end) = scrolled.or_else(|| (!pin.unmeasured() && !pin.anchored && self.list.is_following_tail()).then_some(true)) {
@@ -122,7 +123,9 @@ impl View {
         };
         let viewport = f32::from(self.list.viewport_bounds().size.height);
         let laid_out = self.list.laid_out(ix).then(|| f32::from(self.list.laid_out_height_from(ix)));
-        if !pin.step(viewport, pin.below(self.list.height_from(ix).map(f32::from), laid_out)) {
+        let above = f32::from(self.list.laid_out_height_from(0) - self.list.laid_out_height_from(ix));
+        let now = Instant::now();
+        if !pin.step(viewport, above, pin.below(self.list.height_from(ix).map(f32::from), laid_out), glide.then_some(now)) {
             // On the prompt the list follows the tail from here; scrolled away, it stays put until back at the end.
             let (anchored, top) = (pin.anchored, self.list.logical_scroll_top());
             self.pin = None;
@@ -139,6 +142,11 @@ impl View {
             // before the room shrinks.
             self.list.set_follow_mode(FollowMode::Normal);
             self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+            let (top, gliding) = pin.top(now);
+            self.list.scroll_by(px(pin::TOP - top));
+            if gliding {
+                window.request_animation_frame();
+            }
         }
     }
 
@@ -423,7 +431,7 @@ impl Desktop {
         if view.list.item_count() == 0 {
             return div().flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("Send a message to start.");
         }
-        view.hold_pin(window);
+        view.hold_pin(!cx.reduce_motion(), window);
         view.jump = view.glide.is_none() && jump::jump_visibility(view.jump, view.distance());
         let spacer = view.pin.as_ref().map_or(0., |p| p.spacer);
         let rows = {
@@ -815,9 +823,6 @@ impl Desktop {
             }
             None => inner,
         };
-        // Until its row is measured the prompt sits at the list's end; shown there, it would leap to the top a frame later.
-        let unheld = view.pin.as_ref().filter(|p| p.unmeasured()).and_then(|p| p.row(&s.rows)).is_some_and(|p| ix >= p);
-        let inner = if unheld { inner.opacity(0.) } else { inner };
         let inner = match &view.flash {
             Some((row, at)) if *row == id && at.elapsed() < FLASH => {
                 let flash = inner.rounded(px(8.)).with_animation(SharedString::from(format!("flash-{id}")), Animation::new(FLASH).with_easing(ease_out_quint()), |d, t| d.bg(Hsla::from(FILL_4).opacity(1. - t)));
