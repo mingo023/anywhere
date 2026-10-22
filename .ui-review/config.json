@@ -110,7 +110,7 @@
     },
     "settings-projects": {
       "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
-      "open": ["press Cmd+,", "click Projects & Worktrees"],
+      "open": ["press Cmd+,", "click Projects"],
       "capture": ["dark", "settings", "settings-projects"]
     },
     "settings-agents": {

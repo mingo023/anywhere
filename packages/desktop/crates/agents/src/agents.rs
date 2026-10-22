@@ -46,6 +46,8 @@ pub struct Summary {
     pub updated_at: i64,
     /// The account it runs on; empty is the built-in login.
     pub account: String,
+    /// The account it moves to once its turn ends, `builtin` for the built-in login; empty when it stays.
+    pub switching: String,
     /// Bumped each time pocketd starts the agent's timeline over, as for a new conversation.
     pub resets: u64,
     /// Run without its TUI, so only the chat drives it.
@@ -134,6 +136,15 @@ impl McpAction {
 }
 
 impl Summary {
+    /// The account to show it on: the one it switches to, else the one it runs on; empty is the built-in login.
+    pub fn shown_account(&self) -> &str {
+        match self.switching.as_str() {
+            "" => &self.account,
+            "builtin" => "",
+            to => to,
+        }
+    }
+
     /// Tokens used and the model's window, once pocketd reports a non-zero window.
     pub fn context(&self) -> Option<(u64, u64)> {
         self.context_window.filter(|&w| w > 0).map(|w| (self.tokens_used, w))
@@ -1307,6 +1318,17 @@ mod tests {
     fn a_summary_names_the_agents_access() {
         let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_model.json")).unwrap();
         assert_eq!(f.agent.unwrap().access.as_deref(), Some("edits"));
+    }
+
+    #[test]
+    fn a_summary_shows_the_account_it_switches_to() {
+        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_switching.json")).unwrap();
+        let a = f.agent.unwrap();
+        assert_eq!((a.account.as_str(), a.shown_account()), ("3f9a0c1b2d4e", ""));
+        let staying = Summary { account: "work".into(), ..Default::default() };
+        assert_eq!(staying.shown_account(), "work");
+        let moving = Summary { switching: "home".into(), ..staying };
+        assert_eq!(moving.shown_account(), "home");
     }
 
     #[test]

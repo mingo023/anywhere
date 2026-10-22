@@ -1,5 +1,5 @@
 use super::catalog::Setting;
-use super::{action, field_box, group};
+use super::{action, field_box, group, row};
 use crate::accounts::{self, BUILT_IN, Host, Key, Tone};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
@@ -70,14 +70,29 @@ impl Desktop {
         let machines: Vec<Host> = std::iter::once(None).chain(self.store.hosts.iter().map(|h| Some(h.id.clone()))).filter(|h| self.accounts.lists.contains_key(h)).collect();
         let groups = machines.into_iter().map(|host| {
             let title = host.as_deref().map_or_else(|| "This Mac".into(), |id| self.host_name(id));
-            group(&title, self.machine_rows(&host, now, cx))
+            let auto = self.accounts.auto_switch.contains_key(&host).then(|| self.auto_switch_row(&host, cx));
+            group(&title, auto.into_iter().chain(self.machine_rows(&host, now, cx)).collect())
         });
         let caption = div()
             .text_size(px(12.))
             .line_height(px(16.))
             .text_color(TEXT_3)
-            .child("Agents start on the selected account, and move to it when idle. Usage is checked every 5 minutes while Anywhere is open.");
+            .child("New sessions start on the selected account, unless their project picks one in Settings \u{203a} Projects. Usage is checked every 5 minutes while Anywhere is open.");
         div().flex().flex_col().gap(px(22.)).child(toolbar).children(groups.collect::<Vec<_>>()).child(caption)
+    }
+
+    /// Whether the machine moves a session at its account's limit to another; off while no agent has a second account there.
+    fn auto_switch_row(&mut self, host: &Host, cx: &mut Context<Self>) -> Div {
+        let list = self.accounts.list(host);
+        let many = LaunchPick::PROVIDERS.into_iter().any(|p| accounts::shared(list, p));
+        let on = many && self.accounts.auto_switch.get(host) == Some(&true);
+        let hint = if many { "A session that hits its limit resumes on the account with the most left" } else { "Add a second account of the same agent to switch between them" };
+        let id = SharedString::from(format!("accounts-auto-{}", host.as_deref().unwrap_or_default()));
+        let host = host.clone();
+        let toggle = div().id(id).flex_none().child(ui::toggle("switch", on)).when(!many, |d| d.opacity(0.45)).when(many, |d| {
+            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_auto_switch(host.clone(), !on, cx)))
+        });
+        row("Switch accounts at a limit", Some(hint), toggle)
     }
 
     /// Each provider's caption, then its accounts.

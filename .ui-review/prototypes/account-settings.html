@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket · Accounts and Projects settings prototype</title>
+<style>
+:root{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;
+  --surface:#fff;--sunken:#fafafa;--side:#f3f3f4;
+  --fill-1:rgba(17,17,19,.031);--fill-2:rgba(17,17,19,.043);--fill-3:rgba(17,17,19,.055);--fill-4:rgba(17,17,19,.067);
+  --sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);
+  --accent:#5b5bd6;--accent-bg:rgba(91,91,214,.11);
+  --waiting:#ad5700;--failed:#cd2b31;--failed-bg:rgba(229,72,77,.1);--on:#2b9a66;--ok:#18794e;
+  --row-shadow:0 1px 2px rgba(17,17,19,.06),0 0 0 .5px rgba(17,17,19,.06);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),0 12px 32px rgba(17,17,19,.14),0 2px 6px rgba(17,17,19,.06);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+svg{display:block;flex:none}
+
+#win{position:absolute;inset:28px;display:flex;border-radius:10px;overflow:hidden;background:var(--sunken);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:5}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+#nav{width:250px;flex:none;background:var(--side);border-right:.5px solid var(--sep);padding:48px 10px 0}
+.back{display:flex;align-items:center;gap:8px;padding:0 8px 12px;font-size:13px}
+.navcap{padding:12px 10px 5px;font-size:11.5px;color:var(--text-3)}
+.navi{display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:7px;font-size:13px}
+.navi:hover{background:var(--fill-2)}
+.navi.sel{background:var(--fill-4);font-weight:500}
+.navi i{width:14px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 1.3px var(--text-3)}
+
+#page{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.top{height:42px;flex:none;display:flex;align-items:center;padding:0 22px;font-size:13px;font-weight:600;border-bottom:.5px solid var(--sep)}
+.scroll{flex:1;min-height:0;overflow:auto}
+#stage{max-width:680px;margin:0 auto;padding:28px 24px 60px;display:flex;flex-direction:column;gap:22px}
+.ph{display:flex;align-items:center;gap:14px}
+.phi{width:40px;height:40px;border-radius:10px;background:var(--surface);box-shadow:var(--row-shadow);display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+.pht{font-size:20px;font-weight:700;letter-spacing:-.015em}
+.phs{font-size:13px;color:var(--text-2);margin-top:2px}
+.toolbar{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:12px;color:var(--text-3);margin-bottom:-12px}
+.ibtn{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.ibtn:hover{background:var(--fill-3)}
+
+.gcap{font-size:13px;font-weight:600;color:var(--text-2);margin:0 2px 7px}
+.group{background:var(--surface);border-radius:12px;box-shadow:var(--row-shadow)}
+.group>*+*{border-top:.5px solid var(--sep)}
+.group>:first-child{border-radius:12px 12px 0 0}.group>:last-child{border-radius:0 0 12px 12px}
+.cap{display:flex;align-items:center;gap:7px;padding:7px 14px;background:var(--fill-1);font-size:12px;font-weight:600;color:var(--text-2)}
+.cap .add{margin-left:auto;font-weight:500;color:var(--accent);font-size:12px}
+.set{display:flex;align-items:center;gap:16px;padding:11px 14px}
+.set .t{font-size:13px}
+.set .s{font-size:12px;color:var(--text-3);margin-top:2px;line-height:1.35}
+.set.dim{opacity:.55}
+.path{height:28px;width:260px;border-radius:7px;background:var(--fill-2);display:flex;align-items:center;gap:7px;padding:0 9px;font:12px var(--mono);color:var(--text-2);margin-left:auto}
+.btn2{height:28px;padding:0 11px;border-radius:7px;background:var(--fill-3);font-size:12.5px}
+
+.sw{width:34px;height:20px;border-radius:10px;background:var(--fill-4);box-shadow:inset 0 0 0 .5px var(--sep-strong);position:relative;flex:none;margin-left:auto;transition:background 200ms ease-out}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.06);transition:transform 220ms var(--out)}
+.sw[aria-checked="true"]{background:var(--on)}
+.sw[aria-checked="true"]::after{transform:translateX(14px)}
+.sw:disabled{opacity:.5}
+
+.acc{display:flex;align-items:center;gap:16px;padding:10px 14px}
+.radio{width:15px;height:15px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--text-5);flex:none}
+.radio.on{box-shadow:inset 0 0 0 4.5px var(--accent)}
+.radio.off{opacity:.35}
+.who{flex:1;min-width:0}
+.nm{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600}
+.sub{font-size:12px;color:var(--text-3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{height:18px;padding:0 6px;border-radius:5px;display:inline-flex;align-items:center;font-size:11px;font-weight:600;background:var(--fill-3);color:var(--text-2);white-space:nowrap}
+.tag.acc2{background:var(--accent-bg);color:var(--accent)}
+.tag.bad{background:var(--failed-bg);color:var(--failed)}
+.meters{width:210px;flex:none;display:flex;flex-direction:column;gap:5px}
+.m{display:grid;grid-template-columns:32px 1fr 30px 46px;gap:7px;align-items:center;font-size:11.5px;color:var(--text-3)}
+.bar{height:5px;border-radius:3px;background:var(--fill-4);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--text-3)}
+.bar.warn i{background:var(--waiting)}.bar.bad i{background:var(--failed)}
+.m .v{text-align:right;font-weight:600;color:var(--text-2)}
+.m .v.warn{color:var(--waiting)}.m .v.bad{color:var(--failed)}
+.more{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none}
+.signin{width:210px;flex:none;text-align:right;font-size:12.5px;color:var(--accent);font-weight:500}
+.foot{font-size:12px;line-height:16px;color:var(--text-3);padding:0 2px}
+
+/* projects list */
+.prow{display:flex;align-items:center;gap:12px;padding:9px 14px}
+.prow:hover{background:var(--fill-1)}
+.tile{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:none}
+.pname{font-size:13px;font-weight:500}
+.ppath{font:11.5px var(--mono);color:var(--text-3);margin-top:1px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.ppath .on{font-family:var(--sans);display:inline-flex;align-items:center;gap:4px;color:var(--text-2)}
+.count{margin-left:auto;font-size:12px;color:var(--text-3);flex:none}
+.chev{color:var(--text-4);flex:none}
+.addp{display:flex;align-items:center;gap:14px;padding:10px 14px}
+.addp .b{height:28px;padding:0 11px;border-radius:7px;background:var(--fill-3);font-size:12.5px}
+.addp .l{font-size:12.5px;text-decoration:underline}
+
+/* modal */
+.scrim{position:absolute;inset:0;background:rgba(17,17,19,.18);display:flex;align-items:flex-start;justify-content:center;padding-top:44px;z-index:40;animation:fade 160ms ease-out}
+@keyframes fade{from{opacity:0}}
+.modal{width:600px;background:var(--surface);border-radius:16px;box-shadow:0 0 0 .5px rgba(17,17,19,.14),0 24px 60px rgba(17,17,19,.22);padding:22px 24px 20px;
+  transform-origin:top center;animation:min 200ms var(--out)}
+@keyframes min{from{opacity:0;transform:scale(.97) translateY(-6px)}}
+.mt{display:flex;align-items:center;font-size:18px;font-weight:700;letter-spacing:-.01em;margin-bottom:16px}
+.mt .x{margin-left:auto;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.mt .x:hover{background:var(--fill-3)}
+.repo{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;box-shadow:0 0 0 .5px var(--sep-strong)}
+.repo .ic{width:34px;height:34px;border-radius:9px;background:var(--fill-2);display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+.repo .p{font:13px var(--mono);font-weight:600}
+.repo .g{font-size:12px;color:var(--ok);margin-top:2px}
+.flab{font-size:12px;font-weight:600;color:var(--text-2);margin:16px 0 6px;display:flex;align-items:baseline;gap:6px}
+.flab .h{font-weight:400;color:var(--text-3)}
+.fbox{height:36px;border-radius:8px;background:var(--fill-2);display:flex;align-items:center;gap:9px;padding:0 12px;font-size:13.5px;color:var(--text-body)}
+.fbox.mono{font:13px var(--mono)}
+.two{display:flex;gap:10px}
+.two>*{flex:1;min-width:0}
+.acct-dd{position:relative}
+.acct-dd .fbox{justify-content:space-between;cursor:default}
+.acct-dd .fbox:hover{background:var(--fill-3)}
+.acct-dd .fbox .l{display:flex;align-items:center;gap:8px;min-width:0}
+.acct-dd .fbox .pv{font-size:11.5px;color:var(--text-3)}
+.acct-dd .fbox .d{color:var(--text-3)}
+.acct-dd.off .fbox{opacity:.5}
+.menu{position:absolute;top:calc(100% + 4px);left:0;right:0;padding:4px;border-radius:9px;background:rgba(255,255,255,.96);
+  -webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--pop-shadow);z-index:50;
+  transform-origin:top center;animation:pop 160ms var(--out)}
+@keyframes pop{from{opacity:0;transform:scale(.97) translateY(-3px)}}
+.mi{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:6px;font-size:13px;white-space:nowrap}
+.mi:hover{background:var(--accent);color:#fff}
+.mi:hover .x{color:rgba(255,255,255,.8)}
+.mi .ck{width:12px;font-size:12px}
+.mi .x{margin-left:auto;padding-left:14px;color:var(--text-3);font-size:12px}
+.mi[aria-disabled]{opacity:.45}.mi[aria-disabled]:hover{background:none;color:inherit}
+.msep{height:.5px;background:var(--sep);margin:4px 8px}
+.rm{display:flex;align-items:center;gap:16px;margin-top:18px}
+.rm .t{font-size:12px;font-weight:600;color:var(--text-2)}
+.rm .s{font-size:12px;color:var(--text-3);margin-top:2px}
+.rm .b{margin-left:auto;height:32px;padding:0 14px;border-radius:16px;background:var(--failed-bg);color:var(--failed);font-size:13px}
+.reset{text-align:right;margin-top:10px;font-size:12.5px;text-decoration:underline}
+.acts{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+.acts button{height:36px;padding:0 18px;border-radius:18px;font-size:14px}
+.acts .pri{background:#111113;color:#fff}
+.acts button:active{transform:scale(.97)}
+
+@media (prefers-reduced-motion: reduce){.scrim,.modal,.menu{animation:none}.sw,.sw::after{transition:none}}
+@media (prefers-reduced-transparency: reduce){.menu{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}}
+</style>
+</head>
+<body>
+
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="nav">
+    <div class="back">‹ Back</div>
+    <div class="navcap">App</div><div class="navi"><i></i>General</div><div class="navi"><i></i>Appearance</div>
+    <div class="navcap">Agents</div><div class="navi"><i></i>Agents</div><div class="navi" data-go="accounts"><i></i>Accounts</div><div class="navi"><i></i>Automations</div><div class="navi"><i></i>Hosts</div>
+    <div class="navcap">Projects</div><div class="navi" data-go="projects"><i></i>Projects</div><div class="navi"><i></i>Sidebar &amp; Inbox</div>
+    <div class="navcap">Git</div><div class="navi"><i></i>Git &amp; GitHub</div>
+  </aside>
+  <section id="page"><div class="top" id="title"></div><div class="scroll"><div id="stage"></div></div><div id="overlay"></div></section>
+</div>
+
+<script>
+const CLAUDE = s => `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><g stroke="#d97757" stroke-width="2.6" stroke-linecap="round">${[0,45,90,135].map(a=>`<line x1="12" y1="3" x2="12" y2="21" transform="rotate(${a} 12 12)"/>`).join('')}</g></svg>`;
+const CODEX = s => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#0f9d8a" stroke-width="2"><path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const FOLDER = s => `<svg width="${s}" height="${s}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>`;
+const ICON = { claude: CLAUDE, codex: CODEX };
+const PNAME = { claude: 'Claude Code', codex: 'Codex' };
+const CHEV = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>`;
+const RIGHT = `<svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5L6.5 5 4 7.5"/></svg>`;
+const RELOAD = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>`;
+
+const HOSTS = { mac: 'This Mac', devbox: 'devbox' };
+const ACC = [
+  { host:'mac', p:'claude', id:'builtin', name:'Home', email:'mingo@hey.com', plan:'Max', signed:true, def:true, s:27, sr:'25m', w:76, wr:'3d 16h' },
+  { host:'mac', p:'claude', id:'work', name:'Work', email:'mingo@acme.dev', plan:'Max', signed:true, s:100, sr:'15:12', w:58, wr:'Mon' },
+  { host:'mac', p:'claude', id:'personal', name:'Personal', email:'mingo.l@gmail.com', plan:'Pro', signed:true, s:12, sr:'3h 40m', w:41, wr:'Tue' },
+  { host:'mac', p:'claude', id:'side', name:'Side', email:'side@acme.dev', plan:'Pro', signed:false },
+  { host:'mac', p:'codex', id:'builtin', name:'Home', email:'mingo@hey.com', plan:'Plus', signed:true, def:true, s:8, sr:'4h 10m', w:33, wr:'Thu' },
+  { host:'mac', p:'codex', id:'team', name:'Acme team', email:'mingo@acme.dev', plan:'Pro', signed:true, s:44, sr:'1h 5m', w:62, wr:'Sat' },
+  { host:'devbox', p:'claude', id:'builtin', name:'Home', email:'mingo@hey.com', plan:'Max', signed:true, def:true, s:5, sr:'4h 51m', w:76, wr:'3d 16h' },
+];
+const PROJECTS = [
+  { id:'employer-backend', icon:'🍀', bg:'#8b5cf6', path:'~/Developer/work/hodfords/employer-backend', host:'mac', trees:18, setup:'pnpm install', down:'docker compose down' },
+  { id:'regulations_api_ingestion', icon:'🦄', bg:'#f97362', path:'~/Developer/work/regask/regulations_api_ingestion', host:'mac', trees:15, setup:'uv sync', down:'' },
+  { id:'regask', icon:'🚀', bg:'#fbbf24', path:'~/Developer/work/regask', host:'mac', trees:0, setup:'', down:'' },
+  { id:'anywhere', icon:'🤖', bg:'#fb7c5c', path:'~/Developer/self/coding-pocket', host:'mac', trees:6, setup:'bun install', down:'' },
+  { id:'rail-changer-backend', icon:'BA', bg:'#3b82f6', path:'~/Developer/work/railchanger/rail-changer-backend', host:'mac', trees:4, setup:'', down:'' },
+  { id:'gpu-train', icon:'🧠', bg:'#e5e7eb', path:'~/gpu-train', host:'devbox', trees:1, setup:'', down:'' },
+];
+const S = { page:'projects', auto:{ mac:true, devbox:true }, pref:{ 'employer-backend':{ claude:'work', codex:'team' }, 'regulations_api_ingestion':{ claude:'work' } }, edit:null, draft:null, open:null };
+
+const of = (host, p) => ACC.filter(a => a.host === host && a.p === p);
+const shared = (host, p) => of(host, p).length > 1;
+const acc = (host, p, id) => ACC.find(a => a.host === host && a.p === p && a.id === id);
+const def = (host, p) => of(host, p).find(a => a.def);
+const tone = p => p >= 100 ? 'bad' : p >= 80 ? 'warn' : '';
+const tile = (pr, s = 24) => `<span class="tile" style="width:${s}px;height:${s}px;background:${pr.bg};${pr.icon.length > 2 ? '' : 'color:#fff;font-size:11px;font-weight:700'}">${pr.icon}</span>`;
+
+/* ---------- Accounts page: the list and the auto-switch toggle, no projects ---------- */
+function meter(l, p, r) { return `<div class="m"><span>${l}</span><div class="bar ${tone(p)}"><i style="width:${p}%"></i></div><span class="v ${tone(p)}">${p}%</span><span>${r}</span></div>`; }
+function accountRow(a) {
+  const tags = [`<span class="tag">${a.plan}</span>`, a.def && shared(a.host, a.p) ? '<span class="tag acc2">New sessions</span>' : '',
+    !a.signed ? '<span class="tag bad">Signed out</span>' : a.s >= 100 ? `<span class="tag bad">Back at ${a.sr}</span>` : ''].join('');
+  const side = a.signed ? `<div class="meters">${meter('5h', a.s, a.sr)}${meter('Week', a.w, a.wr)}</div>` : `<div class="signin">Sign in…</div>`;
+  return `<div class="acc"><span class="radio ${a.def ? 'on' : ''} ${a.signed ? '' : 'off'}"></span>
+    <div class="who"><div class="nm">${a.name}${tags}</div><div class="sub">${a.id === 'builtin' ? 'Built-in login · ' : ''}${a.email}</div></div>${side}<span class="more">···</span></div>`;
+}
+function autoRow(host) {
+  const many = ['claude', 'codex'].some(p => shared(host, p));
+  return `<div class="set ${many ? '' : 'dim'}"><div><div class="t">Switch accounts at a limit</div>
+    <div class="s">${many ? 'A session that hits its limit resumes on the account with the most left' : 'Add a second account of the same agent to switch between them'}</div></div>
+    <button class="sw" role="switch" data-auto="${host}" aria-checked="${many && S.auto[host]}" ${many ? '' : 'disabled'}></button></div>`;
+}
+function accounts() {
+  const groups = Object.keys(HOSTS).map(host => {
+    const rows = ['claude', 'codex'].flatMap(p => of(host, p).length ? [`<div class="cap">${ICON[p](13)}${PNAME[p]}<span class="add">Add account</span></div>`, ...of(host, p).map(accountRow)] : []);
+    return `<div><div class="gcap">${HOSTS[host]}</div><div class="group">${autoRow(host)}${rows.join('')}</div></div>`;
+  }).join('');
+  return `<div class="ph"><div class="phi">${CLAUDE(18)}</div><div><div class="pht">Accounts</div><div class="phs">The logins your agents run on, on each machine.</div></div></div>
+    <div class="toolbar">Checked 2 min ago<button class="ibtn">${RELOAD}</button></div>${groups}
+    <div class="foot">New sessions start on the selected account, unless their project picks one in Settings › Projects. Usage is checked every 5 minutes while Anywhere is open.</div>`;
+}
+
+/* ---------- Projects page (renamed from Projects & Worktrees) ---------- */
+function picked(pr) {
+  return ['claude', 'codex'].map(p => [p, S.pref[pr.id]?.[p]]).filter(([, id]) => id).map(([p, id]) => `<span class="on">${ICON[p](10)}${acc(pr.host, p, id).name}</span>`).join('');
+}
+function projects() {
+  const rows = PROJECTS.map(pr => `<div class="prow" data-edit="${pr.id}">${tile(pr)}<div style="min-width:0;flex:1"><div class="pname">${pr.id}</div>
+    <div class="ppath">${pr.path}${picked(pr) ? ' ·' : ''}${picked(pr)}</div></div><span class="count">${pr.trees} worktree${pr.trees === 1 ? '' : 's'}</span><span class="chev">${RIGHT}</span></div>`).join('');
+  return `<div class="ph"><div class="phi">${FOLDER(20)}</div><div><div class="pht">Projects</div><div class="phs">Where code lives on disk, per-project setup, and what happens when a worktree is deleted.</div></div></div>
+    <div><div class="gcap">Locations</div><div class="group">
+      <div class="set"><div><div class="t">Worktree folder</div><div class="s">New worktrees go in &lt;folder&gt;/&lt;project&gt;/&lt;name&gt;</div></div><span class="path">${FOLDER(12)}~/.anywhere/worktrees</span><button class="btn2">Choose…</button></div>
+      <div class="set"><div><div class="t">Clone folder</div><div class="s">Where Add project › Clone puts new repositories</div></div><span class="path">${FOLDER(12)}~/code</span><button class="btn2">Choose…</button></div></div></div>
+    <div><div class="gcap">Projects</div><div class="group">${rows}<div class="addp"><button class="b">＋ Add project…</button><span class="l">Clone…</span></div></div></div>
+    <div><div class="gcap">Deleting a worktree</div><div class="group">
+      <div class="set"><div><div class="t">Also delete its branch</div><div class="s">Local branch only. Remote branches are never deleted</div></div><button class="sw" role="switch" aria-checked="true"></button></div></div></div>`;
+}
+
+/* ---------- Project settings modal, with the new Accounts field ---------- */
+function accountField(pr, p) {
+  const list = of(pr.host, p);
+  if (list.length < 2) return '';
+  const id = S.draft[p], a = id && acc(pr.host, p, id), d = def(pr.host, p);
+  const label = a ? `${ICON[p](13)}${a.name}<span class="pv">${a.plan}</span>` : `${ICON[p](13)}<span class="d">Default · ${d.name}</span>`;
+  const menu = S.open === p ? `<div class="menu"><div class="mi" data-set="${p}|"><span class="ck">${a ? '' : '✓'}</span>Default<span class="x">${d.name} now</span></div><div class="msep"></div>
+    ${list.map(x => `<div class="mi" data-set="${p}|${x.id}" ${x.signed ? '' : 'aria-disabled="true"'}><span class="ck">${id === x.id ? '✓' : ''}</span>${x.name}<span class="x">${x.signed ? x.email : 'Signed out'}</span></div>`).join('')}</div>` : '';
+  return `<div class="acct-dd"><div class="fbox" data-open="${p}"><span class="l">${label}</span>${CHEV}</div>${menu}</div>`;
+}
+function modal() {
+  const pr = PROJECTS.find(x => x.id === S.edit);
+  const fields = ['claude', 'codex'].map(p => accountField(pr, p)).filter(Boolean);
+  const accounts = fields.length ? `<div class="flab">Accounts <span class="h">· what new sessions here start on</span></div><div class="two">${fields.join('')}</div>`
+    : `<div class="flab">Accounts <span class="h">· one account per agent on ${HOSTS[pr.host]}, so sessions use it</span></div>`;
+  const script = (t, v) => `<div class="flab">${t}</div><div class="fbox mono">${v || '<span style="color:var(--text-4)">No script</span>'}</div>`;
+  return `<div class="scrim" data-close="1"><div class="modal">
+    <div class="mt">Project settings<button class="x" data-close="1">✕</button></div>
+    <div class="repo"><span class="ic">${FOLDER(16)}</span><div><div class="p">${pr.path}</div><div class="g">✓ Git repository · main · clean · 1 remote</div></div></div>
+    <div class="two" style="align-items:flex-end"><div><div class="flab">Name</div><div class="fbox">${pr.id}</div></div><div style="flex:none"><div class="flab">Icon</div><div style="height:36px;display:flex;align-items:center;gap:8px">${tile(pr, 26)}<span style="color:var(--text-3)">＋</span></div></div></div>
+    ${accounts}
+    ${script('When a worktree is created', pr.setup)}${script('When a worktree is deleted', pr.down)}
+    <div class="rm"><div><div class="t">Remove project</div><div class="s">Removes it from Anywhere. Files and worktrees stay on disk.</div></div><button class="b">Remove project…</button></div>
+    <div class="reset">Reset ${pr.id} to defaults…</div>
+    <div class="acts"><button data-close="1">Cancel</button><button class="pri" data-save="1">Save</button></div></div></div>`;
+}
+
+/* ---------- behaviour ---------- */
+function paint() {
+  document.getElementById('title').textContent = S.page === 'projects' ? 'Projects' : 'Accounts';
+  document.querySelectorAll('[data-go]').forEach(n => n.classList.toggle('sel', n.dataset.go === S.page));
+  stage.innerHTML = S.page === 'projects' ? projects() : accounts();
+  overlay.innerHTML = S.edit ? modal() : '';
+}
+const stage = document.getElementById('stage'), overlay = document.getElementById('overlay');
+
+document.getElementById('win').addEventListener('click', e => {
+  const t = e.target.closest('[data-go],[data-auto],[data-edit],[data-open],[data-set],[data-save],[data-close],.modal');
+  if (!t) return;
+  if (t.dataset.go) { S.page = t.dataset.go; S.edit = null; return paint(); }
+  if (t.dataset.auto) { S.auto[t.dataset.auto] = !S.auto[t.dataset.auto]; t.setAttribute('aria-checked', S.auto[t.dataset.auto]); return; }
+  if (t.dataset.edit) { S.edit = t.dataset.edit; S.draft = { ...S.pref[t.dataset.edit] }; S.open = null; return paint(); }
+  if (t.hasAttribute('aria-disabled')) return;
+  if (t.dataset.open) { S.open = S.open === t.dataset.open ? null : t.dataset.open; return paint(); }
+  if (t.dataset.set !== undefined) { const [p, id] = t.dataset.set.split('|'); S.draft[p] = id || undefined; S.open = null; return paint(); }
+  if (t.dataset.save) { S.pref[S.edit] = S.draft; S.edit = null; return paint(); }
+  if (t.dataset.close && (e.target === t || t.tagName === 'BUTTON')) { S.edit = null; return paint(); }
+  if (S.open) { S.open = null; paint(); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (S.open) S.open = null; else S.edit = null;
+  paint();
+});
+const q = new URLSearchParams(location.search);
+if (q.get('page')) S.page = q.get('page');
+if (q.get('edit')) { S.edit = q.get('edit'); S.draft = { ...S.pref[S.edit] }; }
+paint();
+</script>
+</body>
+</html>

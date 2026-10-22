@@ -49,6 +49,9 @@ func (s *sink) Apply(e timeline.Event) {
 		}
 	case "result":
 		line += fmt.Sprintf(":%v:%d:%s", e.OK, e.DurationMs, e.Error)
+		if e.Limit {
+			line += ":limit"
+		}
 	}
 	if e.ParentToolUseID != "" {
 		line = e.ParentToolUseID + ">" + line
@@ -163,6 +166,22 @@ func TestLiveTurnStreamsOnce(t *testing.T) {
 	if snk.title != "Greeting" {
 		t.Fatal(snk.title)
 	}
+}
+
+func TestOnlyALiveTurnEndsAtTheAccountsLimit(t *testing.T) {
+	const limited = `{"id":"t1","items":[],"status":"failed","error":{"message":"You've hit your usage limit.","codexErrorInfo":"usageLimitExceeded"}}`
+	srv, _, live, _ := open(t, emptyThread)
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":`+limited+`}`)
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":{"id":"t2","items":[],"status":"failed","error":{"message":"boom","codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":502}}}}}`)
+	live.wait(t, "result:false:0:You've hit your usage limit.:limit", "result:false:0:boom")
+
+	_, _, replayed, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(`{"thread":{"turns":[` + limited + `]}}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	replayed.wait(t, "result:false:0:You've hit your usage limit.")
 }
 
 func TestAMessageUnderWayAtResumeShowsWholeOnceItCompletes(t *testing.T) {

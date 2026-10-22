@@ -106,6 +106,8 @@ type entry struct {
 type index struct {
 	Accounts []entry           `json:"accounts"`
 	Defaults map[string]string `json:"defaults,omitempty"`
+	// AutoSwitch is nil until the user turns switching at a limit off or on again.
+	AutoSwitch *bool `json:"autoSwitch,omitempty"`
 }
 
 type Store struct {

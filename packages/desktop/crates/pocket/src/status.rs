@@ -84,7 +84,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         kind,
         notice: notice(a),
         pinned: a.pinned,
-        account: a.account.clone(),
+        account: a.shown_account().to_string(),
     }
 }
 

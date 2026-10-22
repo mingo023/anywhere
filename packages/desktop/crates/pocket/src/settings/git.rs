@@ -104,7 +104,7 @@ impl Desktop {
                 d.child(ui::link("gh-login-terminal", "Open in terminal").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     let argv = ["gh", "auth", "login"].map(String::from);
                     this.close_settings(window, cx);
-                    this.run_in_tree(Place::Pane(None), &argv, |cwd| daemon::agent_op(&argv, cwd), cx);
+                    this.run_in_tree(Place::Pane(None), &argv, None, |cwd| daemon::agent_op(&argv, cwd), cx);
                 })))
             })),
             _ => None,

@@ -93,7 +93,7 @@ impl Section {
             Section::Automations => "Automations",
             Section::Phone => "Phone & Remote",
             Section::Hosts => "Hosts",
-            Section::Projects => "Projects & Worktrees",
+            Section::Projects => "Projects",
             Section::Sidebar => "Sidebar & Inbox",
             Section::Terminal => "Terminal",
             Section::Files => "Files & Editor",

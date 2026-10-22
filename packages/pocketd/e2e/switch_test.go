@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"pocketd/internal/ops"
+	"pocketd/internal/registry"
 )
 
 // resumingAccounts resumes agents and lists a claude account "work", with it and the built-in login signed in.
@@ -23,13 +25,43 @@ func resumingAccounts(h *Harness) {
 	os.WriteFile(filepath.Join(root, "accounts.json"), []byte(`{"accounts":[{"id":"work","provider":"claude","email":"work@example.com"}]}`), 0o600)
 }
 
-func (h *Harness) setDefault(provider, id string) {
+func (h *Harness) accountsOp(m ops.Msg) {
 	h.t.Helper()
 	c := h.Ops()
-	c.Send(ops.Msg{Op: "accounts.default", Key: provider, ID: id})
-	if m, err := c.Recv(); err != nil || m.Ev != "accounts" {
-		h.t.Fatalf("accounts.default: %+v %v", m, err)
+	c.Send(m)
+	if r, err := c.Recv(); err != nil || r.Ev != "accounts" {
+		h.t.Fatalf("%s: %+v %v", m.Op, r, err)
 	}
+}
+
+// runningOn counts the agents on claude's account id, once it has some or after a few seconds.
+func (h *Harness) runningOn(id string) int {
+	h.t.Helper()
+	c := h.Ops()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		c.Send(ops.Msg{Op: "accounts"})
+		m, err := c.Recv()
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		for _, a := range m.Accounts {
+			if a.Provider == "claude" && a.ID == id && (a.Running > 0 || time.Now().After(deadline)) {
+				return a.Running
+			}
+		}
+		if time.Now().After(deadline) {
+			return 0
+		}
+	}
+}
+
+func (h *Harness) setDefault(provider, id string) {
+	h.accountsOp(ops.Msg{Op: "accounts.default", Key: provider, ID: id})
+}
+
+// switchTo moves agent to claude's account id.
+func (h *Harness) switchTo(agent, id string) {
+	h.accountsOp(ops.Msg{Op: "accounts.switch", Key: "claude", ID: id, Text: agent})
 }
 
 // isOn matches the agent's update that shows it on account, and fails the
@@ -46,8 +78,7 @@ func isOn(t *testing.T, term, agent, account string) func(Message) bool {
 	}
 }
 
-// startedClaude launches a claude through Pocket: only those follow the
-// default account, not one the user typed in a terminal.
+// startedClaude launches a claude for the chat through Pocket: only those switch accounts.
 func startedClaude(t *testing.T) (h *Harness, phone *Phone, term, agent string) {
 	t.Helper()
 	h = Start(t, launchReady(""), resumingAccounts)
@@ -62,41 +93,34 @@ func startedClaude(t *testing.T) (h *Harness, phone *Phone, term, agent string) 
 	return h, phone, term, agent
 }
 
-func TestAnIdleAgentFollowsTheDefaultAccountInItsTerminal(t *testing.T) {
+func TestAnIdleAgentSwitchesToTheAccountPickedInItsTerminal(t *testing.T) {
 	h, phone, term, agent := startedClaude(t)
 	phone.Prompt(agent, "marker")
 	h.WaitScreen(term, "echo: marker")
 	phone.WaitFor("the turn to end", between(agent))
 
-	h.setDefault("claude", "work")
+	h.switchTo(agent, "work")
 
 	phone.WaitFor("the agent on work", isOn(t, term, agent, "work"))
 	h.WaitScreen(term, "fake claude ready")
 	if strings.Contains(h.Screen(term), "echo: marker") {
 		t.Fatalf("the old process's screen stayed:\n%s", h.Screen(term))
 	}
-	var running int
-	c := h.Ops()
-	c.Send(ops.Msg{Op: "accounts.usage", ID: "work"})
-	if m, err := c.Recv(); err == nil {
-		for _, a := range m.Accounts {
-			if a.ID == "work" {
-				running = a.Running
-			}
-		}
-	}
-	if running != 1 {
-		t.Fatalf("running on work = %d", running)
+	if n := h.runningOn("work"); n != 1 {
+		t.Fatalf("running on work = %d", n)
 	}
 }
 
-func TestABusyAgentFollowsOnceItsTurnEnds(t *testing.T) {
+func TestABusyAgentSwitchesOnceItsTurnEnds(t *testing.T) {
 	h, phone, term, agent := startedClaude(t)
 	phone.Prompt(agent, "run ls")
 	req := phone.WaitFor("permission.request", func(m Message) bool { return m.Type == "permission.request" })
 
-	h.setDefault("claude", "work")
+	h.switchTo(agent, "work")
 
+	phone.WaitFor("the switch shown", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.ID == agent && m.Agent.Switching == "work"
+	})
 	time.Sleep(time.Second)
 	if got := h.Screen(term); !strings.Contains(got, "prompt: run ls") {
 		t.Fatalf("restarted with a request open:\n%s", got)
@@ -106,13 +130,13 @@ func TestABusyAgentFollowsOnceItsTurnEnds(t *testing.T) {
 	phone.WaitFor("the agent on work", isOn(t, term, agent, "work"))
 }
 
-func TestAnAgentThatIsBackOnTheDefaultBeforeItsTurnEndsStays(t *testing.T) {
+func TestAnAgentSwitchedBackBeforeItsTurnEndsStays(t *testing.T) {
 	h, phone, term, agent := startedClaude(t)
 	phone.Prompt(agent, "run ls")
 	req := phone.WaitFor("permission.request", func(m Message) bool { return m.Type == "permission.request" })
 
-	h.setDefault("claude", "work")
-	h.setDefault("claude", "builtin")
+	h.switchTo(agent, "work")
+	h.switchTo(agent, "builtin")
 	phone.Send(map[string]any{"type": "permission.resolve", "id": "r1", "requestId": req.Request.RequestID, "decision": "allow"})
 	phone.WaitFor("the turn to end", between(agent))
 	h.WaitScreen(term, "can_use_tool: allow")
@@ -123,15 +147,74 @@ func TestAnAgentThatIsBackOnTheDefaultBeforeItsTurnEndsStays(t *testing.T) {
 	}
 }
 
-func TestAnAgentReturnsToTheBuiltInLoginWhenTheDefaultDoes(t *testing.T) {
+func TestAnAgentSwitchesBackToTheBuiltInLogin(t *testing.T) {
 	h, phone, term, agent := startedClaude(t)
-	h.setDefault("claude", "work")
+	h.switchTo(agent, "work")
 	phone.WaitFor("the agent on work", isOn(t, term, agent, "work"))
 
-	h.setDefault("claude", "builtin")
+	h.switchTo(agent, "builtin")
 
 	phone.WaitFor("the agent on the built-in login", isOn(t, term, agent, ""))
 	h.WaitScreen(term, "fake claude ready")
+}
+
+func TestANewDefaultLeavesRunningAgentsWhereTheyAre(t *testing.T) {
+	h, phone, term, agent := startedClaude(t)
+	phone.Prompt(agent, "marker")
+	phone.WaitFor("the turn to end", between(agent))
+
+	h.setDefault("claude", "work")
+	time.Sleep(time.Second)
+
+	if got := h.Screen(term); !strings.Contains(got, "echo: marker") {
+		t.Fatalf("the agent restarted:\n%s", got)
+	}
+	create(phone, "r2", inRepo(h, map[string]any{"chat": true}))
+	if done := reply(phone, "agent.created", "error"); done.Type != "agent.created" {
+		t.Fatalf("got %s", done.Raw)
+	}
+	if n := h.runningOn("work"); n != 1 {
+		t.Fatalf("running on work = %d", n)
+	}
+}
+
+// onWork has the test's Project pick claude's account "work".
+func onWork(h *Harness) {
+	path := filepath.Join(h.Home, "desktop.json")
+	var f registry.File
+	raw, _ := os.ReadFile(path)
+	json.Unmarshal(raw, &f)
+	r := f.Repos[h.Repo]
+	r.Accounts = map[string]string{"claude": "work"}
+	f.Repos[h.Repo] = r
+	raw, _ = json.Marshal(f)
+	os.WriteFile(path, raw, 0o600)
+}
+
+func TestAProjectsNewSessionsStartOnItsAccount(t *testing.T) {
+	h := Start(t, launchReady(""), resumingAccounts, onWork)
+	phone := h.Owner()
+
+	create(phone, "r1", inRepo(h, map[string]any{"chat": true}))
+
+	if done := reply(phone, "agent.created", "error"); done.Type != "agent.created" {
+		t.Fatalf("got %s", done.Raw)
+	}
+	if n := h.runningOn("work"); n != 1 {
+		t.Fatalf("running on work = %d", n)
+	}
+}
+
+func TestAnAgentTabTheDesktopOpensStartsOnItsProjectsAccount(t *testing.T) {
+	h := Start(t, launchReady(""), resumingAccounts, onWork)
+	c := h.Ops()
+	c.Send(ops.Msg{Op: "spawn", Login: true, Cwd: h.Repo, Argv: []string{"claude"}, Agent: "claude", Cols: 100, Rows: 30})
+	if m, err := c.Recv(); err != nil || m.Ev != "spawned" {
+		t.Fatalf("%+v %v", m, err)
+	}
+	if n := h.runningOn("work"); n != 1 {
+		t.Fatalf("running on work = %d", n)
+	}
 }
 
 func between(agent string) func(Message) bool {

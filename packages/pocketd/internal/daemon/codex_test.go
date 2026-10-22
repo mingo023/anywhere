@@ -299,7 +299,7 @@ func TestTwoCodexInOneFolderGetTheirOwnThreads(t *testing.T) {
 func TestACompactionItemEndsTheCompaction(t *testing.T) {
 	a := newDaemon(t).Agents.Add("a1", "/w", "codex", nil)
 	a.SetCompacting()
-	codexSink{a}.Apply(timeline.Event{Kind: "compacted", Trigger: "manual"})
+	codexSink{a, nil}.Apply(timeline.Event{Kind: "compacted", Trigger: "manual"})
 	if s := a.Summary(); s.Compacting || s.Status != "done" {
 		t.Fatalf("compacting=%v %s", s.Compacting, s.Status)
 	}

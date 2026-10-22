@@ -36,6 +36,7 @@ type Message struct {
 		Branch            string `json:"branch"`
 		Attached          bool   `json:"attached"`
 		Account           string `json:"account"`
+		Switching         string `json:"switching"`
 		Model             string `json:"model"`
 		Effort            string `json:"effort"`
 		Failed            bool   `json:"failed"`

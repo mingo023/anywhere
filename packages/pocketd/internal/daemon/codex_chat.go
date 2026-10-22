@@ -194,7 +194,7 @@ func (x *codexChat) attach() {
 
 func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	pr := x.pr
-	x.s = codex.NewSession(pr.a.ID(), codexSink{pr.a}, d.Broker)
+	x.s = codex.NewSession(pr.a.ID(), codexSink{pr.a, func() { go d.limitHit(pr) }}, d.Broker)
 	ctx := pr.ctx
 	stop := context.AfterFunc(ctx, x.Close)
 	c, err := codex.Connect(ctx, x, x, map[string]any{"experimentalApi": true})

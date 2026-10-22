@@ -49,6 +49,8 @@ type Msg struct {
 	// Login spawns the host's login shell in its login env, running Argv in it when set.
 	Login bool     `json:"login,omitempty"`
 	Argv  []string `json:"argv,omitempty"`
+	// Agent is the provider Argv runs, Cmd being a shell, so it starts on its Project's account.
+	Agent string `json:"agent,omitempty"`
 	// The rest are exec's and fs.*'s.
 	Stdin     []byte         `json:"stdin,omitempty"`
 	TimeoutMs int            `json:"timeoutMs,omitempty"`
@@ -71,6 +73,8 @@ type Msg struct {
 	// Token is auth's owner token.
 	Token    string             `json:"token,omitempty"`
 	Accounts []accounts.Account `json:"accounts,omitempty"`
+	// AutoSwitch is whether an agent at its account's limit moves to another, on an accounts reply.
+	AutoSwitch *bool `json:"autoSwitch,omitempty"`
 }
 
 type Conn struct {
@@ -337,7 +341,7 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 			}
 			c.Send(Msg{Ev: "ok"})
 			continue
-		case "accounts", "accounts.usage", "accounts.signin", "accounts.rename", "accounts.default", "accounts.signout", "accounts.remove":
+		case "accounts", "accounts.usage", "accounts.signin", "accounts.rename", "accounts.default", "accounts.signout", "accounts.remove", "accounts.switch", "accounts.autoswitch":
 			if s.Accounts == nil {
 				c.Send(Msg{Ev: "error", Error: "accounts unsupported"})
 				continue

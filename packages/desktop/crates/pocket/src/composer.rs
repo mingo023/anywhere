@@ -43,6 +43,10 @@ impl Composer {
 pub(crate) enum Menu {
     Model,
     Access,
+    /// The chat's account popover on its usage, slid `back` to from its accounts.
+    Usage { back: bool },
+    /// The chat's account popover on the accounts to switch to.
+    Switch,
 }
 
 /// A composer's choices besides its words.

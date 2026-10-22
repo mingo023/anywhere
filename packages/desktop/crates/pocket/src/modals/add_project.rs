@@ -1,3 +1,4 @@
+pub(crate) mod accounts;
 pub(crate) mod host_folder;
 pub(crate) mod icon;
 
@@ -9,6 +10,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use host_folder::Browse;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use store::{ProjectIcon, RepoConfig};
 use theme::*;
@@ -42,6 +44,10 @@ struct RepoDraft {
     probe: Option<Probe>,
     color: u32,
     icon: Option<ProjectIcon>,
+    /// The account by provider its new sessions start on.
+    accounts: BTreeMap<String, String>,
+    /// The provider whose account menu is open.
+    account_menu: Option<&'static str>,
     /// Reset is asking to be confirmed.
     resetting: bool,
     editing: Option<String>,
@@ -56,6 +62,8 @@ impl Default for RepoDraft {
             probe: None,
             color: PALETTE[0],
             icon: None,
+            accounts: BTreeMap::new(),
+            account_menu: None,
             resetting: false,
             editing: None,
             browse: None,
@@ -81,7 +89,12 @@ impl RepoDraft {
 /// What Reset would put back, as (setting, now, default); name, colour and icon are the project's own.
 fn project_changes(cfg: &RepoConfig) -> Vec<(&'static str, String, String)> {
     let script = |s: &str| if s.is_empty() { "empty" } else { "edited" }.to_string();
-    [("When a worktree is created", script(&cfg.setup), script("")), ("When a worktree is deleted", script(&cfg.teardown), script(""))]
+    let accounts = |n: usize| if n == 0 { "default".to_string() } else { "picked".to_string() };
+    [
+        ("Accounts", accounts(cfg.accounts.len()), accounts(0)),
+        ("When a worktree is created", script(&cfg.setup), script("")),
+        ("When a worktree is deleted", script(&cfg.teardown), script("")),
+    ]
         .into_iter()
         .filter(|(_, now, default)| now != default)
         .collect()
@@ -182,7 +195,7 @@ impl Desktop {
         };
         self.settings.menu = None;
         let f = &mut self.repo_form;
-        f.draft = RepoDraft { color, icon: cfg.icon, editing: editing.clone(), ..RepoDraft::default() };
+        f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, editing: editing.clone(), ..RepoDraft::default() };
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
             s.set_placeholder("", window, cx);
@@ -248,6 +261,7 @@ impl Desktop {
             launch: saved.map(|r| r.launch.clone()).unwrap_or_default(),
             dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
             gh_account: saved.map(|r| r.gh_account.clone()).unwrap_or_default(),
+            accounts: f.draft.accounts.clone(),
         }
     }
 
@@ -255,6 +269,7 @@ impl Desktop {
     fn reset_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let f = &mut self.repo_form;
         f.draft.resetting = false;
+        f.draft.accounts.clear();
         for input in [&f.setup, &f.teardown] {
             input.update(cx, |s, cx| s.set_value("", window, cx));
         }
@@ -363,6 +378,7 @@ impl Desktop {
     pub fn repo_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
         let name = self.repo_form_name(cx);
         let reset = self.repo_form.draft.editing.clone().map(|p| self.reset_line(&p, &name, cx));
+        let accounts = self.project_accounts_field(cx);
         let f = &self.repo_form;
         let identity = div()
             .flex()
@@ -403,6 +419,7 @@ impl Desktop {
             body.push(self.host_browser(cx).into_any_element());
         }
         body.extend([self.folder_card().into_any_element(), identity.into_any_element()]);
+        body.extend(accounts.map(IntoElement::into_any_element));
         if !f.draft.plain_folder() {
             body.push(div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).into_any_element());
         }
@@ -443,6 +460,13 @@ mod tests {
     fn an_unnamed_project_takes_its_folder_name() {
         assert_eq!(local(None).fallback_name(), "app");
         assert_eq!(RepoDraft::default().fallback_name(), "");
+    }
+
+    #[test]
+    fn reset_puts_back_the_accounts_a_project_picks() {
+        let cfg = RepoConfig { accounts: [("claude".to_string(), "work".to_string())].into(), ..RepoConfig::default() };
+        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        assert_eq!(lines, ["Accounts: picked > default"]);
     }
 
     #[test]

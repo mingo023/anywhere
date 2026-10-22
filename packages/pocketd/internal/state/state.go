@@ -44,6 +44,9 @@ type Terminal struct {
 	Typed bool `json:"typed,omitempty"`
 	// Chat is whether the agent ran behind `pocketd pipe`, driven only by the chat.
 	Chat bool `json:"chat,omitempty"`
+	// KeepAccess resumes Full as Full: the agent moves to another account
+	// while it runs, rather than coming back from a restart.
+	KeepAccess bool `json:"-"`
 }
 
 type File struct {

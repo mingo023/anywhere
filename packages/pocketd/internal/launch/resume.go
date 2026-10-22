@@ -12,8 +12,9 @@ import (
 var resumeID = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 // Resume is the argv that brings t's Conversation back with the access it
-// had. Full comes back as ask, so a restart never re-arms an unattended
-// bypass; state.Outcome reports that. The id follows args.Resume.
+// had. Full comes back as ask unless t.KeepAccess, so a restart never
+// re-arms an unattended bypass; state.Outcome reports that. The id follows
+// args.Resume.
 func Resume(t state.Terminal, args config.AgentArgs) ([]string, *Failure) {
 	l := state.Launch{Access: "ask"}
 	if t.Launch != nil {

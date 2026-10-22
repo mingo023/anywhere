@@ -66,18 +66,20 @@ func (codex) chatResume(t state.Terminal, l state.Launch) ([]string, bool) {
 	if !t.Chat {
 		return nil, false
 	}
-	if l.Access == "full" {
+	if l.Access == "full" && !t.KeepAccess {
 		l.Access = "ask"
 	}
 	return codexChat(l.Access, l.Model, l.Effort), true
 }
 
-func (codex) resume(_ state.Terminal, l state.Launch, argv []string) []string {
-	switch l.Access {
-	case "settings":
-	case "edits":
+func (codex) resume(t state.Terminal, l state.Launch, argv []string) []string {
+	switch {
+	case l.Access == "full" && t.KeepAccess:
+		argv = append(argv, codexAccess["full"]...)
+	case l.Access == "settings":
+	case l.Access == "edits":
 		argv = append(argv, "-s", "workspace-write", "-a", "on-request")
-	case "auto":
+	case l.Access == "auto":
 		argv = append(argv, "--approve-for-me")
 	default:
 		argv = append(argv, "-s", "read-only", "-a", "on-request")

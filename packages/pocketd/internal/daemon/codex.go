@@ -218,7 +218,7 @@ func (d *Daemon) bind(pr *presence, thread string) {
 }
 
 func (d *Daemon) follow(ctx context.Context, pr *presence, thread string) {
-	s, err := codex.Open(ctx, pr.sock, thread, pr.a.ID(), codexSink{pr.a}, d.Broker)
+	s, err := codex.Open(ctx, pr.sock, thread, pr.a.ID(), codexSink{pr.a, func() { go d.limitHit(pr) }}, d.Broker)
 	if err != nil {
 		return
 	}
@@ -230,10 +230,17 @@ func (d *Daemon) follow(ctx context.Context, pr *presence, thread string) {
 }
 
 // codexSink takes a thread's timeline and title; the watcher sets the status.
-type codexSink struct{ *agent.Agent }
+// limited runs when a turn ends at the account's limit.
+type codexSink struct {
+	*agent.Agent
+	limited func()
+}
 
 func (s codexSink) Apply(e timeline.Event) {
 	s.Record(e)
+	if e.Limit {
+		s.limited()
+	}
 	if e.Kind == "compacted" {
 		s.Compacted()
 	}

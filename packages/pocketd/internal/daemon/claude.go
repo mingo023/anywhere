@@ -480,6 +480,9 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool) (stop 
 					pr.shown(e.Text)
 				}
 				pr.a.Record(e)
+				if e.Limit && read > replay {
+					go d.limitHit(pr)
+				}
 				// Rejecting Claude's own dialog at the desk interrupts the turn without a hook.
 				if e.Error == "interrupted" && read > replay && pr.a.Summary().Status == "needsYou" {
 					d.cleared(pr)

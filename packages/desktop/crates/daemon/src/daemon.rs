@@ -41,6 +41,9 @@ pub struct Msg {
     pub status: Option<Status>,
     pub devices: Vec<Device>,
     pub accounts: Vec<Account>,
+    /// Whether an agent at its account's limit moves to another; absent from a pocketd too old to.
+    #[serde(rename = "autoSwitch")]
+    pub auto_switch: Option<bool>,
 }
 
 /// The part of pocketd's `status` reply Settings reads.
