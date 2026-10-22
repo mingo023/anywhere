@@ -1597,6 +1597,14 @@ impl Element for List {
                 }
             };
 
+        // The view rendered against the height `viewport_bounds` gave it; show it the new one at the next frame rather
+        // than at whatever next redraws the window.
+        if state
+            .last_layout_bounds
+            .is_some_and(|last_bounds| last_bounds.size.height != bounds.size.height)
+        {
+            window.request_animation_frame();
+        }
         state.last_layout_bounds = Some(bounds);
         state.last_padding = Some(padding);
         ListPrepaintState { hitbox, layout }
