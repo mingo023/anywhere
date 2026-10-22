@@ -28,12 +28,21 @@ struct Shown {
     mentions: Vec<(Range<usize>, String)>,
 }
 
-/// `text` with its command tinted and each mention shown as its icon and name.
+/// `text` with its commands tinted and each mention shown as its icon and name.
 fn shown(text: &str) -> Shown {
     let marks = chat::marks(text);
-    let mut out = Shown { highlights: marks.command.map(|r| (r, tint(COMMAND))).into_iter().collect(), ..Default::default() };
+    let mut out = Shown::default();
+    let mut commands = marks.commands.into_iter().peekable();
+    // A mention changes the text's length, so a command after it moves by what the bubble has shown so far.
+    let mut tint_commands = |out: &mut Shown, until: usize, copied: usize| {
+        while let Some(r) = commands.next_if(|r| r.start < until) {
+            let at = out.text.len() + r.start - copied;
+            out.highlights.push((at..at + r.len(), tint(COMMAND)));
+        }
+    };
     let mut copied = 0;
     for m in marks.mentions {
+        tint_commands(&mut out, m.start, copied);
         out.text.push_str(&text[copied..m.start]);
         let path = &text[m.start + 1..m.end];
         let start = out.text.len();
@@ -44,6 +53,7 @@ fn shown(text: &str) -> Shown {
         out.mentions.push((start..out.text.len(), path.to_string()));
         copied = m.end;
     }
+    tint_commands(&mut out, text.len(), copied);
     out.text.push_str(&text[copied..]);
     out
 }
@@ -195,6 +205,13 @@ mod tests {
         assert_eq!(s.text, "/review then @\u{202F}\u{202F}parser.rs and @\u{202F}\u{202F}docs/");
         let mentions: Vec<(&str, &str)> = s.mentions.iter().map(|(r, path)| (&s.text[r.clone()], path.as_str())).collect();
         assert_eq!(mentions, [("@\u{202F}\u{202F}parser.rs", "src/parser.rs"), ("@\u{202F}\u{202F}docs/", "docs/")]);
+    }
+
+    #[test]
+    fn a_bubble_tints_each_skill_where_it_shows_after_a_mention() {
+        let s = shown("/prototype @src/parser.rs with /apple-design");
+        let tinted: Vec<&str> = s.highlights.iter().filter(|(_, h)| h.color.is_some()).map(|(r, _)| &s.text[r.clone()]).collect();
+        assert_eq!(tinted, ["/prototype", "parser.rs", "/apple-design"]);
     }
 
     #[test]
