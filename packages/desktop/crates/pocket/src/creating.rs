@@ -245,7 +245,7 @@ pub(crate) fn rise(since: Duration, (delay, by): Part, reduce_motion: bool) -> O
     Some(Rise { opacity: t, offset: by * (1. - t) })
 }
 
-/// A finished create, as its chat opens.
+/// A prompt sent with a new session, as its chat opens.
 struct Arrival {
     at: Instant,
     prompt: String,
@@ -258,6 +258,10 @@ pub(crate) struct Creates {
     ticking: bool,
     /// The chats finished creates handed off to, by agent.
     arrivals: HashMap<String, Arrival>,
+    /// Prompts of sessions started in place, which have no create page, by request until pocketd makes their terminal.
+    asked: HashMap<String, String>,
+    /// Those prompts once pocketd made their terminal, by terminal: the agent is listed before it has the prompt.
+    opening: HashMap<String, Arrival>,
 }
 
 impl Creates {
@@ -320,9 +324,27 @@ impl Creates {
         !done.is_empty()
     }
 
-    /// The prompt to show as sending when `agent`'s chat first opens; not once the transcript should hold it, or it would never settle.
-    pub(crate) fn unsent(&self, agent: &str, now: Instant) -> Option<&str> {
-        let a = self.arrivals.get(agent)?;
+    /// A session started in place sent `prompt`; its chat shows it as sending from when pocketd makes its terminal.
+    pub(crate) fn sent_in_place(&mut self, request: String, prompt: &str) {
+        if !prompt.is_empty() {
+            self.asked.insert(request, prompt.to_string());
+        }
+    }
+
+    pub(crate) fn made_terminal(&mut self, request: &str, terminal: String, now: Instant) {
+        self.opening.retain(|_, a| now - a.at < FRESH);
+        if let Some(prompt) = self.asked.remove(request) {
+            self.opening.insert(terminal, Arrival { at: now, prompt });
+        }
+    }
+
+    pub(crate) fn failed_in_place(&mut self, request: &str) {
+        self.asked.remove(request);
+    }
+
+    /// The prompt to show as sending when `agent`'s chat in `terminal` first opens; not once the transcript should hold it, or it would never settle.
+    pub(crate) fn unsent(&self, agent: &str, terminal: &str, now: Instant) -> Option<&str> {
+        let a = self.arrivals.get(agent).or_else(|| self.opening.get(terminal))?;
         (!a.prompt.is_empty() && now - a.at < FRESH).then_some(a.prompt.as_str())
     }
 
@@ -715,7 +737,7 @@ mod tests {
         assert!(!creates.hand_off(|_| true, t0 + Duration::from_millis(300)));
         assert!(!creates.hand_off(|_| false, t0 + Duration::from_secs(1)));
         assert!(creates.hand_off(|a| a == "a1", t0 + Duration::from_secs(1)));
-        assert!(creates.list.is_empty() && creates.unsent("a1", t0 + Duration::from_secs(1)) == Some("Fix CI"));
+        assert!(creates.list.is_empty() && creates.unsent("a1", "t1", t0 + Duration::from_secs(1)) == Some("Fix CI"));
 
         let (mut c, t0) = create(false, false);
         c.finish("a2".into(), t0);
@@ -737,9 +759,29 @@ mod tests {
         c.finish("a1".into(), t0);
         let mut creates = Creates { list: vec![c], ..Default::default() };
         creates.hand_off(|_| true, t0 + Duration::from_secs(1));
-        assert_eq!(creates.unsent("a1", t0 + Duration::from_secs(2)), Some("Fix CI"));
-        assert_eq!(creates.unsent("a1", t0 + Duration::from_secs(30)), None);
-        assert_eq!(creates.unsent("other", t0), None);
+        assert_eq!(creates.unsent("a1", "t1", t0 + Duration::from_secs(2)), Some("Fix CI"));
+        assert_eq!(creates.unsent("a1", "t1", t0 + Duration::from_secs(30)), None);
+        assert_eq!(creates.unsent("other", "t1", t0), None);
+    }
+
+    #[test]
+    fn a_prompt_sent_in_place_shows_as_sending_from_when_its_terminal_is_made() {
+        let (mut creates, t0) = (Creates::default(), Instant::now());
+        creates.sent_in_place("r1".into(), "Fix CI");
+        assert_eq!(creates.unsent("a1", "t1", t0), None);
+        creates.made_terminal("r1", "t1".into(), t0);
+        assert_eq!(creates.unsent("a1", "t1", t0 + Duration::from_secs(2)), Some("Fix CI"));
+        assert_eq!(creates.unsent("a1", "t1", t0 + Duration::from_secs(30)), None);
+        assert_eq!(creates.unsent("a1", "t2", t0), None);
+    }
+
+    #[test]
+    fn a_session_that_failed_to_start_in_place_forgets_its_prompt() {
+        let (mut creates, t0) = (Creates::default(), Instant::now());
+        creates.sent_in_place("r1".into(), "Fix CI");
+        creates.failed_in_place("r1");
+        creates.made_terminal("r1", "t1".into(), t0);
+        assert_eq!(creates.unsent("a1", "t1", t0), None);
     }
 
     #[test]

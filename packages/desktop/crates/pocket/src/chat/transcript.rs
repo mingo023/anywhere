@@ -410,7 +410,7 @@ impl Desktop {
         let view = self.chats.views.entry(id.clone()).or_insert_with(|| {
             let mut v = View::new(&id, cx);
             // A chat opened from its create shows the prompt pocketd sent before the transcript holds it.
-            if let Some(prompt) = creates.unsent(&id, Instant::now()) {
+            if let Some(prompt) = creates.unsent(&id, terminal, Instant::now()) {
                 v.session.outgoing.push(prompt.to_string(), false, now_ms());
             }
             v

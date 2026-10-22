@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 217] = [
+const STEPS: [(&str, Step); 218] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -36,6 +36,10 @@ const STEPS: [(&str, Step); 217] = [
     }),
     ("compose", |d, window, cx| d.new_session(Some("Fix the flaky parser test".into()), true, window, cx)),
     ("compose-send", |d, window, cx| d.start_session(window, cx)),
+    ("compose-local", |d, window, cx| {
+        d.store.agents.start_as_chat = true;
+        d.new_session(Some("Fix the flaky parser test".into()), false, window, cx);
+    }),
     ("chat-fold-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
         let Some(view) = d.chats.views.get(&agent) else { return };
