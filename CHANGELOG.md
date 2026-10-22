@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.11
+
+- A new worktree runs the repo's setup when the project settings name none (#111): (bb3fd16)
+- Chat maps the sub-agents an agent spawns, for Claude and Codex (#110): (fc2a49a)
+- Chat picks the agent's MCP servers with /mcp and signs in to them (#109): (286ccfe)
+- Chat shows a steer Claude hasn't read yet, with Send now (#107): (e84975b)
+- Settings sits at the sidebar's foot and dark glass opacity is adjustable (#108): (ebfae26)
+- Chat highlights every skill a prompt names (#106): (499ec2d)
+
 ## 0.1.10
 
 - Chat handles steers, stops, sub-agents and background work as Claude does (#105): (ffdfd52)
