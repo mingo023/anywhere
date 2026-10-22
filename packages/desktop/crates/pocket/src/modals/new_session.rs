@@ -111,7 +111,6 @@ struct Draft {
     base: usize,
     /// The base to pick once the branches load, instead of the repo's.
     want_base: Option<String>,
-    run_setup: bool,
     reply: CreateReply,
     picker: Option<Picker>,
 }
@@ -130,7 +129,6 @@ impl Default for Draft {
             source: Source::New,
             base: 0,
             want_base: None,
-            run_setup: false,
             reply: CreateReply::default(),
             picker: None,
         }
@@ -231,9 +229,9 @@ impl Draft {
     fn spec(&self, pick: &LaunchPick, project: &str, local: Option<&str>, name: &str, prompt: &str) -> Value {
         let checkout = match (local, &self.source) {
             (Some(id), _) => agents::locals::checkout(id),
-            (None, Source::New) => json!({"new": {"name": name, "base": self.base_branch(), "setup": self.run_setup}}),
-            (None, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name), "setup": self.run_setup}}),
-            (None, Source::Pr(_)) => json!({"new": {"pr": name, "setup": self.run_setup}}),
+            (None, Source::New) => json!({"new": {"name": name, "base": self.base_branch()}}),
+            (None, Source::Branch(_)) => json!({"new": {"branch": github::base_branch(name)}}),
+            (None, Source::Pr(_)) => json!({"new": {"pr": name}}),
         };
         pick.spec(project, checkout, prompt.trim())
     }
@@ -261,7 +259,7 @@ impl Draft {
     }
 
     /// Another project's base, branch and Local don't carry over.
-    fn pick_repo(&mut self, repo: String, run_setup: bool) {
+    fn pick_repo(&mut self, repo: String) {
         if self.repo.as_ref() != Some(&repo) {
             (self.source, self.want_base, self.local) = (Source::New, None, None);
             self.taken.clear();
@@ -269,7 +267,7 @@ impl Draft {
         self.repo = Some(repo);
         self.branches.clear();
         self.remote_branches.clear();
-        (self.base, self.run_setup) = (0, run_setup);
+        self.base = 0;
     }
 }
 
@@ -468,9 +466,8 @@ impl Desktop {
     }
 
     pub(super) fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
-        let has_setup = self.store.repos.get(&repo).is_some_and(|c| !c.setup.is_empty());
         let folders = self.store.worktrees_dir(&repo, &self.host_agents.home_of(&repo));
-        self.new_form.draft.pick_repo(repo.clone(), has_setup);
+        self.new_form.draft.pick_repo(repo.clone());
         let dir = repo.clone();
         let (runner, fs) = (hosts::runner_for(&dir), fs_for(&dir));
         let task = cx.background_executor().spawn(async move {
@@ -781,9 +778,9 @@ mod tests {
     #[test]
     fn another_project_forgets_the_last_ones_branch_base_and_local() {
         let mut draft = Draft { want_base: Some("dev".into()), ..kept() };
-        draft.pick_repo("/p".into(), false);
+        draft.pick_repo("/p".into());
         assert_eq!((draft.source.clone(), draft.want_base.as_deref()), (Source::Branch("fix".into()), Some("dev")));
-        draft.pick_repo("/q".into(), false);
+        draft.pick_repo("/q".into());
         assert_eq!((draft.source, draft.want_base, draft.local), (Source::New, None, None));
     }
 
@@ -899,7 +896,7 @@ mod tests {
         let want = json!({"project": "/p", "checkout": {"local": "local-1"}, "provider": "claude", "plan": false, "prompt": "Fix CI"});
         assert_eq!(Draft::default().spec(&claude(), "/p", Some("local-1"), "", "  Fix CI  "), want);
         let new = Draft { picked_checkout: Target::Worktree, branches: vec![("main".into(), None)], ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main", "setup": false}}, "provider": "claude", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"name": "fix-ci", "base": "main"}}, "provider": "claude", "plan": false});
         assert_eq!(new.spec(&claude(), "/p", None, "fix-ci", " \n "), want);
     }
 
@@ -913,8 +910,8 @@ mod tests {
 
     #[test]
     fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
-        let draft = Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], run_setup: true, ..Draft::default() };
-        let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login", "setup": true}}, "provider": "claude", "plan": false});
+        let draft = Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], ..Draft::default() };
+        let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login"}}, "provider": "claude", "plan": false});
         assert_eq!(draft.spec(&claude(), "/p", None, "fix/login", ""), want);
         assert_eq!(draft.spec(&claude(), "/p", None, "origin/fix/login", ""), want);
         assert_eq!(draft.folder("fix/login"), "fix-login");
@@ -940,7 +937,7 @@ mod tests {
     fn a_pr_is_sent_as_typed_and_reopens_as_a_pr() {
         let draft = Draft { picked_checkout: Target::Worktree, source: Source::Pr("#7".into()), repo: Some("/p".into()), ..Draft::default() };
         assert!(draft.ready("#7") && !draft.ready("seven"));
-        let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7", "setup": false}}, "provider": "claude", "plan": false});
+        let want = json!({"project": "/p", "checkout": {"new": {"pr": "#7"}}, "provider": "claude", "plan": false});
         assert_eq!(draft.spec(&claude(), "/p", None, "#7", ""), want);
         assert_eq!(draft.folder("#7"), "pr-7");
         assert_eq!(Source::of(&want["checkout"]["new"]), Source::Pr("#7".into()));
