@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.12
+
+- Spinners turn in even steps and the chat follows its height at once (#116): (05ca0f9)
+- Chat shows a session's prompt at once when it starts in a Local (#115): (34c4dcc)
+- Chat keeps a sent prompt steady when a row under it closes (#114): (4904516)
+- The sidebar lists each project's worktrees as they land at launch (#113): (5c94c52)
+- Changes and the graph compare a branch with the branch it was created from (#112): (effeead)
+
 ## 0.1.11
 
 - A new worktree runs the repo's setup when the project settings name none (#111): (bb3fd16)
