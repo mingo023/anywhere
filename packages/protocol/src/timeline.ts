@@ -28,7 +28,13 @@ export const ToolDetail = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("edit"), path: Schema.String, diff: Schema.optional(FileDiff) }),
   Schema.Struct({ kind: Schema.Literal("write"), path: Schema.String, diff: Schema.optional(FileDiff) }),
   Schema.Struct({ kind: Schema.Literal("search"), query: Schema.String, path: Schema.optional(Schema.String) }),
-  Schema.Struct({ kind: Schema.Literal("task"), description: Schema.String, model: Schema.optional(Schema.String) }),
+  Schema.Struct({
+    kind: Schema.Literal("task"),
+    description: Schema.String,
+    model: Schema.optional(Schema.String),
+    /** The context its sub-agent last answered from. */
+    tokens: Schema.optional(Schema.Number),
+  }),
   Schema.Struct({
     kind: Schema.Literal("other"),
     name: Schema.String,

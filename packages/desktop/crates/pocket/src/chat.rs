@@ -1,3 +1,4 @@
+mod agent_map;
 pub(crate) mod composer;
 mod diff;
 mod drafts;
@@ -62,13 +63,14 @@ pub(crate) struct ChatState {
     pub(crate) files: Option<locate::Choice>,
     /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
     pub(crate) unsent: Option<(String, String)>,
+    pub(crate) map: agent_map::AgentMap,
 }
 
 impl ChatState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = composer::input(window, cx);
         let (composer, subs) = composer::ComposerState::new(&input, window, cx);
-        (Self { input, drafts: Default::default(), views: HashMap::new(), composer, files: None, unsent: None }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx) }, subs)
     }
 }
 

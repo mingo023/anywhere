@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 215] = [
+const STEPS: [(&str, Step); 217] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -109,6 +109,20 @@ const STEPS: [(&str, Step); 215] = [
         if let Some((turn, block)) = task {
             d.chat_show_block(&agent, turn, block, cx);
         }
+    }),
+    ("chat-agent-map", |d, window, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_toggle_map(&agent, window, cx);
+        }
+    }),
+    // After `chat-agent-map`: the details of the first sub-agent still at work, else the first.
+    ("chat-agent-map-detail", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        let Some(v) = d.chats.views.get(&agent) else { return };
+        let map = chat::spawned(&v.session.transcript);
+        let Some(ix) = map.iter().position(|s| s.call.status == chat::ToolStatus::Running).or((!map.is_empty()).then_some(0)) else { return };
+        let call = map[ix].call.id.clone();
+        d.chat_map_show(ix + 1, &call, cx);
     }),
     ("chat-scrolled-up", |d, _, cx| d.scroll_chat_back(30, cx)),
     ("chat-top", |d, _, cx| d.scroll_chat_back(usize::MAX, cx)),

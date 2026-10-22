@@ -49,6 +49,7 @@ type ToolDetail struct {
 	Name        string
 	Input       json.RawMessage
 	Model       string // a task's: the model its sub-agent runs on
+	Tokens      int64  // a task's: the context its sub-agent last answered from
 }
 
 func (d ToolDetail) MarshalJSON() ([]byte, error) {
@@ -81,7 +82,8 @@ func (d ToolDetail) MarshalJSON() ([]byte, error) {
 			Kind        string `json:"kind"`
 			Description string `json:"description"`
 			Model       string `json:"model,omitempty"`
-		}{d.Kind, d.Description, d.Model})
+			Tokens      int64  `json:"tokens,omitempty"`
+		}{d.Kind, d.Description, d.Model, d.Tokens})
 	case "other":
 		input := d.Input
 		if len(input) == 0 {

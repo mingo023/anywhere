@@ -81,3 +81,11 @@ func TestASubagentsAnswerNamesItsModelOnTheParentsCall(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestASubagentsAnswerCountsTheContextItWasGiven(t *testing.T) {
+	line := []byte(`{"type":"assistant","isSidechain":true,"message":{"model":"claude-haiku-4-5","usage":{"input_tokens":3,"cache_creation_input_tokens":900,"cache_read_input_tokens":32000},"content":[{"type":"text","text":"x"}]}}`)
+	got := MapSubagent(line, "toolu_spawn")
+	if len(got) != 3 || !reflect.DeepEqual(got[1], timeline.Event{Kind: "tool_tokens", ToolUseID: "toolu_spawn", Tokens: 32903}) {
+		t.Fatalf("%+v", got)
+	}
+}

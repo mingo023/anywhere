@@ -435,6 +435,22 @@ func TestASubagentsModelShowsOnItsCall(t *testing.T) {
 	}
 }
 
+func TestASubagentsContextShowsOnItsCall(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: json.RawMessage(`{"description":"Look"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}, 1)
+	it, ok := tl.Apply(Event{Kind: "tool_tokens", ToolUseID: "t1", Tokens: 32900}, 2)
+	if !ok || it.Call.Detail.Tokens != 32900 {
+		t.Fatalf("%+v", it)
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_tokens", ToolUseID: "t1", Tokens: 32900}, 3); ok {
+		t.Fatal("the same count changed what shows")
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_tokens", ToolUseID: "t2", Tokens: 10}, 3); ok {
+		t.Fatal("a command got a count")
+	}
+}
+
 func TestLastingNamesTheBackgroundCallsAndCountsItsAgents(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)

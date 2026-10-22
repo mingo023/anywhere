@@ -133,7 +133,7 @@ impl ComposerState {
             replying: None,
             placeholder: Cell::new(PLACEHOLDER),
             suggest: Default::default(),
-            background_folded: false,
+            background_folded: true,
             btw: HashMap::new(),
         };
         (state, subs)
@@ -454,7 +454,8 @@ impl Desktop {
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
         let footer = self.composer_footer(agent, hint(mode, busy, stopping, empty, can_queue), said, asking);
-        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(goal).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
+        let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
+        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(goal).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 
@@ -536,6 +537,7 @@ impl Desktop {
             .pb(px(7.))
             .children(attach)
             .children(self.chat_access_pill(agent, view_only, cx))
+            .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
             .child(div().flex_1())
             .child(self.chat_model_pill(agent, view_only, cx))
             .children(ghost)

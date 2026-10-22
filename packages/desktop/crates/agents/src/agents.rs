@@ -241,6 +241,8 @@ pub struct Detail {
     pub description: String,
     /// A `task`'s model: the alias it was called with, then the full id once it replies.
     pub model: String,
+    /// A `task`'s: the context its sub-agent last answered from.
+    pub tokens: u64,
     pub name: String,
     pub diff: Option<FileDiff>,
     /// An `other` tool's whole input.

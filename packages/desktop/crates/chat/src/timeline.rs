@@ -235,7 +235,7 @@ fn kind(name: &str, d: &Detail) -> ToolKind {
         "write" => ToolKind::Write { path: d.path.clone(), diff: d.diff.as_ref().map(diff) },
         "search" if d.path.is_empty() => ToolKind::Search { query: d.query.clone() },
         "search" => ToolKind::Search { query: format!("{} in {}", d.query, d.path) },
-        "task" => ToolKind::Agent(SubAgent { description: d.description.clone(), model: d.model.clone(), ..Default::default() }),
+        "task" => ToolKind::Agent(SubAgent { description: d.description.clone(), model: d.model.clone(), tokens: d.tokens, ..Default::default() }),
         _ if name == "AskUserQuestion" => ToolKind::Question(questions(d.questions())),
         _ if name == "WebFetch" => ToolKind::Fetch { url: input_text(&d.input, "url") },
         _ if name == "WebSearch" => ToolKind::Search { query: input_text(&d.input, "query") },
@@ -469,6 +469,13 @@ mod tests {
         let call = only_tool(&t);
         assert_eq!(call.kind, ToolKind::Agent(SubAgent { description: "Audit packages/app".into(), ..Default::default() }));
         assert_eq!(call.status, ToolStatus::Running);
+    }
+
+    #[test]
+    fn a_task_call_carries_the_context_its_sub_agent_answered_from() {
+        let t = fold(&items(json!([tool("tu-t", "Task", json!({"kind": "task", "description": "Look", "model": "claude-haiku-5-5", "tokens": 32900}), "running")])));
+        let ToolKind::Agent(agent) = &only_tool(&t).kind else { panic!("not an agent") };
+        assert_eq!((agent.model.as_str(), agent.tokens), ("claude-haiku-5-5", 32900));
     }
 
     fn sub_agent(call: &ToolCall) -> &Transcript {

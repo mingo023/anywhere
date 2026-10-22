@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket · Agent map prototype</title>
+<style>
+:root{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;
+  --window:#f4f4f5;--surface:#fff;--sunken:#fafafa;--page:#f7f7f7;--side:#f8f8f9;
+  --glass:rgba(255,255,255,.72);--highlight:rgba(255,255,255,.95);
+  --fill-1:rgba(17,17,19,.031);--fill-2:rgba(17,17,19,.043);--fill-3:rgba(17,17,19,.055);--fill-4:rgba(17,17,19,.067);
+  --hairline:rgba(17,17,19,.071);--sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);
+  --accent:#5b5bd6;--accent-bg:rgba(91,91,214,.11);--accent-ring:rgba(91,91,214,.2);
+  --waiting:#ad5700;--failed:#cd2b31;--failed-bg:rgba(229,72,77,.11);--success:#2b9a66;--success-text:#18794e;
+  --claude:#d97757;--codex:#111113;--rail:rgba(17,17,19,.1);
+  --row-shadow:0 1px 2px rgba(17,17,19,.06),0 0 0 .5px rgba(17,17,19,.06);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),0 24px 60px rgba(17,17,19,.18),0 4px 12px rgba(17,17,19,.08);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --spring:cubic-bezier(.2,.9,.3,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+svg{display:block;flex:none}
+.mono{font-family:var(--mono)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+#win{position:absolute;inset:28px 28px 84px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:60}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+/* sessions */
+#side{width:260px;flex:none;display:flex;flex-direction:column;background:var(--side);border-right:.5px solid var(--sep)}
+.shead{height:42px;flex:none;display:flex;align-items:flex-end;padding:0 18px 6px;margin-top:30px;font-size:16px;font-weight:700;letter-spacing:-.01em}
+.card{margin:8px 8px 0;padding:10px 12px 10px 14px;border-radius:10px;display:flex;flex-direction:column;gap:5px}
+.card.sel{background:var(--fill-4)}
+.card .r1{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+.card .r2{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .st{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px}
+.pdot{width:6px;height:6px;border-radius:50%;flex:none}
+
+/* chat */
+#chat{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--sunken);position:relative}
+.strip{height:42px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:.5px solid var(--sep);font-size:13px;font-weight:600}
+.strip .sub{font-weight:400;color:var(--text-3);font-size:12.5px}
+#log{flex:1;min-height:0;overflow:hidden;padding:22px 0 0}
+.col{max-width:720px;margin:0 auto;padding:0 28px}
+.bubble{margin:0 0 18px auto;width:fit-content;max-width:78%;padding:9px 14px;border-radius:14px;background:var(--surface);box-shadow:var(--row-shadow);font-size:14px;line-height:21px}
+.say{font-size:14px;line-height:22px;color:var(--text-body);margin:0 0 12px}
+.arow{display:flex;align-items:center;gap:8px;margin:0 -6px;padding:4px 6px;border-radius:7px;font-size:14px;line-height:20px;color:var(--text-body)}
+.arow .nm{flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arow .doing{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--mono);color:var(--text-3)}
+.arow .side{flex:none;display:flex;gap:8px;font-size:12px;color:var(--text-4)}
+.glyph{width:14px;height:14px;flex:none;position:relative}
+.glyph.run::before{content:"";position:absolute;inset:1px;border-radius:50%;border:1.6px solid var(--rail)}
+.glyph.run::after{content:"";position:absolute;inset:1px;border-radius:50%;border:1.6px solid transparent;border-top-color:var(--text-2);animation:spin 1s linear infinite}
+.glyph.done::before{content:"";position:absolute;inset:1px;border-radius:50%;background:var(--text-6)}
+.glyph.done::after{content:"";position:absolute;left:4.5px;top:3.5px;width:3px;height:5.5px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.glyph.fail::before{content:"";position:absolute;inset:1px;border-radius:50%;background:var(--failed)}
+.glyph.fail::after{content:"!";position:absolute;inset:0;color:#fff;font:700 9.5px/14px var(--sans);text-align:center}
+.glyph.wait::before{content:"";position:absolute;inset:1px;border-radius:50%;border:1.6px dashed var(--text-4)}
+
+/* composer */
+#dock{flex:none;padding:0 28px 18px;position:relative}
+#dock .col{padding:0}
+.tray{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;margin:0 10px;border-radius:10px 10px 0 0;background:var(--fill-2);box-shadow:inset 0 0 0 .5px var(--hairline);font-size:12px}
+.tray b{font-weight:600}
+.tray .last{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11.5px var(--mono);color:var(--text-3)}
+.box{border-radius:16px;background:var(--surface);box-shadow:0 0 0 .5px var(--sep-strong),0 8px 24px rgba(17,17,19,.06),0 1px 2px rgba(17,17,19,.05)}
+.box .ph{padding:13px 16px 6px;font-size:14px;color:var(--text-4)}
+.box .ft{display:flex;align-items:center;gap:6px;padding:6px 10px 10px}
+.chipb{height:28px;padding:0 10px;border-radius:14px;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+.chipb:hover{background:var(--fill-3);color:var(--text)}
+.chipb:active{transform:scale(.97)}
+.chipb b{font-weight:600;color:var(--text)}
+#agentsChip{background:var(--fill-2)}
+#agentsChip.on{background:var(--accent-bg);color:var(--accent)}
+#agentsChip.on b{color:var(--accent)}
+.live{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 0 0 rgba(43,154,102,.5);animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{50%{box-shadow:0 0 0 3px rgba(43,154,102,0)}0%{box-shadow:0 0 0 0 rgba(43,154,102,.45)}}
+.send{margin-left:auto;width:30px;height:30px;border-radius:50%;background:var(--text);display:grid;place-items:center}
+kbd{font:500 11px var(--sans);color:var(--text-4)}
+
+/* ───────── agent map ───────── */
+#map{--treew:300px;position:absolute;left:28px;right:28px;bottom:92px;z-index:50;max-width:960px;margin:0 auto;height:var(--h,320px);max-height:calc(100% - 130px);
+  border-radius:16px;background:var(--glass);box-shadow:var(--pop-shadow),inset 0 1px 0 var(--highlight);
+  -webkit-backdrop-filter:blur(28px) saturate(180%);backdrop-filter:blur(28px) saturate(180%);
+  display:flex;flex-direction:column;overflow:hidden;
+  transform-origin:var(--ox,30%) 100%;opacity:0;transform:translateY(8px) scale(.96);filter:blur(4px);pointer-events:none;
+  transition:opacity .2s ease,transform .34s var(--spring),filter .26s ease,height .38s var(--spring)}
+#map.on{opacity:1;transform:none;filter:none;pointer-events:auto}
+.pages{position:relative;flex:1;min-height:0}
+.page{position:absolute;inset:0;display:flex;flex-direction:column;transition:transform .36s var(--spring),opacity .24s ease}
+#list.away{transform:translateX(-18%);opacity:0;pointer-events:none}
+#detail{transform:translateX(100%);opacity:0;pointer-events:none}
+#detail.on{transform:none;opacity:1;pointer-events:auto}
+
+.mh{flex:none;display:flex;align-items:center;gap:10px;padding:14px 14px 10px 18px}
+.mh h2{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.mh .sum{font-size:12.5px;color:var(--text-3);white-space:nowrap}
+.mh .sp{flex:1}
+.icon-btn{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--text-3)}
+.icon-btn:hover{background:var(--fill-3);color:var(--text)}
+
+/* the map: a graph of who spawned whom, left to right */
+.graph{flex:1;min-height:0;overflow:auto;display:flex;padding:4px 0 14px}
+.canvas{position:relative;flex:none;margin:auto}
+.edges{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.edges path{fill:none;stroke:var(--sep-strong);stroke-width:1.25}
+.edges path.run{stroke:var(--accent);stroke-opacity:.55;stroke-dasharray:3 5;animation:flow .9s linear infinite}
+.edges path.fail{stroke:var(--failed);stroke-opacity:.45}
+@keyframes flow{to{stroke-dashoffset:-8}}
+.node{position:absolute;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 12px;border-radius:12px;background:var(--surface);
+  box-shadow:0 0 0 .5px var(--sep-strong),0 1px 2px rgba(17,17,19,.05),0 4px 14px rgba(17,17,19,.05);transition:box-shadow .15s ease,transform .1s ease}
+.node:hover{box-shadow:0 0 0 .5px var(--text-5),0 1px 2px rgba(17,17,19,.06),0 6px 18px rgba(17,17,19,.08)}
+.node:active{transform:scale(.98)}
+.node.sel{box-shadow:0 0 0 1.5px var(--accent),0 0 0 5px var(--accent-ring),0 6px 18px rgba(17,17,19,.08)}
+.node.enter{animation:nodein .42s var(--spring)}
+@keyframes nodein{from{opacity:0;transform:translateX(-10px) scale(.96)}}
+.node .l1{display:flex;align-items:center;gap:7px;min-width:0}
+.node .n{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node .nick{font-weight:500;color:var(--text-3);margin-left:4px}
+.node .m{font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;padding-left:21px}
+.node .d{font:11px var(--mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:21px}
+.node .d.idle{font-family:var(--sans);font-size:11.5px;color:var(--text-4)}
+.node.failed .n{color:var(--failed)}
+.node.failed .d{color:var(--failed)}
+.root-mark{width:14px;height:14px;border-radius:4px;flex:none;display:grid;place-items:center;color:#fff;font:700 8px var(--sans)}
+.ghint{flex:none;padding:0 18px 12px;font-size:11.5px;color:var(--text-4)}
+
+/* detail */
+.dh{flex:none;display:flex;align-items:flex-start;gap:8px;padding:14px 14px 0 12px}
+.dh .ti{flex:1;min-width:0}
+.dh h3{margin:2px 0 0;display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.facts{margin:6px 0 0;font-size:12.5px;color:var(--text-2);line-height:1.6}
+.facts .dim{color:var(--text-3)}
+.stats{display:flex;gap:8px;margin:12px 14px 0 46px}
+.stat{flex:1;padding:8px 12px;border-radius:10px;background:var(--fill-2)}
+.stat .v{font-size:15px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.stat .l{font-size:11px;color:var(--text-3);margin-top:1px}
+.dbody{flex:1;min-height:0;overflow:auto;padding:4px 18px 8px 46px}
+.now-line{display:flex;align-items:center;gap:8px;margin:14px 0 4px;padding:8px 12px;border-radius:10px;background:var(--accent-bg);font-size:12.5px;color:var(--accent)}
+.now-line b{font-weight:650}
+.now-line .a{font:12px var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sect{display:flex;align-items:center;gap:6px;margin:16px 0 6px;font-size:12px;font-weight:600;color:var(--text-2)}
+.sect .c{font-weight:500;color:var(--text-4)}
+.prompt{font-size:12.5px;line-height:19px;color:var(--text-2);white-space:pre-wrap;max-height:57px;overflow:hidden;-webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent)}
+.prompt.open{max-height:none;-webkit-mask-image:none;mask-image:none}
+.more{font-size:12px;color:var(--text-3);margin-top:3px}
+.more:hover{color:var(--text)}
+.steps{position:relative}
+.step{position:relative;display:flex;align-items:baseline;gap:8px;padding:4px 0 4px 18px;font-size:13px;line-height:19px}
+.step::before{content:"";position:absolute;left:4px;top:11px;width:5px;height:5px;border-radius:50%;background:var(--text-5)}
+.step::after{content:"";position:absolute;left:6px;top:19px;bottom:-11px;width:1px;background:var(--rail)}
+.step:last-child::after{display:none}
+.step.cur::before{background:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.step.bad::before{background:var(--failed)}
+.step b{font-weight:600;flex:none}
+.step .a{flex:1;min-width:0;font:12px var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.step .at{flex:none;font:11px var(--mono);color:var(--text-4);font-variant-numeric:tabular-nums}
+.step.note{color:var(--text-2);font-size:12.5px}
+.report{font-size:13px;line-height:20px;color:var(--text-body);padding:10px 12px;border-radius:10px;background:var(--surface);box-shadow:var(--row-shadow)}
+.report.bad{color:var(--failed);font:12px/19px var(--mono);background:var(--failed-bg);box-shadow:none}
+.dft{flex:none;display:flex;gap:8px;padding:10px 14px 14px 46px;border-top:.5px solid var(--hairline)}
+.btn{height:30px;padding:0 12px;border-radius:9px;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;background:var(--fill-3)}
+.btn:hover{background:var(--fill-4)}
+.btn:active{transform:scale(.97)}
+.btn.stop{color:var(--failed);background:var(--failed-bg)}
+.btn kbd{margin-left:2px}
+.btn[hidden]{display:none}
+
+/* prototype chrome: dark so it never reads as app UI */
+#hud{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;height:44px;padding:0 8px 0 16px;border-radius:22px;background:rgba(28,28,32,.84);
+  -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14),0 10px 30px rgba(0,0,0,.25);color:#fff;font-size:12px;z-index:2000;user-select:none;-webkit-user-select:none;white-space:nowrap}
+.hud-t{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.5)}
+.hud-g{display:flex;align-items:center;gap:8px}
+.hud-g+.hud-g{padding-left:14px;border-left:.5px solid rgba(255,255,255,.16)}
+.hud-l{color:rgba(255,255,255,.6)}
+.hseg{display:flex;padding:2px;border-radius:9px;background:rgba(255,255,255,.08)}
+.hseg button{height:26px;padding:0 10px;border-radius:7px;color:rgba(255,255,255,.72);font-weight:500;font-size:12px}
+.hseg button:hover{color:#fff}
+.hseg button.on{background:rgba(255,255,255,.2);color:#fff;font-weight:600}
+#help{position:fixed;left:0;right:0;top:7px;text-align:center;z-index:2000;font-size:12px;color:rgba(17,17,19,.55)}
+
+@media (prefers-reduced-motion: reduce){
+  #map,.page{transition:opacity .2s ease!important;transform:none!important;filter:none!important}
+  .edges path.run,.live,.glyph.run::after,.node.enter{animation:none}
+}
+@media (prefers-reduced-transparency: reduce){
+  #map{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+</style>
+</head>
+<body>
+<div id="help">Click <b>agents</b> in the composer (or ⌘⇧A) · ↑↓ select · ↵ open · esc back / close</div>
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="side">
+    <div class="shead">Sessions</div>
+    <div id="cards"></div>
+  </aside>
+  <main id="chat">
+    <div class="strip"><span id="stTitle"></span><span class="sub" id="stSub"></span></div>
+    <div id="log"><div class="col" id="logc"></div></div>
+    <div id="dock"><div class="col">
+      <div class="tray" id="tray"></div>
+      <div class="box">
+        <div class="ph">Ask, steer, or / for commands</div>
+        <div class="ft">
+          <button class="chipb" title="Attach"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+          <button class="chipb" id="modelChip"></button>
+          <button class="chipb" id="agentsChip" title="Agent map  ⌘⇧A"></button>
+          <button class="send"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+    </div></div>
+
+    <section id="map" role="dialog" aria-label="Agent map">
+      <div class="pages">
+        <div class="page" id="list">
+          <div class="mh">
+            <h2>Agents</h2><span class="sum" id="sum"></span><span class="sp"></span>
+            <button class="icon-btn" id="close" title="Close  esc"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 2.5l7 7m0-7-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          </div>
+          <div class="graph" id="graph"><div class="canvas" id="canvas"></div></div>
+          <div class="ghint">Click an agent for its prompt, steps and report</div>
+        </div>
+        <div class="page" id="detail"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="hud">
+  <span class="hud-t">Prototype</span>
+  <div class="hud-g"><span class="hud-l">Agent</span><div class="hseg" data-k="provider"><button data-v="claude" class="on">Claude</button><button data-v="codex">Codex</button></div></div>
+  <div class="hud-g"><span class="hud-l">Run</span><div class="hseg" data-k="run"><button data-v="live" class="on">Live</button><button data-v="failed">One failed</button><button data-v="done">All done</button></div></div>
+  <div class="hud-g"><span class="hud-l">Speed</span><div class="hseg" data-k="speed"><button data-v="1" class="on">1×</button><button data-v="6">6×</button></div></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const state = { provider: "claude", run: "live", speed: 1, t: 0, open: false, sel: 0, detail: null, promptOpen: false };
+
+// Each scenario: a root and its agents, times in seconds from the turn's start.
+// steps: [at, tool, arg]; a step with tool "" is a note the agent wrote.
+const SCEN = {
+  claude: {
+    title: "Fix flaky parser tests", start: "10:13:02",
+    root: { name: "Fix flaky parser tests", model: "Opus 5.5", ctx: 130.2, color: "var(--claude)", glyph: "✳",
+      waits: [[4, 31]], turnEnd: 58, steps: [[1, "Read", "chat/src/rows.rs"], [3, "Agent", "Find every caller of fold_turns"], [32, "Agent", "×3 in background"], [36, "Edit", "chat/src/timeline.rs"], [44, "Bash", "cargo test -p chat"], [55, "", "Waiting on the background agents."]] },
+    agents: [
+      { id: "a1", parent: null, name: "Find every caller of fold_turns", type: "Explore", model: "Haiku 5.5", bg: false, start: 4, end: 31, tok: 18.4,
+        prompt: "List every caller of fold_turns and refold in packages/desktop/crates. For each, say whether it assumes items arrive in seq order. Report a table: file:line, caller, assumes order (yes/no).",
+        steps: [[5, "Grep", "fold_turns"], [8, "Read", "chat/src/rows.rs"], [13, "Read", "chat/src/timeline.rs"], [18, "Grep", "refold"], [22, "Read", "pocket/src/chat/transcript.rs"], [27, "", "Two callers assume order."]],
+        report: "Five callers. Two assume seq order: `Transcript::refold` (timeline.rs:211) and `rows::visible` (rows.rs:88). The other three sort first." },
+      { id: "a2", parent: null, name: "Reproduce the flake 20 times", type: "general-purpose", model: "Sonnet 5.5", bg: true, start: 33, end: 96, tok: 41.7,
+        prompt: "Run `cargo test -p chat refold_keeps_order` 20 times in a loop. Capture the seed and full output of every failure. Don't change any code.",
+        steps: [[35, "Bash", "for i in $(seq 20); do cargo test -p chat refold…"], [61, "", "3/20 failed so far."], [64, "Bash", "cargo test -p chat refold_keeps_order -- --nocapture"], [80, "Read", "target/flake-17.log"], [88, "", "Seeds 4, 11, 17 fail."]],
+        report: "3 of 20 runs failed (seeds 4, 11, 17). Every failure has a tool_end arriving before its tool_start." },
+      { id: "a3", parent: null, name: "Audit timeline ordering in pocketd", type: "general-purpose", model: "Sonnet 5.5", bg: true, start: 33, end: 79, tok: 52.3, fail: "failed",
+        prompt: "Read pocketd/internal/timeline and claude/subagents.go. Find any path where a sub-agent's events can be applied before the call that spawned it. Cite file:line.",
+        steps: [[34, "Read", "pocketd/internal/timeline/timeline.go"], [40, "Read", "pocketd/internal/claude/subagents.go"], [47, "Grep", "ParentToolUseID"], [55, "Read", "pocketd/internal/claude/transcript.go"], [66, "", "spawned() is checked before the meta file is read."], [70, "Bash", "go test ./internal/claude -run Subagent"]],
+        report: "TailSubagents checks spawned(parent) per scan, but a sub-agent's first line can land in the same scan as the call. subagents.go:58.", error: "API Error: 529 Overloaded — the agent stopped after 6 steps." },
+      { id: "a4", parent: null, name: "Draft the CHANGELOG line", type: "general-purpose", model: "Haiku 5.5", bg: true, start: 33, end: 47, tok: 9.8,
+        prompt: "Write one CHANGELOG line, in the style of CHANGELOG.md, for: chat keeps a sub-agent's steps in order when they arrive early.",
+        steps: [[34, "Read", "CHANGELOG.md"], [41, "", "Drafted."]],
+        report: "- Chat keeps a sub-agent's steps in order when its first ones arrive before the call that started it." },
+    ],
+  },
+  codex: {
+    title: "Migrate settings to schema v3", start: "10:13:02",
+    root: { name: "Migrate settings to schema v3", model: "gpt-5.5", ctx: 88.4, color: "var(--codex)", glyph: "›_",
+      waits: [[12, 30], [52, 95]], turnEnd: 98, steps: [[2, "Shell", "rg -l settings_v2"], [10, "spawn_agent", "Euclid, Noether"], [12, "wait", "Euclid, Noether"], [31, "Edit", "packages/app/src/settings.ts"], [50, "spawn_agent", "Lovelace"], [52, "wait", "Lovelace"]] },
+    agents: [
+      { id: "c1", parent: null, nick: "Euclid", name: "Map every reader of settings.json", type: "explorer", model: "gpt-5.5-mini", start: 10, end: 27, tok: 22.1, depth: 1,
+        prompt: "Find every place that reads or writes settings.json across packages/. Return file:line and the keys each touches.",
+        steps: [[11, "Shell", "rg -n settings.json packages"], [15, "Read", "packages/app/src/settings.ts"], [20, "Read", "packages/pocketd/internal/config/config.go"], [24, "", "7 readers, 2 writers."]],
+        report: "7 readers, 2 writers. Only config.go writes `theme.glass`; the app reads it as `glassOpacity`." },
+      { id: "c2", parent: null, nick: "Noether", name: "Write the v2 → v3 migration", type: "worker", model: "gpt-5.5", start: 10, end: 48, tok: 61.0, depth: 1,
+        prompt: "Write migrateV2ToV3 in packages/app/src/settings/migrate.ts with tests. Keep unknown keys. Spawn an explorer if you need to know which keys exist.",
+        steps: [[11, "spawn_agent", "Hopper"], [12, "wait", "Hopper"], [24, "Edit", "packages/app/src/settings/migrate.ts"], [33, "Edit", "packages/app/src/settings/migrate.test.ts"], [39, "Shell", "pnpm vitest run migrate"], [45, "", "12 tests pass."]],
+        report: "Added migrateV2ToV3 with 12 tests. Unknown keys survive; `glassOpacity` moves under `theme`." },
+      { id: "c3", parent: "c2", nick: "Hopper", name: "List the keys v2 files hold", type: "explorer", model: "gpt-5.5-mini", start: 11, end: 23, tok: 14.6, depth: 2,
+        prompt: "Collect every top-level and nested key used in settings v2 fixtures and docs.",
+        steps: [[12, "Shell", "fd settings -e json fixtures"], [16, "Read", "docs/research-settings.md"], [21, "", "31 keys."]],
+        report: "31 keys; 4 are deprecated and unread anywhere." },
+      { id: "c4", parent: null, nick: "Lovelace", name: "Review the migration diff", type: "reviewer", model: "gpt-5.5", start: 50, end: 95, tok: 37.9, depth: 1, fail: "failed",
+        prompt: "Review the diff in packages/app/src/settings. Look for data loss on downgrade and keys renamed without a fallback.",
+        steps: [[51, "Shell", "git diff packages/app/src/settings"], [57, "Read", "packages/app/src/settings/migrate.ts"], [66, "Shell", "pnpm vitest run settings"], [74, "", "Downgrade drops theme.glass."]],
+        report: "A v3 file opened by an older app loses `theme.glass`; worth a fallback read of `glassOpacity`.", error: "Interrupted: the thread was closed before it reported." },
+    ],
+  },
+};
+
+// Times the HUD's run picks: live stops mid-flight; "failed" fails one; "done" runs everything to the end.
+const NOW = { claude: 68, codex: 64 };
+function scen() { return SCEN[state.provider]; }
+function agentsNow() {
+  const s = scen(), t = state.t;
+  return s.agents.filter((a) => a.start <= t).map((a) => {
+    const status = t < a.end ? "running" : a.fail && state.run === "failed" ? "failed" : "done";
+    const until = status === "running" ? t : a.end;
+    const frac = Math.min(1, (until - a.start) / (a.end - a.start));
+    return { ...a, status, until, tokens: a.tok * (0.25 + 0.75 * frac), steps: a.steps.filter((s) => s[0] <= until) };
+  });
+}
+function rootNow() {
+  const r = scen().root, t = state.t;
+  const ended = t >= r.turnEnd;
+  const running = agentsNow().some((a) => a.status === "running");
+  return { ...r, until: ended ? r.turnEnd : t, status: ended ? (running ? "idle" : "done") : "running", steps: r.steps.filter((s) => s[0] <= t) };
+}
+
+const dur = (s) => { s = Math.max(0, Math.round(s)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; };
+const tok = (k) => `${k.toFixed(1)}k tokens`;
+const clock = (sec) => { const [h, m, s] = scen().start.split(":").map(Number); const d = new Date(2026, 0, 1, h, m, s + Math.round(sec)); return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }); };
+
+// Agents in tree order; a row's guides count its depth.
+function treeRows() {
+  const all = agentsNow();
+  const out = [{ kind: "root", guides: [] }];
+  const walk = (parent, prefix) => {
+    const kids = all.filter((a) => (a.parent || null) === parent);
+    kids.forEach((a, i) => {
+      const last = i === kids.length - 1;
+      out.push({ kind: "agent", a, guides: [...prefix, last ? "elbow" : "tee"] });
+      walk(a.id, [...prefix, last ? "blank" : "pipe"]);
+    });
+  };
+  walk(null, []);
+  return out;
+}
+
+/* ── chat backdrop ── */
+function renderChat() {
+  const s = scen(), live = agentsNow(), running = live.filter((a) => a.status === "running");
+  $("#cards").innerHTML = [
+    [s.title, state.provider === "claude" ? "Claude" : "Codex", "Working", "var(--success)", true],
+    ["Ship 0.1.11", "Claude", "Done", "var(--accent)"],
+    ["Notch spacing", "Codex", "Idle", "var(--text-5)"],
+  ].map(([t, p, st, c, sel]) => `<div class="card${sel ? " sel" : ""}"><div class="r1">${p} · anywhere<span class="st"><i class="pdot" style="background:${c}"></i>${st}</span></div><div class="r2">${esc(t)}</div></div>`).join("");
+  $("#stTitle").textContent = s.title;
+  $("#stSub").textContent = `${state.provider === "claude" ? "Claude · Opus 5.5" : "Codex · gpt-5.5"} · anywhere/protected-calf`;
+  const row = (a) => {
+    const g = a.status === "running" ? "run" : a.status === "failed" ? "fail" : "done";
+    const last = a.steps.filter((x) => x[1]).at(-1);
+    const doing = a.status === "running" && last ? `<span class="doing">${esc(last[1])} ${esc(last[2])}</span>` : "";
+    return `<div class="arow"><span class="glyph ${g}"></span><span class="nm"${doing ? "" : ' style="flex:1;max-width:none"'}>${esc(a.nick ? a.nick + " · " + a.name : a.name)}</span>${doing}<span class="side"><span>${esc(a.model)}</span><span>${a.steps.length} steps</span>${a.status === "running" ? `<span>${dur(state.t - a.start)}</span>` : ""}</span></div>`;
+  };
+  const top = live.filter((a) => !a.parent);
+  $("#logc").innerHTML = `
+    <div class="bubble">${state.provider === "claude" ? "The refold tests flake about 1 in 7 runs. Find why, fix it, and draft the changelog line. Use agents in parallel." : "Move settings to schema v3. Use agents: one to map readers, one to write the migration, then a reviewer."}</div>
+    <p class="say">${state.provider === "claude" ? "I'll first find every caller that assumes ordering, then fan out." : "I'll map the readers and write the migration in parallel."}</p>
+    ${top.slice(0, state.provider === "claude" ? 1 : 2).map(row).join("")}
+    <p class="say" style="margin-top:12px">${state.provider === "claude" ? "Two callers assume seq order. Sending three agents off in the background while I patch <code>refold</code>." : "Migration is in. Spawning a reviewer."}</p>
+    ${top.slice(state.provider === "claude" ? 1 : 2).map(row).join("")}`;
+  const bgRun = live.filter((a) => a.status === "running" && (a.bg || state.provider === "codex"));
+  const newest = bgRun.flatMap((a) => a.steps.filter((x) => x[1]).map((x) => x)).sort((x, y) => y[0] - x[0])[0];
+  $("#tray").style.visibility = bgRun.length ? "visible" : "hidden";
+  $("#tray").innerHTML = `<svg width="13" height="13" viewBox="0 0 14 14"><rect x="2.5" y="4" width="9" height="7" rx="2" stroke="var(--text-2)" stroke-width="1.2" fill="none"/><path d="M7 2v2M5.2 7.3h.01M8.8 7.3h.01" stroke="var(--text-2)" stroke-width="1.4" stroke-linecap="round"/></svg><b>${bgRun.length} in background</b><span class="last">${newest ? esc(newest[1] + " " + newest[2]) : ""}</span>`;
+  $("#modelChip").innerHTML = state.provider === "claude" ? "<b>Opus 5.5</b> High" : "<b>gpt-5.5</b> high";
+  const n = live.length;
+  $("#agentsChip").innerHTML = running.length ? `<i class="live"></i><b>${running.length}</b> of ${n} agents` : `<svg width="13" height="13" viewBox="0 0 14 14"><circle cx="3.5" cy="7" r="1.8" stroke="currentColor" fill="none" stroke-width="1.2"/><circle cx="10.5" cy="3.5" r="1.8" stroke="currentColor" fill="none" stroke-width="1.2"/><circle cx="10.5" cy="10.5" r="1.8" stroke="currentColor" fill="none" stroke-width="1.2"/><path d="M5.3 7h1.7M7 3.5h1.7M7 10.5h1.7M7 3.5v7" stroke="currentColor" stroke-width="1.2"/></svg>${n} agents`;
+  $("#agentsChip").classList.toggle("on", state.open);
+}
+
+/* ── the map ── */
+function renderMap() {
+  const rows = treeRows(), r = rootNow(), live = agentsNow();
+  const running = live.filter((a) => a.status === "running").length, failed = live.filter((a) => a.status === "failed").length;
+  $("#sum").textContent = [`${live.length} agents`, running && `${running} working`, failed && `${failed} failed`, `${dur(state.t)} since the prompt`].filter(Boolean).join(" · ");
+  const g = layout(rows);
+  const card = (n) => {
+    const sel = n.i === state.sel ? " sel" : "", enter = seen.has(n.key) ? "" : " enter";
+    seen.add(n.key);
+    const pos = `left:${n.x}px;top:${n.y}px;width:${W}px;height:${H}px`;
+    if (n.row.kind === "root") {
+      const waiting = r.waits.find(([a, b]) => a <= state.t && state.t < b);
+      const doing = r.status === "running"
+        ? waiting ? ((k) => `<span class="d idle">Waiting on ${k} agent${k === 1 ? "" : "s"}</span>`)(live.filter((a) => !a.parent && a.status === "running").length) : ((s) => s[1] === "wait" ? `<span class="d idle">Waiting on ${esc(s[2])}</span>` : `<span class="d">${esc(s[1] + " " + s[2])}</span>`)(r.steps.filter((s) => s[1]).at(-1) || [0, "", "Thinking"])
+        : `<span class="d idle">${r.status === "idle" ? "Turn ended · agents still working" : "Done"}</span>`;
+      return `<div class="node${sel}${enter}" data-i="${n.i}" style="${pos}"><div class="l1"><span class="root-mark" style="background:${r.color}">${r.glyph}</span><span class="n">Main agent</span></div><span class="m">${esc(r.model)} · ${r.ctx}k context</span>${doing}</div>`;
+    }
+    const a = n.row.a, gl = a.status === "running" ? "run" : a.status === "failed" ? "fail" : "done";
+    const last = a.steps.filter((s) => s[1]).at(-1);
+    const meta = [a.nick, a.status === "failed" ? `failed after ${dur(a.until - a.start)}` : `${dur(a.until - a.start)} · ${tok(a.tokens)}`].filter(Boolean).join(" · ");
+    const doing = a.status === "running" ? `<span class="d">${last ? esc(last[1] + " " + last[2]) : "Starting…"}</span>`
+      : a.status === "failed" ? `<span class="d">${esc(a.error.split(":")[0])}</span>`
+      : `<span class="d idle">Done · ${a.steps.filter((s) => s[1]).length} tool calls</span>`;
+    return `<div class="node${sel}${enter}${a.status === "failed" ? " failed" : ""}" data-i="${n.i}" style="${pos}" title="${esc(a.name)}"><div class="l1"><span class="glyph ${gl}"></span><span class="n">${esc(a.name)}</span></div><span class="m">${esc(meta)}</span>${doing}</div>`;
+  };
+  const edges = g.edges.map(({ from, to, cls }) => {
+    const x1 = from.x + W, y1 = from.y + H / 2, x2 = to.x, y2 = to.y + H / 2, mx = x1 + GAP / 2, k = Math.min(8, Math.abs(y2 - y1) / 2), dir = Math.sign(y2 - y1);
+    const d = dir ? `M${x1} ${y1}H${mx - k}Q${mx} ${y1} ${mx} ${y1 + dir * k}V${y2 - dir * k}Q${mx} ${y2} ${mx + k} ${y2}H${x2}` : `M${x1} ${y1}H${x2}`;
+    return `<path class="${cls}" d="${d}"/>`;
+  }).join("");
+  const c = $("#canvas");
+  c.style.width = `${g.w}px`; c.style.height = `${g.h}px`;
+  c.innerHTML = `<svg class="edges" width="${g.w}" height="${g.h}">${edges}</svg>` + g.nodes.map(card).join("");
+  if (!state.detail) $("#map").style.setProperty("--h", `${Math.min(560, 50 + g.h + 18 + 32)}px`);
+}
+
+// Cards sit one column per generation; a parent centres on its children, like VS Code's agent map.
+const W = 256, H = 66, GAP = 48, VGAP = 12, PAD = 18;
+const seen = new Set();
+function layout(rows) {
+  const nodes = rows.map((row, i) => ({ row, i, depth: row.guides.length, key: `${state.provider}:${row.kind === "root" ? "root" : row.a.id}`, kids: [] }));
+  const byId = Object.fromEntries(nodes.filter((n) => n.row.kind === "agent").map((n) => [n.row.a.id, n]));
+  nodes.slice(1).forEach((n) => (n.row.a.parent ? byId[n.row.a.parent] : nodes[0]).kids.push(n));
+  let slot = 0;
+  const place = (n) => {
+    n.x = PAD + n.depth * (W + GAP);
+    if (!n.kids.length) { n.y = PAD + slot++ * (H + VGAP); return; }
+    n.kids.forEach(place);
+    n.y = (n.kids[0].y + n.kids.at(-1).y) / 2;
+  };
+  place(nodes[0]);
+  const edges = nodes.slice(1).map((n) => {
+    const from = n.row.a.parent ? byId[n.row.a.parent] : nodes[0];
+    return { from, to: n, cls: n.row.a.status === "running" ? "run" : n.row.a.status === "failed" ? "fail" : "" };
+  });
+  const depth = Math.max(...nodes.map((n) => n.depth));
+  return { nodes, edges, w: PAD * 2 + (depth + 1) * W + depth * GAP, h: PAD * 2 + Math.max(1, slot) * (H + VGAP) - VGAP };
+}
+
+function renderDetail() {
+  if (!state.detail) return;
+  const rows = treeRows();
+  const row = rows[state.detail.i];
+  if (!row) return;
+  const live = agentsNow();
+  let head, facts, stats, now = "", prompt = "", steps, report = "", stop = false;
+  if (row.kind === "root") {
+    const r = rootNow();
+    head = `<span class="root-mark" style="background:${r.color}">${r.glyph}</span>Main agent`;
+    facts = `${r.status === "running" ? "Working" : r.status === "idle" ? "Turn ended · agents still working" : "Done"} · ${esc(r.model)}<br><span class="dim">Started ${clock(0)} · spawned ${live.length} agents</span>`;
+    const waited = r.waits.reduce((s, [a, b]) => s + Math.max(0, Math.min(b, state.t) - a), 0);
+    stats = [[dur(r.until), "running"], [dur(waited), "waiting on agents"], [`${r.ctx}k`, "tokens in context"]];
+    steps = r.steps;
+  } else {
+    const a = row.a;
+    const parent = a.parent ? live.find((x) => x.id === a.parent) : null;
+    const st = a.status === "running" ? "Working" : a.status === "failed" ? "Failed" : "Done";
+    head = `<span class="glyph ${a.status === "running" ? "run" : a.status === "failed" ? "fail" : "done"}"></span>${esc(a.name)}${a.nick ? `<span style="font-weight:500;color:var(--text-3)">${esc(a.nick)}</span>` : ""}`;
+    facts = `${st} · ${esc(a.type)} · ${esc(a.model)}${a.bg ? " · background" : state.provider === "claude" ? " · foreground" : ""}<br><span class="dim">Spawned by ${parent ? esc(parent.nick || parent.name) : "the main agent"} at ${clock(a.start)}${a.status !== "running" ? ` · ended ${clock(a.until)}` : ""}</span>`;
+    stats = [[dur(a.until - a.start), a.status === "running" ? "so far" : "ran for"], [`${a.tokens.toFixed(1)}k`, "tokens"], [String(a.steps.filter((s) => s[1]).length), "tool calls"]];
+    const last = a.steps.filter((s) => s[1]).at(-1);
+    if (a.status === "running" && last) now = `<div class="now-line"><span class="glyph run"></span><span>Now</span><b>${esc(last[1])}</b><span class="a">${esc(last[2])}</span></div>`;
+    const long = a.prompt.length > 150;
+    prompt = `<div class="sect">Prompt</div><div class="prompt${state.promptOpen || !long ? " open" : ""}">${esc(a.prompt)}</div>${long ? `<button class="more" id="pmore">${state.promptOpen ? "Show less" : "Show more"}</button>` : ""}`;
+    steps = a.steps;
+    if (a.status === "failed") report = `<div class="sect">Error</div><div class="report bad">${esc(a.error)}</div>`;
+    else if (a.status === "done") report = `<div class="sect">Report</div><div class="report">${esc(a.report).replace(/`([^`]+)`/g, '<code class="mono">$1</code>')}</div>`;
+    stop = a.status === "running";
+  }
+  const curIdx = steps.length - 1;
+  const running = row.kind === "root" ? rootNow().status === "running" : row.a.status === "running";
+  const stepHtml = steps.map((s, k) => s[1]
+    ? `<div class="step${k === curIdx && running ? " cur" : ""}"><b>${esc(s[1])}</b><span class="a">${esc(s[2])}</span><span class="at">${dur(s[0] - (row.a?.start ?? 0))}</span></div>`
+    : `<div class="step note">${esc(s[2])}</div>`).join("");
+  $("#detail").innerHTML = `
+    <div class="dh"><button class="icon-btn" id="back" title="Back  esc"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M8.5 3 4.5 7l4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="ti"><h3>${head}</h3><div class="facts">${facts}</div></div>
+      <button class="icon-btn" id="close2" title="Close"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 2.5l7 7m0-7-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>
+    <div class="stats">${stats.map(([v, l]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("")}</div>
+    <div class="dbody" id="dbody">${now}${prompt}<div class="sect">Steps <span class="c">${steps.filter((s) => s[1]).length}</span></div><div class="steps">${stepHtml}</div>${report}</div>
+    <div class="dft"><button class="btn">Show in chat</button>${row.kind === "agent" ? `<button class="btn">Open transcript</button>` : ""}<span style="flex:1"></span><button class="btn stop" ${stop ? "" : "hidden"}>Stop agent</button></div>`;
+  const keep = state.detail.scroll; const db = $("#dbody"); if (db && keep != null) db.scrollTop = keep;
+}
+
+/* ── interaction ── */
+function chipOrigin() {
+  const m = $("#map").getBoundingClientRect(), c = $("#agentsChip").getBoundingClientRect();
+  $("#map").style.setProperty("--ox", `${c.left + c.width / 2 - m.left}px`);
+}
+function setOpen(on) {
+  state.open = on;
+  if (on) { chipOrigin(); state.detail = null; $("#list").classList.remove("away"); $("#detail").classList.remove("on"); }
+  $("#map").classList.toggle("on", on);
+  render();
+}
+function openDetail(i) {
+  state.sel = i; state.detail = { i, scroll: 0 }; state.promptOpen = false;
+  renderDetail();
+  $("#list").classList.add("away"); $("#detail").classList.add("on");
+  $("#map").style.setProperty("--h", "520px");
+}
+function back() { state.detail = null; $("#list").classList.remove("away"); $("#detail").classList.remove("on"); render(); }
+
+$("#agentsChip").addEventListener("click", () => setOpen(!state.open));
+$("#close").addEventListener("click", () => setOpen(false));
+$("#canvas").addEventListener("click", (e) => { const n = e.target.closest(".node"); if (n) openDetail(+n.dataset.i); });
+$("#detail").addEventListener("click", (e) => {
+  if (e.target.closest("#back")) back();
+  else if (e.target.closest("#close2")) setOpen(false);
+  else if (e.target.closest("#pmore")) { state.promptOpen = !state.promptOpen; state.detail.scroll = $("#dbody").scrollTop; renderDetail(); }
+});
+document.addEventListener("pointerdown", (e) => { if (state.open && !e.target.closest("#map,#agentsChip,#hud")) setOpen(false); });
+document.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() === "a" && e.metaKey && e.shiftKey) { e.preventDefault(); setOpen(!state.open); return; }
+  if (!state.open) return;
+  const n = treeRows().length;
+  if (e.key === "Escape") { state.detail ? back() : setOpen(false); }
+  else if (!state.detail && e.key === "ArrowDown") { state.sel = Math.min(n - 1, state.sel + 1); renderMap(); }
+  else if (!state.detail && e.key === "ArrowUp") { state.sel = Math.max(0, state.sel - 1); renderMap(); }
+  else if (!state.detail && (e.key === "Enter" || e.key === "ArrowRight")) openDetail(state.sel);
+  else if (state.detail && e.key === "ArrowLeft") back();
+  else return;
+  e.preventDefault();
+});
+
+document.querySelectorAll(".hseg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  const k = seg.dataset.k; state[k] = k === "speed" ? +b.dataset.v : b.dataset.v;
+  if (k !== "speed") { state.t = state.run === "done" ? 110 : NOW[state.provider] - (state.run === "failed" ? -30 : 0); state.sel = 0; if (state.detail) back(); }
+  render();
+}));
+
+function render() {
+  renderChat();
+  if (state.open) { renderMap(); if (state.detail) { state.detail.scroll = $("#dbody")?.scrollTop ?? 0; renderDetail(); } }
+}
+
+state.t = NOW.claude;
+const TICK = 250;
+setInterval(() => {
+  const max = Math.max(...scen().agents.map((a) => a.end)) + 6;
+  if (state.run === "live" && state.t < max - 30) state.t = Math.min(state.t + (TICK / 1000) * state.speed, max - 30);
+  else if (state.run !== "live" && state.t < max) state.t = Math.min(state.t + (TICK / 1000) * state.speed, max);
+  render();
+}, TICK);
+render();
+setTimeout(() => setOpen(true), 400);
+</script>
+</body>
+</html>
