@@ -33,8 +33,13 @@ func (s *sink) Apply(e timeline.Event) {
 	case "tool_start":
 		line += ":" + e.Name
 		if e.Detail != nil {
-			line += fmt.Sprintf(":%s:%s%s", e.Detail.Kind, e.Detail.Command, e.Detail.Path)
+			line += fmt.Sprintf(":%s:%s%s%s", e.Detail.Kind, e.Detail.Command, e.Detail.Path, e.Detail.Description)
+			if e.Detail.Model != "" {
+				line += "@" + e.Detail.Model
+			}
 		}
+	case "tool_tokens":
+		line += fmt.Sprintf(":%s:%d", e.ToolUseID, e.Tokens)
 	case "tool_end":
 		line += fmt.Sprintf(":%s:%v", e.ToolUseID, e.OK)
 		if e.Output != nil {
@@ -42,6 +47,9 @@ func (s *sink) Apply(e timeline.Event) {
 		}
 	case "result":
 		line += fmt.Sprintf(":%v:%d:%s", e.OK, e.DurationMs, e.Error)
+	}
+	if e.ParentToolUseID != "" {
+		line = e.ParentToolUseID + ">" + line
 	}
 	s.events = append(s.events, line)
 }
@@ -368,4 +376,65 @@ func TestResumeNamesTheThreadsModelAndEffort(t *testing.T) {
 	if snk.model != "gpt-6-sol" || snk.effort != "xhigh" {
 		t.Fatalf("model %q, effort %q", snk.model, snk.effort)
 	}
+}
+
+const (
+	spawned   = `{"type":"subAgentActivity","id":"sa1","kind":"started","agentThreadId":"th2","agentPath":"/root/count_a","model":"gpt-6.1-sol"}`
+	finished  = `{"type":"subAgentActivity","id":"sa1-done","kind":"completed","agentThreadId":"th2","agentPath":"/root/count_a"}`
+	agentCmd  = `{"type":"commandExecution","id":"c2","command":"wc -l a.txt","status":"completed","exitCode":0,"aggregatedOutput":"3 a.txt\n"}`
+	agentSaid = `{"type":"agentMessage","id":"a2","text":"3"}`
+)
+
+func TestASubAgentsWorkNestsUnderTheCallThatSpawnedIt(t *testing.T) {
+	srv, _, snk, _ := open(t, emptyThread)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+spawned+`}`)
+	srv.Push("item/completed", nil, `{"threadId":"th1","turnId":"t1","item":`+spawned+`}`)
+	srv.Push("turn/started", nil, `{"threadId":"th2","turn":{"id":"t2","items":[],"status":"inProgress"}}`)
+	srv.Push("item/started", nil, `{"threadId":"th2","turnId":"t2","item":`+agentCmd+`}`)
+	srv.Push("item/completed", nil, `{"threadId":"th2","turnId":"t2","item":`+agentCmd+`}`)
+	srv.Push("item/agentMessage/delta", nil, `{"threadId":"th2","turnId":"t2","itemId":"a2","delta":"3"}`)
+	srv.Push("item/completed", nil, `{"threadId":"th2","turnId":"t2","item":`+agentSaid+`}`)
+	srv.Push("thread/tokenUsage/updated", nil, `{"threadId":"th2","turnId":"t2","tokenUsage":{"last":{"totalTokens":20452},"modelContextWindow":258400}}`)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+finished+`}`)
+	srv.Push("turn/completed", nil, `{"threadId":"th2","turn":{"id":"t2","items":[],"status":"completed"}}`)
+	srv.Push("item/completed", nil, `{"threadId":"th9","turnId":"t9","item":{"type":"agentMessage","id":"a9","text":"not ours"}}`)
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":{"id":"t1","items":[],"status":"completed","durationMs":9}}`)
+	snk.wait(t,
+		"tool_start:spawn_agent:task:count_a@gpt-6.1-sol",
+		"sa1>tool_start:shell:shell:wc -l a.txt",
+		"sa1>tool_end:c2:true:3 a.txt\n",
+		"sa1>assistant_text:3",
+		"tool_tokens:sa1:20452",
+		"tool_end:sa1:true:3",
+		"result:true:9:")
+}
+
+func TestASubAgentWhoseTurnFailedEndsItsCallFailed(t *testing.T) {
+	srv, _, snk, _ := open(t, emptyThread)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+spawned+`}`)
+	srv.Push("turn/completed", nil, `{"threadId":"th2","turn":{"id":"t2","items":[],"status":"failed","error":{"message":"boom"}}}`)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+finished+`}`)
+	snk.wait(t, "tool_start:spawn_agent:task:count_a@gpt-6.1-sol", "tool_end:sa1:false")
+}
+
+func TestAResumedThreadReplaysEachSubAgentsWorkFromItsOwnThread(t *testing.T) {
+	_, _, snk, _ := open(t, func(method string, params json.RawMessage) (any, string) {
+		switch method {
+		case "thread/resume":
+			return json.RawMessage(`{"thread":{"turns":[{"id":"t1","status":"completed","durationMs":9,"items":[` + spawned + `,` + finished + `]}]}}`), ""
+		case "thread/read":
+			if !strings.Contains(string(params), `"th2"`) {
+				return nil, "no such thread"
+			}
+			return json.RawMessage(`{"thread":{"turns":[{"id":"t2","status":"completed","items":[` + agentCmd + `,` + agentSaid + `]}]}}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	snk.wait(t,
+		"tool_start:spawn_agent:task:count_a@gpt-6.1-sol",
+		"sa1>tool_start:shell:shell:wc -l a.txt",
+		"sa1>tool_end:c2:true:3 a.txt\n",
+		"sa1>assistant_text:3",
+		"tool_end:sa1:true:3",
+		"result:true:9:")
 }
