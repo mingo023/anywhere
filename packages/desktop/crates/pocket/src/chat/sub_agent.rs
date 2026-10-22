@@ -47,7 +47,7 @@ pub(crate) fn name(agent: &SubAgent) -> String {
 }
 
 /// What the sub-agent did: its tool calls and the notes it wrote between them.
-fn steps(agent: &SubAgent) -> Vec<&Block> {
+pub(crate) fn steps(agent: &SubAgent) -> Vec<&Block> {
     agent.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| matches!(b, Block::Tool(_) | Block::Text(_))).collect()
 }
 
@@ -94,7 +94,7 @@ pub(crate) fn step(call: &ToolCall) -> String {
 }
 
 /// About how many lines `text` wraps to; the row has no window to measure it in.
-fn lines(text: &str) -> usize {
+pub(crate) fn lines(text: &str) -> usize {
     text.lines().map(|l| l.chars().count().div_ceil(WRAP).max(1)).sum()
 }
 

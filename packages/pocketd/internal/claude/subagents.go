@@ -27,7 +27,11 @@ func MapSubagent(raw []byte, parent string) []timeline.Event {
 	}
 	// Only the sub-agent's answers name the model it runs on; its parent's call shows it.
 	if l.Type == "assistant" && l.Message.Model != "" && l.Message.Model != "<synthetic>" {
-		events = append([]timeline.Event{{Kind: "tool_model", ToolUseID: parent, Name: l.Message.Model}}, events...)
+		head := []timeline.Event{{Kind: "tool_model", ToolUseID: parent, Name: l.Message.Model}}
+		if u := l.Message.Usage; u != nil {
+			head = append(head, timeline.Event{Kind: "tool_tokens", ToolUseID: parent, Tokens: u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens})
+		}
+		events = append(head, events...)
 	}
 	return events
 }

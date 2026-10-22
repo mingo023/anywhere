@@ -41,6 +41,14 @@ type Session struct {
 	// started before then would show only its tail, so its completion shows it.
 	midTurn bool
 	live    map[string]bool // messages started since replay
+	// thread is the one followed. Its sub-agents' threads send on the same
+	// connection; agents maps each to the call that spawned it.
+	thread string
+	agents map[string]string
+	// said is each running sub-agent's latest message, by its call: its report.
+	said map[string]string
+	// kids is each sub-agent's history at resume, by its thread, for replay to nest under its call.
+	kids map[string][]turn
 }
 
 type item struct {
@@ -62,6 +70,11 @@ type item struct {
 	Tool      string          `json:"tool"`
 	Arguments json.RawMessage `json:"arguments"`
 	Query     string          `json:"query"`
+	// A subAgentActivity's: the sub-agent started or completed, its thread and where it sits, as /root/count_a.
+	Kind          string `json:"kind"`
+	AgentThreadID string `json:"agentThreadId"`
+	AgentPath     string `json:"agentPath"`
+	Model         string `json:"model"`
 }
 
 type turn struct {
@@ -122,7 +135,8 @@ func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *bro
 func NewSession(agentID string, sink Sink, b *broker.Broker) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{agentID: agentID, sink: sink, broker: b, ctx: ctx, cancel: cancel,
-		streamed: map[string]bool{}, details: map[string]proto.ToolDetail{}, live: map[string]bool{}}
+		streamed: map[string]bool{}, details: map[string]proto.ToolDetail{}, live: map[string]bool{},
+		agents: map[string]string{}, said: map[string]string{}, kids: map[string][]turn{}}
 }
 
 // Replay follows the thread a thread/start or thread/resume on c returned in
@@ -136,8 +150,31 @@ func (s *Session) Replay(ctx context.Context, c *Client, res json.RawMessage) st
 
 func (s *Session) follow(ctx context.Context, c *Client, threadID string, r resumed) {
 	s.c = c
+	s.thread = threadID
 	s.hydrate(ctx, threadID, &r)
+	s.readAgents(ctx, r.Thread.Turns)
 	s.replay(r)
+}
+
+// readAgents reads the history of each sub-agent turns spawned, and of
+// those they spawned.
+func (s *Session) readAgents(ctx context.Context, turns []turn) {
+	for _, t := range turns {
+		for _, it := range t.Items {
+			if it.Type != "subAgentActivity" || it.Kind != "started" {
+				continue
+			}
+			res, err := s.c.Call(ctx, "thread/read", map[string]any{"threadId": it.AgentThreadID, "includeTurns": true})
+			if err != nil {
+				log.Printf("codex %s: read sub-agent: %v", it.AgentThreadID, err)
+				continue
+			}
+			var r resumed
+			json.Unmarshal(res, &r)
+			s.kids[it.AgentThreadID] = r.Thread.Turns
+			s.readAgents(ctx, r.Thread.Turns)
+		}
+	}
 }
 
 // hydrate puts the turns a paginated resume left out before r's own, oldest
@@ -183,12 +220,7 @@ func (s *Session) replay(r resumed) {
 		s.sink.SetEffort(r.ReasoningEffort)
 	}
 	for _, t := range r.Thread.Turns {
-		for _, it := range t.Items {
-			s.started(it)
-			if it.Status != "inProgress" {
-				s.completed(it)
-			}
-		}
+		s.replayItems(t, "")
 		if t.Status != "inProgress" {
 			s.turnDone(t)
 		}
@@ -198,7 +230,17 @@ func (s *Session) replay(r resumed) {
 		f()
 	}
 	s.queued = nil
+	s.kids = nil
 	s.ready = true
+}
+
+func (s *Session) replayItems(t turn, parent string) {
+	for _, it := range t.Items {
+		s.started(it, parent)
+		if it.Status != "inProgress" {
+			s.completed(it, parent)
+		}
+	}
 }
 
 // run applies live messages in order, holding them back until replay is done.
@@ -214,6 +256,7 @@ func (s *Session) run(f func()) {
 
 func (s *Session) Notify(method string, params json.RawMessage) {
 	var p struct {
+		ThreadID   string          `json:"threadId"`
 		Item       item            `json:"item"`
 		Turn       turn            `json:"turn"`
 		ItemID     string          `json:"itemId"`
@@ -231,12 +274,17 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 		return
 	}
 	s.run(func() {
+		// An approval a sub-agent asked for is the chat's card, whichever thread resolves it.
+		if p.ThreadID != "" && p.ThreadID != s.thread && method != "serverRequest/resolved" {
+			s.agent(p.ThreadID, method, p.Item, p.Turn, p.TokenUsage.Last.TotalTokens)
+			return
+		}
 		switch method {
 		case "item/started":
 			s.live[p.Item.ID] = true
-			s.started(p.Item)
+			s.started(p.Item, "")
 		case "item/completed":
-			s.completed(p.Item)
+			s.completed(p.Item, "")
 			delete(s.live, p.Item.ID)
 		case "item/agentMessage/delta":
 			if s.midTurn && !s.live[p.ItemID] {
@@ -259,8 +307,70 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 	})
 }
 
-func (s *Session) started(it item) {
+// agent applies what a sub-agent's thread sends under the call that spawned
+// it. Its messages show whole once complete; another thread's are not this chat's.
+func (s *Session) agent(thread, method string, it item, t turn, tokens int64) {
+	call, ok := s.agents[thread]
+	if !ok {
+		return
+	}
+	switch method {
+	case "item/started":
+		s.started(it, call)
+	case "item/completed":
+		s.completed(it, call)
+	case "thread/tokenUsage/updated":
+		s.sink.Apply(timeline.Event{Kind: "tool_tokens", ToolUseID: call, Tokens: tokens})
+	case "turn/completed":
+		var failure string
+		if t.Error != nil {
+			failure = t.Error.Message
+		}
+		s.ended(thread, t.Status == "completed", failure)
+	}
+}
+
+// ended ends the call that spawned the sub-agent on thread, once: its own turn
+// and its parent's record of it both say so, and only the record is in history.
+// Its report is its last message, else what it failed with.
+func (s *Session) ended(thread string, ok bool, failure string) {
+	call, open := s.agents[thread]
+	if !open {
+		return
+	}
+	delete(s.agents, thread)
+	e := timeline.Event{Kind: "tool_end", ToolUseID: call, OK: ok}
+	if report, said := s.said[call]; said {
+		e.Output = &report
+		delete(s.said, call)
+	} else if failure != "" {
+		e.Output = &failure
+	}
+	s.sink.Apply(e)
+}
+
+// apply tags e with the call that spawned the sub-agent it comes from, if any.
+func (s *Session) apply(parent string, e timeline.Event) {
+	e.ParentToolUseID = parent
+	s.sink.Apply(e)
+}
+
+func (s *Session) started(it item, parent string) {
 	switch it.Type {
+	case "subAgentActivity":
+		switch it.Kind {
+		case "started":
+			s.agents[it.AgentThreadID] = it.ID
+			name := it.AgentPath[strings.LastIndex(it.AgentPath, "/")+1:]
+			s.apply(parent, timeline.Event{Kind: "tool_start", ToolUseID: it.ID, Name: "spawn_agent", Detail: &proto.ToolDetail{Kind: "task", Description: name, Model: it.Model}})
+			// A sub-agent runs apart from the turn that spawned it, which may end first.
+			s.sink.Apply(timeline.Event{Kind: "tool_background", ToolUseID: it.ID})
+			for _, t := range s.kids[it.AgentThreadID] {
+				s.replayItems(t, it.ID)
+			}
+		case "completed", "interrupted":
+			s.ended(it.AgentThreadID, it.Kind == "completed", "")
+		}
 	case "userMessage":
 		var parts []string
 		for _, c := range it.Content {
@@ -269,29 +379,32 @@ func (s *Session) started(it item) {
 				parts = append(parts, c.Text)
 			}
 		}
-		s.sink.Apply(timeline.Event{Kind: "user", Text: strings.Join(parts, "\n")})
+		s.apply(parent, timeline.Event{Kind: "user", Text: strings.Join(parts, "\n")})
 	case "commandExecution", "fileChange", "mcpToolCall", "webSearch":
 		name, detail := tool(it)
 		s.details[it.ID] = detail
-		s.sink.Apply(timeline.Event{Kind: "tool_start", ToolUseID: it.ID, Name: name, Detail: &detail})
+		s.apply(parent, timeline.Event{Kind: "tool_start", ToolUseID: it.ID, Name: name, Detail: &detail})
 	}
 }
 
-func (s *Session) completed(it item) {
+func (s *Session) completed(it item, parent string) {
 	switch it.Type {
 	case "agentMessage":
+		if parent != "" {
+			s.said[parent] = it.Text
+		}
 		if !s.streamed[it.ID] {
-			s.sink.Apply(timeline.Event{Kind: "assistant_text", Text: it.Text})
+			s.apply(parent, timeline.Event{Kind: "assistant_text", Text: it.Text})
 		}
 		delete(s.streamed, it.ID)
 	case "reasoning":
 		if text := strings.Join(it.Summary, "\n"); text != "" {
-			s.sink.Apply(timeline.Event{Kind: "thinking", Text: text})
+			s.apply(parent, timeline.Event{Kind: "thinking", Text: text})
 		}
 	case "plan":
-		s.sink.Apply(timeline.Event{Kind: "tool_start", ToolUseID: it.ID, Name: "ExitPlanMode", Input: mustJSON(map[string]string{"plan": it.Text})})
+		s.apply(parent, timeline.Event{Kind: "tool_start", ToolUseID: it.ID, Name: "ExitPlanMode", Input: mustJSON(map[string]string{"plan": it.Text})})
 	case "contextCompaction":
-		s.sink.Apply(timeline.Event{Kind: "compacted", Trigger: "manual"})
+		s.apply(parent, timeline.Event{Kind: "compacted", Trigger: "manual"})
 	default:
 		if _, open := s.details[it.ID]; !open {
 			return
@@ -301,7 +414,7 @@ func (s *Session) completed(it item) {
 		if it.DurationMs != nil {
 			e.DurationMs = *it.DurationMs
 		}
-		s.sink.Apply(e)
+		s.apply(parent, e)
 		delete(s.details, it.ID)
 	}
 }

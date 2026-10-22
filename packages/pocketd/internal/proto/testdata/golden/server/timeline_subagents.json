@@ -22,7 +22,8 @@
         "detail": {
           "kind": "task",
           "description": "List the repo",
-          "model": "claude-haiku-4-5-20251001"
+          "model": "claude-haiku-4-5-20251001",
+          "tokens": 18508
         },
         "status": "ok",
         "output": "README.md and src/\nagentId: a1157000000000001",
@@ -40,7 +41,8 @@
         "detail": {
           "kind": "task",
           "description": "Count 1 to 3",
-          "model": "claude-opus-5"
+          "model": "claude-opus-5",
+          "tokens": 24006
         },
         "status": "ok",
         "output": "1, 2, 3\nagentId: ac0c0000000000002",

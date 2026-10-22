@@ -7,6 +7,7 @@ pub mod mcp;
 mod outgoing;
 mod rows;
 mod session;
+mod spawned;
 mod timeline;
 
 pub use adapter::{capabilities, for_provider, Backend, Capabilities};
@@ -15,6 +16,7 @@ pub use marks::{marks, mention_name, Marks};
 pub use outgoing::{action, busy, Action, Delivery, Outgoing, Pending};
 pub use rows::{at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows, running_agent, settled_tail, splice, step_prompt, top_gap, worked, Row};
 pub use session::{Folds, Session};
+pub use spawned::{Spawned, spawned};
 pub use timeline::Fold;
 
 /// One agent's conversation, oldest turn first.
@@ -96,6 +98,8 @@ pub struct SubAgent {
     pub transcript: Transcript,
     /// The model it runs on, an alias until it first replies; empty when unknown.
     pub model: String,
+    /// The context it last answered from; 0 until it first replies.
+    pub tokens: u64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

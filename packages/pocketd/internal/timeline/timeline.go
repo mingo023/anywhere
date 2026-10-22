@@ -12,7 +12,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_background, tool_end, result, retried, notice, compacted, error
+	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_tokens, tool_background, tool_end, result, retried, notice, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -24,6 +24,8 @@ type Event struct {
 	Error      string
 	Trigger    string
 	Usage      *proto.TurnUsage
+	// Tokens is the context a sub-agent last answered from, on a tool_tokens.
+	Tokens int64
 	// ParentToolUseID tags a sub-agent's event with the tool call that spawned it.
 	ParentToolUseID string
 	// TaskID names a call sent to the background, for the calls that later read or stop it.
@@ -245,6 +247,16 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		}
 		call := *t.items[n].Call
 		call.Detail.Model = e.Name
+		t.items[n].Call = &call
+		return t.items[n], true
+
+	case "tool_tokens":
+		n := t.call(e.ToolUseID)
+		if n < 0 || t.items[n].Call.Detail.Kind != "task" || t.items[n].Call.Detail.Tokens == e.Tokens {
+			return proto.Item{}, false
+		}
+		call := *t.items[n].Call
+		call.Detail.Tokens = e.Tokens
 		t.items[n].Call = &call
 		return t.items[n], true
 

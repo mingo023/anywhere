@@ -553,7 +553,7 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "agent-arc", "agent-done", "agent-failed", "agent-ring", "agent-starting", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "circle-x", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple", "diff-split",
+    "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "circle-x", "claude", "clock", "cloud", "comment", "compose", "copy", "diff-multiple", "diff-split",
     "discard", "explorer", "external", "file", "file-plus", "filter", "flow", "folder", "folder-plus", "forward", "globe", "grip", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stop", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
