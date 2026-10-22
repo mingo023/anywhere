@@ -51,6 +51,11 @@ var serverGolden = map[string]any{
 		{Name: "review", Description: "Review a pull request", ArgumentHint: "<pr>"},
 	}),
 	"agent_btw": NewAgentBtw("b1", "a1", "It reads the config once at start."),
+	"agent_mcp": NewAgentMcp("m1", "a1", []McpServer{
+		{Name: "fff", Status: "connected", Scope: "user"},
+		{Name: "claude.ai Linear", Status: "needsAuth", Scope: "claude.ai"},
+	}, ""),
+	"agent_mcp_auth": NewAgentMcp("m2", "a1", []McpServer{{Name: "linear", Status: "needsAuth", Scope: "user"}}, "https://mcp.linear.app/authorize?state=s1"),
 	"agent_list_restored": NewAgentList("l1", []AgentSummary{
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a1", RestoreResumed }),
 		with(func(s *AgentSummary) { s.ID, s.Restore = "a2", RestoreInterrupted }),
@@ -187,6 +192,9 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.view","id":"1"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a"}`,
 		`{"type":"agent.settings","id":"1","agentId":"a"}`,
+		`{"type":"agent.mcp","id":"1","agentId":"a","action":"auth"}`,
+		`{"type":"agent.mcp","id":"1","agentId":"a","action":"delete","server":"x"}`,
+		`{"type":"agent.mcp","id":"1","agentId":"a","server":"x"}`,
 		`{"type":"agent.settings","id":"1","agentId":"a","access":"settings"}`,
 		`{"type":"agent.settings","id":"1","agentId":"a","access":"root"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a","pinned":"yes"}`,

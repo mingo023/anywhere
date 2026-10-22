@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -31,10 +33,36 @@ type stream struct {
 	stopping bool                          // a stop is under way, so the turn's result is no turn end
 	next     int
 	messages int // messages claude has streamed, to name each block it drafts
+	// Servers whose sign-in went to a browser with no callback to claude, as a claude.ai
+	// connector's does; claude learns it finished only on a reconnect.
+	signIns map[string]bool
 }
 
 func newStream() *stream {
-	return &stream{replies: map[string]chan controlAnswer{}, asks: map[string]context.CancelFunc{}}
+	return &stream{replies: map[string]chan controlAnswer{}, asks: map[string]context.CancelFunc{}, signIns: map[string]bool{}}
+}
+
+func (s *stream) signInStarted(server string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.signIns[server] = true
+}
+
+func (s *stream) signingIn() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Collect(maps.Keys(s.signIns))
+}
+
+// signedIn forgets the sign-ins of servers that no longer need one.
+func (s *stream) signedIn(servers []proto.McpServer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for name := range s.signIns {
+		if !slices.ContainsFunc(servers, func(m proto.McpServer) bool { return m.Name == name && m.Status == "needsAuth" }) {
+			delete(s.signIns, name)
+		}
+	}
 }
 
 type controlAnswer struct {
@@ -536,4 +564,78 @@ func (c streamDriver) Commands() ([]proto.Command, error) {
 	}
 	json.Unmarshal(body, &r)
 	return r.Commands, nil
+}
+
+// Mcp asks claude how its session's MCP servers stand, first reconnecting those
+// whose browser sign-in it can't hear finish.
+func (c streamDriver) Mcp() ([]proto.McpServer, error) {
+	if !c.inForeground() {
+		return nil, errNotForeground
+	}
+	for _, name := range c.pr.stream.signingIn() {
+		// Claude refuses while the sign-in is unfinished; the status says so.
+		c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "mcp_reconnect", "serverName": name})
+	}
+	body, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "mcp_status"})
+	if err != nil {
+		return nil, err
+	}
+	servers := claudeMcp(body)
+	c.pr.stream.signedIn(servers)
+	return servers, nil
+}
+
+// McpAct asks claude to sign in to, reconnect or enable server. A sign-in asked again
+// starts over, as when its browser tab was closed; one claude can't hear finish is
+// reconnected each time the servers are listed.
+func (c streamDriver) McpAct(action, server string) (string, error) {
+	if !c.inForeground() {
+		return "", errNotForeground
+	}
+	req := map[string]any{"serverName": server}
+	switch action {
+	case "auth":
+		req["subtype"] = "mcp_authenticate"
+	case "reconnect":
+		req["subtype"] = "mcp_reconnect"
+	case "enable":
+		req["subtype"], req["enabled"] = "mcp_toggle", true
+	}
+	body, err := c.pr.stream.control(c.pr.ctx, req)
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		AuthURL          string `json:"authUrl"`
+		CallbackExpected bool   `json:"callbackExpected"`
+	}
+	json.Unmarshal(body, &r)
+	if r.AuthURL != "" && !r.CallbackExpected {
+		c.pr.stream.signInStarted(server)
+	}
+	return r.AuthURL, nil
+}
+
+func claudeMcp(body json.RawMessage) []proto.McpServer {
+	var r struct {
+		McpServers []struct{ Name, Status, Scope string } `json:"mcpServers"`
+	}
+	json.Unmarshal(body, &r)
+	out := make([]proto.McpServer, len(r.McpServers))
+	for i, s := range r.McpServers {
+		status := s.Status
+		switch s.Status {
+		case "connected", "pending", "failed", "disabled":
+		case "needs-auth":
+			status = "needsAuth"
+		default:
+			status = "pending"
+		}
+		scope := s.Scope
+		if scope == "claudeai" {
+			scope = "claude.ai"
+		}
+		out[i] = proto.McpServer{Name: s.Name, Status: status, Scope: scope}
+	}
+	return out
 }

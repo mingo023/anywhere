@@ -1,6 +1,6 @@
 //! Terminals and agents on hosts next to this Mac's: their ids carry the host's, and ops go back to the pocketd holding them.
 
-use agents::{Decision, Event, Outbox, Summary};
+use agents::{Decision, Event, McpAction, Outbox, Summary};
 use daemon::{Daemon, Info, Msg};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -128,7 +128,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(request);
             t(agent);
         }
-        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } => t(agent),
+        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } => t(agent),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
         Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } => {}
         Event::Host(_)
@@ -242,6 +242,14 @@ impl Outboxes {
 
     pub fn commands(&self, agent_id: &str) {
         self.by_id(agent_id, |o, id| o.commands(id));
+    }
+
+    pub fn mcp(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.mcp(id));
+    }
+
+    pub fn mcp_act(&self, agent_id: &str, action: McpAction, server: &str) {
+        self.by_id(agent_id, |o, id| o.mcp_act(id, action, server));
     }
 
     pub fn btw(&self, agent_id: &str, question: &str) -> Option<String> {

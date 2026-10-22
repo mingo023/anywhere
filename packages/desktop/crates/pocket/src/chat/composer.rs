@@ -319,8 +319,10 @@ impl Desktop {
         self.chats.composer.draft.clear();
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
-            return self.chat_local(&agent, local, &arg, cx);
+            return self.chat_local(&agent, local, &arg, window, cx);
         }
+        // A command's name must lead what it sends.
+        let text = if slash.is_some() { text } else { self.chats.composer.suggest.with_mcp_context(&agent, &provider, &text) };
         if chat::skips_queue(&typed) {
             self.outbox.prompt(&agent, &text);
             return cx.notify();
@@ -339,8 +341,9 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Runs a command the desktop does itself: a picker without its argument opens the model pill on its side.
-    fn chat_local(&mut self, agent: &str, local: Local, arg: &str, cx: &mut Context<Self>) {
+    /// Runs a command the desktop does itself: a picker without its argument opens the model pill on its side, and
+    /// `/mcp` lists the servers to tag, its argument as the query.
+    fn chat_local(&mut self, agent: &str, local: Local, arg: &str, window: &mut Window, cx: &mut Context<Self>) {
         match (local, arg) {
             (Local::Model | Local::Effort, "") => {
                 self.load_models(cx);
@@ -354,6 +357,7 @@ impl Desktop {
             (Local::New, _) => self.new_chat_tab(Place::Pane(None), cx),
             (Local::Btw, "") => {}
             (Local::Btw, question) => self.chat_btw_ask(agent, question),
+            (Local::Mcp, query) => self.type_text(Prompt::Chat, &format!("{}{query}", chat::mcp::TAG), window, cx),
         }
         cx.notify();
     }

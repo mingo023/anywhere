@@ -30,6 +30,8 @@ var Needs = map[string]Scope{
 	"ws:agent.create":       Spawn,
 	"ws:agent.providers":    Observe,
 	"ws:agent.commands":     Observe,
+	"ws:agent.mcp":          Observe,
+	"ws:agent.mcp.act":      Drive,
 	"ws:config.set":         Own,
 	"ws:worktree.rename":    Own,
 	"ws:local.create":       Own,

@@ -44,7 +44,12 @@ type ClientMessage struct {
 	Model           string
 	Effort          string
 	Access          string
+	Action          string
+	Server          string
 }
+
+// McpActions are what agent.mcp may do to a server before it lists them.
+var McpActions = []string{"auth", "reconnect", "enable"}
 
 var ErrMalformed = errors.New("Malformed message")
 
@@ -117,6 +122,9 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && strings.TrimSpace(m.Text) != ""
 	case m.Type == "agent.interrupt", m.Type == "agent.send_now", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
 		ok = get("agentId", &m.AgentID)
+	case m.Type == "agent.mcp":
+		ok = get("agentId", &m.AgentID) && optionalString("action", &m.Action) && optionalString("server", &m.Server) &&
+			(m.Action == "" && m.Server == "" || slices.Contains(McpActions, m.Action) && m.Server != "")
 	case m.Type == "agent.settings":
 		ok = get("agentId", &m.AgentID) && optionalString("model", &m.Model) && optionalString("effort", &m.Effort) && optionalString("access", &m.Access) &&
 			(m.Access == "" || m.Access != "settings" && slices.Contains(Accesses, m.Access)) && (m.Model != "" || m.Effort != "" || m.Access != "")
@@ -253,6 +261,31 @@ type AgentBtw struct {
 
 func NewAgentBtw(id, agentID, answer string) AgentBtw {
 	return AgentBtw{"agent.btw", id, agentID, answer}
+}
+
+// McpServer is an MCP server the agent's session has, and how its connection stands:
+// connected, pending, needsAuth, failed or disabled.
+type McpServer struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Scope  string `json:"scope,omitempty"`
+}
+
+// AgentMcp lists the servers after any action the request asked for; a sign-in the user finishes in a browser
+// carries its URL.
+type AgentMcp struct {
+	Type    string      `json:"type"`
+	ID      string      `json:"id"`
+	AgentID string      `json:"agentId"`
+	Servers []McpServer `json:"servers"`
+	AuthURL string      `json:"authUrl,omitempty"`
+}
+
+func NewAgentMcp(id, agentID string, servers []McpServer, authURL string) AgentMcp {
+	if servers == nil {
+		servers = []McpServer{}
+	}
+	return AgentMcp{"agent.mcp", id, agentID, servers, authURL}
 }
 
 type Worktree struct {

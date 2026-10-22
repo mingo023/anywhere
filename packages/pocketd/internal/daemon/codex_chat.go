@@ -116,7 +116,8 @@ func (x *codexChat) Notify(method string, params json.RawMessage) {
 		Turn     struct {
 			ID string `json:"id"`
 		} `json:"turn"`
-		Goal codexGoal `json:"goal"`
+		Goal    codexGoal `json:"goal"`
+		Success bool      `json:"success"`
 	}
 	json.Unmarshal(params, &p)
 	switch method {
@@ -127,6 +128,12 @@ func (x *codexChat) Notify(method string, params json.RawMessage) {
 	case "thread/status/changed":
 		if x.wait() && p.ThreadID == x.threadID() {
 			x.status(p.Status)
+		}
+	case "mcpServer/oauthLogin/completed":
+		// The thread's servers connected before the sign-in; a restart brings its token in.
+		// Off the read loop, which the answer comes back on.
+		if p.Success && x.wait() && (p.ThreadID == "" || p.ThreadID == x.threadID()) {
+			go x.request("config/mcpServer/reload", nil)
 		}
 	case "turn/started", "turn/completed":
 		if x.wait() && p.ThreadID == x.threadID() {
@@ -490,6 +497,89 @@ func (c codexChatDriver) Commands() ([]proto.Command, error) {
 		out[i] = proto.Command{Name: s.Name, Description: cmp.Or(s.ShortDescription, s.Description)}
 	}
 	return out, nil
+}
+
+// Mcp asks codex how the thread's MCP servers stand.
+func (c codexChatDriver) Mcp() ([]proto.McpServer, error) {
+	if !c.inForeground() {
+		return nil, errNotForeground
+	}
+	if err := c.x.usable(); err != nil {
+		return nil, err
+	}
+	var out []proto.McpServer
+	params := map[string]any{"detail": "toolsAndAuthOnly"}
+	for {
+		res, err := c.x.call("mcpServerStatus/list", params)
+		if err != nil {
+			return nil, err
+		}
+		servers, next := codexMcp(res)
+		out = append(out, servers...)
+		if next == "" {
+			return out, nil
+		}
+		params["cursor"] = next
+	}
+}
+
+// McpAct asks codex to sign in to server, starting over when asked again, or to restart
+// the thread's servers to reconnect it; codex can't enable one from the chat.
+func (c codexChatDriver) McpAct(action, server string) (string, error) {
+	if !c.inForeground() {
+		return "", errNotForeground
+	}
+	if err := c.x.usable(); err != nil {
+		return "", err
+	}
+	switch action {
+	case "auth":
+		res, err := c.x.call("mcpServer/oauth/login", map[string]any{"name": server})
+		if err != nil {
+			return "", err
+		}
+		var r struct {
+			AuthorizationURL string `json:"authorizationUrl"`
+		}
+		json.Unmarshal(res, &r)
+		return r.AuthorizationURL, nil
+	case "reconnect":
+		_, err := c.x.request("config/mcpServer/reload", nil)
+		return "", err
+	}
+	return "", errors.New("Codex can't enable an MCP server from the chat")
+}
+
+// codexMcp reads a page of mcpServerStatus/list in the wire's terms, and the cursor to the next.
+func codexMcp(res json.RawMessage) ([]proto.McpServer, string) {
+	var r struct {
+		Data []struct {
+			Name          string `json:"name"`
+			RuntimeStatus string `json:"runtimeStatus"`
+			AuthStatus    string `json:"authStatus"`
+			PluginID      string `json:"pluginId"`
+		} `json:"data"`
+		NextCursor string `json:"nextCursor"`
+	}
+	json.Unmarshal(res, &r)
+	out := make([]proto.McpServer, len(r.Data))
+	for i, s := range r.Data {
+		status := "pending"
+		switch {
+		case s.RuntimeStatus == "connected", s.RuntimeStatus == "failed", s.RuntimeStatus == "disabled":
+			status = s.RuntimeStatus
+		case s.RuntimeStatus == "cancelled":
+			status = "failed"
+		case s.RuntimeStatus == "authenticationRequired", s.RuntimeStatus == "" && s.AuthStatus == "notLoggedIn":
+			status = "needsAuth"
+		}
+		scope := ""
+		if s.PluginID != "" {
+			scope = "plugin"
+		}
+		out[i] = proto.McpServer{Name: s.Name, Status: status, Scope: scope}
+	}
+	return out, r.NextCursor
 }
 
 func (c codexChatDriver) Compact() error {

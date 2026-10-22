@@ -36,6 +36,7 @@ type fakeDriver struct {
 	interrupts, compacts int
 	settings             [][2]string
 	accesses             []string
+	mcpActs              []string
 }
 
 func (d *fakeDriver) Prompt(text string) error { d.prompts = append(d.prompts, text); return nil }
@@ -51,6 +52,13 @@ func (d *fakeDriver) Access(access string) error {
 }
 func (d *fakeDriver) Commands() ([]proto.Command, error) {
 	return []proto.Command{{Name: "goal", ArgumentHint: "[<condition> | clear]"}}, nil
+}
+func (d *fakeDriver) Mcp() ([]proto.McpServer, error) {
+	return []proto.McpServer{{Name: "fff", Status: "connected"}}, nil
+}
+func (d *fakeDriver) McpAct(action, server string) (string, error) {
+	d.mcpActs = append(d.mcpActs, action+" "+server)
+	return "https://auth.example/" + server, nil
 }
 func (d *fakeDriver) Close() {}
 
@@ -410,6 +418,29 @@ func TestTheGoldenCommandsAsksTheDriverForItsList(t *testing.T) {
 	}
 }
 
+func TestTheGoldenMcpAsksTheDriverHowItsServersStand(t *testing.T) {
+	_, _, p := setup(t)
+	p.hello()
+	raw, _ := os.ReadFile(filepath.Join("..", "proto", "testdata", "golden", "client", "agent_mcp.json"))
+	p.send(string(raw))
+	m := p.recv()
+	want := []any{map[string]any{"name": "fff", "status": "connected"}}
+	if m["type"] != "agent.mcp" || m["id"] != "m1" || m["agentId"] != "a1" || !reflect.DeepEqual(m["servers"], want) {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestTheGoldenMcpSignInActsThenListsWithItsURL(t *testing.T) {
+	_, d, p := setup(t)
+	p.hello()
+	raw, _ := os.ReadFile(filepath.Join("..", "proto", "testdata", "golden", "client", "agent_mcp_auth.json"))
+	p.send(string(raw))
+	m := p.recv()
+	if m["type"] != "agent.mcp" || m["authUrl"] != "https://auth.example/linear" || !reflect.DeepEqual(d.mcpActs, []string{"auth linear"}) {
+		t.Fatalf("%v %v", m, d.mcpActs)
+	}
+}
+
 type resumingDriver struct{ fakeDriver }
 
 func (*resumingDriver) Prompt(string) error { return agent.ErrResuming }
@@ -757,6 +788,19 @@ func TestResolveWithoutApproveIsRefused(t *testing.T) {
 	if m := p.recv(); m["type"] != "error" || m["code"] != "scope_denied" ||
 		m["message"] != "permission.resolve needs approve; run it outside Pocket Terminals, or against a scratch pocketd (POCKETD_SOCK)" {
 		t.Fatalf("%v", m)
+	}
+}
+
+func TestAnObserverListsMcpServersButCantActOnThem(t *testing.T) {
+	_, d, p := local(t, peer.Principal{Kind: peer.Device, Scopes: []peer.Scope{peer.Observe}})
+	helloAs(p)
+	p.send(`{"type":"agent.mcp","id":"m1","agentId":"a1"}`)
+	if m := p.recv(); m["type"] != "agent.mcp" {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"agent.mcp","id":"m2","agentId":"a1","action":"enable","server":"fff"}`)
+	if m := p.recv(); m["code"] != "scope_denied" || len(d.mcpActs) != 0 {
+		t.Fatalf("%v %v", m, d.mcpActs)
 	}
 }
 

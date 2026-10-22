@@ -1,17 +1,23 @@
 use crate::chat::locate::touched;
-use crate::composer::model_menu::{PAD, row, rows};
+use crate::composer::model_menu::{PAD, ROW, row, rows};
 use crate::desktop::Desktop;
 use crate::palette::{marked, matches};
-use chat::{Kind, Slash};
+use agents::{McpAction, McpServer, McpStatus};
+use chat::{Kind, Local, Slash};
 use gpui_kit::component::input::{Enter, Escape, IndentInline, MoveDown, MoveUp, RopeExt as _, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::time::Duration;
 use theme::*;
 
 /// The rows the list shows at once.
 const SHOWN: usize = 8;
+
+/// How often the servers are asked again while one settles: a sign-in waits on the browser, which tells us nothing
+/// when it ends, or a server still connects.
+const SETTLE_CHECK: Duration = Duration::from_secs(3);
 
 /// The `/` and `@` list over the composer, and what it lists from.
 #[derive(Default)]
@@ -20,6 +26,15 @@ pub(crate) struct Suggest {
     commands: HashMap<String, Vec<agents::Command>>,
     /// Each folder's files as git lists them, relative to it; empty while they load.
     files: HashMap<String, Vec<String>>,
+    /// Each agent's MCP servers as it last told them, or why it couldn't, by agent id; `None` while the first answer
+    /// is on its way.
+    servers: HashMap<String, Option<Result<Vec<McpServer>, String>>>,
+    /// The server each agent is acting on, by agent id, until its answer.
+    acting: HashMap<String, (String, McpAction)>,
+    /// The servers whose sign-in went to the browser, as (agent id, server), until they no longer wait on one.
+    signing_in: HashSet<(String, String)>,
+    /// The agents whose servers are to be asked again as they settle, until they are.
+    rechecking: HashSet<String>,
     list: Option<List>,
     selected: usize,
 }
@@ -37,20 +52,102 @@ enum Rows {
     Commands { at: usize, query: String, rows: Vec<Slash> },
     /// `at` is where the `@` stands.
     Files { at: usize, query: String, paths: Vec<String> },
+    /// `at` is where the `@mcp/` tag stands; `servers` are those that hold the query, as `chat::mcp::picker` orders
+    /// them, and `None` while they load. The first `pickable` take a tag or an action.
+    Servers { at: usize, query: String, servers: Option<Result<Vec<McpServer>, String>>, pickable: usize },
 }
 
 impl Rows {
+    /// The rows a pick can take.
     fn len(&self) -> usize {
         match self {
             Rows::Commands { rows, .. } => rows.len(),
             Rows::Files { paths, .. } => paths.len(),
+            Rows::Servers { pickable, .. } => *pickable,
         }
     }
+}
+
+fn listed(servers: &Option<Result<Vec<McpServer>, String>>) -> &[McpServer] {
+    match servers {
+        Some(Ok(servers)) => servers,
+        _ => &[],
+    }
+}
+
+/// What follows the `@` of a server's tag.
+fn mcp_word() -> &'static str {
+    &chat::mcp::TAG[1..]
+}
+
+/// Whether `provider`'s chat takes `/mcp`.
+fn offers_mcp(provider: &str) -> bool {
+    chat::for_provider(provider).command("mcp", "") == Kind::Local(Local::Mcp)
 }
 
 impl Suggest {
     pub(crate) fn listed(&mut self, agent: String, commands: Vec<agents::Command>) {
         self.commands.insert(agent, commands);
+    }
+
+    /// Takes `agent`'s servers; once `acted` on one, a sign-in URL means it now waits on the browser.
+    pub(crate) fn mcp_listed(&mut self, agent: String, servers: Result<Vec<McpServer>, String>, auth_url: &str, acted: bool) {
+        if acted
+            && let Some((server, McpAction::Auth)) = self.acting.remove(&agent)
+            && !auth_url.is_empty()
+        {
+            self.signing_in.insert((agent.clone(), server));
+        }
+        if let Ok(list) = &servers {
+            let waits = |name: &str| list.iter().any(|s| s.name == name && s.status == McpStatus::NeedsAuth);
+            self.signing_in.retain(|(a, name)| *a != agent || waits(name));
+        }
+        self.servers.insert(agent, Some(servers));
+    }
+
+    pub(crate) fn mcp_act_failed(&mut self, agent: &str) {
+        self.acting.remove(agent);
+    }
+
+    /// What `agent` is to do to `s` now, as `provider` can; nothing while it acts on another, one at a time.
+    fn act(&mut self, agent: &str, provider: &str, s: &McpServer) -> Option<McpAction> {
+        let action = chat::mcp::action(provider, s).filter(|_| !self.acting.contains_key(agent))?;
+        self.acting.insert(agent.into(), (s.name.clone(), action));
+        Some(action)
+    }
+
+    fn signs_in(&self, agent: &str, server: &str) -> bool {
+        self.signing_in.contains(&(agent.to_string(), server.to_string()))
+    }
+
+    /// Whether `agent` waits on a browser sign-in or a server that still connects.
+    fn settling(&self, agent: &str) -> bool {
+        let connecting = self.servers.get(agent).is_some_and(|l| listed(l).iter().any(|s| s.status == McpStatus::Pending));
+        connecting || self.signing_in.iter().any(|(a, _)| a == agent)
+    }
+
+    /// Whether to ask `agent`'s servers again shortly: they settle and no ask is due yet.
+    fn rechecks(&mut self, agent: &str) -> bool {
+        self.settling(agent) && self.rechecking.insert(agent.into())
+    }
+
+    /// `text` led by a line asking `agent` to use the MCP servers it tags.
+    pub(crate) fn with_mcp_context(&self, agent: &str, provider: &str, text: &str) -> String {
+        match self.servers.get(agent) {
+            Some(Some(Ok(servers))) => chat::mcp::with_context(text, servers, provider),
+            _ => text.to_string(),
+        }
+    }
+
+    /// Whether to ask `agent` for its MCP servers: each time a tag starts, as they connect and drop, and while none
+    /// came yet.
+    fn asks_servers(&mut self, agent: &str, text: &str, cursor: usize) -> bool {
+        let tag = word(text, cursor, '@').and_then(|(_, q)| q.strip_prefix(mcp_word()));
+        let ask = tag.is_some_and(|q| q.is_empty() || !self.servers.contains_key(agent));
+        if ask {
+            self.servers.entry(agent.into()).or_insert(None);
+        }
+        ask
     }
 
     /// Whether to ask `agent` for its commands: each time a `/` starts a word, as they can change, and while none
@@ -125,6 +222,47 @@ fn replaced(text: &str, at: usize, cursor: usize, put: &str) -> (String, usize) 
     (format!("{head}{gap}{rest}"), head.len() + 1)
 }
 
+/// A server's row: which agent has it and where, and how it stands, or what picking it does when the agent can't use it
+/// now; one it can do nothing about is dimmed.
+fn server_row(r: Stateful<Div>, s: &McpServer, provider: &str, query: &str, signing_in: bool, acting: Option<McpAction>) -> Stateful<Div> {
+    let status = match s.status {
+        McpStatus::Connected => "Available",
+        McpStatus::Pending => "Connecting",
+        McpStatus::NeedsAuth if signing_in => "Finish signing in in your browser",
+        McpStatus::NeedsAuth => "Needs authentication",
+        McpStatus::Failed => "Failed to connect",
+        McpStatus::Disabled => "Disabled",
+    };
+    let action = chat::mcp::action(provider, s);
+    let (label, color) = match (acting, action) {
+        (Some(McpAction::Auth), _) => ("Signing in…", TEXT_3),
+        (Some(McpAction::Reconnect), _) => ("Reconnecting…", TEXT_3),
+        (Some(McpAction::Enable), _) => ("Enabling…", TEXT_3),
+        (None, Some(McpAction::Auth)) if signing_in => ("Sign in again", WAITING_TEXT),
+        (None, Some(McpAction::Auth)) => ("Sign in", WAITING_TEXT),
+        (None, Some(McpAction::Reconnect)) => ("Reconnect", ACCENT_LINK),
+        (None, Some(McpAction::Enable)) => ("Enable", ACCENT_LINK),
+        (None, None) if chat::mcp::usable(s) => (status, TEXT_3),
+        (None, None) => (status, TEXT_4),
+    };
+    let mut place = vec![provider_name(provider), s.scope.as_str()];
+    if action.is_some() {
+        place.push(status);
+    }
+    let place = place.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" · ");
+    let name = div().truncate().child(marked(s.name.clone(), &[query.to_lowercase()]));
+    r.h(px(44.))
+        .when(!chat::mcp::usable(s) && action.is_none(), |r| r.cursor_default().hover(|s| s).text_color(TEXT_4))
+        .child(provider_icon(provider, 14., TEXT_2))
+        .child(div().flex_1().min_w_0().flex().flex_col().child(name).child(div().truncate().text_size(px(11.)).text_color(TEXT_3).child(place)))
+        .child(div().flex_none().text_size(px(11.)).text_color(color).child(label))
+}
+
+/// A row saying why the list has no server to pick.
+fn note(text: &str, color: Token) -> Stateful<Div> {
+    div().id("chat-suggest-note").min_h(px(ROW)).px(px(10.)).py(px(6.)).flex().items_center().text_size(px(12.)).text_color(color).child(text.to_string())
+}
+
 /// The composer a list serves.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Prompt {
@@ -173,8 +311,8 @@ impl Desktop {
         }
     }
 
-    /// Asks for what the list needs as the draft changes: the agent's commands each time a `/` starts one, and the
-    /// folder's files each time an `@` does.
+    /// Asks for what the list needs as the draft changes: the agent's commands each time a `/` starts one, its MCP
+    /// servers each time an `@mcp/` tag does, and the folder's files each time another `@` does.
     pub(crate) fn draft_changed(&mut self, p: Prompt, cx: &mut Context<Self>) {
         self.suggest_state_mut(p).selected = 0;
         let Some(t) = self.suggest_target(p) else { return self.suggest(p, cx) };
@@ -184,14 +322,19 @@ impl Desktop {
         if p == Prompt::Chat && s.asks_commands(&t.key, &text, cursor) {
             self.outbox.commands(&t.key);
         }
-        if self.suggest_state_mut(p).loads_files(&t.cwd, &text, cursor) {
+        if p == Prompt::Chat && offers_mcp(&t.provider) && word(&text, cursor, '@').is_some_and(|(_, q)| q.starts_with(mcp_word())) {
+            if self.suggest_state_mut(p).asks_servers(&t.key, &text, cursor) {
+                self.outbox.mcp(&t.key);
+            }
+        } else if self.suggest_state_mut(p).loads_files(&t.cwd, &text, cursor) {
             self.load_files(p, &t.cwd, cx);
         }
         self.suggest(p, cx);
     }
 
-    /// Works the list out again for the draft as it stands. A new session, or a `/` past the draft's start, lists
-    /// only the commands sent as prompts: nothing runs yet, and a command runs only from the start.
+    /// Works the list out again for the draft as it stands. A new session lists only the commands sent as prompts, as
+    /// nothing runs yet; a `/` past the draft's start lists those and `/mcp`, as another command runs only from the
+    /// start.
     pub(crate) fn suggest(&mut self, p: Prompt, cx: &mut Context<Self>) {
         let t = self.suggest_target(p);
         let input = self.suggest_input(p).read(cx);
@@ -201,12 +344,19 @@ impl Desktop {
             if let Some((at, query)) = word(&text, cursor, '/') {
                 let listed = s.commands.get(&t.key).map_or(&[][..], Vec::as_slice);
                 let mut rows = chat::menu(chat::for_provider(&t.provider), listed, query);
-                if p == Prompt::Launch || !starts_draft(&text, at) {
+                if p == Prompt::Launch {
                     rows.retain(|r| r.kind == Kind::Send);
+                } else if !starts_draft(&text, at) {
+                    rows.retain(|r| matches!(r.kind, Kind::Send | Kind::Local(Local::Mcp)));
                 }
                 return Some(Rows::Commands { at, query: query.into(), rows });
             }
             let (at, query) = word(&text, cursor, '@')?;
+            if let Some(query) = query.strip_prefix(mcp_word()).filter(|_| p == Prompt::Chat && offers_mcp(&t.provider)) {
+                let servers = s.servers.get(&t.key).cloned().flatten().map(|r| r.map(|all| chat::mcp::picker(&all, query)));
+                let pickable = listed(&servers).iter().take_while(|x| chat::mcp::usable(x) || chat::mcp::action(&t.provider, x).is_some()).count();
+                return Some(Rows::Servers { at, query: query.into(), servers, pickable });
+            }
             let root = format!("{}/", hosts::split(&t.cwd).1.trim_end_matches('/'));
             let views = (p == Prompt::Chat).then(|| self.chats.views.get(&t.key)).flatten();
             let touched: Vec<String> = views.map(|v| touched(&v.session.transcript)).unwrap_or_default().iter().filter_map(|p| p.strip_prefix(&root).map(String::from)).collect();
@@ -242,31 +392,50 @@ impl Desktop {
         .detach();
     }
 
-    /// The list, while the input holds the draft it was worked out for and it has rows.
+    /// The list, while the input holds the draft it was worked out for and it has rows; servers show while they load
+    /// or when none fit, to say so.
     fn suggestions(&self, p: Prompt, cx: &App) -> Option<&List> {
         let list = self.suggest_state(p).list.as_ref()?;
         let current = self.suggest_target(p).is_some_and(|t| t.key == list.agent) && *self.suggest_input(p).read(cx).value() == *list.text;
-        (current && list.rows.len() > 0).then_some(list)
+        (current && (list.rows.len() > 0 || matches!(list.rows, Rows::Servers { .. }))).then_some(list)
     }
 
     fn suggest_move(&mut self, p: Prompt, down: bool, cx: &mut Context<Self>) -> bool {
         let Some(total) = self.suggestions(p, cx).map(|l| l.rows.len()) else { return false };
-        self.suggest_state_mut(p).step(down, total);
-        cx.notify();
+        if total > 0 {
+            self.suggest_state_mut(p).step(down, total);
+            cx.notify();
+        }
         true
     }
 
-    /// Puts the picked row in the draft: a command's name, ready for its argument, or a file's path. A command the
-    /// desktop runs itself runs at once.
+    /// Puts the picked row in the draft: a command's name, ready for its argument, a file's path, or a server's tag.
+    /// A command the desktop runs itself runs at once; `/mcp` gives way to a tag, which lists the servers. A server the
+    /// agent can't use now can't be picked.
     fn suggest_pick(&mut self, p: Prompt, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.suggestions(p, cx).is_none() {
-            return false;
+        let Some(shown) = self.suggestions(p, cx) else { return false };
+        if let Rows::Servers { servers, pickable, .. } = &shown.rows {
+            if ix >= *pickable {
+                return false;
+            }
+            let s = &listed(servers)[ix];
+            if !chat::mcp::usable(s) {
+                let (agent, s) = (shown.agent.clone(), s.clone());
+                self.mcp_act(p, &agent, &s, cx);
+                return true;
+            }
         }
         let Some(list) = self.suggest_state_mut(p).list.take() else { return false };
         match list.rows {
             Rows::Commands { at, rows, .. } if !starts_draft(&list.text, at) => {
                 let Some(c) = rows.get(ix) else { return true };
                 let cursor = self.suggest_input(p).read(cx).cursor();
+                if c.kind == Kind::Local(Local::Mcp) {
+                    let text = format!("{}{}{}", &list.text[..at], chat::mcp::TAG, &list.text[cursor..]);
+                    self.put_text(p, text, Some(at + chat::mcp::TAG.len()), window, cx);
+                    self.draft_changed(p, cx);
+                    return true;
+                }
                 let (text, cursor) = replaced(&list.text, at, cursor, &format!("/{}", c.name));
                 self.put_text(p, text, Some(cursor), window, cx);
             }
@@ -278,7 +447,7 @@ impl Desktop {
                 match chat::for_provider(&provider).command(&c.name, arg) {
                     Kind::Local(local) if p == Prompt::Chat => {
                         self.set_chat_text("", window, cx);
-                        self.chat_local(&list.agent, local, arg, cx);
+                        self.chat_local(&list.agent, local, arg, window, cx);
                     }
                     _ => {
                         let (text, cursor) = named(&c.name, arg);
@@ -292,8 +461,39 @@ impl Desktop {
                 let (text, cursor) = replaced(&list.text, at, cursor, &format!("@{path}"));
                 self.put_text(p, text, Some(cursor), window, cx);
             }
+            Rows::Servers { at, servers, .. } => {
+                let cursor = self.suggest_input(p).read(cx).cursor();
+                let (text, cursor) = replaced(&list.text, at, cursor, &format!("{}{}", chat::mcp::TAG, listed(&servers)[ix].name));
+                self.put_text(p, text, Some(cursor), window, cx);
+            }
         }
         true
+    }
+
+    /// Has `agent` sign in to, reconnect or enable `s`, the list staying open to show how it went; one at a time.
+    fn mcp_act(&mut self, p: Prompt, agent: &str, s: &McpServer, cx: &mut Context<Self>) {
+        let Some(t) = self.suggest_target(p) else { return };
+        let Some(action) = self.suggest_state_mut(p).act(agent, &t.provider, s) else { return };
+        self.outbox.mcp_act(agent, action, &s.name);
+        cx.notify();
+    }
+
+    /// Asks `agent`'s servers again shortly while they settle and the chat lists them.
+    pub(crate) fn recheck_servers(&mut self, agent: String, cx: &mut Context<Self>) {
+        if !self.chats.composer.suggest.rechecks(&agent) {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SETTLE_CHECK).await;
+            _ = this.update(cx, |d, cx| {
+                d.chats.composer.suggest.rechecking.remove(&agent);
+                let listing = d.suggestions(Prompt::Chat, cx).is_some_and(|l| l.agent == agent && matches!(l.rows, Rows::Servers { .. }));
+                if listing && d.chats.composer.suggest.settling(&agent) {
+                    d.outbox.mcp(&agent);
+                }
+            });
+        })
+        .detach();
     }
 
     fn put_text(&mut self, p: Prompt, text: String, cursor: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
@@ -342,26 +542,39 @@ impl Desktop {
     /// The list, opening upward over the composer as the model menu does.
     pub(crate) fn suggest_list(&self, p: Prompt, cx: &mut Context<Self>) -> Option<Div> {
         let list = self.suggestions(p, cx)?;
-        let total = list.rows.len();
-        let selected = self.suggest_state(p).selected.min(total - 1);
+        let selected = self.suggest_state(p).selected.min(list.rows.len().saturating_sub(1));
         let pick = |i: usize| cx.listener(move |this, _: &ClickEvent, window, cx| _ = this.suggest_pick(p, i, window, cx));
-        let shown: Vec<Stateful<Div>> = window(selected, total)
-            .map(|i| {
-                let r = row(("chat-suggest", i), i == selected).on_click(pick(i));
-                match &list.rows {
-                    Rows::Commands { query, rows, .. } => {
-                        let c = &rows[i];
-                        r.child(div().flex_none().font_family(code_font()).child(marked(format!("/{}", c.name), &[query.to_lowercase()])))
-                            .when(!c.hint.is_empty(), |r| r.child(div().flex_none().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone())))
-                            .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(c.description.clone()))
-                    }
-                    Rows::Files { query, paths, .. } => {
-                        let p = &paths[i];
-                        r.child(file_icon(p, false, false, 14.)).child(div().flex_1().min_w_0().truncate().child(marked(p.clone(), &[query.to_lowercase()])))
-                    }
+        // Servers the agent can't use now follow those it can, and can't be selected.
+        let r = |i: usize| row(("chat-suggest", i), i == selected && i < list.rows.len()).on_click(pick(i));
+        let shown: Vec<Stateful<Div>> = match &list.rows {
+            Rows::Commands { query, rows, .. } => window(selected, rows.len())
+                .map(|i| {
+                    let c = &rows[i];
+                    r(i).child(div().flex_none().font_family(code_font()).child(marked(format!("/{}", c.name), &[query.to_lowercase()])))
+                        .when(!c.hint.is_empty(), |r| r.child(div().flex_none().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone())))
+                        .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(c.description.clone()))
+                })
+                .collect(),
+            Rows::Files { query, paths, .. } => window(selected, paths.len())
+                .map(|i| {
+                    let p = &paths[i];
+                    r(i).child(file_icon(p, false, false, 14.)).child(div().flex_1().min_w_0().truncate().child(marked(p.clone(), &[query.to_lowercase()])))
+                })
+                .collect(),
+            Rows::Servers { query, servers, .. } => {
+                let provider = self.suggest_target(p).map(|t| t.provider).unwrap_or_default();
+                let s = self.suggest_state(p);
+                let acting = |name: &str| s.acting.get(&list.agent).filter(|(server, _)| server == name).map(|(_, a)| *a);
+                match servers {
+                    None => vec![note("Checking MCP servers…", TEXT_3)],
+                    Some(Err(e)) => vec![note(e, FAILED_TEXT)],
+                    Some(Ok(all)) if all.is_empty() => vec![note(if query.is_empty() { "No MCP servers found" } else { "No matching MCP servers" }, TEXT_3)],
+                    Some(Ok(all)) => window(selected, all.len())
+                        .map(|i| server_row(r(i), &all[i], &provider, query, s.signs_in(&list.agent, &all[i].name), acting(&all[i].name)))
+                        .collect(),
                 }
-            })
-            .collect();
+            }
+        };
         let id = match p {
             Prompt::Chat => "chat-suggest",
             Prompt::Launch => "launch-suggest",
@@ -384,6 +597,7 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{SHOWN, Suggest, named, rank, replaced, starts_draft, window, word};
+    use agents::{McpAction, McpServer, McpStatus};
     use std::collections::HashSet;
 
     fn owned(paths: &[&str]) -> Vec<String> {
@@ -445,6 +659,72 @@ mod tests {
         assert!(s.asks_commands("b", "/mo", 3));
         assert!(s.asks_commands("a", "ok /", 4), "a slash past the start asks too");
         assert!(!s.asks_commands("c", "a/b", 3));
+    }
+
+    #[test]
+    fn servers_are_asked_for_each_time_a_tag_starts_and_while_none_came() {
+        let mut s = Suggest::default();
+        assert!(s.asks_servers("a", "@mcp/", 5));
+        assert!(!s.asks_servers("a", "@mcp/ff", 7), "asked already");
+        assert!(s.asks_servers("a", "use @mcp/", 9));
+        assert!(s.asks_servers("b", "use @mcp/ff", 11));
+        assert!(!s.asks_servers("c", "@src/main", 9));
+    }
+
+    #[test]
+    fn a_send_asks_the_agent_to_use_only_the_servers_it_told_of() {
+        let mut s = Suggest::default();
+        assert_eq!(s.with_mcp_context("a", "codex", "use @mcp/fff"), "use @mcp/fff", "none listed yet");
+        s.mcp_listed("a".into(), Ok(vec![McpServer { name: "fff".into(), status: McpStatus::Connected, scope: String::new() }]), "", false);
+        assert!(s.with_mcp_context("a", "codex", "use @mcp/fff").starts_with("MCP context: Use the configured server \"fff\" (codex)"));
+        assert_eq!(s.with_mcp_context("b", "codex", "use @mcp/fff"), "use @mcp/fff", "another agent's servers");
+    }
+
+    #[test]
+    fn a_sign_in_sent_to_the_browser_waits_until_the_server_no_longer_needs_one() {
+        let server = |status| McpServer { name: "linear".into(), status, scope: String::new() };
+        let mut s = Suggest::default();
+        assert_eq!(s.act("a", "codex", &server(McpStatus::NeedsAuth)), Some(McpAction::Auth));
+        s.mcp_listed("a".into(), Ok(vec![server(McpStatus::NeedsAuth)]), "https://auth.example", true);
+        assert!(s.signs_in("a", "linear") && s.acting.is_empty());
+        s.mcp_listed("a".into(), Ok(vec![server(McpStatus::NeedsAuth)]), "", false);
+        assert!(s.signs_in("a", "linear"), "a list while the browser is open keeps it");
+        s.mcp_listed("a".into(), Ok(vec![server(McpStatus::Connected)]), "", false);
+        assert!(!s.signs_in("a", "linear"));
+    }
+
+    #[test]
+    fn an_agent_acts_on_one_server_at_a_time_until_the_actions_own_reply() {
+        let server = |name: &str| McpServer { name: name.into(), status: McpStatus::NeedsAuth, scope: String::new() };
+        let mut s = Suggest::default();
+        assert_eq!(s.act("a", "claude", &server("linear")), Some(McpAction::Auth));
+        assert_eq!(s.act("a", "claude", &server("asana")), None);
+        s.mcp_listed("a".into(), Ok(vec![server("linear")]), "", false);
+        assert_eq!(s.act("a", "claude", &server("asana")), None, "a plain list crossing the reply ends nothing");
+        s.mcp_listed("a".into(), Ok(vec![server("linear")]), "https://auth.example", true);
+        assert!(s.signs_in("a", "linear"));
+        assert_eq!(s.act("a", "claude", &server("asana")), Some(McpAction::Auth));
+    }
+
+    #[test]
+    fn a_sign_in_that_needs_no_browser_waits_on_nothing() {
+        let mut s = Suggest::default();
+        s.acting.insert("a".into(), ("fff".into(), McpAction::Auth));
+        s.mcp_listed("a".into(), Ok(vec![]), "", true);
+        assert!(!s.signs_in("a", "fff") && s.acting.is_empty());
+    }
+
+    #[test]
+    fn servers_are_asked_again_once_at_a_time_only_while_a_sign_in_or_a_connection_settles() {
+        let server = |status| McpServer { name: "fff".into(), status, scope: String::new() };
+        let mut s = Suggest::default();
+        s.mcp_listed("a".into(), Ok(vec![server(McpStatus::Connected)]), "", false);
+        assert!(!s.rechecks("a"));
+        s.signing_in.insert(("a".into(), "linear".into()));
+        assert!(s.rechecks("a"));
+        assert!(!s.rechecks("a"), "one ask is due already");
+        s.mcp_listed("b".into(), Ok(vec![server(McpStatus::Pending)]), "", false);
+        assert!(s.rechecks("b"), "a server still connects");
     }
 
     #[test]

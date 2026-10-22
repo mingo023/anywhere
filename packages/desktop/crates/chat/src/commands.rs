@@ -19,6 +19,8 @@ pub enum Local {
     New,
     /// A side question, answered beside the conversation.
     Btw,
+    /// Picks an MCP server for the draft to tag.
+    Mcp,
 }
 
 /// A command an agent offers before its CLI lists any.
@@ -113,6 +115,7 @@ mod tests {
         assert_eq!(claude.command("model", "haiku"), Kind::Local(Local::Model));
         assert_eq!(claude.command("compact", ""), Kind::Local(Local::Compact));
         assert_eq!(claude.command("btw", "why?"), Kind::Local(Local::Btw));
+        assert_eq!(claude.command("mcp", ""), Kind::Local(Local::Mcp));
         assert_eq!(claude.command("compact", "keep the plan"), Kind::Send, "an instruction only Claude can take");
         assert_eq!(claude.command("clear", ""), Kind::Unsupported);
         assert_eq!(claude.command("cost", ""), Kind::Unsupported);
@@ -131,6 +134,7 @@ mod tests {
         assert_eq!(codex.command("clear", ""), Kind::Unsupported);
         assert_eq!(codex.command("effort", "high"), Kind::Local(Local::Effort));
         assert_eq!(codex.command("review", ""), Kind::Unsupported);
+        assert_eq!(codex.command("mcp", ""), Kind::Local(Local::Mcp));
     }
 
     #[test]
@@ -141,7 +145,7 @@ mod tests {
     #[test]
     fn the_menu_puts_the_agents_own_first_then_its_list_without_panels_or_twins() {
         let rows = menu(for_provider("claude"), &listed(&["goal", "cost", "clear", "review"]), "");
-        assert_eq!(names(&rows), ["model", "effort", "compact", "btw", "goal", "review"]);
+        assert_eq!(names(&rows), ["model", "effort", "compact", "btw", "goal", "mcp", "review"]);
         assert_eq!(rows[0].kind, Kind::Local(Local::Model));
     }
 

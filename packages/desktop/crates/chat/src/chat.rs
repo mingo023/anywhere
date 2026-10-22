@@ -3,6 +3,7 @@
 mod adapter;
 mod commands;
 mod marks;
+pub mod mcp;
 mod outgoing;
 mod rows;
 mod session;
