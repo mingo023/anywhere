@@ -1,38 +1,46 @@
+use std::iter::Peekable;
 use std::ops::Range;
+use std::str::CharIndices;
 
-/// What a prompt's text marks out: the command it opens with and the files it mentions, as byte ranges.
+/// What a prompt's text marks out: the commands and skills it names and the files it mentions, as byte ranges.
 #[derive(Debug, Default, PartialEq)]
 pub struct Marks {
-    pub command: Option<Range<usize>>,
+    pub commands: Vec<Range<usize>>,
     pub mentions: Vec<Range<usize>>,
 }
 
-/// The `/command` that opens `text`, as [`crate::slash`] reads it, and each `@path` at the start or after whitespace.
+/// Each `/skill` and `@path` in `text`, at its start or after whitespace. A skill's name starts with a letter and may
+/// end in punctuation, as `/review,`, but not run on into a path, as `/usr/bin` or `/notes.md`.
 pub fn marks(text: &str) -> Marks {
-    let command = crate::slash(text).map(|(name, _)| {
-        let start = text.len() - text.trim_start().len();
-        start..start + 1 + name.len()
-    });
-    let part = |c: char| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-');
-    let mut mentions = Vec::new();
+    let mut marks = Marks::default();
     let mut after_space = true;
     let mut chars = text.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
-        if c == '@' && after_space {
-            let mut end = i + 1;
-            while let Some(&(j, c)) = chars.peek().filter(|(_, c)| part(*c)) {
-                end = j + c.len_utf8();
-                chars.next();
-            }
+        if after_space && c == '@' {
+            let end = take(&mut chars, i + 1, |c| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-'));
             if end > i + 1 {
-                mentions.push(i..end);
+                marks.mentions.push(i..end);
             }
-            after_space = false;
-            continue;
+        } else if after_space && c == '/' && text[i + 1..].starts_with(char::is_alphabetic) {
+            let name = take(&mut chars, i + 1, |c| c.is_alphanumeric() || matches!(c, '_' | '-' | ':'));
+            let end = i + 1 + text[i + 1..name].trim_end_matches(':').len();
+            let tail = take(&mut chars, name, |c| !c.is_whitespace());
+            if text[end..tail].chars().all(|c| !c.is_alphanumeric() && c != '/') {
+                marks.commands.push(i..end);
+            }
         }
         after_space = c.is_whitespace();
     }
-    Marks { command, mentions }
+    marks
+}
+
+/// Takes the chars `part` holds off the front of `chars`, and returns where they end; `from` when there are none.
+fn take(chars: &mut Peekable<CharIndices>, from: usize, part: impl Fn(char) -> bool) -> usize {
+    let mut end = from;
+    while let Some((j, c)) = chars.next_if(|&(_, c)| part(c)) {
+        end = j + c.len_utf8();
+    }
+    end
 }
 
 /// What a mention shows: its file's name, or a folder's name and `/`.
@@ -46,17 +54,34 @@ pub fn mention_name(path: &str) -> &str {
 mod tests {
     use super::*;
 
-    fn marked(text: &str) -> (Option<&str>, Vec<&str>) {
+    fn marked(text: &str) -> (Vec<&str>, Vec<&str>) {
         let m = marks(text);
-        (m.command.map(|r| &text[r]), m.mentions.into_iter().map(|r| &text[r]).collect())
+        (m.commands.into_iter().map(|r| &text[r]).collect(), m.mentions.into_iter().map(|r| &text[r]).collect())
     }
 
     #[test]
-    fn a_command_is_marked_only_where_the_text_opens() {
-        assert_eq!(marked("  /review 482").0, Some("/review"));
-        assert_eq!(marked("/goal tests pass").0, Some("/goal"));
-        assert_eq!(marked("why /model?").0, None);
-        assert_eq!(marked("/usage/report.md is empty").0, None);
+    fn a_command_that_opens_the_text_is_marked() {
+        assert_eq!(marked("  /review 482").0, ["/review"]);
+        assert_eq!(marked("/goal tests pass").0, ["/goal"]);
+        assert_eq!(marked("/usage/report.md is empty").0, Vec::<&str>::new());
+    }
+
+    #[test]
+    fn every_skill_a_prompt_names_is_marked() {
+        assert_eq!(marked("/prototype /apple-design cho mình xem thử").0, ["/prototype", "/apple-design"]);
+        assert_eq!(marked("try /figma:figma-use\nthen /review").0, ["/figma:figma-use", "/review"]);
+        assert_eq!(marked("@src/chat.rs then /review"), (vec!["/review"], vec!["@src/chat.rs"]));
+    }
+
+    #[test]
+    fn a_skill_keeps_its_mark_before_punctuation() {
+        let found = marked("/prototype, /apple-design. why /model? or /review: and /done…").0;
+        assert_eq!(found, ["/prototype", "/apple-design", "/model", "/review", "/done"]);
+    }
+
+    #[test]
+    fn paths_and_numbers_stay_plain() {
+        assert_eq!(marked("see /usr/bin, /notes.md and and/or, 1 /2").0, Vec::<&str>::new());
     }
 
     #[test]

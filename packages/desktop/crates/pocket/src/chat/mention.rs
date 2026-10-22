@@ -11,11 +11,11 @@ pub(super) fn hidden() -> HighlightStyle {
     HighlightStyle { fade_out: Some(1.), ..Default::default() }
 }
 
-/// The input's colours for `text`: its command, its mentions, and each mention's `@` hidden under its icon.
+/// The input's colours for `text`: its commands, its mentions, and each mention's `@` hidden under its icon.
 pub(crate) fn decorations(text: &str) -> Vec<TextDecoration> {
     let marks = chat::marks(text);
     let mentions = marks.mentions.into_iter().flat_map(|r| [TextDecoration::new(r.start..r.start + 1, hidden()), TextDecoration::new(r.start + 1..r.end, tint(MENTION))]);
-    marks.command.map(|r| TextDecoration::new(r, tint(COMMAND))).into_iter().chain(mentions).collect()
+    marks.commands.into_iter().map(|r| TextDecoration::new(r, tint(COMMAND))).chain(mentions).collect()
 }
 
 /// Paints the file icon of each `path` over its `slot`, as tall as `size` at most; a folder's when the path ends in `/`.
