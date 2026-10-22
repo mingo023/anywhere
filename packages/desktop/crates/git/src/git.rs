@@ -110,10 +110,14 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
         let added = run.read(&full.to_string_lossy(), MAX_READ).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
         files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A' });
     }
+    let upstream = || git(run, cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string());
     let base = if branch == "main" || branch == "master" {
-        git(run, cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string())
+        upstream()
     } else {
-        ["origin/main", "origin/master", "main", "master"].into_iter().find(|b| git(run, cwd, &["rev-parse", "--verify", "--quiet", b]).is_some()).map(str::to_string)
+        match base_of(run, cwd, &branch) {
+            Some(b) if github::base_branch(&b) == branch => upstream(),
+            b => b,
+        }
     };
     let (ahead, behind, commits) = match &base {
         Some(b) => {
@@ -129,6 +133,28 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
     };
     let unpushed = git(run, cwd, &["rev-list", "--count", "@{u}..HEAD"]).and_then(|n| n.trim().parse().ok());
     Some(Repo { branch, base, ahead, behind, unpushed, files, commits, remotes: remote_names(run, cwd) })
+}
+
+/// What `branch` was created from per its reflog, else origin's default branch, else main or master; origin's copy beats a local one, which may be stale.
+fn base_of(run: &Runner, cwd: &str, branch: &str) -> Option<String> {
+    let exists = |r: &str| git(run, cwd, &["rev-parse", "--verify", "--quiet", r]).is_some();
+    let oldest = lines(git(run, cwd, &["log", "-g", "--format=%gs", &format!("refs/heads/{branch}"), "--"])).pop();
+    oldest
+        .as_deref()
+        .and_then(created_from)
+        .and_then(|n| [("refs/remotes/", format!("origin/{n}")), ("refs/heads/", n.to_string())].into_iter().find(|(at, b)| exists(&format!("{at}{b}"))))
+        .map(|(_, b)| b)
+        .or_else(|| {
+            let default = git(run, cwd, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]).map(|s| s.trim().to_string());
+            default.into_iter().chain(["origin/main", "origin/master", "main", "master"].map(String::from)).find(|b| exists(b))
+        })
+}
+
+/// The branch a reflog's first entry says it was created from, without `refs/…` or `origin/`; `None` when made from HEAD.
+fn created_from(entry: &str) -> Option<&str> {
+    let from = entry.strip_prefix("branch: Created from ")?;
+    let from = from.strip_prefix("refs/remotes/").or_else(|| from.strip_prefix("refs/heads/")).unwrap_or(from);
+    Some(from.strip_prefix("origin/").unwrap_or(from)).filter(|f| *f != "HEAD")
 }
 
 fn name_status(out: &str) -> Vec<(String, char)> {
@@ -608,9 +634,10 @@ pub fn tips(run: &Runner, cwd: &str, all: bool) -> Option<Tips> {
     let current = git(run, cwd, &["symbolic-ref", "-q", "HEAD"]).map(|s| s.trim().to_string());
     let branch = current.as_deref().and_then(tip);
     let upstream = current.as_deref().and_then(|c| refs.iter().find(|(r, ..)| r == c)).and_then(|(.., u)| tip(u));
-    let base = match current.as_deref() {
-        Some("refs/heads/main" | "refs/heads/master") => None,
-        _ => tip("refs/heads/main").or_else(|| tip("refs/heads/master")),
+    let name = current.as_deref().and_then(|c| c.strip_prefix("refs/heads/")).unwrap_or_default();
+    let base = match name {
+        "main" | "master" => None,
+        _ => base_of(run, cwd, name).filter(|b| github::base_branch(b) != name).and_then(|b| tip(&format!("refs/remotes/{b}")).or_else(|| tip(&format!("refs/heads/{b}")))),
     };
     let others = if all { refs.into_iter().map(|(_, sha, _)| sha).collect() } else { Vec::new() };
     Some(Tips { head, branch, upstream, base, others })
@@ -970,6 +997,61 @@ mod tests {
         sh(&repo, &["switch", "-qc", "feature", "--no-track", "origin/main"]);
         let got = read(&Runner::Local, r, true).unwrap();
         assert_eq!((got.base.as_deref(), got.ahead, got.behind, got.unpushed), (Some("origin/main"), 0, 0, None));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A repo on master with origin's develop one commit past it.
+    fn develop_ahead_of_master(tag: &str) -> std::path::PathBuf {
+        let dir = scratch_repo(tag);
+        let repo = dir.join("repo");
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "master"]);
+        sh(&repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
+        sh(&repo, &["commit", "-q", "--allow-empty", "-m", "developed"]);
+        sh(&repo, &["update-ref", "refs/remotes/origin/develop", "HEAD"]);
+        dir
+    }
+
+    #[test]
+    fn a_branch_counts_against_the_branch_it_was_created_from() {
+        let dir = develop_ahead_of_master("grew-from");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        sh(&repo, &["switch", "-qc", "feature", "--no-track", "origin/develop"]);
+        let got = read(&Runner::Local, r, true).unwrap();
+        assert_eq!((got.base.as_deref(), got.ahead, got.behind), (Some("origin/develop"), 0, 0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_graph_follows_the_branch_a_branch_was_created_from() {
+        let dir = develop_ahead_of_master("graph-grew-from");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        sh(&repo, &["switch", "-qc", "feature", "--no-track", "origin/develop"]);
+        assert_eq!(tips(&Runner::Local, r, false).unwrap().base.map(|b| b.name).as_deref(), Some("origin/develop"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn created_from_names_the_branch_without_its_ref_or_remote() {
+        assert_eq!(created_from("branch: Created from origin/develop"), Some("develop"));
+        assert_eq!(created_from("branch: Created from refs/remotes/origin/develop"), Some("develop"));
+        assert_eq!(created_from("branch: Created from main"), Some("main"));
+        assert_eq!(created_from("branch: Created from HEAD"), None);
+        assert_eq!(created_from("commit (initial): init"), None);
+    }
+
+    #[test]
+    fn a_branch_with_no_record_of_its_start_counts_against_origins_default_branch() {
+        let dir = develop_ahead_of_master("origin-head");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        sh(&repo, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop"]);
+        sh(&repo, &["update-ref", "refs/heads/feature", "HEAD"]);
+        sh(&repo, &["switch", "-q", "feature"]);
+        let got = read(&Runner::Local, r, true).unwrap();
+        assert_eq!((got.base.as_deref(), got.ahead, got.behind), (Some("origin/develop"), 0, 0));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
