@@ -37,6 +37,7 @@ pub(crate) struct View {
     pub(crate) session: Session,
     pub(crate) list: ListState,
     pub(crate) tools: Entity<Tools>,
+    _tools: Subscription,
     jump: bool,
     glide: Option<(Instant, Glide)>,
     /// The prompt just sent, held at the top while its reply grows.
@@ -65,7 +66,7 @@ pub(crate) struct View {
 }
 
 impl View {
-    fn new(cx: &mut App) -> Self {
+    fn new(agent: &str, cx: &mut Context<Desktop>) -> Self {
         let list = ListState::new(0, ListAlignment::Bottom, px(320.));
         list.set_follow_mode(FollowMode::Tail);
         let scrolled = Rc::new(Cell::new(None));
@@ -74,7 +75,9 @@ impl View {
             move |e, _, _| scrolled.set(Some(!e.is_scrolled))
         });
         let tools = cx.new(|_| Tools::default());
-        Self { session: Session::default(), list, tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
+        let agent = agent.to_string();
+        let _tools = cx.observe(&tools, move |d, _, _| d.chats.views.get(&agent).into_iter().for_each(View::remeasure_under_pin));
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
     }
 
     /// How far the list sits above its end.
@@ -136,6 +139,13 @@ impl View {
             // before the room shrinks.
             self.list.set_follow_mode(FollowMode::Normal);
             self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+        }
+    }
+
+    /// A row changed height where the list wouldn't know: the held prompt's room can't come from what was measured.
+    fn remeasure_under_pin(&self) {
+        if let Some(ix) = self.pin.as_ref().and_then(|p| p.row(&self.session.rows)) {
+            self.list.remeasure_items(ix..self.list.item_count());
         }
     }
 
@@ -398,7 +408,7 @@ impl Desktop {
         let items = self.agents.timelines.get(&id).map_or(&[][..], Vec::as_slice);
         let creates = &self.creates;
         let view = self.chats.views.entry(id.clone()).or_insert_with(|| {
-            let mut v = View::new(cx);
+            let mut v = View::new(&id, cx);
             // A chat opened from its create shows the prompt pocketd sent before the transcript holds it.
             if let Some(prompt) = creates.unsent(&id, Instant::now()) {
                 v.session.outgoing.push(prompt.to_string(), false, now_ms());
@@ -560,6 +570,7 @@ impl Desktop {
             view.expanded.insert(row.to_string());
         }
         view.toggled = Some((row.to_string(), Instant::now()));
+        view.remeasure_under_pin();
         cx.notify();
     }
 
@@ -568,6 +579,7 @@ impl Desktop {
         if !view.wrapped.remove(row) {
             view.wrapped.insert(row.to_string());
         }
+        view.remeasure_under_pin();
         cx.notify();
     }
 
