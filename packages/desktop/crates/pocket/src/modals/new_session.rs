@@ -549,6 +549,7 @@ impl Desktop {
         self.store.save();
         let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
         if !worktree {
+            self.creates.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default());
             self.new_form.draft.reply.sent(request);
             return cx.notify();
         }
@@ -568,6 +569,7 @@ impl Desktop {
                     self.save_soon(cx);
                 }
                 self.terminals.created(&request, terminal.clone(), cwd.clone(), setup);
+                self.creates.made_terminal(&request, terminal.clone(), Instant::now());
                 self.daemon.send(json!({"op": "list"}));
                 if self.creates.get(&request).is_some() {
                     self.store.track(&cwd);
@@ -604,6 +606,7 @@ impl Desktop {
             }
             Event::CreateFailed { request, message, detail, .. } => {
                 self.terminals.tab_chats.remove(&request);
+                self.creates.failed_in_place(&request);
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());
                 } else if let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown)

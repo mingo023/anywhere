@@ -5,6 +5,7 @@
 // "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn) or "stream-code" (a reply whose code block streams in over 4.5s).
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
+// FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
@@ -403,14 +404,16 @@ Bun.serve({
         const id = `new-${f.requestId}`;
         const tree = checkout?.new?.name ? join(`${project}.worktrees`, checkout.new.name) : project;
         mkdirSync(tree, { recursive: true });
-        sessions.push({ id, cmd: provider, args: [], cwd: tree });
+        sessions.push({ id, cmd: provider, args: [], cwd: tree, local: checkout?.local ?? "" });
         summaries.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: tree, provider, status: "working", pinned: false, createdAt: Date.now(), updatedAt: Date.now() });
         ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd: tree, setup: false }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));
         if (prompt) {
-          item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
-          reply(ws, id);
+          setTimeout(() => {
+            item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
+            reply(ws, id);
+          }, Number(process.env.FIXTURE_ECHO_MS) || 0);
         }
       }
       // What pocketd sends when the agent is still resuming and can't take Esc yet.
