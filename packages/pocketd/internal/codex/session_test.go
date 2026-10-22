@@ -40,6 +40,8 @@ func (s *sink) Apply(e timeline.Event) {
 		}
 	case "tool_tokens":
 		line += fmt.Sprintf(":%s:%d", e.ToolUseID, e.Tokens)
+	case "tool_background":
+		line += ":" + e.ToolUseID
 	case "tool_end":
 		line += fmt.Sprintf(":%s:%v", e.ToolUseID, e.OK)
 		if e.Output != nil {
@@ -401,6 +403,7 @@ func TestASubAgentsWorkNestsUnderTheCallThatSpawnedIt(t *testing.T) {
 	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":{"id":"t1","items":[],"status":"completed","durationMs":9}}`)
 	snk.wait(t,
 		"tool_start:spawn_agent:task:count_a@gpt-6.1-sol",
+		"tool_background:sa1",
 		"sa1>tool_start:shell:shell:wc -l a.txt",
 		"sa1>tool_end:c2:true:3 a.txt\n",
 		"sa1>assistant_text:3",
@@ -414,7 +417,7 @@ func TestASubAgentWhoseTurnFailedEndsItsCallFailed(t *testing.T) {
 	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+spawned+`}`)
 	srv.Push("turn/completed", nil, `{"threadId":"th2","turn":{"id":"t2","items":[],"status":"failed","error":{"message":"boom"}}}`)
 	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+finished+`}`)
-	snk.wait(t, "tool_start:spawn_agent:task:count_a@gpt-6.1-sol", "tool_end:sa1:false")
+	snk.wait(t, "tool_start:spawn_agent:task:count_a@gpt-6.1-sol", "tool_background:sa1", "tool_end:sa1:false:boom")
 }
 
 func TestAResumedThreadReplaysEachSubAgentsWorkFromItsOwnThread(t *testing.T) {
@@ -432,9 +435,25 @@ func TestAResumedThreadReplaysEachSubAgentsWorkFromItsOwnThread(t *testing.T) {
 	})
 	snk.wait(t,
 		"tool_start:spawn_agent:task:count_a@gpt-6.1-sol",
+		"tool_background:sa1",
 		"sa1>tool_start:shell:shell:wc -l a.txt",
 		"sa1>tool_end:c2:true:3 a.txt\n",
 		"sa1>assistant_text:3",
 		"tool_end:sa1:true:3",
 		"result:true:9:")
+}
+
+func TestASubAgentsApprovalClosesItsCardWhenItsThreadResolvesIt(t *testing.T) {
+	srv, _, _, b := open(t, emptyThread)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t1","item":`+spawned+`}`)
+	srv.Push("item/commandExecution/requestApproval", "r1", `{"threadId":"th2","turnId":"t2","itemId":"c2","command":"rm -rf build"}`)
+	waitOpen(t, b)
+	srv.Push("serverRequest/resolved", nil, `{"threadId":"th2","requestId":"r1"}`)
+	for range 200 {
+		if len(b.Open()) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the card stayed open")
 }

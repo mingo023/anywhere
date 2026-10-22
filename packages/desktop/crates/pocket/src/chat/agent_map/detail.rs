@@ -1,4 +1,4 @@
-use super::{CARD, calls, close_button, mark, name, ran_ms};
+use super::{CARD, calls, close_button, mark, name, ran_ms, thousands};
 use crate::chat::meta::format_timestamp;
 use crate::chat::sub_agent::{self, Mark};
 use crate::chat::tool_row::{self, Arg};
@@ -122,7 +122,7 @@ impl Desktop {
                     .child(div().text_size(px(12.5)).line_height(px(20.)).text_color(TEXT_3).child(spawned)),
             )
             .child(close);
-        let tokens = if sub.tokens == 0 { "—".to_string() } else { format!("{:.1}k", sub.tokens as f64 / 1_000.) };
+        let tokens = if sub.tokens == 0 { "—".to_string() } else { thousands(sub.tokens) };
         let stats = div()
             .flex_none()
             .flex()
@@ -155,7 +155,7 @@ impl Desktop {
 
         let prompt = sub_agent::brief(sub).map(|brief| {
             let open = self.chats.map.nav.prompt_open;
-            let long = brief.lines().map(|l| l.chars().count().div_ceil(90).max(1)).sum::<usize>() as f32 > PROMPT_LINES;
+            let long = sub_agent::lines(brief) as f32 > PROMPT_LINES;
             let text = div().whitespace_normal().text_size(px(12.5)).line_height(px(PROMPT_LINE)).text_color(TEXT_2).child(brief.to_string());
             let more = long.then(|| {
                 div()
@@ -176,7 +176,7 @@ impl Desktop {
             div().child(section("Prompt", None)).child(div().when(long && !open, |d| d.max_h(px(PROMPT_LINE * PROMPT_LINES)).overflow_hidden()).child(text)).children(more)
         });
 
-        let blocks: Vec<&Block> = sub.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| matches!(b, Block::Tool(_) | Block::Text(_))).collect();
+        let blocks = sub_agent::steps(sub);
         let last = blocks.len().saturating_sub(1);
         let rows = blocks.iter().enumerate().map(|(i, b)| {
             let current = running && i == last;

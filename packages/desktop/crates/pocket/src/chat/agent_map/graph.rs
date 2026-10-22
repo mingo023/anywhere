@@ -1,4 +1,4 @@
-use super::{CARD, calls, main_line, mark, meta, name};
+use super::{CARD, calls, main_line, mark, meta, name, thousands};
 use crate::chat::sub_agent::{self, Mark};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
@@ -203,7 +203,7 @@ impl Desktop {
             .child(title(provider_icon(&agent.provider, 14., TEXT_2), "Main agent".into(), TEXT))
             .child(sub(match agent.tokens_used {
                 0 => agents::model_label(agent),
-                n => format!("{} · {:.1}k context", agents::model_label(agent), n as f64 / 1_000.),
+                n => format!("{} · {} context", agents::model_label(agent), thousands(n)),
             }))
             .child(line(main_line(t, map), false, TEXT_4));
         let nodes = map.iter().enumerate().map(|(i, s)| {

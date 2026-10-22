@@ -274,7 +274,8 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 		return
 	}
 	s.run(func() {
-		if p.ThreadID != "" && p.ThreadID != s.thread {
+		// An approval a sub-agent asked for is the chat's card, whichever thread resolves it.
+		if p.ThreadID != "" && p.ThreadID != s.thread && method != "serverRequest/resolved" {
 			s.agent(p.ThreadID, method, p.Item, p.Turn, p.TokenUsage.Last.TotalTokens)
 			return
 		}
@@ -321,13 +322,18 @@ func (s *Session) agent(thread, method string, it item, t turn, tokens int64) {
 	case "thread/tokenUsage/updated":
 		s.sink.Apply(timeline.Event{Kind: "tool_tokens", ToolUseID: call, Tokens: tokens})
 	case "turn/completed":
-		s.ended(thread, t.Status == "completed")
+		var failure string
+		if t.Error != nil {
+			failure = t.Error.Message
+		}
+		s.ended(thread, t.Status == "completed", failure)
 	}
 }
 
 // ended ends the call that spawned the sub-agent on thread, once: its own turn
 // and its parent's record of it both say so, and only the record is in history.
-func (s *Session) ended(thread string, ok bool) {
+// Its report is its last message, else what it failed with.
+func (s *Session) ended(thread string, ok bool, failure string) {
 	call, open := s.agents[thread]
 	if !open {
 		return
@@ -337,6 +343,8 @@ func (s *Session) ended(thread string, ok bool) {
 	if report, said := s.said[call]; said {
 		e.Output = &report
 		delete(s.said, call)
+	} else if failure != "" {
+		e.Output = &failure
 	}
 	s.sink.Apply(e)
 }
@@ -355,11 +363,13 @@ func (s *Session) started(it item, parent string) {
 			s.agents[it.AgentThreadID] = it.ID
 			name := it.AgentPath[strings.LastIndex(it.AgentPath, "/")+1:]
 			s.apply(parent, timeline.Event{Kind: "tool_start", ToolUseID: it.ID, Name: "spawn_agent", Detail: &proto.ToolDetail{Kind: "task", Description: name, Model: it.Model}})
+			// A sub-agent runs apart from the turn that spawned it, which may end first.
+			s.sink.Apply(timeline.Event{Kind: "tool_background", ToolUseID: it.ID})
 			for _, t := range s.kids[it.AgentThreadID] {
 				s.replayItems(t, it.ID)
 			}
 		case "completed", "interrupted":
-			s.ended(it.AgentThreadID, it.Kind == "completed")
+			s.ended(it.AgentThreadID, it.Kind == "completed", "")
 		}
 	case "userMessage":
 		var parts []string

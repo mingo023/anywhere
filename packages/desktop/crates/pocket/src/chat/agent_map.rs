@@ -85,6 +85,22 @@ impl Nav {
     fn step(&mut self, down: bool, count: usize) {
         self.selected = if down { (self.selected + 1).min(count.saturating_sub(1)) } else { self.selected.saturating_sub(1) };
     }
+
+    /// Takes `key` on the map whose sub-agents' calls are `calls`, the nodes after the main agent's; false for a key it
+    /// leaves alone. A pick the map no longer holds, as after a new turn spawned fewer, opens nothing.
+    fn key(&mut self, key: &str, calls: &[&str], now: Instant) -> bool {
+        match key {
+            "escape" => self.escape(now),
+            "down" | "up" if self.detail.is_none() => self.step(key == "down", calls.len() + 1),
+            "enter" | "right" if self.detail.is_none() => match self.selected.checked_sub(1).and_then(|i| calls.get(i)) {
+                Some(call) => self.show(self.selected, call),
+                None => return false,
+            },
+            "left" if self.detail.is_some() => self.back(),
+            _ => return false,
+        }
+        true
+    }
 }
 
 pub(crate) struct AgentMap {
@@ -106,9 +122,14 @@ fn ran_ms(call: &ToolCall, now: i64) -> i64 {
     }
 }
 
+/// "32.9k", "640".
+fn thousands(n: u64) -> String {
+    if n < 1_000 { n.to_string() } else { format!("{:.1}k", n as f64 / 1_000.) }
+}
+
 /// "32.9k tokens", "640 tokens".
 fn tokens(n: u64) -> String {
-    if n < 1_000 { format!("{n} tokens") } else { format!("{:.1}k tokens", n as f64 / 1_000.) }
+    format!("{} tokens", thousands(n))
 }
 
 /// A sub-agent's second line: how long it ran and the context it used, or how long it ran before it failed.
@@ -191,14 +212,6 @@ impl Desktop {
         if self.chats.map.nav.is_open(agent) {
             self.chats.map.focus.focus(window, cx);
         } else {
-            self.chats.input.update(cx, |s, cx| s.focus(window, cx));
-        }
-        cx.notify();
-    }
-
-    fn chat_map_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chats.map.nav.escape(Instant::now());
-        if self.chats.map.nav.open.is_none() {
             self.chats.input.update(cx, |s, cx| s.focus(window, cx));
         }
         cx.notify();
@@ -302,18 +315,12 @@ impl Desktop {
 
     fn chat_map_key(&mut self, agent: &str, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get(agent) else { return };
-        let map = chat::spawned(&view.session.transcript);
-        let nav = &mut self.chats.map.nav;
-        match e.keystroke.key.as_str() {
-            "escape" => return self.chat_map_escape(window, cx),
-            "down" if nav.detail.is_none() => nav.step(true, map.len() + 1),
-            "up" if nav.detail.is_none() => nav.step(false, map.len() + 1),
-            "enter" | "right" if nav.detail.is_none() && nav.selected > 0 => {
-                let (node, call) = (nav.selected, map[nav.selected - 1].call.id.clone());
-                nav.show(node, &call);
-            }
-            "left" if nav.detail.is_some() => nav.back(),
-            _ => return,
+        let calls: Vec<&str> = chat::spawned(&view.session.transcript).iter().map(|s| s.call.id.as_str()).collect();
+        if !self.chats.map.nav.key(&e.keystroke.key, &calls, Instant::now()) {
+            return;
+        }
+        if self.chats.map.nav.open.is_none() {
+            self.chats.input.update(cx, |s, cx| s.focus(window, cx));
         }
         cx.stop_propagation();
         cx.notify();
@@ -405,6 +412,18 @@ mod tests {
         assert_eq!(nav.selected, 0);
         (0..5).for_each(|_| nav.step(true, 3));
         assert_eq!(nav.selected, 2);
+    }
+
+    #[test]
+    fn enter_opens_the_picked_agent_and_left_goes_back_to_the_graph() {
+        let (mut nav, now) = (Nav::default(), Instant::now());
+        nav.toggle("a", now);
+        assert!(!nav.key("enter", &["c1", "c2"], now), "the main agent has no details");
+        assert!(nav.key("down", &["c1", "c2"], now) && nav.key("down", &["c1", "c2"], now) && nav.key("enter", &["c1", "c2"], now));
+        assert_eq!(nav.detail.as_deref(), Some("c2"));
+        assert!(!nav.key("down", &["c1", "c2"], now), "the details take no arrows but left");
+        assert!(nav.key("left", &["c1", "c2"], now) && nav.detail.is_none());
+        assert!(!nav.key("enter", &["c1"], now), "a pick the map no longer holds opens nothing");
     }
 
     #[test]
