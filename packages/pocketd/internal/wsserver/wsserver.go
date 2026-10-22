@@ -536,6 +536,12 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		err = a.Driver().Prompt(m.Text)
 	case "agent.interrupt":
 		err = a.Driver().Interrupt()
+	case "agent.send_now":
+		if n, ok := a.Driver().(agent.SendNower); ok {
+			err = n.SendNow()
+		} else {
+			err = errors.New("This agent takes a message only after its current step")
+		}
 	case "agent.compact":
 		err = a.Driver().Compact()
 	case "agent.settings":

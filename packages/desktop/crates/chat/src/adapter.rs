@@ -14,11 +14,13 @@ pub struct Capabilities {
     pub send_while_working: bool,
     /// Its spawn tool calls carry a nested transcript.
     pub sub_agents: bool,
+    /// It can take what was sent into its turn before its current step ends. Only pocketd says so: an older one can't.
+    pub send_now: bool,
 }
 
 impl From<agents::providers::ChatCaps> for Capabilities {
     fn from(c: agents::providers::ChatCaps) -> Self {
-        Self { interrupt: c.interrupt, compact: c.compact, send_while_working: c.send_while_working, sub_agents: c.sub_agents }
+        Self { interrupt: c.interrupt, compact: c.compact, send_while_working: c.send_while_working, sub_agents: c.sub_agents, send_now: c.send_now }
     }
 }
 

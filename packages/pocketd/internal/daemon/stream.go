@@ -446,6 +446,17 @@ func (c streamDriver) interrupt(cancelQueued bool) error {
 	return nil
 }
 
+// SendNow has claude take the prompts sent mid-turn now, as its terminal's
+// send-now key does: it moves what the turn waits on to the background, or
+// stops the turn and runs them next. It is not a stop: nothing queued is lost.
+func (c streamDriver) SendNow() error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	_, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "interrupt", "send_now": true})
+	return err
+}
+
 // BtwWait is how long claude has to answer a side question, which takes a model call.
 var BtwWait = 2 * time.Minute
 

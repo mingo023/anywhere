@@ -4,6 +4,7 @@
 // prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
 // "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn) or "stream-code" (a reply whose code block streams in over 4.5s).
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
+// FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
@@ -411,6 +412,19 @@ Bun.serve({
           item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
           update(ws, f.agentId, "idle");
         }, Number(process.env.FIXTURE_STOP_MS) || 0);
+      }
+      if (f.type === "agent.providers" && process.env.FIXTURE_SEND_NOW) {
+        const chat = { interrupt: true, compact: true, sendWhileWorking: true, subAgents: true, sendNow: true };
+        ws.send(JSON.stringify({ type: "agent.providers", id: f.id, providers: [{ id: "claude", available: true, efforts: ["low", "medium", "high", "xhigh", "max"], plan: true, chat }], maxAccess: "full", phoneMaxAccess: "ask" }));
+      }
+      if (f.type === "agent.send_now") {
+        const steer = steers.get(f.agentId);
+        steers.delete(f.agentId);
+        if (steer) {
+          clearInterval(streams.get(f.agentId));
+          streams.delete(f.agentId);
+          steer();
+        }
       }
       if (f.type === "permission.resolve") ws.send(JSON.stringify({ type: "permission.resolved", requestId: f.requestId, decision: f.decision }));
     },

@@ -799,6 +799,11 @@ impl Outbox {
         self.send(json!({"type": "agent.interrupt", "id": id, "agentId": agent_id}));
     }
 
+    /// Has the agent take the prompts sent into its turn now, rather than after its current step.
+    pub fn send_now(&self, agent_id: &str) {
+        self.send(json!({"type": "agent.send_now", "id": "send-now", "agentId": agent_id}));
+    }
+
     pub fn compact(&self, agent_id: &str) {
         self.send(json!({"type": "agent.compact", "id": "compact", "agentId": agent_id}));
     }
@@ -1549,8 +1554,8 @@ mod tests {
         assert!(matches!(ev(created), Some(Event::Created { request, agent }) if request == "r1" && agent == "a1"));
         let Some(Event::Providers { phone_max, providers }) = ev(providers) else { panic!("not providers") };
         assert_eq!(phone_max, "ask");
-        assert_eq!(providers[0].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: true }));
-        assert_eq!(providers[1].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: false }));
+        assert_eq!(providers[0].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: true, send_now: true }));
+        assert_eq!(providers[1].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: false, send_now: false }));
         assert!(providers[1].efforts.is_empty());
         assert!(matches!(ev(failed), Some(Event::CreateFailed { request, code, message, detail })
             if request == "r1" && code == "spawn_failed" && message == "Setup exited 1" && detail == "npm ERR! missing script: setup"));
@@ -1924,6 +1929,11 @@ mod tests {
     #[test]
     fn interrupt_sends_the_golden_agent_interrupt_frame_but_its_id() {
         assert_eq!(sent_but_id(|o| o.interrupt("a1")), without_id(golden!("client/agent_interrupt.json")));
+    }
+
+    #[test]
+    fn send_now_sends_the_golden_agent_send_now_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.send_now("a1")), without_id(golden!("client/agent_send_now.json")));
     }
 
     #[test]

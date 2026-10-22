@@ -30,6 +30,11 @@ type Driver interface {
 	Close()
 }
 
+// SendNower is a driver whose agent can take the prompts sent mid-turn before its current step ends.
+type SendNower interface {
+	SendNow() error
+}
+
 // SideAsker is a driver that answers a question beside the conversation, leaving it as it was.
 type SideAsker interface {
 	Btw(question string) (string, error)

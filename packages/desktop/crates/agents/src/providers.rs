@@ -21,6 +21,7 @@ pub struct ChatCaps {
     pub compact: bool,
     pub send_while_working: bool,
     pub sub_agents: bool,
+    pub send_now: bool,
 }
 
 /// How a provider's models are offered.

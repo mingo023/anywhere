@@ -94,7 +94,7 @@ var serverGolden = map[string]any{
 	"agent_progress":      NewAgentProgress("c1", "r1", StepFetch, "Couldn't fetch, using local main"),
 	"agent_providers": NewAgentProviders("p1", []ProviderInfo{
 		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true,
-			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true}},
+			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true, SendNow: true}},
 		{ID: "codex", Available: false, Efforts: []string{}, Plan: false,
 			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}},
 	}, "full", "ask"),
