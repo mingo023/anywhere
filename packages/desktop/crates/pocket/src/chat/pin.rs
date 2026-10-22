@@ -55,7 +55,9 @@ impl Pin {
         measured.or(laid_out.filter(|_| self.sent))
     }
 
-    /// Sizes the spacer from the height of the prompt and what follows it, None while any of it is unmeasured.
+    /// Sizes the spacer from the height of the prompt and what follows it, None while any of it is unmeasured. A row
+    /// being measured may have shrunk, and a list too short for the viewport scrolls up to the turn before, so until it's
+    /// measured the spacer fills the viewport; the room past the reply shows the same either way.
     /// Returns false once the reply fills the viewport and the pin lets go.
     pub(super) fn step(&mut self, viewport: f32, below: Option<f32>) -> bool {
         if let Some(below) = below {
@@ -69,7 +71,7 @@ impl Pin {
             }
         }
         if !self.sent {
-            self.spacer = self.room;
+            self.spacer = if below.is_some() { self.room } else { viewport - TOP - BOTTOM };
         }
         true
     }
@@ -104,8 +106,17 @@ mod tests {
         pin.step(800., Some(100.));
         pin.step(800., Some(500.));
         assert_eq!(pin.spacer, 268.);
-        assert!(pin.step(800., None) && pin.spacer == 268., "a row being measured keeps the last room");
         assert!(!pin.step(800., Some(768.)));
+    }
+
+    #[test]
+    fn while_a_row_under_the_prompt_is_measured_the_spacer_fills_the_viewport() {
+        let mut pin = Pin::new();
+        pin.step(800., Some(500.));
+        assert!(pin.step(800., None));
+        assert_eq!(pin.spacer, 768., "the row may have shrunk: the list still fills from the prompt");
+        pin.step(800., Some(100.));
+        assert_eq!(pin.spacer, 668.);
     }
 
     #[test]
