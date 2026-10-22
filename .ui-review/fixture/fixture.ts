@@ -387,6 +387,16 @@ Bun.serve({
         ];
         ws.send(JSON.stringify({ type: "agent.commands", id: f.id, agentId: f.agentId, commands }));
       }
+      if (f.type === "agent.mcp") {
+        const servers = [
+          { name: "fff", status: "connected", scope: "user" },
+          { name: "github", status: "pending", scope: "project" },
+          { name: "linear", status: "needsAuth", scope: "claude.ai" },
+          { name: "figma", status: "failed", scope: "user" },
+          { name: "sentry", status: "disabled", scope: "local" },
+        ];
+        ws.send(JSON.stringify({ type: "agent.mcp", id: f.id, agentId: f.agentId, servers }));
+      }
       // A session from the New session page: its terminal and agent appear, then the agent answers the prompt.
       if (f.type === "agent.create") {
         const { project, checkout, provider, prompt } = f.spec;

@@ -40,6 +40,13 @@ type SideAsker interface {
 	Btw(question string) (string, error)
 }
 
+// McpLister is a driver that tells how its session's MCP servers stand, and acts on one.
+type McpLister interface {
+	Mcp() ([]proto.McpServer, error)
+	// McpAct signs in to, reconnects or enables server; a sign-in the user finishes in a browser returns its URL.
+	McpAct(action, server string) (string, error)
+}
+
 type Agent struct {
 	id, provider string
 	hub          *hub.Hub

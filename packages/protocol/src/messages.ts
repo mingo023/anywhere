@@ -22,6 +22,13 @@ export const Command = Schema.Struct({
 });
 export type Command = typeof Command.Type;
 
+export const McpServer = Schema.Struct({
+  name: Schema.String,
+  status: Schema.Literal("connected", "pending", "needsAuth", "failed", "disabled"),
+  scope: Schema.optional(Schema.String),
+});
+export type McpServer = typeof McpServer.Type;
+
 export const Range = Schema.Struct({ min: Schema.Int, max: Schema.Int });
 export const Scope = Schema.Literal("observe", "drive", "approve", "spawn", "owner");
 
@@ -51,6 +58,13 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("agent.compact"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.close"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.commands"), id: Schema.String, agentId: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("agent.mcp"),
+    id: Schema.String,
+    agentId: Schema.String,
+    action: Schema.optional(Schema.Literal("auth", "reconnect", "enable")),
+    server: Schema.optional(Schema.String),
+  }),
   Schema.Struct({ type: Schema.Literal("agent.btw"), id: Schema.String, agentId: Schema.String, text: Schema.String }),
   Schema.Struct({
     type: Schema.Literal("agent.settings"),
@@ -144,6 +158,13 @@ export const ServerMessage = Schema.Union(
     id: Schema.String,
     agentId: Schema.String,
     commands: Schema.Array(Command),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("agent.mcp"),
+    id: Schema.String,
+    agentId: Schema.String,
+    servers: Schema.Array(McpServer),
+    authUrl: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("agent.btw"), id: Schema.String, agentId: Schema.String, answer: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.stream"), agentId: Schema.String, epoch: Schema.Number, item: TimelineItem }),

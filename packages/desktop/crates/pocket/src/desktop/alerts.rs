@@ -155,6 +155,21 @@ impl Desktop {
             self.chats.composer.suggest.listed(agent, commands);
             return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
         }
+        if let Event::Mcp { agent, servers, auth_url, acted } = ev {
+            if !auth_url.is_empty() {
+                cx.open_url(&auth_url);
+            }
+            self.chats.composer.suggest.mcp_listed(agent.clone(), servers, &auth_url, acted);
+            self.recheck_servers(agent, cx);
+            return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
+        }
+        if let Event::McpActFailed { agent, reason } = ev {
+            self.chats.composer.suggest.mcp_act_failed(&agent);
+            // The servers may have moved on from what the rows show, as when a sign-in ended.
+            self.outbox.mcp(&agent);
+            self.error = Some(reason);
+            return cx.notify();
+        }
         if let Event::Btw { request, answer } = ev {
             return self.chat_btw_answered(&request, answer, cx);
         }

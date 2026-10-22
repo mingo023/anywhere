@@ -10,7 +10,8 @@ pub struct Marks {
 }
 
 /// Each `/skill` and `@path` in `text`, at its start or after whitespace. A skill's name starts with a letter and may
-/// end in punctuation, as `/review,`, but not run on into a path, as `/usr/bin` or `/notes.md`.
+/// end in punctuation, as `/review,`, but not run on into a path, as `/usr/bin` or `/notes.md`. An MCP server's tag
+/// names no file.
 pub fn marks(text: &str) -> Marks {
     let mut marks = Marks::default();
     let mut after_space = true;
@@ -18,7 +19,7 @@ pub fn marks(text: &str) -> Marks {
     while let Some((i, c)) = chars.next() {
         if after_space && c == '@' {
             let end = take(&mut chars, i + 1, |c| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-'));
-            if end > i + 1 {
+            if end > i + 1 && !text[i..end].starts_with(crate::mcp::TAG) {
                 marks.mentions.push(i..end);
             }
         } else if after_space && c == '/' && text[i + 1..].starts_with(char::is_alphabetic) {
@@ -88,6 +89,11 @@ mod tests {
     fn mentions_start_the_text_or_follow_whitespace() {
         let (_, found) = marked("@src/chat.rs and\n@a_b-c.md, then @docs/");
         assert_eq!(found, ["@src/chat.rs", "@a_b-c.md", "@docs/"]);
+    }
+
+    #[test]
+    fn an_mcp_tag_is_no_file() {
+        assert_eq!(marked("use @mcp/fff and @mcp.json").1, ["@mcp.json"]);
     }
 
     #[test]

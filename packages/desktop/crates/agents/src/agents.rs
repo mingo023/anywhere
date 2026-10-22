@@ -91,6 +91,48 @@ pub struct Command {
     pub argument_hint: String,
 }
 
+/// An MCP server the agent's session has, from `agent.mcp`.
+#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct McpServer {
+    pub name: String,
+    pub status: McpStatus,
+    /// Where it is configured, as `user` or `project`; empty when the agent doesn't say.
+    pub scope: String,
+}
+
+#[derive(Deserialize, Default, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum McpStatus {
+    Connected,
+    NeedsAuth,
+    Failed,
+    Disabled,
+    /// Still connecting, or a status a newer pocketd added.
+    #[default]
+    #[serde(other)]
+    Pending,
+}
+
+/// What `agent.mcp` may do to a server before it lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum McpAction {
+    /// Starts a sign-in the user finishes in a browser.
+    Auth,
+    Reconnect,
+    Enable,
+}
+
+impl McpAction {
+    fn wire(self) -> &'static str {
+        match self {
+            McpAction::Auth => "auth",
+            McpAction::Reconnect => "reconnect",
+            McpAction::Enable => "enable",
+        }
+    }
+}
+
 impl Summary {
     /// Tokens used and the model's window, once pocketd reports a non-zero window.
     pub fn context(&self) -> Option<(u64, u64)> {
@@ -300,6 +342,8 @@ struct Frame {
     names: HashMap<String, String>,
     locals: Vec<Local>,
     commands: Vec<Command>,
+    servers: Vec<McpServer>,
+    auth_url: String,
     answer: String,
     version: String,
     #[serde(deserialize_with = "automations::known")]
@@ -364,6 +408,12 @@ pub enum Event {
     Commands { agent: String, commands: Vec<Command> },
     /// The answer to the side question `request` asked, or why there's none.
     Btw { request: String, answer: Result<String, String> },
+    /// How the agent's MCP servers stand, or why pocketd couldn't tell; after a sign-in starts, the URL the user
+    /// finishes it at.
+    /// `acted` when it answers an action rather than a plain ask, as replies can cross.
+    Mcp { agent: String, servers: Result<Vec<McpServer>, String>, auth_url: String, acted: bool },
+    /// pocketd couldn't act on one of the agent's MCP servers; `reason` says why.
+    McpActFailed { agent: String, reason: String },
 }
 
 #[derive(Default)]
@@ -482,7 +532,7 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
-            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Btw { .. } => {}
+            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
         }
     }
 
@@ -682,6 +732,8 @@ const AUTO: &str = "auto-";
 const PROMPT: &str = "prompt-";
 const COMMANDS: &str = "commands-";
 const BTW: &str = "btw-";
+const MCP: &str = "mcp-";
+const MCP_ACT: &str = "mcpact-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
@@ -720,6 +772,9 @@ fn names_event(f: &Frame) -> Option<Event> {
         "agent.commands" => Some(Event::Commands { agent: f.agent_id.clone(), commands: f.commands.clone() }),
         "agent.btw" => Some(Event::Btw { request: f.id.clone(), answer: Ok(f.answer.clone()) }),
         "error" if f.id.starts_with(BTW) => Some(Event::Btw { request: f.id.clone(), answer: Err(readable(&f.message)) }),
+        "agent.mcp" => Some(Event::Mcp { agent: f.agent_id.clone(), servers: Ok(f.servers.clone()), auth_url: f.auth_url.clone(), acted: f.id.starts_with(MCP_ACT) }),
+        "error" if f.id.starts_with(MCP) => Some(Event::Mcp { agent: f.id[MCP.len()..].to_string(), servers: Err(readable(&f.message)), auth_url: String::new(), acted: false }),
+        "error" if f.id.starts_with(MCP_ACT) => Some(Event::McpActFailed { agent: f.id[MCP_ACT.len()..].to_string(), reason: readable(&f.message) }),
         "error" => Some(Event::Commands { agent: f.id.strip_prefix(COMMANDS)?.to_string(), commands: Vec::new() }),
         _ => None,
     }
@@ -811,6 +866,16 @@ impl Outbox {
     /// Asks for the agent's slash commands; a pocketd that can't list them answers with an empty `Commands`.
     pub fn commands(&self, agent_id: &str) {
         self.send(json!({"type": "agent.commands", "id": format!("{COMMANDS}{agent_id}"), "agentId": agent_id}));
+    }
+
+    /// Asks how the agent's MCP servers stand.
+    pub fn mcp(&self, agent_id: &str) {
+        self.send(json!({"type": "agent.mcp", "id": format!("{MCP}{agent_id}"), "agentId": agent_id}));
+    }
+
+    /// Asks the agent to act on MCP server `server`, then how its servers stand.
+    pub fn mcp_act(&self, agent_id: &str, action: McpAction, server: &str) {
+        self.send(json!({"type": "agent.mcp", "id": format!("{MCP_ACT}{agent_id}"), "agentId": agent_id, "action": action.wire(), "server": server}));
     }
 
     /// Asks the agent a side question; returns the request id its `Btw` event names.
@@ -1963,6 +2028,44 @@ mod tests {
         let Some(Event::Commands { agent, commands }) = names_event(&f) else { panic!("no commands") };
         assert_eq!((agent.as_str(), commands.len()), ("a1", 2));
         assert_eq!((commands[1].name.as_str(), commands[1].argument_hint.as_str()), ("review", "<pr>"));
+    }
+
+    #[test]
+    fn mcp_sends_the_golden_agent_mcp_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.mcp("a1")), without_id(golden!("client/agent_mcp.json")));
+    }
+
+    #[test]
+    fn the_golden_mcp_list_or_its_refusal_reaches_its_agent() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_mcp.json")).unwrap();
+        let Some(Event::Mcp { agent, servers: Ok(servers), auth_url, acted: false }) = names_event(&f) else { panic!("no servers") };
+        assert_eq!((agent.as_str(), auth_url.as_str()), ("a1", ""));
+        assert_eq!(servers[1], McpServer { name: "claude.ai Linear".into(), status: McpStatus::NeedsAuth, scope: "claude.ai".into() });
+        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"mcp-a1","message":"Malformed message"}"#).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::Mcp { agent, servers: Err(e), .. }) if agent == "a1" && e == OUTDATED));
+    }
+
+    #[test]
+    fn mcp_act_sends_the_golden_sign_in_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.mcp_act("a1", McpAction::Auth, "linear")), without_id(golden!("client/agent_mcp_auth.json")));
+    }
+
+    #[test]
+    fn a_sign_in_brings_its_url_and_a_refused_action_its_reason() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_mcp_auth.json")).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::Mcp { auth_url, .. }) if auth_url == "https://mcp.linear.app/authorize?state=s1"));
+        let f: Frame = serde_json::from_str(r#"{"type":"agent.mcp","id":"mcpact-a1","agentId":"a1","servers":[]}"#).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::Mcp { acted: true, .. })), "an action's reply says it is one");
+        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"mcpact-a1","message":"Server not found: x"}"#).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::McpActFailed { agent, reason }) if agent == "a1" && reason == "Server not found: x"));
+    }
+
+    #[test]
+    fn an_mcp_status_a_newer_pocketd_added_reads_as_pending() {
+        let s: McpServer = serde_json::from_str(r#"{"name":"x","status":"warming"}"#).unwrap();
+        assert_eq!(s.status, McpStatus::Pending);
+        let s: McpServer = serde_json::from_str(r#"{"name":"x","status":"pending"}"#).unwrap();
+        assert_eq!(s.status, McpStatus::Pending);
     }
 
     #[test]

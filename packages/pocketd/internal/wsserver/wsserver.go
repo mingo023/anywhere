@@ -457,7 +457,12 @@ func (c *conn) asking(agentID string) string {
 }
 
 func (c *conn) dispatch(m proto.ClientMessage) error {
-	if r := c.who.Check("ws:"+m.Type, c.asking(m.AgentID), m.Text); r != nil {
+	verb := "ws:" + m.Type
+	if m.Type == "agent.mcp" && m.Action != "" {
+		// Signing in to or enabling a server drives the agent; listing them only observes it.
+		verb += ".act"
+	}
+	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
 	}
 	switch m.Type {
@@ -569,6 +574,29 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 				return
 			}
 			c.send(proto.NewAgentCommands(m.ID, a.ID(), list))
+		}()
+		return nil
+	case "agent.mcp":
+		lister, ok := a.Driver().(agent.McpLister)
+		if !ok {
+			return errors.New("This agent can't list its MCP servers")
+		}
+		// Codex takes a while to list them, and a reconnect to make one; the conn's other messages don't wait.
+		go func() {
+			var url string
+			var err error
+			if m.Action != "" {
+				url, err = lister.McpAct(m.Action, m.Server)
+			}
+			var servers []proto.McpServer
+			if err == nil {
+				servers, err = lister.Mcp()
+			}
+			if err != nil {
+				c.send(errorReply(m.ID, err))
+				return
+			}
+			c.send(proto.NewAgentMcp(m.ID, a.ID(), servers, url))
 		}()
 		return nil
 	case "agent.btw":

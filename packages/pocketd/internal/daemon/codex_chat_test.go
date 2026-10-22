@@ -1,6 +1,12 @@
 package daemon
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+
+	"pocketd/internal/proto"
+)
 
 func TestSlashCommandSplitsANameFromItsArgButNotAPath(t *testing.T) {
 	cases := []struct {
@@ -36,5 +42,28 @@ func TestAnAccessSwitchSetsWhatItsLaunchConfigSets(t *testing.T) {
 		if got := [3]string{s["sandboxPolicy"].(map[string]any)["type"].(string), s["approvalPolicy"].(string), s["approvalsReviewer"].(string)}; got != want {
 			t.Errorf("%s: got %v", access, got)
 		}
+	}
+}
+
+func TestCodexMcpStatusReadsInTheWiresTermsWithItsNextPage(t *testing.T) {
+	got, next := codexMcp(json.RawMessage(`{"data":[
+		{"name":"fff","runtimeStatus":"connected","authStatus":"unsupported"},
+		{"name":"atlassian","runtimeStatus":"authenticationRequired","authStatus":"notLoggedIn"},
+		{"name":"code-review","runtimeStatus":"disabled","pluginId":"code-review@openai-bundled"},
+		{"name":"slow","runtimeStatus":"starting"},
+		{"name":"stopped","runtimeStatus":"cancelled"},
+		{"name":"cold","runtimeStatus":null,"authStatus":"notLoggedIn"},
+		{"name":"idle","runtimeStatus":null,"authStatus":"oAuth"}],"nextCursor":"c2"}`))
+	want := []proto.McpServer{
+		{Name: "fff", Status: "connected"},
+		{Name: "atlassian", Status: "needsAuth"},
+		{Name: "code-review", Status: "disabled", Scope: "plugin"},
+		{Name: "slow", Status: "pending"},
+		{Name: "stopped", Status: "failed"},
+		{Name: "cold", Status: "needsAuth"},
+		{Name: "idle", Status: "pending"},
+	}
+	if !reflect.DeepEqual(got, want) || next != "c2" {
+		t.Fatalf("%+v %q", got, next)
 	}
 }

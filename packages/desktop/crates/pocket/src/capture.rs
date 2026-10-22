@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 212] = [
+const STEPS: [(&str, Step); 215] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -185,6 +185,9 @@ const STEPS: [(&str, Step); 212] = [
     }),
     ("chat-slash", |d, window, cx| d.type_text(Prompt::Chat, "/", window, cx)),
     ("chat-slash-re", |d, window, cx| d.type_text(Prompt::Chat, "/re", window, cx)),
+    ("chat-slash-mcp", |d, window, cx| d.type_text(Prompt::Chat, "/mc", window, cx)),
+    ("chat-mcp", |d, window, cx| d.type_text(Prompt::Chat, "Look it up with @mcp/", window, cx)),
+    ("chat-mcp-li", |d, window, cx| d.type_text(Prompt::Chat, "Look it up with @mcp/li", window, cx)),
     ("chat-mention", |d, window, cx| d.type_text(Prompt::Chat, "Look at @", window, cx)),
     ("chat-mention-rea", |d, window, cx| d.type_text(Prompt::Chat, "Look at @rea", window, cx)),
     ("new-slash", |d, window, cx| d.type_text(Prompt::Launch, "/", window, cx)),

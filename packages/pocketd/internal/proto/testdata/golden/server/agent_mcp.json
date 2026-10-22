@@ -1,0 +1,17 @@
+{
+  "type": "agent.mcp",
+  "id": "m1",
+  "agentId": "a1",
+  "servers": [
+    {
+      "name": "fff",
+      "status": "connected",
+      "scope": "user"
+    },
+    {
+      "name": "claude.ai Linear",
+      "status": "needsAuth",
+      "scope": "claude.ai"
+    }
+  ]
+}

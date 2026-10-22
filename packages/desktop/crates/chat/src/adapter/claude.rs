@@ -31,6 +31,7 @@ impl Backend for Claude {
             "compact" if arg.is_empty() => Kind::Local(Local::Compact),
             "new" => Kind::Local(Local::New),
             "btw" => Kind::Local(Local::Btw),
+            "mcp" => Kind::Local(Local::Mcp),
             "clear" | "reset" | "resume" => Kind::Unsupported,
             "add-dir" if arg.is_empty() => Kind::Unsupported,
             _ if PANELS.contains(&name) => Kind::Unsupported,
@@ -49,11 +50,12 @@ const BUILTINS: &[Builtin] = &[
     Builtin { name: "compact", hint: "[instructions]", description: "Summarize the conversation to free up context" },
     Builtin { name: "btw", hint: "[question]", description: "Ask a quick side question without interrupting" },
     Builtin { name: "goal", hint: "[<condition> | clear]", description: "Keep working until the condition is met" },
+    Builtin { name: "mcp", hint: "", description: "Find an MCP server for this message" },
 ];
 
 /// Claude's commands that open a panel, by name and alias.
 const PANELS: &[&str] = &[
     "agents", "bug", "checkpoint", "checkup", "config", "cost", "diff", "doctor", "export", "feedback", "help", "hooks", "ide", "login", "logout",
-    "mcp", "memory", "permissions", "plugin", "privacy-settings", "rewind", "settings", "skills", "stats", "status", "tasks", "terminal-setup",
+    "memory", "permissions", "plugin", "privacy-settings", "rewind", "settings", "skills", "stats", "status", "tasks", "terminal-setup",
     "theme", "usage",
 ];

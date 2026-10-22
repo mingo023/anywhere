@@ -30,6 +30,7 @@ impl Backend for Codex {
             "effort" => Kind::Local(Local::Effort),
             "compact" => Kind::Local(Local::Compact),
             "new" => Kind::Local(Local::New),
+            "mcp" => Kind::Local(Local::Mcp),
             "clear" => Kind::Unsupported,
             _ if TUI_ONLY.contains(&name) => Kind::Unsupported,
             _ => Kind::Send,
@@ -52,10 +53,11 @@ const BUILTINS: &[Builtin] = &[
     Builtin { name: "model", hint: "[model]", description: "Set the model" },
     Builtin { name: "effort", hint: "[level]", description: "Set the reasoning effort" },
     Builtin { name: "new", hint: "", description: "Start a new chat" },
+    Builtin { name: "mcp", hint: "", description: "Find an MCP server for this message" },
 ];
 
 /// Codex's commands that only its TUI runs.
 const TUI_ONLY: &[&str] = &[
     "approvals", "permissions", "experimental", "skills", "review", "rename", "resume", "fork", "init", "plan", "collab", "agent", "diff",
-    "mention", "status", "statusline", "theme", "mcp", "apps", "logout", "quit", "exit", "feedback", "ps", "personality", "undo",
+    "mention", "status", "statusline", "theme", "apps", "logout", "quit", "exit", "feedback", "ps", "personality", "undo",
 ];

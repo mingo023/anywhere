@@ -1,0 +1,13 @@
+{
+  "type": "agent.mcp",
+  "id": "m2",
+  "agentId": "a1",
+  "servers": [
+    {
+      "name": "linear",
+      "status": "needsAuth",
+      "scope": "user"
+    }
+  ],
+  "authUrl": "https://mcp.linear.app/authorize?state=s1"
+}
