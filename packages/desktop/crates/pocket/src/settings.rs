@@ -32,6 +32,7 @@ use catalog::{Control, Look, Setting};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::slider::SliderState;
 use std::collections::HashMap;
 use store::Store;
 use theme::*;
@@ -255,6 +256,7 @@ pub struct SettingsState {
     launch: provider::LaunchFields,
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
+    pub(crate) glass: Entity<SliderState>,
 }
 
 impl SettingsState {
@@ -285,8 +287,10 @@ impl SettingsState {
         subs.extend(keyboard_subs);
         let (launch, launch_subs) = provider::LaunchFields::new(store, window, cx);
         subs.extend(launch_subs);
+        let (glass, glass_sub) = appearance::glass_slider(store, window, cx);
+        subs.push(glass_sub);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), launch, starting: None };
+        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), launch, starting: None, glass };
         (state, subs)
     }
 
@@ -579,6 +583,8 @@ impl Desktop {
             self.settings.host.time.update(cx, |f, cx| f.set_value(time, window, cx));
         }
         self.settings.launch.sync(&self.store, window, cx);
+        let glass = self.store.appearance.glass() as f32;
+        self.settings.glass.update(cx, |s, cx| s.set_value(glass, window, cx));
         let port = host::port_field(self.store.phone.port);
         if self.settings.host.port.read(cx).value() != port {
             self.settings.host.port.update(cx, |f, cx| f.set_value(port, window, cx));
@@ -800,13 +806,10 @@ impl Desktop {
         } else {
             ("Search results".into(), self.search_results(&words, cx))
         };
-        let back = ui::icon_button_sized("settings-back", "back", 26., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_settings(window, cx)));
         let bar = drag_area(ui::page_bar())
             .px(px(16.))
-            .gap(px(10.))
             .border_b(px(0.5))
             .border_color(SEPARATOR)
-            .child(back)
             .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title));
         let column = column.w_full().max_w(px(704.)).px(px(32.)).pt(px(26.)).pb(px(40.)).flex().flex_col().gap(px(22.));
         ui::page(div())

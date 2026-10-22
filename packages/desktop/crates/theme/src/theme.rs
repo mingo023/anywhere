@@ -22,6 +22,8 @@ static ADDED: AtomicU32 = AtomicU32::new(0);
 static REMOVED: AtomicU32 = AtomicU32::new(0);
 /// The user's accent as `0xRRGGBBff`; 0 is Graphite.
 static ACCENT_RGB: AtomicU32 = AtomicU32::new(0);
+/// The dark window's alpha, out of 0xff.
+static GLASS_ALPHA: AtomicU32 = AtomicU32::new(WINDOW.pick(true) & 0xff);
 /// The interface and code fonts the user picked; `None` is `SANS` and `MONO`.
 static CHOSEN_FONTS: RwLock<(Option<SharedString>, Option<SharedString>)> = RwLock::new((None, None));
 
@@ -152,7 +154,7 @@ impl Token {
         Self::new(c, c)
     }
 
-    pub fn pick(self, dark: bool) -> u32 {
+    pub const fn pick(self, dark: bool) -> u32 {
         if dark { self.dark } else { self.light }
     }
 }
@@ -606,6 +608,20 @@ pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
     }
 }
 
+/// Makes the dark window's glass this percent opaque from the next frame.
+pub fn set_glass(percent: u32) {
+    GLASS_ALPHA.store(glass_alpha(percent), Ordering::Relaxed);
+}
+
+fn glass_alpha(percent: u32) -> u32 {
+    (percent.min(100) * 0xff + 50) / 100
+}
+
+/// `WINDOW` with the dark alpha `set_glass` picked.
+pub fn window_fill() -> Hsla {
+    if is_dark() { rgba((WINDOW.pick(true) & !0xff) | GLASS_ALPHA.load(Ordering::Relaxed)).into() } else { WINDOW.into() }
+}
+
 /// Glass in dark; pale desktops make translucent light chrome illegible.
 /// Reads the last `set_appearance`, so a window opened before `init` stays opaque.
 pub fn window_background() -> WindowBackgroundAppearance {
@@ -617,7 +633,7 @@ mod tests {
     use super::contrast::{over, ratio};
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
-        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, highlight_theme_with, material, material_icon,
+        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
         ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, WORKING, accent_rgba,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
@@ -801,6 +817,11 @@ mod tests {
         assert_eq!(WINDOW.pick(false) & 0xff, 0xff);
         assert_eq!(WINDOW.pick(true), 0x171717d9);
         assert_eq!(WINDOW_SOLID.pick(true), 0x171717ff);
+    }
+
+    #[test]
+    fn glass_percent_maps_onto_the_windows_alpha_and_85_keeps_the_default() {
+        assert_eq!([glass_alpha(85), glass_alpha(100), glass_alpha(40), glass_alpha(0)], [WINDOW.pick(true) & 0xff, 0xff, 0x66, 0]);
     }
 
     #[test]

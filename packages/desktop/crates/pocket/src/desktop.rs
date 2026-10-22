@@ -572,7 +572,7 @@ impl Render for Desktop {
             .relative()
             .size_full()
             .flex()
-            .bg(WINDOW)
+            .bg(theme::window_fill())
             .font_family(ui_font())
             .line_height(relative(1.2))
             .text_color(TEXT)

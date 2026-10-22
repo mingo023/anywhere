@@ -3,6 +3,7 @@ use super::{action, row};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{code, code_text};
 use git::{Kind, Line};
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
@@ -47,6 +48,11 @@ const MOTION: [Option<bool>; 3] = [None, Some(true), Some(false)];
 const DIFF_COLORS: [DiffColors; 2] = [DiffColors::GreenRed, DiffColors::BlueOrange];
 const SYNTAXES: [SyntaxTheme; 4] = [SyntaxTheme::Graphite, SyntaxTheme::Github, SyntaxTheme::One, SyntaxTheme::Solarized];
 
+const GLASS: Setting = Setting::custom("glass", "Theme", "Window opacity", glass_row)
+    .hint("Dark mode only: lower lets more of the desktop show through the glass")
+    .resets(|s| format!("{}%", s.appearance.glass()), |s, d| s.appearance.glass = d.appearance.glass)
+    .effect(apply_glass);
+
 pub(super) const ROWS: &[Setting] = &[
     Setting::choice("mode", "Theme", "Appearance", &["System", "Light", "Dark"], Look::Thumbnails, |s| s.appearance.mode as usize, |s, i| s.appearance.mode = MODES[i])
         .hint("System follows macOS light and dark")
@@ -55,6 +61,7 @@ pub(super) const ROWS: &[Setting] = &[
         .hint("Selection, focus rings and primary buttons")
         .resets(accent_name, |s, d| s.appearance.accent = d.appearance.accent)
         .effect(apply_accent),
+    GLASS,
     Setting::choice("reduce-motion", "Theme", "Reduce motion", &["System", "On", "Off"], Look::Segmented, |s| MOTION.iter().position(|m| *m == s.appearance.reduce_motion).unwrap_or(0), |s, i| {
         s.appearance.reduce_motion = MOTION[i]
     })
@@ -150,6 +157,30 @@ fn apply_fonts(d: &mut Desktop, cx: &mut Context<Desktop>) {
     theme::set_fonts(installed(a.ui_font.as_deref(), fonts), installed(a.code_font.as_deref(), fonts), cx);
     d.diff.relayout(true);
     d.recolor_commit(cx);
+}
+
+fn apply_glass(d: &mut Desktop, _: &mut Context<Desktop>) {
+    theme::set_glass(d.store.appearance.glass());
+}
+
+/// The opacity slider, saving and repainting as it's dragged.
+pub(super) fn glass_slider(store: &Store, window: &mut Window, cx: &mut Context<Desktop>) -> (Entity<SliderState>, Subscription) {
+    let (min, max) = Appearance::GLASS;
+    let slider = cx.new(|_| SliderState::new().min(min as f32).max(max as f32).step(1.).default_value(store.appearance.glass() as f32));
+    let setting: &'static Setting = &GLASS;
+    let sub = cx.subscribe_in(&slider, window, move |this, _, ev: &SliderEvent, _, cx| {
+        let SliderEvent::Change(v) = ev else { return };
+        this.store.appearance.glass = Some(v.start().round() as u32);
+        this.changed(setting, cx);
+    });
+    (slider, sub)
+}
+
+fn glass_row(d: &mut Desktop, setting: &'static Setting, _: &mut Context<Desktop>) -> Div {
+    let percent = div().w(px(40.)).text_right().text_size(px(13.)).text_color(TEXT_2).child(format!("{}%", d.store.appearance.glass()));
+    let dark = theme::is_dark();
+    let slider = Slider::new(&d.settings.glass).disabled(!dark).w(px(180.));
+    row(setting.label, setting.hint, div().flex().items_center().gap(px(10.)).when(!dark, |d| d.opacity(0.45)).child(slider).child(percent))
 }
 
 fn accent_name(s: &Store) -> String {
@@ -417,5 +448,15 @@ mod tests {
         assert_eq!(["accent", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()), ["#3E8EF7", "Menlo", "14 pt"]);
         super::super::catalog::reset(super::ROWS, &mut store);
         assert_eq!((store.appearance.accent, store.appearance.code_font.as_deref(), store.appearance.code_size()), (None, None, 12));
+    }
+
+    #[test]
+    fn window_opacity_names_its_percent_and_resets_to_85() {
+        let mut store = store::Store::default();
+        assert_eq!(super::GLASS.value(&store).unwrap(), "85%");
+        store.appearance.glass = Some(60);
+        assert_eq!(super::GLASS.value(&store).unwrap(), "60%");
+        super::super::catalog::reset(super::ROWS, &mut store);
+        assert_eq!(store.appearance.glass(), 85);
     }
 }

@@ -50,6 +50,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .child(drag_area(div()).h(px(HEADER)).flex_none())
+            .child(div().px(px(10.)).pb(px(8.)).child(item("settings-back", "back", "Back", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_settings(window, cx)))))
             .child(div().px(px(12.)).pb(px(10.)).child(search))
             .child(div().pt(px(2.)).px(px(10.)).pb(px(12.)).flex().flex_col().gap(px(14.)).children(groups))
     }
