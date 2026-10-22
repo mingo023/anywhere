@@ -208,6 +208,9 @@ impl Desktop {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)));
         let header = self.projects_header(cx);
         let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(1.)).children(self.sections(cx));
+        let settings = ui::nav_row("aside-settings", "settings", "Settings", false)
+            .mt(px(6.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
         let aside = ui::side(div())
             .w(px(self.width(Column::Projects, 272.)))
             .flex_none()
@@ -221,7 +224,8 @@ impl Desktop {
             .children(self.agents.automations_offered().then_some(automations))
             .child(header)
             .child(body)
-            .children(self.update_card(cx));
+            .children(self.update_card(cx))
+            .child(settings);
         self.resizable(aside, Column::Projects, cx)
     }
 

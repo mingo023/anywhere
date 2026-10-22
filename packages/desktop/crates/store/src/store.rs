@@ -207,10 +207,14 @@ pub struct Appearance {
     /// Percent the whole window is drawn at; read it through `zoom()`.
     #[serde(deserialize_with = "lenient")]
     pub zoom: Option<u32>,
+    /// Percent opaque the dark window's glass is; read it through `glass()`.
+    #[serde(deserialize_with = "lenient")]
+    pub glass: Option<u32>,
 }
 
 impl Appearance {
     pub const CODE_SIZES: (u32, u32) = (10, 20);
+    pub const GLASS: (u32, u32) = (40, 100);
     /// Safari's steps, in percent.
     pub const ZOOMS: [u32; 11] = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
 
@@ -232,6 +236,11 @@ impl Appearance {
     /// The step before the current zoom, or the first.
     pub fn zoomed_out(&self) -> u32 {
         Self::ZOOMS.into_iter().rev().find(|&z| z < self.zoom()).unwrap_or(self.zoom())
+    }
+
+    /// The dark window's opacity: 85% unless set, kept in range.
+    pub fn glass(&self) -> u32 {
+        self.glass.unwrap_or(85).clamp(Self::GLASS.0, Self::GLASS.1)
     }
 
     /// The diff and preview text size: 12pt unless set, kept in range.
@@ -771,6 +780,7 @@ mod tests {
             code_font: None,
             code_size: Some(14),
             zoom: Some(125),
+            glass: Some(60),
         };
         s.sounds.all = false;
         s.worktree.root = "/wt".into();
@@ -779,6 +789,12 @@ mod tests {
         s.save();
         assert_eq!(Store::load(&dir), s);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn glass_is_85_percent_unless_set_and_stays_in_range() {
+        let at = |glass| Appearance { glass: Some(glass), ..Appearance::default() };
+        assert_eq!((Appearance::default().glass(), at(60).glass(), at(5).glass(), at(150).glass()), (85, 60, 40, 100));
     }
 
     #[test]

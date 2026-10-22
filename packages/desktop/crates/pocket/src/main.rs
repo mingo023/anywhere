@@ -69,6 +69,7 @@ fn main() {
         theme::init(appearance, cx);
         theme::set_blue_orange(store.appearance.diff_colors == store::DiffColors::BlueOrange);
         theme::set_diff_colors(store.appearance.added, store.appearance.removed);
+        theme::set_glass(store.appearance.glass());
         theme::set_syntax(store.appearance.syntax as usize, cx);
         theme::set_fonts(store.appearance.ui_font.as_deref(), store.appearance.code_font.as_deref(), cx);
         theme::set_accent(store.appearance.accent, cx);
