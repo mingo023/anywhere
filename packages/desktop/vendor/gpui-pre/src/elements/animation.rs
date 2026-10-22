@@ -404,6 +404,8 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
                 animation_ix: 0,
                 delayed_frame_pending: Rc::new(Cell::new(false)),
             });
+            // Until the next step of a throttled animation.
+            let mut wait = None;
             let (animation_ix, delta, done) = if cx.reduce_motion() {
                 let animation_ix = self.animations.len() - 1;
                 let delta = if self.animations[animation_ix].oneshot {
@@ -422,6 +424,17 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
                     Duration::from_nanos((elapsed.as_nanos() % duration.as_nanos()) as u64)
                 } else {
                     state.start.elapsed()
+                };
+                // A throttled animation moves in whole steps, waking at the start of each: a frame drawn between
+                // steps, or late for its vsync, shows the step it's in, so every step moves it as far.
+                let elapsed = match self.animations[animation_ix].max_fps {
+                    Some(max_fps) if max_fps.is_finite() && max_fps > 0.0 => {
+                        let step = Duration::from_secs_f32(1.0 / max_fps);
+                        let into = Duration::from_nanos((elapsed.as_nanos() % step.as_nanos()) as u64);
+                        wait = Some(step - into);
+                        elapsed - into
+                    }
+                    _ => elapsed,
                 };
                 let mut delta = elapsed.as_secs_f32() / duration.as_secs_f32();
 
@@ -449,16 +462,15 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
             let mut element = (self.animator)(element, animation_ix, delta).into_any_element();
 
             if !done {
-                match self.animations[animation_ix].max_fps {
-                    Some(max_fps) if max_fps.is_finite() && max_fps > 0.0 => {
+                match wait {
+                    Some(wait) => {
                         if !state.delayed_frame_pending.get() {
                             state.delayed_frame_pending.set(true);
                             let delayed_frame_pending = state.delayed_frame_pending.clone();
                             let view = window.current_view();
-                            let interval = Duration::from_secs_f32(1.0 / max_fps);
                             window
                                 .spawn(cx, async move |cx| {
-                                    cx.background_executor().timer(interval).await;
+                                    cx.background_executor().timer(wait).await;
                                     delayed_frame_pending.set(false);
                                     cx.update(move |_, cx| cx.notify(view)).ok();
                                 })
@@ -955,11 +967,29 @@ mod tests {
 
         cx.executor().advance_clock(Duration::from_millis(105));
         cx.run_until_parked();
-        assert_deltas_approx_eq(&[0.0, 0.105]);
+        assert_deltas_approx_eq(&[0.0, 0.1]);
 
         cx.executor().advance_clock(Duration::from_millis(105));
         cx.run_until_parked();
-        assert_deltas_approx_eq(&[0.0, 0.105, 0.21]);
+        assert_deltas_approx_eq(&[0.0, 0.1, 0.2]);
+    }
+
+    #[gpui::test]
+    fn test_max_fps_moves_in_even_steps_whenever_the_window_redraws(cx: &mut TestAppContext) {
+        let (rendered_deltas, window) = open_test_window_with_max_fps(cx, Some(10.0));
+
+        cx.executor().advance_clock(Duration::from_millis(130));
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(40));
+        window.update(cx, |_, _, cx| cx.notify()).unwrap();
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(40));
+        cx.run_until_parked();
+
+        let deltas = rendered_deltas.borrow();
+        let steps: Vec<f32> = deltas.iter().map(|d| (d * 10.0).round() / 10.0).collect();
+        assert_eq!(steps, vec![0.0, 0.1, 0.1, 0.2], "deltas: {deltas:?}");
+        assert!(deltas.iter().zip(&steps).all(|(d, s)| (d - s).abs() < 1e-3), "deltas: {deltas:?}");
     }
 
     #[gpui::test]
