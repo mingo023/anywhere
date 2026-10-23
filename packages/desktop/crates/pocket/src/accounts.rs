@@ -160,9 +160,14 @@ pub(crate) fn listed<'a>(list: &'a [Account], provider: &str) -> impl Iterator<I
     list.iter().filter(move |a| a.provider == provider && !a.pending && !never_signed_in(a))
 }
 
+/// The listed accounts to choose from: past the ones signing in as a person listed before them, unless it is `keep`.
+pub(crate) fn choices<'a>(list: &'a [Account], provider: &str, keep: &'a str) -> impl Iterator<Item = &'a Account> {
+    listed(list, provider).filter(move |a| a.same.is_empty() || a.id == keep)
+}
+
 /// Whether a provider has accounts to choose between on a machine.
 pub(crate) fn shared(list: &[Account], provider: &str) -> bool {
-    listed(list, provider).nth(1).is_some()
+    choices(list, provider, "").nth(1).is_some()
 }
 
 fn session_label(list: &[Account], provider: &str, account: &str) -> Option<String> {
@@ -263,11 +268,12 @@ where
     Tz::Offset: Display,
 {
     let built_in = (a.id == BUILT_IN).then(|| ("Built-in".to_string(), Tone::Plain));
+    let same = (!a.same.is_empty()).then(|| (if a.same == BUILT_IN { "Same as Built-in" } else { "Duplicate" }.to_string(), Tone::Plain));
     let default = (a.default && shared).then(|| ("New agents".to_string(), Tone::Accent));
     let limited = limited(a).map(|at| (format!("Limited \u{b7} back {}", when(at, now, tz)), Tone::Bad));
     let out = (!a.signed_in && !never_signed_in(a)).then(|| ("Signed out".to_string(), Tone::Plain));
     let stale = a.usage.as_ref().filter(|u| a.signed_in && u.stale).map(|u| (format!("As of {}", when(u.at, now, tz)), Tone::Warn));
-    [built_in, default, limited, out, stale].into_iter().flatten().collect()
+    [built_in, same, default, limited, out, stale].into_iter().flatten().collect()
 }
 
 /// The line under an account's name: its email when a label hides it, its plan and its running sessions.
@@ -555,7 +561,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, checked, default_of, device_code, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
+    use super::{Accounts, BUILT_IN, Tone, checked, choices, default_of, device_code, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
     use std::collections::BTreeMap;
     use chrono::Utc;
     use daemon::Account;
@@ -587,6 +593,16 @@ mod tests {
         let tags = |shared| tags(&a, shared, NOW, &Utc).into_iter().map(|(t, _)| t).collect::<Vec<_>>();
         assert_eq!(tags(false), ["Built-in"]);
         assert_eq!(tags(true), ["Built-in", "New agents"]);
+    }
+
+    #[test]
+    fn an_account_signed_in_as_one_listed_before_is_no_choice_unless_it_is_in_use() {
+        let list = [account("claude", BUILT_IN), Account { same: BUILT_IN.into(), ..account("claude", "a") }, account("claude", "b")];
+        let ids = |keep| choices(&list, "claude", keep).map(|a| a.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(ids(""), [BUILT_IN, "b"]);
+        assert_eq!(ids("a"), [BUILT_IN, "a", "b"]);
+        assert!(!shared(&list[..2], "claude"));
+        assert_eq!(tags(&list[1], true, NOW, &Utc), [("Same as Built-in".to_string(), Tone::Plain)]);
     }
 
     #[test]

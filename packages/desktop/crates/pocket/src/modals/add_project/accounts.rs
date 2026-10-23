@@ -78,7 +78,7 @@ impl Desktop {
                 })
             };
             let first = option(SharedString::from(format!("repo-account-{provider}-default")), chosen.is_none(), "Default".into(), format!("{default} now"), true).on_click(pick(None));
-            let rows = accounts::listed(list, provider).enumerate().map(|(i, a)| {
+            let rows = accounts::choices(list, provider, chosen.map_or("", |c| c.id.as_str())).enumerate().map(|(i, a)| {
                 let aside = if a.signed_in { a.email.clone() } else { "Signed out".into() };
                 let row = option((SharedString::from(format!("repo-account-{provider}-option")), i), chosen.is_some_and(|c| c.id == a.id), accounts::name(a).to_string(), aside, a.signed_in);
                 if a.signed_in { row.on_click(pick(Some(a.id.clone()))) } else { row }

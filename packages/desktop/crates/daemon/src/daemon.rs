@@ -93,6 +93,8 @@ pub struct Account {
     /// Signing in; `error` says why that failed.
     pub pending: bool,
     pub error: String,
+    /// The account listed before it that signs in as the same person.
+    pub same: String,
 }
 
 /// An account's 5-hour and weekly limits as of `at`; stale ones are the last known.

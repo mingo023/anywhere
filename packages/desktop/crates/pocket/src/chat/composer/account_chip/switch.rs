@@ -37,7 +37,7 @@ impl Desktop {
             }));
         let title = div().absolute().left_0().right_0().flex().justify_center().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Switch account");
         let head = div().relative().h(px(46.)).px(px(8.)).flex().items_center().child(title).child(back);
-        let rows = accounts::listed(self.accounts.list(host), &agent.provider).map(|x| self.chat_account_row(agent, host, x, x.id == current.id, cx)).collect::<Vec<_>>();
+        let rows = accounts::choices(self.accounts.list(host), &agent.provider, &current.id).map(|x| self.chat_account_row(agent, host, x, x.id == current.id, cx)).collect::<Vec<_>>();
         let manage = div()
             .id("chat-account-manage")
             .h(px(24.))

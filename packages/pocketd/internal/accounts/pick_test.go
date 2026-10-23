@@ -132,3 +132,22 @@ func TestAnAccountWhoseUsageWasNeverReadComesAfterOneWithRoomLeft(t *testing.T) 
 		t.Fatalf("best %q", got)
 	}
 }
+
+func TestAnAccountSignedInAsTheBuiltInLoginIsListedAsItsDuplicateAndNeverMovedTo(t *testing.T) {
+	s := store(t)
+	signInClaude(t, s, BuiltIn, "me@home.dev")
+	work := add(t, s, "claude", "me@work.dev")
+	acme := add(t, s, "claude", "me@acme.dev")
+	signInClaude(t, s, BuiltIn, "me@work.dev")
+	same := map[string]string{}
+	for _, a := range s.List(func(string, string) int { return 0 }) {
+		same[a.ID] = a.Same
+	}
+	if same[work] != BuiltIn || same[BuiltIn] != "" || same[acme] != "" {
+		t.Fatalf("same %v", same)
+	}
+	used(s, "claude", work, 10, 10)
+	if got, _ := s.Best("claude", acme); got != BuiltIn {
+		t.Fatalf("best %q", got)
+	}
+}

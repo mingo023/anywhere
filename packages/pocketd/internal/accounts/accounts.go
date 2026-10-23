@@ -90,6 +90,9 @@ type Account struct {
 	Default bool   `json:"default,omitempty"`
 	Running int    `json:"running,omitempty"`
 	Usage   *Usage `json:"usage,omitempty"`
+	// Same is the account listed before this one that signs in as the same
+	// person, as when the built-in login was later signed in as a managed one.
+	Same string `json:"same,omitempty"`
 	// Pending is signing in; Error says why that failed.
 	Pending bool   `json:"pending,omitempty"`
 	Error   string `json:"error,omitempty"`
@@ -196,8 +199,11 @@ func (s *Store) List(running func(provider, id string) int) []Account {
 				rows = append(rows, e)
 			}
 		}
-		for _, e := range rows {
+		for i, e := range rows {
 			a := Account{ID: e.ID, Provider: p, Label: e.Label, Email: e.Email, Plan: e.Plan, SignedIn: s.SignedIn(p, e.ID), Default: e.ID == def, Running: running(p, e.ID)}
+			if j := slices.IndexFunc(rows[:i], func(o entry) bool { return e.Email != "" && o.Email == e.Email }); j >= 0 {
+				a.Same = rows[j].ID
+			}
 			if u, ok := s.usage[p+"/"+e.ID]; ok {
 				a.Usage = &u
 			}

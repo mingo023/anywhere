@@ -71,11 +71,12 @@ func (s *Store) Pick(provider, id, prefer string) (string, error) {
 
 // Best is the signed-in account of provider other than except with the most
 // left of its limits, as of the last usage read, one never read coming last;
-// false when every one is at a limit.
+// false when every one is at a limit. An account signed in as the same person
+// as another isn't one to move to.
 func (s *Store) Best(provider, except string) (string, bool) {
 	best, ok, unread, peak := "", false, false, 0.0
 	for _, a := range s.List(func(string, string) int { return 0 }) {
-		if a.Provider != provider || a.ID == except || a.Pending || !a.SignedIn || a.Usage.Limited() {
+		if a.Provider != provider || a.ID == except || a.Same != "" || a.Pending || !a.SignedIn || a.Usage.Limited() {
 			continue
 		}
 		u, p := a.Usage == nil, a.Usage.Peak()
