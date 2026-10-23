@@ -25,7 +25,7 @@ use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
 use agents::Agents;
-use store::sections::{Pin, Sort};
+use store::sections::Sort;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -260,14 +260,7 @@ impl Desktop {
             None => done_name(self.scrolling(key, name.clone(), tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())), cx), state),
         };
         let label = with_sub(label, sub.clone(), self.sidebar.renaming(key));
-        let mut buttons = Vec::new();
-        if pins {
-            buttons.push(self.pin_button(key, Pin::Tree { project: p.to_string(), tree: key.to_string() }, cx));
-        }
-        if pins || renames {
-            buttons.push(self.row_menu_button(key, menu.clone(), cx));
-        }
-        let trail = (!buttons.is_empty()).then(|| ui::row_trail(None, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
+        let trail = (pins || renames).then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
         let lit = self.sidebar.filter.lit(p, Some(key));
         let (target, path) = (p.to_string(), key.to_string());
         let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
@@ -375,9 +368,6 @@ impl Desktop {
         let chevron = git.then(|| ui::chevron(("aside-chevron", i), open));
         let menu = RowMenu::Project(p.to_string());
         let mut buttons = Vec::new();
-        if kept {
-            buttons.push(self.pin_button(p, Pin::Project(p.to_string()), cx));
-        }
         if git {
             let target = p.to_string();
             buttons.push(
@@ -459,13 +449,7 @@ impl Desktop {
         } else {
             ui::indicator(id(format!("aside-spin:{tree}")), state).or_else(|| self.pr_mark(tree))
         };
-        let pin = Pin::Tree { project: p.to_string(), tree: tree.clone() };
-        let mut buttons = Vec::new();
-        if self.store.projects.iter().any(|k| k == p) {
-            buttons.push(self.pin_button(tree, pin, cx));
-        }
-        buttons.push(self.row_menu_button(tree, menu.clone(), cx));
-        let trail = ui::row_trail(None, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
+        let trail = ui::row_trail(None, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
         let (target, path) = (p.to_string(), tree.clone());
         let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),

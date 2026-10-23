@@ -283,19 +283,6 @@ impl Desktop {
         }))
     }
 
-    pub(super) fn pin_button(&self, key: &str, pin: Pin, cx: &mut Context<Self>) -> AnyElement {
-        let pinned = self.store.sections.is_pinned(&pin);
-        icon_button_sized(SharedString::from(format!("aside-pin:{key}")), "pin", 22., if pinned { TEXT } else { TEXT_3 })
-            .rounded(px(6.))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.store.sections.toggle_pin(pin.clone());
-                this.store.save();
-                cx.notify();
-            }))
-            .into_any_element()
-    }
-
     /// Pinned rows, each group, then the ungrouped projects; while filtering, only what matches.
     pub(super) fn sections(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let query = self.sidebar.filter.query(cx);
