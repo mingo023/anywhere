@@ -200,6 +200,10 @@ func (d *Daemon) adopt(pr *presence, driver func(*agent.Agent) agent.Driver) *hi
 		d.drop(h)
 		return nil
 	}
+	if h != nil && h.moved {
+		// The resumed provider replays its conversation into the timeline the agent kept.
+		h.a.ClearTimeline()
+	}
 	return h
 }
 

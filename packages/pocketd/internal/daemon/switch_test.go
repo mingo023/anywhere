@@ -18,6 +18,7 @@ import (
 	"pocketd/internal/proto"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
+	"pocketd/internal/timeline"
 )
 
 func TestOnlyAnAgentBetweenTurnsOnAnotherAccountWithAConversationMoves(t *testing.T) {
@@ -324,6 +325,22 @@ func TestAChatWithNoConversationYetSwitchesOnceItHasOne(t *testing.T) {
 	s.d.switchPending(s.pr)
 	if asked := <-asks; asked.Account != "work" {
 		t.Fatalf("resumed on %q", asked.Account)
+	}
+}
+
+func TestAMovedAgentsChatShowsItsConversationOnce(t *testing.T) {
+	s := onBuiltIn(t)
+	a := s.pr.a
+	a.Record(timeline.Event{Kind: "user", Text: "hello good morning"})
+	asks := asking(s, settleOn(fakeAgent(t, "claude"), s.work, "--resume", "c1"))
+
+	s.d.Switch("a-1", "work")
+	<-asks
+	s.next(t, s.pr)
+
+	items, _ := a.Timeline.Page(0, 100)
+	if slices.ContainsFunc(items, func(it proto.Item) bool { return it.Text == "hello good morning" }) {
+		t.Fatal("kept the conversation the resumed provider replays")
 	}
 }
 
