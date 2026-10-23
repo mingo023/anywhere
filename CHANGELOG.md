@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.13
+
+- Sidebar rows pin only from their menu (#120): (bb6cc02)
+- A chat switches account by hand or at a limit, and a project picks its own (#119): (a42641f)
+- Chat glides a sent prompt a quarter down, under the end of what came before (#118): (4b48b1b)
+- Chat stops blanking while a reply streams under a held prompt (#117): (1514695)
+
 ## 0.1.12
 
 - Spinners turn in even steps and the chat follows its height at once (#116): (05ca0f9)
