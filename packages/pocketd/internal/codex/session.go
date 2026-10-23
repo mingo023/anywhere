@@ -26,6 +26,9 @@ type Sink interface {
 // Session follows one thread: it maps app-server items to timeline events
 // and forwards approvals to the phone.
 type Session struct {
+	// Shown is whether the agent already shows the thread's history, as a
+	// moved agent does: a resume replays none of it.
+	Shown   bool
 	c       *Client
 	agentID string
 	sink    Sink
@@ -109,8 +112,9 @@ type resumed struct {
 
 // Open subscribes to a thread and replays its history. Resume fails until the
 // thread has its first turn, so it retries until ctx ends.
-func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker) (*Session, error) {
+func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker, shown bool) (*Session, error) {
 	s := NewSession(agentID, sink, b)
+	s.Shown = shown
 	c, err := Dial(ctx, sock, s)
 	if err != nil {
 		s.cancel()
@@ -223,6 +227,9 @@ func (s *Session) replay(r resumed) {
 		s.sink.SetEffort(r.ReasoningEffort)
 	}
 	for _, t := range r.Thread.Turns {
+		if s.Shown {
+			continue
+		}
 		s.replayItems(t, "")
 		if t.Status != "inProgress" {
 			s.turnDone(t, false)

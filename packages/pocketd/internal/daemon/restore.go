@@ -200,10 +200,6 @@ func (d *Daemon) adopt(pr *presence, driver func(*agent.Agent) agent.Driver) *hi
 		d.drop(h)
 		return nil
 	}
-	if h != nil && h.moved {
-		// The resumed provider replays its conversation into the timeline the agent kept.
-		h.a.ClearTimeline()
-	}
 	return h
 }
 
@@ -215,6 +211,12 @@ func (d *Daemon) hintOf(pr *presence) *hint {
 		return h
 	}
 	return nil
+}
+
+// moving is whether pr is a switch's new process, whose agent kept its timeline.
+func (d *Daemon) moving(pr *presence) bool {
+	h := d.hintOf(pr)
+	return h != nil && h.moved
 }
 
 // resumed settles pr's hint once pr is on the Conversation it was saved with.

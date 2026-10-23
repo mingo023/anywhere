@@ -111,12 +111,34 @@ func open(t *testing.T, answer codextest.Answer) (*codextest.Server, *Session, *
 	b := broker.New(hub.New())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s, err := Open(ctx, srv.Sock, "th1", "agent1", snk, b)
+	s, err := Open(ctx, srv.Sock, "th1", "agent1", snk, b, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
 	return srv, s, snk, b
+}
+
+func TestAThreadItsAgentAlreadyShowsReplaysNoneOfItsHistory(t *testing.T) {
+	srv := codextest.Start(t, sock(t), func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(history), ""
+		}
+		return map[string]any{}, ""
+	})
+	snk := &sink{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s, err := Open(ctx, srv.Sock, "th1", "agent1", snk, broker.New(hub.New()), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	snk.mu.Lock()
+	defer snk.mu.Unlock()
+	if len(snk.events) != 0 || snk.title != "Fix build" {
+		t.Fatalf("events %q, title %q", snk.events, snk.title)
+	}
 }
 
 func TestReplaysHistoryAfterResumeRetries(t *testing.T) {
@@ -293,7 +315,7 @@ func TestFileApprovalBeforeReplayShowsDiff(t *testing.T) {
 	b := broker.New(hub.New())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s, err := Open(ctx, srv.Sock, "th1", "agent1", &sink{}, b)
+	s, err := Open(ctx, srv.Sock, "th1", "agent1", &sink{}, b, false)
 	if err != nil {
 		t.Fatal(err)
 	}

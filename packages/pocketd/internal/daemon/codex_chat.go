@@ -195,6 +195,7 @@ func (x *codexChat) attach() {
 func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	pr := x.pr
 	x.s = codex.NewSession(pr.a.ID(), d.codexSink(pr), d.Broker)
+	x.s.Shown = saved != "" && d.moving(pr)
 	ctx := pr.ctx
 	stop := context.AfterFunc(ctx, x.Close)
 	c, err := codex.Connect(ctx, x, x, map[string]any{"experimentalApi": true})

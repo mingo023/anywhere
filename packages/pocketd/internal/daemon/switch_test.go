@@ -18,7 +18,6 @@ import (
 	"pocketd/internal/proto"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
-	"pocketd/internal/timeline"
 )
 
 func TestOnlyAnAgentBetweenTurnsOnAnotherAccountWithAConversationMoves(t *testing.T) {
@@ -328,19 +327,23 @@ func TestAChatWithNoConversationYetSwitchesOnceItHasOne(t *testing.T) {
 	}
 }
 
-func TestAMovedAgentsChatShowsItsConversationOnce(t *testing.T) {
+func TestAMovedAgentsChatKeepsWhatItShowsWithoutDrawingItAgain(t *testing.T) {
 	s := onBuiltIn(t)
 	a := s.pr.a
-	a.Record(timeline.Event{Kind: "user", Text: "hello good morning"})
+	eventually(t, "the prompt", func() bool { items, _ := a.Timeline.Page(0, 10); return len(items) == 1 })
+	shown, _ := a.Timeline.Page(0, 10)
+	resets := a.Timeline.Resets()
 	asks := asking(s, settleOn(fakeAgent(t, "claude"), s.work, "--resume", "c1"))
 
 	s.d.Switch("a-1", "work")
 	<-asks
-	s.next(t, s.pr)
+	s.settle(t, s.next(t, s.pr))
+	appendLine(t, s.transcript, userLine("after"))
 
-	items, _ := a.Timeline.Page(0, 100)
-	if slices.ContainsFunc(items, func(it proto.Item) bool { return it.Text == "hello good morning" }) {
-		t.Fatal("kept the conversation the resumed provider replays")
+	var items []proto.Item
+	eventually(t, "the next prompt", func() bool { items, _ = a.Timeline.Page(0, 10); return len(items) == 2 })
+	if items[0].ID != shown[0].ID || items[0].Seq != shown[0].Seq || items[1].Text != "after" || a.Timeline.Resets() != resets {
+		t.Fatalf("items = %+v, resets %d → %d", items, resets, a.Timeline.Resets())
 	}
 }
 

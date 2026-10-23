@@ -193,15 +193,17 @@ func (w *codexSock) typedIn() *presence {
 }
 
 // bind follows thread in pr's timeline, which starts over even for the same
-// thread, as the follower replays it all. The old follower stops first, so
-// none of its events land in the new timeline.
+// thread, as the follower replays it all; a moved agent's keeps what it
+// shows. The old follower stops first, so none of its events land in the
+// new timeline.
 func (d *Daemon) bind(pr *presence, thread string) {
+	shown := d.moving(pr)
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	if pr.unfollow != nil {
 		pr.unfollow()
 	}
-	if pr.a.Summary().ProviderSessionID == thread {
+	if pr.a.Summary().ProviderSessionID == thread && !shown {
 		pr.a.ClearTimeline()
 	}
 	ctx, cancel := context.WithCancel(pr.ctx)
@@ -213,12 +215,12 @@ func (d *Daemon) bind(pr *presence, thread string) {
 	pr.a.SetConversation(thread)
 	go func() {
 		defer close(done)
-		d.follow(ctx, pr, thread)
+		d.follow(ctx, pr, thread, shown)
 	}()
 }
 
-func (d *Daemon) follow(ctx context.Context, pr *presence, thread string) {
-	s, err := codex.Open(ctx, pr.sock, thread, pr.a.ID(), d.codexSink(pr), d.Broker)
+func (d *Daemon) follow(ctx context.Context, pr *presence, thread string, shown bool) {
+	s, err := codex.Open(ctx, pr.sock, thread, pr.a.ID(), d.codexSink(pr), d.Broker, shown)
 	if err != nil {
 		return
 	}
