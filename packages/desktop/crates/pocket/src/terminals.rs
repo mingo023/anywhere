@@ -343,7 +343,7 @@ impl Desktop {
         let t = &self.store.terminal;
         let (shell, args) = t.shell_command(daemon::login_shell(), daemon::runs);
         let missing = t.skipped(&shell).map(|p| p.trim().to_string());
-        self.run_in_tree(place, &[], |cwd| daemon::shell_op(&shell, args, cwd), cx);
+        self.run_in_tree(place, &[], None, |cwd| daemon::shell_op(&shell, args, cwd), cx);
         if let Some(missing) = missing {
             self.error = Some(format!("Can't run {missing}, so this terminal opened your login shell"));
         }
@@ -359,7 +359,7 @@ impl Desktop {
 
     pub fn new_agent_tab(&mut self, provider: &str, place: Place, cx: &mut Context<Self>) {
         let argv = [provider.to_string()];
-        self.run_in_tree(place, &argv, |cwd| daemon::agent_op(&argv, cwd), cx);
+        self.run_in_tree(place, &argv, Some(provider), |cwd| daemon::agent_op(&argv, cwd), cx);
     }
 
     /// Starts the agent last picked here as a chat in the worktree on screen, its tab at `place`.
@@ -381,13 +381,17 @@ impl Desktop {
     }
 
     /// Spawns `op` in the worktree's folder; a host's folder gets its login shell running `argv` instead.
-    pub(crate) fn run_in_tree(&mut self, place: Place, argv: &[String], op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
+    /// Naming `agent`, the provider `argv` runs, lets pocketd start it on the account a new session there would.
+    pub(crate) fn run_in_tree(&mut self, place: Place, argv: &[String], agent: Option<&str>, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
         let Some(tree) = self.place() else { return };
         let Some(cwd) = self.folder_of(&tree) else { return };
         let mut op = match hosts::split(&cwd) {
             (Some(_), path) => hosts::session::spawn_op(path, argv),
             (None, _) => op(&cwd),
         };
+        if let Some(agent) = agent {
+            daemon::as_agent(&mut op, agent, argv);
+        }
         if is_local(&tree) {
             op["local"] = tree.clone().into();
         }

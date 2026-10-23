@@ -49,6 +49,9 @@ func (s *sink) Apply(e timeline.Event) {
 		}
 	case "result":
 		line += fmt.Sprintf(":%v:%d:%s", e.OK, e.DurationMs, e.Error)
+		if e.Limit {
+			line += ":limit"
+		}
 	}
 	if e.ParentToolUseID != "" {
 		line = e.ParentToolUseID + ">" + line
@@ -108,12 +111,34 @@ func open(t *testing.T, answer codextest.Answer) (*codextest.Server, *Session, *
 	b := broker.New(hub.New())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s, err := Open(ctx, srv.Sock, "th1", "agent1", snk, b)
+	s, err := Open(ctx, srv.Sock, "th1", "agent1", snk, b, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
 	return srv, s, snk, b
+}
+
+func TestAThreadItsAgentAlreadyShowsReplaysNoneOfItsHistory(t *testing.T) {
+	srv := codextest.Start(t, sock(t), func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(history), ""
+		}
+		return map[string]any{}, ""
+	})
+	snk := &sink{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s, err := Open(ctx, srv.Sock, "th1", "agent1", snk, broker.New(hub.New()), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	snk.mu.Lock()
+	defer snk.mu.Unlock()
+	if len(snk.events) != 0 || snk.title != "Fix build" {
+		t.Fatalf("events %q, title %q", snk.events, snk.title)
+	}
 }
 
 func TestReplaysHistoryAfterResumeRetries(t *testing.T) {
@@ -163,6 +188,22 @@ func TestLiveTurnStreamsOnce(t *testing.T) {
 	if snk.title != "Greeting" {
 		t.Fatal(snk.title)
 	}
+}
+
+func TestOnlyALiveTurnEndsAtTheAccountsLimit(t *testing.T) {
+	const limited = `{"id":"t1","items":[],"status":"failed","error":{"message":"You've hit your usage limit.","codexErrorInfo":"usageLimitExceeded"}}`
+	srv, _, live, _ := open(t, emptyThread)
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":`+limited+`}`)
+	srv.Push("turn/completed", nil, `{"threadId":"th1","turn":{"id":"t2","items":[],"status":"failed","error":{"message":"boom","codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":502}}}}}`)
+	live.wait(t, "result:false:0:You've hit your usage limit.:limit", "result:false:0:boom")
+
+	_, _, replayed, _ := open(t, func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(`{"thread":{"turns":[` + limited + `]}}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	replayed.wait(t, "result:false:0:You've hit your usage limit.")
 }
 
 func TestAMessageUnderWayAtResumeShowsWholeOnceItCompletes(t *testing.T) {
@@ -274,7 +315,7 @@ func TestFileApprovalBeforeReplayShowsDiff(t *testing.T) {
 	b := broker.New(hub.New())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	s, err := Open(ctx, srv.Sock, "th1", "agent1", &sink{}, b)
+	s, err := Open(ctx, srv.Sock, "th1", "agent1", &sink{}, b, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,6 +28,7 @@ type line struct {
 	IsSidechain      bool            `json:"isSidechain"`
 	IsCompactSummary bool            `json:"isCompactSummary"`
 	IsAPIError       bool            `json:"isApiErrorMessage"`
+	Error            string          `json:"error"`
 	TurnOrigin       string          `json:"turnOrigin"`
 	Entrypoint       string          `json:"entrypoint"`
 	Timestamp        string          `json:"timestamp"`
@@ -287,7 +288,7 @@ func (l line) events() (events []timeline.Event) {
 			for _, b := range blocks(l.Message.Content) {
 				text += b.Text
 			}
-			return []timeline.Event{{Kind: "result", OK: false, Error: text}}
+			return []timeline.Event{{Kind: "result", OK: false, Error: text, Limit: l.Error == "rate_limit"}}
 		}
 		// Claude writes a reply of its own where the model gave none, as "No response requested." after an interrupt.
 		if l.Message.Model == "<synthetic>" {

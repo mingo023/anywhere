@@ -1,4 +1,5 @@
 mod access_pill;
+mod account_chip;
 pub(crate) mod attachments;
 mod background;
 pub(crate) mod btw;
@@ -453,14 +454,15 @@ impl Desktop {
         let empty = typed.trim().is_empty() && images.is_empty();
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
-        let footer = self.composer_footer(agent, hint(mode, busy, stopping, empty, can_queue), said, asking);
+        let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
+        let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking);
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
         let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(goal).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 
-    /// The agent's branch, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
-    fn composer_footer(&self, agent: &Summary, hint: Option<&'static str>, said: Option<&str>, asking: bool) -> Div {
+    /// The agent's branch and `account`, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
+    fn composer_footer(&self, agent: &Summary, account: Option<Div>, hint: Option<&'static str>, said: Option<&str>, asking: bool) -> Div {
         let branch = self.worktree_of(&agent.cwd).filter(|t| !t.branch.is_empty()).map(|t| {
             div()
                 .min_w_0()
@@ -480,6 +482,7 @@ impl Desktop {
             .text_size(px(12.))
             .text_color(TEXT_3)
             .children(branch)
+            .children(account)
             .child(div().flex_1())
             .children(match said {
                 Some(said) => Some(div().min_w_0().flex().items_center().gap(px(6.)).text_color(TEXT_2).child(icon("terminal", 13., TEXT_3)).child(div().min_w_0().truncate().child(said.to_string()))),
@@ -561,6 +564,10 @@ impl Desktop {
             )
             .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" {
+                    if this.escape_account_menu() {
+                        cx.stop_propagation();
+                        return cx.notify();
+                    }
                     this.chat_escape(&t, cx);
                 }
             }))

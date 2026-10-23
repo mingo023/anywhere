@@ -7,7 +7,7 @@ use daemon::{Account, Msg};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -52,6 +52,8 @@ pub(crate) struct Rename {
 pub(crate) struct Accounts {
     /// Each machine's accounts, as its pocketd last listed them.
     pub(crate) lists: HashMap<Host, Vec<Account>>,
+    /// Whether each machine moves an agent at its account's limit to another; one too old to isn't listed.
+    pub(crate) auto_switch: HashMap<Host, bool>,
     /// Machines whose list or usage is being read.
     pub(crate) checking: HashSet<Host>,
     /// Machines to read again once their read in flight ends.
@@ -86,8 +88,17 @@ impl SignIn {
 }
 
 impl Accounts {
-    fn list(&self, host: &Host) -> &[Account] {
+    pub(crate) fn list(&self, host: &Host) -> &[Account] {
         self.lists.get(host).map_or(&[], Vec::as_slice)
+    }
+
+    /// Shows a machine's accounts as its pocketd answered with them.
+    fn take(&mut self, host: &Host, m: Msg) {
+        self.lists.insert(host.clone(), m.accounts);
+        match m.auto_switch {
+            Some(on) => _ = self.auto_switch.insert(host.clone(), on),
+            None => _ = self.auto_switch.remove(host),
+        }
     }
 
     /// The account a session row names, while its provider has more than one on the session's machine.
@@ -108,7 +119,7 @@ impl Accounts {
     }
 }
 
-fn host_of(project: Option<&str>) -> Host {
+pub(crate) fn host_of(project: Option<&str>) -> Host {
     project.and_then(|p| hosts::split(p).0).map(str::to_string)
 }
 
@@ -149,14 +160,87 @@ pub(crate) fn listed<'a>(list: &'a [Account], provider: &str) -> impl Iterator<I
     list.iter().filter(move |a| a.provider == provider && !a.pending && !never_signed_in(a))
 }
 
+/// The listed accounts to choose from: past the ones signing in as a person listed before them, unless `keep` names them.
+pub(crate) fn choices<'a>(list: &'a [Account], provider: &str, keep: &'a [&'a str]) -> impl Iterator<Item = &'a Account> {
+    listed(list, provider).filter(move |a| a.same.is_empty() || keep.contains(&a.id.as_str()))
+}
+
+/// Whether the Accounts page lists an account: a duplicate only while something still uses it.
+pub(crate) fn on_page(a: &Account) -> bool {
+    a.same.is_empty() || a.running > 0 || a.default
+}
+
 /// Whether a provider has accounts to choose between on a machine.
 pub(crate) fn shared(list: &[Account], provider: &str) -> bool {
-    listed(list, provider).nth(1).is_some()
+    choices(list, provider, &[]).nth(1).is_some()
 }
 
 fn session_label(list: &[Account], provider: &str, account: &str) -> Option<String> {
     let id = if account.is_empty() { BUILT_IN } else { account };
     shared(list, provider).then(|| listed(list, provider).find(|a| a.id == id)).flatten().map(|a| name(a).to_string())
+}
+
+/// The account `id` of a provider, while its machine lists it to pick.
+pub(crate) fn picked<'a>(list: &'a [Account], provider: &str, id: &str) -> Option<&'a Account> {
+    listed(list, provider).find(|a| a.id == id)
+}
+
+/// The account a provider's new sessions start on when nothing picks another.
+pub(crate) fn default_of<'a>(list: &'a [Account], provider: &str) -> Option<&'a Account> {
+    listed(list, provider).find(|a| a.default)
+}
+
+/// The accounts a project picks, as (provider, name), while its machine has others to pick from; one removed since starts on the default.
+pub(crate) fn project_picks(list: &[Account], picks: &BTreeMap<String, String>) -> Vec<(String, String)> {
+    picks
+        .iter()
+        .filter(|(provider, _)| shared(list, provider))
+        .filter_map(|(provider, id)| picked(list, provider, id).map(|a| (provider.clone(), name(a).to_string())))
+        .collect()
+}
+
+/// The account a session shows, by the id its summary names; empty is the built-in login. A signed-out one counts.
+pub(crate) fn in_use<'a>(list: &'a [Account], provider: &str, account: &str) -> Option<&'a Account> {
+    let id = if account.is_empty() { BUILT_IN } else { account };
+    list.iter().find(|a| a.provider == provider && a.id == id && !a.pending)
+}
+
+/// The fuller of an account's 5-hour and weekly windows, in whole percent; none before its usage is read.
+pub(crate) fn peak(a: &Account) -> Option<u32> {
+    let usage = a.usage.as_ref()?;
+    [&usage.session, &usage.week].into_iter().flatten().map(percent).max()
+}
+
+/// How much of a limit is used, in whole percent.
+pub(crate) fn percent(w: &daemon::Window) -> u32 {
+    w.percent.round().clamp(0., 100.) as u32
+}
+
+/// How full a percent of a limit reads: high from 80, full at 100.
+pub(crate) fn tone(percent: u32) -> Tone {
+    match percent {
+        100.. => Tone::Bad,
+        80.. => Tone::Warn,
+        _ => Tone::Plain,
+    }
+}
+
+/// "2h 10m" until `at`, "45m" within the hour, "3d 4h" past a day.
+pub(crate) fn until(at: i64, now: i64) -> String {
+    let minutes = ((at - now).max(0) + 59_999) / 60_000;
+    match (minutes / 1440, minutes % 1440 / 60, minutes % 60) {
+        (0, 0, m) => format!("{m}m"),
+        (0, h, m) => format!("{h}h {m}m"),
+        (d, h, _) => format!("{d}d {h}h"),
+    }
+}
+
+/// When an account at its limit is back, as "Back at 15:12"; none while it has room.
+pub(crate) fn back_at<Tz: TimeZone>(a: &Account, now: i64, tz: &Tz) -> Option<String>
+where
+    Tz::Offset: Display,
+{
+    limited(a).map(|at| format!("Back at {}", when(at, now, tz)))
 }
 
 /// What an account is called: its label, else its email.
@@ -189,11 +273,12 @@ where
     Tz::Offset: Display,
 {
     let built_in = (a.id == BUILT_IN).then(|| ("Built-in".to_string(), Tone::Plain));
+    let same = (!a.same.is_empty()).then(|| (if a.same == BUILT_IN { "Same as Built-in" } else { "Duplicate" }.to_string(), Tone::Plain));
     let default = (a.default && shared).then(|| ("New agents".to_string(), Tone::Accent));
     let limited = limited(a).map(|at| (format!("Limited \u{b7} back {}", when(at, now, tz)), Tone::Bad));
     let out = (!a.signed_in && !never_signed_in(a)).then(|| ("Signed out".to_string(), Tone::Plain));
     let stale = a.usage.as_ref().filter(|u| a.signed_in && u.stale).map(|u| (format!("As of {}", when(u.at, now, tz)), Tone::Warn));
-    [built_in, default, limited, out, stale].into_iter().flatten().collect()
+    [built_in, same, default, limited, out, stale].into_iter().flatten().collect()
 }
 
 /// The line under an account's name: its email when a label hides it, its plan and its running sessions.
@@ -216,12 +301,8 @@ pub(crate) fn meter<Tz: TimeZone>(w: &daemon::Window, now: i64, tz: &Tz) -> (u32
 where
     Tz::Offset: Display,
 {
-    let percent = w.percent.round().clamp(0., 100.) as u32;
-    let tone = match percent {
-        100.. => Tone::Bad,
-        80.. => Tone::Warn,
-        _ => Tone::Plain,
-    };
+    let percent = percent(w);
+    let tone = tone(percent);
     let at = if w.resets_at > 0 { when(w.resets_at, now, tz) } else { String::new() };
     let reset = if tone == Tone::Bad && !at.is_empty() { format!("back {at}") } else { at };
     (percent, tone, reset)
@@ -283,7 +364,7 @@ impl Desktop {
         };
         let take = |host: &Host, reply: Result<Msg, String>, d: &mut Desktop| {
             if let Ok(m) = reply {
-                d.accounts.lists.insert(host.clone(), m.accounts);
+                d.accounts.take(host, m);
             }
         };
         cx.spawn(async move |this, cx| {
@@ -330,13 +411,20 @@ impl Desktop {
             let reply = reply.await;
             _ = this.update(cx, |d, cx| {
                 match reply {
-                    Ok(m) => _ = d.accounts.lists.insert(host, m.accounts),
+                    Ok(m) => d.accounts.take(&host, m),
                     Err(e) => d.error = Some(e),
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Turns the machine's switching at a limit on or off, showing it at once.
+    pub(crate) fn set_auto_switch(&mut self, host: Host, on: bool, cx: &mut Context<Self>) {
+        self.accounts.auto_switch.insert(host.clone(), on);
+        self.account_op(host, json!({"op": "accounts.autoswitch", "text": if on { "on" } else { "off" }}), cx);
+        cx.notify();
     }
 
     /// Signs in to `key`, or adds an account when its id is empty, in a terminal on its machine; one per provider there at a time.
@@ -357,7 +445,7 @@ impl Desktop {
                     Ok(m) if m.ev == "spawned" => d.sign_in_spawned(&key, m.id, m.text, cx),
                     Ok(m) => {
                         d.accounts.signins.retain(|s| !s.on(&key.host, &key.provider));
-                        d.accounts.lists.insert(key.host.clone(), m.accounts);
+                        d.accounts.take(&key.host, m);
                     }
                     Err(e) => {
                         d.accounts.signins.retain(|s| !s.on(&key.host, &key.provider));
@@ -478,7 +566,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, checked, device_code, meter, name, screen_lines, session_label, shared, sign_in_link, subline, tags};
+    use super::{Accounts, BUILT_IN, Tone, back_at, checked, choices, default_of, device_code, on_page, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
+    use std::collections::BTreeMap;
     use chrono::Utc;
     use daemon::Account;
     use serde_json::json;
@@ -512,12 +601,38 @@ mod tests {
     }
 
     #[test]
+    fn an_account_signed_in_as_one_listed_before_is_no_choice_unless_it_is_in_use() {
+        let list = [account("claude", BUILT_IN), Account { same: BUILT_IN.into(), ..account("claude", "a") }, account("claude", "b")];
+        let ids = |listed: Vec<&Account>| listed.into_iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(choices(&list, "claude", &[]).collect()), [BUILT_IN, "b"]);
+        assert_eq!(ids(choices(&list, "claude", &["b", "a"]).collect()), [BUILT_IN, "a", "b"]);
+        assert!(!shared(&list[..2], "claude"));
+        assert_eq!(tags(&list[1], true, NOW, &Utc), [("Same as Built-in".to_string(), Tone::Plain)]);
+    }
+
+    #[test]
+    fn the_accounts_page_lists_a_duplicate_only_while_a_session_runs_on_it_or_it_is_the_default() {
+        let same = Account { same: BUILT_IN.into(), ..account("claude", "a") };
+        assert!(on_page(&account("claude", "b")));
+        assert!(!on_page(&same));
+        assert!(on_page(&Account { running: 1, ..same.clone() }));
+        assert!(on_page(&Account { default: true, ..same }));
+    }
+
+    #[test]
     fn an_account_at_a_limit_says_when_it_is_back() {
         let full = Usage { session: window(100., NOW + 3_600_000), week: window(40., NOW + 86_400_000), ..Default::default() };
         let a = Account { usage: Some(full), ..account("codex", "a") };
         assert_eq!(tags(&a, false, NOW, &Utc), [("Limited \u{b7} back 09:53".to_string(), Tone::Bad)]);
         let stale = Account { usage: Some(Usage { stale: true, at: NOW - 60_000, ..a.usage.clone().unwrap() }), ..a };
         assert_eq!(tags(&stale, false, NOW, &Utc), [("As of 08:52".to_string(), Tone::Warn)]);
+    }
+
+    #[test]
+    fn an_account_says_when_it_is_back_only_while_it_is_at_a_limit() {
+        let at = |percent| Account { usage: Some(Usage { session: window(percent, NOW + 3_600_000), ..Default::default() }), ..account("claude", "a") };
+        assert_eq!(back_at(&at(100.), NOW, &Utc).as_deref(), Some("Back at 09:53"));
+        assert_eq!(back_at(&at(99.), NOW, &Utc), None);
     }
 
     #[test]
@@ -560,6 +675,35 @@ mod tests {
     }
 
     #[test]
+    fn a_project_names_the_accounts_it_picks_only_while_there_are_others() {
+        let list = [Account { label: "Home".into(), default: true, ..account("claude", BUILT_IN) }, account("claude", "work"), account("codex", "x")];
+        let picks = BTreeMap::from([("claude".to_string(), "work".to_string()), ("codex".to_string(), "x".to_string())]);
+        assert_eq!(project_picks(&list, &picks), [("claude".to_string(), "work@x.com".to_string())]);
+        let gone = BTreeMap::from([("claude".to_string(), "removed".to_string())]);
+        assert!(project_picks(&list, &gone).is_empty());
+        assert_eq!(default_of(&list, "claude").map(name), Some("Home"));
+    }
+
+    #[test]
+    fn a_session_shows_the_account_it_runs_on_even_signed_out_with_its_fuller_window() {
+        let home = Account { signed_in: false, usage: Some(Usage { session: window(42.4, 0), week: window(81., 0), ..Default::default() }), ..account("claude", BUILT_IN) };
+        let list = [home, account("claude", "work")];
+        let shown = in_use(&list, "claude", "").unwrap();
+        assert_eq!((shown.id.as_str(), peak(shown)), (BUILT_IN, Some(81)));
+        assert_eq!(peak(in_use(&list, "claude", "work").unwrap()), None);
+        assert!(in_use(&list, "codex", "").is_none());
+        assert_eq!([tone(79), tone(80), tone(100)], [Tone::Plain, Tone::Warn, Tone::Bad]);
+    }
+
+    #[test]
+    fn a_reset_counts_down_in_minutes_then_hours_then_days() {
+        assert_eq!(until(NOW + 45 * 60_000, NOW), "45m");
+        assert_eq!(until(NOW + 130 * 60_000 - 1, NOW), "2h 10m");
+        assert_eq!(until(NOW + (3 * 24 + 4) * 3_600_000, NOW), "3d 4h");
+        assert_eq!(until(NOW - 1, NOW), "0m");
+    }
+
+    #[test]
     fn a_sign_in_still_running_is_not_an_account_to_pick() {
         let list = [account("claude", BUILT_IN), Account { pending: true, ..account("claude", "new") }];
         assert!(!shared(&list, "claude"));
@@ -582,6 +726,16 @@ mod tests {
         let mut here = json!({"project": "/src/app", "provider": "claude", "account": "work"});
         accounts.offer(&mut here);
         assert!(here.get("account").is_none());
+    }
+
+    #[test]
+    fn a_machine_whose_pocketd_names_no_switching_at_a_limit_shows_no_toggle() {
+        let mut accounts = Accounts::default();
+        let reply = |auto_switch| daemon::Msg { auto_switch, accounts: vec![account("claude", "work")], ..daemon::Msg::default() };
+        accounts.take(&None, reply(Some(false)));
+        assert_eq!(accounts.auto_switch.get(&None), Some(&false));
+        accounts.take(&None, reply(None));
+        assert_eq!((accounts.auto_switch.get(&None), accounts.list(&None).len()), (None, 1));
     }
 
     fn screen(output: &str) -> Vec<String> {

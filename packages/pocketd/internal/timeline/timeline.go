@@ -33,6 +33,8 @@ type Event struct {
 	TaskID string
 	// Draft names the streamed block a draft's text belongs to.
 	Draft string
+	// Limit marks a result that the account's usage limit ended.
+	Limit bool
 }
 
 type Timeline struct {
@@ -154,6 +156,18 @@ func (t *Timeline) lastBefore(end int) int {
 		}
 	}
 	return -1
+}
+
+// LastPrompt is the text of the newest prompt, "" when there's none.
+func (t *Timeline) LastPrompt() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := len(t.items) - 1; i >= 0; i-- {
+		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind == "user" {
+			return it.Text
+		}
+	}
+	return ""
 }
 
 // Unanswered says whether the newest prompt has nothing after it yet.

@@ -34,7 +34,7 @@ func (claudeKind) attach(d *Daemon, pr *presence) {
 	if h := d.hintOf(pr); h != nil && claude.InProjects(h.saved.TranscriptPath, pr.env) {
 		pr.mu.Lock()
 		if pr.transcript == "" {
-			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "", !h.handoff)
+			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "", !h.handoff, h.moved)
 		}
 		pr.mu.Unlock()
 	}
@@ -216,6 +216,17 @@ func (d *Daemon) applyLocked(pr *presence, r terminal.Report) {
 	pr.a.SetActivity(r.Msg)
 }
 
+// sameFile is whether paths a and b reach one file, as an account's folder
+// links its history to the user's.
+func sameFile(a, b string) bool {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
+}
+
 func (d *Daemon) presentIn(id string) *presence {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -226,11 +237,17 @@ func (d *Daemon) presentIn(id string) *presence {
 // cleared to. The old tail stops before SetConversation clears the timeline,
 // so none of its lines land in the new conversation.
 func (d *Daemon) sessionStart(pr *presence, in hookInput) {
+	moving := d.moving(pr)
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
-	moved := in.TranscriptPath != pr.transcript
+	moved := in.TranscriptPath != pr.transcript && !sameFile(in.TranscriptPath, pr.transcript)
 	if moved && pr.stopTail != nil {
 		pr.stopTail()
+	}
+	// A moved agent already shows the conversation; anyone else reads it again from its start.
+	same := pr.a.Summary().ProviderSessionID == in.SessionID
+	if moved && same && !moving {
+		pr.a.ClearTimeline()
 	}
 	pr.a.SetConversation(in.SessionID)
 	pr.a.SetAttached(true)
@@ -245,7 +262,7 @@ func (d *Daemon) sessionStart(pr *presence, in hookInput) {
 		pr.a.Compacted()
 	}
 	if moved {
-		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model, in.Source == "resume")
+		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model, in.Source == "resume", same && moving)
 	}
 }
 
@@ -312,7 +329,7 @@ func (d *Daemon) discovered(pr *presence, known map[string]bool, opened map[stri
 	}
 	known[path] = true
 	pr.a.SetConversation(strings.TrimSuffix(filepath.Base(path), ".jsonl"))
-	pr.transcript, pr.stopTail = path, d.tail(pr, path, "", false)
+	pr.transcript, pr.stopTail = path, d.tail(pr, path, "", false, false)
 	return true
 }
 
@@ -415,7 +432,9 @@ func tidy(text string) string {
 // tail feeds pr's timeline from a transcript; hooks set the status. stop
 // returns once the lines written so far are in. A resumed transcript, one a
 // new claude took over, ends the background calls it replays still running.
-func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool) (stop func()) {
+// With known, the timeline already shows the lines written so far, as a
+// moved agent's does, so only later ones go in.
+func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool) (stop func()) {
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})
 	var replay int64
@@ -464,6 +483,9 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool) (stop 
 				pr.a.SetTokens(used, window)
 				used = -1
 			}
+			if known && read <= replay {
+				events = nil
+			}
 			for _, e := range events {
 				if e.Kind == "tool_start" {
 					spawns.Store(e.ToolUseID, true)
@@ -480,6 +502,9 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool) (stop 
 					pr.shown(e.Text)
 				}
 				pr.a.Record(e)
+				if e.Limit && read > replay {
+					go d.limitHit(pr)
+				}
 				// Rejecting Claude's own dialog at the desk interrupts the turn without a hook.
 				if e.Error == "interrupted" && read > replay && pr.a.Summary().Status == "needsYou" {
 					d.cleared(pr)

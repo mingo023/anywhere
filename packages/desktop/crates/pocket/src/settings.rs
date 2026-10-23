@@ -1,4 +1,4 @@
-mod accounts;
+pub(crate) mod accounts;
 mod agents;
 mod appearance;
 mod automations;
@@ -93,7 +93,7 @@ impl Section {
             Section::Automations => "Automations",
             Section::Phone => "Phone & Remote",
             Section::Hosts => "Hosts",
-            Section::Projects => "Projects & Worktrees",
+            Section::Projects => "Projects",
             Section::Sidebar => "Sidebar & Inbox",
             Section::Terminal => "Terminal",
             Section::Files => "Files & Editor",

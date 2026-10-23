@@ -127,6 +127,21 @@ func TestANewSessionStartsTheTimelineOver(t *testing.T) {
 	}
 }
 
+func TestTheSameConversationReachedThroughAnotherAccountsFolderShowsOnce(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	path := transcript(t, "hello brother")
+	linked := filepath.Join(t.TempDir(), "projects")
+	os.Symlink(filepath.Dir(path), linked)
+	hookFrom(d, pr, sessionStart("s1", path))
+	eventually(t, "the prompt", func() bool { items, _ := pr.a.Timeline.Page(0, 10); return len(items) == 1 })
+	hookFrom(d, pr, sessionStart("s1", filepath.Join(linked, filepath.Base(path))))
+	time.Sleep(300 * time.Millisecond)
+	if items, _ := pr.a.Timeline.Page(0, 10); len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
 func TestACompactKeepsTheTranscriptWhereItWas(t *testing.T) {
 	d := newDaemon(t)
 	_, pr := claudeIn(t, d)

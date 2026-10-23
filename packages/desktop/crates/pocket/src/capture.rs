@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 218] = [
+const STEPS: [(&str, Step); 223] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -514,6 +514,26 @@ const STEPS: [(&str, Step); 218] = [
     }),
     ("account-menu", |d, _, _| {
         d.accounts.menu = Some(crate::accounts::Key { host: None, provider: "claude".into(), id: "work".into() });
+    }),
+    ("accounts-auto", |d, _, _| _ = d.accounts.auto_switch.insert(None, true)),
+    ("account-usage", |d, _, cx| {
+        d.chats.composer.draft.menu = Some(Menu::Usage { back: false });
+        cx.notify();
+    }),
+    ("account-switch", |d, _, cx| {
+        d.chats.composer.draft.menu = Some(Menu::Switch);
+        cx.notify();
+    }),
+    ("account-switching", |d, _, cx| {
+        if let Some(a) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)) {
+            a.switching = "work".into();
+        }
+        cx.notify();
+    }),
+    ("project-accounts", |d, _, _| {
+        for p in d.projects() {
+            d.store.repos.entry(p).or_default().accounts.insert("claude".into(), "work".into());
+        }
     }),
     ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
         (_, Section::Git) => "ai-model",

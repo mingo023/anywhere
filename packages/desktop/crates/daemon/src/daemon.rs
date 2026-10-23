@@ -41,6 +41,9 @@ pub struct Msg {
     pub status: Option<Status>,
     pub devices: Vec<Device>,
     pub accounts: Vec<Account>,
+    /// Whether an agent at its account's limit moves to another; absent from a pocketd too old to.
+    #[serde(rename = "autoSwitch")]
+    pub auto_switch: Option<bool>,
 }
 
 /// The part of pocketd's `status` reply Settings reads.
@@ -90,6 +93,8 @@ pub struct Account {
     /// Signing in; `error` says why that failed.
     pub pending: bool,
     pub error: String,
+    /// The account listed before it that signs in as the same person.
+    pub same: String,
 }
 
 /// An account's 5-hour and weekly limits as of `at`; stale ones are the last known.
@@ -313,6 +318,11 @@ pub fn shell_op(shell: &str, args: Vec<String>, cwd: &str) -> Value {
 /// Runs an agent inside the login shell, which takes over once the agent exits, so the user lands at their prompt.
 pub fn agent_op(argv: &[String], cwd: &str) -> Value {
     spawn_op(login_shell(), agent_args(login_shell(), argv), terminal_env(), cwd)
+}
+
+/// Has pocketd start `op`'s `argv`, `provider`'s agent, on the account a new session in its folder would take, as a session it may switch at a limit.
+pub fn as_agent(op: &mut Value, provider: &str, argv: &[String]) {
+    (op["agent"], op["argv"]) = (provider.into(), argv.into());
 }
 
 /// The agent's argv goes to the shell as arguments rather than inside the script, so no shell's quoting rules can garble a prompt.
@@ -559,6 +569,15 @@ mod tests {
     fn only_an_absolute_executable_file_runs() {
         assert!(runs("/bin/sh"));
         assert!(!runs("sh") && !runs("/bin") && !runs("/etc/hosts") && !runs("/no/such/shell"));
+    }
+
+    #[test]
+    fn an_agent_tab_names_its_provider_and_argv_beside_the_shell_that_runs_it() {
+        let argv = ["claude".to_string()];
+        let mut op = agent_op(&argv, "/w");
+        let cmd = op["cmd"].clone();
+        as_agent(&mut op, "claude", &argv);
+        assert_eq!((op["agent"].as_str(), op["argv"].clone(), op["cmd"].clone()), (Some("claude"), serde_json::json!(["claude"]), cmd));
     }
 
     #[test]

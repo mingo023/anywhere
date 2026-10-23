@@ -13,6 +13,7 @@ import (
 )
 
 // Accounts answers an accounts.* op; Key is the provider and ID the account.
+// A switch names its agent in Text; autoswitch is "on" or "off" there.
 func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 	s := l.d.Accounts
 	if s == nil {
@@ -27,9 +28,11 @@ func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 	case "accounts.rename":
 		err = s.Rename(m.Key, m.ID, m.Text)
 	case "accounts.default":
-		if err = s.SetDefault(m.Key, m.ID); err == nil {
-			go l.d.Follow(m.Key)
-		}
+		err = s.SetDefault(m.Key, m.ID)
+	case "accounts.switch":
+		err = l.d.Switch(m.Text, m.ID)
+	case "accounts.autoswitch":
+		err = s.SetAutoSwitch(m.Text == "on")
 	case "accounts.signout":
 		var id string
 		if id, err = s.Resolve(m.Key, m.ID); err == nil {
@@ -43,7 +46,8 @@ func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 	if err != nil {
 		return ops.Msg{Ev: "error", Error: err.Error()}
 	}
-	return ops.Msg{Ev: "accounts", Accounts: s.List(l.d.Running)}
+	auto := s.AutoSwitch()
+	return ops.Msg{Ev: "accounts", Accounts: s.List(l.d.Running), AutoSwitch: &auto}
 }
 
 // signIn opens a Terminal running provider's login for account id, or for a

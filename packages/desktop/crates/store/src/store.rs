@@ -25,6 +25,8 @@ pub struct RepoConfig {
     pub icon: Option<ProjectIcon>,
     /// The github.com account `gh` acts as here; empty, or one no longer signed in, uses the active one.
     pub gh_account: String,
+    /// The account by provider its new sessions start on, on the project's host; one missing uses the provider's default.
+    pub accounts: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -460,8 +462,8 @@ impl Store {
         let mut repos = serde_json::Map::new();
         for project in &self.projects {
             let Some(path) = on_host(project) else { continue };
-            let setup = self.repos.get(project).map(|r| r.setup.clone()).unwrap_or_default();
-            repos.insert(path, serde_json::json!({"name": self.repo_name(project), "setup": setup}));
+            let (setup, accounts) = self.repos.get(project).map(|r| (r.setup.clone(), r.accounts.clone())).unwrap_or_default();
+            repos.insert(path, serde_json::json!({"name": self.repo_name(project), "setup": setup, "accounts": accounts}));
         }
         serde_json::json!({"projects": repos.keys().collect::<Vec<_>>(), "repos": repos})
     }
@@ -873,10 +875,11 @@ mod tests {
         for p in ["/src/here", "//devbox/u/app", "//other/u/x"] {
             s.add(p);
         }
-        s.repos.insert("//devbox/u/app".into(), RepoConfig { setup: "npm i".into(), ..Default::default() });
+        let accounts = BTreeMap::from([("claude".to_string(), "work".to_string())]);
+        s.repos.insert("//devbox/u/app".into(), RepoConfig { setup: "npm i".into(), accounts, ..Default::default() });
         let r = s.host_registry("devbox");
         assert_eq!(r["projects"], serde_json::json!(["/u/app"]));
-        assert_eq!(r["repos"]["/u/app"], serde_json::json!({"name": "app", "setup": "npm i"}));
+        assert_eq!(r["repos"]["/u/app"], serde_json::json!({"name": "app", "setup": "npm i", "accounts": {"claude": "work"}}));
     }
 
     #[test]

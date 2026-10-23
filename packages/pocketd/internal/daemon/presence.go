@@ -42,13 +42,14 @@ type presence struct {
 	unfollow   context.CancelFunc
 	asks       map[string]int // open permission requests by permissionKey
 	launch     state.Launch
-	hooked     bool // a SessionStart came; a restored Agent has its Conversation before that
-	reported   bool // an OSC 7501 report came: status is theirs, not the hooks'
-	typed      bool // the user started it in a shell: Pocket never restarts it
-	drafted    bool // Claude's input may hold text the user typed
-	stashed    bool // Claude holds a draft put aside with Ctrl+S
-	line       line // the text keys put in Claude's input since the last Enter
-	aside      line // line as it was when Ctrl+S put it aside
+	hooked     bool   // a SessionStart came; a restored Agent has its Conversation before that
+	reported   bool   // an OSC 7501 report came: status is theirs, not the hooks'
+	typed      bool   // the user started it in a shell: Pocket never restarts it
+	resend     string // the prompt its account's limit stopped, sent again once it switches
+	drafted    bool   // Claude's input may hold text the user typed
+	stashed    bool   // Claude holds a draft put aside with Ctrl+S
+	line       line   // the text keys put in Claude's input since the last Enter
+	aside      line   // line as it was when Ctrl+S put it aside
 
 	// sending guards sent apart from mu, as a tail notes what it shows while
 	// mu waits for that tail to stop.
@@ -146,11 +147,11 @@ func (d *Daemon) place(pr *presence) {
 	pr.a.SetLocation(p.Project, p.Worktree, p.Branch, p.Main)
 }
 
-// cleared is a turn the user stopped: it ends like any other, so the agent may move.
+// cleared is a turn the user stopped: it ends like any other, so the agent may switch.
 func (d *Daemon) cleared(pr *presence) {
 	_, seq := pr.a.Timeline.State()
 	pr.a.Clear()
-	go d.Follow(pr.provider)
+	go d.switchPending(pr)
 	settled := time.After(StopSettle)
 	go func() {
 		select {
@@ -164,7 +165,7 @@ func (d *Daemon) cleared(pr *presence) {
 func (d *Daemon) turnEnded(pr *presence, failed bool) {
 	pr.a.TurnEnded(failed)
 	d.place(pr)
-	go d.Follow(pr.provider)
+	go d.switchPending(pr)
 }
 
 // StopSettle is how long Claude has to mark a stop in its transcript.

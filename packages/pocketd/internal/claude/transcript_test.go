@@ -217,6 +217,17 @@ func TestAnAPIErrorFailsTheTurnWhateverStartedClaude(t *testing.T) {
 	}
 }
 
+func TestAUsageLimitEndsTheTurnAtTheAccountsLimit(t *testing.T) {
+	got := Map([]byte(`{"type":"assistant","isApiErrorMessage":true,"error":"rate_limit","apiError":"usage_limit_reached","message":{"model":"<synthetic>","content":[{"type":"text","text":"You've hit your session limit · resets 9:20am"}]}}`))
+	if len(got) != 1 || got[0].Kind != "result" || got[0].OK || !got[0].Limit {
+		t.Fatalf("got %+v", got)
+	}
+	other := Map([]byte(`{"type":"assistant","isApiErrorMessage":true,"error":"server_error","message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error: 500"}]}}`))
+	if len(other) != 1 || other[0].Limit {
+		t.Fatalf("other %+v", other)
+	}
+}
+
 func TestAnInterruptedTurnShowsNoReplyClaudeFilledIn(t *testing.T) {
 	var turns Turns
 	var got []timeline.Event

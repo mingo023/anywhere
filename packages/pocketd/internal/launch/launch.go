@@ -139,7 +139,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: fail("unknown_project", "This project isn't on your Mac anymore")}
 	}
 	env := l.d.LoginEnv()
-	account, fl := l.account(s.Provider, s.Account)
+	account, fl := l.account(s.Provider, l.pick(s.Provider, s.Account, f.Repos[s.Project].Accounts[s.Provider]))
 	if fl != nil {
 		return Result{Err: fl}
 	}
@@ -468,6 +468,32 @@ func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 		}
 	}
 	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, func(p string) (string, bool) { return l.find(p, env) })
+}
+
+// AgentTab is Daemon.AgentTab: argv wrapped as a launch wraps its agent,
+// on the account pick gives cwd's Project. An account it can't run keeps
+// the built-in login.
+func (l *Launcher) AgentTab(provider, cwd, shell string, argv []string) []string {
+	f := l.reg.Load()
+	project, _ := worktree.Project(f, cwd)
+	account, fl := l.account(provider, l.pick(provider, "", f.Repos[project].Accounts[provider]))
+	if fl != nil {
+		account = nil
+	}
+	return Wrap(shell, l.d.Exe, "", argv, account)
+}
+
+// pick is the account a new session of provider runs on, id being the one
+// its launch named and prefer its Project's. An account it can't pick stays
+// id, for account to refuse.
+func (l *Launcher) pick(provider, id, prefer string) string {
+	if l.d.Accounts == nil {
+		return id
+	}
+	if picked, err := l.d.Accounts.Pick(provider, id, prefer); err == nil {
+		return picked
+	}
+	return id
 }
 
 // account is the env that runs provider on account id, "" being its default.

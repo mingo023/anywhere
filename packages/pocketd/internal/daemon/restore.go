@@ -38,8 +38,9 @@ type hint struct {
 	live    agent.Driver // pr's driver, which takes over once the restore settles
 	over    bool
 	timer   *time.Timer
-	handoff bool // handed down by the pocketd before exec; its agent never stopped
-	moved   bool // follow restarted the agent on another account; it stayed listed throughout
+	handoff bool   // handed down by the pocketd before exec; its agent never stopped
+	moved   bool   // a switch restarted the agent on another account; it stayed listed throughout
+	resend  string // the prompt a moved agent sends once it settles
 }
 
 // pending drives an Agent whose provider hasn't come back.
@@ -212,6 +213,12 @@ func (d *Daemon) hintOf(pr *presence) *hint {
 	return nil
 }
 
+// moving is whether pr is a switch's new process, whose agent kept its timeline.
+func (d *Daemon) moving(pr *presence) bool {
+	h := d.hintOf(pr)
+	return h != nil && h.moved
+}
+
 // resumed settles pr's hint once pr is on the Conversation it was saved with.
 func (d *Daemon) resumed(pr *presence, conversation string) {
 	if h := d.hintOf(pr); h != nil && conversation == h.saved.ConversationID {
@@ -248,9 +255,9 @@ func (d *Daemon) finish(h *hint, reason string) {
 		h.a.SetDriver(h.live)
 	}
 	d.mu.Unlock()
-	if reason == "" {
-		// The default may have changed while the agent was settling.
-		go d.Follow(h.saved.Provider)
+	if reason == "" && h.pr != nil {
+		// A switch picked while the agent was settling waits for it.
+		go d.switchPending(h.pr)
 	}
 	if h.handoff && reason == "" {
 		return
@@ -258,15 +265,13 @@ func (d *Daemon) finish(h *hint, reason string) {
 	if reason != "" {
 		h.a.SetAttached(false)
 	}
-	status := h.a.Summary().Status
-	outcome := state.Outcome(h.saved, status, reason != "")
 	if h.moved && reason == "" {
-		// Moving is no restart worth a notice, but losing full access is.
-		if outcome == proto.RestoreAccessLowered {
-			h.a.SetRestore(outcome)
-		}
+		// Moving keeps the access it had: no restart worth a notice.
+		go d.moved(h)
 		return
 	}
+	status := h.a.Summary().Status
+	outcome := state.Outcome(h.saved, status, reason != "")
 	// A turn already running has had the Working that clears the notice.
 	if reason != "" || status != "working" {
 		h.a.SetRestore(outcome)

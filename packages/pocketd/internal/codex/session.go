@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log"
@@ -25,6 +26,9 @@ type Sink interface {
 // Session follows one thread: it maps app-server items to timeline events
 // and forwards approvals to the phone.
 type Session struct {
+	// Shown is whether the agent already shows the thread's history, as a
+	// moved agent does: a resume replays none of it.
+	Shown   bool
 	c       *Client
 	agentID string
 	sink    Sink
@@ -84,6 +88,8 @@ type turn struct {
 	DurationMs int64  `json:"durationMs"`
 	Error      *struct {
 		Message string `json:"message"`
+		// Info is a CodexErrorInfo: a name, or an object keyed by one.
+		Info json.RawMessage `json:"codexErrorInfo"`
 	} `json:"error"`
 }
 
@@ -106,8 +112,9 @@ type resumed struct {
 
 // Open subscribes to a thread and replays its history. Resume fails until the
 // thread has its first turn, so it retries until ctx ends.
-func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker) (*Session, error) {
+func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker, shown bool) (*Session, error) {
 	s := NewSession(agentID, sink, b)
+	s.Shown = shown
 	c, err := Dial(ctx, sock, s)
 	if err != nil {
 		s.cancel()
@@ -220,9 +227,12 @@ func (s *Session) replay(r resumed) {
 		s.sink.SetEffort(r.ReasoningEffort)
 	}
 	for _, t := range r.Thread.Turns {
+		if s.Shown {
+			continue
+		}
 		s.replayItems(t, "")
 		if t.Status != "inProgress" {
-			s.turnDone(t)
+			s.turnDone(t, false)
 		}
 		s.midTurn = t.Status == "inProgress"
 	}
@@ -294,7 +304,7 @@ func (s *Session) Notify(method string, params json.RawMessage) {
 			s.sink.Apply(timeline.Event{Kind: "assistant_text", Text: p.Delta})
 		case "turn/completed":
 			s.midTurn = false
-			s.turnDone(p.Turn)
+			s.turnDone(p.Turn, true)
 		case "thread/name/updated":
 			if p.ThreadName != nil {
 				s.sink.SetTitle(*p.ThreadName)
@@ -419,10 +429,12 @@ func (s *Session) completed(it item, parent string) {
 	}
 }
 
-func (s *Session) turnDone(t turn) {
+// turnDone ends turn t, live when it ended just now rather than in a replay.
+func (s *Session) turnDone(t turn, live bool) {
 	e := timeline.Event{Kind: "result", OK: t.Status == "completed", DurationMs: t.DurationMs}
 	if t.Error != nil {
 		e.Error = t.Error.Message
+		e.Limit = live && bytes.Contains(t.Error.Info, []byte("usageLimitExceeded"))
 	} else if t.Status == "interrupted" {
 		e.Error = "interrupted"
 	}

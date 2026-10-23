@@ -221,6 +221,9 @@ type AgentSummary struct {
 	Activity          string `json:"activity,omitempty"`
 	// Account is the managed account the agent runs on; empty is the built-in login.
 	Account string `json:"account,omitempty"`
+	// Switching is the account the agent moves to once its turn ends, "builtin"
+	// for the built-in login; empty when it stays.
+	Switching string `json:"switching,omitempty"`
 	// ChatOnly is an agent Pocket runs without its TUI: only the chat drives it.
 	ChatOnly bool `json:"chatOnly,omitempty"`
 	// Goal is what the agent keeps working toward across turns, set by /goal.

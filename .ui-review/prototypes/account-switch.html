@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket · Account switch prototype</title>
+<style>
+:root{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;
+  --window:#f4f4f5;--surface:#fff;--sunken:#fafafa;--side:#f8f8f9;
+  --fill-1:rgba(17,17,19,.031);--fill-2:rgba(17,17,19,.043);--fill-3:rgba(17,17,19,.055);--fill-4:rgba(17,17,19,.067);
+  --hairline:rgba(17,17,19,.071);--sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);
+  --accent:#5b5bd6;--accent-bg:rgba(91,91,214,.11);
+  --waiting:#ad5700;--waiting-bg:rgba(255,178,36,.18);
+  --failed:#cd2b31;--failed-bg:rgba(229,72,77,.1);--success:#2b9a66;
+  --claude:#d97757;--codex:#0f9d8a;
+  --row-shadow:0 1px 2px rgba(17,17,19,.06),0 0 0 .5px rgba(17,17,19,.06);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),0 16px 40px rgba(17,17,19,.16),0 2px 6px rgba(17,17,19,.06);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+svg{display:block;flex:none}
+
+/* demo controls: harness, not design */
+#demo{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;font-size:12px;color:#3f3f46;white-space:nowrap}
+#demo b{font-weight:600;margin:0 2px 0 10px}
+#demo button{height:24px;padding:0 9px;border-radius:6px;background:rgba(255,255,255,.55);box-shadow:0 0 0 .5px rgba(0,0,0,.12)}
+#demo button:hover{background:rgba(255,255,255,.85)}
+#demo button[data-on]{background:#111113;color:#fff}
+
+#win{position:absolute;inset:50px 28px 84px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:5}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+/* sidebar */
+#side{width:280px;flex:none;display:flex;flex-direction:column;background:var(--side);border-right:.5px solid var(--sep)}
+.shead{margin-top:44px;padding:0 18px 8px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase}
+.card{margin:0 8px 2px;padding:9px 12px;border-radius:10px;display:flex;flex-direction:column;gap:4px}
+.card:hover{background:var(--fill-2)}
+.card.sel{background:var(--fill-4)}
+.r1{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3);white-space:nowrap;min-width:0}
+.r1 .lbl{overflow:hidden;text-overflow:ellipsis}
+.r1 .arrow{color:var(--accent);font-weight:600}
+.r2{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.r3{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.r3.warn{color:var(--waiting)}
+.st{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-3)}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.spin{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--text-5);border-top-color:var(--text-2);animation:spin .7s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* chat */
+#main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--sunken)}
+.strip{height:46px;flex:none;display:flex;align-items:center;padding:0 12px;border-bottom:.5px solid var(--sep)}
+.tab{height:30px;border-radius:8px;display:flex;align-items:center;gap:7px;padding:0 12px;font-size:13px;font-weight:600;background:var(--surface);box-shadow:var(--row-shadow)}
+.thread{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;padding:36px 32px 0}
+.col{width:100%;max-width:720px;display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:1.6;color:var(--text-body)}
+.bubble{align-self:flex-end;background:var(--fill-3);border-radius:16px;padding:9px 15px;color:var(--text);max-width:80%}
+.worked{display:flex;align-items:center;gap:7px;color:var(--text-3);font-size:13.5px}
+.col code{font:12.5px var(--mono);background:var(--fill-3);padding:1px 6px;border-radius:5px}
+.working{display:flex;align-items:center;gap:8px;color:var(--text-3);font-size:13.5px}
+.shimmer{background:linear-gradient(90deg,var(--text-3) 0%,var(--text-5) 50%,var(--text-3) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 1.6s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+
+.dock{flex:none;display:flex;flex-direction:column;align-items:center;padding:12px 32px 14px}
+.composer{position:relative;width:100%;max-width:740px;background:var(--surface);border-radius:16px;box-shadow:0 0 0 .5px var(--sep-strong),0 1px 3px rgba(17,17,19,.05);padding:12px 12px 10px 16px}
+.composer .ph{font-size:14px;color:var(--text-4);height:22px}
+.cbar{display:flex;align-items:center;gap:4px;margin-top:14px}
+.plus{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+.pill{height:28px;padding:0 9px;border-radius:8px;display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+.pill:hover,.pill[data-open]{background:var(--fill-3)}
+.pill .dim{color:var(--text-3)}
+.send{width:30px;height:30px;border-radius:50%;background:var(--fill-3);display:flex;align-items:center;justify-content:center;color:var(--text-3);margin-left:4px}
+.send.stop{background:var(--text);color:#fff}
+.branch{width:100%;max-width:740px;margin-top:5px;font:12px var(--mono);color:var(--text-3);display:flex;gap:4px;align-items:center;padding-left:12px}
+.branch .bsep{color:var(--text-5);margin:0 2px}
+.branch .pill.acct{height:22px;padding:0 6px;margin-left:-2px;border-radius:6px;gap:5px;font:12px var(--sans);color:var(--text-2)}
+.branch .pill.acct .pct{font-size:11.5px}
+
+/* account chip (decided: name + mini meter + %) */
+.acct{position:relative}
+.acct:active{transform:scale(.97)}
+.mini{width:22px;height:4px;border-radius:2px;background:var(--fill-4);overflow:hidden}
+.mini i{display:block;height:100%;border-radius:2px;background:var(--text-3);transition:width 300ms var(--out)}
+.mini.warn i{background:var(--waiting)}.mini.bad i{background:var(--failed)}
+.pct{font-variant-numeric:tabular-nums;color:var(--text-3);font-size:12px}
+.pct.warn{color:var(--waiting)}.pct.bad{color:var(--failed)}
+.to{color:var(--accent);font-weight:600}
+.acct .name{max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.acct.swap .name{animation:swap 260ms var(--out)}
+@keyframes swap{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* popover shell */
+.pop{position:absolute;left:-6px;bottom:calc(100% + 6px);font:13px/1.35 var(--sans);color:var(--text);width:340px;border-radius:14px;background:rgba(255,255,255,.92);
+  -webkit-backdrop-filter:blur(24px) saturate(1.6);backdrop-filter:blur(24px) saturate(1.6);box-shadow:var(--pop-shadow);
+  transform-origin:bottom left;animation:popin 180ms var(--out);z-index:20;text-align:left;cursor:default}
+@keyframes popin{from{opacity:0;transform:scale(.96) translateY(4px)}to{opacity:1;transform:none}}
+.pop.out{animation:popout 120ms ease-out forwards}
+@keyframes popout{to{opacity:0;transform:scale(.97) translateY(2px)}}
+.phead{display:flex;align-items:center;gap:10px;padding:14px 14px 10px}
+.picon{width:34px;height:34px;border-radius:9px;background:var(--surface);box-shadow:var(--row-shadow);display:flex;align-items:center;justify-content:center}
+.ptitle{font-size:14px;font-weight:600;letter-spacing:-.01em}
+.psub{font-size:12px;color:var(--text-3);margin-top:1px}
+.reload{margin-left:auto;width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.reload:hover{background:var(--fill-3)}
+.reload.go svg{animation:spin .7s linear}
+.sep{height:.5px;background:var(--sep);margin:0 14px}
+.cap{padding:10px 16px 4px;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.02em}
+.foot{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 10px 16px;font-size:12px;color:var(--text-3)}
+.foot button{height:24px;padding:0 8px;border-radius:6px;color:var(--text-2)}
+.foot button:hover{background:var(--fill-3)}
+.note{margin:6px 12px 0;padding:8px 10px;border-radius:8px;background:var(--accent-bg);color:var(--accent);font-size:12px;display:flex;align-items:center;gap:8px}
+.note button{margin-left:auto;font-weight:600;white-space:nowrap}
+.tagx{height:17px;padding:0 5px;border-radius:5px;display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;background:var(--fill-3);color:var(--text-2)}
+.tagx.bad{background:var(--failed-bg);color:var(--failed)}
+.tagx.warn{background:var(--waiting-bg);color:var(--waiting)}
+.tagx.acc{background:var(--accent-bg);color:var(--accent)}
+
+/* meters */
+.bar{height:6px;border-radius:3px;background:var(--fill-4);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--text-3);transition:width 300ms var(--out)}
+.bar.warn i{background:var(--waiting)}.bar.bad i{background:var(--failed)}
+
+/* V1 Ledger: hero for the account in use, slim rows for the rest */
+.hero{margin:0 12px;display:flex;flex-direction:column;gap:8px}
+.hcur{display:flex;align-items:center;gap:6px;padding:0 4px 4px;font-size:12.5px;color:var(--text-2)}
+.hcur b{color:var(--text);font-weight:600}
+.block{padding:11px 12px;border-radius:10px;background:var(--fill-2);display:flex;flex-direction:column;gap:7px}
+.block .t{display:flex;justify-content:space-between;font-size:13px;font-weight:600}
+.block .b{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-3)}
+.rows{padding:2px 6px 4px}
+.row{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px}
+.row:hover{background:var(--fill-3)}
+.row[aria-disabled]{opacity:.5}
+.row[aria-disabled]:hover{background:none}
+.row .nm{font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;min-width:0}
+.row .em{font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .rt{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
+.row .rt .n{font-size:11.5px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.row .rt .bar{width:64px;height:4px}
+.check{width:16px;flex:none;color:var(--accent)}
+
+/* two pages in one popover: usage, then the switch list */
+.pop.paged{overflow:hidden;transition:height 240ms var(--out)}
+.track{display:flex;align-items:flex-start;width:200%;transition:transform 240ms var(--out)}
+.pg{width:50%;flex:none}
+.pop[data-view="switch"] .track{transform:translateX(-50%)}
+.pop .pg1,.pop .pg2{transition:opacity 200ms ease-out}
+.pop[data-view="switch"] .pg1,.pop[data-view="usage"] .pg2{opacity:0}
+.navrow{display:flex;align-items:center;gap:9px;margin:8px 12px 12px;padding:0 10px 0 12px;height:38px;border-radius:10px;background:var(--fill-2);font-size:13px;font-weight:500}
+.navrow:hover{background:var(--fill-4)}
+.navrow:active{transform:scale(.98)}
+.navrow .h{margin-left:auto;color:var(--text-3);font-weight:400;font-size:12px}
+.navrow .chev{color:var(--text-4)}
+.backhead{position:relative;display:flex;align-items:center;height:46px;padding:0 8px}
+.backbtn{position:relative;z-index:1;height:28px;padding:0 9px 0 5px;border-radius:7px;display:flex;align-items:center;gap:3px;color:var(--accent);font-size:13px}
+.backbtn:hover{background:var(--fill-3)}
+.backhead .ti{position:absolute;left:0;right:0;text-align:center;font-weight:600;font-size:13.5px}
+.row[aria-current] .nm{font-weight:600}
+@media (prefers-reduced-motion: reduce){
+  .pop,.pop.out,.acct.swap .name{animation:none}
+  .pop.paged,.track,.pop .pg1,.pop .pg2{transition:none}
+  .bar i,.mini i{transition:none}
+}
+@media (prefers-reduced-transparency: reduce){
+  .pop{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+
+</style>
+</head>
+<body>
+
+<div id="demo">
+  <span>Demo:</span>
+  <b>Turn</b><button data-turn="idle">Idle</button><button data-turn="working">Working</button>
+  <b>Simulate</b><button id="hit">Limit hit</button><button id="all">All at limit</button><button id="reset">Reset</button>
+</div>
+
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="side"><div class="shead">Sessions</div><div id="cards"></div></aside>
+  <main id="main">
+    <div class="strip"><div class="tab"><span id="tabicon"></span>Claude Code</div></div>
+    <div class="thread"><div class="col" id="thread"></div></div>
+    <div class="dock"><div id="stage" style="width:100%;display:flex;flex-direction:column;align-items:center"></div></div>
+  </main>
+</div>
+
+<script>
+const CLAUDE = s => `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><g stroke="#d97757" stroke-width="2.6" stroke-linecap="round">${[0,45,90,135].map(a=>`<line x1="12" y1="3" x2="12" y2="21" transform="rotate(${a} 12 12)"/>`).join('')}</g></svg>`;
+const CODEX = s => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#0f9d8a" stroke-width="2"><path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const CHEV = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>`;
+const RELOAD = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>`;
+const TICK = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>`;
+
+const fresh = () => [
+  { id:'builtin', name:'Home', email:'mingo@hey.com', plan:'Max', signed:true, s:27, sr:'25m', w:76, wr:'3d 16h' },
+  { id:'work', name:'Work', email:'mingo@acme.dev', plan:'Max', signed:true, s:100, sr:'1h 12m', w:58, wr:'4d 2h', back:'15:12' },
+  { id:'personal', name:'Personal', email:'mingo.l@gmail.com', plan:'Pro', signed:true, s:12, sr:'3h 40m', w:41, wr:'5d 1h' },
+  { id:'side', name:'Side', email:'side@acme.dev', plan:'Pro', signed:false },
+];
+let A = fresh();
+const S = { view:'usage', acct:'builtin', turn:'idle', switching:false, limitErr:false, open:false, swap:false, checked:'just now' };
+
+const acct = id => A.find(a => a.id === id);
+const peak = a => Math.max(a.s, a.w);
+const tone = p => p >= 100 ? 'bad' : p >= 80 ? 'warn' : '';
+const limited = a => a.signed && peak(a) >= 100;
+const usable = a => a.signed && !limited(a);
+
+/* ---------- sidebar ---------- */
+function cards() {
+  const a = acct(S.acct);
+  let label = `<span class="lbl">Claude · Opus · ${a.name}</span>`;
+  const st = S.switching ? `<span class="spin"></span>Switching`
+    : S.turn === 'working' ? `<span class="spin"></span>Working` : `<span class="dot" style="background:var(--text-5)"></span>Idle`;
+  document.getElementById('cards').innerHTML = `
+    <div class="card sel"><div class="r1">${CLAUDE(12)}${label}<span class="st">${st}</span></div>
+      <div class="r2">Refactor the transcript fold</div></div>
+    <div class="card"><div class="r1">${CLAUDE(12)}<span class="lbl">Claude · Opus · Personal</span><span class="st"><span class="dot" style="background:var(--success)"></span>Done</span></div>
+      <div class="r2">Fix the flaky parser test</div></div>
+    <div class="card"><div class="r1">${CODEX(12)}<span class="lbl">Codex · gpt-5.5</span><span class="st"><span class="dot" style="background:var(--text-5)"></span>Idle</span></div>
+      <div class="r2">Bump tree-sitter to 0.25</div></div>`;
+}
+
+function thread() {
+  const w = S.turn === 'working' || S.switching;
+  document.getElementById('thread').innerHTML = `
+    <div class="bubble">Refactor the transcript fold so tool runs group together, then add tests.</div>
+    <div class="worked">${CLAUDE(13)} Claude worked for 1m 4s ›</div>
+    <div>Tool runs now fold into one group, and sub-agents keep their own card. Run <code>cargo test -p chat</code> to check.</div>
+    ${S.limitErr ? `<div class="bubble">Now port the same fold to the Codex transcript.</div><div style="color:var(--failed)">Claude AI usage limit reached · resets 2:30pm</div>` : ''}
+    ${w ? `<div class="bubble">Now port the same fold to the Codex transcript.</div><div class="working">${CLAUDE(13)}<span class="shimmer">${S.switching ? 'Resuming on ' + acct(S.acct).name + '…' : 'Reading codex_transcript.rs…'}</span></div>` : ''}`;
+}
+
+/* ---------- chip (decided) ---------- */
+function chip() {
+  const a = acct(S.acct);
+  if (S.switching) return `<span class="spin"></span><span class="name">${a.name}</span>`;
+  const k = peak(a), t = tone(k);
+  return `${CLAUDE(13)}<span class="name">${a.name}</span><span class="mini ${t}"><i style="width:${k}%"></i></span><span class="pct ${t}">${k}%</span>`;
+}
+
+/* ---------- popover: usage first, the switch list one level deeper ---------- */
+const head = (sub) => `<div class="phead"><div class="picon">${CLAUDE(18)}</div><div><div class="ptitle">Claude Code usage</div><div class="psub">${sub}</div></div>
+  <button class="reload" data-act="reload" aria-label="Check usage">${RELOAD}</button></div>`;
+const why = a => !a.signed ? '<span class="tagx">Signed out</span>' : limited(a) ? `<span class="tagx bad">Back at ${a.back}</span>` : '';
+const foot = `<div class="foot"><span>Only Claude accounts on this Mac</span><button data-act="manage">Manage…</button></div>`;
+const LEFT = `<svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5L3.5 5 6 7.5"/></svg>`;
+const RIGHT = `<svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5L6.5 5 4 7.5"/></svg>`;
+
+function popover() {
+  const a = acct(S.acct);
+  const block = (t, p, r) => `<div class="block"><div class="t"><span>${t}</span><span>${p}% used</span></div>
+    <div class="bar ${tone(p)}"><i style="width:${p}%"></i></div><div class="b"><span>${100 - p}% remaining</span><span>Resets in ${r}</span></div></div>`;
+  const ready = A.filter(x => x.id !== S.acct && x.signed).length;
+  const usage = `${head('Updated ' + S.checked)}
+    <div class="hero"><div class="hcur">In use: <b>${a.name}</b> · ${a.plan} · ${a.email}</div>${block('5-hour limit', a.s, a.sr)}${block('Weekly limit', a.w, a.wr)}</div>
+    <button class="navrow" data-act="nav" data-to="switch" style="width:calc(100% - 24px)">Switch account<span class="h">${ready} more</span><span class="chev">${RIGHT}</span></button>`;
+  const rows = A.map(x => {
+    const cur = x.id === S.acct, dis = !x.signed ? 'aria-disabled="true"' : '';
+    const mark = cur ? TICK : '';
+    const right = x.signed ? `<div class="rt"><span class="n">5h ${x.s}% · wk ${x.w}%</span><div class="bar ${tone(peak(x))}"><i style="width:${peak(x)}%"></i></div></div>` : '';
+    return `<div class="row" data-pick="${x.id}" ${cur ? 'aria-current="true"' : ''} ${dis}><span class="check">${mark}</span>
+      <div style="min-width:0"><div class="nm">${x.name} <span class="tagx">${x.plan}</span>${why(x)}</div><div class="em">${x.email}</div></div>${right}</div>`;
+  }).join('');
+  const list = `<div class="backhead"><button class="backbtn" data-act="nav" data-to="usage">${LEFT}Usage</button><span class="ti">Switch account</span></div>
+    <div class="rows">${rows}</div><div class="sep"></div>${foot}`;
+  return `<div class="pop paged" data-view="${S.view}"><div class="track"><div class="pg pg1">${usage}</div><div class="pg pg2">${list}</div></div></div>`;
+}
+
+function scene() {
+  return `<div class="composer"><div class="ph">Ask, build, / for commands, @ for files</div>
+    <div class="cbar"><button class="plus">+</button><span style="flex:1"></span>
+      <button class="pill">${CLAUDE(13)}Opus <span class="dim">High</span>${CHEV}</button>
+      <button class="send ${S.turn === 'working' ? 'stop' : ''}">${S.turn === 'working' ? '■' : '↑'}</button></div></div>
+    <div class="branch">⑂ refactor/fold<span class="bsep">·</span>
+      <div style="position:relative"><button class="pill acct ${S.swap ? 'swap' : ''}" data-act="toggle" ${S.open ? 'data-open' : ''} aria-haspopup="true" aria-expanded="${S.open}">${chip()}</button>${S.open ? popover() : ''}</div></div>`;
+}
+
+/* The popover's height follows the page on show; pages slide, nothing re-renders. */
+function fit() {
+  const p = stage.querySelector('.pop');
+  if (p) p.style.height = p.querySelector(S.view === 'switch' ? '.pg2' : '.pg1').offsetHeight + 'px';
+}
+function go(view) {
+  const p = stage.querySelector('.pop');
+  if (!p) return;
+  S.view = view; p.dataset.view = view; fit();
+}
+
+/* ---------- behaviour ---------- */
+function paint() { cards(); thread(); stage.innerHTML = scene(); fit(); S.swap = false; syncDemo(); }
+
+function move(to, auto) {
+  S.switching = true; S.open = false; paint();
+  setTimeout(() => {
+    S.acct = to; S.switching = false; S.swap = true;
+    paint();
+  }, 900);
+}
+
+function pick(id) {
+  const x = acct(id);
+  if (id === S.acct) { S.open = false; return paint(); }
+  if (!x.signed) return;
+  if (S.turn === 'working') { S.acct = id; S.swap = true; S.open = false; return paint(); }
+  move(id);
+}
+
+function closePop() {
+  const p = stage.querySelector('.pop');
+  if (!p || matchMedia('(prefers-reduced-motion: reduce)').matches) { S.open = false; return paint(); }
+  p.classList.add('out');
+  setTimeout(() => { S.open = false; paint(); }, 120);
+}
+
+document.addEventListener('pointerdown', e => {
+  if (!S.open) return;
+  if (e.target.closest('.pop') || e.target.closest('[data-act="toggle"]')) return;
+  closePop();
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !S.open) return;
+  if (S.view === 'switch') go('usage'); else closePop();
+});
+
+document.getElementById('stage').addEventListener('click', e => {
+  const t = e.target.closest('[data-act],[data-pick]');
+  if (!t) return;
+  if (t.dataset.pick) return pick(t.dataset.pick);
+  const act = t.dataset.act;
+  if (act === 'toggle') { if (S.open) closePop(); else { S.open = true; S.view = 'usage'; paint(); } }
+  if (act === 'nav') go(t.dataset.to);
+  if (act === 'reload') { t.classList.remove('go'); void t.offsetWidth; t.classList.add('go'); S.checked = 'just now'; }
+  if (act === 'manage') alert('Opens Settings › Accounts');
+});
+
+function syncDemo() { document.querySelectorAll('[data-turn]').forEach(b => b.toggleAttribute('data-on', b.dataset.turn === S.turn)); }
+document.querySelectorAll('[data-turn]').forEach(b => b.addEventListener('click', () => {
+  S.turn = b.dataset.turn;
+  paint();
+}));
+document.getElementById('hit').addEventListener('click', () => {
+  const a = acct(S.acct); a.s = 100; a.back = '14:30';
+  const best = A.filter(usable).sort((x, y) => peak(x) - peak(y))[0];
+  if (!best) { S.turn = 'idle'; S.limitErr = true; return paint(); }
+  S.turn = 'working'; move(best.id, '5-hour');
+});
+document.getElementById('all').addEventListener('click', () => {
+  A.forEach(a => { if (a.signed) { a.s = 100; a.back = a.back || '14:30'; } });
+  S.turn = 'idle'; S.limitErr = true; paint();
+});
+document.getElementById('reset').addEventListener('click', () => {
+  A = fresh(); Object.assign(S, { acct:'builtin', turn:'idle', switching:false, limitErr:false, open:false }); paint();
+});
+document.getElementById('tabicon').innerHTML = CLAUDE(13);
+
+const stage = document.getElementById('stage');
+S.open = new URLSearchParams(location.search).get('open') !== '0';
+if (new URLSearchParams(location.search).get('view') === 'switch') S.view = 'switch';
+paint();
+</script>
+</body>
+</html>

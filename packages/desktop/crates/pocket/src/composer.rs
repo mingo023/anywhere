@@ -43,6 +43,10 @@ impl Composer {
 pub(crate) enum Menu {
     Model,
     Access,
+    /// The chat's account popover on its usage, slid `back` to from its accounts.
+    Usage { back: bool },
+    /// The chat's account popover on the accounts to switch to.
+    Switch,
 }
 
 /// A composer's choices besides its words.
@@ -79,6 +83,16 @@ impl Draft {
         self.menu = (self.menu != Some(menu)).then_some(menu);
         (self.side, self.viewing) = (None, None);
         self.menu.is_some()
+    }
+
+    /// Esc on the chat's account popover: its accounts go back to its usage, its usage closes. False while it isn't open.
+    pub(crate) fn escape_account(&mut self) -> bool {
+        match self.menu {
+            Some(Menu::Switch) => self.menu = Some(Menu::Usage { back: true }),
+            Some(Menu::Usage { .. }) => self.menu = None,
+            _ => return false,
+        }
+        true
     }
 
     pub(crate) fn clear(&mut self) {
@@ -388,6 +402,18 @@ mod tests {
         draft.toggle(Menu::Model);
         draft.choose(None, codex());
         assert!(draft.menu.is_none());
+    }
+
+    #[test]
+    fn esc_on_the_account_popover_steps_back_to_its_usage_then_closes_it() {
+        let mut draft = Draft { menu: Some(Menu::Switch), ..Draft::default() };
+        assert!(draft.escape_account());
+        assert!(draft.menu == Some(Menu::Usage { back: true }));
+        assert!(draft.escape_account());
+        assert!(draft.menu.is_none());
+        draft.toggle(Menu::Model);
+        assert!(!draft.escape_account());
+        assert!(draft.menu == Some(Menu::Model));
     }
 
     #[test]

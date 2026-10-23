@@ -72,6 +72,7 @@ type Agent struct {
 	compacting      bool
 	pinned          bool
 	account         string
+	switching       string
 	compactFromIdle bool
 	attached        bool
 	restore         string
@@ -275,7 +276,7 @@ func (a *Agent) summary() proto.AgentSummary {
 	status := a.status()
 	return proto.AgentSummary{
 		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort, Access: a.access,
-		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account,
+		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account, Switching: a.switching,
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
 		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal,
@@ -583,6 +584,12 @@ func (a *Agent) SetAccess(access string) {
 // SetAccount names the managed account the agent runs on; "" is the built-in login.
 func (a *Agent) SetAccount(id string) {
 	a.update(false, func() { a.account = id })
+}
+
+// SetSwitching names the account the agent moves to once its turn ends,
+// accounts.BuiltIn for the built-in login; "" when it stays.
+func (a *Agent) SetSwitching(id string) {
+	a.update(false, func() { a.switching = id })
 }
 
 func (a *Agent) SetPinned(pinned bool) {

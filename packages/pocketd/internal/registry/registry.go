@@ -19,6 +19,8 @@ type Repo struct {
 	Setup string `json:"setup"`
 	// GhAccount is the github.com account gh acts as in the Project's terminals.
 	GhAccount string `json:"gh_account"`
+	// Accounts is the account by provider that the Project's new sessions start on.
+	Accounts map[string]string `json:"accounts,omitempty"`
 }
 
 type File struct {

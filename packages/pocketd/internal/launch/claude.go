@@ -73,6 +73,12 @@ func (claude) chatResume(state.Terminal, state.Launch) ([]string, bool) { return
 
 func (claude) resume(t state.Terminal, l state.Launch, argv []string) []string {
 	mode := map[string]string{"edits": "acceptEdits", "auto": "auto"}[l.Access]
+	if l.Access == "full" && t.KeepAccess {
+		mode = "bypassPermissions"
+		if !t.Chat {
+			argv = append(argv, allowBypass)
+		}
+	}
 	if l.Plan {
 		mode = "plan"
 	}

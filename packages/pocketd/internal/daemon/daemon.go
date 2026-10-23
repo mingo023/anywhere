@@ -42,6 +42,9 @@ type Daemon struct {
 	Capture func() shellenv.Result
 	// OnPrompt hears each prompt typed to a claude, with its environment.
 	OnPrompt func(a *agent.Agent, prompt string, env []string)
+	// AgentTab gives shell's args that run argv, a provider's agent, in cwd
+	// on the account a new session there picks.
+	AgentTab func(provider, cwd, shell string, argv []string) []string
 	// Accounts are the sign-ins an agent may run on; nil runs each on its built-in login.
 	Accounts *accounts.Store
 
@@ -63,6 +66,10 @@ func (d *Daemon) Spawn(m ops.Msg) (*terminal.Terminal, error) {
 	if m.Login {
 		home, _ := os.UserHomeDir()
 		spec = loginSpec(spec, shellenv.LoginShell(), home, m.Argv)
+	}
+	// m.Cmd or the login shell runs Argv, so pocketd wraps it in its own.
+	if m.Agent != "" && len(m.Argv) > 0 && d.AgentTab != nil {
+		spec.Args, spec.Origin = d.AgentTab(m.Agent, spec.Cwd, spec.Cmd, m.Argv), "desktop"
 	}
 	t, err := d.spawn(spec)
 	if errors.Is(err, exec.ErrNotFound) && spec.Env == nil && d.Capture != nil {

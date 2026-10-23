@@ -166,6 +166,7 @@ func serve(sock, handed string) error {
 	if settings.ResumeAgents() {
 		d.Resume = l.ResumeCmd
 	}
+	d.AgentTab = l.AgentTab
 	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
 		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
 	}

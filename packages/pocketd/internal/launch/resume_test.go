@@ -52,6 +52,26 @@ func TestFullResumesAsAsk(t *testing.T) {
 	}
 }
 
+func TestAMoveToAnotherAccountKeepsFullAccess(t *testing.T) {
+	for _, c := range []struct {
+		t    state.Terminal
+		want string
+	}{
+		{state.Terminal{Provider: "claude", ConversationID: "c-1", Launch: &state.Launch{Access: "full"}, KeepAccess: true}, "claude --resume c-1 --allow-dangerously-skip-permissions --permission-mode bypassPermissions"},
+		{state.Terminal{Provider: "codex", ConversationID: "c-1", Launch: &state.Launch{Access: "full"}, KeepAccess: true}, "codex resume c-1 -s danger-full-access -a never"},
+		{state.Terminal{Provider: "codex", ConversationID: "c-1", Launch: &state.Launch{Access: "full"}, KeepAccess: true, Chat: true}, `codex app-server -c sandbox_mode="danger-full-access" -c approval_policy="never"`},
+	} {
+		argv, f := resumeOf(c.t)
+		if f != nil || strings.Join(argv, " ") != c.want {
+			t.Errorf("Resume(%+v) = %q, %v; want %q", c.t, argv, f, c.want)
+		}
+	}
+	argv, _ := resumeOf(state.Terminal{Provider: "claude", ConversationID: "c-1", Launch: &state.Launch{Access: "full"}, KeepAccess: true, Chat: true})
+	if !slices.Contains(argv, "bypassPermissions") || strings.Count(strings.Join(argv, " "), allowBypass) != 1 {
+		t.Errorf("chat: %q", argv)
+	}
+}
+
 func TestCodexResumeNeverCarriesConfigFlags(t *testing.T) {
 	argv, _ := resumeOf(saved("codex", state.Launch{Access: "edits", Model: "m", Effort: "high"}))
 	if slices.Contains(argv, "-c") || slices.Contains(argv, "--config") {
