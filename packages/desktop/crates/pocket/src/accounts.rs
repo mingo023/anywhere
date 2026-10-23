@@ -165,6 +165,11 @@ pub(crate) fn choices<'a>(list: &'a [Account], provider: &str, keep: &'a str) ->
     listed(list, provider).filter(move |a| a.same.is_empty() || a.id == keep)
 }
 
+/// Whether the Accounts page lists an account: a duplicate only while something still uses it.
+pub(crate) fn on_page(a: &Account) -> bool {
+    a.same.is_empty() || a.running > 0 || a.default
+}
+
 /// Whether a provider has accounts to choose between on a machine.
 pub(crate) fn shared(list: &[Account], provider: &str) -> bool {
     choices(list, provider, "").nth(1).is_some()
@@ -561,7 +566,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, checked, choices, default_of, device_code, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
+    use super::{Accounts, BUILT_IN, Tone, checked, choices, default_of, on_page, device_code, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
     use std::collections::BTreeMap;
     use chrono::Utc;
     use daemon::Account;
@@ -603,6 +608,15 @@ mod tests {
         assert_eq!(ids("a"), [BUILT_IN, "a", "b"]);
         assert!(!shared(&list[..2], "claude"));
         assert_eq!(tags(&list[1], true, NOW, &Utc), [("Same as Built-in".to_string(), Tone::Plain)]);
+    }
+
+    #[test]
+    fn the_accounts_page_lists_a_duplicate_only_while_a_session_runs_on_it_or_it_is_the_default() {
+        let same = Account { same: BUILT_IN.into(), ..account("claude", "a") };
+        assert!(on_page(&account("claude", "b")));
+        assert!(!on_page(&same));
+        assert!(on_page(&Account { running: 1, ..same.clone() }));
+        assert!(on_page(&Account { default: true, ..same }));
     }
 
     #[test]

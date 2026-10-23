@@ -100,7 +100,7 @@ impl Desktop {
         let list = self.accounts.lists.get(host).cloned().unwrap_or_default();
         let mut rows = Vec::new();
         for provider in LaunchPick::PROVIDERS {
-            let of: Vec<&Account> = list.iter().filter(|a| a.provider == provider).collect();
+            let of: Vec<&Account> = list.iter().filter(|a| a.provider == provider && accounts::on_page(a)).collect();
             if of.is_empty() {
                 continue;
             }
