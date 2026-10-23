@@ -138,6 +138,7 @@ export const AgentSummary = Schema.Struct({
   origin: Schema.optional(Schema.String),
   activity: Schema.optional(Schema.String),
   account: Schema.optional(Schema.String),
+  switching: Schema.optional(Schema.String),
   chatOnly: Schema.optional(Schema.Boolean),
   goal: Schema.optional(Goal),
 });

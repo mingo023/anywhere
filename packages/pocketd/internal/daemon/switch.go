@@ -38,7 +38,7 @@ func (d *Daemon) Switch(agentID, account string) error {
 	pr.mu.Lock()
 	pr.resend = ""
 	pr.mu.Unlock()
-	if want(id) == pr.a.Summary().Account {
+	if summaryAccount(id) == pr.a.Summary().Account {
 		id = ""
 	}
 	pr.a.SetSwitching(id)
@@ -60,7 +60,7 @@ func (d *Daemon) limitHit(pr *presence) {
 	best := s.Switching
 	if best == "" {
 		var ok bool
-		if best, ok = d.Accounts.Best(pr.provider, named(s.Account)); !ok {
+		if best, ok = d.Accounts.Best(pr.provider, storeAccount(s.Account)); !ok {
 			return
 		}
 	}
@@ -76,14 +76,14 @@ func (d *Daemon) limitHit(pr *presence) {
 // between turns. An agent still settling switches once it has.
 func (d *Daemon) switchPending(pr *presence) {
 	id := pr.a.Summary().Switching
-	if id == "" || !d.settled(pr) || !movable(pr.a.Summary(), want(id)) || !d.resumable(pr) {
+	if id == "" || !d.settled(pr) || !movable(pr.a.Summary(), summaryAccount(id)) || !d.resumable(pr) {
 		return
 	}
 	pr.mu.Lock()
 	resend := pr.resend
 	pr.mu.Unlock()
 	// One that didn't move while it still could won't: the switch is dropped.
-	if d.move(pr, want(id), resend) || d.settled(pr) && movable(pr.a.Summary(), want(id)) {
+	if d.move(pr, summaryAccount(id), resend) || d.settled(pr) && movable(pr.a.Summary(), summaryAccount(id)) {
 		pr.a.SetSwitching("")
 	}
 }
@@ -96,16 +96,16 @@ func (d *Daemon) resumable(pr *presence) bool {
 	return e.AgentID != "" && kindOf[pr.provider].resumable(e)
 }
 
-// want is how an agent's summary names account id.
-func want(id string) string {
+// summaryAccount is how an agent's summary names account id.
+func summaryAccount(id string) string {
 	if id == accounts.BuiltIn {
 		return ""
 	}
 	return id
 }
 
-// named is how the account store names a summary's account, the inverse of want.
-func named(account string) string {
+// storeAccount is how the account store names a summary's account, the inverse of summaryAccount.
+func storeAccount(account string) string {
 	if account == "" {
 		return accounts.BuiltIn
 	}

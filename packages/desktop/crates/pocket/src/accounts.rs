@@ -160,9 +160,9 @@ pub(crate) fn listed<'a>(list: &'a [Account], provider: &str) -> impl Iterator<I
     list.iter().filter(move |a| a.provider == provider && !a.pending && !never_signed_in(a))
 }
 
-/// The listed accounts to choose from: past the ones signing in as a person listed before them, unless it is `keep`.
-pub(crate) fn choices<'a>(list: &'a [Account], provider: &str, keep: &'a str) -> impl Iterator<Item = &'a Account> {
-    listed(list, provider).filter(move |a| a.same.is_empty() || a.id == keep)
+/// The listed accounts to choose from: past the ones signing in as a person listed before them, unless `keep` names them.
+pub(crate) fn choices<'a>(list: &'a [Account], provider: &str, keep: &'a [&'a str]) -> impl Iterator<Item = &'a Account> {
+    listed(list, provider).filter(move |a| a.same.is_empty() || keep.contains(&a.id.as_str()))
 }
 
 /// Whether the Accounts page lists an account: a duplicate only while something still uses it.
@@ -172,7 +172,7 @@ pub(crate) fn on_page(a: &Account) -> bool {
 
 /// Whether a provider has accounts to choose between on a machine.
 pub(crate) fn shared(list: &[Account], provider: &str) -> bool {
-    choices(list, provider, "").nth(1).is_some()
+    choices(list, provider, &[]).nth(1).is_some()
 }
 
 fn session_label(list: &[Account], provider: &str, account: &str) -> Option<String> {
@@ -566,7 +566,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, checked, choices, default_of, on_page, device_code, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
+    use super::{Accounts, BUILT_IN, Tone, back_at, checked, choices, default_of, device_code, on_page, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
     use std::collections::BTreeMap;
     use chrono::Utc;
     use daemon::Account;
@@ -603,9 +603,9 @@ mod tests {
     #[test]
     fn an_account_signed_in_as_one_listed_before_is_no_choice_unless_it_is_in_use() {
         let list = [account("claude", BUILT_IN), Account { same: BUILT_IN.into(), ..account("claude", "a") }, account("claude", "b")];
-        let ids = |keep| choices(&list, "claude", keep).map(|a| a.id.as_str()).collect::<Vec<_>>();
-        assert_eq!(ids(""), [BUILT_IN, "b"]);
-        assert_eq!(ids("a"), [BUILT_IN, "a", "b"]);
+        let ids = |listed: Vec<&Account>| listed.into_iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(choices(&list, "claude", &[]).collect()), [BUILT_IN, "b"]);
+        assert_eq!(ids(choices(&list, "claude", &["b", "a"]).collect()), [BUILT_IN, "a", "b"]);
         assert!(!shared(&list[..2], "claude"));
         assert_eq!(tags(&list[1], true, NOW, &Utc), [("Same as Built-in".to_string(), Tone::Plain)]);
     }
@@ -626,6 +626,13 @@ mod tests {
         assert_eq!(tags(&a, false, NOW, &Utc), [("Limited \u{b7} back 09:53".to_string(), Tone::Bad)]);
         let stale = Account { usage: Some(Usage { stale: true, at: NOW - 60_000, ..a.usage.clone().unwrap() }), ..a };
         assert_eq!(tags(&stale, false, NOW, &Utc), [("As of 08:52".to_string(), Tone::Warn)]);
+    }
+
+    #[test]
+    fn an_account_says_when_it_is_back_only_while_it_is_at_a_limit() {
+        let at = |percent| Account { usage: Some(Usage { session: window(percent, NOW + 3_600_000), ..Default::default() }), ..account("claude", "a") };
+        assert_eq!(back_at(&at(100.), NOW, &Utc).as_deref(), Some("Back at 09:53"));
+        assert_eq!(back_at(&at(99.), NOW, &Utc), None);
     }
 
     #[test]

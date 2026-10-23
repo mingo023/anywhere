@@ -61,7 +61,7 @@ impl Desktop {
             .child(format!("In use: {}", std::iter::once(accounts::name(a).to_string()).chain(who).collect::<Vec<_>>().join(" \u{b7} ")));
         let windows = a.usage.as_ref().into_iter().flat_map(|u| [("5-hour limit", &u.session), ("Weekly limit", &u.week)]).filter_map(|(t, w)| w.as_ref().map(|w| block(t, w, now)));
         let list = self.accounts.list(host);
-        let more = accounts::choices(list, &agent.provider, "").filter(|x| x.id != a.id && x.signed_in).count();
+        let more = accounts::choices(list, &agent.provider, &[]).filter(|x| x.id != a.id && x.signed_in).count();
         let next = div()
             .id("chat-account-more")
             .mx(px(12.))

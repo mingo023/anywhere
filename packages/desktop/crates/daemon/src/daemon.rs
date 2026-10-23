@@ -572,6 +572,15 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_tab_names_its_provider_and_argv_beside_the_shell_that_runs_it() {
+        let argv = ["claude".to_string()];
+        let mut op = agent_op(&argv, "/w");
+        let cmd = op["cmd"].clone();
+        as_agent(&mut op, "claude", &argv);
+        assert_eq!((op["agent"].as_str(), op["argv"].clone(), op["cmd"].clone()), (Some("claude"), serde_json::json!(["claude"]), cmd));
+    }
+
+    #[test]
     fn a_status_from_an_older_pocketd_has_no_config() {
         let m: Msg = serde_json::from_str(r#"{"ev":"status","status":{"pid":1,"version":"0.4.0","uptime":90}}"#).unwrap();
         let s = m.status.unwrap();
