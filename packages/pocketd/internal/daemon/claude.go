@@ -216,6 +216,17 @@ func (d *Daemon) applyLocked(pr *presence, r terminal.Report) {
 	pr.a.SetActivity(r.Msg)
 }
 
+// sameFile is whether paths a and b reach one file, as an account's folder
+// links its history to the user's.
+func sameFile(a, b string) bool {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
+}
+
 func (d *Daemon) presentIn(id string) *presence {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -228,9 +239,13 @@ func (d *Daemon) presentIn(id string) *presence {
 func (d *Daemon) sessionStart(pr *presence, in hookInput) {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
-	moved := in.TranscriptPath != pr.transcript
+	moved := in.TranscriptPath != pr.transcript && !sameFile(in.TranscriptPath, pr.transcript)
 	if moved && pr.stopTail != nil {
 		pr.stopTail()
+	}
+	if moved && pr.a.Summary().ProviderSessionID == in.SessionID {
+		// The new tail reads the same conversation from its start.
+		pr.a.ClearTimeline()
 	}
 	pr.a.SetConversation(in.SessionID)
 	pr.a.SetAttached(true)
