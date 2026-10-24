@@ -17,16 +17,16 @@ enum SessionText {
         return s.model.map(Sidebar.modelName).flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// A launch step as pocketd names it.
+    /// A launch step as the desktop labels it (`Step::label` in `pocket/src/creating.rs`).
     static func step(_ step: String) -> String {
         switch step {
         case "prepare": "Preparing"
-        case "verify": "Checking the branch"
-        case "fetch": "Fetching"
-        case "worktree": "Making the worktree"
-        case "copy": "Copying files"
-        case "setup": "Running setup"
-        case "spawn": "Starting the agent"
+        case "verify": "Checking branch name"
+        case "fetch": "Fetching latest changes"
+        case "worktree": "Creating git worktree"
+        case "copy": "Copying configuration"
+        case "setup": "Setting up"
+        case "agent": "Starting agent"
         default: step.prefix(1).uppercased() + step.dropFirst()
         }
     }

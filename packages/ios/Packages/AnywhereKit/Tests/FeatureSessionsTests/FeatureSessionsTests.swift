@@ -23,8 +23,9 @@ struct SessionTextTests {
 
     @Test("pocketd's steps read as what is happening, and an unknown one as itself")
     func steps() {
-        #expect(SessionText.step("worktree") == "Making the worktree")
-        #expect(SessionText.step("setup") == "Running setup")
+        #expect(SessionText.step("worktree") == "Creating git worktree")
+        #expect(SessionText.step("setup") == "Setting up")
+        #expect(SessionText.step("agent") == "Starting agent")
         #expect(SessionText.step("warmup") == "Warmup")
     }
 
