@@ -59,6 +59,13 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("agent.close"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.commands"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({
+    type: Schema.Literal("skills.list"),
+    id: Schema.String,
+    provider: Schema.String,
+    project: Schema.String,
+    account: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
     type: Schema.Literal("agent.mcp"),
     id: Schema.String,
     agentId: Schema.String,
@@ -157,6 +164,14 @@ export const ServerMessage = Schema.Union(
     type: Schema.Literal("agent.commands"),
     id: Schema.String,
     agentId: Schema.String,
+    commands: Schema.Array(Command),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("skills.list"),
+    id: Schema.String,
+    provider: Schema.String,
+    account: Schema.optional(Schema.String),
+    project: Schema.String,
     commands: Schema.Array(Command),
   }),
   Schema.Struct({

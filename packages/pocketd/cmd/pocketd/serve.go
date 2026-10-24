@@ -44,6 +44,7 @@ import (
 	"pocketd/internal/reach"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
+	"pocketd/internal/skills"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
@@ -185,7 +186,11 @@ func serve(sock, handed string) error {
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		}}
 	ownerTokens := &owners.Store{Path: owners.Path(home)}
-	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle}
+	skillStore, err := skills.Open(home)
+	if err != nil {
+		log.Printf("skills: %v", err)
+	}
+	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Skills: skillStore}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}

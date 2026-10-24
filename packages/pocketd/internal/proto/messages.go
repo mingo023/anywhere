@@ -46,6 +46,8 @@ type ClientMessage struct {
 	Access          string
 	Action          string
 	Server          string
+	Provider        string
+	Account         string
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -125,6 +127,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "agent.mcp":
 		ok = get("agentId", &m.AgentID) && optionalString("action", &m.Action) && optionalString("server", &m.Server) &&
 			(m.Action == "" && m.Server == "" || slices.Contains(McpActions, m.Action) && m.Server != "")
+	case m.Type == "skills.list":
+		ok = get("provider", &m.Provider) && get("project", &m.Project) && m.Project != "" && optionalString("account", &m.Account)
 	case m.Type == "agent.settings":
 		ok = get("agentId", &m.AgentID) && optionalString("model", &m.Model) && optionalString("effort", &m.Effort) && optionalString("access", &m.Access) &&
 			(m.Access == "" || m.Access != "settings" && slices.Contains(Accesses, m.Access)) && (m.Model != "" || m.Effort != "" || m.Access != "")
@@ -249,6 +253,23 @@ func NewAgentCommands(id, agentID string, commands []Command) AgentCommands {
 		commands = []Command{}
 	}
 	return AgentCommands{"agent.commands", id, agentID, commands}
+}
+
+// SkillsList is the slash commands provider offers in project on account, read off disk without running it.
+type SkillsList struct {
+	Type     string    `json:"type"`
+	ID       string    `json:"id"`
+	Provider string    `json:"provider"`
+	Account  string    `json:"account,omitempty"`
+	Project  string    `json:"project"`
+	Commands []Command `json:"commands"`
+}
+
+func NewSkillsList(id, provider, account, project string, commands []Command) SkillsList {
+	if commands == nil {
+		commands = []Command{}
+	}
+	return SkillsList{"skills.list", id, provider, account, project, commands}
 }
 
 // AgentBtw answers a side question, which leaves the conversation as it was.
