@@ -20,3 +20,4 @@ let timeline = try ServerFrame(id: "c3", .agentTimeline(Sample.timeline(turns: 4
 try measure("decode git.status, 1200 files") { _ = try ServerFrame.decode(status) }
 try measure("decode git.diff, 6000 rows") { _ = try ServerFrame.decode(diff) }
 try measure("decode agent.timeline, \(Sample.timeline(turns: 40).items.count) items") { _ = try ServerFrame.decode(timeline) }
+try gitBench()

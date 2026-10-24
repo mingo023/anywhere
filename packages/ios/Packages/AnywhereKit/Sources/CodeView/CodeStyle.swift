@@ -3,7 +3,7 @@ import Highlight
 import SwiftUI
 
 /// How code rows are drawn: SF Mono at the footnote size, one fixed height per row.
-enum CodeStyle {
+public enum CodeStyle {
     static let font = Typography.codeSmall
     /// The longest a line is drawn; the Mac cuts at 1024 characters already.
     static let maxChars = 1024
@@ -14,7 +14,7 @@ enum CodeStyle {
     }
 
     /// A line with its syntax colours and changed-word tints; ranges are UTF-16 offsets into `text`.
-    nonisolated static func attributed(_ text: String, spans: [HighlightSpan], words: [Range<Int>] = [], word: Color? = nil, dark: Bool)
+    public nonisolated static func attributed(_ text: String, spans: [HighlightSpan], words: [Range<Int>] = [], word: Color? = nil, dark: Bool)
         -> AttributedString
     {
         var out = AttributedString(text)
