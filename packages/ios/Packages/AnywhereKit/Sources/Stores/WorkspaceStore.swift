@@ -18,6 +18,9 @@ public struct Creation: Hashable, Sendable {
     public var terminalId: String?
     public var error: ServerError?
     public var done = false
+    /// The Local and worktree a launch made before a later step failed, so trying again starts there.
+    public var madeLocal: String?
+    public var madeTree: String?
 
     /// The step running now, or the last one.
     public var current: String? { steps.last?.step }
@@ -191,8 +194,10 @@ public final class WorkspaceStore: HostStore {
         return local
     }
 
+    /// A blank title changes nothing, as pocketd's rename.
     public func renameLocal(id: String, title: String) async throws {
-        guard let at = locals.firstIndex(where: { $0.id == id }) else { return }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, let at = locals.firstIndex(where: { $0.id == id }) else { return }
         let before = locals[at]
         locals[at].name = title
         do {
@@ -218,8 +223,15 @@ public final class WorkspaceStore: HostStore {
         creations[requestId] = Creation(kind: .session)
         do {
             if let local = plan.local {
-                if !locals.contains(where: { $0.id == local.localId }) { locals.append(Local(id: local.localId, project: local.project, name: local.name)) }
-                _ = try await request(.localCreate(local))
+                let shown = !locals.contains(where: { $0.id == local.localId })
+                if shown { locals.append(Local(id: local.localId, project: local.project, name: local.name)) }
+                do {
+                    _ = try await request(.localCreate(local))
+                } catch {
+                    if shown { locals.removeAll { $0.id == local.localId } }
+                    throw error
+                }
+                creations[requestId]?.madeLocal = local.localId
             }
             var spec = plan.spec
             if var create = plan.worktree {
@@ -227,6 +239,7 @@ public final class WorkspaceStore: HostStore {
                 guard case .worktreeCreated(let made) = try await request(.worktreeCreate(create), timeout: .seconds(600)) else {
                     throw DaemonError.closed
                 }
+                creations[requestId]?.madeTree = made.path
                 spec.checkout = .worktree(made.path)
             }
             guard case .agentCreated(let created) = try await request(.agentCreate(.init(requestId: requestId, spec: spec)), timeout: .seconds(600))

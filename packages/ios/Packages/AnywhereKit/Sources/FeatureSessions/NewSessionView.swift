@@ -40,6 +40,7 @@ struct NewSessionView: View {
         Form {
             if let requestId {
                 CreationProgress(creation: workspace.creations[requestId]) {
+                    if let creation = workspace.creations[requestId] { draft.resume(after: creation) }
                     workspace.forget(creation: requestId)
                     self.requestId = nil
                 }

@@ -79,4 +79,17 @@ struct WorkspaceStoreTests {
         await #expect(throws: DaemonError.self) { try await s.renameLocal(id: "review", title: "Later") }
         #expect(s.locals == Sample.locals)
     }
+
+    @Test("a new Local a launch couldn't make leaves the list, and blank Local names change nothing")
+    func failedLocal() async {
+        let s = store()
+        let plan = LaunchPlan(local: .init(localId: "local-9", project: Sample.projects[0].path, name: "Local 1"),
+                              spec: .init(project: Sample.projects[0].path, checkout: .local("local-9"), provider: .claude, access: .edits, plan: false))
+        await #expect(throws: DaemonError.self) { try await s.launch(plan, requestId: "r2") }
+        #expect(s.locals == Sample.locals)
+        #expect(s.creations["r2"]?.madeLocal == nil)
+        try? await s.renameLocal(id: "review", title: "  ")
+        #expect(s.locals == Sample.locals)
+    }
 }
+
