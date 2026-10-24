@@ -45,7 +45,7 @@ type terminalConn struct {
 }
 
 func (c *conn) helloTerminal() {
-	if c.s.Terminals == nil || !slices.Contains(c.caps, proto.CapTerminal) {
+	if c.s.Terminals == nil || !slices.Contains(c.caps, proto.CapTerminal) || c.who.Kind == peer.PTY {
 		return
 	}
 	c.terminal.mu.Lock()
@@ -99,6 +99,11 @@ func (c *conn) closeTerminal() {
 func (c *conn) terminalVerb(m proto.ClientMessage) error {
 	if !slices.Contains(c.caps, proto.CapTerminal) {
 		return proto.ErrMalformed
+	}
+	// A process in one Terminal may not read another's screen, as ops attach and screen refuse it.
+	if c.who.Kind == peer.PTY {
+		c.send(proto.NewErrorCode(m.ID, proto.CodeScopeDenied, m.Type+" isn't open to a process in a Pocket Terminal"))
+		return nil
 	}
 	switch m.Type {
 	case "terminal.list":

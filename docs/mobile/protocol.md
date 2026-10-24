@@ -45,6 +45,8 @@ Terminal = {id, cwd, cols, rows, title?, localId?, agentId?, exited?:bool}
 
 `terminal.list` is sorted by `cwd`, then `id`, and is not sent on hello: ask for it once connected. Exited terminals leave the list, so `exited` is never set today.
 
+A process inside a Pocket Terminal (a PTY peer) gets `error{code:"scope_denied"}` for every terminal verb and no list pushes, though it holds `observe`: one Terminal may not read another's screen, as ops `attach` and `screen` already refuse it.
+
 Binary frames (WebSocket binary opcode, server → phone only):
 
 ```

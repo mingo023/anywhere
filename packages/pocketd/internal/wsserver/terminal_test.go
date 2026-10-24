@@ -318,3 +318,19 @@ func TestDetachingStopsTheFrames(t *testing.T) {
 		t.Fatalf("a frame came after the detach: %+v", f)
 	}
 }
+
+func TestAProcessInATerminalCannotReachTheOthers(t *testing.T) {
+	terms := terminal.NewManager()
+	_, _, p := local(t, peer.Principal{Kind: peer.PTY, Terminal: "t1", Scopes: peer.PTYScopes}, withTerminals(t, terms, "/p"))
+	s := run(t, terms, `read x`)
+	helloWith(p, proto.CapTerminal)
+	for _, raw := range []string{
+		`{"type":"terminal.list","id":"l"}`,
+		`{"type":"terminal.attach","id":"a","terminalId":"` + s.Info().ID + `"}`,
+	} {
+		p.send(raw)
+		if m := p.recv(); m["code"] != proto.CodeScopeDenied {
+			t.Fatalf("%s: %v", raw, m)
+		}
+	}
+}
