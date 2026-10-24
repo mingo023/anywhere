@@ -1,3 +1,5 @@
+import Foundation
+
 /// The chat's own reading of a message's shape (desktop `chat/src/rows.rs markdown_blocks`, `pocket/chat/markdown.rs fence`).
 public enum MarkdownSplit {
     /// Ranges of the top-level blocks of `text`, never splitting a fenced code block.
@@ -57,6 +59,8 @@ public enum MarkdownSplit {
     /// A fenced code block's language and code; nil for any other markdown. An unclosed fence (still streaming) runs
     /// to the end. A fence indented under a list item takes that indent off each code line, as CommonMark does.
     public static func fence(_ text: String) -> (language: String, code: String)? {
+        // "\r\n" is one Character, so splitting on "\n" wouldn't see it.
+        let text = text.contains("\r\n") ? text.replacingOccurrences(of: "\r\n", with: "\n") : text
         guard let first = text.split(separator: "\n", omittingEmptySubsequences: false).first(where: { !$0.allSatisfy(\.isWhitespace) }) else { return nil }
         let indent = first.prefix(while: { $0 == " " }).count
         let trimmed = text.trimmingWhitespace()

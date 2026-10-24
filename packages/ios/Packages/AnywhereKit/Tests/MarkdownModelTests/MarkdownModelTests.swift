@@ -167,6 +167,12 @@ func alert(_ block: MDBlock?) -> MDAlert? {
         #expect(MarkdownSplit.fence("Some *text*") == nil)
     }
 
+    @Test("a fence with CRLF line endings reads like one with LF")
+    func fenceCRLF() {
+        #expect(MarkdownSplit.fence("```js\r\nlet a\r\nlet b\r\n```")! == ("js", "let a\nlet b"))
+        #expect(MarkdownSplit.fence("  ```js\r\n  let a\r\n  ```")! == ("js", "let a"))
+    }
+
     @Test("a fence under a list item loses its indent from each line")
     func indentedFence() {
         #expect(MarkdownSplit.fence("   ```sh\n   brew install\n     --cask x\n  y\n   ```")! == ("sh", "brew install\n  --cask x\ny"))
