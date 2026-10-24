@@ -66,6 +66,18 @@ func aCutInsideAWideCharacter() {
     }
 }
 
+@Test("a later block of a message shows only once the reveal reaches it")
+func aLaterBlockShowsOnceReached() {
+    let first = words(64)
+    let second = words(64)
+    var r = Reveal.shown(0, 0)
+    r.arrive((first + second).utf8.count, 0)
+    #expect(r.cut(second, from: first.utf8.count, 0.5) == 0)
+    let part = r.cut(second, from: first.utf8.count, 0.9)
+    #expect(part > 0 && part < second.utf8.count)
+    #expect(r.cut(second, from: first.utf8.count, 1.4) == second.utf8.count)
+}
+
 @Test("the jump pill shows past 320px and hides at two")
 func theJumpPillShows() {
     #expect(!jumpVisibility(wasShown: false, distance: 320))

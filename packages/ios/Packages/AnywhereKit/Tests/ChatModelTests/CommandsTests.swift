@@ -164,6 +164,18 @@ func thePickerListsUsableServersFirstThenThoseWaitingOnASignIn() {
     #expect(Mcp.picker(all, "user").count == 5, "the scope matches too")
 }
 
+@Test("a server row offers what a pick does, else says how it stands")
+func aServerRowOffersWhatAPickDoes() {
+    #expect(Mcp.label("claude", server("a", .needsAuth), signingIn: false, acting: nil) == ("Sign in", .waiting))
+    #expect(Mcp.label("claude", server("a", .needsAuth), signingIn: true, acting: nil) == ("Sign in again", .waiting))
+    #expect(Mcp.label("claude", server("a", .needsAuth), signingIn: true, acting: .auth) == ("Signing in…", .muted))
+    #expect(Mcp.label("claude", server("a", .failed), signingIn: false, acting: nil) == ("Reconnect", .link))
+    #expect(Mcp.label("claude", server("a", .disabled), signingIn: false, acting: nil) == ("Enable", .link))
+    #expect(Mcp.label("codex", server("a", .disabled), signingIn: false, acting: nil) == ("Disabled", .dim))
+    #expect(Mcp.label("claude", server("a", .connected), signingIn: false, acting: nil) == ("Available", .muted))
+    #expect(Mcp.status(server("a", .needsAuth), signingIn: true) == "Finish signing in in your browser")
+}
+
 @Test("only a connected or connecting server is usable")
 func onlyAConnectedOrConnectingServerIsUsable() {
     #expect(Mcp.usable(server("a", .connected)) && Mcp.usable(server("a", .pending)))

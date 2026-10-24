@@ -47,9 +47,10 @@ public struct Reveal: Hashable, Sendable {
     }
 
     /// How many bytes of `text` show at `now`, in whole words: a word shows once the reveal reaches it.
-    public func cut(_ text: String, _ now: Seconds) -> Int {
+    /// `text` may be a block of the message starting `from` bytes in; the cut is then into the block.
+    public func cut(_ text: String, from offset: Int = 0, _ now: Seconds) -> Int {
         let utf8 = Array(text.utf8)
-        var at = min(self.at(now), utf8.count)
+        var at = min(max(self.at(now) - offset, 0), utf8.count)
         if at == 0 || at == utf8.count { return at }
         while at > 0 && utf8[at] & 0xC0 == 0x80 { at -= 1 }
         var offset = at

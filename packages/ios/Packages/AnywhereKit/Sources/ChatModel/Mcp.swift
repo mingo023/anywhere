@@ -73,6 +73,35 @@ public enum Mcp {
         return "MCP context: Use the configured server\(plural) \(names.joined(separator: ", ")) when relevant to this request.\n\n\(text)"
     }
 
+    /// How a server's picker row reads its label.
+    public enum Tone: Hashable, Sendable {
+        case muted, dim, waiting, link
+    }
+
+    public static func status(_ s: McpServer, signingIn: Bool) -> String {
+        switch s.status {
+        case .connected: "Available"
+        case .pending: "Connecting"
+        case .needsAuth where signingIn: "Finish signing in in your browser"
+        case .needsAuth: "Needs authentication"
+        case .failed: "Failed to connect"
+        default: "Disabled"
+        }
+    }
+
+    /// The row's label: what picking it does when the agent can't use the server now, else how it stands.
+    public static func label(_ provider: String, _ s: McpServer, signingIn: Bool, acting: ClientMessage.AgentMcp.Action?) -> (String, Tone) {
+        switch (acting, action(provider, s)) {
+        case (.auth?, _): ("Signing in…", .muted)
+        case (.reconnect?, _): ("Reconnecting…", .muted)
+        case (.enable?, _): ("Enabling…", .muted)
+        case (nil, .auth?): (signingIn ? "Sign in again" : "Sign in", .waiting)
+        case (nil, .reconnect?): ("Reconnect", .link)
+        case (nil, .enable?): ("Enable", .link)
+        default: (status(s, signingIn: signingIn), usable(s) ? .muted : .dim)
+        }
+    }
+
     /// A string as Rust's `{:?}` writes it.
     static func debugQuoted(_ s: String) -> String {
         var out = "\""
