@@ -23,12 +23,15 @@ public struct Scope: OpenString {
 public struct HostState: Codable, Hashable, Sendable {
     public var tailnet: Bool
     public var keepingAwake: Bool
+    /// The owner setting phone.terminals: phones may type into, open and close terminals. Nil from an older pocketd.
+    public var terminals: Bool?
     /// The version pocketd last failed to upgrade to.
     public var upgradeFailed: String?
 
-    public init(tailnet: Bool, keepingAwake: Bool, upgradeFailed: String? = nil) {
+    public init(tailnet: Bool, keepingAwake: Bool, terminals: Bool? = nil, upgradeFailed: String? = nil) {
         self.tailnet = tailnet
         self.keepingAwake = keepingAwake
+        self.terminals = terminals
         self.upgradeFailed = upgradeFailed
     }
 }

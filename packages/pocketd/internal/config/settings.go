@@ -31,8 +31,10 @@ const DefaultPushRelay = "https://push.getanywhere.dev"
 
 // Settings are the owner's choices in config.json.
 type Settings struct {
-	path string
-	mu   sync.Mutex
+	// Changed, when set before use, hears each key Set saves.
+	Changed func(key string)
+	path    string
+	mu      sync.Mutex
 }
 
 func NewSettings(home string) *Settings {
@@ -222,7 +224,16 @@ func (s *Settings) SetListen(v string) error { return s.set("", "listen", v) }
 func (s *Settings) SetPort(n int) error { return s.set("", "port", n) }
 
 // Set parses value for one of the keys below; phone.maxAccess goes through the launcher.
+// Changed hears the key once it is saved.
 func (s *Settings) Set(key, value string) error {
+	err := s.parseAndSet(key, value)
+	if err == nil && s.Changed != nil {
+		s.Changed(key)
+	}
+	return err
+}
+
+func (s *Settings) parseAndSet(key, value string) error {
 	switch key {
 	case "restore.resumeAgents", "awake.enabled":
 		on, err := strconv.ParseBool(value)

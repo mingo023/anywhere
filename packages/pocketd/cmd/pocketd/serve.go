@@ -142,6 +142,7 @@ func serve(sock, handed string) error {
 		}
 	}
 	settings := config.NewSettings(home)
+	host.FollowTerminals(mon, settings)
 	notifier.Relay = &push.Client{URL: settings.PushRelay, HTTP: push.NewHTTP()}
 	keeper := &awake.Keeper{S: awake.System(), Enabled: settings.KeepAwake, Linger: settings.AwakeLinger, After: time.After,
 		OnHeld: func(on bool) { mon.Set(func(s *proto.HostState) { s.KeepingAwake = on }) }}

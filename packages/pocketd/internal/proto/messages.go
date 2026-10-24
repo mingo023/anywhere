@@ -457,6 +457,8 @@ func NewCodedError(id, code, message, detail string) Error {
 type HostState struct {
 	Tailnet      bool `json:"tailnet"`
 	KeepingAwake bool `json:"keepingAwake"`
+	// Terminals is the owner setting phone.terminals: phones may type into, open and close terminals.
+	Terminals bool `json:"terminals"`
 	// UpgradeFailed is the version pocketd last failed to upgrade to.
 	UpgradeFailed string `json:"upgradeFailed,omitempty"`
 }

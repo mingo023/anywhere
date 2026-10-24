@@ -856,7 +856,7 @@ func TestHelloOkCarriesHostOnlyWithTheCap(t *testing.T) {
 	_, _, p := setup(t, withMonitor)
 	p.send(helloWithHost)
 	m := p.recv()
-	if !reflect.DeepEqual(m["host"], map[string]any{"tailnet": true, "keepingAwake": false}) || !reflect.DeepEqual(m["caps"], []any{"host.v1"}) {
+	if !reflect.DeepEqual(m["host"], map[string]any{"tailnet": true, "keepingAwake": false, "terminals": false}) || !reflect.DeepEqual(m["caps"], []any{"host.v1"}) {
 		t.Fatalf("%v", m)
 	}
 
@@ -878,7 +878,7 @@ func TestHostChangedReachesOnlyCapClients(t *testing.T) {
 	old.hello()
 
 	mon.Set(func(h *proto.HostState) { h.KeepingAwake = true })
-	if m := capable.recv(); m["type"] != "host.changed" || !reflect.DeepEqual(m["host"], map[string]any{"tailnet": false, "keepingAwake": true}) {
+	if m := capable.recv(); m["type"] != "host.changed" || !reflect.DeepEqual(m["host"], map[string]any{"tailnet": false, "keepingAwake": true, "terminals": false}) {
 		t.Fatalf("%v", m)
 	}
 	old.send(`{"type":"agent.list","id":"l"}`)

@@ -18,6 +18,8 @@ A **tree** is an absolute path that `worktree.Containing` (or the Locals store) 
 | `terminal.list`, `terminal.attach`, `terminal.detach` | observe |
 | `terminal.input`, `terminal.resize`, `terminal.create`, `terminal.close` | drive, and refused for every peer but the owner with `error{code:"terminals_off"}` when the owner setting `phone.terminals` is `off` (default `on`; set with `config.set {key:"phone.terminals", value:"on"|"off"}` from an owner, or `pocketd config set`) |
 
+The setting reaches host.v1 conns as `terminals:bool` in `hello.ok.host` (`HostState = {tailnet, keepingAwake, terminals, upgradeFailed?}`), and a `host.changed` follows each change to it, so a phone shows its screens view-only before it types.
+
 ```
 → {type:"terminal.list", id}
 ← {type:"terminal.list", id?, terminals:[Terminal]}       // also pushed whole, without id, on spawn, exit and title change
