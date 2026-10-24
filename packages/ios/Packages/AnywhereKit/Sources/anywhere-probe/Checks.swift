@@ -127,7 +127,7 @@ extension Probe {
             let snapshot = try await event(after: mark, "a SNAPSHOT frame") {
                 if case .terminal(let f) = $0, f.terminalId == terminal, f.kind == .snapshot { f } else { nil }
             }
-            let typed = mark + 1
+            let typed = events.count
             try await connection.send(.terminalInput(.init(terminalId: terminal, data: Data("probe input\r".utf8))))
             let output = try await event(after: typed, "an OUTPUT frame after input") {
                 if case .terminal(let f) = $0, f.terminalId == terminal, f.kind == .output { f } else { nil }
