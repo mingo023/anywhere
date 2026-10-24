@@ -29,11 +29,8 @@ func gitBench() throws {
         layout.append(log.commits)
     }
 
-    // The Highlight stub returns no spans, so rows get one span per word, about what a real highlighter gives.
     let lines = Array(doc!.lines.prefix(2_000))
-    let spans = lines.map { line in
-        stride(from: 0, to: line.text.utf16.count, by: 6).map { HighlightSpan(range: $0..<min($0 + 4, line.text.utf16.count), kind: .keyword) }
-    }
+    let spans = lines.map { Highlighter.spans($0.text, language: "swift") }
     var total = 0.0
     let runs = 20
     for _ in 0..<runs {
