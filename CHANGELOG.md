@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.14
+
+- Chat command rows say what they do and open onto the command and output (#129): (8a5c74a)
+- Spinners step a spoke at a time instead of redrawing every frame (#128): (d1168fd)
+- An answered question opens onto its answers (#125): (88d80f0)
+- The new session composer lists the project's skills under / (#124): (f4f5622)
+- Chat code blocks select and scroll sideways (#123): (af098b7)
+- Markdown table columns stop clipping a file chip (#122): (a478709)
+- Project settings lead with the project's icon and group its settings (#121): (1b59160)
+
 ## 0.1.13
 
 - Sidebar rows pin only from their menu (#120): (bb6cc02)
