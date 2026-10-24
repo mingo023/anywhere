@@ -648,8 +648,7 @@ pub(super) fn intrinsic_widths(
     let min = objects
         .iter()
         .flatten()
-        .map(|object| object.clone().fit_text(Some(Pixels::ZERO)))
-        .map(|object| object.metrics.size.width)
+        .map(MeasuredInlineObject::min_width)
         .chain(images.iter().flatten().map(|size| size.width))
         .fold(Pixels::ZERO, Pixels::max);
     let max = layout_measured_flow(&items, &images, &objects, &text_style, None, window, cx)

@@ -2551,14 +2551,15 @@ fn measure_table_columns(
     let text_style = window.text_style();
     let font_size = text_style.font_size.to_pixels(window.rem_size());
     let mut col_w = vec![CELL_MIN_PX; col_count];
-    let mut col_min_w = vec![0.0_f32; col_count];
+    let mut col_min_content = vec![0.0_f32; col_count];
     for (row_ix, row) in table.children.iter().enumerate() {
         let mut text_style = text_style.clone();
         if row_ix == 0 {
             text_style.font_weight = FontWeight::SEMIBOLD;
         }
         for (ix, cell) in row.children.iter().enumerate() {
-            let (Some(slot), Some(min_slot)) = (col_w.get_mut(ix), col_min_w.get_mut(ix)) else {
+            let (Some(slot), Some(min_slot)) = (col_w.get_mut(ix), col_min_content.get_mut(ix))
+            else {
                 continue;
             };
             if cell
@@ -2622,15 +2623,15 @@ fn measure_table_columns(
             *slot = slot.max(w + CELL_PAD_PX);
         }
     }
-    (col_w, col_min_w)
+    (col_w, col_min_content)
 }
 
 /// How narrow a column of `width` (max-content) may shrink before the table
 /// scrolls instead: roughly the width at which its text wraps to
 /// `CELL_WRAP_MAX_LINES` lines, clamped between the two bounds so moderate
-/// columns can still wrap meaningfully while one huge column cannot push the
-/// scroll threshold arbitrarily high. Never below `content_min`, the widest
-/// inline element it holds, which can't wrap and would be clipped.
+/// columns can still wrap meaningfully while one huge column of text cannot
+/// push the scroll threshold arbitrarily high. Never below `content_min`, the
+/// widest inline element it holds, which can't wrap and would be clipped.
 fn column_floor(width: f32, content_min: f32) -> f32 {
     const CELL_WRAP_MAX_LINES: f32 = 2.0;
     const CELL_WRAP_MIN_PX: f32 = 160.0;
@@ -2638,7 +2639,7 @@ fn column_floor(width: f32, content_min: f32) -> f32 {
 
     (width / CELL_WRAP_MAX_LINES)
         .clamp(CELL_WRAP_MIN_PX, CELL_WRAP_MAX_PX)
-        .max(content_min.ceil())
+        .max(content_min)
         .min(width)
 }
 
@@ -2873,11 +2874,11 @@ impl BlockNode {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let (col_w, col_content_min_w) =
-            measure_table_columns(table, col_count, node_cx, window, cx);
+        let (col_w, col_min_content) = measure_table_columns(table, col_count, node_cx, window, cx);
         // Rounded up: layout snaps a fractional width down, which would wrap
-        // the last word of the widest cell.
+        // the last word of the widest cell, or clip an inline element.
         let col_w: Vec<f32> = col_w.into_iter().map(f32::ceil).collect();
+        let col_min_content: Vec<f32> = col_min_content.into_iter().map(f32::ceil).collect();
         let style = &node_cx.style;
         // Nowrap cells (via the `table_cell` refinement, which cascades to
         // the cell text) must never shrink below their single-line content,
@@ -2888,7 +2889,7 @@ impl BlockNode {
         } else {
             col_w
                 .iter()
-                .zip(&col_content_min_w)
+                .zip(&col_min_content)
                 .map(|(w, content_min)| column_floor(*w, *content_min))
                 .collect()
         };
