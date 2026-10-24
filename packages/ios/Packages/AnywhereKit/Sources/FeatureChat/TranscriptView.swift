@@ -150,7 +150,8 @@ struct TranscriptView: View {
             sendNow: { [store] in store.sendNow() },
             retryTurn: { [store] turn in store.retryTurn(turn) },
             showCall: { id in show(call: id) },
-            openLink: openLink)
+            openLink: openLink,
+            reveal: { [store] in store.reveals[$0] })
     }
 
     /// Room under the rows for a held prompt and the list's padding, then the end.

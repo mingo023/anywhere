@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 struct TextRow: View {
     let text: TextContent
+    let reveal: (_ message: String) -> Reveal?
     let onLink: (MarkdownLink) -> Void
 
     var body: some View {
@@ -15,14 +16,30 @@ struct TextRow: View {
             if text.planHeader {
                 Label("Plan", systemImage: "checklist").font(ChatFont.small.weight(.medium)).foregroundStyle(Palette.text2.color)
             }
-            if let reveal = text.reveal {
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !reveal.moving(Date.timeIntervalSinceReferenceDate))) { context in
-                    let cut = reveal.cut(text.text, from: text.offset, context.date.timeIntervalSinceReferenceDate)
-                    MarkdownView(String(decoding: text.text.utf8.prefix(cut), as: UTF8.self), style: .chat, onLink: onLink)
-                }
+            if text.revealing {
+                RevealText(text: text, reveal: reveal, onLink: onLink)
             } else {
                 MarkdownView(text.text, style: .chat, onLink: onLink)
             }
+        }
+    }
+}
+
+/// A block being let out: only it reads the reveal, which moves with every chunk.
+@MainActor
+private struct RevealText: View {
+    let text: TextContent
+    let reveal: (_ message: String) -> Reveal?
+    let onLink: (MarkdownLink) -> Void
+
+    var body: some View {
+        if let reveal = reveal(text.message) {
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !reveal.moving(Date.timeIntervalSinceReferenceDate))) { context in
+                let cut = reveal.cut(text.text, from: text.offset, context.date.timeIntervalSinceReferenceDate)
+                MarkdownView(String(decoding: text.text.utf8.prefix(cut), as: UTF8.self), style: .chat, onLink: onLink)
+            }
+        } else {
+            MarkdownView(text.text, style: .chat, onLink: onLink)
         }
     }
 }

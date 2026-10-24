@@ -212,3 +212,13 @@ func aScrollStopsTheGlide() {
     let top = pin.top(0)
     #expect(top == (200, false))
 }
+
+@Test("a block that ended before the reveal began shows whole for all of it")
+func aBlockBeforeTheRevealIsWhole() {
+    let first = words(10)
+    var r = Reveal.shown(first.utf8.count, 0)
+    r.arrive(first.utf8.count + 40, 0)
+    #expect(!r.reaches(before: first.utf8.count))
+    #expect(r.cut(first, 0) == first.utf8.count)
+    #expect(r.reaches(before: first.utf8.count + 1))
+}

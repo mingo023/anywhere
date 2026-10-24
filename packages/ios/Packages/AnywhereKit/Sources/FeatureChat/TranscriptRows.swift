@@ -18,11 +18,16 @@ final class RowIds {
 @Observable
 final class RowBox {
     fileprivate(set) var item: RowItem
+    /// The item, read without observing it: `update` runs in the list's `onAppear`, which would tie the list to the row.
+    @ObservationIgnored fileprivate var current: RowItem
     /// On screen, so it follows the store; off screen it's brought up to date when it comes back.
     @ObservationIgnored fileprivate var shown = false
     @ObservationIgnored fileprivate var stale = false
 
-    fileprivate init(_ item: RowItem) { self.item = item }
+    fileprivate init(_ item: RowItem) {
+        self.item = item
+        current = item
+    }
 }
 
 /// The transcript's rows kept apart from the list: the store's changes land in the ids when rows come or go, and in the
@@ -80,7 +85,8 @@ final class TranscriptRows {
     }
 
     private func update(_ box: RowBox, _ id: String) {
-        guard let item = item(id), item != box.item else { return }
+        guard let item = item(id), item != box.current else { return }
+        box.current = item
         box.item = item
     }
 

@@ -69,7 +69,8 @@ struct TextContent: Hashable, Sendable {
     var offset: Int
     /// The first block of a plan that doesn't open on its own heading.
     var planHeader: Bool
-    var reveal: Reveal?
+    /// The message is still letting this block out; `RowActions.reveal` says how far, so the row doesn't change per chunk.
+    var revealing: Bool
 }
 
 enum EndContent: Hashable, Sendable {
@@ -194,11 +195,11 @@ struct RowBuilder {
             return .tasks(todos)
         case .text(let turn, let block, let range):
             guard let m = message(t, turn, block) else { return .hidden }
-            let utf8 = Array(m.text.utf8)
-            let text = String(decoding: utf8[min(range.lowerBound, utf8.count)..<min(range.upperBound, utf8.count)], as: UTF8.self)
+            let utf8 = m.text.utf8
+            let text = String(decoding: utf8.dropFirst(range.lowerBound).prefix(range.count), as: UTF8.self)
             let plan = if case .plan = t.turns[turn].blocks[block] { true } else { false }
             return .text(TextContent(message: m.id, text: text, offset: range.lowerBound, planHeader: plan && range.lowerBound == 0 && !text.hasPrefix("#"),
-                                     reveal: reveals[m.id]))
+                                     revealing: reveals[m.id]?.reaches(before: range.upperBound) ?? false))
         case .question(let turn, let block):
             guard let call = t.turns[turn].blocks[block].call else { return .hidden }
             return .question(questionValue(call))

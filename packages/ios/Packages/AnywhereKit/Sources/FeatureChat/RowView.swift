@@ -13,6 +13,8 @@ struct RowActions {
     /// Scrolls to the phase holding a call, opens it and flashes it.
     var showCall: (_ id: String) -> Void = { _ in }
     var openLink: (MarkdownLink) -> Void = { _ in }
+    /// Where a streaming message's reveal is, read by the text it lets out alone.
+    var reveal: (_ message: String) -> Reveal? = { _ in nil }
 }
 
 /// One transcript row, redrawn only when what it shows changes.
@@ -54,7 +56,7 @@ struct RowView: View, Equatable {
         case .notice(let label, let call): NoticeRow(label: label) { if let call { actions.showCall(call) } }
         case .note(let text, let error): NoteRow(text: text, error: error)
         case .tasks(let todos): TasksCard(todos: todos)
-        case .text(let t): TextRow(text: t, onLink: actions.openLink)
+        case .text(let t): TextRow(text: t, reveal: actions.reveal, onLink: actions.openLink)
         case .question(let value): QuestionMarker(value: value)
         case .compacted(let auto): CompactedRow(auto: auto)
         case .end(let end): EndRow(end: end, actions: actions)

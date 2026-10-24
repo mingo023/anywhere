@@ -40,6 +40,9 @@ public struct Reveal: Hashable, Sendable {
         self = Reveal(from: from, to: len, start: now, took: took)
     }
 
+    /// Whether any of the message before byte `end` is still to show: a block ending before the reveal began is whole.
+    public func reaches(before end: Int) -> Bool { from < end }
+
     func at(_ now: Seconds) -> Int {
         if took == 0 { return to }
         let t = min(max(now - start, 0) / took, 1)
