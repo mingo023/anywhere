@@ -7,6 +7,8 @@ import SwiftUI
 enum RowAction: Identifiable, Hashable {
     case rename(HomeList.Tree)
     case delete(HomeList.Tree)
+    /// Deleting the worktree's branch was refused: `count` commits on it are nowhere else.
+    case forceDelete(HomeList.Tree, count: Int)
     case close(sessionId: String, title: String)
     case newLocal(project: String)
     case pin(sessionId: String, on: Bool)
@@ -15,9 +17,18 @@ enum RowAction: Identifiable, Hashable {
         switch self {
         case .rename(let t): "rename:" + t.id
         case .delete(let t): "delete:" + t.id
+        case .forceDelete(let t, _): "force:" + t.id
         case .close(let id, _): "close:" + id
         case .newLocal(let project): "local:" + project
         case .pin(let id, _): "pin:" + id
+        }
+    }
+
+    /// Asks for a word in the confirm dialog.
+    var confirms: Bool {
+        switch self {
+        case .delete, .forceDelete, .close: true
+        case .rename, .newLocal, .pin: false
         }
     }
 }
@@ -37,15 +48,15 @@ struct RowActions: ViewModifier {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { if case .rename(let tree) = action { rename(tree) } }
             }
-            .confirmationDialog(title, isPresented: shown { if case .delete = $0 { true } else if case .close = $0 { true } else { false } },
-                                titleVisibility: .visible,
-                                presenting: action) { action in
+            .confirmationDialog(title, isPresented: shown(\.confirms), titleVisibility: .visible, presenting: action) { action in
                 switch action {
                 case .delete(let tree) where tree.kind == .worktree:
                     Button("Delete Worktree", role: .destructive) { delete(tree, branch: false) }
                     if let branch = tree.branch { Button("Delete Worktree and \(branch)", role: .destructive) { delete(tree, branch: true) } }
                 case .delete(let tree):
                     Button("Delete \(tree.label)", role: .destructive) { delete(tree, branch: false) }
+                case .forceDelete(let tree, _):
+                    Button("Delete Anyway", role: .destructive) { delete(tree, branch: true, force: true) }
                 case .close(let id, _):
                     Button("Close Session", role: .destructive) { close(id) }
                 case .rename, .newLocal, .pin:
@@ -55,6 +66,7 @@ struct RowActions: ViewModifier {
                 switch action {
                 case .delete(let tree) where tree.kind == .worktree: Text("Its terminals close and its folder is removed.")
                 case .delete: Text("Its terminals close. The project's files stay.")
+                case .forceDelete(_, let count): Text(Self.lostMessage(count))
                 case .close: Text("The agent and its terminal end.")
                 case .rename, .newLocal, .pin: EmptyView()
                 }
@@ -83,9 +95,20 @@ struct RowActions: ViewModifier {
     private var title: String {
         switch action {
         case .delete(let tree)?: "Delete \(tree.label)?"
+        case .forceDelete(let tree, let count)?: Self.lostTitle(count, branch: tree.branch ?? tree.label)
         case .close(_, let title)?: "Close \(title)?"
         default: ""
         }
+    }
+
+    nonisolated static func lostTitle(_ count: Int, branch: String) -> String {
+        "Delete \(branch) and its \(count) unpushed commit\(count == 1 ? "" : "s")?"
+    }
+
+    nonisolated static func lostMessage(_ count: Int) -> String {
+        count == 1
+            ? "That commit is on no other branch, remote or tag, so it will be lost."
+            : "Those \(count) commits are on no other branch, remote or tag, so they will be lost."
     }
 
     private func shown(_ matches: @escaping (RowAction) -> Bool) -> Binding<Bool> {
@@ -103,12 +126,19 @@ struct RowActions: ViewModifier {
         }
     }
 
-    private func delete(_ tree: HomeList.Tree, branch: Bool) {
+    private func delete(_ tree: HomeList.Tree, branch: Bool, force: Bool = false) {
         run {
             if tree.kind == .local {
                 try await host.workspace.deleteLocal(id: tree.id)
             } else {
-                try await host.workspace.deleteWorktree(path: tree.id, deleteBranch: branch)
+                do {
+                    try await host.workspace.deleteWorktree(path: tree.id, deleteBranch: branch, force: force)
+                } catch {
+                    guard let count = WorkspaceStore.unpushedCommits(error) else { throw error }
+                    // Nothing was removed yet; ask again, naming what would be lost.
+                    action = .forceDelete(tree, count: count)
+                    return
+                }
             }
             Haptics.success()
         }

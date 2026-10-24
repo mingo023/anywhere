@@ -80,6 +80,18 @@ struct WorkspaceStoreTests {
         #expect(s.locals == Sample.locals)
     }
 
+    @Test("a delete refused for unpushed commits says how many a forced one would lose, and only then goes out with force")
+    func unpushed() {
+        let refused = DaemonError.server(ServerError(message: "2 commits are only on this branch", code: .unpushedCommits, count: 2))
+        #expect(WorkspaceStore.unpushedCommits(refused) == 2)
+        #expect(WorkspaceStore.unpushedCommits(DaemonError.server(ServerError(message: "x", code: .gitFailed))) == nil)
+        #expect(WorkspaceStore.unpushedCommits(DaemonError.timedOut) == nil)
+        #expect(WorkspaceStore.deletion(path: "/w", deleteBranch: true, force: false) == .worktreeDelete(.init(path: "/w", deleteBranch: true)))
+        #expect(WorkspaceStore.deletion(path: "/w", deleteBranch: true, force: true)
+            == .worktreeDelete(.init(path: "/w", deleteBranch: true, force: true)))
+        #expect(WorkspaceStore.deletion(path: "/w", deleteBranch: false, force: false) == .worktreeDelete(.init(path: "/w")))
+    }
+
     @Test("a new Local a launch couldn't make leaves the list, and blank Local names change nothing")
     func failedLocal() async {
         let s = store()
