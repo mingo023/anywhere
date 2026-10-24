@@ -41,6 +41,18 @@ struct DiffRowsTests {
         #expect(rows[3] == (nil, "new2"))
     }
 
+    @Test("each side's text is its own lines in order, and every row knows its line in the side it is coloured from")
+    func sides() {
+        let lines = DiffRows.lines([
+            DiffRow(k: .hunk, t: "@@ -1,3 +1,3 @@"), DiffRow(k: .context, o: 1, n: 1, t: "a"), DiffRow(k: .deleted, o: 2, t: "\"b"),
+            DiffRow(k: .added, n: 2, t: "c"), DiffRow(k: .context, o: 3, n: 3, t: "d"),
+        ])
+        let s = DiffRows.sides(lines)
+        #expect(s.old == ["a", "\"b", "d"])
+        #expect(s.new == ["a", "c", "d"])
+        #expect(s.at == [nil, 0, 1, 1, 2])
+    }
+
     @Test("a document says when it has nothing to draw, and why")
     func states() {
         let empty = GitDiff(tree: "/t", path: "a", language: "text", added: 0, removed: 0, lines: [])

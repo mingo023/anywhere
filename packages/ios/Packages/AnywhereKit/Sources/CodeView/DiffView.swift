@@ -9,7 +9,7 @@ import SwiftUI
 public struct DiffView: View {
     let document: DiffDocument
     let sideBySide: Bool
-    @State private var spans: SpanCache?
+    @State private var spans: DiffSpans?
     @Environment(\.colorScheme) private var scheme
     @ScaledMetric(relativeTo: .footnote) private var rowHeight: CGFloat = 20
     @ScaledMetric(relativeTo: .footnote) private var charWidth: CGFloat = 7.8
@@ -44,14 +44,14 @@ public struct DiffView: View {
         }
         .background(Palette.surface.color)
         .task(id: DocumentKey(document)) {
-            spans = SpanCache(lines: document.lines.map(\.text), language: document.language)
+            spans = DiffSpans(document.lines, language: document.language)
         }
     }
 
     private var gutter: CGFloat { CGFloat(document.gutterDigits) * charWidth }
 
     @ViewBuilder
-    private func pairRow(_ pair: SplitRow, column: CGFloat, spans: SpanCache) -> some View {
+    private func pairRow(_ pair: SplitRow, column: CGFloat, spans: DiffSpans) -> some View {
         let lines = document.lines
         if let i = pair.left, lines[i].kind == .hunk {
             DiffLineRow(line: lines[i], gutter: gutter, both: false, spans: spans, dark: scheme == .dark)
@@ -68,7 +68,7 @@ public struct DiffView: View {
     }
 
     @ViewBuilder
-    private func half(_ index: Int?, side: UnifiedLine.Kind, column: CGFloat, spans: SpanCache) -> some View {
+    private func half(_ index: Int?, side: UnifiedLine.Kind, column: CGFloat, spans: DiffSpans) -> some View {
         if let index {
             let line = document.lines[index]
             DiffLineRow(line: line, gutter: gutter, both: false, oldSide: side == .deleted, spans: spans, dark: scheme == .dark)
@@ -107,7 +107,7 @@ struct DiffLineRow: View {
     /// Unified rows show both numbers; a side-by-side half shows its own side's.
     let both: Bool
     var oldSide = false
-    let spans: SpanCache
+    let spans: DiffSpans
     let dark: Bool
 
     var body: some View {

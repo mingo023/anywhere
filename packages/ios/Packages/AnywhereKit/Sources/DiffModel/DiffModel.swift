@@ -142,6 +142,33 @@ public enum DiffRows {
         return out
     }
 
+    /// Each side's text as the highlighter should read it: the old side is context and deletions, the new side context
+    /// and additions, each in order (pocket/chat/diff.rs `highlight`). `at[i]` is row i's line in the side it is
+    /// coloured from, the old one for a deletion and the new one otherwise; nil for a hunk header.
+    public static func sides(_ lines: [UnifiedLine]) -> (old: [String], new: [String], at: [Int?]) {
+        var old: [String] = []
+        var new: [String] = []
+        var at: [Int?] = []
+        at.reserveCapacity(lines.count)
+        for l in lines {
+            switch l.kind {
+            case .hunk:
+                at.append(nil)
+            case .deleted:
+                at.append(old.count)
+                old.append(l.text)
+            case .added:
+                at.append(new.count)
+                new.append(l.text)
+            case .context:
+                old.append(l.text)
+                at.append(new.count)
+                new.append(l.text)
+            }
+        }
+        return (old, new, at)
+    }
+
     static func digits(_ lines: [UnifiedLine]) -> Int {
         let widest = lines.reduce(0) { max($0, $1.old ?? 0, $1.new ?? 0) }
         return max(String(widest).count, 2)

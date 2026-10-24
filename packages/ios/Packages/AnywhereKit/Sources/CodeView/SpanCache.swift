@@ -1,3 +1,4 @@
+import DiffModel
 import Highlight
 import Observation
 
@@ -39,5 +40,38 @@ final class SpanCache {
         Task {
             window.spans = await Task.detached(priority: .userInitiated) { HighlightWindow.spans(slice, language: language) }.value
         }
+    }
+}
+
+/// A diff's colours: each side's lines highlighted as their own text, so a deletion and its replacement never parse as
+/// one program and hunk headers aren't code.
+@MainActor
+final class DiffSpans {
+    private let old: SpanCache
+    private let new: SpanCache
+    private let kinds: [UnifiedLine.Kind]
+    private let at: [Int?]
+
+    init(_ lines: [UnifiedLine], language: String) {
+        let sides = DiffRows.sides(lines)
+        old = SpanCache(lines: sides.old, language: language)
+        new = SpanCache(lines: sides.new, language: language)
+        kinds = lines.map(\.kind)
+        at = sides.at
+    }
+
+    private func side(_ row: Int) -> (SpanCache, Int)? {
+        guard at.indices.contains(row), let line = at[row] else { return nil }
+        return (kinds[row] == .deleted ? old : new, line)
+    }
+
+    func spans(_ row: Int) -> [HighlightSpan] {
+        guard let (cache, line) = side(row) else { return [] }
+        return cache.spans(line)
+    }
+
+    func need(_ row: Int) {
+        guard let (cache, line) = side(row) else { return }
+        cache.need(line)
     }
 }
