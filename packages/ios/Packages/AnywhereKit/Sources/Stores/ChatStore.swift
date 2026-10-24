@@ -374,7 +374,8 @@ public final class ChatStore: HostStore {
     /// Runs a command the phone does itself.
     func runLocal(_ local: ChatModel.Local, _ arg: String) {
         switch (local, arg) {
-        case (.model, ""), (.effort, ""), (.new, ""), (.new, _), (.btw, ""): break
+        case (.model, ""), (.effort, ""): settingsMenu = local
+        case (.new, _), (.btw, ""): break
         case (.model, let model): settings(model: model)
         case (.effort, let effort): settings(effort: effort)
         case (.compact, _): compact()
@@ -402,6 +403,9 @@ public final class ChatStore: HostStore {
         }
         scheduleFlush()
     }
+
+    /// Stops the sub-agents a chat agent left in the background; no turn runs, so nothing waits on a stop.
+    public func stopBackground() { request(.agentInterrupt(.init(agentId: agentId))) { _ in } }
 
     /// What the send button does when pressed: stops a working agent with an empty draft, else sends.
     public func press() {
@@ -542,6 +546,9 @@ public final class ChatStore: HostStore {
         }
     }
 
+    /// The model or effort list `/model` or `/effort` asked to open.
+    public var settingsMenu: ChatModel.Local?
+
     /// A sign-in page an MCP server asked the user to open.
     public var authUrl: String?
 
@@ -582,6 +589,37 @@ public final class ChatStore: HostStore {
     public func suggestions(cursor: Int) -> SuggestRows? {
         guard let agent = summary else { return nil }
         return suggest.rows(draft.text, cursor, agent: agentId, provider: agent.provider, cwd: agent.cwd, touched: touched(session.transcript))
+    }
+
+    /// Picks row `ix` of that list: a command or a path goes in for the word typed, a command the phone runs itself
+    /// runs, and a server the agent can't use yet is signed in to, reconnected or enabled.
+    public func pick(_ ix: Int, cursor: Int) {
+        guard let rows = suggestions(cursor: cursor) else { return }
+        let text = draft.text
+        let utf8 = Array(text.utf8)
+        func around(_ at: Int, _ put: String) -> String {
+            String(decoding: utf8[..<at], as: UTF8.self) + put + String(decoding: utf8[min(cursor, utf8.count)...], as: UTF8.self)
+        }
+        suggest.selected = 0
+        switch rows {
+        case .servers(let at, _, .success(let all)?, let pickable) where ix < pickable:
+            if !Mcp.usable(all[ix]) { return act(on: all[ix]) }
+            draft.text = replaced(text, at, cursor, mcpTag + all[ix].name).text
+        case .commands(let at, _, let list) where list.indices.contains(ix) && !startsDraft(text, at):
+            draft.text = list[ix].kind == .local(.mcp) ? around(at, mcpTag) : replaced(text, at, cursor, "/\(list[ix].name)").text
+        case .commands(_, _, let list) where list.indices.contains(ix):
+            let arg = slash(text)?.arg ?? ""
+            if case .local(let local) = adapter.command(list[ix].name, arg) {
+                draft.text = ""
+                runLocal(local, arg)
+            } else {
+                draft.text = named(list[ix].name, arg).text
+            }
+        case .files(let at, _, let paths) where paths.indices.contains(ix):
+            draft.text = replaced(text, at, cursor, "@" + paths[ix]).text
+        default:
+            break
+        }
     }
 
     // MARK: Images

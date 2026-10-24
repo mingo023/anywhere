@@ -139,4 +139,30 @@ struct ChatStoreTests {
         #expect(chat([], defaults: d).draft.text == "half a thought")
         #expect(ChatStore(agentId: "a2", defaults: d).draft.isEmpty)
     }
+
+    @Test("picking a command the phone runs opens its menu and clears the draft")
+    func pickLocal() {
+        let c = chat([])
+        c.draft.text = "/mod"
+        c.pick(0, cursor: 4)
+        #expect(c.draft.text.isEmpty)
+        #expect(c.settingsMenu == .model)
+    }
+
+    @Test("picking a command mid-draft puts it in for the word typed")
+    func pickMidDraft() {
+        let c = chat([.agentCommands(.init(agentId: "a1", commands: [Command(name: "review", description: "Review a PR")]))])
+        c.draft.text = "please /rev"
+        c.pick(0, cursor: 11)
+        #expect(c.draft.text == "please /review ")
+    }
+
+    @Test("picking a file puts its path in for the mention")
+    func pickFile() {
+        let c = chat([])
+        c.suggest.filesListed("/w", ["src/lanes.rs", "README.md"])
+        c.draft.text = "see @lan"
+        c.pick(0, cursor: 8)
+        #expect(c.draft.text == "see @src/lanes.rs ")
+    }
 }

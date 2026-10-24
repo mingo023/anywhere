@@ -169,7 +169,7 @@ public struct Pin: Hashable, Sendable {
     /// Once first measured, the prompt glides from the list's end unless `glide` is nil.
     /// Returns false once the reply fills what's under the prompt and the pin lets go.
     public mutating func step(viewport: Double, above: Double, below: Double?, glide: Seconds?) -> Bool {
-        held = min(viewport * Self.hold, Self.top + above)
+        held = Self.held(viewport: viewport, above: above)
         if let below {
             room = viewport - held - Self.bottom - below
             if room <= 0 { return false }
@@ -181,6 +181,11 @@ public struct Pin: Hashable, Sendable {
         }
         if !sent { spacer = below != nil ? room : viewport - held - Self.bottom - 1 }
         return true
+    }
+
+    /// How far under the viewport's top a prompt is held, under the end of the rows `above` it.
+    public static func held(viewport: Double, above: Double) -> Double {
+        min(viewport * hold, top + above)
     }
 
     /// How far under the viewport's top the prompt shows at `now`, and whether it's still gliding there.
