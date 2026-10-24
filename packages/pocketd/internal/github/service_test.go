@@ -363,3 +363,27 @@ func TestThePollerAsksNothingOnceTheLastPhoneLeaves(t *testing.T) {
 		t.Fatal("still polling")
 	}
 }
+
+func TestAPhoneLeavingMidAskLeavesTheShownPRAlone(t *testing.T) {
+	f := newFake(t)
+	f.put("view.json", fixture(t, "open.json"))
+	f.put("threads.json", fixture(t, "threads.json"))
+	project, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	if pr, _ := s.PR(ctx(t), tree); pr == nil {
+		t.Fatal("no PR")
+	}
+	s.mu.Lock()
+	s.cache.expire(tree, s.now())
+	s.mu.Unlock()
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.PR(gone, tree)
+	s.poll(gone)
+	if items := s.PRs(project); len(items) != 1 {
+		t.Fatalf("%+v", items)
+	}
+	if s.cache.running != "" {
+		t.Fatal("the next poller would wait out the killed run's turn")
+	}
+}

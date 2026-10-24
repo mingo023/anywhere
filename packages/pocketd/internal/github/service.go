@@ -105,9 +105,16 @@ func (s *Service) poke() {
 func (s *Service) poll(ctx context.Context) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
-	for {
+	for ctx.Err() == nil {
 		if tree, started, ok := s.next(); ok {
 			pr, problem := s.ask(ctx, tree)
+			// A run killed because the last phone left says nothing about the PR.
+			if ctx.Err() != nil {
+				s.mu.Lock()
+				s.cache.dropRun(tree)
+				s.mu.Unlock()
+				return
+			}
 			s.mu.Lock()
 			changed := s.cache.apply(tree, started, pr, problem, s.now())
 			s.mu.Unlock()
@@ -243,6 +250,9 @@ func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 		return nil, problem
 	}
 	pr, problem := s.ask(ctx, tree)
+	if ctx.Err() != nil {
+		return nil, ""
+	}
 	s.mu.Lock()
 	changed := s.cache.record(tree, pr, problem, s.now())
 	if problem != "" {
