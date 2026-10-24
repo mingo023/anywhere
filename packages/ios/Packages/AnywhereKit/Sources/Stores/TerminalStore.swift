@@ -134,6 +134,8 @@ public final class TerminalStore: HostStore {
     /// The list and every open screen come back on their own, each screen from a fresh snapshot.
     public func connected(_ hello: HelloOk) {
         available = hello.has(Caps.terminal)
+        // Only a refused write says terminals are off, and the owner may have turned them on while this was away.
+        writesOff = false
         guard available else { return }
         post(.terminalList)
         for open in attachments.values where open.running {

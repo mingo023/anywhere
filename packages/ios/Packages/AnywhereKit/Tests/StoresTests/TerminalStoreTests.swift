@@ -144,6 +144,15 @@ struct TerminalStoreTests {
         #expect(!store.apply(.error(ServerError(message: "other"))))
     }
 
+    @Test("a reconnect forgets terminals_off, as the owner may have turned terminals back on")
+    func writesOnAgain() {
+        let (store, _) = store()
+        _ = store.apply(.error(ServerError(message: "Terminals are off for phones on this Mac", code: .terminalsOff)))
+        store.disconnected()
+        store.connected(Sample.hello)
+        #expect(!store.writesOff)
+    }
+
     @Test("the Locals a terminal may open in follow local.list")
     func locals() {
         let (store, _) = store()
