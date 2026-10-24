@@ -139,7 +139,7 @@ func TestAWorkspacePhoneGetsTheProjectListAfterHelloThenAPushForEachChange(t *te
 		t.Fatalf("the list wasn't pushed before worktree.created: %v", before)
 	}
 	p.send(`{"type":"project.list","id":"pl"}`)
-	if m := p.recv(); m["id"] != "pl" || len(treePaths(m)) != 2 {
+	if m := p.reply("pl"); len(treePaths(m)) != 2 {
 		t.Fatalf("%v", m)
 	}
 }
