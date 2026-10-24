@@ -15,7 +15,7 @@ public struct MacActivity: Codable, Hashable, Sendable {
         public var working: Int
         public var needsYou: Int
         public var unseen: Int
-        /// The session to show: the oldest Needs you, else the longest working.
+        /// The session to show: the oldest Needs you, else the longest working, else the oldest Failed, else the oldest Done.
         public var top: Top?
 
         public init(working: Int, needsYou: Int, unseen: Int, top: Top? = nil) {
@@ -24,9 +24,25 @@ public struct MacActivity: Codable, Hashable, Sendable {
             self.unseen = unseen
             self.top = top
         }
+
+        /// Anything working or waiting on the user, which keeps the activity going.
+        public var isBusy: Bool { working > 0 || needsYou > 0 }
+
+        /// Ranks this Mac's activity against others' for the Dynamic Island, as pocketd does.
+        public var relevance: Double {
+            if needsYou > 0 { return 100 }
+            if top?.status == Top.failed { return 75 }
+            if working > 0 { return 50 }
+            return 10
+        }
     }
 
     public struct Top: Codable, Hashable, Sendable {
+        public static let needsYou = "needsYou"
+        public static let working = "working"
+        public static let failed = "failed"
+        public static let done = "done"
+
         /// The agent id.
         public var slot: String
         /// needsYou, working, failed or done.
