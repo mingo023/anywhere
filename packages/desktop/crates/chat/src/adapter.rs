@@ -147,7 +147,7 @@ mod tests {
                             Some(true) => ToolStatus::Ok,
                             Some(false) => ToolStatus::Failed,
                         };
-                        let kind = ToolKind::Shell { command: command.to_string() };
+                        let kind = ToolKind::Shell { command: command.to_string(), description: String::new() };
                         turn.blocks.push(Block::Tool(ToolCall { id, name: "run_shell_command".into(), kind, status, output: None, duration_ms: None, at }));
                     }
                     Line::Done => turn.end = Some(End::Done { duration_ms: 0, usage: None }),
@@ -158,7 +158,7 @@ mod tests {
         }
 
         fn ask(&self, c: &Confirm) -> Ask {
-            Ask { request_id: c.0.into(), tool: ToolKind::Shell { command: c.1.into() }, tool_name: "run_shell_command".into(), questions: vec![] }
+            Ask { request_id: c.0.into(), tool: ToolKind::Shell { command: c.1.into(), description: String::new() }, tool_name: "run_shell_command".into(), questions: vec![] }
         }
     }
 
@@ -190,6 +190,6 @@ mod tests {
         assert!(s.outgoing.list().is_empty());
 
         let ask = backend.ask(&Confirm("r1", "rm -rf target"));
-        assert_eq!((ask.request_id.as_str(), ask.tool), ("r1", ToolKind::Shell { command: "rm -rf target".into() }));
+        assert_eq!((ask.request_id.as_str(), ask.tool), ("r1", ToolKind::Shell { command: "rm -rf target".into(), description: String::new() }));
     }
 }

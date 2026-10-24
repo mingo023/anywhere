@@ -158,9 +158,9 @@ mod tests {
 
     #[test]
     fn a_phase_is_headed_by_the_kind_of_its_first_step() {
-        assert_eq!(kind_icon(&[tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into() })]), "search");
+        assert_eq!(kind_icon(&[tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into(), description: String::new() })]), "search");
         assert_eq!(kind_icon(&[tool(ToolKind::Edit { path: "a".into(), diff: None })]), "pencil");
-        assert_eq!(kind_icon(&[tool(ToolKind::Shell { command: "ls".into() })]), "terminal");
+        assert_eq!(kind_icon(&[tool(ToolKind::Shell { command: "ls".into(), description: String::new() })]), "terminal");
         assert_eq!(kind_icon(&[Block::Thinking(Message::default())]), "bulb");
         assert_eq!(kind_icon(&[tool(ToolKind::Other { input: "{}".into(), description: String::new() })]), "tool");
     }

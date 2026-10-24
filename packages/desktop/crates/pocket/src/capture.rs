@@ -872,9 +872,9 @@ fn is_call(b: &Block) -> bool {
     matches!(b, Block::Tool(c) if !matches!(c.kind, ToolKind::Agent(_)))
 }
 
-/// A call that opens: a failed one to its error, an edit to its diff.
+/// A call that opens: a failed one to its error, an edit to its diff, a command to itself and its output.
 fn opens(b: &Block) -> bool {
-    matches!(b, Block::Tool(c) if is_call(b) && (c.status == chat::ToolStatus::Failed || tool_row::colour(c).is_some()))
+    matches!(b, Block::Tool(c) if is_call(b) && (c.status == chat::ToolStatus::Failed || tool_row::colour(c).is_some() || matches!(c.kind, ToolKind::Shell { .. })))
 }
 
 /// Opens the shown chat's first phase holding a block `pick` takes, and the fold over it, and returns that block.

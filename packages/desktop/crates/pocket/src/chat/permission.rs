@@ -13,7 +13,7 @@ const REPLY_PLACEHOLDER: &str = "Tell the agent what to do instead";
 /// The tool's icon, its verb and what it acts on.
 pub(super) fn subject<'a>(tool: &'a ToolKind, tool_name: &'a str) -> (&'static str, &'static str, &'a str) {
     match tool {
-        ToolKind::Shell { command } => ("terminal", "Run", command),
+        ToolKind::Shell { command, .. } => ("terminal", "Run", command),
         ToolKind::Read { path } => ("file", "Read", path),
         ToolKind::Edit { path, .. } => ("pencil", "Edit", path),
         ToolKind::Write { path, .. } => ("file-plus", "Write", path),
@@ -151,7 +151,7 @@ mod tests {
     fn a_permission_card_names_its_tool_and_path() {
         let edit = ToolKind::Edit { path: "src/lib.rs".into(), diff: None };
         assert_eq!(subject(&edit, "Edit"), ("pencil", "Edit", "src/lib.rs"));
-        let shell = ToolKind::Shell { command: "rm -rf build".into() };
+        let shell = ToolKind::Shell { command: "rm -rf build".into(), description: String::new() };
         assert_eq!(subject(&shell, "Bash"), ("terminal", "Run", "rm -rf build"));
         assert_eq!(subject(&ToolKind::Other { input: "{}".into(), description: String::new() }, "mcp__db__query"), ("blocks", "Use", "mcp__db__query"));
     }
