@@ -105,3 +105,21 @@ func TestAnAbortedUploadLeavesNothing(t *testing.T) {
 		t.Fatal(left)
 	}
 }
+
+func TestTwoUploadsOfOneIdDontWriteIntoEachOther(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attachments")
+	a, _ := StartUpload(dir, "same", "a.png")
+	b, _ := StartUpload(dir, "same", "b.png")
+	other := []byte("\x89PNG\r\n\x1a\n another image entirely")
+	if err := a.Put(0, png); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Put(0, other); err != nil {
+		t.Fatal(err)
+	}
+	b.Abort()
+	path, err := a.Finish()
+	if got, _ := os.ReadFile(path); err != nil || !bytes.Equal(got, png) {
+		t.Fatalf("%q %v", got, err)
+	}
+}

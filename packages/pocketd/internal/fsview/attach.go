@@ -54,7 +54,8 @@ func StartUpload(dir, id, name string) (*Upload, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, id+ext+".part"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// Its own part file: another socket may send the same id at once.
+	f, err := os.CreateTemp(dir, id+ext+".*.part")
 	if err != nil {
 		return nil, err
 	}
