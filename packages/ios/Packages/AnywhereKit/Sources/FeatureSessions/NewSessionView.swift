@@ -121,7 +121,8 @@ struct NewSessionView: View {
         if let accounts = workspace.accounts[draft.provider.rawValue]?.filter(\.signedIn), !accounts.isEmpty {
             Section("Account") {
                 Picker("Account", selection: $draft.account) {
-                    Text("Built-in login").tag(String?.none)
+                    // pocketd picks the project's account, else the Mac's default; the built-in login is listed as its own row.
+                    Text("Default").tag(String?.none)
                     ForEach(accounts) { Text(SessionText.account($0)).tag(Optional($0.id)) }
                 }
             }
