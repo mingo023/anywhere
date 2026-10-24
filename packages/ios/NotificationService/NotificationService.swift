@@ -16,10 +16,9 @@ final class NotificationService: UNNotificationServiceExtension {
             content.title = notice.title
             content.subtitle = notice.place
             content.body = notice.line
-            content.targetContentIdentifier = "agent:\(notice.agent)"
-            var info: [String: Any] = ["mac": notice.mac, "agent": notice.agent]
-            if let request = notice.request { info["request"] = request }
-            content.userInfo = info
+            content.targetContentIdentifier = notice.targetContentIdentifier
+            content.relevanceScore = notice.relevance
+            content.userInfo = notice.userInfo
             if let defaults = UserDefaults(suiteName: Keychain.appGroup) {
                 content.badge = NSNumber(value: BadgeLedger(defaults: defaults).record(mac: notice.mac, count: notice.badge))
             }

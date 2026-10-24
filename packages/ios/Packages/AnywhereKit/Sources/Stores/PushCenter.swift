@@ -40,8 +40,23 @@ public final class PushCenter {
     public private(set) var frequent: Bool?
     public private(set) var prefs: PushPrefs
     public private(set) var liveActivities: Bool
-    /// The session on screen, whose alerts stay quiet while the app is in front.
-    public var visibleAgent: String?
+    /// The session on screen, whose alerts stay quiet while the app is in front; opening it clears its delivered alerts.
+    public var visibleAgent: String? {
+        didSet {
+            #if os(iOS)
+                guard let agent = visibleAgent, agent != oldValue else { return }
+                Task { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: await Self.delivered(agent: agent)) }
+            #endif
+        }
+    }
+
+    #if os(iOS)
+        nonisolated static func delivered(agent: String) async -> [String] {
+            await UNUserNotificationCenter.current().deliveredNotifications()
+                .filter { $0.request.content.userInfo["agent"] as? String == agent }
+                .map(\.request.identifier)
+        }
+    #endif
 
     /// Starts a Mac's Live Activity once it turns busy; `LiveActivities.install` sets it on iOS.
     @ObservationIgnored public var startActivity: (@MainActor (MacActivity, MacActivity.ContentState) -> Void)?
