@@ -1,14 +1,29 @@
 import CoreGraphics
 import CoreText
 
+#if canImport(UIKit)
+    import UIKit
+#else
+    import AppKit
+#endif
+
 /// Sizes for a terminal screen: its font's cell, the cols × rows a phone fits, and pinch zoom.
 public enum Fit {
     public static let fontSizes: ClosedRange<CGFloat> = 6...28
     public static let defaultFontSize: CGFloat = 11
 
-    /// One cell of the system monospaced font at `size`, as a terminal view lays it out.
+    /// SF Mono, as the phone's terminal view draws it.
+    public static func font(size: CGFloat) -> CTFont {
+        #if canImport(UIKit)
+            UIFont.monospacedSystemFont(ofSize: size, weight: .regular) as CTFont
+        #else
+            NSFont.monospacedSystemFont(ofSize: size, weight: .regular) as CTFont
+        #endif
+    }
+
+    /// One cell of `font(size:)`, as a terminal view lays it out.
     public static func cell(fontSize size: CGFloat) -> CGSize {
-        let font = CTFontCreateUIFontForLanguage(.userFixedPitch, size, nil) ?? CTFontCreateWithName("Menlo" as CFString, size, nil)
+        let font = font(size: size)
         var glyph = CGGlyph()
         var w: UniChar = 0x57
         CTFontGetGlyphsForCharacters(font, &w, &glyph, 1)

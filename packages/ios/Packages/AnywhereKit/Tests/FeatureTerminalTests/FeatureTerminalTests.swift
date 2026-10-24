@@ -88,6 +88,25 @@ struct PasteTests {
     }
 }
 
+@Suite("Terminal list")
+struct TerminalListTests {
+    @Test("terminals group by the place each opened in, a Local apart from its project's folder")
+    func groups() {
+        let groups = TerminalGroup.of(Sample.terminals, locals: Sample.locals)
+        #expect(groups.map(\.title) == ["calm-otter", "anywhere", "Review", "website"])
+        #expect(groups.map(\.path) == ["~/.worktrees/anywhere/calm-otter", "~/dev/anywhere", "~/dev/anywhere", "~/dev/website"])
+        #expect(groups[1].terminals.map(\.id) == ["t-shell"])
+        #expect(groups[2].terminals.map(\.id) == ["t-review"])
+    }
+
+    @Test("a Local pocketd lists but the phone doesn't know yet is named by its folder")
+    func unknownLocal() {
+        let groups = TerminalGroup.of([Terminal(id: "t1", cwd: "/srv/app", cols: 80, rows: 24, localId: "new")], locals: [])
+        #expect(groups.map(\.title) == ["app"])
+        #expect(groups.map(\.path) == ["/srv/app"])
+    }
+}
+
 @Suite("Fit")
 struct FitTests {
     @Test("a phone fits the cols and rows its cells fill, within what a program can use")
