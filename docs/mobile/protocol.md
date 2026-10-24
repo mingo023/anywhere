@@ -155,8 +155,13 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
 → {type:"gh.pr.ready", id, tree, number}  ← ack
 → {type:"gh.thread.reply", id, tree, thread, body}  ← ack
 → {type:"gh.thread.resolve", id, tree, thread, resolved:bool}  ← ack
-   // failures: error{code:"gh_failed"|"gh_missing"|"gh_signed_out", message}
+   // failures: error{code:"gh_failed"|"gh_missing"|"gh_signed_out", message, detail?}
 ```
+
+- `head` is the PR's head commit oid; `reviews[].state` is GitHub's own (APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING); `hunk` is the last 4 lines of the comment's diff hunk without its `@@` header, all the desktop shows (`hunk_tail`).
+- `gh.pr.create` pushes the branch first, as the desktop does (`git -c push.autoSetupRemote=true push`); a failed push is `error{code:"git_failed", message, detail}` and opens nothing. Without `base`, gh opens it into the repo's default branch.
+- `gh.prs` lists the cached PRs of the project's worktrees; a project not registered is `error{code:"unknown_project"}`.
+- pocketd polls while any gh.v1 conn is connected: one gh at a time, killed after 60 s; the trees conns name in `git.watch` every 30 s, every other non-main, non-detached worktree every 5 min; a missing or signed-out gh is asked again after 5 min. `gh.pr` answers from that cache while it is under 30 s old, else asks gh then.
 
 ## fs.v1
 
