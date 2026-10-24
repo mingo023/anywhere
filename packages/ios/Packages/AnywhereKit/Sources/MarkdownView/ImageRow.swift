@@ -16,6 +16,20 @@ nonisolated func dataURLBytes(_ source: String) -> Data? {
     return payload.removingPercentEncoding.map { Data($0.utf8) }
 }
 
+/// Decoded `data:` images by source, so redrawing a block doesn't decode its images again on the main actor.
+@MainActor
+enum DataImages {
+    static let cache = NSCache<NSString, PlatformImage>()
+
+    static func image(_ source: String) -> PlatformImage? {
+        guard source.hasPrefix("data:") else { return nil }
+        if let hit = cache.object(forKey: source as NSString) { return hit }
+        guard let data = dataURLBytes(source), let image = PlatformImage(data: data) else { return nil }
+        cache.setObject(image, forKey: source as NSString)
+        return image
+    }
+}
+
 /// An image and the link around it, if any.
 struct LinkedImage: Equatable {
     let image: MDImage
@@ -52,7 +66,7 @@ struct MarkdownImage: View {
 
     @ViewBuilder
     private var content: some View {
-        if let data = dataURLBytes(image.source), let platform = PlatformImage(data: data) {
+        if let platform = DataImages.image(image.source) {
             sized(Image(platformImage: platform).resizable(), aspect: platform.size.width / max(platform.size.height, 1))
         } else if let url = URL(string: image.source), url.scheme == "http" || url.scheme == "https" {
             AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in

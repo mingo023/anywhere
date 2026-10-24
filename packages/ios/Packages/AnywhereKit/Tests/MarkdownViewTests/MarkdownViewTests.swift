@@ -150,6 +150,16 @@ import Testing
         #expect(dataURLBytes("https://x.dev/a.png") == nil)
     }
 
+    @Test("a data URL image decodes once and is handed back after")
+    @MainActor func dataImageCached() {
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+        let first = DataImages.image(png)
+        #expect(first != nil)
+        #expect(DataImages.image(png) === first)
+        #expect(DataImages.image("data:image/png;base64,bm90IGFuIGltYWdl") == nil)
+        #expect(DataImages.image("https://x.dev/a.png") == nil)
+    }
+
     @Test("the styles keep the desktop's sizes and grow with the reader's text size")
     func metrics() {
         let chat = Metrics.of(.chat)
