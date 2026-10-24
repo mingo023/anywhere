@@ -198,6 +198,7 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
 - `gh.pr.create` pushes the branch first, as the desktop does (`git -c push.autoSetupRemote=true push`); a failed push is `error{code:"git_failed", message, detail}` and opens nothing. Without `base`, gh opens it into the repo's default branch.
 - `gh.prs` lists the cached PRs of the project's worktrees; a project not registered is `error{code:"unknown_project"}`.
 - pocketd polls while any gh.v1 conn is connected: one gh at a time, killed after 60 s; the trees conns name in `git.watch` every 30 s, every other non-main, non-detached worktree every 5 min; a missing or signed-out gh is asked again after 5 min. `gh.pr` answers from that cache while it is under 30 s old, else asks gh then.
+- Every gh pocketd runs, the poller's and each phone's (`gh.status`, `gh.pr`, the mutations), takes one turn: one gh at a time, killed after 60 s. At most 4 phone calls wait for it; one more is `error{code:"gh_failed"}` saying gh is busy, and a busy `gh.pr` answers from the cache however old. `gh.prs` reads only the cache.
 
 ## fs.v1
 
