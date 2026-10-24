@@ -300,7 +300,9 @@ struct Screen: View {
             context.coordinator.typed = typed
         }
 
-        final class Coordinator: NSObject, TerminalViewDelegate {
+        // SwiftTerm calls its delegate on the main thread, from a protocol that predates actors.
+        @MainActor
+        final class Coordinator: NSObject, @preconcurrency TerminalViewDelegate {
             var typed: ([UInt8]) -> Void
             init(typed: @escaping ([UInt8]) -> Void) { self.typed = typed }
 
@@ -310,6 +312,7 @@ struct Screen: View {
             func setTerminalTitle(source: TerminalView, title: String) {}
             func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
             func scrolled(source: TerminalView, position: Double) {}
+            func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
             func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
                 if let url = URL(string: link) { UIApplication.shared.open(url) }
             }
