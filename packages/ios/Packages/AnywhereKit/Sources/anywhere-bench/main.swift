@@ -1,3 +1,4 @@
+import ChatModel
 import Domain
 import Fixtures
 import Foundation
@@ -59,3 +60,30 @@ let typescript = Sample.typescriptSource(bytes: 512 * 1024)
 let rust = Sample.rustSource(bytes: 512 * 1024)
 measure("highlight typescript, \(typescript.utf8.count / 1024) KB") { _ = Highlighter.spans(typescript, language: "typescript") }
 measure("highlight rust, \(rust.utf8.count / 1024) KB") { _ = Highlighter.spans(rust, language: "rust") }
+for n in [1200, 5000] {
+    let items = Sample.chatPerf(items: n)
+    measure("chat fold+rows, perf-\(n)") {
+        var s = Session()
+        _ = s.update(1, items, working: false, now: 0)
+    }
+}
+
+var items = Sample.chatPerf(items: 5000)
+var session = Session()
+_ = session.update(1, items, working: false, now: 0)
+let seq = items.count
+items.append(TimelineItem(id: "s-u", seq: seq + 1, ts: 0, body: .user(text: "stream")))
+items.append(TimelineItem(id: "s-a", seq: seq + 2, ts: 0, body: .assistant(text: "")))
+var took: [Double] = []
+var text = ""
+for frame in 0..<400 {
+    text += frame % 20 == 19 ? "end.\n\n" : "word "
+    items[items.count - 1].body = .assistant(text: text)
+    let start = DispatchTime.now().uptimeNanoseconds
+    _ = session.update(2 + frame, items, working: true, now: 0, unchanged: items.count - 1)
+    took.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1e3)
+}
+took.sort()
+print(
+    "chat stream frame, perf-5000".padding(toLength: 44, withPad: " ", startingAt: 0)
+        + String(format: "p50 %.0f µs, p95 %.0f µs, max %.0f µs", took[took.count / 2], took[took.count * 95 / 100], took[took.count - 1]))

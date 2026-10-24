@@ -74,9 +74,12 @@ public final class HostModel: Identifiable {
     /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials now.
     public func scene(active: Bool) {
         let connection = connection
+        // A link that stayed up says hello again to no one, so the chat on screen tells pocketd it's viewed once more.
+        let viewed = chats.values.filter(\.viewing).map(\.agentId)
         Task {
             if active {
                 await connection.reconnectNow()
+                if !viewed.isEmpty { _ = try? await connection.send(.agentView(.init(agentIds: viewed))) }
             } else {
                 _ = try? await connection.send(.agentView(.init(agentIds: [])))
             }
@@ -90,7 +93,8 @@ public final class HostModel: Identifiable {
     /// The chat store of an agent, made on first open.
     public func chat(_ agentId: String) -> ChatStore {
         if let chat = chats[agentId] { return chat }
-        let chat = ChatStore(agentId: agentId, connection: connection)
+        let chat = ChatStore(agentId: agentId, connection: connection, defaults: .standard, draftScope: id)
+        chat.seed(sessions.session(agentId)?.summary, requests: sessions.session(agentId)?.requests ?? [], hello: hello)
         chats[agentId] = chat
         return chat
     }

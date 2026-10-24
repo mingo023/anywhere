@@ -95,7 +95,7 @@ public struct RootView: View {
             SettingsView(app: app)
         default:
             if let mac = route.mac, let host = app.host(mac: mac) ?? app.hosts.first(where: { $0.id == mac }) {
-                Self.screen(route, host)
+                Self.screen(route, host) { navigator.path.append($0) }
             } else {
                 Placeholder("This Mac isn't connected", systemImage: "laptopcomputer.slash")
             }
@@ -103,12 +103,12 @@ public struct RootView: View {
     }
 
     @ViewBuilder
-    static func screen(_ route: Route, _ host: HostModel) -> some View {
+    static func screen(_ route: Route, _ host: HostModel, open: @escaping (Route) -> Void = { _ in }) -> some View {
         switch route {
         case .sessions, .project, .worktree, .local, .newSession, .automations:
             SessionsView(host: host, route: route)
         case .chat(_, let agentId):
-            ChatView(host: host, agentId: agentId)
+            ChatView(host: host, agentId: agentId, open: open)
         case .terminals, .terminal:
             TerminalsView(host: host, route: route)
         case .changes, .diff, .history, .commit, .branches:
