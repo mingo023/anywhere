@@ -27,6 +27,7 @@ import (
 	"pocketd/internal/daemon"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
+	"pocketd/internal/github"
 	"pocketd/internal/gitview"
 	"pocketd/internal/handoff"
 	"pocketd/internal/host"
@@ -191,6 +192,7 @@ func serve(sock, handed string) error {
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}
+	ws.GitHub = github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}

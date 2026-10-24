@@ -15,6 +15,13 @@ public struct GitHubView: View {
     }
 
     public var body: some View {
-        Placeholder("Pull request", systemImage: "arrow.triangle.pull")
+        switch route {
+        case .pullRequest(_, let tree):
+            PullRequestScreen(store: host.github, tree: tree)
+        case .pullRequests(let mac, let project):
+            PullRequestListScreen(store: host.github, mac: mac, project: project)
+        default:
+            Placeholder("Pull request", systemImage: "arrow.triangle.pull")
+        }
     }
 }

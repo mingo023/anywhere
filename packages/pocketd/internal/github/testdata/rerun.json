@@ -1,0 +1,7 @@
+{"isDraft":false,"number":53,"state":"OPEN","title":"t","url":"u","statusCheckRollup":[
+    {"__typename":"CheckRun","completedAt":"2026-10-14T14:44:07Z","conclusion":"FAILURE","detailsUrl":"https://github.com/mingo023/anywhere/actions/runs/38583145528/job/115918020001","name":"type-label","startedAt":"2026-10-14T14:44:04Z","status":"COMPLETED","workflowName":"PR type label"},
+    {"__typename":"CheckRun","completedAt":"2026-10-14T14:45:01Z","conclusion":"SUCCESS","detailsUrl":"https://github.com/mingo023/anywhere/actions/runs/38583280097/job/115918493199","name":"type-label","startedAt":"2026-10-14T14:44:58Z","status":"COMPLETED","workflowName":"PR type label"},
+    {"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"","name":"build","startedAt":"2026-10-14T14:44:04Z","status":"COMPLETED","workflowName":"CI"},
+    {"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"","name":"build","startedAt":"0001-01-01T00:00:00Z","status":"QUEUED","workflowName":"CI"},
+    {"__typename":"CheckRun","completedAt":"2026-10-14T14:44:07Z","conclusion":"FAILURE","detailsUrl":"","name":"build","startedAt":"2026-10-14T14:44:04Z","status":"COMPLETED","workflowName":"Release"}
+]}

@@ -42,11 +42,11 @@ func (c *conn) gitVerb(m proto.ClientMessage) error {
 	if !slices.Contains(c.caps, proto.CapGit) {
 		return proto.ErrMalformed
 	}
-	if c.s.Git == nil {
-		return c.notImplemented(m)
-	}
 	if m.Type == "git.watch" {
 		return c.gitWatch(m)
+	}
+	if c.s.Git == nil {
+		return c.notImplemented(m)
 	}
 	if err := c.gitTree(m.Tree); err != nil {
 		return err
@@ -136,11 +136,16 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 }
 
 // gitWatch replaces this conn's watch set; every tree must be one.
+// They are also the trees whose PRs gh.changed is pushed for.
 func (c *conn) gitWatch(m proto.ClientMessage) error {
 	for _, t := range m.Trees {
 		if err := c.gitTree(t); err != nil {
 			return err
 		}
+	}
+	c.ghWatch(m.Trees)
+	if c.s.Git == nil {
+		return c.notImplemented(m)
 	}
 	c.watchGit(m.Trees)
 	c.send(proto.NewAck(m.ID))

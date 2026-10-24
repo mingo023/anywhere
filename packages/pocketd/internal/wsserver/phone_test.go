@@ -71,7 +71,7 @@ func TestAPhoneVerbWithoutItsCapIsMalformed(t *testing.T) {
 }
 
 // servedVerbs are the phone verbs whose handlers landed.
-var servedVerbs = []string{"worktree.create", "worktree.delete", "branch.list", "account.list", "agent.account"}
+var servedVerbs = []string{"git.watch", "worktree.create", "worktree.delete", "branch.list", "account.list", "agent.account"}
 
 func TestEveryPhoneVerbUnderItsCapIsNotImplementedYet(t *testing.T) {
 	servingPhoneCaps(t)
