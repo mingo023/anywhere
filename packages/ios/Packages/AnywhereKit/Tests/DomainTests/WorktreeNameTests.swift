@@ -20,6 +20,8 @@ struct WorktreeNameTests {
         let taken = WorktreeName.taken(local: ["main"], remote: ["origin/calm-lynx"], folders: ["brave-otter"])
         #expect(WorktreeName.problem("calm-lynx", taken: taken) == WorktreeName.takenProblem)
         #expect(WorktreeName.isTaken("brave-otter", taken))
+        #expect(WorktreeName.isTaken("dark-mode", WorktreeName.taken(local: [], remote: ["upstream/dark-mode"])), "any remote's, as pocketd")
+        #expect(WorktreeName.openable(remote: ["origin/a", "upstream/b"]) == ["origin/a"])
         let first = WorktreeName.freeName(seed: 0, taken: [])
         #expect(WorktreeName.freeName(seed: 0, taken: WorktreeName.taken(local: [], remote: [first])) != first)
     }

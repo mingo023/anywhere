@@ -24,9 +24,15 @@ public enum WorktreeName {
         return valid ? nil : invalidProblem
     }
 
-    /// Branches count, and origin's too: closing a worktree deletes its folder and local branch, but its pushed branch lives on.
+    /// Branches count, and every remote's too, without the remote's name, as pocketd's `worktree.Taken`: closing a worktree
+    /// deletes its folder and local branch, but its pushed branch lives on.
     public static func taken(local: [String], remote: [String], folders: [String] = []) -> Set<String> {
-        Set(local + remote.map(withoutRemote) + folders)
+        Set(local + remote.map { String($0.split(separator: "/", maxSplits: 1).last ?? Substring($0)) } + folders)
+    }
+
+    /// The remote branches a worktree can open: pocketd's `PrepareBranch` fetches from origin only.
+    public static func openable(remote: [String]) -> [String] {
+        remote.filter { $0.hasPrefix("origin/") }
     }
 
     /// "origin/fix/login" opens as "fix/login" (`github::base_branch`).

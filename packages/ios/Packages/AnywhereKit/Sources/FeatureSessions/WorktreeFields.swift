@@ -34,13 +34,20 @@ struct WorktreeFields: View {
             }
         case .branch(let branch):
             NavigationLink {
-                BranchPicker(title: "Branch", branches: branches, allowDefault: false, selection: Binding(
+                BranchPicker(title: "Branch", branches: openable, allowDefault: false, selection: Binding(
                     get: { branch.isEmpty ? nil : branch }, set: { draft.source = .branch($0 ?? "") }))
             } label: {
                 LabeledContent("Branch", value: branch.isEmpty ? "Choose" : branch)
             }
         case .pr(let typed):
             TextField("Pull request", text: Binding(get: { typed }, set: { draft.source = .pr($0) }), prompt: Text("Number or link")).plainEntry()
+        }
+    }
+
+    private var openable: BranchList? {
+        branches.map { list in
+            let open = Set(WorktreeName.openable(remote: list.remote.map(\.name)))
+            return BranchList(current: list.current, local: list.local, remote: list.remote.filter { open.contains($0.name) })
         }
     }
 
