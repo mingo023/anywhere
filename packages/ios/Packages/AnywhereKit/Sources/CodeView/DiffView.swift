@@ -129,6 +129,7 @@ struct DiffLineRow: View {
                 Text(Self.sign(line.kind))
                     .font(CodeStyle.font)
                     .foregroundStyle(Self.signColor(line.kind).color)
+                    .fixedSize()
                     .accessibilityHidden(true)
                 Text(text)
                     .font(CodeStyle.font)
