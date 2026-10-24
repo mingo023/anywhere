@@ -80,6 +80,18 @@ import Testing
         #expect(String(light.characters) == code)
         #expect(light.runs.count > 1)
     }
+
+    @Test("a code block that only grew keeps its landed colours and shows the new text plain")
+    func grownKeepsColours() {
+        let code = "let a = \"😀\""
+        let styled = colouredCode(code, Highlighter.spans(code, language: "swift"), dark: false)
+        let grown = grownColours(styled, landedCode: code, code: code + "\nlet b")
+        #expect(grown.map { String($0.characters) } == code + "\nlet b")
+        #expect(grown.map { AttributedString($0[$0.startIndex..<$0.index($0.startIndex, offsetByCharacters: code.count)]) } == styled)
+        #expect(grown?.runs.last?.foregroundColor == nil)
+        #expect(grownColours(styled, landedCode: code, code: "let b") == nil, "rewritten code isn't growth")
+        #expect(grownColours(styled, landedCode: code, code: code) == nil)
+    }
 }
 
 @Suite struct Tables {

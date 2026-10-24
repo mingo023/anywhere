@@ -78,6 +78,17 @@ func colouredCode(_ code: String, _ spans: [HighlightSpan], dark: Bool) -> Attri
     return out
 }
 
+/// `styled`, the colours that landed for `landedCode`, carried on to `code` when `code` only grew from it: the new
+/// text shows plain until its run lands. Costs the new text, not the block, so a streaming block stays cheap per
+/// frame. nil when `code` isn't a longer `landedCode`.
+func grownColours(_ styled: AttributedString, landedCode: String, code: String) -> AttributedString? {
+    let old = landedCode.utf8.count
+    guard code.utf8.count > old, code.utf8.starts(with: landedCode.utf8), let tail = String(code.utf8.dropFirst(old)) else { return nil }
+    var grown = styled
+    grown.append(AttributedString(tail))
+    return grown
+}
+
 /// A fenced code block as the chat draws it: language label, wrap toggle, copy, highlight.
 @MainActor
 public struct CodeBlockView: View {
@@ -91,6 +102,7 @@ public struct CodeBlockView: View {
     @State private var colours = CodeColours()
     @State private var styled: AttributedString?
     @State private var styledFor: (length: Int, dark: Bool)?
+    @State private var styledCode = ""
     @State private var wrapped = false
     @State private var copied = false
 
@@ -184,6 +196,7 @@ public struct CodeBlockView: View {
     private var currentStyled: AttributedString {
         if let styled, let styledFor, styledFor.dark == dark {
             if styledFor.length == code.utf16.count { return styled }
+            if let grown = grownColours(styled, landedCode: styledCode, code: code) { return grown }
             let (spans, _) = peek()
             return colouredCode(code, spans ?? [], dark: dark)
         }
@@ -202,6 +215,7 @@ public struct CodeBlockView: View {
         guard let language, Highlighter.language(for: language) != "text" else {
             styled = AttributedString(code)
             styledFor = (length, dark)
+            styledCode = code
             return
         }
         let result = await Task.detached(priority: .userInitiated) { () -> ([HighlightSpan], AttributedString) in
@@ -212,6 +226,7 @@ public struct CodeBlockView: View {
         colours.set("code", length: length, dark: dark, spans: result.0)
         styled = result.1
         styledFor = (length, dark)
+        styledCode = code
     }
 
     private func copy() {
