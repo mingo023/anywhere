@@ -84,7 +84,8 @@ struct NewSessionView: View {
                 Picker("Where", selection: $draft.place) {
                     ForEach(Places.options(project: project, locals: workspace.locals, names: workspace.names, canManage: workspace.canManage,
                                            canSpawn: canSpawn)) { option in
-                        Label(option.label, systemImage: option.systemImage).tag(option.place)
+                        // A fixed slot, so names line up whatever the symbol's width.
+                        Label { Text(option.label) } icon: { Image(systemName: option.systemImage).frame(width: 22) }.tag(option.place)
                     }
                 }
                 .pickerStyle(.inline)
