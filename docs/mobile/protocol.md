@@ -63,6 +63,7 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
 → {type:"worktree.create", id, requestId, project, name, base?|branch?|pr?:number, setup?:bool}
    // at most one of base, branch, pr; name may be "" only with branch or pr
    // the same checkout as agent.create's checkout.new: copy set, then the project's setup unless setup:false
+   // a phone's setup is the project settings' or the one in the project's own checkout, never one the new branch or PR carries
 ← {type:"worktree.progress", id, requestId, step, note?}*   // steps as agent.progress: prepare, verify, fetch, worktree, copy, setup
 ← {type:"worktree.created", id, requestId, path, branch}
    // errors as agent.create's: unknown_project, worktree_exists, invalid_name, spawn_failed…
