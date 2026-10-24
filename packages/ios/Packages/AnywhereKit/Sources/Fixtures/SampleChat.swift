@@ -65,6 +65,33 @@ extension Sample {
         return chatItems(json)
     }
 
+    /// The desktop fixture's `perf-<items>` transcript: turns of eight items, every fifth answer twelve sections long.
+    public static func chatPerf(items: Int) -> [TimelineItem] {
+        let turns = (0..<items / 8).map { t -> [[String: Any]] in
+            let section = "The fold groups consecutive tool calls so the transcript reads as a conversation.\n\n- one row per block\n- code in `mono`"
+            let long = t % 5 == 0 ? (0..<12).map { "## Step \($0 + 1)\n\n\(section)" }.joined(separator: "\n\n") : "Done: the rows fold as expected."
+            let diff: [String: Any] = [
+                "lines": [["number": t + 1, "kind": "del", "text": "let a\(t) = 0;"], ["number": t + 1, "kind": "add", "text": "let a\(t) = 1;"]],
+                "additions": 1, "deletions": 1,
+            ]
+            func tool(_ n: Int, _ name: String, _ detail: [String: Any]) -> [String: Any] {
+                ["id": "\(t)-t\(n)", "kind": "tool", "call": ["toolUseId": "tu-\(t)-\(n)", "name": name, "detail": detail, "status": "ok", "output": "ok", "durationMs": 40 * n]]
+            }
+            return [
+                ["id": "\(t)-u", "kind": "user", "text": "Turn \(t + 1): refactor module \(t)."],
+                ["id": "\(t)-th", "kind": "thinking", "text": "Module \(t) has one caller; the change is local."],
+                ["id": "\(t)-a1", "kind": "assistant", "text": "Reading module \(t) first."],
+                tool(1, "Bash", ["kind": "shell", "command": "cargo test -p m\(t)"]),
+                tool(2, "Read", ["kind": "read", "path": "src/m\(t).rs"]),
+                tool(3, "Edit", ["kind": "edit", "path": "src/m\(t).rs", "diff": diff]),
+                ["id": "\(t)-a2", "kind": "assistant", "text": long],
+                ["id": "\(t)-r", "kind": "result", "ok": true, "durationMs": 30_000, "usage": ["inputTokens": 9000, "outputTokens": 1200]],
+            ]
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: turns.flatMap { $0 }) else { return [] }
+        return chatItems(String(decoding: data, as: UTF8.self))
+    }
+
     /// `json`'s items, as `chat(_:)` reads a scenario.
     public static func chatItems(_ json: String) -> [TimelineItem] {
         guard var list = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] else { return [] }
