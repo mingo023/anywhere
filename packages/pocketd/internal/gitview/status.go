@@ -203,7 +203,9 @@ func (s *Service) readStatus(tree string) (proto.GitStatus, error) {
 		wg          sync.WaitGroup
 	)
 	wg.Go(func() { out, err = s.git(tree, nil, readTimeout, porcelainArgs) })
-	wg.Go(func() { numOut, numErr = s.git(tree, nil, readTimeout, []string{"diff", "HEAD", "--numstat", "-z", "-M"}) })
+	wg.Go(func() {
+		numOut, numErr = s.git(tree, nil, readTimeout, []string{"diff", "HEAD", "--numstat", "-z", "-M"})
+	})
 	wg.Wait()
 	if err != nil {
 		return proto.GitStatus{}, err
@@ -251,7 +253,9 @@ func (s *Service) readStatus(tree string) (proto.GitStatus, error) {
 	}
 	var log string
 	var logErr error
-	wg.Go(func() { log, logErr = s.text(tree, "log", "--format=%h%x00%s", "-n", strconv.Itoa(maxCommits), st.Base+"..HEAD", "--") })
+	wg.Go(func() {
+		log, logErr = s.text(tree, "log", "--format=%h%x00%s", "-n", strconv.Itoa(maxCommits), st.Base+"..HEAD", "--")
+	})
 	if st.Base == p.upstream && p.tracked {
 		st.Ahead, st.Behind = p.ahead, p.behind
 	} else if lr, err := s.text(tree, "rev-list", "--left-right", "--count", st.Base+"...HEAD", "--"); err == nil {
