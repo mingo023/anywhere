@@ -59,8 +59,16 @@ struct ChatScreen: View {
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
-        .onAppear { if live { store.appear() } }
-        .onDisappear { if live { store.disappear() } }
+        .onAppear {
+            guard live else { return }
+            store.appear()
+            PushCenter.shared.visibleAgent = store.agentId
+        }
+        .onDisappear {
+            guard live else { return }
+            store.disappear()
+            if PushCenter.shared.visibleAgent == store.agentId { PushCenter.shared.visibleAgent = nil }
+        }
         .sheet(isPresented: $mapOpen) {
             AgentMapSheet(transcript: store.session.transcript, provider: store.provider) { showing = $0 }
         }

@@ -1,4 +1,5 @@
 import ChatModel
+import CodeView
 import DesignSystem
 import SwiftUI
 import Wire
@@ -14,7 +15,7 @@ struct ToolRow: View {
     let toggle: () -> Void
 
     private var failed: Bool { call.status == .failed }
-    private var diff: (path: String, diff: [DiffLine])? { failed ? nil : editDiff(call) }
+    private var diff: (path: String, diff: FileDiff)? { failed ? nil : editDiff(call) }
     private var opens: Bool { failed ? !(call.output ?? "").isEmpty : diff != nil }
 
     var body: some View {
@@ -28,7 +29,7 @@ struct ToolRow: View {
             .buttonStyle(.plain)
             .disabled(!opens)
             if open, failed, let output = call.output { ErrorOutput(lines: DetailLines.output(output)) }
-            if open, let diff { InlineDiff(rows: diffRows(diff.diff)) }
+            if open, let diff { EditDiffView(path: diff.path, diff: diff.diff) }
         }
     }
 
@@ -75,56 +76,5 @@ struct ErrorOutput: View {
         .frame(maxHeight: 240)
         .fixedSize(horizontal: false, vertical: true)
         .background(Palette.failedBackground.color, in: RoundedRectangle(cornerRadius: Radius.small))
-    }
-}
-
-/// An edit's lines in git-style hunks, 12 pt mono, long lines clipped.
-@MainActor
-struct InlineDiff: View {
-    let rows: [ChatModel.DiffRow]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 6) {
-                    Text(row.old.map(String.init) ?? "").frame(width: 30, alignment: .trailing)
-                    Text(row.new.map(String.init) ?? "").frame(width: 30, alignment: .trailing)
-                    Text(sign(row.kind)).frame(width: 8)
-                    Text(row.text).lineLimit(1).truncationMode(.tail)
-                }
-                .foregroundStyle(color(row.kind).color)
-                .frame(maxWidth: .infinity, minHeight: 18, alignment: .leading)
-                .background(background(row.kind))
-            }
-        }
-        .font(ChatFont.mono)
-        .padding(.vertical, 4)
-        .background(Palette.well.color, in: RoundedRectangle(cornerRadius: Radius.small))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.small))
-    }
-
-    private func sign(_ kind: ChatModel.DiffRow.Kind) -> String {
-        switch kind {
-        case .add: "+"
-        case .del: "-"
-        default: ""
-        }
-    }
-
-    private func color(_ kind: ChatModel.DiffRow.Kind) -> Token {
-        switch kind {
-        case .add: Palette.diffAddText
-        case .del: Palette.diffDelText
-        case .hunk: Palette.text4
-        case .context: Palette.textBody
-        }
-    }
-
-    private func background(_ kind: ChatModel.DiffRow.Kind) -> Color {
-        switch kind {
-        case .add: Palette.diffAddBackground.color
-        case .del: Palette.diffDelBackground.color
-        default: .clear
-        }
     }
 }

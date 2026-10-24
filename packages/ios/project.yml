@@ -37,6 +37,8 @@ targets:
       - package: AnywhereKit
         product: Client
       - package: AnywhereKit
+        product: Domain
+      - package: AnywhereKit
         product: PushSupport
       - package: AnywhereKit
         product: Wire

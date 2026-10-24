@@ -1,5 +1,6 @@
 import AppKit
 import AppShell
+import CodeView
 import DesignSystem
 import FeatureChat
 import FeatureFiles
@@ -10,6 +11,8 @@ import FeatureSessions
 import FeatureSettings
 import FeatureTerminal
 import Foundation
+import LiveActivityUI
+import MarkdownView
 import SwiftUI
 
 // Renders every gallery scene to PNG: anywhere-gallery <outdir> [filter]
@@ -18,9 +21,9 @@ import SwiftUI
 
 @MainActor
 func everyScene() -> [GalleryScene] {
-    // Modules that add a gallery later (MarkdownView, CodeView, LiveActivityUI) join this list when they do.
-    AppShellGallery.scenes + PairingGallery.scenes + SettingsGallery.scenes + SessionsGallery.scenes + ChatGallery.scenes
-        + TerminalGallery.scenes + GitGallery.scenes + GitHubGallery.scenes + FilesGallery.scenes
+    AppShellGallery.scenes + PairingGallery.scenes + SettingsGallery.scenes + NotificationsGallery.scenes + SessionsGallery.scenes
+        + ChatGallery.scenes + TerminalGallery.scenes + GitGallery.scenes + GitHubGallery.scenes + FilesGallery.scenes
+        + MarkdownGallery.scenes + CodeGallery.scenes + LiveActivityGallery.scenes
 }
 
 /// Lazy content an offscreen render could miss: rows of a LazyVStack in a ScrollView, each a different shade.

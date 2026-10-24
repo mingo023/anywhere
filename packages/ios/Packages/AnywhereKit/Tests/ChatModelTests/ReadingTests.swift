@@ -67,27 +67,6 @@ func aUsersChoiceOverrides() {
     #expect(!d.open("thought", true))
 }
 
-@Test("diff lines map onto git lines")
-func diffLinesMapOntoGitLines() {
-    let l = { (n: Int, kind: DiffLine.Kind, text: String) in DiffLine(number: n, kind: kind, text: text) }
-    let diff = [
-        l(4, .context, "fn a() {"), l(5, .del, "    old();"), l(6, .del, "    gone();"), l(5, .add, "    new();"),
-        l(6, .context, "}"), l(20, .context, "fn b() {"), l(21, .add, "    more();"),
-    ]
-    #expect(
-        diffRows(diff) == [
-            DiffRow(.hunk, nil, nil, "@@ -4 +4 @@"),
-            DiffRow(.context, 4, 4, "fn a() {"),
-            DiffRow(.del, 5, nil, "    old();"),
-            DiffRow(.del, 6, nil, "    gone();"),
-            DiffRow(.add, nil, 5, "    new();"),
-            DiffRow(.context, 7, 6, "}"),
-            DiffRow(.hunk, nil, nil, "@@ -21 +20 @@"),
-            DiffRow(.context, 21, 20, "fn b() {"),
-            DiffRow(.add, nil, 21, "    more();"),
-        ])
-}
-
 @Test("todos count done of total")
 func todosCountDoneOfTotal() {
     let t = { Todo(text: "x", status: $0) }

@@ -151,60 +151,6 @@ private func wrapWords(_ line: String) -> [String] {
     return out
 }
 
-/// One line of an edit's diff, as the changes view draws it.
-public struct DiffRow: Hashable, Sendable {
-    public enum Kind: Hashable, Sendable {
-        case hunk, add, del, context
-    }
-
-    public var kind: Kind
-    public var old: Int?
-    public var new: Int?
-    public var text: String
-
-    public init(_ kind: Kind, _ old: Int?, _ new: Int?, _ text: String) {
-        self.kind = kind
-        self.old = old
-        self.new = new
-        self.text = text
-    }
-}
-
-/// An edit's lines as diff rows, each hunk under its header. The agent numbers a deletion by its old line and the
-/// rest by their new one; a jump in numbering starts a new hunk.
-public func diffRows(_ diff: [DiffLine]) -> [DiffRow] {
-    var out: [DiffRow] = []
-    out.reserveCapacity(diff.count + 2)
-    // New minus old line number; the preview starts before the first change, so at zero.
-    var shift = 0
-    var next: (Int, Int)?
-    for l in diff {
-        let n = l.number ?? 0
-        let (old, new) = l.kind == .del ? (n, n + shift) : (max(n - shift, 0), n)
-        let continues: Bool =
-            switch (l.kind, next) {
-            case (_, nil): false
-            case (.del, let (o, _)?): old == o
-            case (_, let (_, w)?): new == w
-            }
-        if !continues { out.append(DiffRow(.hunk, nil, nil, "@@ -\(old) +\(new) @@")) }
-        switch l.kind {
-        case .del:
-            out.append(DiffRow(.del, old, nil, l.text))
-            shift -= 1
-            next = (old + 1, new)
-        case .add:
-            out.append(DiffRow(.add, nil, new, l.text))
-            shift += 1
-            next = (old, new + 1)
-        default:
-            out.append(DiffRow(.context, old, new, l.text))
-            next = (old + 1, new + 1)
-        }
-    }
-    return out
-}
-
 /// How many todos are done, and how many there are.
 public func todoCount(_ todos: [Todo]) -> (done: Int, total: Int) {
     (todos.filter { $0.status == .done }.count, todos.count)
@@ -313,9 +259,9 @@ func mcpName(_ name: String) -> String? {
 }
 
 /// An edit's diff, when it has lines to open.
-public func editDiff(_ call: Call) -> (path: String, diff: [DiffLine])? {
+public func editDiff(_ call: Call) -> (path: String, diff: FileDiff)? {
     switch call.kind {
-    case .edit(let path, let d?), .write(let path, let d?): d.lines.isEmpty ? nil : (path, d.lines)
+    case .edit(let path, let d?), .write(let path, let d?): d.lines.isEmpty ? nil : (path, d)
     default: nil
     }
 }

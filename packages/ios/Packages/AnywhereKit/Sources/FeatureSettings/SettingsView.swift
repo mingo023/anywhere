@@ -2,9 +2,6 @@ import DesignSystem
 import Domain
 import Stores
 import SwiftUI
-#if os(iOS)
-    import UIKit
-#endif
 
 /// Paired Macs, notifications, appearance and about.
 @MainActor
@@ -50,9 +47,7 @@ public struct SettingsView: View {
                 if app.hosts.count > 1 { Text("Switch between Macs from the title of Sessions.") }
             }
 
-            // INTEGRATION (push slice): replace this placeholder with `NotificationsSection(app: app)` once
-            // FeatureSettings/NotificationsSection.swift lands.
-            NotificationsPlaceholder()
+            NotificationsSection(hosts: app.hosts)
 
             Section("Appearance") {
                 Picker("Appearance", selection: $appearance) {
@@ -86,26 +81,6 @@ public struct SettingsView: View {
         let info = Bundle.main.infoDictionary
         guard let short = info?["CFBundleShortVersionString"] as? String else { return "Development" }
         return (info?["CFBundleVersion"] as? String).map { "\(short) (\($0))" } ?? short
-    }
-}
-
-/// Where the push slice's notification preferences go; until then, a way to the system's notification settings.
-@MainActor
-struct NotificationsPlaceholder: View {
-    var body: some View {
-        Section {
-            #if os(iOS)
-                Link(destination: URL(string: UIApplication.openNotificationSettingsURLString)!) {
-                    Label("Notifications", systemImage: "bell.badge")
-                }
-            #else
-                Label("Notifications", systemImage: "bell.badge")
-            #endif
-        } header: {
-            Text("Notifications")
-        } footer: {
-            Text("Anywhere tells you when a session needs you, finishes or fails.")
-        }
     }
 }
 

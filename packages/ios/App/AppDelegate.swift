@@ -1,4 +1,5 @@
 import Client
+import Domain
 import LiveActivityUI
 import PushSupport
 import Stores
@@ -56,7 +57,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             case .prompt(let agent, let text):
                 try await app.deliver(.agentPrompt(.init(agentId: agent, text: text)), mac: mac)
             case .open:
-                if let link = info["link"], let url = URL(string: link) { await UIApplication.shared.open(url) }
+                if let link = DeepLink.notification(info) { await UIApplication.shared.open(link.url) }
             case .none:
                 break
             }

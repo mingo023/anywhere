@@ -169,7 +169,7 @@ public enum DiffRows {
         return (old, new, at)
     }
 
-    static func digits(_ lines: [UnifiedLine]) -> Int {
+    public static func digits(_ lines: [UnifiedLine]) -> Int {
         let widest = lines.reduce(0) { max($0, $1.old ?? 0, $1.new ?? 0) }
         return max(String(widest).count, 2)
     }
