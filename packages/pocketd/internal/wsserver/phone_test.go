@@ -74,9 +74,12 @@ func TestEveryPhoneVerbUnderItsCapIsNotImplementedYet(t *testing.T) {
 	_, _, p := local(t, peer.OwnerOf(1))
 	helloWith(p, phoneCaps...)
 	for name, raw := range phoneGoldens(t) {
-		p.send(raw)
-		var req struct{ ID string }
+		var req struct{ ID, Type string }
 		json.Unmarshal([]byte(raw), &req)
+		if strings.HasPrefix(req.Type, "terminal.") {
+			continue
+		}
+		p.send(raw)
 		if m := p.recv(); m["type"] != "error" || m["code"] != proto.CodeNotImplemented || m["id"] != req.ID {
 			t.Errorf("%s: %v", name, m)
 		}
@@ -115,7 +118,7 @@ func TestWithTerminalsOffAPhoneMayWatchButNotTypeOrOpen(t *testing.T) {
 		}
 	}
 	p.send(`{"type":"terminal.list","id":"5"}`)
-	if m := p.recv(); m["code"] != proto.CodeNotImplemented {
+	if m := p.recv(); m["type"] != "terminal.list" || m["id"] != "5" {
 		t.Errorf("list: %v", m)
 	}
 }

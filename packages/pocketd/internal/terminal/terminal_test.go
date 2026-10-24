@@ -388,6 +388,39 @@ func TestPausingAnExitedTerminalSaysItIsClosed(t *testing.T) {
 	}
 }
 
+func TestWatchersHearASpawnAForegroundChangeAndAnExit(t *testing.T) {
+	m := NewManager()
+	heard := make(chan string, 16)
+	stop := m.Watch(func() {
+		ids := []string{}
+		for _, i := range m.List() {
+			ids = append(ids, i.ID+":"+i.Foreground)
+		}
+		heard <- strings.Join(ids, ",")
+	})
+	s := spawn(t, m, `read x`)
+	id := s.Info().ID
+	if got := <-heard; got != id+":" {
+		t.Fatalf("spawn: %q", got)
+	}
+	s.SetForeground("vim")
+	s.SetForeground("vim")
+	if got := <-heard; got != id+":vim" {
+		t.Fatalf("foreground: %q", got)
+	}
+	s.Write([]byte("\n"))
+	if got := <-heard; got != "" {
+		t.Fatalf("exit: %q", got)
+	}
+	stop()
+	spawn(t, m, `read x`)
+	select {
+	case got := <-heard:
+		t.Fatalf("a stopped watcher heard %q", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestReplaceRunsAnotherProcessInTheSameTerminalWithoutAnExit(t *testing.T) {
 	m := NewManager()
 	s := spawn(t, m, `echo old; sleep 100`)
@@ -529,4 +562,30 @@ func handAfter(t *testing.T) {
 		t.Fatalf("the old screen is gone:\n%s", s.Screen())
 	}
 	fmt.Printf("ADOPTED exit=%d\n", s.ExitCode())
+}
+
+func TestAForegroundChangeTheMomentATerminalIsListedIsHeard(t *testing.T) {
+	m := NewManager()
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			for _, i := range m.List() {
+				if s := m.Get(i.ID); s != nil {
+					s.SetForeground("vim")
+				}
+			}
+		}
+	}()
+	for range 20 {
+		spawn(t, m, `exit 0`)
+	}
+	close(stop)
+	<-done
 }

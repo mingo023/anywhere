@@ -202,7 +202,8 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("ack"), id: Schema.String }),
   Schema.Struct({
     type: Schema.Literal("agent.creating"),
-    id: Schema.String,
+    // Absent when pushed to every conn for a phone's terminal.create.
+    id: Schema.optional(Schema.String),
     requestId: Schema.String,
     terminalId: Schema.String,
     cwd: Schema.String,

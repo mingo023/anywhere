@@ -35,8 +35,17 @@ Terminal = {id, cwd, cols, rows, title?, localId?, agentId?, exited?:bool}
 → {type:"terminal.resize", id, terminalId, cols, rows}  ← ack   // cols and rows 1..1000
 → {type:"terminal.create", id, requestId, cwd?, localId?, cols?, rows?}
 ← {type:"terminal.created", id, requestId, terminalId}      // a login shell, like the desktop's; cwd must be a tree
+   // with localId, cwd defaults to the Local's project and must be inside it; an unknown Local is code "unknown_local"
+   // cols/rows default to the desktop's 120×36. pocketd also pushes
+   //   {type:"agent.creating", requestId, terminalId, cwd, setup:false}   (no id) to every conn,
+   // which the desktop takes as it takes an agent's, opening the terminal in a tab of its tree.
 → {type:"terminal.close", id, terminalId}  ← ack
+   // a terminalId that isn't running is error{id, message} (no code) for attach, input, resize and close
 ```
+
+`terminal.list` is sorted by `cwd`, then `id`, and is not sent on hello: ask for it once connected. Exited terminals leave the list, so `exited` is never set today.
+
+A process inside a Pocket Terminal (a PTY peer) gets `error{code:"scope_denied"}` for every terminal verb and no list pushes, though it holds `observe`: one Terminal may not read another's screen, as ops `attach` and `screen` already refuse it.
 
 Binary frames (WebSocket binary opcode, server → phone only):
 

@@ -1,5 +1,6 @@
 import Fixtures
 import Foundation
+import SwiftTerm
 import Wire
 
 // Timings of the hot paths at repo scale. Run in release: swift run -c release anywhere-bench
@@ -20,3 +21,21 @@ let timeline = try ServerFrame(id: "c3", .agentTimeline(Sample.timeline(turns: 4
 try measure("decode git.status, 1200 files") { _ = try ServerFrame.decode(status) }
 try measure("decode git.diff, 6000 rows") { _ = try ServerFrame.decode(diff) }
 try measure("decode agent.timeline, \(Sample.timeline(turns: 40).items.count) items") { _ = try ServerFrame.decode(timeline) }
+
+/// Drops the emulator's replies, as the phone's terminal view does.
+final class Quiet: TerminalDelegate {
+    func send(source: SwiftTerm.Terminal, data: ArraySlice<UInt8>) {}
+}
+
+let log = Sample.terminalLog(bytes: 10 << 20)
+let terminalFrames = stride(from: 0, to: log.count, by: 32 << 10).map {
+    TerminalFrame(kind: .output, terminalId: "t-bench", payload: log[$0..<min($0 + (32 << 10), log.count)]).encoded
+}
+let quiet = Quiet()
+try measure("10 MiB of terminal frames: parse alone", runs: 5) {
+    for raw in terminalFrames { _ = try TerminalFrame(parsing: raw) }
+}
+try measure("10 MiB of terminal frames: parse + SwiftTerm", runs: 5) {
+    let terminal = SwiftTerm.Terminal(delegate: quiet, options: TerminalOptions(cols: 120, rows: 40, scrollback: 1000))
+    for raw in terminalFrames { terminal.feed(byteArray: [UInt8](try TerminalFrame(parsing: raw).payload)) }
+}

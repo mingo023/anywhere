@@ -69,7 +69,7 @@ func inside(out, claudeTerm, agentID, requestID string) {
 	} {
 		note(p.name, opsOutcome(sock, p.m))
 	}
-	wsOutcomes(sock, agentID, requestID, note)
+	wsOutcomes(sock, claudeTerm, agentID, requestID, note)
 	if os.Getenv("REDTEAM_RESIDUALS") == "1" {
 		residuals(sock, note)
 	}
@@ -144,7 +144,7 @@ func outcome(f frame) string {
 	return "ok"
 }
 
-func wsOutcomes(sock, agentID, requestID string, note func(string, string)) {
+func wsOutcomes(sock, terminalID, agentID, requestID string, note func(string, string)) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	ws, err := dialSock(ctx, sock)
@@ -153,7 +153,7 @@ func wsOutcomes(sock, agentID, requestID string, note func(string, string)) {
 		return
 	}
 	defer ws.CloseNow()
-	hello := call(ctx, ws, map[string]any{"type": "hello", "id": "h", "clientId": "redteam", "protocolVersion": 3, "caps": []string{"scopes.v1"}})
+	hello := call(ctx, ws, map[string]any{"type": "hello", "id": "h", "clientId": "redteam", "protocolVersion": 3, "caps": []string{"scopes.v1", "terminal.v1"}})
 	note("ws.scopes", strings.Join(hello.Scopes, ","))
 	for _, p := range []struct {
 		name string
@@ -166,6 +166,9 @@ func wsOutcomes(sock, agentID, requestID string, note func(string, string)) {
 		{"ws.create", map[string]any{"type": "agent.create", "id": "5", "requestId": "r", "spec": map[string]any{
 			"project": "/", "checkout": map[string]any{"worktree": "/"}, "provider": "claude", "access": "full", "plan": false}}},
 		{"ws.config.set", map[string]any{"type": "config.set", "id": "6", "key": "phone.maxAccess", "value": "auto"}},
+		{"ws.terminal.list", map[string]any{"type": "terminal.list", "id": "7"}},
+		{"ws.terminal.attach", map[string]any{"type": "terminal.attach", "id": "8", "terminalId": terminalID}},
+		{"ws.terminal.input", map[string]any{"type": "terminal.input", "id": "9", "terminalId": terminalID, "data": "bHMNCg=="}},
 	} {
 		note(p.name, outcome(call(ctx, ws, p.msg)))
 	}

@@ -15,6 +15,11 @@ public struct TerminalsView: View {
     }
 
     public var body: some View {
-        Placeholder("Terminals", systemImage: "terminal")
+        switch route {
+        case .terminal(_, let terminalId):
+            TerminalScreenView(store: host.terminals, terminalId: terminalId, title: host.terminals.terminal(terminalId)?.title ?? "Shell")
+        default:
+            TerminalListView(host: host)
+        }
     }
 }
