@@ -91,7 +91,7 @@ common = [
 
 gaps = {
     "DesignSystem": ["Glass26.swift"],
-    "FeatureChat": ["Photos.swift"],
+    "FeatureChat": ["Photos.swift", "ScrollAnchor18.swift"],
     "LiveActivityUI": ["LiveActivityWidgetKit.swift"],
 }
 
