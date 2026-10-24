@@ -14,6 +14,8 @@ public final class GitStore: HostStore {
     /// How many screens show each tree; the watch set is the trees with any.
     @ObservationIgnored private var shown: [String: Int] = [:]
     @ObservationIgnored private var sentWatch: Set<String> = []
+    /// The last git.watch sent; each waits for the one before, so the Mac ends on the newest set.
+    @ObservationIgnored private var watchSend: Task<Void, Never>?
     @ObservationIgnored private var diffs = DiffCache(capacity: 24)
     @ObservationIgnored private var commits: [String: CommitDetail] = [:]
 
@@ -78,7 +80,11 @@ public final class GitStore: HostStore {
         let now = watchSet
         guard now != sentWatch, let connection else { return }
         sentWatch = now
-        Task { _ = try? await connection.request(.gitWatch(.init(trees: now.sorted()))) }
+        let previous = watchSend
+        watchSend = Task {
+            await previous?.value
+            _ = try? await connection.request(.gitWatch(.init(trees: now.sorted())))
+        }
     }
 
     // MARK: Reads
@@ -104,7 +110,11 @@ public final class GitStore: HostStore {
         let generation = t.generation
         t.loading = true
         defer { t.loading = false }
-        if let page = try? await statusPage(tree, cursor: cursor) { t.take(page, cursor: cursor, generation: generation) }
+        do {
+            t.take(try await statusPage(tree, cursor: cursor), cursor: cursor, generation: generation)
+        } catch {
+            t.error = Self.describe(error)
+        }
     }
 
     private func statusPage(_ tree: String, cursor: Int) async throws -> GitStatus {
@@ -151,11 +161,14 @@ public final class GitStore: HostStore {
         guard h.more, !h.loading, let connection else { return }
         h.loading = true
         defer { h.loading = false }
-        let skip = h.commits.count
         do {
-            guard case .gitLog(let log) = try await connection.request(.gitLog(.init(tree: tree, all: all ? true : nil, skip: skip > 0 ? skip : nil)))
-            else { return }
-            h.take(log, skip: skip)
+            // A page whose tips moved empties the list; read the first page again, or the screen has no row to ask for more.
+            repeat {
+                let skip = h.commits.count
+                guard case .gitLog(let log) = try await connection.request(.gitLog(.init(tree: tree, all: all ? true : nil, skip: skip > 0 ? skip : nil)))
+                else { return }
+                h.take(log, skip: skip)
+            } while h.commits.isEmpty && h.more
         } catch {
             h.error = Self.describe(error)
         }
