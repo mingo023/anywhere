@@ -11,7 +11,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("Wire", [], true),
     ("Client", ["Wire"], true),
     ("Domain", [], true),
-    ("ChatModel", ["Wire"], true),
+    ("ChatModel", ["Wire", "Domain"], true),
     ("MarkdownModel", cmark, true),
     ("Highlight", [], true),
     ("DiffModel", ["Wire"], true),

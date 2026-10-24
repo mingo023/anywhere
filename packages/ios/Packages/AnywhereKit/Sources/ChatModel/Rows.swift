@@ -245,15 +245,7 @@ public func reported(_ t: Transcript, _ ix: Int) -> [Call] {
 
 /// When the agent began `turn`: its prompt, else its first timed block.
 func start(_ turn: Turn) -> Int? {
-    if let p = turn.prompt { return p.at }
-    for b in turn.blocks {
-        switch b {
-        case .text(let m), .thinking(let m), .plan(let m), .notice(let m, _): return m.at
-        case .tool(let c): return c.at
-        default: continue
-        }
-    }
-    return nil
+    turn.prompt?.at ?? turn.blocks.lazy.compactMap(blockAt).first
 }
 
 func endedAt(_ turn: Turn) -> Int? {
