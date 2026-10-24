@@ -63,13 +63,11 @@ struct TranscriptView: View {
         let _ = BodyCount.hit("TranscriptView")
         let rows = transcriptRows
         let ids = rows.ids.list
+        let last = ids.last
         let actions = rowActions
         GeometryReader { outer in
             ScrollViewReader { proxy in
                 ScrollView {
-                    // The end sits outside the lazy rows, so it's always built and a scroll to it always lands, however
-                    // far the rows' estimated heights are from their real ones.
-                    VStack(alignment: .leading, spacing: 0) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         marker(RowFrame.top)
                         if store.hasOlder {
@@ -81,16 +79,17 @@ struct TranscriptView: View {
                                 .frame(maxWidth: .infinity).padding(.top, 120)
                         }
                         ForEach(ids, id: \.self) { id in
-                            RowSlot(box: rows.box(id), provider: store.provider, flash: flash == id, actions: actions)
-                                .background(frame(rows.index(id)))
-                                .id(id)
-                                .onAppear { rows.appeared(id) }
-                                .onDisappear { rows.disappeared(id) }
+                            // The end rides with the last row: built whenever it is, so a scroll to the end always lands.
+                            VStack(alignment: .leading, spacing: 0) {
+                                RowSlot(box: rows.box(id), provider: store.provider, flash: flash == id, actions: actions)
+                                    .background(frame(rows.index(id)))
+                                    .onAppear { rows.appeared(id) }
+                                    .onDisappear { rows.disappeared(id) }
+                                if id == last { end }
+                            }
+                            .id(id)
                         }
-                    }
-                        Color.clear.frame(height: spacer)
-                        Color.clear.frame(height: Pin.bottom)
-                        marker(RowFrame.end).id("end")
+                        if ids.isEmpty { end }
                     }
                     .padding(.horizontal, Space.l)
                     .padding(.top, Pin.top)
@@ -109,7 +108,6 @@ struct TranscriptView: View {
                 }
                 .onAppear {
                     scroll.proxy = proxy
-                    rows.changed = { follow() }
                     scroll.viewport = outer.size.height
                     proxy.scrollTo("end", anchor: .bottom)
                 }
@@ -125,14 +123,19 @@ struct TranscriptView: View {
                     show(call: id)
                 }
                 .onChange(of: ids.first) { old, _ in keepTop(old) }
+                // Each animation on its own overlay: on the list, it would carry a scroll landing in the same update.
                 .overlay(alignment: .bottom) {
-                    if jump { JumpPill { toEnd() }.padding(.bottom, Space.m) }
+                    ZStack {
+                        if jump { JumpPill { toEnd() }.padding(.bottom, Space.m) }
+                    }
+                    .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.18), value: jump)
                 }
                 .overlay(alignment: .top) {
-                    if let stuck { StickyOverlay(store: store, stuck: stuck) { pinToTop($0) } }
+                    ZStack {
+                        if let stuck { StickyOverlay(store: store, stuck: stuck) { pinToTop($0) } }
+                    }
+                    .animation(.easeOut(duration: 0.22), value: stuck?.row)
                 }
-                .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.18), value: jump)
-                .animation(.easeOut(duration: 0.22), value: stuck?.row)
             }
         }
     }
@@ -148,6 +151,14 @@ struct TranscriptView: View {
             retryTurn: { [store] turn in store.retryTurn(turn) },
             showCall: { id in show(call: id) },
             openLink: openLink)
+    }
+
+    /// Room under the rows for a held prompt and the list's padding, then the end.
+    @ViewBuilder
+    private var end: some View {
+        Color.clear.frame(height: spacer)
+        Color.clear.frame(height: Pin.bottom)
+        marker(RowFrame.end).id("end")
     }
 
     private func marker(_ ix: Int) -> some View {
@@ -170,13 +181,13 @@ struct TranscriptView: View {
         let distance = end.map { $0.minY - viewport } ?? .infinity
         scroll.distance = distance
         if !scroll.dragging && distance <= 2 && scroll.pin == nil { scroll.following = true }
-        let showJump = jumpVisibility(wasShown: jump, distance: distance)
+        // Rows grew under a list that keeps to its end: it's back there below, so the pill stays as it was.
+        let snaps = scroll.following && scroll.pin == nil && distance > 2 && !scroll.dragging
+        let showJump = snaps ? jump : jumpVisibility(wasShown: jump, distance: distance)
         if showJump != jump { jump = showJump }
         updateSticky(frames)
         if scroll.pin != nil { stepPin(frames, end: end) }
-        if scroll.following && scroll.pin == nil && distance > 2 && !scroll.dragging {
-            scroll.proxy?.scrollTo("end", anchor: .bottom)
-        }
+        if snaps { scroll.proxy?.scrollTo("end", anchor: .bottom) }
     }
 
     private func stepPin(_ frames: [RowFrame], end: RowFrame?) {
@@ -252,7 +263,11 @@ struct TranscriptView: View {
     private func updateSticky(_ frames: [RowFrame]) {
         let rows = store.session.rows
         let built = frames.filter { $0.ix >= 0 && $0.ix < rows.count }.sorted { $0.ix < $1.ix }
-        guard let top = built.first(where: { $0.maxY > 0 }), let ix = Sticky.stuck(rows, top: top.ix, offset: Double(max(-top.minY, 0))) else {
+        let viewport = scroll.viewport
+        let shown = built.filter { $0.maxY > 0 && $0.minY < viewport }
+        // Rows built but none on screen: frames from before the lazy stack corrected its estimates, so keep the card.
+        if shown.isEmpty && !built.isEmpty { return }
+        guard let top = shown.first, let ix = Sticky.stuck(rows, top: top.ix, offset: Double(max(-top.minY, 0))) else {
             if stuck != nil { stuck = nil }
             return
         }
@@ -276,17 +291,6 @@ struct TranscriptView: View {
         let rows = TranscriptRows(store: store)
         made.rows = rows
         return rows
-    }
-
-    /// Each change that lands: the list keeps to its end at once while following, rather than once its rows report
-    /// their new frames.
-    private func follow() {
-        guard scroll.following, scroll.pin == nil, !scroll.dragging else { return }
-        // After the change is laid out: a scroll asked for in the same update lands short of the grown end.
-        Task { @MainActor [scroll] in
-            guard scroll.following, scroll.pin == nil, !scroll.dragging else { return }
-            scroll.proxy?.scrollTo("end", anchor: .bottom)
-        }
     }
 }
 

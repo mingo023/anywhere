@@ -30,8 +30,6 @@ final class RowBox {
 @MainActor
 final class TranscriptRows {
     let ids = RowIds()
-    /// Called after each change lands, so the list can keep to its end without waiting for its rows to report frames.
-    var changed: () -> Void = {}
     private let store: ChatStore
     private var builder: RowBuilder
     private var boxes: [String: RowBox] = [:]
@@ -79,7 +77,6 @@ final class TranscriptRows {
         for (id, box) in boxes {
             if box.shown { update(box, id) } else { box.stale = true }
         }
-        changed()
     }
 
     private func update(_ box: RowBox, _ id: String) {
