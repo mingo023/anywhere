@@ -31,6 +31,8 @@ struct HomeListTests {
         #expect(trees.map(\.kind) == [.local, .worktree, .worktree])
         #expect(trees[1].place == "calm-otter")
         #expect(built.sections[1].trees[0].label == "dark-mode", "a detached worktree goes by its folder")
+        #expect(trees.map(\.branch) == [nil, "calm-otter", "fix/login"])
+        #expect(built.sections[1].trees[0].branch == nil, "a detached worktree has no branch to delete with it")
         #expect(built.sections[2].trees.isEmpty)
         let inUse = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:], sessions: [],
                                    terminalCwds: [anywhere + "/src"])

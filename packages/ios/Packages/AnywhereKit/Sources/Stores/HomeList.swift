@@ -33,6 +33,8 @@ public enum HomeList {
         /// Session ids in the tree's order.
         public var sessions: [String]
         public var rollUp: RollUp?
+        /// A worktree's branch; nil when detached, and for the rest.
+        public var branch: String?
     }
 
     public struct Section: Hashable, Sendable, Identifiable {
@@ -87,7 +89,8 @@ public enum HomeList {
             trees += (localsOf[project.path] ?? []).map { Tree(id: $0.id, kind: .local, label: $0.name, sessions: []) }
             for w in project.worktrees where !w.isMain {
                 let (label, place) = Sidebar.treeLabel(path: w.path, branch: w.branch, given: names[w.path])
-                trees.append(Tree(id: w.path, kind: .worktree, label: label, place: place, sessions: []))
+                let branch = w.branch.isEmpty || w.branch == "detached" ? nil : w.branch
+                trees.append(Tree(id: w.path, kind: .worktree, label: label, place: place, sessions: [], branch: branch))
             }
             let all = trees.flatMap { byTree[$0.id] ?? [] }
             let projectMatches = q.isEmpty || project.name.lowercased().contains(q)

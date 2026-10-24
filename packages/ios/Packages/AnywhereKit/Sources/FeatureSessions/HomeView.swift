@@ -30,7 +30,13 @@ struct HomeView: View {
         let sections = only.map { p in built.sections.filter { $0.id == p } } ?? built.sections
         List {
             if only == nil {
-                Section { MacRow(host: host) }
+                Section {
+                    MacRow(host: host)
+                    // A link inside the toolbar's Menu doesn't push onto the stack.
+                    if host.workspace.automations != nil {
+                        NavigationLink(value: Route.automations(mac: mac)) { Label("Automations", systemImage: "clock.arrow.circlepath") }
+                    }
+                }
                 if query.isEmpty && !host.sessions.upNext.isEmpty {
                     Section("Up next") {
                         ForEach(host.sessions.upNext, id: \.self) { sessionRow($0) }
@@ -86,9 +92,6 @@ struct HomeView: View {
                         Text("Name").tag(HomeList.ProjectSort.name)
                         Text("Recent activity").tag(HomeList.ProjectSort.recent)
                     }
-                }
-                if host.workspace.automations != nil {
-                    NavigationLink(value: Route.automations(mac: mac)) { Label("Automations", systemImage: "clock.arrow.circlepath") }
                 }
             } label: {
                 Label("Sort", systemImage: "line.3.horizontal.decrease.circle")

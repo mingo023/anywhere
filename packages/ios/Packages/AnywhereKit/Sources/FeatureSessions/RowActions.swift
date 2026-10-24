@@ -3,12 +3,13 @@ import Domain
 import Stores
 import SwiftUI
 
-/// A rename, delete or close a row asked for, waiting on the user's word, or a new Local, which needs none.
+/// A rename, delete or close a row asked for, waiting on the user's word, or a new Local or pin, which need none.
 enum RowAction: Identifiable, Hashable {
     case rename(HomeList.Tree)
     case delete(HomeList.Tree)
     case close(sessionId: String, title: String)
     case newLocal(project: String)
+    case pin(sessionId: String, on: Bool)
 
     var id: String {
         switch self {
@@ -16,6 +17,7 @@ enum RowAction: Identifiable, Hashable {
         case .delete(let t): "delete:" + t.id
         case .close(let id, _): "close:" + id
         case .newLocal(let project): "local:" + project
+        case .pin(let id, _): "pin:" + id
         }
     }
 }
@@ -41,12 +43,12 @@ struct RowActions: ViewModifier {
                 switch action {
                 case .delete(let tree) where tree.kind == .worktree:
                     Button("Delete Worktree", role: .destructive) { delete(tree, branch: false) }
-                    if let branch = tree.place { Button("Delete Worktree and \(branch)", role: .destructive) { delete(tree, branch: true) } }
+                    if let branch = tree.branch { Button("Delete Worktree and \(branch)", role: .destructive) { delete(tree, branch: true) } }
                 case .delete(let tree):
                     Button("Delete \(tree.label)", role: .destructive) { delete(tree, branch: false) }
                 case .close(let id, _):
                     Button("Close Session", role: .destructive) { close(id) }
-                case .rename, .newLocal:
+                case .rename, .newLocal, .pin:
                     EmptyView()
                 }
             } message: { action in
@@ -54,7 +56,7 @@ struct RowActions: ViewModifier {
                 case .delete(let tree) where tree.kind == .worktree: Text("Its terminals close and its folder is removed.")
                 case .delete: Text("Its terminals close. The project's files stay.")
                 case .close: Text("The agent and its terminal end.")
-                case .rename, .newLocal: EmptyView()
+                case .rename, .newLocal, .pin: EmptyView()
                 }
             }
             .alert("Something went wrong", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
@@ -69,6 +71,9 @@ struct RowActions: ViewModifier {
                 case .newLocal(let project)?:
                     action = nil
                     run { try await host.workspace.createLocal(project: project) }
+                case .pin(let id, let on)?:
+                    action = nil
+                    run { try await host.sessions.pin(id, on) }
                 default:
                     break
                 }
@@ -156,7 +161,7 @@ struct SessionActions: ViewModifier {
 
     private func pin(_ on: Bool) {
         Haptics.tap()
-        Task { try? await host.sessions.pin(session.id, on) }
+        action = .pin(sessionId: session.id, on: on)
     }
 
     private func close() {
