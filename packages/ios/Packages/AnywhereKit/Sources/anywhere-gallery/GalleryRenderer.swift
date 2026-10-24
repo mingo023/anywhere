@@ -11,7 +11,9 @@ enum GalleryRenderer {
         let variance: Double
     }
 
-    static func render(_ scene: GalleryScene, settle: TimeInterval = 0.4) -> Image? {
+    /// Waits `settle` and at least `turns` run-loop turns: a long transcript takes a few layout passes to reach its end,
+    /// and in a debug build each pass can outlast the whole wait.
+    static func render(_ scene: GalleryScene, settle: TimeInterval = 0.4, turns: Int = 8) -> Image? {
         let appearance = NSAppearance(named: scene.dark ? .darkAqua : .aqua)
         let root = scene.view()
             .environment(\.colorScheme, scene.dark ? .dark : .light)
@@ -32,7 +34,9 @@ enum GalleryRenderer {
         defer { window.orderOut(nil) }
 
         let deadline = Date().addingTimeInterval(settle)
-        while Date() < deadline {
+        var turned = 0
+        while Date() < deadline || turned < turns {
+            turned += 1
             view.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
