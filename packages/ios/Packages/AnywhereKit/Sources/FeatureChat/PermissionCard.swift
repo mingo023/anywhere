@@ -69,7 +69,8 @@ struct PermissionCard: View {
                         Haptics.success()
                         allow()
                     }
-                    .keyboardShortcut(.return, modifiers: [])
+                    // Return while typing a reply mustn't allow what the reply argues against.
+                    .keyboardShortcut(replying ? nil : KeyboardShortcut(.return, modifiers: []))
                 }
             }
         }

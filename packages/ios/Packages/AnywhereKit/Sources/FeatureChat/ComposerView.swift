@@ -53,6 +53,7 @@ struct ComposerView: View {
                 if let ask = store.ask {
                     PermissionCard(ask: ask, who: who(store.provider), feedback: store.feedback, answerable: answerable, allow: { store.allow() },
                                    deny: { store.deny($0) })
+                    .id(ask.requestId)
                 }
             case .question(let answerable):
                 if let wizard = store.wizard {
