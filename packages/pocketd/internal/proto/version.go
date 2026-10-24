@@ -30,7 +30,7 @@ const CapCommands = "commands.v1"
 const CapAccess = "access.v1"
 
 // ServerCaps are the optional features this pocketd speaks, named <area>.v<n>.
-var ServerCaps = []string{"pair.v1", CapScopes, CapHost, CapRegistry, CapSummaryV2, CapLaunch, CapRestore, CapOpen, CapNames, CapAutomations, CapLocals, CapFork, CapAccounts, CapSubagents, CapSettings, CapCommands, CapAccess}
+var ServerCaps = []string{"pair.v1", CapScopes, CapHost, CapRegistry, CapSummaryV2, CapLaunch, CapRestore, CapOpen, CapNames, CapAutomations, CapLocals, CapFork, CapAccounts, CapSubagents, CapSettings, CapCommands, CapAccess, CapPush}
 
 // Versions is the client's protocol range; a hello without one speaks only protocolVersion.
 func (m ClientMessage) Versions() Range {
