@@ -586,7 +586,7 @@ mod tests {
     use chat::{Action, Ask, Block, End, Message, Question, Session, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn ask(questions: Vec<Question>) -> Ask {
-        Ask { request_id: "r".into(), tool: ToolKind::Shell { command: "ls".into() }, tool_name: "Bash".into(), questions }
+        Ask { request_id: "r".into(), tool: ToolKind::Shell { command: "ls".into(), description: String::new() }, tool_name: "Bash".into(), questions }
     }
 
     fn session(turns: Vec<Turn>) -> Session {

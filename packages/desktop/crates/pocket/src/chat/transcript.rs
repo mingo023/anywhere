@@ -333,7 +333,7 @@ fn find_call(t: &Transcript, id: &str) -> Option<(usize, usize)> {
 fn notice_label(calls: &[&chat::ToolCall]) -> String {
     match calls {
         [chat::ToolCall { kind: ToolKind::Agent(a), .. }] => format!("{} is done", sub_agent::name(a)),
-        [c @ chat::ToolCall { kind: ToolKind::Shell { command }, .. }] => {
+        [c @ chat::ToolCall { kind: ToolKind::Shell { command, .. }, .. }] => {
             let command = command.lines().next().unwrap_or_default();
             match (c.name.as_str(), c.status) {
                 ("Monitor", _) => format!("Monitor `{command}` ended"),
@@ -855,7 +855,7 @@ mod tests {
     }
 
     fn shell(at: i64) -> Block {
-        tool(ToolKind::Shell { command: "ls".into() }, ToolStatus::Ok, at)
+        tool(ToolKind::Shell { command: "ls".into(), description: String::new() }, ToolStatus::Ok, at)
     }
 
     fn turn(blocks: Vec<Block>, end: Option<End>) -> Transcript {
@@ -865,7 +865,7 @@ mod tests {
     #[test]
     fn a_notice_names_the_command_that_finished_in_the_background_and_how() {
         let call = |name: &str, kind, status| ToolCall { id: "t".into(), name: name.into(), kind, status, output: None, duration_ms: None, at: 0 };
-        let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into() };
+        let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into(), description: String::new() };
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Failed)]), "Background command `cargo test` failed");
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Ok)]), "Background command `cargo test` is done");
         assert_eq!(notice_label(&[&call("Monitor", cmd(), ToolStatus::Ok)]), "Monitor `cargo test` ended");

@@ -28,6 +28,16 @@ impl Lines {
         lines.truncate(MAX_LINES);
         Self { lines, more }
     }
+
+    /// Lines it takes to show, the one counting the rest included.
+    pub(crate) fn rows(&self) -> usize {
+        self.lines.len() + usize::from(self.more > 0)
+    }
+
+    /// What it shows as one text, ending on the count of the rest.
+    pub(crate) fn text(&self) -> String {
+        self.lines.join("\n") + &if self.more > 0 { format!("\n… {} more lines", self.more) } else { String::new() }
+    }
 }
 
 /// A tool's output, verbatim.
@@ -86,7 +96,7 @@ pub(crate) fn body(l: &Lines, mono: bool) -> Div {
 
 /// Lines as preformatted code: a failed call's error, kept whole in wrapped lines under 240px.
 pub(crate) fn pre(l: &Lines, colour: Token, opacity: f32) -> Div {
-    let text = l.lines.join("\n") + &if l.more > 0 { format!("\n… {} more lines", l.more) } else { String::new() };
+    let text = l.text();
     div()
         .w_full()
         .min_w_0()

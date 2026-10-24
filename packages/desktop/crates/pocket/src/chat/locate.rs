@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn touched_files_come_latest_first_once_each_with_a_sub_agents() {
         let sub = transcript(vec![call(ToolKind::Edit { path: "/r/b.rs".into(), diff: None })]);
-        let t = transcript(vec![read("/r/a.rs"), call(ToolKind::Agent(SubAgent { transcript: sub, ..Default::default() })), call(ToolKind::Shell { command: "ls".into() }), read("/r/a.rs"), call(ToolKind::Write { path: "/r/c.rs".into(), diff: None })]);
+        let t = transcript(vec![read("/r/a.rs"), call(ToolKind::Agent(SubAgent { transcript: sub, ..Default::default() })), call(ToolKind::Shell { command: "ls".into(), description: String::new() }), read("/r/a.rs"), call(ToolKind::Write { path: "/r/c.rs".into(), diff: None })]);
         assert_eq!(touched(&t), ["/r/c.rs", "/r/a.rs", "/r/b.rs"]);
     }
 

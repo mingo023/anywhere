@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn a_step_names_its_tool_beside_what_it_acted_on() {
         assert_eq!(step(&call("Read", ToolKind::Read { path: "src/a.rs".into() })), ("Read".into(), "src/a.rs".into()));
-        assert_eq!(step(&call("Bash", ToolKind::Shell { command: "cargo test\n".into() })), ("Bash".into(), "cargo test".into()));
+        assert_eq!(step(&call("Bash", ToolKind::Shell { command: "cargo test\n".into(), description: String::new() })), ("Bash".into(), "cargo test".into()));
     }
 
     #[test]

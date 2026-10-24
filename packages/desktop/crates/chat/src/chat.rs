@@ -81,7 +81,8 @@ pub enum ToolStatus {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToolKind {
-    Shell { command: String },
+    /// `description` is what the agent said the command does, when it said.
+    Shell { command: String, description: String },
     Read { path: String },
     Edit { path: String, diff: Option<Diff> },
     Write { path: String, diff: Option<Diff> },
