@@ -1,6 +1,8 @@
 import Domain
 import Fixtures
 import Foundation
+import Highlight
+import MarkdownModel
 import SwiftTerm
 import Wire
 
@@ -47,3 +49,13 @@ let fileIndex = FuzzyIndex(paths)
 for query in ["e", "expl", "stsw", "pocketdwsserverstatus"] {
     measure("fuzzy search 50k paths, \"\(query)\"") { _ = fileIndex.search(query, limit: 50) }
 }
+// Markdown and highlighting.
+let longDoc = Sample.markdownDocument(bytes: 258 * 1024)
+measure("markdown parse, \(longDoc.utf8.count / 1024) KB") { _ = Markdown.parse(longDoc) }
+let streamed = Markdown.parse(longDoc)
+let grown = longDoc + "Streaming a few more words onto the last paragraph"
+measure("markdown grow by one chunk, \(longDoc.utf8.count / 1024) KB doc") { _ = Markdown.parse(grown, growing: streamed) }
+let typescript = Sample.typescriptSource(bytes: 512 * 1024)
+let rust = Sample.rustSource(bytes: 512 * 1024)
+measure("highlight typescript, \(typescript.utf8.count / 1024) KB") { _ = Highlighter.spans(typescript, language: "typescript") }
+measure("highlight rust, \(rust.utf8.count / 1024) KB") { _ = Highlighter.spans(rust, language: "rust") }
