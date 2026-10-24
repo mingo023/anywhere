@@ -27,21 +27,11 @@ fn option(id: impl Into<ElementId>, on: bool, label: String, aside: String, enab
 }
 
 impl Desktop {
-    /// One dropdown per agent with accounts to pick between on the project's machine; none when no agent has.
-    pub(super) fn project_accounts_field(&self, cx: &mut Context<Self>) -> Option<Div> {
+    /// One row per agent with accounts to pick between on the project's machine; none when no agent has.
+    pub(super) fn project_account_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let host: Host = accounts::host_of(self.repo_form.draft.path.as_deref());
         let list = self.accounts.list(&host).to_vec();
-        let pickers: Vec<Div> = LaunchPick::PROVIDERS.into_iter().filter(|p| accounts::shared(&list, p)).map(|p| self.project_account_picker(&list, p, cx)).collect();
-        if pickers.is_empty() {
-            return None;
-        }
-        let label = div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .child(ui::field_label("Accounts"))
-            .child(div().text_size(px(12.)).text_color(TEXT_4).child("\u{b7} what new sessions here start on"));
-        Some(div().flex().flex_col().gap(px(6.)).child(label).child(div().flex().gap(px(14.)).children(pickers)))
+        LaunchPick::PROVIDERS.into_iter().filter(|p| accounts::shared(&list, p)).map(|p| self.project_account_picker(&list, p, cx).into_any_element()).collect()
     }
 
     fn project_account_picker(&self, list: &[Account], provider: &'static str, cx: &mut Context<Self>) -> Div {
@@ -49,16 +39,25 @@ impl Desktop {
         let chosen = draft.accounts.get(provider).and_then(|id| accounts::picked(list, provider, id));
         let default = accounts::default_of(list, provider).map(|a| accounts::name(a).to_string()).unwrap_or_default();
         let shown = match chosen {
-            Some(a) => div().truncate().text_color(TEXT).child(accounts::name(a).to_string()),
-            None => div().truncate().text_color(TEXT_3).child(format!("Default \u{b7} {default}")),
+            Some(a) => div().text_color(TEXT).child(accounts::name(a).to_string()),
+            None => div().flex().gap(px(4.)).child(div().text_color(TEXT).child("Default")).child(div().text_color(TEXT_3).child(format!("\u{b7} {default}"))),
         };
         let open = self.settings.menu == Some(ACCOUNT_MENU) && draft.account_menu == Some(provider);
-        let button = ui::field_box()
+        let button = div()
             .id(SharedString::from(format!("repo-account-{provider}")))
+            .h(px(28.))
+            .pl(px(10.))
+            .pr(px(7.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(7.))
+            .bg(FILL_3)
+            .hover(|d| d.bg(FILL_4))
             .cursor_pointer()
-            .child(provider_icon(provider, 13., TEXT_2))
-            .child(div().flex_1().min_w_0().text_size(px(13.)).child(shown))
-            .child(icon("chevron-down", 12., TEXT_3))
+            .text_size(px(12.5))
+            .child(shown)
+            .child(icon("chevron-down", 11., TEXT_3))
             .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.settings.menu = (!open).then_some(ACCOUNT_MENU);
@@ -89,8 +88,12 @@ impl Desktop {
                 cx.notify();
             });
             let menu = ui::pop(div()).min_w(px(260.)).p(px(4.)).flex().flex_col().child(first).child(ui::menu_divider()).children(rows.collect::<Vec<_>>()).occlude().on_mouse_down_out(close);
-            ui::dropdown(42., ui::menu_in(SharedString::from(format!("repo-account-{provider}-menu-in")), menu))
+            ui::dropdown_right(34., ui::menu_in(SharedString::from(format!("repo-account-{provider}-menu-in")), menu))
         });
-        div().relative().flex_1().min_w_0().child(button).children(menu)
+        let lead = div().size(px(24.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(provider, 14., TEXT_2));
+        super::plate_row()
+            .child(lead)
+            .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(self.agent_name(provider)))
+            .child(div().relative().flex_none().child(button).children(menu))
     }
 }
