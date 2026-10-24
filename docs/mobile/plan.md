@@ -8,6 +8,7 @@ Read with `docs/adr/0007-native-ios-app.md` (decisions), `docs/mobile/protocol.m
 - Build one module with your own scratch dir so parallel builds don't fight over `.build`:
   `cd packages/ios/Packages/AnywhereKit && swift build --scratch-path /tmp/ak-<you> --target <Module>` and `swift test --scratch-path /tmp/ak-<you> --filter <Module>Tests`.
 - Speed: `swift build -c release` for any measurement; C deps are `-O0` in debug.
+- iOS-only code: `make -C packages/ios typecheck-ios` typechecks it and the three Xcode targets' sources as Mac Catalyst; `docs/mobile/ios-build-checklist.md` has the first Xcode build and what that can't verify.
 - pocketd: `cd packages/pocketd && go build ./... && go test ./internal/<pkg>/...`. libghostty is prebuilt in `third_party/ghostty/zig-out`. Use a scratch home for anything that starts pocketd: `POCKET_HOME=$(mktemp -d)`; never touch the user's live pocketd. `TestProvidersShowWhatIsInstalledAndTheCeiling` in `internal/launch` already fails on this machine before any change (it depends on the installed claude); ignore it.
 - node for `packages/protocol`: `mise exec node@22 -- npx --yes pnpm@10 <args>`.
 
