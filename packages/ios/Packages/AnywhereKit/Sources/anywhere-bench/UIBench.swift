@@ -51,8 +51,13 @@ enum UIBench {
             return 2
         }
         NSApplication.shared.setActivationPolicy(.prohibited)
-        print(run(scenario, png: png).line)
-        return 0
+        let result = run(scenario, png: png)
+        print(result.line)
+        guard let gaps = result.endGaps else { return 0 }
+        // A chat opens at its end and keeps to it as output streams in.
+        let ok = gaps.load <= 2 && gaps.streamed <= 2
+        print("FOLLOW|\(scenario.name)|opened \(Int(gaps.load)) pt from the end|after streaming \(Int(gaps.streamed)) pt from the end|\(ok ? "ok" : "fail")")
+        return ok ? 0 : 1
     }
 
     // MARK: Scenarios
@@ -140,6 +145,8 @@ enum UIBench {
         let loadBodies: [String: Double]
         let frameBodies: [String: Double]
         let scrollBodies: [String: Double]
+        /// How far a bottom-anchored list sat from its end once opened, and after the updates.
+        var endGaps: (load: CGFloat, streamed: CGFloat)?
 
         var line: String {
             func ms(_ v: [Double], _ q: Double) -> String {
@@ -179,6 +186,7 @@ enum UIBench {
         // Let off-main work land (highlighting, a long markdown parse) before what follows.
         idle(view, seconds: 1)
         if let png { snapshot(view, to: png.appendingPathComponent("\(scenario.name)-loaded.png")) }
+        let loadGap = endGap(view)
 
         _ = BodyCount.take()
         var frames: [Double] = []
@@ -191,6 +199,8 @@ enum UIBench {
         let frameBodies = BodyCount.take().mapValues { Double($0) / Double(max(screen.updates.count, 1)) }
 
         idle(view, seconds: 0.3)
+        let streamedGap = endGap(view)
+        if let png { snapshot(view, to: png.appendingPathComponent("\(scenario.name)-updated.png")) }
         _ = BodyCount.take()
         var scrolls: [Double] = []
         let steps = Int(ProcessInfo.processInfo.environment["UIBENCH_PAGES"] ?? "") ?? 12
@@ -210,7 +220,8 @@ enum UIBench {
         if let png { snapshot(view, to: png.appendingPathComponent("\(scenario.name)-scrolled.png")) }
         window.orderOut(nil)
         return Result(
-            name: scenario.name, load: load, frames: frames, scrolls: scrolls, memory: memory, loadBodies: loadBodies, frameBodies: frameBodies, scrollBodies: scrollBodies)
+            name: scenario.name, load: load, frames: frames, scrolls: scrolls, memory: memory, loadBodies: loadBodies, frameBodies: frameBodies,
+            scrollBodies: scrollBodies, endGaps: scenario.up ? (loadGap, streamedGap) : nil)
     }
 
     /// One turn of the run loop (main-actor tasks, preference and state changes), then layout and a commit.
@@ -235,6 +246,13 @@ enum UIBench {
     static func mainScroll(_ view: NSView) -> NSScrollView? {
         func all(_ v: NSView) -> [NSScrollView] { ((v as? NSScrollView).map { [$0] } ?? []) + v.subviews.flatMap(all) }
         return all(view).max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }
+    }
+
+    /// How far the main scroll view's visible bottom sits above its content's end.
+    static func endGap(_ view: NSView) -> CGFloat {
+        guard let scroll = mainScroll(view), let doc = scroll.documentView else { return .infinity }
+        let clip = scroll.contentView.bounds
+        return doc.isFlipped ? doc.frame.height - clip.maxY : clip.minY
     }
 
     static func drag(_ window: NSWindow, at point: NSPoint) {
@@ -286,6 +304,7 @@ enum UIBench {
     static func all(_ png: URL?) -> Int32 {
         let runs = 3
         var rows: [[String]] = []
+        var failed = false
         for scenario in scenarios {
             var takes: [[String]] = []
             for run in 0..<runs {
@@ -303,6 +322,7 @@ enum UIBench {
                 process.waitUntilExit()
                 for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
                     if line.hasPrefix("ROW|") { takes.append(line.split(separator: "|", omittingEmptySubsequences: false).dropFirst().map(String.init)) }
+                    else if line.hasPrefix("FOLLOW|") && line.hasSuffix("|fail") { failed = true; print(line) }
                     else if run == 0 { print(line) }
                 }
             }
@@ -319,6 +339,6 @@ enum UIBench {
         print("\n| Scenario | Bodies to load | Bodies per update | Bodies per scroll |")
         print("|---|---|---|---|")
         for r in rows { print("| \(r[0]) | \(r[7]) | \(r[8]) | \(r[9]) |") }
-        return 0
+        return failed ? 1 : 0
     }
 }
