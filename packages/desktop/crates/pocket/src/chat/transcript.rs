@@ -52,7 +52,7 @@ pub(crate) struct View {
     settled: Option<(String, Instant)>,
     copied: Option<(String, Task<()>)>,
     expanded: HashSet<String>,
-    /// The prompt last shown more or less of, and when.
+    /// The row last shown more or less of, and when.
     toggled: Option<(String, Instant)>,
     code: Highlights,
     /// Messages still streaming onto the screen, by id.
@@ -375,7 +375,7 @@ fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: b
     let toggle = user_bubble::needs_collapse(lines).then(|| {
         let toggled = view.toggled.as_ref().filter(|(row, _)| row == id).map(|(_, at)| *at);
         let (agent, row) = (agent.to_string(), id.to_string());
-        (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_prompt(&agent, &row, cx)))
+        (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx)))
     });
     let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), toggle);
     let under = under.unwrap_or_else(|| {
@@ -570,7 +570,7 @@ impl Desktop {
         cx.notify();
     }
 
-    fn chat_toggle_prompt(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
+    pub(crate) fn chat_toggle_expanded(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get_mut(agent) else { return };
         if !view.expanded.remove(row) {
             view.expanded.insert(row.to_string());
@@ -738,7 +738,12 @@ impl Desktop {
                 div().flex().flex_col().gap(px(8.)).children(plan.then(todos::plan_header)).child(body)
             }
             Row::Question { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::Tool(call)) => question_marker::marker(call),
+                Some(Block::Tool(call)) => {
+                    let toggled = view.toggled.as_ref().filter(|(row, _)| *row == id).map(|(_, at)| *at);
+                    let (agent, row) = (agent.to_string(), id.clone());
+                    let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx));
+                    question_marker::marker(&id, call, width, question_marker::Open { expanded: view.expanded.contains(&id), toggled, on_click }, window)
+                }
                 _ => div(),
             },
             Row::Compacted { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {

@@ -88,7 +88,12 @@ pub(super) fn lines(text: &str, width: f32, window: &Window) -> usize {
 
 /// The lines a prompt's `text` wraps to at `size` px in `width` px, as a bubble shows it.
 pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
-    let text = shown(split_images(text).0).text;
+    text_lines(&shown(split_images(text).0).text, size, width, window)
+}
+
+/// The lines plain `text` wraps to at `size` px in `width` px.
+pub(super) fn text_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
+    let text = text.to_string();
     let run = window.text_style().to_run(text.len());
     window
         .text_system()
@@ -101,8 +106,14 @@ pub(super) fn needs_collapse(lines: usize) -> bool {
 }
 
 /// Growing or shrinking by `delta` px takes longer the further it goes, up to 850ms.
-fn tween(delta: f32) -> Duration {
+pub(super) fn tween(delta: f32) -> Duration {
     Duration::from_millis((220. + delta * 0.32).min(850.) as u64)
+}
+
+/// A height easing over `delta` px: a long way eases in too, so it doesn't leap off.
+pub(super) fn grow(delta: f32) -> Animation {
+    let quint = ease_out_quint();
+    Animation::new(tween(delta)).with_easing(move |t| if delta > 500. { ease_in_out(t) } else { quint(t) })
 }
 
 /// A collapsible prompt's wrapped lines, and when it was last toggled if that's recent enough to still be moving.
@@ -171,12 +182,10 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
     let moving = toggle.as_ref().and_then(|(fold, _)| fold.toggled).is_some_and(|at| at.elapsed() < tween(delta));
     let body = if moving {
         let (from, to) = if expanded { (clipped, full) } else { (full, clipped) };
-        let quint = ease_out_quint();
-        let easing = move |t| if delta > 500. { ease_in_out(t) } else { quint(t) };
         div()
             .overflow_hidden()
             .child(styled(id, &text))
-            .with_animation(SharedString::from(format!("{id}-{expanded}")), Animation::new(tween(delta)).with_easing(easing), move |d, t| d.h(px(from + (to - from) * t)))
+            .with_animation(SharedString::from(format!("{id}-{expanded}")), grow(delta), move |d, t| d.h(px(from + (to - from) * t)))
             .into_any_element()
     } else if collapsed {
         div().flex().flex_col().child(div().h(px(LINE_HEIGHT * COLLAPSED_LINES as f32)).overflow_hidden().child(styled(id, &text))).child(div().h(px(LINE_HEIGHT)).child("...")).into_any_element()

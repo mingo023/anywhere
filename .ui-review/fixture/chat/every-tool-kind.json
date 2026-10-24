@@ -274,7 +274,7 @@
     }
    },
    "status": "ok",
-   "output": "Parser: pulldown-cmark; Folds: Per session",
+   "output": "User has answered your questions: \"Which parser should the transcript use?\"=\"pulldown-cmark\", \"Where should folded groups remember their state?\"=\"Per session\". You can now continue with the user's answers in mind.",
    "durationMs": 21000
   }
  },

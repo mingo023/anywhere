@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 222] = [
+const STEPS: [(&str, Step); 223] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -78,6 +78,14 @@ const STEPS: [(&str, Step); 222] = [
                 }
             }
         });
+    }),
+    ("chat-question-open", |d, _, cx| {
+        let Some(agent) = d.session().map(str::to_string) else { return };
+        let Some(view) = d.chats.views.get(&agent) else { return };
+        let Some(ix) = view.session.rows.iter().position(|r| matches!(r, Row::Question { .. })) else { return };
+        let id = view.session.ids[ix].clone();
+        d.chat_reveal(&agent, ix, cx);
+        d.chat_toggle_expanded(&agent, &id, cx);
     }),
     ("chat-mcp-open", |d, _, cx| _ = open_phase(d, |b| matches!(b, Block::Tool(c) if c.name.starts_with("mcp__")), cx)),
     ("chat-scrolled-down", |d, _, cx| {
