@@ -74,7 +74,11 @@ struct ChangesScreen: View {
             }
             ForEach(sections) { s in
                 Section {
-                    ForEach(s.rows) { row in rowView(row, store: store) }
+                    ForEach(s.rows) { row in
+                        ChangeRowView(
+                            row: row, mac: mac, tree: tree, nameOnly: asTree, fold: { ChangeTree.toggleFold(&folded, $0) },
+                            stage: { stage($0, staged: $1) }, discard: { discarding = $0 })
+                    }
                 } header: {
                     SectionHeader(
                         section: s.section, count: s.paths.count, folded: folded.contains(s.section.rawValue),
@@ -136,45 +140,6 @@ struct ChangesScreen: View {
         return n == 1 ? "Discard changes to \(GitText.split(discarding![0]).name)?" : "Discard changes to \(n) files?"
     }
 
-    @ViewBuilder
-    private func rowView(_ row: ChangeRow, store: GitStore) -> some View {
-        switch row {
-        case .header:
-            EmptyView()
-        case .folder(_, let key, let label, let depth, let open):
-            Button {
-                ChangeTree.toggleFold(&folded, key)
-            } label: {
-                FolderRow(label: label, depth: depth, open: open)
-            }
-            .buttonStyle(.plain)
-        case .file(let section, let f, let depth):
-            let staged = section == .staged
-            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: staged)) {
-                FileRow(
-                    path: f.path, oldPath: f.oldPath, status: f.status, counts: GitText.counts(added: f.added, removed: f.removed, binary: f.binary == true),
-                    depth: depth, nameOnly: asTree)
-            }
-            .tag(row.id)
-            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { stage([f.path], staged: !staged) }
-                    .tint(staged ? Palette.text3.color : Palette.success.color)
-            }
-            .swipeActions(edge: .trailing) {
-                if !staged {
-                    Button("Discard", systemImage: "arrow.uturn.backward", role: .destructive) { discarding = [f.path] }
-                }
-            }
-            .contextMenu {
-                Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { stage([f.path], staged: !staged) }
-                if !staged {
-                    Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { discarding = [f.path] }
-                }
-                Button("Copy Path", systemImage: "doc.on.doc") { Pasteboard.copy(f.path) }
-            }
-        }
-    }
-
     #if os(iOS)
         @ViewBuilder
         private var selectionBar: some View {
@@ -193,6 +158,57 @@ struct ChangesScreen: View {
         Haptics.tap()
         selection = []
         Task { await host.git.stage(tree, paths: paths, staged: staged) }
+    }
+}
+
+/// One row of the list: a folder of the tree or a file. Its own view, so the list knows each row is one row and builds
+/// only those on screen.
+@MainActor
+private struct ChangeRowView: View {
+    let row: ChangeRow
+    let mac: String
+    let tree: String
+    let nameOnly: Bool
+    let fold: (String) -> Void
+    let stage: (_ paths: [String], _ staged: Bool) -> Void
+    let discard: ([String]) -> Void
+
+    var body: some View {
+        switch row {
+        case .header:
+            EmptyView()
+        case .folder(_, let key, let label, let depth, let open):
+            Button {
+                fold(key)
+            } label: {
+                FolderRow(label: label, depth: depth, open: open)
+            }
+            .buttonStyle(.plain)
+        case .file(let section, let f, let depth):
+            let staged = section == .staged
+            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: staged)) {
+                FileRow(
+                    path: f.path, oldPath: f.oldPath, status: f.status, counts: GitText.counts(added: f.added, removed: f.removed, binary: f.binary == true),
+                    depth: depth, nameOnly: nameOnly)
+            }
+            .tag(row.id)
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { stage([f.path], !staged) }
+                    .tint(staged ? Palette.text3.color : Palette.success.color)
+            }
+            .swipeActions(edge: .trailing) {
+                if !staged {
+                    Button("Discard", systemImage: "arrow.uturn.backward", role: .destructive) { discard([f.path]) }
+                }
+            }
+            .contextMenu {
+                Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { stage([f.path], !staged) }
+                if !staged {
+                    Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { discard([f.path]) }
+                }
+                Button("Copy Path", systemImage: "doc.on.doc") { Pasteboard.copy(f.path) }
+            }
+        }
     }
 }
 
