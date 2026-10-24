@@ -248,6 +248,20 @@ func TestAnAttachedPhoneHearsResizesAndTheExit(t *testing.T) {
 	}
 }
 
+func TestATerminalThatEndedIsRefusedAsEndedUnderTheRequestsID(t *testing.T) {
+	terms := terminal.NewManager()
+	_, _, p := local(t, peer.OwnerOf(1), withTerminals(t, terms, "/p"))
+	helloWith(p, proto.CapTerminal)
+	p.send(`{"type":"terminal.attach","id":"a","terminalId":"t-gone"}`)
+	if m := p.recv(); m["type"] != "error" || m["id"] != "a" || m["code"] != proto.CodeTerminalEnded {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"terminal.input","id":"i","terminalId":"t-gone","data":"eA=="}`)
+	if m := p.recv(); m["type"] != "error" || m["id"] != "i" || m["code"] != proto.CodeTerminalEnded {
+		t.Fatalf("%v", m)
+	}
+}
+
 // A phone that stops reading fills its socket, then its queue; the shell and
 // the other viewer go on, and the stalled phone gets a fresh snapshot once it reads again.
 func TestAStalledPhoneStallsNoOneAndCatchesUpWithASnapshot(t *testing.T) {

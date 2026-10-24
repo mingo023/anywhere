@@ -21,6 +21,7 @@ var phoneServerGolden = map[string]any{
 	"terminal_exited":       NewTerminalExited("t1", 0),
 	"terminal_created":      NewTerminalCreated("tc", "r1", "t3"),
 	"error_terminals_off":   NewErrorCode("ti", CodeTerminalsOff, "Terminals are off for phones on this Mac"),
+	"error_terminal_ended":  NewErrorCode("ta", CodeTerminalEnded, "This terminal has ended"),
 	"error_not_implemented": NewErrorCode("gs", CodeNotImplemented, "git.status isn't served by this pocketd yet"),
 	"error_not_a_tree":      NewErrorCode("gs", CodeNotATree, "This folder isn't a project on your Mac"),
 	"project_list_push":     NewProjectList("", nil),

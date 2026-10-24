@@ -163,7 +163,9 @@ func (c *conn) findTerminal(id string) *terminal.Terminal {
 	return c.s.Terminals.Get(id)
 }
 
-func noTerminal(id string) proto.Error { return proto.NewError(id, "This terminal has ended") }
+func noTerminal(id string) proto.Error {
+	return proto.NewErrorCode(id, proto.CodeTerminalEnded, "This terminal has ended")
+}
 
 // terminalAttach replaces any attach this conn has to the terminal, so a
 // phone that lost track gets a fresh snapshot.

@@ -40,7 +40,8 @@ Terminal = {id, cwd, cols, rows, title?, localId?, agentId?, exited?:bool}
    //   {type:"agent.creating", requestId, terminalId, cwd, setup:false}   (no id) to every conn,
    // which the desktop takes as it takes an agent's, opening the terminal in a tab of its tree.
 → {type:"terminal.close", id, terminalId}  ← ack
-   // a terminalId that isn't running is error{id, message} (no code) for attach, input, resize and close
+   // a terminalId that isn't running is error{id, code:"terminal_ended", message} for attach, input, resize and close;
+   //   its id is the request's, so the phone knows which screen it ended
 ```
 
 `terminal.list` is sorted by `cwd`, then `id`, and is not sent on hello: ask for it once connected. Exited terminals leave the list, so `exited` is never set today.
