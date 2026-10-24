@@ -47,7 +47,6 @@ func (c *conn) gitVerb(m proto.ClientMessage) error {
 }
 
 func (c *conn) gitStatus(m proto.ClientMessage) error       { return c.notImplemented(m) }
-func (c *conn) gitWatch(m proto.ClientMessage) error        { return c.notImplemented(m) }
 func (c *conn) gitDiff(m proto.ClientMessage) error         { return c.notImplemented(m) }
 func (c *conn) gitLog(m proto.ClientMessage) error          { return c.notImplemented(m) }
 func (c *conn) gitCommit(m proto.ClientMessage) error       { return c.notImplemented(m) }
@@ -56,3 +55,9 @@ func (c *conn) gitDiscard(m proto.ClientMessage) error      { return c.notImplem
 func (c *conn) gitCommitCreate(m proto.ClientMessage) error { return c.notImplemented(m) }
 func (c *conn) gitPush(m proto.ClientMessage) error         { return c.notImplemented(m) }
 func (c *conn) gitPull(m proto.ClientMessage) error         { return c.notImplemented(m) }
+
+// gitWatch's trees are also the ones whose PRs gh.changed is pushed for.
+func (c *conn) gitWatch(m proto.ClientMessage) error {
+	c.ghWatch(m.Trees)
+	return c.notImplemented(m)
+}
