@@ -4,6 +4,7 @@ import LiveActivityUI
 import SwiftUI
 
 @main
+@MainActor
 struct AnywhereApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
