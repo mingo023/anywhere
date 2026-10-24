@@ -484,7 +484,7 @@ func expectPlain(_ code: String, _ language: String, _ text: String, sourceLocat
         ("python", "s = f'{a!r:>{w}}' # 中文"), ("bash", "echo \"$(ls \"$d\")\" <<EOF\nbody 😀\nEOF\n"), ("html", "<p title='é'>😀<script>let x='é'</script>"),
         ("markdown", "# 😀\n```js\nlet é = `x`\n```\n"), ("yaml", "k: 'é'\n- [a, {b: c}]"), ("toml", "a = \"é\"\n[t]"), ("json", "{\"é\": [1, \"😀\"]}"),
         ("css", "a::after { content: \"😀\" }"), ("go", "s := `é`"), ("java", "char c = '😀';"), ("kotlin", "\"$é ${x}\""), ("tsx", "<A b={<C/>}>é</A>"),
-        ("typescript", "let x: Map<string, T> = new Map()"), ("dockerfile", "RUN echo é"), ("makefile", "a:\n\techo $(B)"),
+        ("typescript", "let x: Map<string, T> = new Map()"), ("dockerfile", "RUN echo é"), ("makefile", "a:\n\techo $(B)"), ("bash", "\\😀x; \\é(y)"),
     ]
 
     @Test("spans are sorted, apart, inside the text and never split a character, whatever is cut off")

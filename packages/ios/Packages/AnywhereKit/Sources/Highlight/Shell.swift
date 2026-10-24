@@ -39,7 +39,9 @@ extension Lexer {
             case 0x20, 0x09, 0x0D:
                 i += 1
             case UInt8(ascii: "\\"):
-                i += 2
+                // The escaped character may be several bytes; a word mustn't start inside it.
+                i += 1
+                if i < end { skipScalar() }
             case UInt8(ascii: "#") where start == 0 || isSpace(at(start - 1)) || ";|&(".utf8.contains(at(start - 1)):
                 skipLine()
                 comment(start, i)
