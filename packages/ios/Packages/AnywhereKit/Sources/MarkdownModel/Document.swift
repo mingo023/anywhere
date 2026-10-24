@@ -53,7 +53,10 @@ public enum Markdown {
         // paragraph until its line holds a cell), so a longer text re-parses from the node before.
         let lastLine = lineOffsets(chunk).count - 1
         let unsettled = parsed.top.count > 1 && parsed.top.last!.line >= lastLine
-        let tailNode = max(0, parsed.top.count - (unsettled ? 2 : 1))
+        var tailNode = max(0, parsed.top.count - (unsettled ? 2 : 1))
+        // A paragraph and the table cut from its last lines share a start line (`Parser.parse`); re-parsing from that
+        // line must not keep the paragraph.
+        while tailNode > 0, parsed.top[tailNode - 1].line >= parsed.top[tailNode].line { tailNode -= 1 }
         var blocks = kept
         var tailBlock = kept.count
         var tailLine = 0

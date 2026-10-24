@@ -549,6 +549,7 @@ func alert(_ block: MDBlock?) -> MDAlert? {
 
     @Test("a document streamed character by character always parses as it would whole", arguments: [
         document, tricky, unicode, document.replacingOccurrences(of: "\n", with: "\r\n"), "line\rnext\r\r- a\r- b",
+        "Intro line\nName | Size\n--|--\na | 1\n\n# end",
     ])
     func growsLikeWhole(document: String) {
         var previous = Markdown.parse("")

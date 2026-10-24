@@ -40,6 +40,9 @@ enum Parser {
             }
             node = cmark_node_next(n)
         }
+        // cmark-gfm leaves the paragraph a table was cut from without a start line, and dates the table to the
+        // paragraph's first line.
+        for k in top.indices.reversed() where top[k].line < 0 { top[k].line = k + 1 < top.count ? top[k + 1].line : 0 }
         // cmark-gfm has numbered the references, dropped unreferenced definitions and moved the rest to the end, in order.
         let bodies = definitions.map { reader.children(of: $0) }
         let notes = bodies.enumerated().map { MDFootnote(number: $0.offset + 1, blocks: $0.element, references: reader.references[$0.offset + 1, default: 0]) }
