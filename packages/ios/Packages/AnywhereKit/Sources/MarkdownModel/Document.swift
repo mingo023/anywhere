@@ -142,7 +142,24 @@ public final class MarkdownCache: @unchecked Sendable {
     public func document(_ source: String) -> MarkdownDocument {
         let key = Markdown.digest(source)
         if let hit = cached(source, digest: key) { return hit }
-        let base = lock.withLock { recent.last { $0.source.utf8.count < source.utf8.count && Markdown.hasPrefix(source, $0.source) } }
+        return parse(source, key, base: base(for: source))
+    }
+
+    /// The document for `source` if it's cached or cheap to parse now: at most `budget` bytes, or that much grown
+    /// from a string seen lately. nil means parse it off the main actor with `document(_:)`.
+    public func documentIfCheap(_ source: String, budget: Int = 16 * 1024) -> MarkdownDocument? {
+        let key = Markdown.digest(source)
+        if let hit = cached(source, digest: key) { return hit }
+        let base = base(for: source)
+        guard source.utf8.count <= budget || base.map({ source.utf8.count - $0.tailOffset <= budget }) == true else { return nil }
+        return parse(source, key, base: base)
+    }
+
+    private func base(for source: String) -> MarkdownDocument? {
+        lock.withLock { recent.last { $0.source.utf8.count < source.utf8.count && Markdown.hasPrefix(source, $0.source) } }
+    }
+
+    private func parse(_ source: String, _ key: UInt64, base: MarkdownDocument?) -> MarkdownDocument {
         let document = base.map { Markdown.parse(source, growing: $0) } ?? Markdown.parse(source)
         lock.withLock {
             if documents.updateValue(document, forKey: key) == nil { order.append(key) }

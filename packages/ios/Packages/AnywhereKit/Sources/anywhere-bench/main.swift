@@ -29,7 +29,6 @@ measure("markdown parse, \(longDoc.utf8.count / 1024) KB") { _ = Markdown.parse(
 let streamed = Markdown.parse(longDoc)
 let grown = longDoc + "Streaming a few more words onto the last paragraph"
 measure("markdown grow by one chunk, \(longDoc.utf8.count / 1024) KB doc") { _ = Markdown.parse(grown, growing: streamed) }
-measure("markdown kitchen sink") { _ = Markdown.parse(Sample.kitchenSink) }
 let typescript = Sample.typescriptSource(bytes: 512 * 1024)
 let rust = Sample.rustSource(bytes: 512 * 1024)
 measure("highlight typescript, \(typescript.utf8.count / 1024) KB") { _ = Highlighter.spans(typescript, language: "typescript") }
