@@ -84,9 +84,12 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
    // a branch already checked out returns that worktree as it is
    // setup runs in a new login-shell terminal of the worktree, which stays open; worktree.created doesn't wait for it
    // the asking conn gets the new project.list before worktree.created
-→ {type:"worktree.delete", id, path, deleteBranch?:bool}  ← ack
+→ {type:"worktree.delete", id, path, deleteBranch?:bool, force?:bool}  ← ack
    // closes its terminals (not its Locals'), removes the folder and its display name, then `branch -D` when asked
    // the main worktree is refused before anything closes (code "main_worktree"); unknown_worktree; git_failed
+   // with deleteBranch and without force, a branch holding commits no other branch, remote or tag holds
+   //   (rev-list --count <branch> --not --exclude=<branch> --branches --remotes --tags, the desktop's lost_commits)
+   //   is refused before anything closes: error{id, code:"unpushed_commits", message, count}; force:true deletes it anyway
 
 → {type:"branch.list", id, tree}
 ← {type:"branch.list", id, current?, local:[{name, at}], remote:[{name, at}]}   // at = unix seconds; newest first; ≤200 each

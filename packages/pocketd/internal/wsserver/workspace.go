@@ -3,6 +3,7 @@ package wsserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -145,7 +146,7 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 		return errors.New("This pocketd can't remove worktrees")
 	}
 	go func() {
-		if err := c.removeWorktree(m.Path, m.DeleteBranch); err != nil {
+		if err := c.removeWorktree(m.Path, m.DeleteBranch, m.Force); err != nil {
 			c.send(workspaceError(m.ID, err))
 			return
 		}
@@ -155,9 +156,10 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 }
 
 // removeWorktree closes the terminals opened in the worktree at path, removes
-// its folder and its name, and its branch when asked. The main worktree is
-// refused before anything closes.
-func (c *conn) removeWorktree(path string, deleteBranch bool) error {
+// its folder and its name, and its branch when asked. The main worktree, and
+// a branch whose commits nothing else holds unless forced, are refused before
+// anything closes.
+func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	f := c.s.Registry.Load()
 	path = filepath.Clean(path)
 	project, ok := worktree.Containing(f, path)
@@ -177,6 +179,11 @@ func (c *conn) removeWorktree(path string, deleteBranch bool) error {
 		return worktree.ErrUnknownWorktree
 	case trees[i].Main:
 		return worktree.ErrMain
+	}
+	if branch := trees[i].Branch; deleteBranch && branch != "" && !force {
+		if n := worktree.LostCommits(project, branch); n > 0 {
+			return unpushedCommits(n)
+		}
 	}
 	if c.s.Terminals != nil {
 		var closing []<-chan struct{}
@@ -218,7 +225,22 @@ func (g branchFailed) Error() string {
 	return line
 }
 
+// unpushedCommits is how many commits deleting the branch would lose.
+type unpushedCommits int
+
+func (n unpushedCommits) Error() string {
+	if n == 1 {
+		return "1 commit is only on this branch"
+	}
+	return fmt.Sprintf("%d commits are only on this branch", int(n))
+}
+
 func workspaceError(id string, err error) proto.Error {
+	if n, ok := errors.AsType[unpushedCommits](err); ok {
+		e := proto.NewErrorCode(id, proto.CodeUnpushedCommits, n.Error())
+		e.Count = int(n)
+		return e
+	}
 	if g, ok := errors.AsType[branchFailed](err); ok {
 		return proto.NewCodedError(id, proto.CodeGitFailed, g.Error(), g.stderr)
 	}

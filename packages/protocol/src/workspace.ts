@@ -30,7 +30,7 @@ export const WorkspaceClient = [
     pr: Schema.optional(Schema.Int.pipe(Schema.positive())),
     setup: Schema.optional(Schema.Boolean),
   }),
-  Schema.Struct({ type: Schema.Literal("worktree.delete"), id: Schema.String, path: Schema.NonEmptyString, deleteBranch: Schema.optional(Schema.Boolean) }),
+  Schema.Struct({ type: Schema.Literal("worktree.delete"), id: Schema.String, path: Schema.NonEmptyString, deleteBranch: Schema.optional(Schema.Boolean), force: Schema.optional(Schema.Boolean) }),
   Schema.Struct({ type: Schema.Literal("branch.list"), id: Schema.String, tree: Schema.NonEmptyString }),
   Schema.Struct({ type: Schema.Literal("account.list"), id: Schema.String, provider: Schema.optional(ProviderId) }),
   Schema.Struct({ type: Schema.Literal("agent.account"), id: Schema.String, agentId: Schema.String, account: Schema.NonEmptyString }),

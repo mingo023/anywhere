@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -243,6 +244,19 @@ func defaultBase(project string) string {
 		return all[0]
 	}
 	return "HEAD"
+}
+
+// LostCommits is how many commits deleting branch would lose: those no other
+// branch, remote or tag holds (lost_commits in crates/git/src/git.rs).
+func LostCommits(project, branch string) int {
+	// --exclude matches the names --branches lists, which lack refs/heads/.
+	out, err := exec.Command("git", "-C", project, "rev-list", "--count", "refs/heads/"+branch, "--not",
+		"--exclude="+branch, "--branches", "--remotes", "--tags").Output()
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return n
 }
 
 // Remove deletes a linked Worktree's folder, uncommitted changes included, as

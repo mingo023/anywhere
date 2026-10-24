@@ -9,6 +9,9 @@ const CapWorkspace = "workspace.v1"
 // CodeMainWorktree: the main worktree can't be deleted.
 const CodeMainWorktree = "main_worktree"
 
+// CodeUnpushedCommits: deleting the branch would lose commits no other branch, remote or tag holds; Count says how many.
+const CodeUnpushedCommits = "unpushed_commits"
+
 var workspaceVerbs = map[string]verbDecoder{
 	"worktree.create": func(f fields, m *ClientMessage) bool {
 		if !f.requestID(m) || !f.text("project", &m.Project) || !f.get("name", &m.Name) ||
@@ -25,7 +28,7 @@ var workspaceVerbs = map[string]verbDecoder{
 		return set <= 1 && (m.Name != "" || m.Branch != "" || m.Number != 0)
 	},
 	"worktree.delete": func(f fields, m *ClientMessage) bool {
-		return f.text("path", &m.Path) && f.optionalBool("deleteBranch", &m.DeleteBranch)
+		return f.text("path", &m.Path) && f.optionalBool("deleteBranch", &m.DeleteBranch) && f.optionalBool("force", &m.Force)
 	},
 	"branch.list": func(f fields, m *ClientMessage) bool { return f.text("tree", &m.Tree) },
 	"account.list": func(f fields, m *ClientMessage) bool {

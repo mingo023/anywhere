@@ -236,6 +236,7 @@ export const ServerMessage = Schema.Union(
     message: Schema.String,
     code: Schema.optional(Schema.String),
     detail: Schema.optional(Schema.String),
+    count: Schema.optional(Schema.Int),
   }),
   Schema.Struct({ type: Schema.Literal("host.changed"), host: HostState }),
   Schema.Struct({ type: Schema.Literal("worktree.names"), names: Schema.Record({ key: Schema.String, value: Schema.String }) }),

@@ -1,20 +1,23 @@
-/// `error {id?, message, code?, detail?}`: a refused request, or a failure the client acts on by `code`.
+/// `error {id?, message, code?, detail?, count?}`: a refused request, or a failure the client acts on by `code`.
 public struct ServerError: Codable, Hashable, Sendable, Error {
     public var message: String
     public var code: ErrorCode?
     public var detail: String?
+    /// How many commits an `unpushed_commits` refusal would lose.
+    public var count: Int?
     /// The id of the message it refuses, when that message was sent without waiting for its reply. Set by the
     /// connection, never coded: payloads leave the id to `ServerFrame`.
     public var replyTo: String?
 
-    public init(message: String, code: ErrorCode? = nil, detail: String? = nil, replyTo: String? = nil) {
+    public init(message: String, code: ErrorCode? = nil, detail: String? = nil, count: Int? = nil, replyTo: String? = nil) {
         self.message = message
         self.code = code
         self.detail = detail
+        self.count = count
         self.replyTo = replyTo
     }
 
-    private enum CodingKeys: String, CodingKey { case message, code, detail }
+    private enum CodingKeys: String, CodingKey { case message, code, detail, count }
 }
 
 public struct ErrorCode: OpenString {
@@ -56,6 +59,7 @@ public struct ErrorCode: OpenString {
     public static let terminalsOff: Self = "terminals_off"
     public static let terminalEnded: Self = "terminal_ended"
     public static let mainWorktree: Self = "main_worktree"
+    public static let unpushedCommits: Self = "unpushed_commits"
     public static let gitFailed: Self = "git_failed"
     public static let ghFailed: Self = "gh_failed"
     public static let ghMissing: Self = "gh_missing"

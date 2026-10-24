@@ -58,6 +58,7 @@ type ClientMessage struct {
 	Number           int // a PR's
 	Setup            *bool
 	DeleteBranch     bool
+	Force            bool // worktree.delete: delete a branch whose commits are nowhere else
 	Tree             string
 	Trees            []string
 	Provider         string
@@ -441,6 +442,8 @@ type Error struct {
 	Message string `json:"message"`
 	Code    string `json:"code,omitempty"`
 	Detail  string `json:"detail,omitempty"`
+	// Count is how many commits an unpushed_commits refusal would lose.
+	Count int `json:"count,omitempty"`
 }
 
 func NewError(id, message string) Error { return Error{Type: "error", ID: id, Message: message} }
