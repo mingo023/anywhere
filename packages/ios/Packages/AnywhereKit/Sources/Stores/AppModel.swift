@@ -31,7 +31,13 @@ public final class AppModel {
     @discardableResult
     public func add(_ credentials: Credentials, start: Bool = true) -> HostModel {
         if let host = hosts.first(where: { $0.id == credentials.deviceId }) { return host }
-        let host = HostModel(credentials: credentials)
+        return add(HostModel(credentials: credentials), start: start)
+    }
+
+    /// Adds a Mac built elsewhere, with its own connection settings or clock; a Mac already added is returned as is.
+    @discardableResult
+    public func add(_ host: HostModel, start: Bool = true) -> HostModel {
+        if let known = hosts.first(where: { $0.id == host.id }) { return known }
         hosts.append(host)
         watch(host)
         if start { host.start() }
