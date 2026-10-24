@@ -35,7 +35,8 @@ public struct RootView: View {
     public var body: some View {
         Group {
             if app.hosts.isEmpty {
-                PairingView(app: app, link: navigator.pairing?.link)
+                // Clearing the request on success stops the sheet below from showing it again once a Mac exists.
+                PairingView(app: app, link: navigator.pairing?.link) { navigator.pairing = nil }
                     .id(navigator.pairing?.id)
             } else if resolvedLayout == .pad {
                 PadRoot(app: app, navigator: navigator)
