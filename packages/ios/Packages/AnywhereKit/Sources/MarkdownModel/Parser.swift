@@ -17,7 +17,7 @@ enum Parser {
 
     /// Each top-level node's blocks with the 0-based line it starts on, then the footnotes section if any.
     static func parse(_ text: Substring) -> (top: [(blocks: [MDBlock], line: Int)], footnotes: MDBlock?) {
-        var source = Math.rewrite(String(text))
+        var (source, originals) = Math.rewrite(String(text))
         guard let parser = cmark_parser_new(options) else { return ([], nil) }
         defer { cmark_parser_free(parser) }
         for ext in extensions { cmark_parser_attach_syntax_extension(parser, ext) }
@@ -28,7 +28,7 @@ enum Parser {
         defer { cmark_node_free(root) }
         cmark_consolidate_text_nodes(root)
 
-        var reader = Reader()
+        var reader = Reader(originals: originals)
         var top: [(blocks: [MDBlock], line: Int)] = []
         var definitions: [CNode] = []
         var node = cmark_node_first_child(root)
@@ -51,6 +51,7 @@ enum Parser {
 struct Reader {
     /// References to each footnote number seen so far.
     var references: [Int: Int] = [:]
+    var originals: Math.Originals = [:]
 
     mutating func children(of node: CNode) -> [MDBlock] {
         var out: [MDBlock] = []
@@ -89,10 +90,13 @@ struct Reader {
             if word == Math.info.lowercased() { return [.code(MDCode(language: nil, code: code, fenced: false))] }
             var length: Int32 = 0, offset: Int32 = 0
             var character: CChar = 0
-            return [.code(MDCode(language: word, code: code, fenced: cmark_node_get_fenced(node, &length, &offset, &character) != 0))]
+            let fenced = cmark_node_get_fenced(node, &length, &offset, &character) != 0
+            code = Math.restore(code, from: Int(cmark_node_get_start_line(node)) - (fenced ? 0 : 1), originals)
+            return [.code(MDCode(language: word, code: code, fenced: fenced))]
         case CMARK_NODE_HTML_BLOCK:
             var html = string(cmark_node_get_literal(node))
             if html.hasSuffix("\n") { html.removeLast() }
+            html = Math.restore(html, from: Int(cmark_node_get_start_line(node)) - 1, originals)
             return HTML.blocks(html) ?? [.paragraph([.text(html)])]
         case CMARK_NODE_THEMATIC_BREAK:
             return [.rule]

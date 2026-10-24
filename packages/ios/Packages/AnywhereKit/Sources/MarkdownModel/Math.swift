@@ -5,9 +5,14 @@ enum Math {
     /// The info string a rewritten math fence carries; a private-use character no real fence holds.
     static let info = "\u{E000}math"
 
-    static func rewrite(_ source: String) -> String {
-        guard source.contains("$$") else { return source }
-        var lines = source.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" }).map(String.init)
+    /// A rewritten line's new ending and the one it replaced, by 0-based line number. The rewrite can't tell indented
+    /// code or HTML from a container's indent, so blocks that keep their source verbatim put these back.
+    typealias Originals = [Int: (rewritten: String, original: String)]
+
+    static func rewrite(_ source: String) -> (source: String, originals: Originals) {
+        guard source.contains("$$") else { return (source, [:]) }
+        var lines = source.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }).map(String.init)
+        var originals: Originals = [:]
         var fence: (ch: Character, len: Int)?
         var i = 0
         while i < lines.count {
@@ -35,9 +40,25 @@ enum Math {
                 close += 1
             }
             let ticks = String(repeating: "`", count: max(3, longest + 1))
+            originals[i] = (ticks + info, String(rest))
             lines[i] = prefix + ticks + info
-            if close < lines.count { lines[close] = split(lines[close]).prefix + ticks }
+            if close < lines.count {
+                let (closePrefix, closeRest) = split(lines[close])
+                originals[close] = (ticks, String(closeRest))
+                lines[close] = closePrefix + ticks
+            }
             i = close + 1
+        }
+        return (lines.joined(separator: "\n"), originals)
+    }
+
+    /// `literal`, a verbatim block starting on source line `start`, with any lines the rewrite changed put back.
+    static func restore(_ literal: String, from start: Int, _ originals: Originals) -> String {
+        guard !originals.isEmpty, literal.contains(Character("`")) else { return literal }
+        var lines = literal.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        for k in lines.indices {
+            guard let line = originals[start + k], lines[k].hasSuffix(line.rewritten) else { continue }
+            lines[k] = lines[k].dropLast(line.rewritten.count) + line.original
         }
         return lines.joined(separator: "\n")
     }

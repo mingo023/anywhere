@@ -94,6 +94,14 @@ func alert(_ block: MDBlock?) -> MDAlert? {
         #expect(code(all.first)?.label == "text")
     }
 
+    @Test("dollar fences inside indented code or html keep their source")
+    func mathInVerbatimBlocks() {
+        #expect(code(blocks("    $$\n    x\n    $$").first) == MDCode(language: nil, code: "$$\nx\n$$", fenced: false))
+        #expect(code(blocks("para\n\n    $$ a\n    $$").last)?.code == "$$ a\n$$")
+        #expect(blocks("<div>\n$$\nx\n$$\n</div>\n\nafter").last == .paragraph([.text("after")]))
+        #expect(!blocks("<div>\n$$\nx\n$$\n</div>").text.contains(Math.info))
+    }
+
     @Test("unclaimed inline math keeps its literal source")
     func dollars() {
         #expect(paragraph("spent $5 and $10 today") == [.text("spent $5 and $10 today")])
