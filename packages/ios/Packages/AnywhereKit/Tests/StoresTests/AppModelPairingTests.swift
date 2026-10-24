@@ -132,7 +132,7 @@ struct ReachabilityTests {
     func hostChanged() {
         let host = HostModel(credentials: Credentials(host: "127.0.0.1:9", deviceToken: "t", deviceId: "d1", macName: "Mac", clientId: "c"))
         host.apply([.connected(Sample.hello)])
-        #expect(host.hostState == HostState(tailnet: true, keepingAwake: true))
+        #expect(host.hostState == HostState(tailnet: true, keepingAwake: true, terminals: true))
         host.apply([.message(.hostChanged(.init(host: HostState(tailnet: false, keepingAwake: true))))])
         #expect(host.hostState?.tailnet == false)
     }

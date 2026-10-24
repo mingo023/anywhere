@@ -55,7 +55,7 @@ struct MacSettingsView: View {
                     .accessibilityValue(grant.allowed ? "Allowed" : "Not allowed")
                 }
                 LabeledContent("Most it can approve", value: maxAccess.map(MacFacts.access) ?? "—")
-                LabeledContent("Terminals", value: "Set on the Mac")
+                LabeledContent("Terminals", value: MacFacts.terminals(host.hostState?.terminals))
             } header: {
                 Text("This iPhone can")
             } footer: {

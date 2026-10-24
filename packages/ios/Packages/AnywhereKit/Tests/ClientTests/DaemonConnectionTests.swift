@@ -83,6 +83,24 @@ struct DaemonConnectionTests {
         }
     }
 
+    @Test("an error to a message sent without waiting reaches events naming the message it refuses")
+    func refusedSend() async throws {
+        let server = try await TestServer { peer, frame in
+            if case .hello = frame.message {
+                peer.send(ServerFrame(id: frame.id, .helloOk(helloOk)))
+            } else {
+                peer.send(ServerFrame(id: frame.id, .error(.init(message: "This terminal has ended", code: .terminalEnded))))
+            }
+        }
+        defer { server.stop() }
+        let (connection, recorder) = await connect(server)
+        defer { Task { await connection.stop() } }
+        #expect(await recorder.wait { $0.contains(where: \.isConnected) })
+        let id = try await connection.send(.terminalAttach(.init(terminalId: "t-gone")))
+        let refused = ServerError(message: "This terminal has ended", code: .terminalEnded, replyTo: id)
+        #expect(await recorder.wait { $0.contains(.message(.error(refused))) })
+    }
+
     @Test("launch progress arrives as events while the request waits for agent.created")
     func interimReplies() async throws {
         let server = try await TestServer { peer, frame in

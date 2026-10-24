@@ -3,12 +3,18 @@ public struct ServerError: Codable, Hashable, Sendable, Error {
     public var message: String
     public var code: ErrorCode?
     public var detail: String?
+    /// The id of the message it refuses, when that message was sent without waiting for its reply. Set by the
+    /// connection, never coded: payloads leave the id to `ServerFrame`.
+    public var replyTo: String?
 
-    public init(message: String, code: ErrorCode? = nil, detail: String? = nil) {
+    public init(message: String, code: ErrorCode? = nil, detail: String? = nil, replyTo: String? = nil) {
         self.message = message
         self.code = code
         self.detail = detail
+        self.replyTo = replyTo
     }
+
+    private enum CodingKeys: String, CodingKey { case message, code, detail }
 }
 
 public struct ErrorCode: OpenString {
@@ -48,6 +54,7 @@ public struct ErrorCode: OpenString {
     public static let notATree: Self = "not_a_tree"
     public static let outsideTree: Self = "outside_tree"
     public static let terminalsOff: Self = "terminals_off"
+    public static let terminalEnded: Self = "terminal_ended"
     public static let mainWorktree: Self = "main_worktree"
     public static let gitFailed: Self = "git_failed"
     public static let ghFailed: Self = "gh_failed"

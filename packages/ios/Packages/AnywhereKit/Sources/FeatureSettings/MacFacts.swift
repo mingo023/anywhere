@@ -35,6 +35,15 @@ public enum MacFacts {
         }
     }
 
+    /// The Mac's phone.terminals setting; nil from a pocketd too old to say.
+    public nonisolated static func terminals(_ on: Bool?) -> String {
+        switch on {
+        case true?: "On on the Mac"
+        case false?: "Off on the Mac"
+        case nil: "Set on the Mac"
+        }
+    }
+
     /// "Connected · 0.1.13", or how the link reads when it isn't up.
     public nonisolated static func status(_ reachability: Reachability, version: String?) -> String {
         guard reachability == .online, let version else { return reachability.label }

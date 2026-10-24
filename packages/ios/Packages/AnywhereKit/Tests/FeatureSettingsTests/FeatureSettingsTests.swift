@@ -23,6 +23,13 @@ struct FeatureSettingsTests {
         #expect(["ask", "edits", "auto"].map(MacFacts.access) == ["Ask", "Edits", "Auto"])
     }
 
+    @Test("terminals read as the Mac sets them, or as set there when it is too old to say")
+    func terminals() {
+        #expect(MacFacts.terminals(true) == "On on the Mac")
+        #expect(MacFacts.terminals(false) == "Off on the Mac")
+        #expect(MacFacts.terminals(nil) == "Set on the Mac")
+    }
+
     @Test("a connected Mac's status carries its version; any other state stands alone")
     func status() {
         #expect(MacFacts.status(.online, version: "0.1.13") == "Connected · 0.1.13")
