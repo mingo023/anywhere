@@ -509,7 +509,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		// Signing in to or enabling a server drives the agent; listing them only observes it.
 		verb += ".act"
 	}
-	verb = c.localScope(verb)
+	verb = c.workspaceScope(verb)
 	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
 	}

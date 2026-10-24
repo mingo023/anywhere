@@ -6,12 +6,12 @@ import (
 	"pocketd/internal/devices"
 )
 
-func TestAWorkspacePhoneManagesLocalsWithSpawnAndEveryoneElseNeedsOwner(t *testing.T) {
+func TestAWorkspacePhoneManagesLocalsAndNamesWorktreesWithSpawnAndEveryoneElseNeedsOwner(t *testing.T) {
 	owner := OwnerOf(1)
 	phone := FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes})
 	legacy := FromDevice(devices.Device{ID: devices.LegacyID, Scopes: devices.LegacyScopes})
 	pty := Principal{Kind: PTY, Pid: 2, Terminal: "t1", Scopes: PTYScopes}
-	for _, v := range []string{"local.create", "local.rename", "local.delete"} {
+	for _, v := range []string{"local.create", "local.rename", "local.delete", "worktree.rename"} {
 		for verb, want := range map[string][4]string{
 			"ws:" + v:                {"", "scope_denied", "scope_denied", "scope_denied"},
 			"ws:" + v + ".workspace": {"", "", "scope_denied", "scope_denied"},

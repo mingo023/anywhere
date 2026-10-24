@@ -373,3 +373,22 @@ func TestAnAgentThatCantSwitchAccountsSaysSo(t *testing.T) {
 		t.Fatalf("%v", m)
 	}
 }
+
+func TestAWorkspacePhoneNamesAWorktreeAndOneWithoutTheCapMayNot(t *testing.T) {
+	for _, caps := range [][]string{{proto.CapNames}, {proto.CapNames, proto.CapWorkspace}} {
+		var b bench
+		_, _, p := local(t, aPhone, withWorkspace(t, &b))
+		helloWith(p, caps...)
+		p.send(`{"type":"worktree.rename","id":"wr","path":"/w/calm-otter","title":"Fix login"}`)
+		want := "error"
+		if len(caps) == 2 {
+			want = "ack"
+		}
+		if m, _ := p.until(want); m["id"] != "wr" {
+			t.Fatalf("%v: %v", caps, m)
+		}
+		if got := b.s.Names.Titles()["/w/calm-otter"]; (got == "Fix login") != (len(caps) == 2) {
+			t.Fatalf("%v: %q", caps, got)
+		}
+	}
+}

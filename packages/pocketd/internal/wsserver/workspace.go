@@ -74,10 +74,11 @@ func (c *conn) projectList(m proto.ClientMessage) {
 	go c.send(proto.NewProjectList(m.ID, c.s.Projects()))
 }
 
-// localScope names the scope a local.* verb is checked against: a phone that
-// speaks workspace.v1 manages Locals with spawn, anyone else needs owner.
-func (c *conn) localScope(verb string) string {
-	if strings.HasPrefix(verb, "ws:local.") && slices.Contains(c.caps, proto.CapWorkspace) {
+// workspaceScope names the scope local.* and worktree.rename are checked
+// against: a phone that speaks workspace.v1 manages Locals and names
+// worktrees with spawn, as it makes them; anyone else needs owner.
+func (c *conn) workspaceScope(verb string) string {
+	if (strings.HasPrefix(verb, "ws:local.") || verb == "ws:worktree.rename") && slices.Contains(c.caps, proto.CapWorkspace) {
 		return verb + ".workspace"
 	}
 	return verb
