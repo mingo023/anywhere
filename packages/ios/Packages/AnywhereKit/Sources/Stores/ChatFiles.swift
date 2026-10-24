@@ -13,7 +13,7 @@ public protocol ChatFiles: Sendable {
 /// `fs.search` and `attach.put` over a Mac's connection.
 public struct ConnectionFiles: ChatFiles {
     /// Bytes an `attach.put` chunk holds at most, decoded.
-    static let chunk = 512 * 1024
+    static let chunk = Limits.attachChunk
     let connection: DaemonConnection
 
     public init(_ connection: DaemonConnection) { self.connection = connection }
@@ -24,6 +24,8 @@ public struct ConnectionFiles: ChatFiles {
     }
 
     public func upload(_ data: Data, name: String) async throws -> String {
+        // pocketd refuses past this, but only after the chunks before it went over the link.
+        guard data.count <= Limits.attachTotal else { throw DaemonError.server(.init(message: "Images over 20 MB can't be attached", code: .attachInvalid)) }
         let id = Self.uploadId()
         let count = max((data.count + Self.chunk - 1) / Self.chunk, 1)
         for index in 0..<count {

@@ -104,6 +104,7 @@ public final class ChatStore: HostStore {
             guard let agent = list.agents.first(where: { $0.id == agentId }) else { return false }
             return take(agent)
         case .agentUpdate(let update):
+            guard update.agent.id == agentId else { return false }
             return take(update.agent)
         case .agentStream(let stream):
             guard stream.agentId == agentId else { return false }
@@ -178,7 +179,10 @@ public final class ChatStore: HostStore {
             items = []
             index = [:]
             unchanged = 0
+            revision += 1
             primed = false
+            loaded = false
+            hasOlder = false
             fetch()
         }
         if reset || wasWorking != Composer.working(agent) { scheduleFlush() }
@@ -315,12 +319,15 @@ public final class ChatStore: HostStore {
 
     public var observeOnly: Bool { !scopes.isEmpty && !scopes.contains(.drive) && !scopes.contains(.owner) }
 
+    /// `permission.resolve` needs the approve scope, which a phone may hold without drive.
+    public var canApprove: Bool { scopes.isEmpty || scopes.contains(.approve) || scopes.contains(.owner) }
+
     /// The ask the agent waits on, as the chat shows it.
     public var ask: Ask? { requests.first.map(ChatModel.ask) }
 
     public var feedback: Bool { requests.first?.feedback ?? false }
 
-    public var mode: Composer.Mode { Composer.mode(observeOnly: observeOnly, ask: ask) }
+    public var mode: Composer.Mode { Composer.mode(observeOnly: observeOnly, canApprove: canApprove, ask: ask) }
 
     public var busy: Bool { summary.map { Composer.busy($0, session) } ?? false }
 
@@ -357,17 +364,19 @@ public final class ChatStore: HostStore {
             _ = prompt(sent)
             return
         }
-        let now = clock()
-        if !steer {
-            if let id = session.outgoing.push(sent, working: busy, now: now), !busy {
-                session.outgoing.sentAs(id, prompt(sent))
-            }
-            if !busy { sends += 1 }
-        } else {
-            let id = session.outgoing.steerText(sent, now: now)
-            session.outgoing.sentAs(id, prompt(sent))
-            steers += 1
+        if !steer { return push(sent, busy: busy) }
+        let id = session.outgoing.steerText(sent, now: clock())
+        session.outgoing.sentAs(id, prompt(sent))
+        steers += 1
+        scheduleFlush()
+    }
+
+    /// Sends `text` now if the agent is idle, else queues it for after the turn; a send now is pinned a quarter down.
+    func push(_ text: String, busy: Bool) {
+        if let id = session.outgoing.push(text, working: busy, now: clock()), !busy {
+            session.outgoing.sentAs(id, prompt(text))
         }
+        if !busy { sends += 1 }
         scheduleFlush()
     }
 
@@ -452,11 +461,14 @@ public final class ChatStore: HostStore {
         scheduleFlush()
     }
 
-    /// Re-sends the prompt that set a reply going.
+    /// Re-sends the prompt that set a reply going, leaving the draft alone.
     public func retryTurn(_ turn: Int) {
-        guard session.transcript.turns.indices.contains(turn), let text = session.transcript.turns[turn].prompt?.text else { return }
-        draft.text = text
-        send()
+        guard mode == .prompt, summary != nil, session.transcript.turns.indices.contains(turn),
+            let text = session.transcript.turns[turn].prompt?.text
+        else { return }
+        let busy = busy
+        if busy && !capabilities.sendWhileWorking { return }
+        push(text, busy: busy)
     }
 
     // MARK: Asks
@@ -470,7 +482,14 @@ public final class ChatStore: HostStore {
 
     func resolve(_ decision: Decision, message: String? = nil, answers: [String: String]? = nil) {
         guard let request = requests.first else { return }
-        self.request(.permissionResolve(.init(requestId: request.requestId, decision: decision, message: message, answers: answers))) { _ in }
+        let id = request.requestId
+        self.request(.permissionResolve(.init(requestId: id, decision: decision, message: message, answers: answers))) { _ in } failed: {
+            [weak self] error in
+            guard let self else { return }
+            notice = error
+            // The ask still stands, so its questions can be sent again.
+            if wizard?.requestId == id { wizard?.sent = false }
+        }
     }
 
     /// The question wizard's step: a pick, the next page, back or skip.
@@ -667,7 +686,8 @@ public final class ChatStore: HostStore {
     func persist() {
         guard let defaults else { return }
         var kept = draft
-        kept.images = kept.images.filter { $0.path != nil }
+        // Thumbnails are whole photos; encoding them on each keystroke would stall typing.
+        kept.images = kept.images.filter { $0.path != nil }.map { var a = $0; a.thumbnail = nil; return a }
         if kept.isEmpty {
             defaults.removeObject(forKey: draftKey)
         } else if let data = try? JSONEncoder().encode(kept) {

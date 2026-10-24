@@ -62,6 +62,64 @@ struct ChatStoreTests {
         #expect(c.index.isEmpty)
     }
 
+    @Test("a timeline pocketd started over clears the rows and takes the next page's word on older items")
+    func resetsClearRows() {
+        let c = chat([timeline([item("i1", 1), item("i2", 2)], hasOlder: true)])
+        #expect(!c.session.rows.isEmpty)
+        _ = c.apply(.agentUpdate(.init(agent: agent(resets: 1))))
+        c.flush()
+        #expect(c.session.rows.isEmpty)
+        #expect(!c.hasOlder)
+        _ = c.apply(timeline([item("j1", 1)], hasOlder: false))
+        c.flush()
+        #expect(c.items.map(\.id) == ["j1"])
+        #expect(!c.hasOlder)
+    }
+
+    @Test("another agent's update leaves this chat's summary alone")
+    func otherAgentUpdate() {
+        let c = chat([timeline([item("i1", 1)])])
+        var other = agent(.working, resets: 5)
+        other.id = "a2"
+        #expect(!c.apply(.agentUpdate(.init(agent: other))))
+        #expect(c.summary?.id == "a1")
+        #expect(c.items.map(\.id) == ["i1"])
+    }
+
+    @Test("a phone that may approve but not drive answers asks but can't prompt")
+    func approveOnly() {
+        let c = ChatStore(agentId: "a1")
+        var hello = Sample.hello
+        hello.scopes = [.observe, .approve]
+        let ask = PermissionRequest(requestId: "r1", agentId: "a1", toolName: "Bash", detail: .shell(command: "ls", description: nil))
+        c.seed(agent(), requests: [ask], hello: hello)
+        #expect(c.mode == .permission(answerable: true))
+        hello.scopes = [.observe, .drive]
+        c.seed(agent(), requests: [ask], hello: hello)
+        #expect(c.mode == .permission(answerable: false))
+    }
+
+    @Test("retrying a turn sends its prompt and keeps what's typed")
+    func retryTurnKeepsDraft() {
+        let c = chat([timeline([TimelineItem(id: "u1", seq: 1, ts: 1000, body: .user(text: "Port the lanes")), item("i2", 2),
+                            TimelineItem(id: "r3", seq: 3, ts: 3000, body: .result(ok: true, durationMs: 2000, error: nil, usage: nil))])])
+        c.draft.text = "half a thought"
+        c.retryTurn(0)
+        #expect(c.draft.text == "half a thought")
+        #expect(c.session.outgoing.list.map(\.text) == ["Port the lanes"])
+        #expect(c.sends == 1)
+    }
+
+    @Test("a saved draft leaves out image thumbnails")
+    func draftsDropThumbnails() {
+        let d = scratchDefaults()
+        let c = chat([], defaults: d)
+        c.draft.images = [.init(id: "x", name: "a.png", path: "/home/attachments/a.png", thumbnail: Data(count: 1 << 20))]
+        let saved = chat([], defaults: d).draft.images
+        #expect(saved.map(\.path) == ["/home/attachments/a.png"])
+        #expect(saved.first?.thumbnail == nil)
+    }
+
     @Test("an older page goes before what's held and says whether more exist")
     func older() {
         let c = chat([timeline([item("i5", 5), item("i6", 6)], hasOlder: true)])
