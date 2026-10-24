@@ -24,10 +24,16 @@ struct CoalescerTests {
     func spaced() async throws {
         let batches = Batches()
         let coalescer = Coalescer<Int>(interval: .milliseconds(5)) { batch in batches.all.append(batch) }
+        // Each waits until the one before landed: a busy main actor (the full suite) may take its time to take a batch.
         await coalescer.add(1)
-        try await Task.sleep(for: .milliseconds(100))
+        try await Self.until { await batches.all.count == 1 }
         await coalescer.add(2)
-        try await Task.sleep(for: .milliseconds(100))
+        try await Self.until { await batches.all.count == 2 }
         #expect(await batches.all == [[1], [2]])
+    }
+
+    private static func until(_ done: () async -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await !done(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
     }
 }
