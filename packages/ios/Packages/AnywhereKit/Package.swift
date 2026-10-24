@@ -28,11 +28,11 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("FeatureGit", ["Stores", "Client", "CodeView", "DiffModel", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureGitHub", ["Stores", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
-    ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain"], true),
-    ("FeatureSettings", ["Stores", "DesignSystem", "Domain", "Wire", "Client"], true),
+    ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain", "Fixtures"], true),
+    ("FeatureSettings", ["Stores", "DesignSystem", "Domain", "Wire", "Client", "Fixtures"], true),
     ("AppShell", [
         "Stores", "Domain", "DesignSystem", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit",
-        "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings",
+        "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "Fixtures",
     ], true),
     ("LiveActivityUI", ["ActivityModel", "DesignSystem"], true),
 ]

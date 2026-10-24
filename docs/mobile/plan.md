@@ -46,6 +46,16 @@ Executables (macOS only, for proof and speed): `anywhere-probe` (drives a real p
 
 Thin Xcode targets in `packages/ios/`: `App/` (`AnywhereApp`, `AppDelegate` for APNs + notification categories and actions, entitlements: aps-environment, app group `group.dev.mingo.anywhere`, keychain group, time-sensitive), `Widgets/` (WidgetBundle with the Live Activity), `NotificationService/` (opens `e`, sets title/subtitle/body/thread/badge).
 
+## App shell: how the app is laid out
+
+- **iPhone: three tabs, Sessions, Terminals and Settings**, each its own `NavigationStack` of `Route`s, scoped to the selected Mac. Switch Macs from the title menu of Sessions or Terminals. Changes, PRs and files are not tabs: each needs a tree, so they are pushed from a worktree's screens. A tab for them would repeat the sessions tree as a picker.
+- **iPad: `NavigationSplitView`.** The sidebar lists each Mac with its Sessions and Terminals, plus Settings. The middle column is that section's list. The right column is a stack for the chat, diff or file it opens. It shares the iPhone's `Navigator`, so a size-class change keeps the place. The workspace slice's project tree goes into the sidebar under each Mac (marked `INTEGRATION` in `PadRoot.swift`).
+- **`Destinations.swift` is the one place a `Route` meets a feature view.** Features push `NavigationLink(value: Route…)` and never import each other.
+- **Deep links.** `onOpenURL` takes the scheme, notification taps (`AppDelegate` opens their link) and the Live Activity's `widgetURL`. `DeepLink.notification(userInfo)` reads a notification. A chat link selects its Mac at once and is held until that Mac says hello.
+- **Connection banners.** "Reconnecting…" appears once a drop lasts 4 s, and "Can't reach" with a Tailscale hint after 30 s (`Reachability`). A Mac that revoked this phone, or that needs a side updated, shows `EndedView` in place of its sections.
+- **Restoration.** The tab, the selected Mac and every stack are saved as JSON in `SceneStorage`. Appearance lives in `AppStorage("appearance")`.
+- **Proof.** `anywhere-gallery <outdir> [filter]` renders every feature's `Gallery.scenes` to PNG. It first checks that a `ScrollView`'s `LazyVStack` actually draws. macOS draws prominent buttons unfilled in an offscreen window; iOS fills them. `scripts/mobile-e2e.sh` pairs `anywhere-probe` with a scratch pocketd and runs its checks. Each slice's check runs once pocketd offers its cap.
+
 ## Rules for every agent
 
 - Follow `docs/mobile/protocol.md` exactly; if it is wrong or missing something, change the doc in the same change and say so in your summary.
