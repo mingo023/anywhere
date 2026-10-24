@@ -51,8 +51,15 @@ func withPush(t *testing.T, sends *relaySends, s **Server) func(*Server) {
 			Mac: srv.Hostname, MacName: "Studio", Foreground: srv.Foreground, Timing: timing}
 		srv.Agents.OnStatus = func(id, _, from, to string) { n.Kick(id, from, to) }
 		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-		go n.Run(ctx)
+		done := make(chan struct{})
+		go func() {
+			n.Run(ctx)
+			close(done)
+		}()
+		t.Cleanup(func() {
+			cancel()
+			<-done
+		})
 		srv.Push = n
 		*s = srv
 	}

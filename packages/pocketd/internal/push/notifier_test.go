@@ -111,6 +111,8 @@ type rig struct {
 	key    []byte
 	mu     sync.Mutex
 	front  map[string]bool
+	// stop ends Run and waits for it to return.
+	stop func()
 }
 
 var fast = Timing{NeedsYou: 30 * time.Millisecond, Done: 30 * time.Millisecond, Coalesce: 250 * time.Millisecond, Slow: 250 * time.Millisecond,
@@ -137,8 +139,16 @@ func newRig(t *testing.T, timing Timing, restore ...agent.Restored) *rig {
 		r.agents.Restore(x, driver{})
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go r.n.Run(ctx)
+	done := make(chan struct{})
+	go func() {
+		r.n.Run(ctx)
+		close(done)
+	}()
+	r.stop = func() {
+		cancel()
+		<-done
+	}
+	t.Cleanup(r.stop)
 	return r
 }
 
@@ -424,6 +434,31 @@ func TestAnActivityWaitingOnTheUserKeepsBeatingSoItNeverGoesStale(t *testing.T) 
 	}
 	if gap := sent[2].at.Sub(sent[1].at); gap < timing.Heartbeat-20*time.Millisecond {
 		t.Fatalf("beat after %s", gap)
+	}
+}
+
+// slowReply hands back the relay's answer a moment after it came.
+type slowReply struct{}
+
+func (slowReply) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	time.Sleep(quiet / 3)
+	return resp, err
+}
+
+func TestRunReturnsOnlyOnceNoSendCanWriteTheStore(t *testing.T) {
+	r := newRig(t, fast)
+	r.n.Relay.HTTP = &http.Client{Transport: slowReply{}}
+	r.register("d1", false)
+	a := r.add("a1")
+	a.Working()
+	a.NeedsYou()
+	r.relay.await("alert-", 1, 0)
+	r.stop()
+	noted := len(r.n.Store.Sends())
+	time.Sleep(quiet)
+	if got := len(r.n.Store.Sends()); got != noted {
+		t.Fatalf("%d sends noted after Run returned", got-noted)
 	}
 }
 
