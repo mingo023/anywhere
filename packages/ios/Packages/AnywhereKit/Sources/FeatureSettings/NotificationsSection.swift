@@ -51,7 +51,7 @@ public struct NotificationsSection: View {
             Text("Shows what a session asks to run on the Lock Screen and in the Dynamic Island. Live Activity updates pass through Apple unencrypted.")
         }
         if !rows.isEmpty {
-            Section("Macs") {
+            Section("Alerts from Each Mac") {
                 ForEach(rows) { row in macRow(row) }
             }
         }
