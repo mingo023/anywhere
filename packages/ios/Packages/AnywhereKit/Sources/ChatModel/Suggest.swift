@@ -139,7 +139,7 @@ public enum SuggestRows: Sendable {
 
 extension Suggest {
     /// The list for `text` with the cursor at `cursor` in `agent`'s chat, nil when no word there asks for one.
-    public func rows(_ text: String, _ cursor: Int, agent: String, provider: String, cwd: String, touched: [String], changed: Set<String> = []) -> SuggestRows? {
+    public func rows(_ text: String, _ cursor: Int, agent: String, provider: String, cwd: String, touched: @autoclosure () -> [String], changed: Set<String> = []) -> SuggestRows? {
         let adapter = Adapter.for(provider)
         if let (at, query) = word(text, cursor, "/") {
             var rows = menu(adapter, commands[agent] ?? [], query)
@@ -155,7 +155,7 @@ extension Suggest {
             return .servers(at: at, query: query, servers: listed, pickable: pickable)
         }
         let root = cwd.hasSuffix("/") ? cwd : cwd + "/"
-        let near = touched.compactMap { $0.hasPrefix(root) ? String($0.dropFirst(root.count)) : nil }
+        let near = touched().compactMap { $0.hasPrefix(root) ? String($0.dropFirst(root.count)) : nil }
         return .files(at: at, query: query, paths: rank(query, touched: near, changed: changed, files: files[cwd] ?? []))
     }
 }
