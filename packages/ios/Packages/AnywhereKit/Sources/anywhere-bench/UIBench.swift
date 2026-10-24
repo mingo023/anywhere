@@ -60,7 +60,7 @@ enum UIBench {
     static let agentId = "a-perf"
 
     static func chat() -> Screen {
-        var items = Sample.chatPerf(items: 5000)
+        var items = Sample.chatPerf(items: Int(ProcessInfo.processInfo.environment["UIBENCH_ITEMS"] ?? "") ?? 5000)
         let seq = items.count
         items.append(TimelineItem(id: "s-u", seq: seq + 1, ts: Sample.now, body: .user(text: "Stream a long answer")))
         items.append(TimelineItem(id: "s-a", seq: seq + 2, ts: Sample.now, body: .assistant(text: "Streaming ")))
@@ -137,6 +137,7 @@ enum UIBench {
         let frames: [Double]
         let scrolls: [Double]
         let memory: Double
+        let loadBodies: [String: Double]
         let frameBodies: [String: Double]
         let scrollBodies: [String: Double]
 
@@ -153,7 +154,7 @@ enum UIBench {
             }
             return [
                 "ROW", name, String(format: "%.1f", load), ms(frames, 0.5), ms(frames, 0.95), ms(scrolls, 0.5), ms(scrolls, 0.95),
-                String(format: "%.0f", memory), bodies(frameBodies), bodies(scrollBodies),
+                String(format: "%.0f", memory), bodies(loadBodies), bodies(frameBodies), bodies(scrollBodies),
             ].joined(separator: "|")
         }
     }
@@ -173,6 +174,7 @@ enum UIBench {
         settle(view, passes: 4)
         let load = elapsed(since: start)
         let memory = footprint()
+        let loadBodies = BodyCount.take().mapValues(Double.init)
 
         // Let off-main work land (highlighting, a long markdown parse) before what follows.
         idle(view, seconds: 1)
@@ -208,7 +210,7 @@ enum UIBench {
         if let png { snapshot(view, to: png.appendingPathComponent("\(scenario.name)-scrolled.png")) }
         window.orderOut(nil)
         return Result(
-            name: scenario.name, load: load, frames: frames, scrolls: scrolls, memory: memory, frameBodies: frameBodies, scrollBodies: scrollBodies)
+            name: scenario.name, load: load, frames: frames, scrolls: scrolls, memory: memory, loadBodies: loadBodies, frameBodies: frameBodies, scrollBodies: scrollBodies)
     }
 
     /// One turn of the run loop (main-actor tasks, preference and state changes), then layout and a commit.
@@ -314,9 +316,9 @@ enum UIBench {
         print("| Scenario | Load ms | Update p50 / p95 ms | Scroll p50 / p95 ms | Memory MB |")
         print("|---|---:|---:|---:|---:|")
         for r in rows { print("| \(r[0]) | \(r[1]) | \(r[2]) / \(r[3]) | \(r[4]) / \(r[5]) | \(r[6]) |") }
-        print("\n| Scenario | Bodies per update | Bodies per scroll |")
-        print("|---|---|---|")
-        for r in rows { print("| \(r[0]) | \(r[7]) | \(r[8]) |") }
+        print("\n| Scenario | Bodies to load | Bodies per update | Bodies per scroll |")
+        print("|---|---|---|---|")
+        for r in rows { print("| \(r[0]) | \(r[7]) | \(r[8]) | \(r[9]) |") }
         return 0
     }
 }
