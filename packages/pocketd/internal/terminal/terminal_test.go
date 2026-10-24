@@ -563,3 +563,29 @@ func handAfter(t *testing.T) {
 	}
 	fmt.Printf("ADOPTED exit=%d\n", s.ExitCode())
 }
+
+func TestAForegroundChangeTheMomentATerminalIsListedIsHeard(t *testing.T) {
+	m := NewManager()
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			for _, i := range m.List() {
+				if s := m.Get(i.ID); s != nil {
+					s.SetForeground("vim")
+				}
+			}
+		}
+	}()
+	for range 20 {
+		spawn(t, m, `exit 0`)
+	}
+	close(stop)
+	<-done
+}

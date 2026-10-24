@@ -164,6 +164,8 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 }
 
 func (m *Manager) start(s *Terminal) {
+	// Set before the Terminal is listed: a listed one may hear SetForeground at once.
+	s.change = m.changed
 	m.mu.Lock()
 	m.terminals[s.info.ID] = s
 	m.mu.Unlock()
@@ -172,7 +174,6 @@ func (m *Manager) start(s *Terminal) {
 		delete(m.terminals, s.info.ID)
 		m.mu.Unlock()
 	}
-	s.change = m.changed
 	go s.pump(s.pty, s.proc)
 	m.changed()
 }
