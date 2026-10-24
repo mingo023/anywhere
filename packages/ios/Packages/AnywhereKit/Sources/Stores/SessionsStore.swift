@@ -55,6 +55,17 @@ public final class SessionsStore: HostStore {
         _ = apply(try await connection.request(.agentList))
     }
 
+    public func pin(_ id: String, _ pinned: Bool) async throws {
+        guard let connection else { throw DaemonError.offline }
+        _ = try await connection.request(.agentPin(.init(agentId: id, pinned: pinned)))
+    }
+
+    /// Ends the agent and its terminal.
+    public func close(_ id: String) async throws {
+        guard let connection else { throw DaemonError.offline }
+        _ = try await connection.request(.agentClose(.init(agentId: id)))
+    }
+
     private func replace(_ agents: [AgentSummary]) -> Bool {
         var changed = false
         var moved = false
