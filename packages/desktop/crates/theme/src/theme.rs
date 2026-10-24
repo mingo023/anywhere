@@ -509,8 +509,10 @@ pub fn file_icon(path: &str, folder: bool, open: bool, size: f32) -> Img {
 }
 
 pub fn spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) -> impl IntoElement {
-    icon("spinner", size, color).with_animation(id, Animation::new(std::time::Duration::from_secs(1)).repeat(), |s, t| {
-        s.with_transformation(Transformation::rotate(percentage(t)))
+    const SPOKES: f32 = 8.;
+    // Turned a whole spoke at a time, as Apple's spinner is, so it steps at 10fps where a smooth arc needs every vsync.
+    icon("spinner", size, color).with_animation(id, Animation::new(std::time::Duration::from_millis(800)).repeat().with_max_fps(10.), |s, t| {
+        s.with_transformation(Transformation::rotate(percentage((t * SPOKES).round() % SPOKES / SPOKES)))
     })
 }
 
