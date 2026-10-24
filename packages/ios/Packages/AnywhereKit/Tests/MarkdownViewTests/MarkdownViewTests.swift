@@ -1,3 +1,4 @@
+import CoreText
 import Foundation
 import Highlight
 import MarkdownModel
@@ -180,5 +181,19 @@ import Testing
         #expect(cache.documentIfCheap(long) == nil)
         _ = cache.document(long)
         #expect(cache.documentIfCheap(long + "More") != nil)
+    }
+}
+
+@Suite struct InlineCode {
+    @Test("inline code's padding stays with the code when the line breaks before it")
+    func padding() {
+        let lead = "one pass, "
+        let font = CTFontCreateWithName("Menlo" as CFString, 13, nil)
+        let attributes = [kCTFontAttributeName as NSAttributedString.Key: font]
+        let string = NSAttributedString(string: lead + InlineText.padded("Vec::with_capacity"), attributes: attributes)
+        let leadWidth = CTLineGetTypographicBounds(
+            CTLineCreateWithAttributedString(NSAttributedString(string: lead, attributes: attributes)), nil, nil, nil)
+        let first = CTTypesetterSuggestLineBreak(CTTypesetterCreateWithAttributedString(string), 0, leadWidth + 20)
+        #expect(first == lead.utf16.count)
     }
 }

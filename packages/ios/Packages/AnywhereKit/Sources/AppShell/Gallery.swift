@@ -1,5 +1,7 @@
 import DesignSystem
+import Domain
 import FeatureSettings
+import Fixtures
 import Foundation
 import Stores
 import SwiftUI
@@ -19,6 +21,9 @@ public enum AppShellGallery {
                 GalleryScene("root-phone-revoked\(suffix)", size: phone, dark: dark) { AnyView(root(.phone, tab: .sessions, mac: 2)) },
                 GalleryScene("root-phone-unpaired\(suffix)", size: phone, dark: dark) { AnyView(RootView(app: AppModel(), layout: .phone)) },
                 GalleryScene("root-pad\(suffix)", size: pad, dark: dark) { AnyView(root(.pad, tab: .sessions)) },
+                GalleryScene("root-pad-tree\(suffix)", size: pad, dark: dark) {
+                    AnyView(root(.pad, tab: .sessions, tree: .worktree(mac: Sample.mac, path: "/Users/mingo/.worktrees/anywhere/fix-login")))
+                },
                 GalleryScene("root-pad-settings\(suffix)", size: pad, dark: dark) { AnyView(root(.pad, tab: .settings)) },
             ]
         }
@@ -26,11 +31,12 @@ public enum AppShellGallery {
 
     /// The sample Macs from Settings' gallery, with the `mac`th one selected.
     @MainActor
-    static func root(_ layout: RootView.Layout, tab: Tab, mac: Int = 0) -> some View {
+    static func root(_ layout: RootView.Layout, tab: Tab, mac: Int = 0, tree: Route? = nil) -> some View {
         let app = SettingsGallery.sampleApp()
         let navigator = Navigator()
         navigator.select(mac: app.hosts[mac].id)
         navigator.tab = tab
+        navigator.tree = tree
         return RootView(app: app, layout: layout, navigator: navigator)
     }
 }

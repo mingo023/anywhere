@@ -11,6 +11,7 @@ struct QuestionWizard: View {
     let answerable: Bool
     let change: ((inout Wizard) -> Wizard.Step) -> Void
     let skip: () -> Void
+    let openLink: (MarkdownLink) -> Void
     @State private var advancing: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -35,7 +36,7 @@ struct QuestionWizard: View {
             VStack(alignment: .leading, spacing: Space.s) {
                 Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text.color)
                 if let body {
-                    ScrollView { MarkdownView(body, style: .compact) }.frame(maxHeight: 184).fixedSize(horizontal: false, vertical: true)
+                    ScrollView { MarkdownView(body, style: .compact, onLink: openLink) }.frame(maxHeight: 184).fixedSize(horizontal: false, vertical: true)
                 }
                 if q.multi { Text("Select one or more.").font(ChatFont.caption).foregroundStyle(Palette.text3.color) }
                 let typed = !wizard.currentTyped.allSatisfy(\.isWhitespace)

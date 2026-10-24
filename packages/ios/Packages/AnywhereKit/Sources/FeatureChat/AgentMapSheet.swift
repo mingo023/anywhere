@@ -10,6 +10,7 @@ struct AgentMapSheet: View {
     let transcript: Transcript
     let provider: String
     let show: (_ callId: String) -> Void
+    let openLink: (MarkdownLink) -> Void
     @State private var nav = AgentMap.Nav()
     @Environment(\.dismiss) private var dismiss
 
@@ -23,6 +24,10 @@ struct AgentMapSheet: View {
                             dismiss()
                             show(call.id)
                         }
+                    }, openLink: { link in
+                        // A file opens in the chat's stack, under this sheet.
+                        if case .file = link { dismiss() }
+                        openLink(link)
                     })
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else {
@@ -133,6 +138,7 @@ struct AgentMapSheet: View {
 struct AgentDetail: View {
     let spawned: Spawned
     let show: () -> Void
+    let openLink: (MarkdownLink) -> Void
 
     var body: some View {
         let s = spawned
@@ -159,7 +165,7 @@ struct AgentDetail: View {
                     }
                 }
                 if let report = Agent.report(s.call, s.agent) {
-                    MarkdownView(report, style: .compact)
+                    MarkdownView(report, style: .compact, onLink: openLink)
                 }
                 Button("Show in chat", action: show).font(ChatFont.small.weight(.medium))
             }

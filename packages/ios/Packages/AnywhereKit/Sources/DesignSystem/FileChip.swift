@@ -42,6 +42,9 @@ public struct FileChip: View {
             Text(badge.letters)
                 .font(.system(size: 7.5, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white)
+                // Wide pairs like "SW" and "MD" outgrow the square at this size and would truncate to "…".
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
                 .frame(width: 13, height: 13)
                 .background(badge.color, in: RoundedRectangle(cornerRadius: 3))
             Text(Self.name(path)).lineLimit(1).truncationMode(.middle)

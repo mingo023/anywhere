@@ -1,5 +1,6 @@
 import ChatModel
 import DesignSystem
+import MarkdownView
 import Stores
 import SwiftUI
 import Wire
@@ -16,6 +17,7 @@ struct ComposerView: View {
     /// Shows a call in the transcript.
     let show: (String) -> Void
     @Binding var mapOpen: Bool
+    let openLink: (MarkdownLink) -> Void
     @FocusState private var focused: Bool
     @Environment(\.openURL) private var openURL
     #if os(iOS)
@@ -57,7 +59,7 @@ struct ComposerView: View {
                 }
             case .question(let answerable):
                 if let wizard = store.wizard {
-                    QuestionWizard(wizard: wizard, answerable: answerable, change: { store.wizard($0) }, skip: { store.skipQuestions() })
+                    QuestionWizard(wizard: wizard, answerable: answerable, change: { store.wizard($0) }, skip: { store.skipQuestions() }, openLink: openLink)
                 }
             case .viewOnly:
                 Text("View only").font(ChatFont.small).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, minHeight: 44)
