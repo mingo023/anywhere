@@ -43,6 +43,10 @@ public final class ChatStore: HostStore {
     public private(set) var sends = 0
     public private(set) var steers = 0
     public private(set) var mcpOffered = false
+    /// Sub-agents and commands at work after their turn ended, and the sub-agents the map shows: worked out once per
+    /// refold, so the composer doesn't walk the transcript on each keystroke.
+    public private(set) var background: [Call] = []
+    public private(set) var agents: [Spawned] = []
 
     @ObservationIgnored var items: [TimelineItem] = []
     @ObservationIgnored var index: [String: Int] = [:]
@@ -242,6 +246,10 @@ public final class ChatStore: HostStore {
         if session.update(revision, items, working: working, now: clock(), unchanged: hint) != nil {
             let now = Date.timeIntervalSinceReferenceDate
             if let turn = settledTail(tail, session.transcript) { settled = ("\(turn)#fold", now) }
+            let background = inBackground(session.transcript.turns[...]).map(\.call)
+            if background != self.background { self.background = background }
+            let agents = spawned(session.transcript)
+            if agents != self.agents { self.agents = agents }
             if primed {
                 streamIn(&reveals, before: before, session.transcript, now: now)
             } else {
