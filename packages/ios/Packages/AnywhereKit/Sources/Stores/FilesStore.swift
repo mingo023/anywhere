@@ -56,6 +56,11 @@ public final class FilesStore: HostStore {
         for dir in model.state.shown { list(model.tree, dir) }
     }
 
+    /// Opens a folder and those holding it, as a route to a folder asks.
+    public func reveal(_ model: FileTreeModel, _ dir: String) {
+        model.reveal(dir)
+    }
+
     /// Opens or folds a folder; an opened one shows what it held last time while it is listed again.
     public func toggle(_ model: FileTreeModel, _ dir: String) {
         if model.toggle(dir) { list(model.tree, dir) }
@@ -67,7 +72,7 @@ public final class FilesStore: HostStore {
             do {
                 _ = apply(try await request(.fsList(.init(tree: tree, dir: dir))))
             } catch {
-                trees[tree]?.failed(dir, Self.describe(error))
+                trees[tree]?.failed(dir, Self.describe(error), refused: Self.refused(error))
             }
         }
     }
@@ -163,6 +168,10 @@ public final class FilesStore: HostStore {
         return try await connection.request(message)
     }
 
+    private nonisolated static func refused(_ error: any Error) -> Bool {
+        if case DaemonError.server = error { true } else { false }
+    }
+
     private static func key(_ tree: String, _ path: String) -> String { tree + "\u{0}" + path }
 
     /// What a failed request says to the reader.
@@ -213,18 +222,24 @@ public final class FileTreeModel {
         return true
     }
 
+    func reveal(_ dir: String) {
+        state.reveal(dir)
+        rebuild()
+    }
+
     func toggle(_ dir: String) -> Bool {
         let opened = state.toggle(dir)
         rebuild()
         return opened
     }
 
-    /// A folder that couldn't be listed folds and forgets what it held; the root says why.
-    func failed(_ dir: String, _ message: String) {
+    /// The root says why it couldn't be listed. A folder the Mac refused (gone, or outside the tree) folds and forgets
+    /// what it held; one that failed for the connection keeps it.
+    func failed(_ dir: String, _ message: String, refused: Bool) {
         waiting.remove(dir)
         if dir.isEmpty {
             failure = message
-        } else {
+        } else if refused {
             state.gone(dir)
             rebuild()
         }
@@ -285,8 +300,14 @@ public final class FileSearch {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var asked = 0
 
-    public init(tree: String, delay: Duration = .milliseconds(120), fetch: @escaping @MainActor (String) async throws -> [String]) {
+    /// `query` and `results` start the sheet where a previous one left off.
+    public init(
+        tree: String, query: String = "", results: [String] = [], delay: Duration = .milliseconds(120),
+        fetch: @escaping @MainActor (String) async throws -> [String]
+    ) {
         self.tree = tree
+        self.query = query
+        self.results = results
         self.delay = delay
         self.fetch = fetch
     }

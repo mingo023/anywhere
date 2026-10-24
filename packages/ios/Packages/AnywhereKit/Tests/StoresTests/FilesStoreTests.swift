@@ -40,6 +40,15 @@ struct FileTreeTests {
         #expect(tree.shown == ["", "a", "a/b"])
     }
 
+    @Test("revealing a folder opens it and every folder holding it")
+    func reveal() {
+        var tree = FileTree()
+        tree.reveal("a/b/c")
+        tree.reveal("")
+        #expect(tree.open == ["a", "a/b", "a/b/c"])
+        #expect(tree.shown == ["", "a", "a/b", "a/b/c"])
+    }
+
     @Test("listing a folder as it already is changes nothing")
     func sameListing() {
         var tree = FileTree()
@@ -103,16 +112,19 @@ struct FilesStoreTests {
         #expect(model.rows.count > shown)
     }
 
-    @Test("a failed root says why; a failed folder folds and forgets what it held")
+    @Test("a failed root says why; a folder the Mac refused folds and forgets what it held, one lost to the link keeps it")
     func failures() {
         let model = FileTreeModel(tree: "/t")
         model.listed("", [entry("a", dir: true)])
+        model.listed("a", [entry("b.rs")])
         _ = model.toggle("a")
         model.asked("a")
-        model.failed("a", "That folder is gone")
+        model.failed("a", "Your Mac is offline", refused: false)
+        #expect(model.rows.map(\.path) == ["a", "a/b.rs"])
+        model.failed("a", "That folder is gone", refused: true)
         #expect(model.rows.map(\.path) == ["a"])
         #expect(model.waiting.isEmpty)
-        model.failed("", "Your Mac is offline")
+        model.failed("", "Your Mac is offline", refused: false)
         #expect(model.failure == "Your Mac is offline")
         model.listed("", [entry("a", dir: true)])
         #expect(model.failure == nil)

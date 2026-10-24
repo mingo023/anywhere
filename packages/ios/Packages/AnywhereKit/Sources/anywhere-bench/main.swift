@@ -1,3 +1,4 @@
+import Domain
 import Fixtures
 import Foundation
 import Wire
@@ -20,3 +21,10 @@ let timeline = try ServerFrame(id: "c3", .agentTimeline(Sample.timeline(turns: 4
 try measure("decode git.status, 1200 files") { _ = try ServerFrame.decode(status) }
 try measure("decode git.diff, 6000 rows") { _ = try ServerFrame.decode(diff) }
 try measure("decode agent.timeline, \(Sample.timeline(turns: 40).items.count) items") { _ = try ServerFrame.decode(timeline) }
+
+let paths = Sample.repoPaths(50_000)
+measure("index 50k paths for go-to-file", runs: 5) { _ = FuzzyIndex(paths) }
+let fileIndex = FuzzyIndex(paths)
+for query in ["e", "expl", "stsw", "pocketdwsserverstatus"] {
+    measure("fuzzy search 50k paths, \"\(query)\"") { _ = fileIndex.search(query, limit: 50) }
+}

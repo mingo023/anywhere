@@ -67,6 +67,13 @@ public struct FileTree: Equatable, Sendable {
         return true
     }
 
+    /// Opens `dir` and every folder holding it.
+    public mutating func reveal(_ dir: String) {
+        guard !dir.isEmpty else { return }
+        open.insert(dir)
+        open.formUnion(ancestors(dir))
+    }
+
     /// The root and every open folder whose parents are open: what a refresh lists again.
     public var shown: [String] {
         [""] + open.filter { dir in ancestors(dir).allSatisfy(open.contains) }.sorted()
