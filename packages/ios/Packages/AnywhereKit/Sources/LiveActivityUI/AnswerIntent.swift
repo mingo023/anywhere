@@ -18,6 +18,9 @@ public enum Answering {
 #if os(iOS) && canImport(AppIntents)
     import AppIntents
 
+    /// App Intents in a Swift package are found only through a package the app and the widget each include.
+    public struct LiveActivityIntents: AppIntentsPackage {}
+
     public struct AnswerIntent: LiveActivityIntent {
         public static let title: LocalizedStringResource = "Answer a session"
         public static let isDiscoverable = false
