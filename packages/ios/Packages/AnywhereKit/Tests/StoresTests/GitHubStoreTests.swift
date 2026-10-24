@@ -1,3 +1,4 @@
+import Client
 import Fixtures
 import Testing
 import Wire
@@ -98,6 +99,14 @@ struct GitHubStoreTests {
         #expect(replied.withoutReply(to: "PRRT_a", c) == pr)
         #expect(pr.resolving("PRRT_b", true).threads[1].resolved)
         #expect(pr.resolving("nope", true) == pr)
+    }
+
+    @Test("a failure says all gh or git said, since a push's first line only names the remote")
+    func describesDetail() {
+        let push = ServerError(message: "To github.com:acme/app.git", code: "git_failed",
+                               detail: "To github.com:acme/app.git\n ! [rejected]        fix -> fix (non-fast-forward)")
+        #expect(GitHubStore.describe(DaemonError.server(push)) == push.detail)
+        #expect(GitHubStore.describe(DaemonError.server(ServerError(message: "Unknown project"))) == "Unknown project")
     }
 
     @Test("merge methods read as the desktop's menu")

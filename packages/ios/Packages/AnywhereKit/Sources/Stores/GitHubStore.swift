@@ -214,10 +214,10 @@ public final class GitHubStore: HostStore {
         return try await connection.request(message, timeout: timeout)
     }
 
-    /// What a failed request says on screen: the Mac's message, else why it never got there.
+    /// What a failed request says on screen: all gh or git said, as the desktop shows it, else why it never got there.
     public nonisolated static func describe(_ error: any Error) -> String {
         switch error as? DaemonError {
-        case .server(let e)?: e.message
+        case .server(let e)?: e.detail ?? e.message
         case .offline?: "Not connected to the Mac"
         case .timedOut?: "The Mac didn't answer in time"
         case .closed?: "The connection dropped"
