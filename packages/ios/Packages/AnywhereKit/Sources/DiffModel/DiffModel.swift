@@ -62,6 +62,10 @@ public struct DiffDocument: Hashable, Sendable {
     public var truncated: Truncated?
     /// Digits of the widest line number, so the gutter keeps one width.
     public var gutterDigits: Int
+    /// The side-by-side pairing of `lines`.
+    public var pairs: [SplitRow]
+    /// The longest line in UTF-8 bytes, near enough its characters, so side-by-side columns share one width.
+    public var widest: Int
 
     public init(_ diff: GitDiff) {
         path = diff.path
@@ -76,10 +80,9 @@ public struct DiffDocument: Hashable, Sendable {
                 .unchanged
             } else { .rows }
         gutterDigits = DiffRows.digits(lines)
+        pairs = DiffRows.split(lines)
+        widest = lines.reduce(0) { $1.kind == .hunk ? $0 : max($0, $1.text.utf8.count) }
     }
-
-    /// The side-by-side pairing of `lines`.
-    public func split() -> [SplitRow] { DiffRows.split(lines) }
 }
 
 public enum DiffRows {
