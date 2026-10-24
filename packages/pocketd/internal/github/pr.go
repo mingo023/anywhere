@@ -303,7 +303,7 @@ func resolveArgv(thread string, resolved bool) []string {
 }
 
 // hunkLines is how much of a comment's hunk travels: the lines it ends on,
-// all the desktop shows (hunk_tail).
+// one more than the desktop shows (hunk_tail).
 const hunkLines = 4
 
 // threadsResult reads what threadsArgv printed; false when it isn't threads.
