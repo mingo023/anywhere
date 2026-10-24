@@ -62,16 +62,24 @@ func (c *conn) closeWorkspace() {
 	}
 }
 
-// projectList answers from the cache for a workspace.v1 conn; otherwise git
-// lists every project, off the read loop.
+// projectList answers from the cache for a workspace.v1 conn. Anyone else
+// gets it fresh off the read loop, through the cache's one-at-a-time Scan so
+// a burst of asks can't run git for every project at once.
 func (c *conn) projectList(m proto.ClientMessage) {
-	if p := c.s.Workspace.Projects; p != nil && slices.Contains(c.caps, proto.CapWorkspace) {
-		if list, ok := p.List(); ok {
-			c.send(proto.NewProjectList(m.ID, list))
-			return
-		}
+	p := c.s.Workspace.Projects
+	if p == nil {
+		go c.send(proto.NewProjectList(m.ID, c.s.Projects()))
+		return
 	}
-	go c.send(proto.NewProjectList(m.ID, c.s.Projects()))
+	if list, ok := p.List(); ok && slices.Contains(c.caps, proto.CapWorkspace) {
+		c.send(proto.NewProjectList(m.ID, list))
+		return
+	}
+	go func() {
+		p.Scan()
+		list, _ := p.List()
+		c.send(proto.NewProjectList(m.ID, list))
+	}()
 }
 
 // workspaceScope names the scope local.* and worktree.rename are checked
