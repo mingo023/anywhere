@@ -97,7 +97,7 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
    // added/removed omitted for untracked and binary files; an untracked file's binary is a guess from its name.
    // A page past the first comes from the read that served cursor 0, for up to 30 s, so pages agree.
 
-→ {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops
+→ {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops; ≤32 trees
 ← {type:"git.changed", tree, rev}                              // push when a watched tree's rev moves (polled ~2 s)
 ← {type:"gh.changed", tree}                                    // push when a watched tree's PR result changes (polled ~30 s)
 
