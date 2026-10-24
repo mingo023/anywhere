@@ -387,3 +387,24 @@ func TestAPhoneLeavingMidAskLeavesTheShownPRAlone(t *testing.T) {
 		t.Fatal("the next poller would wait out the killed run's turn")
 	}
 }
+
+func TestAPhoneSlowToTakeAChangeDoesNotHoldTheOthers(t *testing.T) {
+	f := newFake(t)
+	f.put("view.json", fixture(t, "open.json"))
+	f.put("threads.json", fixture(t, "threads.json"))
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	changed := make(chan string, 8)
+	s.Listen("slow", func(string) { <-stuck })
+	s.Listen("k", func(tree string) { changed <- tree })
+	t.Cleanup(func() { s.Leave("slow"); s.Leave("k") })
+	s.Watch("slow", []string{tree})
+	s.Watch("k", []string{tree})
+	select {
+	case <-changed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no change told")
+	}
+}

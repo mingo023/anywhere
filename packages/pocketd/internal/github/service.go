@@ -187,8 +187,9 @@ func (s *Service) changed(tree string, everyTree bool) {
 		}
 	}
 	s.mu.Unlock()
+	// Each on its own: a phone slow to take a push must not hold the poller.
 	for _, f := range tell {
-		f()
+		go f()
 	}
 }
 
