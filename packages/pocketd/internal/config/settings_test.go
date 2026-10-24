@@ -206,3 +206,41 @@ func TestBadAgentArgsAreRefused(t *testing.T) {
 		t.Fatalf("fork args = %q", got)
 	}
 }
+
+func TestPhoneTerminalsAreOnUntilTheOwnerTurnsThemOff(t *testing.T) {
+	s := NewSettings(t.TempDir())
+	if !s.PhoneTerminals() || s.Values()["phone.terminals"] != "on" {
+		t.Fatalf("default: %v", s.Values()["phone.terminals"])
+	}
+	if err := s.Set("phone.terminals", "off"); err != nil || s.PhoneTerminals() || s.Values()["phone.terminals"] != "off" {
+		t.Fatalf("off: %v %v", err, s.Values()["phone.terminals"])
+	}
+	if err := s.Set("phone.terminals", "false"); err == nil || s.PhoneTerminals() {
+		t.Fatalf("false accepted: %v", err)
+	}
+	if err := s.Set("phone.terminals", "on"); err != nil || !s.PhoneTerminals() {
+		t.Fatalf("on: %v", err)
+	}
+}
+
+func TestPushRelayIsTheDefaultUntilSetToAnHttpsURL(t *testing.T) {
+	home := t.TempDir()
+	s := NewSettings(home)
+	if s.PushRelay() != DefaultPushRelay || s.Values()["push.relay"] != DefaultPushRelay {
+		t.Fatalf("default: %q", s.PushRelay())
+	}
+	for _, bad := range []string{"", "push.example.com", "http://push.example.com", "ftp://push.example.com", "https://u:p@push.example.com", "https://push.example.com/?k=1"} {
+		if err := s.Set("push.relay", bad); !errors.Is(err, ErrInvalidRelay) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	for _, good := range []string{"https://relay.example.com/base", "http://127.0.0.1:8787", "http://localhost:8787"} {
+		if err := s.Set("push.relay", good); err != nil || s.PushRelay() != good {
+			t.Errorf("%q: %v, got %q", good, err, s.PushRelay())
+		}
+	}
+	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"push":{"relay":"http://evil.example.com"}}`), 0o600)
+	if s.PushRelay() != DefaultPushRelay {
+		t.Fatalf("a hand-edited plain http relay reads as %q", s.PushRelay())
+	}
+}

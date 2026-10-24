@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "hp",
+  "message": "Install the GitHub CLI on your Mac",
+  "code": "gh_missing"
+}

@@ -1,0 +1,11 @@
+{
+  "type": "fs.read",
+  "id": "fr",
+  "tree": "/Users/me/dev/pocket",
+  "path": "src/main.rs",
+  "kind": "text",
+  "size": 30,
+  "mtime": 1790000000000,
+  "text": "fn main() {\n    println!(\"hi\");\n}\n",
+  "language": "rust"
+}

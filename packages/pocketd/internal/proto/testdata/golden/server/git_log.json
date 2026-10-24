@@ -1,0 +1,29 @@
+{
+  "type": "git.log",
+  "id": "gl",
+  "tips": {
+    "head": "1b59160",
+    "branch": "fix-login",
+    "upstream": "a42641f",
+    "base": "214c24c"
+  },
+  "commits": [
+    {
+      "sha": "1b59160",
+      "parents": [
+        "214c24c"
+      ],
+      "author": "Minh",
+      "at": 1790000000,
+      "subject": "Fix login"
+    },
+    {
+      "sha": "214c24c",
+      "parents": [],
+      "author": "Minh",
+      "at": 1789990000,
+      "subject": "Root"
+    }
+  ],
+  "more": true
+}

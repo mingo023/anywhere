@@ -52,9 +52,17 @@ func (c *conn) providers(m proto.ClientMessage) {
 }
 
 func (c *conn) configSet(m proto.ClientMessage) {
-	err := c.s.Launch.SetPhoneMaxAccess(m.Value)
+	var err error
 	switch {
-	case errors.Is(err, config.ErrInvalid):
+	case m.Key == "phone.maxAccess":
+		err = c.s.Launch.SetPhoneMaxAccess(m.Value)
+	case c.s.Settings == nil:
+		err = errors.New("This pocketd can't change " + m.Key)
+	default:
+		err = c.s.Settings.Set(m.Key, m.Value)
+	}
+	switch {
+	case errors.Is(err, config.ErrInvalid), errors.Is(err, config.ErrInvalidRelay):
 		c.send(proto.NewCodedError(m.ID, "invalid_config", err.Error(), ""))
 	case err != nil:
 		c.send(proto.NewError(m.ID, err.Error()))

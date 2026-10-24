@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "gs",
+  "message": "This folder isn't a project on your Mac",
+  "code": "not_a_tree"
+}

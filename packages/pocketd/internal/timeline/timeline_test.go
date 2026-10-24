@@ -118,6 +118,40 @@ func TestPage(t *testing.T) {
 	}
 }
 
+func TestPagingBackSaysExactlyWhetherOlderItemsRemain(t *testing.T) {
+	tl := New()
+	for n := range 5 {
+		tl.Apply(Event{Kind: "user", Text: string(rune('a' + n))}, int64(n))
+	}
+	items, older := tl.Before(4, 2, false)
+	if len(items) != 2 || items[0].Seq != 2 || items[1].Seq != 3 || !older {
+		t.Fatalf("middle page: %v %v", items, older)
+	}
+	items, older = tl.Before(3, 2, false)
+	if len(items) != 2 || items[0].Seq != 1 || older {
+		t.Fatalf("last page: %v %v", items, older)
+	}
+	if items, older = tl.Before(1, 10, false); len(items) != 0 || older {
+		t.Fatalf("before the first: %v %v", items, older)
+	}
+	if items, older = tl.Before(100, 10, false); len(items) != 5 || older {
+		t.Fatalf("past the end: %v %v", items, older)
+	}
+}
+
+func TestPagingBackSkipsSubagentItemsUnlessAsked(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "user", Text: "a"}, 1)
+	tl.Apply(Event{Kind: "assistant_text", Text: "sub", ParentToolUseID: "t1"}, 2)
+	tl.Apply(Event{Kind: "user", Text: "b"}, 3)
+	if items, older := tl.Before(3, 1, false); len(items) != 1 || items[0].Text != "a" || older {
+		t.Fatalf("own: %v %v", items, older)
+	}
+	if items, older := tl.Before(3, 1, true); len(items) != 1 || items[0].Text != "sub" || !older {
+		t.Fatalf("with sub-agents: %v %v", items, older)
+	}
+}
+
 func TestPageWithoutRoomReturnsNothing(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "user", Text: "a"}, 1)

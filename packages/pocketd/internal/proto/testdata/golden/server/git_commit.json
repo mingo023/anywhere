@@ -1,0 +1,21 @@
+{
+  "type": "git.commit",
+  "id": "gc",
+  "sha": "1b59160",
+  "subject": "Fix login",
+  "body": "Closes #12",
+  "author": "Minh",
+  "at": 1790000000,
+  "files": [
+    {
+      "path": "src/main.rs",
+      "status": "M",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "path": "logo.png",
+      "status": "A"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "type": "error",
+  "id": "gp",
+  "message": "! [rejected] fix-login -\u003e fix-login (non-fast-forward)",
+  "code": "git_failed",
+  "detail": "To github.com:me/pocket.git\n ! [rejected] fix-login -\u003e fix-login (non-fast-forward)"
+}

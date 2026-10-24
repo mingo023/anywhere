@@ -1,0 +1,17 @@
+{
+  "type": "git.status",
+  "id": "gs",
+  "tree": "/Users/me/dev/pocket",
+  "rev": "0",
+  "detached": true,
+  "ahead": 0,
+  "behind": 0,
+  "totals": {
+    "files": 0,
+    "added": 0,
+    "removed": 0,
+    "staged": 0
+  },
+  "files": [],
+  "commits": []
+}

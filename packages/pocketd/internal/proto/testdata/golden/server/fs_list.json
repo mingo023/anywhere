@@ -1,0 +1,36 @@
+{
+  "type": "fs.list",
+  "id": "fl",
+  "tree": "/Users/me/dev/pocket",
+  "dir": "",
+  "entries": [
+    {
+      "name": "src",
+      "dir": true,
+      "size": 128,
+      "mtime": 1790000000000,
+      "git": "M"
+    },
+    {
+      "name": "node_modules",
+      "dir": true,
+      "size": 64,
+      "mtime": 1790000000000,
+      "ignored": true
+    },
+    {
+      "name": "README.md",
+      "dir": false,
+      "size": 2048,
+      "mtime": 1790000000000,
+      "git": "M"
+    },
+    {
+      "name": "link",
+      "dir": false,
+      "link": true,
+      "size": 12,
+      "mtime": 1790000000000
+    }
+  ]
+}

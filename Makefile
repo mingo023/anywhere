@@ -1,7 +1,7 @@
 POCKETD := packages/pocketd/bin/pocketd
 SERVICE := gui/$(shell id -u)/dev.mingo.anywhere.dev.pocketd
 
-.PHONY: all pocketd desktop run app
+.PHONY: all pocketd desktop run app ios
 
 all: desktop
 
@@ -17,3 +17,6 @@ run: desktop
 
 app: pocketd
 	scripts/bundle-dev.sh
+
+ios:
+	$(MAKE) -C packages/ios test

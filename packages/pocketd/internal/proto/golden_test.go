@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,9 +139,17 @@ func helloOKHost() HelloOK {
 	return ok
 }
 
+func all(goldens ...map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, g := range goldens {
+		maps.Copy(out, g)
+	}
+	return out
+}
+
 // TestServerGolden pins the exact JSON the phone decodes.
 func TestServerGolden(t *testing.T) {
-	for name, msg := range serverGolden {
+	for name, msg := range all(serverGolden, phoneServerGolden) {
 		got, err := json.MarshalIndent(msg, "", "  ")
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

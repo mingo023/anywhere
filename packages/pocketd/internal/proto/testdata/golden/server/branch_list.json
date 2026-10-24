@@ -1,0 +1,21 @@
+{
+  "type": "branch.list",
+  "id": "bl",
+  "current": "main",
+  "local": [
+    {
+      "name": "main",
+      "at": 1790000000
+    },
+    {
+      "name": "fix-login",
+      "at": 1789990000
+    }
+  ],
+  "remote": [
+    {
+      "name": "origin/main",
+      "at": 1790000000
+    }
+  ]
+}

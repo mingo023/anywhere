@@ -46,6 +46,52 @@ type ClientMessage struct {
 	Access          string
 	Action          string
 	Server          string
+	// BeforeSeq pages agent.timeline backwards; never set with SinceSeq.
+	BeforeSeq *float64
+
+	// The phone verbs' fields, in protocol.md. Count fields are 0 when absent.
+	TerminalID       string
+	Data             []byte // decoded from base64
+	Cols, Rows       int
+	Cwd              string
+	Base, Branch     string
+	Number           int // a PR's
+	Setup            *bool
+	DeleteBranch     bool
+	Tree             string
+	Trees            []string
+	Provider         string
+	Account          string
+	Cursor           int
+	At               *DiffAt
+	Context          *int
+	IgnoreWhitespace bool
+	MaxLines         int
+	All              bool
+	Skip             int
+	Sha              string
+	Paths            []string
+	Staged           bool
+	Amend            bool
+	Lease            bool
+	Body             string
+	Draft            bool
+	Method           string
+	Thread           string
+	Resolved         bool
+	Dir              string
+	Query            string
+	Max              int
+	UploadID         string
+	Index            int
+	Last             bool
+	Env              string
+	Alert, Start     *PushHandle
+	Handle           *PushHandle
+	Prefs            *PushPrefs
+	Frequent         bool
+	ActivityID       string
+	Ended            bool
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -53,59 +99,72 @@ var McpActions = []string{"auth", "reconnect", "enable"}
 
 var ErrMalformed = errors.New("Malformed message")
 
+type fields map[string]json.RawMessage
+
+func (f fields) has(key string) bool {
+	_, ok := f[key]
+	return ok
+}
+
+func (f fields) get(key string, dst any) bool {
+	v, ok := f[key]
+	return ok && string(v) != "null" && json.Unmarshal(v, dst) == nil
+}
+
+func (f fields) optional(key string, dst **float64) bool {
+	if !f.has(key) {
+		return true
+	}
+	*dst = new(float64)
+	return f.get(key, *dst)
+}
+
+func (f fields) optionalString(key string, dst *string) bool {
+	return !f.has(key) || f.get(key, dst)
+}
+
+func (f fields) stringList(key string, dst *[]string) bool {
+	var items []*string
+	if !f.get(key, &items) || slices.Contains(items, nil) {
+		return false
+	}
+	*dst = make([]string, len(items))
+	for n, item := range items {
+		(*dst)[n] = *item
+	}
+	return true
+}
+
+func (f fields) optionalList(key string, dst *[]string) bool {
+	return !f.has(key) || f.stringList(key, dst)
+}
+
+func (f fields) optionalAnswers(key string, dst *map[string]string) bool {
+	return !f.has(key) || f.get(key, dst)
+}
+
+func (f fields) optionalRange(key string, dst **Range) bool {
+	if !f.has(key) {
+		return true
+	}
+	var r struct{ Min, Max *float64 }
+	if !f.get(key, &r) || r.Min == nil || r.Max == nil || *r.Min != math.Trunc(*r.Min) || *r.Max != math.Trunc(*r.Max) {
+		return false
+	}
+	*dst = &Range{int(*r.Min), int(*r.Max)}
+	return true
+}
+
 // DecodeClient accepts what packages/protocol's ClientMessage accepts, except
 // a limit below 1.
 func DecodeClient(raw []byte) (ClientMessage, error) {
 	var m ClientMessage
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil {
+	var f fields
+	if json.Unmarshal(raw, &f) != nil {
 		return m, ErrMalformed
 	}
-	get := func(key string, dst any) bool {
-		v, ok := fields[key]
-		return ok && string(v) != "null" && json.Unmarshal(v, dst) == nil
-	}
-	optional := func(key string, dst **float64) bool {
-		if _, ok := fields[key]; !ok {
-			return true
-		}
-		*dst = new(float64)
-		return get(key, *dst)
-	}
-	optionalString := func(key string, dst *string) bool {
-		_, has := fields[key]
-		return !has || get(key, dst)
-	}
-	stringList := func(key string, dst *[]string) bool {
-		var items []*string
-		if !get(key, &items) || slices.Contains(items, nil) {
-			return false
-		}
-		*dst = make([]string, len(items))
-		for n, item := range items {
-			(*dst)[n] = *item
-		}
-		return true
-	}
-	optionalList := func(key string, dst *[]string) bool {
-		_, has := fields[key]
-		return !has || stringList(key, dst)
-	}
-	optionalAnswers := func(key string, dst *map[string]string) bool {
-		_, has := fields[key]
-		return !has || get(key, dst)
-	}
-	optionalRange := func(key string, dst **Range) bool {
-		if _, has := fields[key]; !has {
-			return true
-		}
-		var r struct{ Min, Max *float64 }
-		if !get(key, &r) || r.Min == nil || r.Max == nil || *r.Min != math.Trunc(*r.Min) || *r.Max != math.Trunc(*r.Max) {
-			return false
-		}
-		*dst = &Range{int(*r.Min), int(*r.Max)}
-		return true
-	}
+	get, optional, optionalString, stringList, optionalList, optionalAnswers, optionalRange :=
+		f.get, f.optional, f.optionalString, f.stringList, f.optionalList, f.optionalAnswers, f.optionalRange
 	ok := get("type", &m.Type) && get("id", &m.ID)
 	switch {
 	case !ok:
@@ -133,15 +192,15 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "agent.view", m.Type == "agent.seen":
 		ok = stringList("agentIds", &m.AgentIDs)
 	case m.Type == "agent.timeline":
-		ok = get("agentId", &m.AgentID) && optional("sinceSeq", &m.SinceSeq) && optional("limit", &m.Limit) &&
-			(m.Limit == nil || *m.Limit >= 1 && *m.Limit <= 500)
+		ok = get("agentId", &m.AgentID) && optional("sinceSeq", &m.SinceSeq) && optional("beforeSeq", &m.BeforeSeq) && optional("limit", &m.Limit) &&
+			(m.Limit == nil || *m.Limit >= 1 && *m.Limit <= 500) && (m.SinceSeq == nil || m.BeforeSeq == nil)
 	case m.Type == "permission.resolve":
 		ok = get("requestId", &m.RequestID) && get("decision", &m.Decision) && (m.Decision == "allow" || m.Decision == "deny") &&
 			optionalString("option", &m.Option) && optionalString("message", &m.Message) && optionalAnswers("answers", &m.Answers)
 	case m.Type == "agent.create":
-		ok = get("requestId", &m.RequestID) && m.RequestID != "" && len(m.RequestID) <= 64 && decodeSpec(fields["spec"], &m.Spec)
+		ok = get("requestId", &m.RequestID) && m.RequestID != "" && len(m.RequestID) <= 64 && decodeSpec(f["spec"], &m.Spec)
 	case m.Type == "config.set":
-		ok = get("key", &m.Key) && m.Key == "phone.maxAccess" && get("value", &m.Value) && slices.Contains(PhoneAccesses, m.Value)
+		ok = get("key", &m.Key) && get("value", &m.Value) && validConfig(m.Key, m.Value)
 	case m.Type == "worktree.rename":
 		ok = get("path", &m.Path) && m.Path != "" && get("title", &m.Title)
 	case m.Type == "local.create":
@@ -151,13 +210,14 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "local.delete":
 		ok = get("localId", &m.LocalID) && ValidLocalID(m.LocalID)
 	case m.Type == "automation.save":
-		ok = decodeAutomation(fields["automation"], &m.Automation)
+		ok = decodeAutomation(f["automation"], &m.Automation)
 	case m.Type == "automation.enable":
 		ok = get("automationId", &m.AutomationID) && get("enabled", &m.Enabled)
 	case m.Type == "automation.delete", m.Type == "automation.run":
 		ok = get("automationId", &m.AutomationID)
 	default:
-		ok = false
+		decode := phoneVerb(m.Type)
+		ok = decode != nil && decode(f, &m)
 	}
 	if !ok {
 		return m, ErrMalformed

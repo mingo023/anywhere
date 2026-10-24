@@ -12,7 +12,7 @@ import (
 	"pocketd/internal/lock"
 )
 
-const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | pipe <cmd> [args...] | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535>"
+const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | pipe <cmd> [args...] | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535> | config set phone.terminals <on|off> | config set push.relay <url>"
 
 func main() {
 	if len(os.Args) < 2 {

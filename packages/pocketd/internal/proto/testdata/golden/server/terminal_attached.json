@@ -1,0 +1,7 @@
+{
+  "type": "terminal.attached",
+  "id": "ta",
+  "terminalId": "t1",
+  "cols": 120,
+  "rows": 40
+}

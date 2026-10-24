@@ -1,0 +1,9 @@
+{
+  "type": "fs.read",
+  "id": "fr",
+  "tree": "/Users/me/dev/pocket",
+  "path": "big.log",
+  "kind": "tooLarge",
+  "size": 900000000,
+  "mtime": 1790000000000
+}

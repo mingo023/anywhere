@@ -24,13 +24,14 @@ step() {
 
 pocketd_tests() (cd packages/pocketd && go vet ./... && go test -race -count=1 ./...)
 desktop() (cd packages/desktop && "$@")
+ios() (cd packages/ios/Packages/AnywhereKit && PATH="$HOME/.swiftly/bin:$PATH" swift "$@")
 
 step ghostty scripts/build-ghostty.sh
 step install pnpm install --frozen-lockfile --prefer-offline
 step pocketd pocketd_tests
 step "protocol test" pnpm --filter @pocket/protocol test
-step "app typecheck" pnpm --filter @pocket/app typecheck
-step "app test" pnpm --filter @pocket/app test
+step "ios build" ios build
+step "ios test" ios test
 step "desktop build" desktop cargo build --workspace
 step "desktop clippy" desktop cargo clippy --workspace --all-targets
 step "desktop test" desktop cargo test --workspace

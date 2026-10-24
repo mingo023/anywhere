@@ -1,0 +1,60 @@
+// swift-tools-version: 6.2
+import PackageDescription
+
+let cmark: [Target.Dependency] = [
+    .product(name: "cmark-gfm", package: "swift-cmark"),
+    .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
+]
+
+/// Each module, the modules it imports, and whether it has a test target.
+let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
+    ("Wire", [], true),
+    ("Client", ["Wire"], true),
+    ("Domain", [], true),
+    ("ChatModel", ["Wire"], true),
+    ("MarkdownModel", cmark, true),
+    ("Highlight", [], true),
+    ("DiffModel", ["Wire"], true),
+    ("ActivityModel", [], true),
+    ("PushSupport", ["Wire"], true),
+    ("Fixtures", ["Wire"], true),
+    ("Stores", ["Wire", "Client", "Domain", "ChatModel", "DiffModel"], true),
+    ("DesignSystem", ["Domain"], true),
+    ("MarkdownView", ["MarkdownModel", "Highlight", "DesignSystem"], true),
+    ("CodeView", ["Highlight", "DiffModel", "DesignSystem"], true),
+    ("FeatureChat", ["Stores", "ChatModel", "MarkdownView", "CodeView", "DesignSystem", "Domain"], true),
+    ("FeatureSessions", ["Stores", "DesignSystem", "Domain"], true),
+    ("FeatureTerminal", ["Stores", "DesignSystem", "Domain", .product(name: "SwiftTerm", package: "SwiftTerm")], true),
+    ("FeatureGit", ["Stores", "CodeView", "DiffModel", "DesignSystem", "Domain"], true),
+    ("FeatureGitHub", ["Stores", "MarkdownView", "DesignSystem", "Domain"], true),
+    ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "DesignSystem", "Domain"], true),
+    ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain"], true),
+    ("FeatureSettings", ["Stores", "DesignSystem", "Domain"], true),
+    ("AppShell", [
+        "Stores", "Domain", "DesignSystem", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit",
+        "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings",
+    ], true),
+    ("LiveActivityUI", ["ActivityModel", "DesignSystem"], true),
+]
+
+let executables: [(name: String, deps: [Target.Dependency])] = [
+    ("anywhere-probe", ["Wire", "Client", "Stores"]),
+    ("anywhere-gallery", ["Fixtures", "DesignSystem", "AppShell", "Stores"]),
+    ("anywhere-bench", ["Wire", "Fixtures", "MarkdownModel", "ChatModel", "DiffModel", "Highlight"]),
+]
+
+let package = Package(
+    name: "AnywhereKit",
+    platforms: [.iOS(.v18), .macOS(.v14)],
+    products: modules.map { .library(name: $0.name, targets: [$0.name]) },
+    dependencies: [
+        .package(url: "https://github.com/swiftlang/swift-cmark", branch: "gfm"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.20.0"),
+    ],
+    targets: modules.map { .target(name: $0.name, dependencies: $0.deps) }
+        + modules.filter(\.tested).map {
+            .testTarget(name: "\($0.name)Tests", dependencies: $0.name == "Fixtures" ? ["Fixtures"] : [.byName(name: $0.name), "Fixtures"])
+        }
+        + executables.map { .executableTarget(name: $0.name, dependencies: $0.deps) },
+    swiftLanguageModes: [.v6]
+)

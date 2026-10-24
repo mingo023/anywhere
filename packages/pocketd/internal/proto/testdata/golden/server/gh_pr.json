@@ -1,0 +1,59 @@
+{
+  "type": "gh.pr",
+  "id": "hp",
+  "tree": "/Users/me/dev/pocket",
+  "pr": {
+    "number": 118,
+    "title": "Fix login",
+    "url": "https://github.com/me/pocket/pull/118",
+    "state": "OPEN",
+    "draft": false,
+    "base": "main",
+    "head": "fix-login",
+    "checks": {
+      "passed": 3,
+      "failed": 1,
+      "pending": 1
+    },
+    "runs": [
+      {
+        "name": "test",
+        "outcome": "failed",
+        "url": "https://github.com/me/pocket/actions/runs/1"
+      },
+      {
+        "name": "lint",
+        "outcome": "passed"
+      }
+    ],
+    "review": "CHANGES_REQUESTED",
+    "reviews": [
+      {
+        "login": "ana",
+        "state": "CHANGES_REQUESTED"
+      }
+    ],
+    "requested": [
+      "bo"
+    ],
+    "mergeable": "MERGEABLE",
+    "gate": "checksFailed",
+    "threads": [
+      {
+        "id": "PRRT_kwDOA1",
+        "path": "src/main.rs",
+        "line": 2,
+        "outdated": false,
+        "resolved": false,
+        "comments": [
+          {
+            "author": "ana",
+            "body": "Say hello",
+            "at": 1790000000,
+            "hunk": "@@ -1,2 +1,2 @@\n-    println!(\"hi\");"
+          }
+        ]
+      }
+    ]
+  }
+}

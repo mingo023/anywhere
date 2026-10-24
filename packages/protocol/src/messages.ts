@@ -3,6 +3,12 @@ import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timel
 import { Automation, AutomationDraft, Run } from "./automation.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
 import { Local, LocalId } from "./locals.js";
+import { TerminalClient, TerminalServer } from "./terminal.js";
+import { WorkspaceClient, WorkspaceServer } from "./workspace.js";
+import { GitClient, GitServer } from "./git.js";
+import { GhClient, GhServer } from "./gh.js";
+import { FsClient, FsServer } from "./fs.js";
+import { PushClient } from "./push.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
 export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
@@ -82,6 +88,7 @@ export const ClientMessage = Schema.Union(
     id: Schema.String,
     agentId: Schema.String,
     sinceSeq: Schema.optional(Schema.Number),
+    beforeSeq: Schema.optional(Schema.Number),
     limit: Schema.optional(Schema.Number.pipe(Schema.lessThanOrEqualTo(500))),
   }),
   Schema.Struct({
@@ -103,6 +110,13 @@ export const ClientMessage = Schema.Union(
     value: PhoneAccess,
   }),
   Schema.Struct({
+    type: Schema.Literal("config.set"),
+    id: Schema.String,
+    key: Schema.Literal("phone.terminals"),
+    value: Schema.Literal("on", "off"),
+  }),
+  Schema.Struct({ type: Schema.Literal("config.set"), id: Schema.String, key: Schema.Literal("push.relay"), value: Schema.NonEmptyString }),
+  Schema.Struct({
     type: Schema.Literal("worktree.rename"),
     id: Schema.String,
     path: Schema.NonEmptyString,
@@ -121,6 +135,12 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("automation.enable"), id: Schema.String, automationId: Schema.String, enabled: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("automation.delete"), id: Schema.String, automationId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("automation.run"), id: Schema.String, automationId: Schema.String }),
+  ...TerminalClient,
+  ...WorkspaceClient,
+  ...GitClient,
+  ...GhClient,
+  ...FsClient,
+  ...PushClient,
 );
 export type ClientMessage = typeof ClientMessage.Type;
 
@@ -222,6 +242,11 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("local.list"), locals: Schema.Array(Local) }),
   Schema.Struct({ type: Schema.Literal("automations"), automations: Schema.Array(Automation), runs: Schema.Array(Run) }),
   ProjectList,
+  ...TerminalServer,
+  ...WorkspaceServer,
+  ...GitServer,
+  ...GhServer,
+  ...FsServer,
 );
 export type ServerMessage = typeof ServerMessage.Type;
 

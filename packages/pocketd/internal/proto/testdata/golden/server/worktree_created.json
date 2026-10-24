@@ -1,0 +1,7 @@
+{
+  "type": "worktree.created",
+  "id": "wc",
+  "requestId": "r1",
+  "path": "/Users/me/.worktrees/pocket/calm-otter",
+  "branch": "calm-otter"
+}

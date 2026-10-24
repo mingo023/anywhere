@@ -47,6 +47,17 @@ func TestAProviderCommandThatIsntOnTheMacIsRefused(t *testing.T) {
 	}
 }
 
+func TestPocketdConfigSetsPhoneTerminalsAndThePushRelay(t *testing.T) {
+	settings := config.NewSettings(t.TempDir())
+	set := configSetter(launch.New(&daemon.Daemon{}, nil, settings, nil), settings, func() {})
+	if err := set("phone.terminals", "off"); err != nil || settings.PhoneTerminals() {
+		t.Fatalf("phone.terminals: %v", err)
+	}
+	if err := set("push.relay", "https://relay.example.com"); err != nil || settings.PushRelay() != "https://relay.example.com" {
+		t.Fatalf("push.relay: %v %q", err, settings.PushRelay())
+	}
+}
+
 func freePort(t *testing.T) int {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -1,0 +1,22 @@
+{
+  "type": "terminal.list",
+  "id": "tl",
+  "terminals": [
+    {
+      "id": "t1",
+      "cwd": "/Users/me/dev/pocket",
+      "cols": 120,
+      "rows": 40,
+      "title": "claude",
+      "agentId": "a1"
+    },
+    {
+      "id": "t2",
+      "cwd": "/Users/me/dev/pocket",
+      "cols": 80,
+      "rows": 24,
+      "localId": "l1",
+      "exited": true
+    }
+  ]
+}
