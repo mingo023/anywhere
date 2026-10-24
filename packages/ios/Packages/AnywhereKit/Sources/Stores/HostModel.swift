@@ -82,7 +82,8 @@ public final class HostModel: Identifiable {
     /// The chat store of an agent, made on first open.
     public func chat(_ agentId: String) -> ChatStore {
         if let chat = chats[agentId] { return chat }
-        let chat = ChatStore(agentId: agentId, connection: connection)
+        let chat = ChatStore(agentId: agentId, connection: connection, defaults: .standard, draftScope: id)
+        chat.seed(sessions.session(agentId)?.summary, requests: sessions.session(agentId)?.requests ?? [], hello: hello)
         chats[agentId] = chat
         return chat
     }
