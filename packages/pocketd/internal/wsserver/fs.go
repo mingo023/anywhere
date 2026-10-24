@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"slices"
 	"sync"
+	"time"
 
 	"pocketd/internal/fsview"
 	"pocketd/internal/proto"
@@ -28,11 +29,34 @@ const (
 	fsSearchDefault = 50
 )
 
+// uploadIdle is how long an upload waits for its next chunk before it is
+// dropped with its part file; tests shorten it.
+var uploadIdle = 60 * time.Second
+
 // filesConn is a conn's state for this area.
 type filesConn struct {
 	reads   chan struct{}
 	mu      sync.Mutex
-	uploads map[string]*fsview.Upload
+	uploads map[string]*upload
+}
+
+// upload is one open upload, dropped once idle fires.
+type upload struct {
+	*fsview.Upload
+	idle *time.Timer
+}
+
+// drop forgets id's upload, the part file with it unless it landed.
+func (f *filesConn) drop(id string, landed bool) {
+	u := f.uploads[id]
+	if u == nil {
+		return
+	}
+	u.idle.Stop()
+	if !landed {
+		u.Abort()
+	}
+	delete(f.uploads, id)
 }
 
 func (c *conn) helloFiles() {
@@ -45,9 +69,8 @@ func (c *conn) helloFiles() {
 func (c *conn) closeFiles() {
 	c.files.mu.Lock()
 	defer c.files.mu.Unlock()
-	for id, u := range c.files.uploads {
-		u.Abort()
-		delete(c.files.uploads, id)
+	for id := range c.files.uploads {
+		c.files.drop(id, false)
 	}
 }
 
@@ -152,34 +175,41 @@ func (c *conn) putChunk(m proto.ClientMessage) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.uploads == nil {
-		f.uploads = map[string]*fsview.Upload{}
+		f.uploads = map[string]*upload{}
 	}
-	u := f.uploads[m.UploadID]
+	id := m.UploadID
 	if m.Index == 0 {
-		if u != nil {
-			u.Abort()
-			delete(f.uploads, m.UploadID)
-		}
+		f.drop(id, false)
 		if len(f.uploads) >= fsUploads {
 			return "", &fsview.Refusal{Code: proto.CodeAttachInvalid, Message: "Too many images uploading at once"}
 		}
-		var err error
-		if u, err = c.s.Files.StartUpload(m.UploadID, m.Name); err != nil {
+		started, err := c.s.Files.StartUpload(id, m.Name)
+		if err != nil {
 			return "", err
 		}
-		f.uploads[m.UploadID] = u
+		u := &upload{Upload: started}
+		// A phone that stops sending part-way, without closing its socket, leaves nothing behind either.
+		u.idle = time.AfterFunc(uploadIdle, func() {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.uploads[id] == u {
+				f.drop(id, false)
+			}
+		})
+		f.uploads[id] = u
 	}
+	u := f.uploads[id]
 	if u == nil {
 		return "", &fsview.Refusal{Code: proto.CodeAttachInvalid, Message: "That upload hasn't started"}
 	}
 	if err := u.Put(m.Index, m.Data); err != nil {
-		u.Abort()
-		delete(f.uploads, m.UploadID)
+		f.drop(id, false)
 		return "", err
 	}
 	if !m.Last {
+		u.idle.Reset(uploadIdle)
 		return "", nil
 	}
-	delete(f.uploads, m.UploadID)
+	f.drop(id, true)
 	return u.Finish()
 }

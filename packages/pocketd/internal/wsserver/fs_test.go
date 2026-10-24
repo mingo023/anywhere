@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"pocketd/internal/devices"
 	"pocketd/internal/fsview"
@@ -95,6 +96,31 @@ func TestAnImageUploadsInChunksAndLandsUnderAttachments(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(want); string(got) != string(image) {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestAnUploadLeftPartWayIsDroppedWithItsPartFile(t *testing.T) {
+	was := uploadIdle
+	uploadIdle = 100 * time.Millisecond
+	t.Cleanup(func() { uploadIdle = was })
+	files, _, attachments := withFiles(t)
+	_, _, p := local(t, peer.FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes}), files)
+	helloWith(p, proto.CapFiles)
+	image := []byte("\x89PNG\r\n\x1a\nIHDR and the rest")
+	p.send(chunk("c0", 0, image[:12], false))
+	p.recv()
+	parts := func() []string { m, _ := filepath.Glob(filepath.Join(attachments, "*.part")); return m }
+	if len(parts()) != 1 {
+		t.Fatalf("part files %v", parts())
+	}
+	for deadline := time.Now().Add(5 * time.Second); len(parts()) > 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the part file stayed: %v", parts())
+		}
+	}
+	p.send(chunk("c1", 1, image[12:], true))
+	if m := p.recv(); m["id"] != "c1" || m["code"] != proto.CodeAttachInvalid {
+		t.Fatalf("%v", m)
 	}
 }
 

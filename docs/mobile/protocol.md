@@ -234,7 +234,8 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
 ← ack per chunk; on last: {type:"attach.done", id, uploadId, path}  // path under <home>/attachments, as the desktop's pasted images
    // png jpg jpeg gif webp heic only, and chunk 0 must start as that type does; code "attach_invalid" otherwise.
    // index counts from 0 with no gaps; index 0 starts (or restarts) the upload. The file is <uploadId>.<ext>,
-   //   mode 0600 in a 0700 folder. A socket that closes mid-upload leaves nothing; ≤4 uploads open per socket.
+   //   mode 0600 in a 0700 folder. A socket that closes mid-upload leaves nothing, nor does an upload
+   //   that gets no chunk for 60 s (a later chunk is attach_invalid); ≤4 uploads open per socket.
 ```
 
 ## push.v1
