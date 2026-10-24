@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -331,6 +333,49 @@ func TestAProcessInATerminalCannotReachTheOthers(t *testing.T) {
 		p.send(raw)
 		if m := p.recv(); m["code"] != proto.CodeScopeDenied {
 			t.Fatalf("%s: %v", raw, m)
+		}
+	}
+}
+
+// Attaching again mid-stream, as a phone does on zoom, gets a snapshot that no
+// output from the attach it replaced may follow.
+func TestAttachingAgainSendsNothingOlderThanTheFreshSnapshot(t *testing.T) {
+	terms := terminal.NewManager()
+	_, _, p := local(t, peer.OwnerOf(1), withTerminals(t, terms, "/p"))
+	s := run(t, terms, `read x; seq -f L%.0f 1 100000000`)
+	id := s.Info().ID
+	p.ws.SetReadLimit(-1)
+	helloWith(p, proto.CapTerminal)
+	p.send(`{"type":"terminal.attach","id":"a","terminalId":"` + id + `"}`)
+	p.next()
+	p.next()
+	p.input(id, "\n")
+	numbered := regexp.MustCompile(`L(\d+)`)
+	lines := func(b []byte) []int {
+		var out []int
+		for _, m := range numbered.FindAllSubmatch(b, -1) {
+			n, _ := strconv.Atoi(string(m[1]))
+			out = append(out, n)
+		}
+		return out
+	}
+	for round := range 20 {
+		p.send(`{"type":"terminal.attach","id":"b","terminalId":"` + id + `"}`)
+		for f := p.next(); f.msg["type"] != "terminal.attached"; f = p.next() {
+		}
+		snap := p.next()
+		for snap.kind != proto.FrameSnapshot {
+			snap = p.next()
+		}
+		latest := slices.Max(append(lines(snap.payload), 0))
+		// Up to the next snapshot, should this phone fall behind: output stays contiguous.
+		var after []byte
+		for f := p.next(); len(after) < 128<<10 && f.kind != proto.FrameSnapshot; f = p.next() {
+			after = append(after, f.payload...)
+		}
+		// The last number may be cut short where reading stopped.
+		if got := lines(after); len(got) > 1 && slices.Min(got[:len(got)-1]) <= latest {
+			t.Fatalf("round %d: output from before the snapshot (L%d) came after it (L%d)", round, slices.Min(got[:len(got)-1]), latest)
 		}
 	}
 }

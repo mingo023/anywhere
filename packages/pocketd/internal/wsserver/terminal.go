@@ -3,6 +3,7 @@ package wsserver
 import (
 	"cmp"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,6 +43,9 @@ type terminalConn struct {
 	mu        sync.Mutex
 	viewers   map[string]*viewer
 	stopWatch func()
+	// framing is held across each frame's stopped check and write, so a
+	// stopped viewer can't write after the snapshot of the attach that replaced it.
+	framing sync.Mutex
 }
 
 func (c *conn) helloTerminal() {
@@ -499,7 +503,17 @@ func (v *viewer) resized(cols, rows int) {
 	v.c.send(proto.NewTerminalResized(v.id, cols, rows))
 }
 
+var errViewerStopped = errors.New("viewer stopped")
+
 func (v *viewer) frame(kind byte, payload []byte) error {
+	v.c.terminal.framing.Lock()
+	defer v.c.terminal.framing.Unlock()
+	v.mu.Lock()
+	stopped := v.stopped
+	v.mu.Unlock()
+	if stopped {
+		return errViewerStopped
+	}
 	return writeFrame(v.c.ctx, v.c.ws, kind, v.id, payload)
 }
 
