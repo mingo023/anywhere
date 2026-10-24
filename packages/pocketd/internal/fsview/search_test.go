@@ -85,6 +85,25 @@ func TestAnIndexReadsNewlineOrNulSeparatedOutput(t *testing.T) {
 	}
 }
 
+// The phone's FuzzyMatch pins the same numbers, so both rank alike.
+func TestScoresMatchThePhonesCopy(t *testing.T) {
+	for _, c := range []struct {
+		query, path string
+		want        int
+	}{
+		{"sl", "a/status_letters.go", 62},
+		{"sl", "a/xsxxxlx.go", 50},
+		{"abc", "x/abcd.go", 120},
+		{"sr", "a/StatusRow.go", 74},
+		{"plan", "a/b/c/plan.md", 198},
+		{"pcexp", "packages/desktop/crates/pocket/src/explorer.rs", 112},
+	} {
+		if got := scoreOf(c.query, c.path); got != c.want {
+			t.Errorf("%s in %s: %d", c.query, c.path, got)
+		}
+	}
+}
+
 // fiftyThousand is a repo-sized list of paths.
 func fiftyThousand() Index {
 	dirs := []string{"packages/desktop/crates/pocket/src/chat", "packages/desktop/crates/git/src", "packages/ios/Packages/AnywhereKit/Sources/Stores",
