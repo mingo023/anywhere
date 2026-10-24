@@ -1,4 +1,5 @@
 import Client
+import Foundation
 import Observation
 import Wire
 
@@ -21,6 +22,10 @@ public final class HostModel: Identifiable {
     @ObservationIgnored public let connection: DaemonConnection
     public private(set) var link = LinkState.connecting
     public private(set) var hello: HelloOk?
+    /// Tailscale and keep-awake on the Mac, from hello.ok and each `host.changed`.
+    public private(set) var hostState: HostState?
+    /// When the link last left online, or when it first dialed; nil while online.
+    public private(set) var offlineSince: Date?
 
     public let sessions: SessionsStore
     public let workspace: WorkspaceStore
@@ -33,9 +38,12 @@ public final class HostModel: Identifiable {
     public private(set) var chats: [String: ChatStore] = [:]
 
     @ObservationIgnored private var listener: Task<Void, Never>?
+    @ObservationIgnored private let now: @MainActor () -> Date
 
-    public init(credentials: Credentials, connection: DaemonConnection? = nil) {
+    public init(credentials: Credentials, connection: DaemonConnection? = nil, now: @escaping @MainActor () -> Date = { Date() }) {
         id = credentials.deviceId
+        self.now = now
+        offlineSince = now()
         self.credentials = credentials
         let connection = connection ?? DaemonConnection(config: .init(host: credentials.host, token: credentials.deviceToken, clientId: credentials.clientId))
         self.connection = connection
@@ -101,7 +109,9 @@ public final class HostModel: Identifiable {
             switch event {
             case .connected(let ok):
                 hello = ok
+                hostState = ok.host
                 link = .online
+                offlineSince = nil
                 for store in stores { store.connected(ok) }
             case .message(let message):
                 route(message)
@@ -112,6 +122,7 @@ public final class HostModel: Identifiable {
                 case .retrying(let seconds): link = .retrying(seconds: seconds)
                 default: link = .ended(outcome)
                 }
+                if offlineSince == nil { offlineSince = now() }
                 for store in stores { store.disconnected() }
             }
         }
@@ -121,6 +132,10 @@ public final class HostModel: Identifiable {
     @discardableResult
     func route(_ message: ServerMessage) -> Bool {
         var taken = false
+        if case .hostChanged(let changed) = message, changed.host != hostState {
+            hostState = changed.host
+            taken = true
+        }
         for store in [sessions, workspace, terminals, git, github, files, push] as [any HostStore] {
             taken = store.apply(message) || taken
         }
