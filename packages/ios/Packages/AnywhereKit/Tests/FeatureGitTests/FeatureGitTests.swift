@@ -41,21 +41,38 @@ import Wire
     #expect(GitText.split("README.md") == ("README.md", ""))
 }
 
-@Test func sections_cut_flat_rows_at_their_headers() {
+@Test func each_section_s_rows_make_one_card_under_its_header() {
     let files = [
         GitFile(path: "a.swift", status: .modified, staged: true, unstaged: true),
         GitFile(path: "b.swift", status: .untracked, staged: false, unstaged: true),
     ]
-    let sections = SectionRows.split(ChangeTree.rows(files, tree: false, folded: []))
-    #expect(sections.map(\.section) == [.staged, .changes])
-    #expect(sections[0].paths == ["a.swift"])
-    #expect(sections[1].rows.count == 2)
+    let lines = ChangeLine.lines(ChangeTree.rows(files, tree: false, folded: []))
+    #expect(lines.map(\.id) == ["staged", "staged:a.swift", "changes", "changes:a.swift", "changes:b.swift"])
+    #expect(lines.map(\.first) == [false, true, false, true, false])
+    #expect(lines.map(\.last) == [false, true, false, false, true])
 }
 
 @Test func a_selection_picks_files_of_its_own_section_only() {
     let selection: Set = ["staged:a.swift", "changes:b.swift", "changes:dir/", "changes:dir/c.swift"]
-    #expect(SectionRows.paths(selection, in: .changes) == ["b.swift", "dir/c.swift"])
-    #expect(SectionRows.paths(selection, in: .staged) == ["a.swift"])
+    #expect(ChangeLine.paths(selection, in: .changes) == ["b.swift", "dir/c.swift"])
+    #expect(ChangeLine.paths(selection, in: .staged) == ["a.swift"])
+}
+
+@MainActor
+@Test func the_list_keeps_its_lines_until_the_files_or_folds_change() {
+    let host = HostModel.offline(hello: Sample.hello, messages: [])
+    host.git.take(Sample.gitStatus(files: 3))
+    let changes = host.git.changes(Sample.tree)
+    let cache = ChangeLines()
+    let first = cache.lines(changes, tree: false, folded: [])
+    #expect(cache.lines(changes, tree: false, folded: []) == first)
+    #expect(cache.lines(changes, tree: false, folded: ["changes"]).count < first.count)
+    var next = Sample.gitStatus(files: 3)
+    next.files[0].added = 99
+    host.git.take(next)
+    let moved = cache.lines(changes, tree: false, folded: [])
+    #expect(moved != first)
+    #expect(moved.map(\.id) == first.map(\.id))
 }
 
 @Test func tips_label_the_commits_they_point_at_by_name() {

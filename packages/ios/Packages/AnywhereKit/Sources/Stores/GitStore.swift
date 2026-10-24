@@ -320,6 +320,8 @@ public final class TreeChanges {
     public var error: String?
     /// The Mac said the tree moved since the last read.
     public internal(set) var stale = false
+    /// Bumped whenever `files` changes, so the list can keep its rows until it does.
+    public private(set) var revision = 0
     /// Bumped by each optimistic change, so a read that started before it can't undo it.
     @ObservationIgnored var generation = 0
 
@@ -336,6 +338,7 @@ public final class TreeChanges {
             guard page.rev == head?.rev, cursor == files.count else { return }
             files.append(contentsOf: page.files)
         }
+        revision += 1
         nextCursor = page.nextCursor
     }
 
@@ -343,6 +346,7 @@ public final class TreeChanges {
         generation += 1
         let before = files.count(where: \.staged)
         ChangeTree.flipStaged(&files, paths: paths, staged: staged)
+        revision += 1
         head?.totals.staged += files.count(where: \.staged) - before
     }
 
