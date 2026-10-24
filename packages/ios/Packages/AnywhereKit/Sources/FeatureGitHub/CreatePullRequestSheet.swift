@@ -16,12 +16,13 @@ struct CreatePullRequestSheet: View {
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(store: GitHubStore, tree: String, commits: [CommitRef]) {
+    init(store: GitHubStore, tree: String, commits: [CommitRef], base: String? = nil) {
         self.store = store
         model = store.pullRequest(tree)
         let filled = PullRequestText.fromCommits(commits)
         _title = State(initialValue: filled.title)
         _bodyText = State(initialValue: filled.body)
+        _base = State(initialValue: base ?? "")
     }
 
     var body: some View {

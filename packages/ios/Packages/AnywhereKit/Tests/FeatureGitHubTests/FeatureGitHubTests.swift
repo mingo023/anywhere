@@ -21,6 +21,16 @@ private func thread(_ id: String, path: String = "src/a.rs", resolved: Bool = fa
 
 @Suite("PR card wording")
 struct PullRequestTextTests {
+    @Test("a PR is offered only for a branch off its base")
+    func offersCreate() {
+        #expect(PullRequestText.offersCreate(branch: "fix", base: "main"))
+        #expect(!PullRequestText.offersCreate(branch: "fix", base: nil))
+        #expect(!PullRequestText.offersCreate(branch: "main", base: "origin/main"))
+        #expect(!PullRequestText.offersCreate(branch: nil, base: "origin/main"))
+        #expect(PullRequestText.baseBranch("origin/main") == "main")
+        #expect(PullRequestText.baseBranch("develop") == "develop")
+    }
+
     @Test("the merge row says what holds it back")
     func gateText() {
         #expect(PullRequestText.gate(.ready, base: "main") == "No conflicts with main")

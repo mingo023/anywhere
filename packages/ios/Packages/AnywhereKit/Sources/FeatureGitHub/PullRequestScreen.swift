@@ -10,15 +10,24 @@ struct PullRequestScreen: View {
     let model: TreePullRequest
     /// The branch's commits since its base, newest first, to fill a new PR.
     let commits: [CommitRef]
+    /// The branch's base, to open a new PR into.
+    let base: String?
+    /// The branch is off its base, so it can have a PR.
+    let offersCreate: Bool
     /// Asks the Mac again this often while on screen; the Mac answers from its cache while that is fresh.
     var every: Duration? = .seconds(30)
 
     @State private var creating = false
 
-    init(store: GitHubStore, tree: String, commits: [CommitRef] = [], every: Duration? = .seconds(30)) {
+    init(
+        store: GitHubStore, tree: String, commits: [CommitRef] = [], base: String? = nil, offersCreate: Bool = true,
+        every: Duration? = .seconds(30)
+    ) {
         self.store = store
         model = store.pullRequest(tree)
         self.commits = commits
+        self.base = base
+        self.offersCreate = offersCreate
         self.every = every
     }
 
@@ -39,7 +48,7 @@ struct PullRequestScreen: View {
             }
             .animation(.snappy, value: model.notice)
             .sheet(isPresented: $creating) {
-                CreatePullRequestSheet(store: store, tree: model.tree, commits: commits)
+                CreatePullRequestSheet(store: store, tree: model.tree, commits: commits, base: base)
             }
             .task(id: model.tree) {
                 guard let every else { return }
@@ -48,6 +57,15 @@ struct PullRequestScreen: View {
                     try? await Task.sleep(for: every)
                 }
             }
+    }
+
+    private var createButton: some View {
+        Button { creating = true } label: {
+            Text("Create PR").frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .padding(Space.l)
     }
 
     @ViewBuilder
@@ -59,12 +77,7 @@ struct PullRequestScreen: View {
         } else if model.loaded {
             Placeholder("No pull request", systemImage: "arrow.triangle.pull", detail: "This branch has no pull request yet.")
                 .overlay(alignment: .bottom) {
-                    Button { creating = true } label: {
-                        Text("Create PR").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .padding(Space.l)
+                    if offersCreate { createButton }
                 }
         } else if let error = model.error {
             Placeholder("Couldn't load the pull request", systemImage: "exclamationmark.triangle", detail: error)

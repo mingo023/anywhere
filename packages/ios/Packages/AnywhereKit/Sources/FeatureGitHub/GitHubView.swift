@@ -17,7 +17,14 @@ public struct GitHubView: View {
     public var body: some View {
         switch route {
         case .pullRequest(_, let tree):
-            PullRequestScreen(store: host.github, tree: tree)
+            // The tree's status gives the new PR its commits and base, and its watch brings gh.changed.
+            let head = host.git.changes(tree).head
+            PullRequestScreen(
+                store: host.github, tree: tree, commits: head?.commits ?? [], base: head?.base.map(PullRequestText.baseBranch),
+                offersCreate: PullRequestText.offersCreate(branch: head?.branch, base: head?.base)
+            )
+            .onAppear { host.git.show(tree) }
+            .onDisappear { host.git.hide(tree) }
         case .pullRequests(let mac, let project):
             PullRequestListScreen(store: host.github, mac: mac, project: project)
         default:

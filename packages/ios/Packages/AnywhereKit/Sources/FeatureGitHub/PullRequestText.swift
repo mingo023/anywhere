@@ -7,6 +7,17 @@ public enum PrTone: Hashable, Sendable {
 
 /// What the PR card says, ported from the desktop's `pull_request.rs` and `pull_requests.rs` so both word it alike.
 public enum PullRequestText {
+    /// A base as gh names it: origin's copy by its branch name (`base_branch`).
+    public static func baseBranch(_ base: String) -> String {
+        base.hasPrefix("origin/") ? String(base.dropFirst("origin/".count)) : base
+    }
+
+    /// Create PR is offered only for a branch off its base, as the desktop's Changes menu does.
+    public static func offersCreate(branch: String?, base: String?) -> Bool {
+        guard let branch, let base else { return false }
+        return baseBranch(base) != branch
+    }
+
     /// What holds the merge back, or that nothing does (`gate_text`).
     public static func gate(_ gate: Gate, base: String) -> String {
         switch gate {
