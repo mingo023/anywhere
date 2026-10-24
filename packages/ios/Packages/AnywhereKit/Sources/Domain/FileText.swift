@@ -58,4 +58,26 @@ public enum FileText {
 
     /// `rel` inside `dir`, both relative to the tree.
     public static func join(_ dir: String, _ name: String) -> String { dir.isEmpty ? name : dir + "/" + name }
+
+    /// Where a link in the file at `file` points, relative to the tree; nil when it leads out of it.
+    public static func linked(_ link: String, from file: String, tree: String) -> String? {
+        let root = tree.hasSuffix("/") ? tree : tree + "/"
+        var parts = folder(file).split(separator: "/")
+        var rest = Substring(link)
+        if link.hasPrefix("/") {
+            guard link.hasPrefix(root) else { return nil }
+            parts = []
+            rest = link.dropFirst(root.count)
+        }
+        for part in rest.split(separator: "/") {
+            switch part {
+            case ".": continue
+            case "..":
+                guard !parts.isEmpty else { return nil }
+                parts.removeLast()
+            default: parts.append(part)
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "/")
+    }
 }

@@ -30,4 +30,13 @@ struct FileTextTests {
         #expect(FileText.join("", "src") == "src")
         #expect(FileText.join("src", "a.rs") == "src/a.rs")
     }
+
+    @Test("a markdown file's link finds its file beside it, inside the tree or nowhere")
+    func links() {
+        #expect(FileText.linked("lanes.md", from: "docs/README.md", tree: "/w") == "docs/lanes.md")
+        #expect(FileText.linked("../src/./a.rs", from: "docs/README.md", tree: "/w") == "src/a.rs")
+        #expect(FileText.linked("/w/src/a.rs", from: "docs/README.md", tree: "/w") == "src/a.rs")
+        #expect(FileText.linked("../../etc/passwd", from: "docs/README.md", tree: "/w") == nil)
+        #expect(FileText.linked("/etc/passwd", from: "README.md", tree: "/w") == nil)
+    }
 }

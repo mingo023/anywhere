@@ -14,6 +14,8 @@ struct FilePreviewScreen: View {
     let preview: FilePreview
 
     @AppStorage("files.markdownSource") private var source = false
+    @State private var linked: FilePick?
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         let read = loaded
@@ -36,6 +38,9 @@ struct FilePreviewScreen: View {
         #endif
         .toolbar { toolbar(read) }
         .task(id: preview.path) { files.load(preview) }
+        .navigationDestination(item: $linked) { pick in
+            FilePreviewScreen(files: files, preview: files.preview(tree: preview.tree, path: pick.path))
+        }
     }
 
     private var loaded: FsRead? {
@@ -51,7 +56,7 @@ struct FilePreviewScreen: View {
             CodeTextView(text: text, language: language)
         case .markdown(let text):
             ScrollView {
-                MarkdownView(text, style: .document)
+                MarkdownView(text, style: .document, onLink: open)
                     .padding(Space.l)
                     .frame(maxWidth: 760, alignment: .leading)
                     .frame(maxWidth: .infinity)
@@ -62,6 +67,14 @@ struct FilePreviewScreen: View {
             ZoomableImage(data: data, name: FileText.baseName(preview.path))
         case .note(let text, let systemImage):
             Placeholder(text, systemImage: systemImage, detail: preview.path)
+        }
+    }
+
+    private func open(_ link: MarkdownLink) {
+        switch link {
+        case .web(let url): openURL(url)
+        case .file(let path, _):
+            if let path = FileText.linked(path, from: preview.path, tree: preview.tree) { linked = FilePick(path: path) }
         }
     }
 
