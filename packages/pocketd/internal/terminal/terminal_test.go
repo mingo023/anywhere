@@ -388,6 +388,39 @@ func TestPausingAnExitedTerminalSaysItIsClosed(t *testing.T) {
 	}
 }
 
+func TestWatchersHearASpawnAForegroundChangeAndAnExit(t *testing.T) {
+	m := NewManager()
+	heard := make(chan string, 16)
+	stop := m.Watch(func() {
+		ids := []string{}
+		for _, i := range m.List() {
+			ids = append(ids, i.ID+":"+i.Foreground)
+		}
+		heard <- strings.Join(ids, ",")
+	})
+	s := spawn(t, m, `read x`)
+	id := s.Info().ID
+	if got := <-heard; got != id+":" {
+		t.Fatalf("spawn: %q", got)
+	}
+	s.SetForeground("vim")
+	s.SetForeground("vim")
+	if got := <-heard; got != id+":vim" {
+		t.Fatalf("foreground: %q", got)
+	}
+	s.Write([]byte("\n"))
+	if got := <-heard; got != "" {
+		t.Fatalf("exit: %q", got)
+	}
+	stop()
+	spawn(t, m, `read x`)
+	select {
+	case got := <-heard:
+		t.Fatalf("a stopped watcher heard %q", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestReplaceRunsAnotherProcessInTheSameTerminalWithoutAnExit(t *testing.T) {
 	m := NewManager()
 	s := spawn(t, m, `echo old; sleep 100`)

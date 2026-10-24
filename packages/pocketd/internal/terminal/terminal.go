@@ -74,6 +74,7 @@ type Terminal struct {
 	last   *Report
 	report func(id string, r Report)
 	exit   func()     // forgets the Terminal once its process ends
+	change func()     // tells the Manager's watchers; never under mu
 	typing sync.Mutex // held by a Prompt until its Enter goes out
 }
 
@@ -82,6 +83,34 @@ type Manager struct {
 	terminals map[string]*Terminal
 	OnInput   func(id string, b []byte) // sees each Write, before the process does
 	OnReport  func(id string, r Report) // each root OSC 7501 report, in order, outside the terminal's lock
+
+	watchMu  sync.Mutex
+	watchers map[*func()]bool
+}
+
+// Watch calls fn after each spawn, exit and foreground change, outside every
+// Terminal's lock. fn must not block.
+func (m *Manager) Watch(fn func()) (stop func()) {
+	m.watchMu.Lock()
+	defer m.watchMu.Unlock()
+	if m.watchers == nil {
+		m.watchers = map[*func()]bool{}
+	}
+	key := &fn
+	m.watchers[key] = true
+	return func() {
+		m.watchMu.Lock()
+		delete(m.watchers, key)
+		m.watchMu.Unlock()
+	}
+}
+
+func (m *Manager) changed() {
+	m.watchMu.Lock()
+	defer m.watchMu.Unlock()
+	for fn := range m.watchers {
+		(*fn)()
+	}
 }
 
 func NewManager() *Manager {
@@ -143,7 +172,9 @@ func (m *Manager) start(s *Terminal) {
 		delete(m.terminals, s.info.ID)
 		m.mu.Unlock()
 	}
+	s.change = m.changed
 	go s.pump(s.pty, s.proc)
+	m.changed()
 }
 
 // Adopted is a Terminal the image before exec handed down.
@@ -279,6 +310,7 @@ func (s *Terminal) pump(f console, p *os.Process) {
 	// exit takes Manager.mu, which Roots holds while it reads Pid under s.mu.
 	s.mu.Unlock()
 	s.exit()
+	s.change()
 	s.mu.Lock()
 	s.code = code
 	s.broadcast(Event{Kind: "exit", Code: s.code})
@@ -418,12 +450,14 @@ func (s *Terminal) Pgrp() (int, error) {
 
 func (s *Terminal) SetForeground(text string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed || s.info.Foreground == text {
+		s.mu.Unlock()
 		return
 	}
 	s.info.Foreground = text
 	s.broadcast(Event{Kind: "foreground", Text: text})
+	s.mu.Unlock()
+	s.change()
 }
 
 // Attach returns a snapshot of the screen and streams every later event to
