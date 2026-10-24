@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,9 @@ func TestAPhoneVerbWithoutItsCapIsMalformed(t *testing.T) {
 	}
 }
 
+// servedVerbs are the phone verbs whose handlers landed.
+var servedVerbs = []string{"worktree.create", "worktree.delete", "branch.list", "account.list", "agent.account"}
+
 func TestEveryPhoneVerbUnderItsCapIsNotImplementedYet(t *testing.T) {
 	servingPhoneCaps(t)
 	_, _, p := local(t, peer.OwnerOf(1))
@@ -76,7 +80,7 @@ func TestEveryPhoneVerbUnderItsCapIsNotImplementedYet(t *testing.T) {
 	for name, raw := range phoneGoldens(t) {
 		var req struct{ ID, Type string }
 		json.Unmarshal([]byte(raw), &req)
-		if strings.HasPrefix(req.Type, "terminal.") {
+		if strings.HasPrefix(req.Type, "terminal.") || slices.Contains(servedVerbs, req.Type) {
 			continue
 		}
 		p.send(raw)

@@ -12,6 +12,19 @@ public enum TimeText {
         }
     }
 
+    /// "now", "12m", "3h", "yesterday", "4d", as the desktop's `util::ago`; empty for no time.
+    public static func ago(ms: Int, now: Int) -> String {
+        guard ms > 0 else { return "" }
+        let m = max(now - ms, 0) / 60_000
+        switch m {
+        case 0: return "now"
+        case ..<60: return "\(m)m"
+        case ..<(24 * 60): return "\(m / 60)h"
+        case ..<(48 * 60): return "yesterday"
+        default: return "\(m / (24 * 60))d"
+        }
+    }
+
     /// "15:45" or "9:05": 24-hour time with no padded hour, in the reader's time zone.
     public static func clock(ms: Int, timeZone: TimeZone = .current) -> String {
         let (hour, minute) = parts(ms, timeZone)

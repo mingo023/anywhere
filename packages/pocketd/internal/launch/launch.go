@@ -252,12 +252,12 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 	if n.Branch != "" {
 		progress(proto.StepFetch, "")
 		o, err := worktree.PrepareBranch(f, s.Project, n.Name, n.Branch, env)
-		return opened(f, s, o, err, progress)
+		return opened(w, f, s, o, err, progress)
 	}
 	if n.PR != "" {
 		progress(proto.StepFetch, "")
 		o, err := openPR(f, s, env)
-		return opened(f, s, o, err, progress)
+		return opened(w, f, s, o, err, progress)
 	}
 	plan, err := worktree.Prepare(f, s.Project, n.Name, n.Base)
 	if err != nil {
@@ -272,7 +272,7 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 	if err != nil {
 		return "", "", gitFailure(err)
 	}
-	return filled(f, s, c.Path, progress)
+	return filled(w, f, s, c.Path, progress)
 }
 
 func openPR(f registry.File, s proto.LaunchSpec, env []string) (*worktree.Open, error) {
@@ -289,7 +289,7 @@ func openPR(f registry.File, s proto.LaunchSpec, env []string) (*worktree.Open, 
 
 // opened adds o's Worktree and fills it, or takes the one already on its
 // branch as it is.
-func opened(f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, progress func(step, note string)) (string, string, *Failure) {
+func opened(w Who, f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, progress func(step, note string)) (string, string, *Failure) {
 	if err != nil {
 		return "", "", gitFailure(err)
 	}
@@ -304,14 +304,15 @@ func opened(f registry.File, s proto.LaunchSpec, o *worktree.Open, err error, pr
 	if err != nil {
 		return "", "", gitFailure(err)
 	}
-	return filled(f, s, c.Path, progress)
+	return filled(w, f, s, c.Path, progress)
 }
 
 // filled copies into a new Worktree at path and picks its setup, unless the
 // owner turned them off. The setup in the project's settings wins over the
 // one the repo names in its worktree.ConfigFile or keeps as its
-// worktree.SetupScript.
-func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step, note string)) (string, string, *Failure) {
+// worktree.SetupScript. A non-owner's comes from the project's own checkout
+// only: a branch or PR it picked could carry any script.
+func filled(w Who, f registry.File, s proto.LaunchSpec, path string, progress func(step, note string)) (string, string, *Failure) {
 	n := s.Checkout.New
 	if on(n.Copy) {
 		progress(proto.StepCopy, "")
@@ -320,7 +321,11 @@ func filled(f registry.File, s proto.LaunchSpec, path string, progress func(step
 	setup := ""
 	if on(n.Setup) {
 		if setup = f.Repos[s.Project].Setup; setup == "" {
-			setup = worktree.RepoSetup(s.Project, path)
+			tree := path
+			if !w.Owner {
+				tree = s.Project
+			}
+			setup = worktree.RepoSetup(s.Project, tree)
 		}
 	}
 	return path, setup, nil

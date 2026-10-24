@@ -509,6 +509,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		// Signing in to or enabling a server drives the agent; listing them only observes it.
 		verb += ".act"
 	}
+	verb = c.workspaceScope(verb)
 	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
 	}
@@ -527,7 +528,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		c.send(proto.NewAgentList(m.ID, c.s.Agents.List()))
 		return nil
 	case "project.list":
-		c.send(proto.NewProjectList(m.ID, c.s.Projects()))
+		c.projectList(m)
 		return nil
 	case "agent.view":
 		c.emitSeen(m.AgentIDs)
@@ -567,6 +568,11 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")
+		}
+		if _, ok := c.workspaceTree(m.Path); !ok && !c.who.Has(peer.Own) {
+			// Its retitle reaches every terminal under the path.
+			c.send(proto.NewErrorCode(m.ID, proto.CodeNotATree, "This folder isn't in a project on your Mac"))
+			return nil
 		}
 		if err := c.s.Names.Rename(m.Path, m.Title); err != nil {
 			return err

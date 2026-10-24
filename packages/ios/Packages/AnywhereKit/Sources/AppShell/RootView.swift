@@ -79,7 +79,9 @@ public struct RootView: View {
 
     @ViewBuilder
     private var home: some View {
-        if let host = app.hosts.first {
+        if app.hosts.count > 1 && !isWide {
+            MacsView(app: app)
+        } else if let host = app.hosts.first {
             SessionsView(host: host, route: .sessions(mac: host.hello?.serverId ?? host.id))
         }
     }

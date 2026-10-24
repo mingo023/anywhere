@@ -15,7 +15,20 @@ public struct SessionsView: View {
     }
 
     public var body: some View {
-        Placeholder(host.name, systemImage: "rectangle.stack", detail: "Sessions")
-            .navigationTitle(host.name)
+        let mac = route.mac ?? host.hello?.serverId ?? host.id
+        switch route {
+        case .project(_, let path):
+            HomeView(host: host, mac: mac, only: path)
+        case .worktree(_, let path):
+            TreeView(host: host, mac: mac, key: path)
+        case .local(_, let id):
+            TreeView(host: host, mac: mac, key: id)
+        case .newSession(_, let project):
+            NewSessionView(host: host, mac: mac, project: project, place: nil)
+        case .automations:
+            AutomationsView(host: host, mac: mac)
+        default:
+            HomeView(host: host, mac: mac)
+        }
     }
 }

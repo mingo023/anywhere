@@ -48,6 +48,14 @@ public final class HostModel: Identifiable {
         push = PushStore(connection: connection)
     }
 
+    /// A Mac that is never dialled, holding what `hello` and `messages` say: for the gallery and previews.
+    public static func offline(hello: HelloOk, messages: [ServerMessage]) -> HostModel {
+        let host = HostModel(credentials: Credentials(host: "127.0.0.1:9", deviceToken: "", deviceId: hello.serverId, macName: hello.hostname,
+                                                      clientId: "offline", serverId: hello.serverId))
+        host.apply([.connected(hello)] + messages.map(ConnectionEvent.message))
+        return host
+    }
+
     /// The Mac's name: what it calls itself once it has said hello, else what pairing saved.
     public var name: String { hello?.hostname ?? credentials.macName }
 

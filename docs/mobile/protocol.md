@@ -64,27 +64,42 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
 |---|---|
 | `branch.list` | observe |
 | `worktree.create`, `worktree.delete` | spawn |
-| `local.create/rename/delete` | owner, as before |
+| `local.create/rename/delete`, `worktree.rename` | spawn for a peer that negotiated workspace.v1 (checked as `ws:<verb>.workspace`); owner for everyone else, as before. A non-owner's `worktree.rename` path must be a tree (`not_a_tree`) |
 | `account.list` | observe |
 | `agent.account` | drive |
 
 ```
 → {type:"worktree.create", id, requestId, project, name, base?|branch?|pr?:number, setup?:bool}
    // at most one of base, branch, pr; name may be "" only with branch or pr
+   // the same checkout as agent.create's checkout.new: copy set, then the project's setup unless setup:false
+   // a phone's setup is the project settings' or the one in the project's own checkout, never one the new branch or PR carries
 ← {type:"worktree.progress", id, requestId, step, note?}*   // steps as agent.progress: prepare, verify, fetch, worktree, copy, setup
 ← {type:"worktree.created", id, requestId, path, branch}
-→ {type:"worktree.delete", id, path, deleteBranch?:bool}  ← ack   // closes its terminals; the main worktree is refused (code "main_worktree")
+   // errors as agent.create's: unknown_project, worktree_exists, invalid_name, spawn_failed…
+   // a branch already checked out returns that worktree as it is
+   // setup runs in a new login-shell terminal of the worktree, which stays open; worktree.created doesn't wait for it
+   // the asking conn gets the new project.list before worktree.created
+→ {type:"worktree.delete", id, path, deleteBranch?:bool}  ← ack
+   // closes its terminals (not its Locals'), removes the folder and its display name, then `branch -D` when asked
+   // the main worktree is refused before anything closes (code "main_worktree"); unknown_worktree; git_failed
 
 → {type:"branch.list", id, tree}
 ← {type:"branch.list", id, current?, local:[{name, at}], remote:[{name, at}]}   // at = unix seconds; newest first; ≤200 each
+   // one for-each-ref over refs/heads and refs/remotes; remote names keep their remote ("origin/main"), remote HEADs are left out
+   // current = the branch checked out in tree, omitted when detached; not_a_tree, git_failed
 
-← {type:"project.list", projects}       // pushed without id to workspace.v1 conns whenever the list changes
+← {type:"project.list", projects}       // pushed without id to workspace.v1 conns once after each hello and whenever the list changes
+   // served from a cache pocketd re-reads every 2 s from stats of each project's git folder, and at once after a worktree verb;
+   // a workspace.v1 conn's project.list request is answered from it
 
 → {type:"account.list", id, provider?}
 ← {type:"account.list", id, accounts:[Account]}
 Account = {id, provider, name, plan?, email?, signedIn, isDefault?, fiveHour?:Usage, week?:Usage}
 Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
-→ {type:"agent.account", id, agentId, account}  ← ack        // switch a chat-only agent's account
+   // name = the account's label, else its email, else "Not signed in"; id "builtin" is each provider's own login
+   // usage older than a minute is fetched first (≤5 s); one that couldn't be renewed is the last known
+→ {type:"agent.account", id, agentId, account}  ← ack        // switch a chat-only agent's account once its turn ends
+   // unknown_account; "This session can't switch accounts" for a TUI agent
 ```
 
 ## git.v1
