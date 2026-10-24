@@ -271,7 +271,7 @@ public final class WorkspaceStore: HostStore {
         return true
     }
 
-    static func serverError(_ error: any Error) -> ServerError {
+    public static func serverError(_ error: any Error) -> ServerError {
         if case DaemonError.server(let e) = error { return e }
         switch error as? DaemonError {
         case .offline: return ServerError(message: "This Mac isn't connected")

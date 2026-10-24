@@ -98,19 +98,29 @@ public struct NewSessionDraft: Hashable, Sendable {
             plan.local = .init(localId: localId, project: project, name: localName)
             spec.checkout = .local(localId)
         case .newWorktree:
-            switch source {
-            case .new where base == nil:
+            if source == .new && base == nil {
                 spec.checkout = .new(NewWorktree(name: worktreeName(taken: taken), autoName: autoNames ? true : nil))
-            case .new:
-                plan.worktree = .init(requestId: "", project: project, name: worktreeName(taken: taken), base: base)
-            case .branch(let b):
-                plan.worktree = .init(requestId: "", project: project, name: "", branch: WorktreeName.withoutRemote(b))
-            case .pr(let typed):
-                plan.worktree = .init(requestId: "", project: project, name: "", pr: WorktreeName.parsePR(typed))
+            } else {
+                plan.worktree = worktreeCreate(taken: taken)
             }
         }
         plan.spec = spec
         return plan
+    }
+
+    /// The `worktree.create` that makes this draft's worktree; its `requestId` is set when it is sent.
+    public func worktreeCreate(taken: Set<String>, setup: Bool = true) -> ClientMessage.WorktreeCreate {
+        var create = ClientMessage.WorktreeCreate(requestId: "", project: project, name: "", setup: setup ? nil : false)
+        switch source {
+        case .new:
+            create.name = worktreeName(taken: taken)
+            create.base = base
+        case .branch(let b):
+            create.branch = WorktreeName.withoutRemote(b)
+        case .pr(let typed):
+            create.pr = WorktreeName.parsePR(typed)
+        }
+        return create
     }
 
     /// Picking another agent drops the model, effort and account picked for the last one; access holds for any.

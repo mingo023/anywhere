@@ -35,6 +35,8 @@ struct HomeListTests {
         let inUse = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:], sessions: [],
                                    terminalCwds: [anywhere + "/src"])
         #expect(inUse.sections[0].trees.first.map { [$0.label, $0.place] } == ["Local", "main"])
+        let open = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:], sessions: [], open: "/Users/mingo/notes")
+        #expect(open.sections[2].trees.map(\.kind) == [.own], "the one the phone has open stays while it does")
     }
 
     @Test("projects keep pocketd's order, or go by name, or by their latest status step")

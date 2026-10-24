@@ -53,10 +53,10 @@ public enum HomeList {
     }
 
     /// `localOfTerminal` places a session opened in a Local there; the rest go to the tree holding their folder.
-    /// A project's own checkout is listed only while in use: a session, or a terminal outside any Local (`terminalCwds`), is in it.
+    /// A project's own checkout is listed only while in use: a session, or a terminal outside any Local (`terminalCwds`), is in it, or the phone has it open (`open`).
     public static func build(
         projects: [Project], names: [String: String], locals: [Local], localOfTerminal: [String: String], sessions: [Session],
-        terminalCwds: [String] = [], query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: ProjectSort = .manual
+        terminalCwds: [String] = [], open: String? = nil, query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: ProjectSort = .manual
     ) -> Built {
         let index = Index(projects)
         let localIds = Set(locals.map(\.id))
@@ -80,7 +80,7 @@ public enum HomeList {
             let main = project.worktrees.first(where: \.isMain)
             let mainPath = main?.path ?? project.path
             var trees: [Tree] = []
-            if byTree[mainPath] != nil || busy.contains(mainPath) {
+            if byTree[mainPath] != nil || busy.contains(mainPath) || open == mainPath {
                 trees.append(Tree(id: mainPath, kind: .own, label: Sidebar.ownLocalName(given: names[mainPath]),
                                   place: main.map { Sidebar.treePlace(path: $0.path, branch: $0.branch) }, sessions: []))
             }

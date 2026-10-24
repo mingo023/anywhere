@@ -47,6 +47,8 @@ struct NewSessionTests {
         #expect(branch.worktree == .init(requestId: "", project: project, name: "", branch: "fix/login"))
         let pr = draft(.newWorktree) { $0.source = .pr("https://github.com/o/r/pull/118") }.plan(taken: [], localId: "", localName: "")
         #expect(pr.worktree?.pr == 118)
+        let alone = draft(.newWorktree) { $0.name = "t" }.worktreeCreate(taken: [], setup: false)
+        #expect(alone == .init(requestId: "", project: project, name: "t", setup: false), "a worktree made on its own may skip setup")
     }
 
     @Test("a draft says what stops it: a taken name, no branch, an unreadable PR, more access than the Mac allows")
