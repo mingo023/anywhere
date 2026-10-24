@@ -141,6 +141,13 @@ public final class FilesStore: HostStore {
         mention = FileMention(tree: tree, path: path, id: mentions)
     }
 
+    /// The path last asked to be mentioned in `tree`, handed to one composer only.
+    public func takeMention(in tree: String) -> String? {
+        guard let mention, mention.tree == tree else { return nil }
+        self.mention = nil
+        return mention.path
+    }
+
     // MARK: HostStore
 
     public func apply(_ message: ServerMessage) -> Bool {

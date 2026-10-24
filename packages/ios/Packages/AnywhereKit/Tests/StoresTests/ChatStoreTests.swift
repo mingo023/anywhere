@@ -223,4 +223,22 @@ struct ChatStoreTests {
         c.pick(0, cursor: 8)
         #expect(c.draft.text == "see @src/lanes.rs ")
     }
+
+    @Test("a file mentioned from Files lands once in the next chat on its tree to come on screen")
+    func mentionFromFiles() {
+        let files = FilesStore()
+        let c = ChatStore(agentId: "a1", files: files)
+        c.seed(agent(), requests: [], hello: Sample.hello)
+        c.draft.text = "look at"
+        files.mention(tree: "/elsewhere", path: "b.rs")
+        c.appear()
+        c.disappear()
+        #expect(c.draft.text == "look at")
+        files.mention(tree: "/w", path: "src/a.rs")
+        c.appear()
+        c.disappear()
+        c.appear()
+        c.disappear()
+        #expect(c.draft.text == "look at @src/a.rs ")
+    }
 }

@@ -88,7 +88,7 @@ public final class ChatStore: HostStore {
         self.agentId = agentId
         draftKey = "chat.draft.\(draftScope).\(agentId)"
         self.connection = connection
-        self.files = files ?? connection.map(ConnectionFiles.init)
+        self.files = files
         self.defaults = defaults
         self.clock = clock
         if let data = defaults?.data(forKey: draftKey), let saved = try? JSONDecoder().decode(Draft.self, from: data) { draft = saved }
@@ -261,6 +261,7 @@ public final class ChatStore: HostStore {
     public func appear() {
         viewing = true
         open()
+        if let cwd = summary?.cwd, let path = files?.takeMention(in: cwd) { mention(path) }
         ticker?.cancel()
         ticker = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -268,6 +269,12 @@ public final class ChatStore: HostStore {
                 self?.flush()
             }
         }
+    }
+
+    /// Puts `@path` at the end of the draft, as a pick from the suggest list would.
+    func mention(_ path: String) {
+        let text = draft.text
+        draft.text = text + (text.isEmpty || text.last!.isWhitespace ? "" : " ") + "@" + path + " "
     }
 
     public func disappear() {
