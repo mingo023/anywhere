@@ -163,7 +163,7 @@ public final class PushStore: HostStore {
         }, uniquingKeysWith: { $1 })
     }
 
-    nonisolated static func describe(_ error: any Error) -> String {
+    public nonisolated static func describe(_ error: any Error) -> String {
         switch error {
         case DaemonError.server(let e): e.message
         case DaemonError.offline, DaemonError.closed: "Not connected to this Mac."

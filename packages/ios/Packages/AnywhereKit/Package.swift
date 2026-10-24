@@ -29,7 +29,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("FeatureGitHub", ["Stores", "MarkdownView", "DesignSystem", "Domain"], true),
     ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "DesignSystem", "Domain"], true),
     ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain"], true),
-    ("FeatureSettings", ["Stores", "DesignSystem", "Domain"], true),
+    ("FeatureSettings", ["Stores", "DesignSystem", "Domain", "Wire", "Client"], true),
     ("AppShell", [
         "Stores", "Domain", "DesignSystem", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit",
         "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings",
