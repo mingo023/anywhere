@@ -99,17 +99,29 @@ func Dir(f registry.File, project string) string {
 
 // Containing is the registered Project whose folder or worktrees folder holds
 // dir; the deepest wins. Worktrees under ~/.worktrees, the former default, still count.
+// Both sides are compared as real paths: git reports a worktree under a root
+// behind a link (/tmp is /private/tmp) by its real path.
 func Containing(f registry.File, dir string) (string, bool) {
 	home, _ := os.UserHomeDir()
+	dir = resolved(dir)
 	best, depth := "", 0
 	for _, p := range f.Projects {
 		for _, root := range []string{p, Dir(f, p), filepath.Join(home, ".worktrees", f.Name(p))} {
+			root = resolved(root)
 			if (dir == root || strings.HasPrefix(dir, root+"/")) && len(root) > depth {
 				best, depth = p, len(root)
 			}
 		}
 	}
 	return best, depth > 0
+}
+
+// resolved is p's real path, or p as written when it doesn't exist.
+func resolved(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	return p
 }
 
 type Created struct {
