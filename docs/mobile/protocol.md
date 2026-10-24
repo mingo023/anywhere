@@ -201,20 +201,31 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
 ```
 → {type:"fs.list", id, tree, dir}                               // dir "" = the tree's root
 ← {type:"fs.list", id, tree, dir, entries:[{name, dir:bool, link?:bool, size, mtime, ignored?:bool, git?}]}
-   // folders first, then by name; git = the status letter of a changed file, or the shared letter of a folder's changes
+   // folders first, then by name (byte order); .git is left out; ignored = git check-ignore
+   // git = the letter of a changed file against HEAD (M A D R U, ? untracked; as git.status), or the letter a
+   //   folder's changes share, else M (explorer.rs folder_status); everything in an untracked folder is ?
    // mtime = unix ms here and in fs.read, as hostop.List
 
 → {type:"fs.read", id, tree, path, max?:int}                    // max default 524288 for text
 ← {type:"fs.read", id, tree, path, kind:"text"|"image"|"binary"|"tooLarge"|"unreadable", size, mtime,
    text?, truncated?:bool, language?, mime?, data?}             // data = base64 image bytes (≤20 MB)
+   // decided from stat first (preview.rs classify). text: the first max bytes, cut back to a whole character,
+   //   truncated:true when the file is longer; binary = a NUL in the first 8 KiB or not UTF-8.
+   // image (png jpg jpeg gif webp bmp ico): data + mime. svg is text with mime "image/svg+xml".
+   // tooLarge: an image over 20 MB, or text over 16 MB. unreadable: missing, a folder, or not a regular file.
 
 → {type:"fs.search", id, tree, query, limit?:int}               // limit default 50
 ← {type:"fs.search", id, paths:[path]}                          // fuzzy over git ls-files --cached --others --exclude-standard
+   // the query's letters in order, spaces ignored, case-insensitive; best first (word starts, runs and base-name
+   //   matches score higher), then changed files, then shorter paths. "" lists changed files, then the rest.
+   // The file list is cached per tree; a search over 5 s after the last read answers from it and re-reads behind.
 
 → {type:"attach.put", id, uploadId, name, index, data, last:bool}   // data = base64, ≤512 KiB decoded per chunk, ≤20 MB total
    // uploadId is 1..64 of A-Z a-z 0-9 _ -, as a localId
 ← ack per chunk; on last: {type:"attach.done", id, uploadId, path}  // path under <home>/attachments, as the desktop's pasted images
-   // png jpg jpeg gif webp heic only; code "attach_invalid" otherwise
+   // png jpg jpeg gif webp heic only, and chunk 0 must start as that type does; code "attach_invalid" otherwise.
+   // index counts from 0 with no gaps; index 0 starts (or restarts) the upload. The file is <uploadId>.<ext>,
+   //   mode 0600 in a 0700 folder. A socket that closes mid-upload leaves nothing; ≤4 uploads open per socket.
 ```
 
 ## push.v1

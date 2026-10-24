@@ -1,3 +1,4 @@
+import Domain
 import Fixtures
 import Foundation
 import SwiftTerm
@@ -40,3 +41,9 @@ try measure("10 MiB of terminal frames: parse + SwiftTerm", runs: 5) {
     for raw in terminalFrames { terminal.feed(byteArray: [UInt8](try TerminalFrame(parsing: raw).payload)) }
 }
 try gitBench()
+let paths = Sample.repoPaths(50_000)
+measure("index 50k paths for go-to-file", runs: 5) { _ = FuzzyIndex(paths) }
+let fileIndex = FuzzyIndex(paths)
+for query in ["e", "expl", "stsw", "pocketdwsserverstatus"] {
+    measure("fuzzy search 50k paths, \"\(query)\"") { _ = fileIndex.search(query, limit: 50) }
+}

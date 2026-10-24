@@ -113,7 +113,7 @@ func TestEveryPhoneVerbHasAClientGolden(t *testing.T) {
 }
 
 func TestPhoneCapsWaitForTheirHandlers(t *testing.T) {
-	for _, c := range []string{CapFiles, CapPush} {
+	for _, c := range []string{CapPush} {
 		if slices.Contains(ServerCaps, c) {
 			t.Errorf("%s is served before its handlers land", c)
 		}

@@ -15,6 +15,13 @@ public struct FilesView: View {
     }
 
     public var body: some View {
-        Placeholder("Files", systemImage: "folder")
+        switch route {
+        case .files(_, let tree, let dir):
+            FileTreeScreen(files: host.files, model: host.files.tree(tree), dir: dir)
+        case .file(_, let tree, let path):
+            FilePreviewScreen(files: host.files, preview: host.files.preview(tree: tree, path: path))
+        default:
+            Placeholder("Files", systemImage: "folder")
+        }
     }
 }
