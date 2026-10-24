@@ -5,7 +5,7 @@ public struct FsEntry: Codable, Hashable, Sendable {
     public var dir: Bool
     public var link: Bool?
     public var size: Int
-    /// Unix seconds.
+    /// Unix milliseconds.
     public var mtime: Int
     public var ignored: Bool?
     /// A changed file's status letter, or the shared letter of a folder's changes.
