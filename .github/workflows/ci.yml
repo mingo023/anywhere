@@ -24,6 +24,21 @@ jobs:
           go-version-file: packages/pocketd/go.mod
           cache-dependency-path: packages/pocketd/go.sum
 
+      # internal/vt links libghostty through cgo.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: ghostty
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        with:
+          version: 0.16.0
+
+      - name: Ghostty
+        run: scripts/build-ghostty.sh
+
       - name: Test
         working-directory: packages/pocketd
         run: go test ./...
