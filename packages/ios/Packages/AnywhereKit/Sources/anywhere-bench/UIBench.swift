@@ -20,6 +20,8 @@ enum UIBench {
         var size = CGSize(width: 393, height: 852)
         /// Bottom-anchored: scrolling goes up.
         var up = false
+        /// Checked to open at its end and keep to it through the updates.
+        var follows = false
         let make: @MainActor () -> Screen
     }
 
@@ -30,12 +32,17 @@ enum UIBench {
     }
 
     static let scenarios: [Scenario] = [
-        Scenario(name: "chat-5000", up: true, make: chat),
+        Scenario(name: "chat-5000", up: true, follows: true, make: chat),
         Scenario(name: "changes-1500", make: changes),
         Scenario(name: "diff-20k", make: { diff(sideBySide: false) }),
         Scenario(name: "diff-20k-split", size: CGSize(width: 1024, height: 768), make: { diff(sideBySide: true) }),
         Scenario(name: "file-10k", make: file),
         Scenario(name: "markdown-258k", make: markdown),
+    ]
+
+    /// Run only by name: a prompt sent at the end of a long chat glides up and is held a quarter down (see its PNGs).
+    static let extras: [Scenario] = [
+        Scenario(name: "chat-send", up: true, make: chatSend),
     ]
 
     static func main(_ args: [String]) -> Int32 {
@@ -46,7 +53,7 @@ enum UIBench {
             args.removeSubrange(at...(at + 1))
         }
         guard let name = args.first else { return all(png) }
-        guard let scenario = scenarios.first(where: { $0.name == name }) else {
+        guard let scenario = (scenarios + extras).first(where: { $0.name == name }) else {
             print("unknown scenario \(name); one of \(scenarios.map(\.name).joined(separator: ", "))")
             return 2
         }
@@ -84,6 +91,25 @@ enum UIBench {
             let item = TimelineItem(id: "s-a", seq: seq + 2, ts: Sample.now, body: .assistant(text: text))
             return { host.apply([.message(.agentStream(.init(agentId: agentId, epoch: 1, item: item)))]) }
         }
+        return Screen(view: AnyView(NavigationStack { ChatView(host: host, agentId: agentId) }), updates: updates)
+    }
+
+    static func chatSend() -> Screen {
+        let items = Sample.chatPerf(items: Int(ProcessInfo.processInfo.environment["UIBENCH_ITEMS"] ?? "") ?? 5000)
+        let seq = items.count
+        let agent = AgentSummary(
+            id: agentId, terminalId: "t-perf", title: "Perf", cwd: "/Users/mingo/dev/anywhere", provider: "claude", model: "claude-opus-5-5",
+            effort: "high", access: "edits", status: .idle, attached: true, epoch: 1, maxSeq: seq, createdAt: Sample.now - 600_000,
+            updatedAt: Sample.now, branch: "perf", tokensUsed: 48_000, contextWindow: 1_000_000)
+        let host = HostModel.offline(hello: Sample.hello, messages: [.agentList(.init(agents: [agent]))])
+        let store = host.chat(agentId)
+        host.apply([.message(.agentTimeline(.init(agentId: agentId, epoch: 1, items: items, hasOlder: false, maxSeq: seq)))])
+        store.flush()
+        let prompt = "Hold this prompt a quarter down"
+        let updates: [@MainActor () -> Void] = [{
+            store.draft.text = prompt
+            store.send()
+        }]
         return Screen(view: AnyView(NavigationStack { ChatView(host: host, agentId: agentId) }), updates: updates)
     }
 
@@ -221,7 +247,7 @@ enum UIBench {
         window.orderOut(nil)
         return Result(
             name: scenario.name, load: load, frames: frames, scrolls: scrolls, memory: memory, loadBodies: loadBodies, frameBodies: frameBodies,
-            scrollBodies: scrollBodies, endGaps: scenario.up ? (loadGap, streamedGap) : nil)
+            scrollBodies: scrollBodies, endGaps: scenario.follows ? (loadGap, streamedGap) : nil)
     }
 
     /// One turn of the run loop (main-actor tasks, preference and state changes), then layout and a commit.
