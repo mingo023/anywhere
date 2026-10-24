@@ -110,16 +110,18 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 | `git.stage`, `git.discard`, `git.commit.create`, `git.push`, `git.pull` | drive |
 
 ```
-→ {type:"git.status", id, tree, cursor?:int, limit?:int}     // limit default 50, max 5000, max 2000; cursor = file offset
+→ {type:"git.status", id, tree, cursor?:int, limit?:int}     // limit default 500, max 2000; cursor = file offset
 ← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?,
    totals:{files, added, removed, staged},
    files:[{path, oldPath?, status, staged, unstaged, added?, removed?, binary?}],
    commits:[{sha, subject}],                                  // ≤20 since base
    nextCursor?:int}
    // status ∈ "M" "A" "D" "R" "U" (conflict) "?" (untracked). Files sorted by path.
-   // rev = opaque stamp of the porcelain output. added/removed omitted for untracked files.
+   // rev = opaque stamp of the porcelain output and each changed file's size and mtime (no file is read).
+   // added/removed omitted for untracked and binary files; an untracked file's binary is a guess from its name.
+   // A page past the first comes from the read that served cursor 0, for up to 30 s, so pages agree.
 
-→ {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops
+→ {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops; ≤32 trees
 ← {type:"git.changed", tree, rev}                              // push when a watched tree's rev moves (polled ~2 s)
 ← {type:"gh.changed", tree}                                    // push when a watched tree's PR result changes (polled ~30 s)
 
@@ -137,6 +139,7 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 
 → {type:"git.log", id, tree, all?:bool, skip?:int, limit?:int}  // limit default 50, max 200
 ← {type:"git.log", id, tips:{head?, branch?, upstream?, base?}, commits:[{sha, parents, author, at, subject}], more}   // at = unix seconds
+   // tips.head, .upstream and .base are full shas, tips.branch the checked-out branch's name; every sha is full
 
 → {type:"git.commit", id, tree, sha}
 ← {type:"git.commit", id, sha, subject, body?, author, at, files:[{path, oldPath?, status, added?, removed?}]}
@@ -148,6 +151,7 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 → {type:"git.push", id, tree, lease?:bool}  ← ack
 → {type:"git.pull", id, tree}  ← ack                           // pull --ff-only
    // failures: error{code:"git_failed", message:<first stderr line>, detail?:<stderr>}
+   // a git.* tree must be a worktree's top folder, else not_a_tree; paths are file names, never pathspec patterns
 ```
 
 ## gh.v1

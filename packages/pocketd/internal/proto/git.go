@@ -14,6 +14,8 @@ const CodeGitFailed = "git_failed"
 const (
 	GitStatusLimit = 2000
 	GitLogLimit    = 200
+	// GitWatchLimit bounds the trees one conn has polled; a phone watches what is on screen.
+	GitWatchLimit = 32
 )
 
 // DiffAt is what a git.diff compares against: working, staged, commit (Rev
@@ -50,7 +52,7 @@ var gitVerbs = map[string]verbDecoder{
 		return f.text("tree", &m.Tree) && f.optionalInt("cursor", &m.Cursor, 0, maxCount) && f.limit(m, GitStatusLimit)
 	},
 	"git.watch": func(f fields, m *ClientMessage) bool {
-		return f.stringList("trees", &m.Trees) && !slices.Contains(m.Trees, "")
+		return f.stringList("trees", &m.Trees) && !slices.Contains(m.Trees, "") && len(m.Trees) <= GitWatchLimit
 	},
 	"git.diff": func(f fields, m *ClientMessage) bool {
 		if !f.text("tree", &m.Tree) || !f.text("path", &m.Path) || !decodeDiffAt(f["at"], &m.At) ||

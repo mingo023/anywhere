@@ -30,7 +30,7 @@ var (
 	aPTY    = peer.Principal{Kind: peer.PTY, Terminal: "t1", Scopes: peer.PTYScopes}
 )
 
-func gitIn(t *testing.T, dir string, args ...string) string {
+func gitOut(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
@@ -59,8 +59,8 @@ func withWorkspace(t *testing.T, b *bench) func(*Server) {
 	base, _ := filepath.EvalSymlinks(t.TempDir())
 	b.project, b.root = filepath.Join(base, "pocket"), filepath.Join(base, "trees")
 	os.Mkdir(b.project, 0o755)
-	gitIn(t, b.project, "init", "-q", "-b", "main")
-	gitIn(t, b.project, "commit", "-q", "--allow-empty", "-m", "init")
+	gitOut(t, b.project, "init", "-q", "-b", "main")
+	gitOut(t, b.project, "commit", "-q", "--allow-empty", "-m", "init")
 	home := t.TempDir()
 	raw, _ := json.Marshal(registry.File{Projects: []string{b.project}, Repos: map[string]registry.Repo{}, Worktree: registry.Worktree{Root: b.root}})
 	path := filepath.Join(home, "desktop.json")
@@ -205,7 +205,7 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
 	wt := filepath.Join(b.root, "pocket", "calm-otter")
-	gitIn(t, b.project, "worktree", "add", "-q", "-b", "calm-otter", wt)
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "calm-otter", wt)
 	b.s.Names.Rename(wt, "Fix login")
 	in, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: filepath.Join(wt)})
 	out, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: b.project})
@@ -227,7 +227,7 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Fatalf("the folder stayed: %v", err)
 	}
-	if gitIn(t, b.project, "branch", "--list", "calm-otter") != "" {
+	if gitOut(t, b.project, "branch", "--list", "calm-otter") != "" {
 		t.Fatal("the branch stayed")
 	}
 	if _, ok := b.s.Names.Titles()[wt]; ok {
@@ -242,11 +242,11 @@ func TestADeletedWorktreeKeepsItsBranchUnlessAsked(t *testing.T) {
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
 	wt := filepath.Join(b.root, "pocket", "keep")
-	gitIn(t, b.project, "worktree", "add", "-q", "-b", "keep", wt)
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "keep", wt)
 	helloWith(p, proto.CapWorkspace)
 	p.send(`{"type":"worktree.delete","id":"wd","path":"` + wt + `"}`)
 	p.untilType("ack")
-	if gitIn(t, b.project, "branch", "--list", "keep") == "" {
+	if gitOut(t, b.project, "branch", "--list", "keep") == "" {
 		t.Fatal("the branch went")
 	}
 }
@@ -274,7 +274,7 @@ func TestTheMainWorktreeIsNeverDeletedAndItsTerminalsStayOpen(t *testing.T) {
 func TestBranchesAreListedForATreeOnly(t *testing.T) {
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
-	gitIn(t, b.project, "branch", "fix-login")
+	gitOut(t, b.project, "branch", "fix-login")
 	helloWith(p, proto.CapWorkspace)
 	p.send(`{"type":"branch.list","id":"bl","tree":"/etc"}`)
 	if m, _ := p.untilType("error"); m["code"] != proto.CodeNotATree || m["id"] != "bl" {
@@ -411,7 +411,7 @@ func TestAPeerWithoutWorkspaceV1GetsTheProjectListAsItIsNow(t *testing.T) {
 	_, _, p := local(t, peer.OwnerOf(1), withWorkspace(t, &b))
 	helloWith(p)
 	tree := filepath.Join(b.root, "made-outside")
-	gitIn(t, b.project, "worktree", "add", "-q", "-b", "made-outside", tree)
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "made-outside", tree)
 	p.send(`{"type":"project.list","id":"pl"}`)
 	m, _ := p.untilType("project.list")
 	if m["id"] != "pl" || !reflect.DeepEqual(treePaths(m), []string{b.project, tree}) {

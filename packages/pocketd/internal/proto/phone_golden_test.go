@@ -2,6 +2,7 @@ package proto
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -112,7 +113,7 @@ func TestEveryPhoneVerbHasAClientGolden(t *testing.T) {
 }
 
 func TestPhoneCapsWaitForTheirHandlers(t *testing.T) {
-	for _, c := range []string{CapGit, CapGitHub, CapFiles, CapPush} {
+	for _, c := range []string{CapGitHub, CapFiles, CapPush} {
 		if slices.Contains(ServerCaps, c) {
 			t.Errorf("%s is served before its handlers land", c)
 		}
@@ -275,5 +276,21 @@ func TestATerminalFrameIsKindIdLengthIdThenPayload(t *testing.T) {
 		if _, err := AppendFrame(nil, FrameOutput, bad, nil); err == nil {
 			t.Errorf("%q framed", bad)
 		}
+	}
+}
+
+func TestAGitWatchHoldsAtMost32Trees(t *testing.T) {
+	trees := func(n int) string {
+		var out []string
+		for i := range n {
+			out = append(out, fmt.Sprintf(`"/p/%d"`, i))
+		}
+		return `{"type":"git.watch","id":"1","trees":[` + strings.Join(out, ",") + `]}`
+	}
+	if _, err := DecodeClient([]byte(trees(GitWatchLimit))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeClient([]byte(trees(GitWatchLimit + 1))); err == nil {
+		t.Fatal("33 trees decoded")
 	}
 }

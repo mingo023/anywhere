@@ -39,3 +39,4 @@ try measure("10 MiB of terminal frames: parse + SwiftTerm", runs: 5) {
     let terminal = SwiftTerm.Terminal(delegate: quiet, options: TerminalOptions(cols: 120, rows: 40, scrollback: 1000))
     for raw in terminalFrames { terminal.feed(byteArray: [UInt8](try TerminalFrame(parsing: raw).payload)) }
 }
+try gitBench()

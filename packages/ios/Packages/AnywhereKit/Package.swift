@@ -25,7 +25,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("FeatureChat", ["Stores", "ChatModel", "MarkdownView", "CodeView", "DesignSystem", "Domain"], true),
     ("FeatureSessions", ["Stores", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureTerminal", ["Stores", "DesignSystem", "Domain", "Fixtures", .product(name: "SwiftTerm", package: "SwiftTerm")], true),
-    ("FeatureGit", ["Stores", "CodeView", "DiffModel", "DesignSystem", "Domain"], true),
+    ("FeatureGit", ["Stores", "Client", "CodeView", "DiffModel", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureGitHub", ["Stores", "MarkdownView", "DesignSystem", "Domain"], true),
     ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "DesignSystem", "Domain"], true),
     ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain"], true),
@@ -40,7 +40,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
 let executables: [(name: String, deps: [Target.Dependency])] = [
     ("anywhere-probe", ["Wire", "Client", "Stores"]),
     ("anywhere-gallery", ["Fixtures", "DesignSystem", "AppShell", "Stores", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit", "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "MarkdownView", "CodeView", "LiveActivityUI"]),
-    ("anywhere-bench", ["Wire", "Fixtures", "MarkdownModel", "ChatModel", "DiffModel", "Highlight", .product(name: "SwiftTerm", package: "SwiftTerm")]),
+    ("anywhere-bench", ["Wire", "Fixtures", "MarkdownModel", "ChatModel", "DiffModel", "Highlight", "CodeView", .product(name: "SwiftTerm", package: "SwiftTerm")]),
 ]
 
 let package = Package(
