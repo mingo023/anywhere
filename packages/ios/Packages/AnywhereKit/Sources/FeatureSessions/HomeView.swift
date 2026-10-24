@@ -117,7 +117,7 @@ struct HomeView: View {
     }
 
     private func treeRow(_ tree: HomeList.Tree, project: String) -> some View {
-        NavigationLink(value: tree.kind == .local ? Route.local(mac: mac, id: tree.id) : Route.worktree(mac: mac, path: tree.id)) {
+        NavigationLink(value: TreeRow.route(tree, mac: mac)) {
             TreeRow(tree: tree)
         }
         .contextMenu { TreeMenu(tree: tree, project: project, canManage: host.workspace.canManage, making: $making, action: $action) }
@@ -151,6 +151,10 @@ struct TreeRow: View {
                 Pill(roll.count > 1 ? "\(roll.count) \(label.lowercased())" : label, tone: SessionText.tone(roll.status))
             }
         }
+    }
+
+    static func route(_ tree: HomeList.Tree, mac: String) -> Route {
+        tree.kind == .local ? .local(mac: mac, id: tree.id) : .worktree(mac: mac, path: tree.id)
     }
 
     static func symbol(_ kind: HomeList.Tree.Kind) -> String {

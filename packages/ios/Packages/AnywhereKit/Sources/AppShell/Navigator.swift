@@ -49,6 +49,8 @@ public final class Navigator {
     public var sessionsPath: [Route] = []
     public var terminalsPath: [Route] = []
     public var settingsPath: [Route] = []
+    /// On iPad, the worktree or Local (a `.worktree` or `.local` route) the sessions list is narrowed to.
+    public var tree: Route?
     public var pairing: PairingRequest?
     /// A link that arrived before its Mac connected, opened once it does.
     public private(set) var held: DeepLink?
@@ -82,6 +84,7 @@ public final class Navigator {
         macId = id
         sessionsPath = []
         terminalsPath = []
+        tree = nil
     }
 
     /// Keeps the selection on a Mac that exists: the first one when none is selected or the selected one was forgotten.
@@ -93,6 +96,7 @@ public final class Navigator {
             macId = nil
             sessionsPath = []
             terminalsPath = []
+            tree = nil
         }
     }
 
@@ -111,6 +115,7 @@ public final class Navigator {
             tab = .sessions
             select(mac: ref.id)
             sessionsPath = []
+            tree = nil
         case .agent(let mac, _):
             guard let ref = macs.first(where: { $0.named(mac) }) else {
                 held = link
@@ -118,6 +123,7 @@ public final class Navigator {
             }
             tab = .sessions
             select(mac: ref.id)
+            tree = nil
             guard ref.online else {
                 held = link
                 return
@@ -145,10 +151,11 @@ public final class Navigator {
         public var sessions: [Route]
         public var terminals: [Route]
         public var settings: [Route]
+        public var tree: Route?
     }
 
     public var saved: Saved {
-        Saved(tab: tab, macId: macId, sessions: sessionsPath, terminals: terminalsPath, settings: settingsPath)
+        Saved(tab: tab, macId: macId, sessions: sessionsPath, terminals: terminalsPath, settings: settingsPath, tree: tree)
     }
 
     public func restore(_ saved: Saved, macs: [MacRef]) {
@@ -158,6 +165,7 @@ public final class Navigator {
         macId = id
         sessionsPath = saved.sessions
         terminalsPath = saved.terminals
+        tree = saved.tree
     }
 
     public func encoded() -> Data? { try? JSONEncoder().encode(saved) }

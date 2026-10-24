@@ -73,6 +73,20 @@ struct NavigatorTests {
         #expect(nav.settingsPath == [.settings])
     }
 
+    @Test("switching Macs, or a link to a chat, widens the sessions list from the tree it was narrowed to")
+    func tree() {
+        let nav = Navigator()
+        nav.select(mac: "d1")
+        nav.tree = .worktree(mac: "mbp", path: "/p/wt")
+        nav.select(mac: "d1")
+        #expect(nav.tree == .worktree(mac: "mbp", path: "/p/wt"))
+        nav.select(mac: "d2")
+        #expect(nav.tree == nil)
+        nav.tree = .local(mac: "studio", id: "l1")
+        nav.open(.agent(mac: "studio", agentId: "a2"), macs: [online, offline])
+        #expect(nav.tree == nil)
+    }
+
     @Test("the selection falls to the first Mac when none is selected or the selected one is forgotten")
     func keepsSelection() {
         let nav = Navigator()
@@ -91,6 +105,7 @@ struct NavigatorTests {
         nav.select(mac: "d2")
         nav.tab = .terminals
         nav.terminalsPath = [.terminal(mac: "studio", terminalId: "t1")]
+        nav.tree = .worktree(mac: "studio", path: "/p/wt")
         let data = try #require(nav.encoded())
 
         let back = Navigator()
@@ -101,6 +116,7 @@ struct NavigatorTests {
         gone.restore(data, macs: [online])
         #expect(gone.macId == "d1")
         #expect(gone.terminalsPath.isEmpty)
+        #expect(gone.tree == nil)
         #expect(gone.tab == .terminals)
     }
 }

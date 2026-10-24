@@ -1,6 +1,7 @@
 import DesignSystem
 import Domain
 import FeaturePairing
+import FeatureSessions
 import Stores
 import SwiftUI
 
@@ -16,6 +17,8 @@ struct PadRoot: View {
         var tab: Tab
         /// nil for Settings, which belongs to no Mac.
         var mac: String?
+        /// The worktree or Local the sessions list is narrowed to.
+        var tree: Route?
     }
 
     var body: some View {
@@ -30,7 +33,7 @@ struct PadRoot: View {
                         NavigationLink(value: Item(tab: .terminals, mac: host.id)) {
                             Label("Terminals", systemImage: "terminal")
                         }
-                        // INTEGRATION (workspace slice): the Mac's projects, worktrees and Locals go here.
+                        TreeSidebar(host: host) { Item(tab: .sessions, mac: host.id, tree: $0) }
                     } header: {
                         Text(host.name)
                     }
@@ -44,7 +47,7 @@ struct PadRoot: View {
             .navigationTitle("Anywhere")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
         } content: {
-            Destination.root(navigator.tab, host: host, app: app, pair: pair)
+            Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, pair: pair)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if navigator.tab != .settings, let host { ConnectionBanner(host: host) }
                 }
@@ -66,11 +69,12 @@ struct PadRoot: View {
 
     private var selection: Binding<Item?> {
         Binding(
-            get: { Item(tab: navigator.tab, mac: navigator.tab == .settings ? nil : navigator.macId) },
+            get: { Item(tab: navigator.tab, mac: navigator.tab == .settings ? nil : navigator.macId, tree: navigator.tab == .sessions ? navigator.tree : nil) },
             set: { item in
                 guard let item else { return }
                 if let mac = item.mac { navigator.select(mac: mac) }
                 navigator.tab = item.tab
+                navigator.tree = item.tree
             })
     }
 
