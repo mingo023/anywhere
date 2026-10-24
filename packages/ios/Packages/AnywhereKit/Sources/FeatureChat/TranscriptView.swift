@@ -51,21 +51,19 @@ struct TranscriptView: View {
     @State private var jump = false
     @State private var stuck: Stuck?
     @State private var flash: String?
+    @State private var made = Made()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private struct Ref: Identifiable {
-        let id: String
-        let ix: Int
+    /// The rows, made once per store. Not observed: the list reads their ids and each row its own box.
+    private final class Made {
+        var rows: TranscriptRows?
     }
 
     var body: some View {
         let _ = BodyCount.hit("TranscriptView")
-        let session = store.session
-        let builder = RowBuilder(
-            session: session, provider: store.provider, model: store.summary?.model, ask: store.ask.map { !$0.questions.isEmpty },
-            stopping: store.stopping, reveals: store.reveals, settled: store.settled?.row, canSendNow: store.capabilities.sendNow,
-            now: Int(Date().timeIntervalSince1970 * 1000))
-        let refs = session.ids.indices.map { Ref(id: session.ids[$0], ix: $0) }
+        let rows = transcriptRows
+        let ids = rows.ids.list
+        let last = ids.last
         let actions = rowActions
         GeometryReader { outer in
             ScrollViewReader { proxy in
@@ -76,19 +74,22 @@ struct TranscriptView: View {
                             ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, Space.m)
                                 .onAppear { store.loadOlder() }
                         }
-                        if refs.isEmpty && store.loaded {
+                        if ids.isEmpty && store.loaded {
                             Text("Send a message to start.").font(ChatFont.small).foregroundStyle(Palette.text3.color)
                                 .frame(maxWidth: .infinity).padding(.top, 120)
                         }
-                        ForEach(refs) { ref in
-                            RowView(item: builder.item(ref.ix), provider: store.provider, flash: flash == ref.id, actions: actions)
-                                .equatable()
-                                .background(frame(ref.ix))
-                                .id(ref.id)
+                        ForEach(ids, id: \.self) { id in
+                            // The end rides with the last row: built whenever it is, so a scroll to the end always lands.
+                            VStack(alignment: .leading, spacing: 0) {
+                                RowSlot(box: rows.box(id), provider: store.provider, flash: flash == id, actions: actions)
+                                    .background(frame(rows.index(id)))
+                                    .onAppear { rows.appeared(id) }
+                                    .onDisappear { rows.disappeared(id) }
+                                if id == last { end }
+                            }
+                            .id(id)
                         }
-                        Color.clear.frame(height: spacer)
-                        Color.clear.frame(height: Pin.bottom)
-                        marker(RowFrame.end).id("end")
+                        if ids.isEmpty { end }
                     }
                     .padding(.horizontal, Space.l)
                     .padding(.top, Pin.top)
@@ -121,13 +122,20 @@ struct TranscriptView: View {
                     showing = nil
                     show(call: id)
                 }
-                .onChange(of: session.ids.first) { old, _ in keepTop(old) }
+                .onChange(of: ids.first) { old, _ in keepTop(old) }
+                // Each animation on its own overlay: on the list, it would carry a scroll landing in the same update.
                 .overlay(alignment: .bottom) {
-                    if jump { JumpPill { toEnd() }.padding(.bottom, Space.m) }
+                    ZStack {
+                        if jump { JumpPill { toEnd() }.padding(.bottom, Space.m) }
+                    }
+                    .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.18), value: jump)
                 }
-                .overlay(alignment: .top) { sticky(session) }
-                .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.18), value: jump)
-                .animation(.easeOut(duration: 0.22), value: stuck?.row)
+                .overlay(alignment: .top) {
+                    ZStack {
+                        if let stuck { StickyOverlay(store: store, stuck: stuck) { pinToTop($0) } }
+                    }
+                    .animation(.easeOut(duration: 0.22), value: stuck?.row)
+                }
             }
         }
     }
@@ -143,6 +151,14 @@ struct TranscriptView: View {
             retryTurn: { [store] turn in store.retryTurn(turn) },
             showCall: { id in show(call: id) },
             openLink: openLink)
+    }
+
+    /// Room under the rows for a held prompt and the list's padding, then the end.
+    @ViewBuilder
+    private var end: some View {
+        Color.clear.frame(height: spacer)
+        Color.clear.frame(height: Pin.bottom)
+        marker(RowFrame.end).id("end")
     }
 
     private func marker(_ ix: Int) -> some View {
@@ -165,13 +181,13 @@ struct TranscriptView: View {
         let distance = end.map { $0.minY - viewport } ?? .infinity
         scroll.distance = distance
         if !scroll.dragging && distance <= 2 && scroll.pin == nil { scroll.following = true }
-        let showJump = jumpVisibility(wasShown: jump, distance: distance)
+        // Rows grew under a list that keeps to its end: it's back there below, so the pill stays as it was.
+        let snaps = scroll.following && scroll.pin == nil && distance > 2 && !scroll.dragging
+        let showJump = snaps ? jump : jumpVisibility(wasShown: jump, distance: distance)
         if showJump != jump { jump = showJump }
         updateSticky(frames)
         if scroll.pin != nil { stepPin(frames, end: end) }
-        if scroll.following && scroll.pin == nil && distance > 2 && !scroll.dragging {
-            scroll.proxy?.scrollTo("end", anchor: .bottom)
-        }
+        if snaps { scroll.proxy?.scrollTo("end", anchor: .bottom) }
     }
 
     private func stepPin(_ frames: [RowFrame], end: RowFrame?) {
@@ -247,7 +263,11 @@ struct TranscriptView: View {
     private func updateSticky(_ frames: [RowFrame]) {
         let rows = store.session.rows
         let built = frames.filter { $0.ix >= 0 && $0.ix < rows.count }.sorted { $0.ix < $1.ix }
-        guard let top = built.first(where: { $0.maxY > 0 }), let ix = Sticky.stuck(rows, top: top.ix, offset: Double(max(-top.minY, 0))) else {
+        let viewport = scroll.viewport
+        let shown = built.filter { $0.maxY > 0 && $0.minY < viewport }
+        // Rows built but none on screen: frames from before the lazy stack corrected its estimates, so keep the card.
+        if shown.isEmpty && !built.isEmpty { return }
+        guard let top = shown.first, let ix = Sticky.stuck(rows, top: top.ix, offset: Double(max(-top.minY, 0))) else {
             if stuck != nil { stuck = nil }
             return
         }
@@ -257,19 +277,51 @@ struct TranscriptView: View {
         if now != stuck { stuck = now }
     }
 
-    @ViewBuilder
-    private func sticky(_ session: Session) -> some View {
-        if let stuck, session.rows.indices.contains(stuck.row), case .prompt(let turn) = session.rows[stuck.row],
+    private func pinToTop(_ id: String) {
+        scroll.following = false
+        withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: Glide.duration)) {
+            scroll.proxy?.scrollTo(id, anchor: .top)
+        }
+    }
+
+    // MARK: Rows
+
+    private var transcriptRows: TranscriptRows {
+        if let rows = made.rows { return rows }
+        let rows = TranscriptRows(store: store)
+        made.rows = rows
+        return rows
+    }
+}
+
+/// A row reading its own box, so a change to one row redraws that row alone.
+@MainActor
+private struct RowSlot: View {
+    let box: RowBox
+    let provider: String
+    let flash: Bool
+    let actions: RowActions
+
+    var body: some View {
+        RowView(item: box.item, provider: provider, flash: flash, actions: actions).equatable()
+    }
+}
+
+/// The prompt card over the list's top; its own view, so only it reads the session for the prompt.
+@MainActor
+private struct StickyOverlay: View {
+    let store: ChatStore
+    let stuck: Stuck
+    let tap: (_ id: String) -> Void
+
+    var body: some View {
+        let session = store.session
+        if session.rows.indices.contains(stuck.row), case .prompt(let turn) = session.rows[stuck.row],
             let prompt = session.transcript.turns[turn].prompt
         {
             let (text, images) = splitImages(prompt.text)
             let id = session.ids[stuck.row]
-            StickyPrompt(text: text, images: images, at: prompt.at, shift: stuck.shift) {
-                scroll.following = false
-                withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: Glide.duration)) {
-                    scroll.proxy?.scrollTo(id, anchor: .top)
-                }
-            }
+            StickyPrompt(text: text, images: images, at: prompt.at, shift: stuck.shift) { tap(id) }
         }
     }
 }

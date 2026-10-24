@@ -20,6 +20,8 @@ enum UIBench {
         var size = CGSize(width: 393, height: 852)
         /// Bottom-anchored: scrolling goes up.
         var up = false
+        /// Checked to open at its end and keep to it through the updates.
+        var follows = false
         let make: @MainActor () -> Screen
     }
 
@@ -30,12 +32,17 @@ enum UIBench {
     }
 
     static let scenarios: [Scenario] = [
-        Scenario(name: "chat-5000", up: true, make: chat),
+        Scenario(name: "chat-5000", up: true, follows: true, make: chat),
         Scenario(name: "changes-1500", make: changes),
         Scenario(name: "diff-20k", make: { diff(sideBySide: false) }),
         Scenario(name: "diff-20k-split", size: CGSize(width: 1024, height: 768), make: { diff(sideBySide: true) }),
         Scenario(name: "file-10k", make: file),
         Scenario(name: "markdown-258k", make: markdown),
+    ]
+
+    /// Run only by name: a prompt sent at the end of a long chat glides up and is held a quarter down (see its PNGs).
+    static let extras: [Scenario] = [
+        Scenario(name: "chat-send", up: true, make: chatSend),
     ]
 
     static func main(_ args: [String]) -> Int32 {
@@ -46,13 +53,18 @@ enum UIBench {
             args.removeSubrange(at...(at + 1))
         }
         guard let name = args.first else { return all(png) }
-        guard let scenario = scenarios.first(where: { $0.name == name }) else {
+        guard let scenario = (scenarios + extras).first(where: { $0.name == name }) else {
             print("unknown scenario \(name); one of \(scenarios.map(\.name).joined(separator: ", "))")
             return 2
         }
         NSApplication.shared.setActivationPolicy(.prohibited)
-        print(run(scenario, png: png).line)
-        return 0
+        let result = run(scenario, png: png)
+        print(result.line)
+        guard let gaps = result.endGaps else { return 0 }
+        // A chat opens at its end and keeps to it as output streams in.
+        let ok = gaps.load <= 2 && gaps.streamed <= 2
+        print("FOLLOW|\(scenario.name)|opened \(Int(gaps.load)) pt from the end|after streaming \(Int(gaps.streamed)) pt from the end|\(ok ? "ok" : "fail")")
+        return ok ? 0 : 1
     }
 
     // MARK: Scenarios
@@ -79,6 +91,25 @@ enum UIBench {
             let item = TimelineItem(id: "s-a", seq: seq + 2, ts: Sample.now, body: .assistant(text: text))
             return { host.apply([.message(.agentStream(.init(agentId: agentId, epoch: 1, item: item)))]) }
         }
+        return Screen(view: AnyView(NavigationStack { ChatView(host: host, agentId: agentId) }), updates: updates)
+    }
+
+    static func chatSend() -> Screen {
+        let items = Sample.chatPerf(items: Int(ProcessInfo.processInfo.environment["UIBENCH_ITEMS"] ?? "") ?? 5000)
+        let seq = items.count
+        let agent = AgentSummary(
+            id: agentId, terminalId: "t-perf", title: "Perf", cwd: "/Users/mingo/dev/anywhere", provider: "claude", model: "claude-opus-5-5",
+            effort: "high", access: "edits", status: .idle, attached: true, epoch: 1, maxSeq: seq, createdAt: Sample.now - 600_000,
+            updatedAt: Sample.now, branch: "perf", tokensUsed: 48_000, contextWindow: 1_000_000)
+        let host = HostModel.offline(hello: Sample.hello, messages: [.agentList(.init(agents: [agent]))])
+        let store = host.chat(agentId)
+        host.apply([.message(.agentTimeline(.init(agentId: agentId, epoch: 1, items: items, hasOlder: false, maxSeq: seq)))])
+        store.flush()
+        let prompt = "Hold this prompt a quarter down"
+        let updates: [@MainActor () -> Void] = [{
+            store.draft.text = prompt
+            store.send()
+        }]
         return Screen(view: AnyView(NavigationStack { ChatView(host: host, agentId: agentId) }), updates: updates)
     }
 
@@ -140,6 +171,8 @@ enum UIBench {
         let loadBodies: [String: Double]
         let frameBodies: [String: Double]
         let scrollBodies: [String: Double]
+        /// How far a bottom-anchored list sat from its end once opened, and after the updates.
+        var endGaps: (load: CGFloat, streamed: CGFloat)?
 
         var line: String {
             func ms(_ v: [Double], _ q: Double) -> String {
@@ -179,6 +212,7 @@ enum UIBench {
         // Let off-main work land (highlighting, a long markdown parse) before what follows.
         idle(view, seconds: 1)
         if let png { snapshot(view, to: png.appendingPathComponent("\(scenario.name)-loaded.png")) }
+        let loadGap = endGap(view)
 
         _ = BodyCount.take()
         var frames: [Double] = []
@@ -191,9 +225,11 @@ enum UIBench {
         let frameBodies = BodyCount.take().mapValues { Double($0) / Double(max(screen.updates.count, 1)) }
 
         idle(view, seconds: 0.3)
+        let streamedGap = endGap(view)
+        if let png { snapshot(view, to: png.appendingPathComponent("\(scenario.name)-updated.png")) }
         _ = BodyCount.take()
         var scrolls: [Double] = []
-        let steps = 12
+        let steps = Int(ProcessInfo.processInfo.environment["UIBENCH_PAGES"] ?? "") ?? 12
         if let scroll = mainScroll(view) {
             // The chat follows its tail until the user drags it; a drag on the list takes it, as a finger would.
             if scenario.up { drag(window, at: NSPoint(x: rect.midX, y: rect.midY)) }
@@ -210,7 +246,8 @@ enum UIBench {
         if let png { snapshot(view, to: png.appendingPathComponent("\(scenario.name)-scrolled.png")) }
         window.orderOut(nil)
         return Result(
-            name: scenario.name, load: load, frames: frames, scrolls: scrolls, memory: memory, loadBodies: loadBodies, frameBodies: frameBodies, scrollBodies: scrollBodies)
+            name: scenario.name, load: load, frames: frames, scrolls: scrolls, memory: memory, loadBodies: loadBodies, frameBodies: frameBodies,
+            scrollBodies: scrollBodies, endGaps: scenario.follows ? (loadGap, streamedGap) : nil)
     }
 
     /// One turn of the run loop (main-actor tasks, preference and state changes), then layout and a commit.
@@ -235,6 +272,13 @@ enum UIBench {
     static func mainScroll(_ view: NSView) -> NSScrollView? {
         func all(_ v: NSView) -> [NSScrollView] { ((v as? NSScrollView).map { [$0] } ?? []) + v.subviews.flatMap(all) }
         return all(view).max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }
+    }
+
+    /// How far the main scroll view's visible bottom sits above its content's end.
+    static func endGap(_ view: NSView) -> CGFloat {
+        guard let scroll = mainScroll(view), let doc = scroll.documentView else { return .infinity }
+        let clip = scroll.contentView.bounds
+        return doc.isFlipped ? doc.frame.height - clip.maxY : clip.minY
     }
 
     static func drag(_ window: NSWindow, at point: NSPoint) {
@@ -286,6 +330,7 @@ enum UIBench {
     static func all(_ png: URL?) -> Int32 {
         let runs = 3
         var rows: [[String]] = []
+        var failed = false
         for scenario in scenarios {
             var takes: [[String]] = []
             for run in 0..<runs {
@@ -303,6 +348,7 @@ enum UIBench {
                 process.waitUntilExit()
                 for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
                     if line.hasPrefix("ROW|") { takes.append(line.split(separator: "|", omittingEmptySubsequences: false).dropFirst().map(String.init)) }
+                    else if line.hasPrefix("FOLLOW|") && line.hasSuffix("|fail") { failed = true; print(line) }
                     else if run == 0 { print(line) }
                 }
             }
@@ -319,6 +365,6 @@ enum UIBench {
         print("\n| Scenario | Bodies to load | Bodies per update | Bodies per scroll |")
         print("|---|---|---|---|")
         for r in rows { print("| \(r[0]) | \(r[7]) | \(r[8]) | \(r[9]) |") }
-        return 0
+        return failed ? 1 : 0
     }
 }

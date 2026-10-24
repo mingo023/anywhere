@@ -5,39 +5,11 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A run of rows under one section header.
-struct SectionRows: Identifiable, Hashable {
-    let section: ChangeSection
-    let paths: [String]
-    let rows: [ChangeRow]
-    var id: ChangeSection { section }
-
-    /// Cuts the flat rows at their headers.
-    nonisolated static func split(_ rows: [ChangeRow]) -> [SectionRows] {
-        var out: [SectionRows] = []
-        var current: (ChangeSection, [String])?
-        var items: [ChangeRow] = []
-        for row in rows {
-            if case .header(let s, let paths) = row {
-                if let (cs, cp) = current { out.append(SectionRows(section: cs, paths: cp, rows: items)) }
-                current = (s, paths)
-                items = []
-            } else {
-                items.append(row)
-            }
-        }
-        if let (cs, cp) = current { out.append(SectionRows(section: cs, paths: cp, rows: items)) }
-        return out
-    }
-
-    /// The paths a selection of row ids picks in one section.
-    nonisolated static func paths(_ selection: Set<String>, in section: ChangeSection) -> [String] {
-        let prefix = section.rawValue + ":"
-        return selection.filter { $0.hasPrefix(prefix) && !$0.hasSuffix("/") }.map { String($0.dropFirst(prefix.count)) }.sorted()
-    }
-}
-
 /// A tree's changes: its branch, the commit composer, then Staged and Changes, flat or as a tree.
+///
+/// The files are a lazy stack of fixed-height rows rather than a `List`, which rediffs every row on each status read
+/// (~300 ms a refresh at 1500 files on the Mac). Lines are made once per read and fold, and each row reads only its own
+/// selection and swipe state.
 @MainActor
 struct ChangesScreen: View {
     let host: HostModel
@@ -45,62 +17,64 @@ struct ChangesScreen: View {
     let tree: String
     @AppStorage("git.changes.tree") private var asTree = false
     @State private var folded: Set<String> = []
-    @State private var selection: Set<String> = []
+    @State private var selection = ChangeSelection()
+    @State private var swiped = SwipeOpen()
+    @State private var lines = ChangeLines()
     @State private var discarding: [String]?
 
     var body: some View {
         let _ = BodyCount.hit("ChangesScreen")
         let store = host.git
         let changes = store.changes(tree)
-        let sections = SectionRows.split(ChangeTree.rows(changes.files, tree: asTree, folded: folded))
-        List(selection: $selection) {
-            Section {
-                if let head = changes.head {
-                    HeadRow(store: store, changes: changes, head: head, mac: mac)
-                } else if changes.loading {
-                    HStack { ProgressView(); Text("Reading changes…").foregroundStyle(Palette.text3.color) }
-                }
-                if let error = changes.error {
-                    ErrorRow(message: error) { changes.error = nil }
-                }
-            }
-            if changes.head != nil {
-                Section { CommitComposer(store: store, changes: changes) }
-            }
-            if changes.head != nil, changes.files.isEmpty {
-                Section {
-                    Label("No changes", systemImage: "checkmark.circle").foregroundStyle(Palette.text3.color)
-                }
-            }
-            ForEach(sections) { s in
-                Section {
-                    ForEach(s.rows) { row in
-                        ChangeRowView(
-                            row: row, mac: mac, tree: tree, nameOnly: asTree, fold: { ChangeTree.toggleFold(&folded, $0) },
-                            stage: { stage($0, staged: $1) }, discard: { discarding = $0 })
+        let lines = lines.lines(changes, tree: asTree, folded: folded)
+        let actions = ChangeActions(
+            fold: { ChangeTree.toggleFold(&folded, $0) }, stage: { stage($0, staged: $1) }, discard: { discarding = $0 })
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                VStack(spacing: Space.l) {
+                    if let head = changes.head {
+                        HeadRow(store: store, changes: changes, head: head, mac: mac).card()
+                    } else if changes.loading {
+                        HStack { ProgressView(); Text("Reading changes…").foregroundStyle(Palette.text3.color) }.card()
                     }
-                } header: {
-                    SectionHeader(
-                        section: s.section, count: s.paths.count, folded: folded.contains(s.section.rawValue),
-                        fold: { ChangeTree.toggleFold(&folded, s.section.rawValue) },
-                        stageAll: { stage(s.paths, staged: s.section == .changes) })
+                    if let error = changes.error {
+                        ErrorRow(message: error) { changes.error = nil }.card()
+                    }
+                    if changes.head != nil {
+                        CommitComposer(store: store, changes: changes).card()
+                    }
+                    if changes.head != nil, changes.files.isEmpty {
+                        Label("No changes", systemImage: "checkmark.circle").foregroundStyle(Palette.text3.color).card()
+                    }
+                }
+                .padding(.top, Space.l)
+                ForEach(lines) { line in
+                    ChangeLineView(
+                        line: line, mac: mac, tree: tree, nameOnly: asTree, folded: line.header.map { folded.contains($0.rawValue) } ?? false,
+                        selection: selection, swiped: swiped, actions: actions
+                    )
+                    .equatable()
+                }
+                if changes.nextCursor != nil {
+                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, Space.l)
+                        .onAppear { Task { await store.loadMore(tree) } }
                 }
             }
-            if changes.nextCursor != nil {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-                .onAppear { Task { await store.loadMore(tree) } }
-            }
+            .padding(.bottom, Space.xl)
         }
+        .screenBackground()
         #if os(iOS)
-            .listStyle(.insetGrouped)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { EditButton() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(selection.selecting ? "Done" : "Edit") {
+                        swiped.close()
+                        selection.selecting.toggle()
+                        if !selection.selecting { selection.ids = [] }
+                    }
+                    .fontWeight(selection.selecting ? .semibold : .regular)
+                }
                 ToolbarItemGroup(placement: .bottomBar) {
-                    if !selection.isEmpty { selectionBar }
+                    SelectionBar(selection: selection, stage: { stage($0, staged: $1) }, discard: { discarding = $0 })
                 }
             }
         #endif
@@ -124,7 +98,7 @@ struct ChangesScreen: View {
         ) {
             Button("Discard", role: .destructive) {
                 guard let paths = discarding else { return }
-                selection = []
+                selection.ids = []
                 Haptics.warning()
                 Task { await store.discard(tree, paths: paths) }
             }
@@ -140,75 +114,185 @@ struct ChangesScreen: View {
         return n == 1 ? "Discard changes to \(GitText.split(discarding![0]).name)?" : "Discard changes to \(n) files?"
     }
 
-    #if os(iOS)
-        @ViewBuilder
-        private var selectionBar: some View {
-            let changed = SectionRows.paths(selection, in: .changes)
-            let staged = SectionRows.paths(selection, in: .staged)
-            Button("Stage \(changed.count)") { stage(changed, staged: true) }.disabled(changed.isEmpty)
-            Spacer()
-            Button("Unstage \(staged.count)") { stage(staged, staged: false) }.disabled(staged.isEmpty)
-            Spacer()
-            Button("Discard", role: .destructive) { discarding = changed }.disabled(changed.isEmpty)
-        }
-    #endif
-
     private func stage(_ paths: [String], staged: Bool) {
         guard !paths.isEmpty else { return }
         Haptics.tap()
-        selection = []
+        selection.ids = []
         Task { await host.git.stage(tree, paths: paths, staged: staged) }
     }
 }
 
-/// One row of the list: a folder of the tree or a file. Its own view, so the list knows each row is one row and builds
-/// only those on screen.
+/// What a row asks of the screen.
 @MainActor
-private struct ChangeRowView: View {
-    let row: ChangeRow
-    let mac: String
-    let tree: String
-    let nameOnly: Bool
+struct ChangeActions {
     let fold: (String) -> Void
     let stage: (_ paths: [String], _ staged: Bool) -> Void
     let discard: ([String]) -> Void
+}
 
-    var body: some View {
-        switch row {
-        case .header:
-            EmptyView()
-        case .folder(_, let key, let label, let depth, let open):
-            Button {
-                fold(key)
-            } label: {
-                FolderRow(label: label, depth: depth, open: open)
-            }
-            .buttonStyle(.plain)
-        case .file(let section, let f, let depth):
-            let staged = section == .staged
-            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: staged)) {
-                FileRow(
-                    path: f.path, oldPath: f.oldPath, status: f.status, counts: GitText.counts(added: f.added, removed: f.removed, binary: f.binary == true),
-                    depth: depth, nameOnly: nameOnly)
-            }
-            .tag(row.id)
-            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { stage([f.path], !staged) }
-                    .tint(staged ? Palette.text3.color : Palette.success.color)
-            }
-            .swipeActions(edge: .trailing) {
-                if !staged {
-                    Button("Discard", systemImage: "arrow.uturn.backward", role: .destructive) { discard([f.path]) }
-                }
-            }
-            .contextMenu {
-                Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { stage([f.path], !staged) }
-                if !staged {
-                    Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { discard([f.path]) }
-                }
-                Button("Copy Path", systemImage: "doc.on.doc") { Pasteboard.copy(f.path) }
+#if os(iOS)
+    /// Edit mode's Stage, Unstage and Discard for the picked rows; its own view, so picking redraws only it.
+    @MainActor
+    private struct SelectionBar: View {
+        let selection: ChangeSelection
+        let stage: (_ paths: [String], _ staged: Bool) -> Void
+        let discard: ([String]) -> Void
+
+        var body: some View {
+            if !selection.ids.isEmpty {
+                let changed = ChangeLine.paths(selection.ids, in: .changes)
+                let staged = ChangeLine.paths(selection.ids, in: .staged)
+                Button("Stage \(changed.count)") { stage(changed, true) }.disabled(changed.isEmpty)
+                Spacer()
+                Button("Unstage \(staged.count)") { stage(staged, false) }.disabled(staged.isEmpty)
+                Spacer()
+                Button("Discard", role: .destructive) { discard(changed) }.disabled(changed.isEmpty)
             }
         }
+    }
+#endif
+
+/// One line of the list: a section's header, a folder of the tree or a file, at a fixed height. Equal lines skip their
+/// body, so a status read redraws only the rows that changed.
+@MainActor
+private struct ChangeLineView: View, Equatable {
+    let line: ChangeLine
+    let mac: String
+    let tree: String
+    let nameOnly: Bool
+    let folded: Bool
+    let selection: ChangeSelection
+    let swiped: SwipeOpen
+    let actions: ChangeActions
+    // A grouped list's row heights: two lines of name and folder, or one.
+    #if os(iOS)
+        @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 58
+        @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 44
+    #else
+        @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 38
+        @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 28
+    #endif
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.line == b.line && a.nameOnly == b.nameOnly && a.folded == b.folded && a.mac == b.mac && a.tree == b.tree
+    }
+
+    var body: some View {
+        switch line.row {
+        case .header(let section, let paths):
+            SectionHeader(
+                section: section, count: paths.count, folded: folded, fold: { actions.fold(section.rawValue) },
+                stageAll: { actions.stage(paths, section == .changes) })
+        case .folder(_, let key, let label, let depth, let open):
+            Button {
+                actions.fold(key)
+            } label: {
+                FolderRow(label: label, depth: depth, open: open).padding(.horizontal, Space.l).frame(height: rowHeight)
+            }
+            .buttonStyle(RowPress())
+            .cell(line)
+        case .file(let section, let f, let depth):
+            file(section, f, depth: depth)
+                .frame(height: f.oldPath == nil && (nameOnly || GitText.split(f.path).dir.isEmpty) ? rowHeight : fileHeight)
+                .swipe(line.id, open: swiped, leading: stageAction(section, f), trailing: discardAction(section, f))
+                .contextMenu {
+                    let staged = section == .staged
+                    Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { actions.stage([f.path], !staged) }
+                    if !staged {
+                        Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { actions.discard([f.path]) }
+                    }
+                    Button("Copy Path", systemImage: "doc.on.doc") { Pasteboard.copy(f.path) }
+                }
+                .cell(line)
+        }
+    }
+
+    @ViewBuilder
+    private func file(_ section: ChangeSection, _ f: GitFile, depth: Int) -> some View {
+        let row = FileRow(
+            path: f.path, oldPath: f.oldPath, status: f.status, counts: GitText.counts(added: f.added, removed: f.removed, binary: f.binary == true),
+            depth: depth, nameOnly: nameOnly)
+        if selection.selecting {
+            let picked = selection.ids.contains(line.id)
+            Button {
+                selection.toggle(line.id)
+            } label: {
+                HStack(spacing: Space.m) {
+                    Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle((picked ? Palette.link : Palette.text4).color)
+                    row
+                }
+                .padding(.horizontal, Space.l)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(picked ? .isSelected : [])
+        } else {
+            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: section == .staged)) {
+                HStack(spacing: Space.s) {
+                    row
+                    #if os(iOS)
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Palette.text5.color)
+                    #endif
+                }
+                .padding(.horizontal, Space.l)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(RowPress())
+        }
+    }
+
+    private func stageAction(_ section: ChangeSection, _ f: GitFile) -> SwipeAction? {
+        guard !selection.selecting else { return nil }
+        let staged = section == .staged
+        return SwipeAction(
+            title: staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle",
+            tint: (staged ? Palette.text3 : Palette.success).color
+        ) { actions.stage([f.path], !staged) }
+    }
+
+    private func discardAction(_ section: ChangeSection, _ f: GitFile) -> SwipeAction? {
+        guard !selection.selecting, section == .changes else { return nil }
+        return SwipeAction(title: "Discard", systemImage: "arrow.uturn.backward", tint: Palette.failed.color) { actions.discard([f.path]) }
+    }
+}
+
+extension ChangeLine {
+    fileprivate var header: ChangeSection? {
+        if case .header(let s, _) = row { s } else { nil }
+    }
+}
+
+/// A grouped list's row press: the row greys while held.
+private struct RowPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.background(configuration.isPressed ? Palette.fill3.color : .clear)
+    }
+}
+
+extension View {
+    /// A row of a section's card: the card's surface, its rounded ends and the separator under all but the last.
+    fileprivate func cell(_ line: ChangeLine) -> some View {
+        let r = Radius.card
+        return background(Palette.surface.color)
+            .overlay(alignment: .bottom) {
+                if !line.last { Palette.separator.color.frame(height: 1).padding(.leading, Space.l + 16 + Space.s) }
+            }
+            .clipShape(UnevenRoundedRectangle(
+                topLeadingRadius: line.first ? r : 0, bottomLeadingRadius: line.last ? r : 0, bottomTrailingRadius: line.last ? r : 0,
+                topTrailingRadius: line.first ? r : 0, style: .continuous))
+            .padding(.horizontal, Space.l)
+    }
+
+    /// One of the cards over the files: the branch, the composer, an error.
+    fileprivate func card() -> some View {
+        padding(.horizontal, Space.l)
+            .padding(.vertical, Space.s)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .groupedCard()
     }
 }
 
@@ -289,6 +373,11 @@ private struct SectionHeader: View {
                 .font(Typography.caption)
                 .buttonStyle(.borderless)
         }
+        .font(Typography.footnote)
+        .foregroundStyle(Palette.text2.color)
+        .padding(.horizontal, Space.l * 2)
+        .padding(.top, Space.xl)
+        .padding(.bottom, Space.s)
     }
 }
 

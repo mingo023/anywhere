@@ -18,7 +18,7 @@ swift build -c release --scratch-path /tmp/ak-bench-ui -Xswiftc -DPERF_COUNTERS 
 /tmp/ak-bench-ui/release/anywhere-bench ui chat-5000 --png /tmp/ui   # one run, with PNGs to look at
 ```
 
-Give `-DPERF_COUNTERS` its own scratch path: changing the flags rebuilds everything. Without it the counters compile to nothing and the body columns read `-`. `UIBENCH_ITEMS` (chat size) and `UIBENCH_FRAMES` (stream frames, for sampling with `sample <pid>`) override the chat fixture.
+Give `-DPERF_COUNTERS` its own scratch path: changing the flags rebuilds everything. Without it the counters compile to nothing and the body columns read `-`. `UIBENCH_ITEMS` (chat size) and `UIBENCH_FRAMES` (stream frames, for sampling with `sample <pid>`) override the chat fixture; `UIBENCH_PAGES` the scroll pages. `anywhere-bench ui chat-send --png <dir>` sends a prompt at the end of the long chat; its `-updated.png` shows the prompt held a quarter down.
 
 ## How `anywhere-bench ui` measures
 
@@ -30,42 +30,43 @@ Each scenario runs in its own process (so memory is its own) and hosts the publi
 - **Times are main-thread CPU time** (`CLOCK_THREAD_CPUTIME_ID`), so other work on the machine doesn't count. They are still noisy by ±20% between runs on a loaded Mac; compare runs made side by side.
 - **Memory** is `phys_footprint` after load, fixtures included.
 - **Bodies** are `BodyCount.hit` calls in the measured views' `body`, per update or per page of scroll.
+- **Following**: chat-5000 also checks the scroll view's gap to its end after load and after the stream, printing `FOLLOW|…|ok`; over 2 pt either time prints `fail` and exits 1.
 
 The Mac's SwiftUI is not the phone's: `List` is an `NSOutlineView` here and a `UICollectionView` on iOS, and a phone CPU is slower. Read the numbers relative to each other, before and after a change.
 
 ## Screens (anywhere-bench ui)
 
-Median of 3 runs each, before and after this pass, run interleaved on an M-series Mac. ms of main-thread CPU.
+Median of 3 runs each, before (`mobile-swift` at `eeab3d4`) and after the `perf/pass` branch, on an M-series Mac. ms of main-thread CPU.
 
 | Scenario | Build | Load ms | Update p50 / p95 ms | Scroll p50 / p95 ms | Memory MB |
 |---|---|---:|---:|---:|---:|
-| chat-5000 | before | 336.7 | 10.0 / 58.5 | 42.8 / 49.6 | 87 |
-| chat-5000 | after | 334.7 | 11.6 / 79.2 | 29.9 / 47.9 | 88 |
-| changes-1500 | before | 1150.0 | 358.4 / 406.9 | 72.6 / 125.6 | 104 |
-| changes-1500 | after | 1116.5 | 299.9 / 403.6 | 71.6 / 123.3 | 105 |
-| diff-20k | before | 80.4 | - | 47.1 / 82.5 | 34 |
-| diff-20k | after | 79.0 | - | 46.2 / 86.4 | 34 |
-| diff-20k-split | before | 96.6 | - | 69.8 / 111.5 | 39 |
-| diff-20k-split | after | 94.9 | - | 69.2 / 112.4 | 39 |
-| file-10k | before | 26.0 | - | 30.9 / 67.6 | 17 |
-| file-10k | after | 26.2 | - | 30.6 / 66.6 | 17 |
-| markdown-258k | before | 97.2 | - | 37.8 / 72.2 | 18 |
-| markdown-258k | after | 97.4 | - | 38.1 / 71.8 | 18 |
+| chat-5000 | before | 146.8 | 11.4 / 21.1 | 45.1 / 53.2 | 51 |
+| chat-5000 | after | 133.4 | 4.5 / 12.8 | 43.5 / 52.6 | 51 |
+| changes-1500 | before | 1119.2 | 299.9 / 408.0 | 71.4 / 124.1 | 105 |
+| changes-1500 | after | 114.3 | 3.6 / 30.2 | 44.3 / 79.2 | 33 |
+| diff-20k | before | 79.2 | - | 46.4 / 87.2 | 34 |
+| diff-20k | after | 48.9 | - | 6.0 / 11.5 | 42 |
+| diff-20k-split | before | 94.7 | - | 69.6 / 110.5 | 39 |
+| diff-20k-split | after | 50.0 | - | 7.0 / 14.7 | 59 |
+| file-10k | before | 26.0 | - | 31.0 / 68.6 | 17 |
+| file-10k | after | 26.2 | - | 4.8 / 11.5 | 17 |
+| markdown-258k | before | 98.2 | - | 38.3 / 71.0 | 18 |
+| markdown-258k | after | 96.7 | - | 37.4 / 70.1 | 18 |
 
-The chat rows differ by no more than run-to-run noise; its changes cut work on keystrokes, which this doesn't time (see the model table).
+The chat fixture here is the 5000-item `Sample.chatPerf` (8754 rows); the 336 ms load in earlier notes came from an older fixture. chat-5000 follows its end after load and after the stream (`FOLLOW|…|ok`) in both builds.
 
 Body evaluations (after):
 
 | Scenario | To load | Per update | Per page of scroll |
 |---|---|---|---|
-| chat-5000 | RowView 310, BlockView 297, TextRow 195, MarkdownView 195, PromptBubble 23, TranscriptView 5, ComposerView 2 | RowView 2.1, TextRow 2.0, TranscriptView 1.2, ComposerView 1.0, MarkdownView 0.6, BlockView 0.6 | RowView 18.0, BlockView 17.5, MarkdownView 11.5, TextRow 11.4, PromptBubble 1.2 |
-| changes-1500 | FileRow 30, ChangesScreen 2 | ChangesScreen 1.0, CommitComposer 1.0, FileRow 0.1 | FileRow 29.2 |
-| diff-20k | DiffLineRow 41 | - | DiffLineRow 48.1 |
-| diff-20k-split | DiffLineRow 69 | - | DiffLineRow 80.2 |
-| file-10k | CodeTextView 1 (rows land after load) | - | CodeRow 58.7 |
+| chat-5000 | RowView 27, TextRow 7, MarkdownView 7, BlockView 7, PromptBubble 5, TranscriptView 4, ComposerView 2 | RowView 2.0, TextRow 1.9, ComposerView 1.0, MarkdownView 0.2, BlockView 0.2 | RowView 17.6, BlockView 17.3, MarkdownView 11.3, TextRow 11.2, PromptBubble 1.3 |
+| changes-1500 | FileRow 15, ChangesScreen 2, CommitComposer 1 | ChangesScreen 1.0, CommitComposer 1.0 | FileRow 22.8 |
+| diff-20k | DiffBlock 2 | - | DiffBlock 1.6 |
+| diff-20k-split | DiffBlock 2 | - | DiffBlock 1.5 |
+| file-10k | CodeTextView 1 (blocks land after load) | - | CodeBlock 1.8 |
 | markdown-258k | MarkdownView 2 (blocks land after load) | - | BlockView 16.2 |
 
-Every list builds only what is on screen when scrolling (a page is ~15 chat rows, ~29 file rows, ~48 diff rows), and a stream frame redraws ~2 rows.
+Before, a stream frame also re-ran `TranscriptView` (1 per frame), a page of diff built ~48 `DiffLineRow`s (80 side by side) and a page of code ~59 `CodeRow`s; a block now draws 32 rows.
 
 ## Model layer (anywhere-bench)
 
@@ -73,37 +74,46 @@ Release, best of 20, same Mac.
 
 | Measurement | Time |
 |---|---:|
-| decode git.status, 1200 files | 2.63 ms |
-| decode git.diff, 6000 rows | 11.93 ms |
-| decode agent.timeline, 455 items | 4.17 ms |
-| 10 MiB of terminal frames: parse alone | 0.52 ms |
-| 10 MiB of terminal frames: parse + SwiftTerm | 542 ms |
-| git.status 1500 files: decode + flat rows | 3.53 ms |
-| git.status 1500 files: decode + tree rows | 6.45 ms |
-| git.diff 20k rows: decode + document | 42.25 ms |
-| graph lanes, 5000 commits | 0.88 ms |
-| diff row styled text, per visible row | 42 µs |
-| index 50k paths for go-to-file | 8.12 ms |
-| fuzzy search 50k paths | 1.4–2.1 ms |
-| markdown parse, 258 KB | 19.96 ms |
+| decode git.status, 1200 files | 2.53 ms |
+| decode git.diff, 6000 rows | 12.05 ms |
+| decode agent.timeline, 455 items | 4.16 ms |
+| 10 MiB of terminal frames: parse alone | 0.45 ms |
+| 10 MiB of terminal frames: parse + SwiftTerm | 522 ms |
+| git.status 1500 files: decode + flat rows | 3.35 ms |
+| git.status 1500 files: decode + tree rows | 6.06 ms |
+| git.diff 20k rows: decode + document | 41.30 ms |
+| graph lanes, 5000 commits | 0.82 ms |
+| diff row drawn text (CoreText line), per visible row | 23 µs (was 42 µs as an `AttributedString`) |
+| index 50k paths for go-to-file | 7.51 ms |
+| fuzzy search 50k paths | 1.3–1.9 ms |
+| markdown parse, 258 KB | 18.64 ms |
 | markdown grow by one chunk, 258 KB doc | 0.03 ms |
-| highlight typescript / rust, 513 KB | 4.2 ms |
-| chat fold+rows, perf-1200 / perf-5000 | 0.68 / 2.81 ms |
-| chat stream frame, perf-5000 | p50 177 µs, p95 185 µs |
-| composer tray + agent map scans, perf-5000 | 0.29 ms |
-
-The last line is what the composer's body used to do on every keystroke and stream frame; it now happens once per refold in `ChatStore.flush`.
+| highlight typescript / rust, 513 KB | 4.1 ms |
+| chat fold+rows, perf-1200 / perf-5000 | 0.63 / 2.60 ms |
+| chat stream frame, perf-5000 | p50 181 µs, p95 198 µs |
+| composer tray + agent map scans, perf-5000 | 0.28 ms |
 
 ## What this pass changed
 
-- **Release builds of `Stores` crashed the compiler** (Swift 6.2.4, `AccessEnforcementDom` on `GitStore.loadHistory`), so no release build that links the stores worked. The paging loop moved into its own function.
-- **A long diff opened mid-document.** `DiffView` put its rows inside an empty scroll view that SwiftUI centred, and kept that offset when 20k rows arrived (about 45% down, and ~100 pt right side by side). The scroll view now comes with its rows. Pinned by the `git-diff-long` gallery scene.
-- **Changes rows are one view each** (`ChangeRowView`) rather than a `@ViewBuilder` switch with an `EmptyView` case: a status refresh at 1500 files went from 358 to 300 ms here.
+- **Changes is a lazy stack of fixed-height rows**, not a `List` (an `NSOutlineView` on the Mac, whose `diffRows` walked all 1500 rows on each refresh). `ChangeLines` caches the flat rows per status revision and fold set (`TreeChanges.revision`), each row is an `Equatable` view with a stable id, and selection lives in `ChangeSelection`, so a refresh redraws nothing that didn't change. Swipe actions (`SwipeRow.swift`, a drag with an axis lock, plus accessibility actions) and multi-select (Edit / Done and a selection bar) are built in, one implementation on both platforms; the context menu stays.
+- **Diff and code rows draw in blocks.** A row's text is laid out once into a CoreText line (`DrawnText`, cached per row, appearance and size) and 32 rows draw in one `Canvas` (`DrawnRows`), with fills, word tints and line numbers as runs. A canvas is rasterized whole, so a two-way scroll view draws only the window it shows (`ScrollX`). The inline edit diff in the chat uses the same blocks.
+- **Chat rows observe their own boxes.** `TranscriptRows` reads the store under observation tracking and puts each change into the ids (when rows come or go) or into the box of the row it changed; `TranscriptView` reads only the ids, so a stream frame redraws the growing row, not the list of thousands.
+- **The chat follows its end from its row frames.** The end marker and the room under the rows ride with the last row, so they are built whenever it is and a scroll to the end lands; `laidOut` keeps to the end on each frame change. The jump pill holds its state while the list snaps back to its end, the pill and sticky-card animations sit on their overlays (on the list they carried any scroll landing in the same update), and the sticky card keeps through frames that put no row on screen (frames reported before the lazy stack corrected its estimates).
+- **Harness:** `UIBENCH_PAGES`, the `FOLLOW` check, and the `chat-send` scene for the quarter-down pin.
+
+Visuals were checked against the gallery from `mobile-swift`: Changes, diff (unified, split, long), inline edit diff, code and every chat scene render the same. On the Mac the code gutter is a little tighter (the old layout assumed 7.8 pt per digit of the 10 pt mono font), and chat scenes sit up to a point apart from sub-point rounding.
+
+## Earlier pass
+
+- **Release builds of `Stores` crashed the compiler** (Swift 6.2.4, `AccessEnforcementDom` on `GitStore.loadHistory`). The paging loop moved into its own function.
+- **A long diff opened mid-document**: its rows sat in an empty scroll view that SwiftUI centred. The scroll view now comes with its rows; pinned by the `git-diff-long` gallery scene.
 - **The composer no longer walks the transcript** for the background tray and the agent chip; `ChatStore` keeps `background` and `agents`, worked out on each refold.
 
 ## What is left
 
-- **Changes, 1500 files: ~300 ms per status refresh on macOS.** A sample shows nearly all of it in SwiftUI's `OutlineListCoordinator.diffRows` walking every row; our bodies are ~3 ms of it, `ChangeTree.rows` included. On iOS `List` is a different implementation; measure on a device before restructuring away from `List` (selection, swipe actions and edit mode come with it).
-- **The chat redraws its list on every stream frame.** `TranscriptView` reads `store.session`, so each frame re-evaluates it and SwiftUI rediffs 5000 ids; that, and a new paragraph inserting a row (the p95), is most of the 10 ms. Splitting the list so rows observe the session themselves (keeping the ids apart in the store) cut the frame to ~3 ms, but at 2000+ items the transcript then opened blank and stopped following the tail: the scroll pinning in `laidOut` depends on the list being re-evaluated. It was reverted; doing it needs the follow and pin logic driven by something other than the list's redraws.
-- **Opening a 5000-item chat builds ~310 rows** while it scrolls to the end, about 20 screens' worth.
-- **A page of diff or code costs 30–70 ms** when it is a whole new screen of rows (a fling); each row is an `HStack` of `Text`s with an `AttributedString`. Drawing rows with `Canvas`, as the plan intended for `CodeView`, would cut that.
+- **Chat stream frame p95 is ~13 ms (target 8).** Steady frames are 4–6 ms; the p95 comes from the first frame (up to ~25 ms) and the two frames that insert a paragraph row (13–20 ms). An insert changes the lazy stack's child list, and SwiftUI re-estimates every row before the visible ones (`LazyStack.measureEstimates`, ~8750 rows here) and rediffs the ids. Splitting the ids into head and tail `ForEach`es didn't help; grouping rows per turn would, but turns hold rows with state (`FoldRow`, `PromptBubble`, `MarkdownView`) that regrouping would reset. A finished paragraph also re-renders while the message's reveal animation runs over it.
+- **Chat scroll is unchanged, ~43 / 53 ms a page**, nearly all text layout of new markdown rows (`BlockView`, `TextRow`).
+- **Changes refresh p95 ~30 ms and scroll ~44 / 79 ms a page** on the Mac. Swipe and multi-select are custom now: try them on a device (scroll vs swipe conflicts, VoiceOver actions, Edit mode).
+- **Canvas blocks hold bitmaps**: the split diff is 59 MB against 39, bounded by the window drawing only what's on screen.
+- **Markdown file scroll is unchanged**, ~37 / 70 ms a page.
+- **`make typecheck-ios` fails on `mobile-swift` already**: `TranscriptView.opensAtEnd` uses `defaultScrollAnchor(_:for:)`, which the iOS 17.2 SDK lacks.

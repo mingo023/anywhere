@@ -1,4 +1,5 @@
 import DesignSystem
+import DiffModel
 import Highlight
 import SwiftUI
 
@@ -8,48 +9,64 @@ public enum CodeStyle {
     /// The longest a line is drawn; the Mac cuts at 1024 characters already.
     static let maxChars = 1024
 
-    nonisolated static func color(_ kind: TokenKind, dark: Bool) -> Color? {
-        guard let rgb = SyntaxPalette.rgb(kind, dark: dark) else { return nil }
-        return Color(red: Double(rgb >> 16 & 0xff) / 255, green: Double(rgb >> 8 & 0xff) / 255, blue: Double(rgb & 0xff) / 255)
+    /// A line number right-aligned in `digits` columns of the monospaced font, and the gap after it.
+    nonisolated static func number(_ n: Int?, digits: Int, dark: Bool, into runs: inout LineRuns) {
+        let s = n.map(String.init) ?? ""
+        runs.append(String(repeating: " ", count: max(digits - s.count, 0)) + s + " ", rgba: Palette.text4.rgba(dark: dark))
     }
 
-    /// A line with its syntax colours and changed-word tints; ranges are UTF-16 offsets into `text`.
-    public nonisolated static func attributed(_ text: String, spans: [HighlightSpan], words: [Range<Int>] = [], word: Color? = nil, dark: Bool)
-        -> AttributedString
-    {
-        var out = AttributedString(text)
-        guard !spans.isEmpty || !words.isEmpty else { return out }
-        let utf16 = text.utf16
-        func range(_ r: Range<Int>) -> Range<AttributedString.Index>? {
-            guard r.lowerBound >= 0, r.upperBound <= utf16.count, r.lowerBound < r.upperBound else { return nil }
-            let lo = utf16.index(utf16.startIndex, offsetBy: r.lowerBound)
-            let hi = utf16.index(lo, offsetBy: r.count)
-            guard let a = AttributedString.Index(lo, within: out), let b = AttributedString.Index(hi, within: out) else { return nil }
-            return a..<b
+    /// A source line: its number, then its coloured code.
+    nonisolated static func codeRow(_ text: String, number: Int?, digits: Int, spans: [HighlightSpan], dark: Bool) -> LineRuns {
+        var runs = LineRuns()
+        if let number {
+            self.number(number, digits: digits, dark: dark, into: &runs)
+            runs.append(" ")
         }
-        for s in spans {
-            if let c = color(s.kind, dark: dark), let r = range(s.range) { out[r].foregroundColor = c }
+        runs.code(text, spans: spans, dark: dark)
+        return runs
+    }
+
+    /// Which numbers a diff row's gutter shows: both in a unified diff, one side's in a side-by-side half.
+    public enum Gutter: Hashable, Sendable {
+        case both, old, new
+    }
+
+    /// A diff row: its numbers, its sign, its coloured code with changed words tinted, and an ellipsis when the Mac
+    /// cut the line.
+    public nonisolated static func diffRow(_ line: UnifiedLine, gutter: Gutter, digits: Int, spans: [HighlightSpan], dark: Bool) -> LineRuns {
+        var runs = LineRuns()
+        switch gutter {
+        case .both:
+            number(line.old, digits: digits, dark: dark, into: &runs)
+            number(line.new, digits: digits, dark: dark, into: &runs)
+        case .old: number(line.old, digits: digits, dark: dark, into: &runs)
+        case .new: number(line.new, digits: digits, dark: dark, into: &runs)
         }
-        if let word {
-            for w in words {
-                if let r = range(w) { out[r].backgroundColor = word }
+        runs.append(sign(line.kind) + " ", rgba: signColor(line.kind).rgba(dark: dark))
+        let word: Token? =
+            switch line.kind {
+            case .added: Palette.diffAddWord
+            case .deleted: Palette.diffDelWord
+            default: nil
             }
-        }
-        return out
+        runs.code(line.text, spans: spans, words: line.words, word: word?.rgba(dark: dark), dark: dark)
+        if line.cut { runs.append(" …", rgba: Palette.text4.rgba(dark: dark)) }
+        return runs
     }
-}
 
-/// A right-aligned line number in the gutter.
-@MainActor
-struct LineNumber: View {
-    let number: Int?
-    let width: CGFloat
+    nonisolated static func sign(_ kind: UnifiedLine.Kind) -> String {
+        switch kind {
+        case .added: "+"
+        case .deleted: "−"
+        default: " "
+        }
+    }
 
-    var body: some View {
-        Text(number.map(String.init) ?? "")
-            .font(CodeStyle.font.monospacedDigit())
-            .foregroundStyle(Palette.text4.color)
-            .frame(width: width, alignment: .trailing)
-            .accessibilityHidden(true)
+    nonisolated static func signColor(_ kind: UnifiedLine.Kind) -> Token {
+        switch kind {
+        case .added: Palette.diffAddText
+        case .deleted: Palette.diffDelText
+        default: Palette.text4
+        }
     }
 }

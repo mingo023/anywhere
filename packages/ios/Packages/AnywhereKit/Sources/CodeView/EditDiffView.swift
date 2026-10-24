@@ -13,7 +13,6 @@ public struct EditDiffView: View {
     @State private var spans: DiffSpans?
     @Environment(\.colorScheme) private var scheme
     @ScaledMetric(relativeTo: .footnote) private var rowHeight: CGFloat = 18
-    @ScaledMetric(relativeTo: .footnote) private var charWidth: CGFloat = 7.8
 
     public init(path: String, diff: FileDiff) {
         lines = EditPreview.lines(diff)
@@ -23,16 +22,10 @@ public struct EditDiffView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let spans {
-                let gutter = CGFloat(DiffRows.digits(lines)) * charWidth
-                ForEach(lines) { line in
-                    // An overlay doesn't size the row, so a long line is clipped instead of widening every row.
-                    DiffLineRow.fill(line.kind)
-                        .frame(height: rowHeight)
-                        .overlay(alignment: .leading) {
-                            DiffLineRow(line: line, gutter: gutter, both: true, spans: spans, dark: scheme == .dark)
-                        }
-                        .clipped()
-                }
+                // Offered the card's width, so a long line is clipped instead of widening the card.
+                DiffBlock(
+                    lines: lines, digits: DiffRows.digits(lines), rows: lines.indices, minWidth: nil, rowHeight: rowHeight, spans: spans,
+                    dark: scheme == .dark)
             }
         }
         .padding(.vertical, Space.xs)

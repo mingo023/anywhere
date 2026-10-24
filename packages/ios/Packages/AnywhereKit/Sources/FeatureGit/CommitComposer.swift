@@ -23,6 +23,7 @@ struct CommitComposer: View {
         VStack(alignment: .leading, spacing: Space.s) {
             TextField(amend ? "Message (empty keeps the last)" : "Message", text: $message, axis: .vertical)
                 .lineLimit(1...6)
+                .textFieldStyle(.plain)
                 .focused($focused)
                 .font(Typography.body)
             Toggle("Amend last commit", isOn: $amend).font(Typography.subheadline)

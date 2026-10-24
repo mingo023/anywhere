@@ -11,9 +11,9 @@ public struct CodeTextView: View {
     let language: String
     let lineNumbers: Bool
     @State private var loaded: Loaded?
+    @State private var scrollX: CGFloat = 0
     @Environment(\.colorScheme) private var scheme
     @ScaledMetric(relativeTo: .footnote) private var rowHeight: CGFloat = 18
-    @ScaledMetric(relativeTo: .footnote) private var charWidth: CGFloat = 7.8
 
     private struct Loaded {
         let lines: CodeLines
@@ -32,17 +32,17 @@ public struct CodeTextView: View {
             if let loaded {
                 ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(0..<loaded.lines.count, id: \.self) { i in
-                            CodeRow(
-                                number: lineNumbers ? i + 1 : nil, gutter: CGFloat(loaded.lines.digits) * charWidth, text: loaded.lines.lines[i],
-                                line: i, spans: loaded.spans, dark: scheme == .dark
-                            )
-                            .frame(height: rowHeight)
-                            .frame(minWidth: geo.size.width, alignment: .leading)
+                        ForEach(0..<DrawnRows.blocks(loaded.lines.count), id: \.self) { b in
+                            CodeBlock(
+                                lines: loaded.lines, rows: DrawnRows.range(b, count: loaded.lines.count), numbers: lineNumbers,
+                                minWidth: geo.size.width, scrollX: scrollX, rowHeight: rowHeight, spans: loaded.spans, dark: scheme == .dark)
                         }
                     }
                     .padding(.vertical, Space.s)
+                    .reportsScrollX(in: "code")
                 }
+                .coordinateSpace(name: "code")
+                .onPreferenceChange(ScrollX.self) { x in MainActor.assumeIsolated { scrollX = x } }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -61,26 +61,35 @@ public struct CodeTextView: View {
     }
 }
 
+/// A block of source lines, numbered, drawn in one `Canvas` from texts `SpanCache` keeps.
 @MainActor
-private struct CodeRow: View {
-    let number: Int?
-    let gutter: CGFloat
-    let text: String
-    let line: Int
+private struct CodeBlock: View {
+    let lines: CodeLines
+    let rows: Range<Int>
+    let numbers: Bool
+    let minWidth: CGFloat
+    let scrollX: CGFloat
+    let rowHeight: CGFloat
     let spans: SpanCache
     let dark: Bool
+    @ScaledMetric(relativeTo: .footnote) private var size = DrawnText.footnote
 
     var body: some View {
-        let _ = BodyCount.hit("CodeRow")
-        HStack(spacing: Space.m) {
-            if number != nil { LineNumber(number: number, width: gutter) }
-            Text(CodeStyle.attributed(text, spans: spans.spans(line), dark: dark))
-                .font(CodeStyle.font)
-                .foregroundStyle(Palette.text.color)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+        let _ = BodyCount.hit("CodeBlock")
+        let texts = rows.map { line in
+            spans.texts.text(RowKey(line: line, dark: dark, size: size), coloured: spans.coloured(line)) {
+                DrawnText(
+                    CodeStyle.codeRow(lines.lines[line], number: numbers ? line + 1 : nil, digits: lines.digits, spans: spans.spans(line), dark: dark),
+                    size: size, color: Palette.text.rgba(dark: dark))
+            }
         }
-        .padding(.horizontal, Space.m)
-        .onAppear { spans.need(line) }
+        DrawnRows(
+            rows: texts.map { [Cell(text: $0, inset: Space.m)] }, rowHeight: rowHeight, width: texts.reduce(minWidth) { max($0, $1.width + Space.m * 2) },
+            window: (scrollX, minWidth))
+            .onAppear { rows.forEach(spans.need) }
+            .accessibilityElement(children: .contain)
+            .accessibilityChildren {
+                ForEach(rows, id: \.self) { Text(lines.lines[$0]) }
+            }
     }
 }
