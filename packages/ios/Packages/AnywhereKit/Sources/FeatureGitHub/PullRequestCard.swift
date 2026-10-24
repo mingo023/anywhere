@@ -39,11 +39,7 @@ struct PullRequestCard: View {
         }
         .groupedList()
         .refreshable { await store.refresh(model.tree) }
-        .alert("Pull request", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.error ?? "")
-        }
+        .errorAlert(model)
     }
 
     private var header: some View {
@@ -191,6 +187,16 @@ struct CheckRow: View {
 }
 
 extension View {
+    /// What went wrong acting on the PR, until dismissed.
+    @MainActor
+    func errorAlert(_ model: TreePullRequest) -> some View {
+        alert("Pull request", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.error ?? "")
+        }
+    }
+
     /// The grouped list of iOS Settings; macOS, which has none, takes its inset list.
     @ViewBuilder
     func groupedList() -> some View {

@@ -55,6 +55,7 @@ struct ThreadsScreen: View {
         }
         .groupedList()
         .navigationTitle("Comments")
+        .errorAlert(model)
         .animation(.default, value: filter)
         .overlay(alignment: .bottom) {
             if let notice = model.notice {
