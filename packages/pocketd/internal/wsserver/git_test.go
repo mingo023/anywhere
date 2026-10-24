@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,10 +102,21 @@ func TestAPhoneStagesCommitsAndHearsTheTreeMove(t *testing.T) {
 	if m := p.reply("w"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
-	time.Sleep(60 * time.Millisecond)
-	os.WriteFile(filepath.Join(repo, "notes.md"), []byte("n\n"), 0o644)
+	// The poller's first read is its baseline, and on a loaded machine it may come after any one write, so keep writing.
+	done := make(chan struct{})
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-done:
+				return
+			case <-time.After(30 * time.Millisecond):
+				os.WriteFile(filepath.Join(repo, "notes.md"), []byte(strings.Repeat("n", i+1)+"\n"), 0o644)
+			}
+		}
+	}()
 	for m := p.recv(); m["type"] != "git.changed" || m["tree"] != repo; m = p.recv() {
 	}
+	close(done)
 	p.send(`{"type":"git.stage","id":"st","tree":` + q(repo) + `,"paths":["notes.md"],"staged":true}`)
 	if m := p.reply("st"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
@@ -131,6 +143,7 @@ func TestGitVerbsStayInsideRegisteredTrees(t *testing.T) {
 		{`{"type":"git.status","id":"1","tree":"/etc"}`, proto.CodeNotATree},
 		{`{"type":"git.status","id":"2","tree":` + q(repo+"/../pocket") + `}`, proto.CodeNotATree},
 		{`{"type":"git.watch","id":"3","trees":["relative"]}`, proto.CodeNotATree},
+		{`{"type":"git.status","id":"3b","tree":` + q(repo+"/src") + `}`, proto.CodeNotATree},
 		{`{"type":"git.diff","id":"4","tree":` + q(repo) + `,"path":"../secret","at":{"kind":"working"}}`, proto.CodeOutsideTree},
 		{`{"type":"git.stage","id":"5","tree":` + q(repo) + `,"paths":["a","/etc/hosts"],"staged":true}`, proto.CodeOutsideTree},
 	} {
