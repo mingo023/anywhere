@@ -41,7 +41,7 @@ func pushStatus(home string, args []string, w io.Writer, now time.Time) error {
 		Frequent     bool   `json:"frequent"`
 		RegisteredAt int64  `json:"registeredAt"`
 	}
-	var phones []phone
+	phones := []phone{}
 	for _, r := range store.Records() {
 		p := phone{Device: r.Device, Name: names[r.Device], Env: r.Env, Prefs: prefs(r), Frequent: r.Frequent, RegisteredAt: r.UpdatedAt}
 		if r.Alert != nil {
@@ -58,7 +58,7 @@ func pushStatus(home string, args []string, w io.Writer, now time.Time) error {
 		}
 		phones = append(phones, p)
 	}
-	sends := store.Sends()
+	sends := append([]push.Sent{}, store.Sends()...)
 	if len(args) == 1 {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
