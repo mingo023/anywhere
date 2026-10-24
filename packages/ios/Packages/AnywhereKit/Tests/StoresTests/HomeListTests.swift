@@ -22,15 +22,31 @@ private let otter = "/Users/mingo/.worktrees/anywhere/calm-otter"
 
 @Suite("Home list")
 struct HomeListTests {
-    @Test("each project lists its own checkout as Local, then its Locals, then its worktrees by name or branch")
+    @Test("each project lists its own checkout as Local while in use, then its Locals, then its worktrees by name or branch")
     func trees() {
         let built = build([])
         #expect(built.sections.map(\.name) == ["anywhere", "website", "notes"])
         let trees = built.sections[0].trees
-        #expect(trees.map(\.label) == ["Local", "Review", "Phone terminal", "fix/login"])
-        #expect(trees.map(\.kind) == [.own, .local, .worktree, .worktree])
-        #expect(trees[2].place == "calm-otter")
-        #expect(built.sections[1].trees[1].label == "dark-mode", "a detached worktree goes by its folder")
+        #expect(trees.map(\.label) == ["Review", "Phone terminal", "fix/login"])
+        #expect(trees.map(\.kind) == [.local, .worktree, .worktree])
+        #expect(trees[1].place == "calm-otter")
+        #expect(built.sections[1].trees[0].label == "dark-mode", "a detached worktree goes by its folder")
+        #expect(built.sections[2].trees.isEmpty)
+        let inUse = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:], sessions: [],
+                                   terminalCwds: [anywhere + "/src"])
+        #expect(inUse.sections[0].trees.first.map { [$0.label, $0.place] } == ["Local", "main"])
+    }
+
+    @Test("projects keep pocketd's order, or go by name, or by their latest status step")
+    func projectSort() {
+        let sessions = [session("w", "/Users/mingo/dev/website", created: 5), session("n", "/Users/mingo/notes", created: 9)]
+        let order = { (sort: HomeList.ProjectSort) in
+            HomeList.build(projects: Sample.projects.reversed(), names: [:], locals: [], localOfTerminal: [:], sessions: sessions, projectSort: sort)
+                .sections.map(\.name)
+        }
+        #expect(order(.manual) == ["notes", "website", "anywhere"])
+        #expect(order(.name) == ["anywhere", "notes", "website"])
+        #expect(order(.recent) == ["notes", "website", "anywhere"])
     }
 
     @Test("a session sits in the tree holding its folder, its Local's when its terminal was opened in one, else elsewhere")
@@ -84,7 +100,7 @@ struct HomeListTests {
     func scale() {
         let (projects, agents) = Sample.workspace(projects: 50, worktrees: 10, agents: 200)
         let sessions = agents.map { HomeList.Session(card: .init(id: $0.id, title: $0.title, status: .idle, createdAt: $0.createdAt, updatedAt: $0.updatedAt), cwd: $0.cwd, terminalId: $0.terminalId) }
-        let built = HomeList.build(projects: projects, names: [:], locals: [], localOfTerminal: [:], sessions: sessions)
+        let built = HomeList.build(projects: projects, names: [:], locals: [], localOfTerminal: [:], sessions: sessions, terminalCwds: projects.map(\.path))
         #expect(built.sections.count == 50)
         #expect(built.sections.flatMap(\.trees).count == 500)
         #expect(built.sections.flatMap(\.trees).flatMap(\.sessions).count + built.elsewhere.count == 200)
@@ -95,7 +111,7 @@ struct HomeListTests {
             var best = Double.infinity
             for _ in 0..<20 {
                 let start = DispatchTime.now().uptimeNanoseconds
-                _ = HomeList.build(projects: p, names: [:], locals: [], localOfTerminal: [:], sessions: s, query: "")
+                _ = HomeList.build(projects: p, names: [:], locals: [], localOfTerminal: [:], sessions: s, terminalCwds: p.map(\.path), query: "")
                 best = min(best, Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6)
             }
             print("[bench] home list, 50 projects × 10 worktrees × \(agentCount) sessions: \(String(format: "%.3f", best)) ms")

@@ -13,6 +13,17 @@ struct TimeTextTests {
         #expect(TimeText.elapsed(seconds: 97_200) == "1d 3h")
     }
 
+    @Test("ago reads now, minutes, hours, yesterday, then days, and nothing for no time")
+    func ago() {
+        let now = 10 * 86_400_000
+        #expect(TimeText.ago(ms: 0, now: now) == "")
+        #expect(TimeText.ago(ms: now + 5_000, now: now) == "now")
+        #expect(TimeText.ago(ms: now - 12 * 60_000, now: now) == "12m")
+        #expect(TimeText.ago(ms: now - 3 * 3_600_000, now: now) == "3h")
+        #expect(TimeText.ago(ms: now - 30 * 3_600_000, now: now) == "yesterday")
+        #expect(TimeText.ago(ms: now - 4 * 86_400_000, now: now) == "4d")
+    }
+
     @Test("timestamps read 24-hour time in the reader's zone")
     func clock() {
         let utc = TimeZone(secondsFromGMT: 0)!

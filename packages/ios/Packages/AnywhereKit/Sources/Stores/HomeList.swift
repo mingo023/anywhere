@@ -2,7 +2,7 @@ import Domain
 import Wire
 
 /// The home list: each project with its own checkout, Locals and worktrees, each with its sessions, as the desktop
-/// sidebar groups them (`pocket/src/sidebar.rs`).
+/// sidebar groups them (`pocket/src/sidebar/sections.rs`).
 public enum HomeList {
     /// What placing and sorting a session needs.
     public struct Session: Hashable, Sendable {
@@ -43,6 +43,9 @@ public enum HomeList {
         public var rollUp: RollUp?
     }
 
+    /// How projects are ordered: as pocketd lists them, by name, or by their sessions' last status step.
+    public enum ProjectSort: String, CaseIterable, Hashable, Sendable { case manual, name, recent }
+
     public struct Built: Hashable, Sendable {
         public var sections: [Section]
         /// Sessions in no project, newest first.
@@ -50,9 +53,10 @@ public enum HomeList {
     }
 
     /// `localOfTerminal` places a session opened in a Local there; the rest go to the tree holding their folder.
+    /// A project's own checkout is listed only while in use: a session, or a terminal outside any Local (`terminalCwds`), is in it.
     public static func build(
         projects: [Project], names: [String: String], locals: [Local], localOfTerminal: [String: String], sessions: [Session],
-        query: String = "", sort: Sidebar.SessionSort = .newest
+        terminalCwds: [String] = [], query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: ProjectSort = .manual
     ) -> Built {
         let index = Index(projects)
         let localIds = Set(locals.map(\.id))
@@ -67,13 +71,19 @@ public enum HomeList {
                 elsewhere.append(s.card)
             }
         }
+        let busy = Set(terminalCwds.compactMap(index.tree(of:)))
         let localsOf = Dictionary(grouping: locals, by: \.project)
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         var sections: [Section] = []
+        var recent: [String: Int] = [:]
         for project in projects {
-            let main = project.worktrees.first(where: \.isMain)?.path ?? project.path
-            var trees = [Tree(id: main, kind: .own, label: Sidebar.ownLocalName(given: names[main]),
-                              place: project.worktrees.first(where: \.isMain).map { Sidebar.treePlace(path: $0.path, branch: $0.branch) }, sessions: [])]
+            let main = project.worktrees.first(where: \.isMain)
+            let mainPath = main?.path ?? project.path
+            var trees: [Tree] = []
+            if byTree[mainPath] != nil || busy.contains(mainPath) {
+                trees.append(Tree(id: mainPath, kind: .own, label: Sidebar.ownLocalName(given: names[mainPath]),
+                                  place: main.map { Sidebar.treePlace(path: $0.path, branch: $0.branch) }, sessions: []))
+            }
             trees += (localsOf[project.path] ?? []).map { Tree(id: $0.id, kind: .local, label: $0.name, sessions: []) }
             for w in project.worktrees where !w.isMain {
                 let (label, place) = Sidebar.treeLabel(path: w.path, branch: w.branch, given: names[w.path])
@@ -91,11 +101,23 @@ public enum HomeList {
                 tree.rollUp = rollUp(cards)
                 shown.append(tree)
             }
-            guard !shown.isEmpty else { continue }
+            guard projectMatches || !shown.isEmpty else { continue }
             sections.append(Section(id: project.path, name: project.name, trees: shown, rollUp: rollUp(all)))
+            recent[project.path] = all.map(\.updatedAt).max() ?? 0
+        }
+        switch projectSort {
+        case .manual: break
+        case .name: sections = stable(sections) { $0.name.lowercased() < $1.name.lowercased() }
+        case .recent: sections = stable(sections) { recent[$0.id, default: 0] > recent[$1.id, default: 0] }
         }
         let rest = Sidebar.matching(elsewhere, q).sorted { $0.createdAt != $1.createdAt ? $0.createdAt > $1.createdAt : $0.id < $1.id }
         return Built(sections: sections, elsewhere: rest.map(\.id))
+    }
+
+    static func stable(_ sections: [Section], _ before: (Section, Section) -> Bool) -> [Section] {
+        sections.enumerated().sorted { a, b in
+            before(a.element, b.element) || (!before(b.element, a.element) && a.offset < b.offset)
+        }.map(\.element)
     }
 
     static func rollUp(_ cards: [Sidebar.Card]) -> RollUp? {
