@@ -98,6 +98,8 @@ public struct ActivityTitles: @unchecked Sendable {
     }
 
     static let key = "activity.titles"
+    /// The App Group the app and its widget share, as `Keychain.appGroup`.
+    public static let appGroup = "group.dev.mingo.anywhere"
     public static let fallback = Entry(title: "A session", place: "", provider: "")
 
     let defaults: UserDefaults
