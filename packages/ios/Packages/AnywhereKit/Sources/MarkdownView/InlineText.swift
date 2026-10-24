@@ -52,6 +52,10 @@ struct InlineText {
         return builder.finish()
     }
 
+    /// Narrow spaces inside the fill stand in for the desktop's 0.25em × 0.5em padding. They don't break, so a wrap
+    /// can't leave the opening one, filled, alone at the end of the line above.
+    nonisolated static func padded(_ code: String) -> String { "\u{202F}\(code)\u{202F}" }
+
     private mutating func finish() -> Text {
         flush()
         return pieces.dropFirst().reduce(pieces.first ?? Text("")) { $0 + $1 }
@@ -93,8 +97,7 @@ struct InlineText {
             case .softBreak: append(" ", marks)
             case .hardBreak: append("\n", marks)
             case .code(let code):
-                // Thin spaces inside the fill stand in for the desktop's 0.25em × 0.5em padding.
-                append("\u{2009}\(code)\u{2009}", marks, mono: true, background: Palette.fill4)
+                append(Self.padded(code), marks, mono: true, background: Palette.fill4)
             case .path(let path, let folder):
                 var chip = marks
                 if !folder { chip.link = path }
@@ -102,7 +105,7 @@ struct InlineText {
                 let icon = folder ? "folder" : "doc.text"
                 let tint = LanguageBadge(path: path).letters.isEmpty ? Palette.text2.color : LanguageBadge(path: path).color
                 pieces.append(Text(Image(systemName: icon)).font(.system(size: style.size * 0.8)).foregroundColor(tint))
-                var piece = AttributedString("\u{2009}\(path)\u{2009}")
+                var piece = AttributedString(Self.padded(path))
                 piece.font = font(Marks(), mono: true)
                 piece.foregroundColor = Palette.text.color
                 piece.backgroundColor = Palette.fill4.color
