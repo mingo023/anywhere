@@ -34,6 +34,8 @@ type Scheduler struct {
 	Tick, Poll time.Duration
 	Start      Starter
 	Watch      Watcher
+	// OnFinish runs once a run has finished, with it as stored.
+	OnFinish func(proto.Run)
 
 	stopped atomic.Bool
 }
@@ -110,6 +112,8 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 	}
 	if res.Err == nil {
 		s.observe(run.ID, false, 0)
+	} else {
+		s.finished(run.ID)
 	}
 }
 
@@ -148,5 +152,14 @@ func (s *Scheduler) observe(runID string, worked bool, absentWait time.Duration)
 		if err != nil {
 			log.Printf("automations: run %s: %v", runID, err)
 		}
+		if finished(next.Status) {
+			s.finished(runID)
+		}
+	}
+}
+
+func (s *Scheduler) finished(runID string) {
+	if r, ok := s.Store.Run(runID); ok && s.OnFinish != nil {
+		s.OnFinish(r)
 	}
 }

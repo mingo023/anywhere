@@ -1,0 +1,7 @@
+{
+  "key": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
+  "nonce": "MDEyMzQ1Njc4OWFi",
+  "aad": "studio",
+  "plain": "{\"mac\":\"studio\",\"agent\":\"a1\",\"kind\":\"needsYou\",\"title\":\"Fix the flaky test\",\"place\":\"anywhere · calm-otter\",\"line\":\"Wants to run npm test\",\"request\":\"r1\",\"badge\":2}",
+  "sealed": "MDEyMzQ1Njc4OWFi3PFdVPa+FIOhhxXz+nMYBUL1yxGvrvgE8iqE9Ko3l5NTEO3YqxdSBngxWKR/0PaZKG0jdRGYoA0pQsJmlWQN0Ra+YxK8ux1CdPtFa5zqThl1TwxOdW31rNV57J4P2u8LzWltuMhdAQTZZzK4hCT2u1iQ0pbg9qKENFVc9DVRQY7KPdSQo/HCSsUE8sTXZY0Z+roC4QNo3TfXC5WPVvJoBFf0GyNprzxQORaa5rHDDDn/uy2X8A=="
+}

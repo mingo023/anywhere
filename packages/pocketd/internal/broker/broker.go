@@ -32,6 +32,9 @@ type Answer struct {
 }
 
 type Broker struct {
+	// OnAsk runs after each new request is shown, outside the lock. Set it before the first Ask.
+	OnAsk func(proto.PermissionRequest)
+
 	mu   sync.Mutex
 	hub  *hub.Hub
 	seq  int
@@ -61,6 +64,9 @@ func (b *Broker) Ask(ctx context.Context, req proto.PermissionRequest, key strin
 	// request before every other phone has been told about it.
 	b.hub.Publish(proto.NewPermissionRequest(p.req))
 	b.mu.Unlock()
+	if b.OnAsk != nil {
+		b.OnAsk(p.req)
+	}
 
 	timer := time.NewTimer(Timeout)
 	defer timer.Stop()
