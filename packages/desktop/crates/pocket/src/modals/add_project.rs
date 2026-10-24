@@ -12,9 +12,12 @@ use gpui_kit::*;
 use host_folder::Browse;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::time::Duration;
 use store::{ProjectIcon, RepoConfig};
 use theme::*;
 use ui::Variant;
+
+const SHEET_TOP: f32 = 48.;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Source {
@@ -52,6 +55,9 @@ struct RepoDraft {
     resetting: bool,
     editing: Option<String>,
     browse: Option<Browse>,
+    /// The edited project as the form opened on it, which Save is greyed out matching.
+    saved: Option<RepoConfig>,
+    copied: bool,
 }
 
 impl Default for RepoDraft {
@@ -67,6 +73,8 @@ impl Default for RepoDraft {
             resetting: false,
             editing: None,
             browse: None,
+            saved: None,
+            copied: false,
         }
     }
 }
@@ -84,6 +92,11 @@ impl RepoDraft {
     fn plain_folder(&self) -> bool {
         matches!(self.probe, Some(Probe::NotGit))
     }
+
+    /// Whether `now` differs from the project as the form opened on it; a new project always does.
+    fn unsaved(&self, now: &RepoConfig) -> bool {
+        self.saved.as_ref() != Some(now)
+    }
 }
 
 /// What Reset would put back, as (setting, now, default); name, colour and icon are the project's own.
@@ -100,8 +113,99 @@ fn project_changes(cfg: &RepoConfig) -> Vec<(&'static str, String, String)> {
         .collect()
 }
 
-fn field(label: &str, body: impl IntoElement) -> Div {
-    div().flex_1().min_w_0().flex().flex_col().gap(px(6.)).child(ui::field_label(label.to_string())).child(body)
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tone {
+    Plain,
+    Dim,
+    Good,
+    Dirty,
+}
+
+/// One chip under the chosen folder's path.
+#[derive(Debug, PartialEq)]
+struct Fact {
+    glyph: Option<&'static str>,
+    label: String,
+    tone: Tone,
+}
+
+impl Fact {
+    fn new(glyph: Option<&'static str>, label: impl Into<String>, tone: Tone) -> Self {
+        Self { glyph, label: label.into(), tone }
+    }
+}
+
+/// What the chosen folder is, as the chips under its path read.
+fn folder_facts(probe: Option<&Probe>) -> Vec<Fact> {
+    match probe {
+        None => vec![Fact::new(None, "Pick a folder", Tone::Dim)],
+        Some(Probe::Loading) => vec![Fact::new(None, "Checking\u{2026}", Tone::Dim)],
+        Some(Probe::NotGit) => vec![Fact::new(Some("folder"), "Not a git repository", Tone::Plain)],
+        Some(Probe::Git { branch, clean, remotes }) => {
+            let state = if *clean { Fact::new(Some("check"), "Clean", Tone::Good) } else { Fact::new(None, "Uncommitted changes", Tone::Dirty) };
+            let remotes = match remotes {
+                0 => "No remote".to_string(),
+                1 => "1 remote".to_string(),
+                n => format!("{n} remotes"),
+            };
+            vec![Fact::new(Some("branch"), branch.clone(), Tone::Plain), state, Fact::new(Some("cloud"), remotes, Tone::Plain)]
+        }
+    }
+}
+
+fn fact_chip(Fact { glyph, label, tone }: Fact) -> Div {
+    let color = match tone {
+        Tone::Plain | Tone::Dirty => TEXT_2,
+        Tone::Dim => TEXT_4,
+        Tone::Good => SUCCESS_TEXT,
+    };
+    div()
+        .h(px(22.))
+        .px(px(8.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(5.))
+        .rounded(px(11.))
+        .bg(FILL_2)
+        .shadow(vec![ui::ring(SEPARATOR, 0.5)])
+        .text_size(px(11.5))
+        .text_color(color)
+        .when(tone == Tone::Dirty, |d| d.child(ui::dot(6., WAITING_DOT)))
+        .children(glyph.map(|g| icon(g, 11., color)))
+        .child(label)
+}
+
+/// A row on a `group` plate.
+fn plate_row() -> Div {
+    div().h(px(46.)).px(px(12.)).flex().items_center().gap(px(10.))
+}
+
+/// Rows on one rounded plate, split by hairlines, with an optional heading above and note below.
+fn group(heading: Option<&str>, rows: Vec<AnyElement>, note: Option<&str>) -> Div {
+    let rows = rows.into_iter().enumerate().map(|(i, r)| div().when(i > 0, |d| d.border_t(px(0.5)).border_color(SEPARATOR)).child(r));
+    div()
+        .flex()
+        .flex_col()
+        .children(heading.map(|h| div().px(px(12.)).pb(px(7.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(h.to_string())))
+        .child(div().flex().flex_col().rounded(px(12.)).bg(FILL_1).shadow(vec![ui::ring(SEPARATOR, 0.5)]).children(rows))
+        .children(note.map(|n| div().px(px(12.)).pt(px(7.)).text_size(px(12.)).text_color(TEXT_4).child(n.to_string())))
+}
+
+fn script_row(label: &str, hint: &str, input: &Entity<InputState>) -> AnyElement {
+    let head = div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .child(div().text_size(px(13.)).text_color(TEXT).child(label.to_string()))
+        .child(div().text_size(px(12.)).text_color(TEXT_4).child(hint.to_string()));
+    let field = ui::field_box()
+        .h(px(36.))
+        .rounded(px(9.))
+        .font_family(MONO)
+        .child(div().text_size(px(13.)).text_color(TEXT_4).child("$"))
+        .child(div().flex_1().child(Input::new(input).appearance(false).p_0().text_size(px(13.))));
+    div().p(px(12.)).flex().flex_col().gap(px(8.)).child(head).child(field).into_any_element()
 }
 
 impl RepoForm {
@@ -203,7 +307,8 @@ impl Desktop {
         f.setup.update(cx, |s, cx| s.set_value(cfg.setup, window, cx));
         f.teardown.update(cx, |s, cx| s.set_value(cfg.teardown, window, cx));
         if let Some(p) = editing {
-            self.set_repo_path(p, window, cx);
+            self.set_repo_path(p.clone(), window, cx);
+            self.repo_form.draft.saved = Some(self.repo_config(&p, self.repo_form_name(cx), cx));
         }
     }
 
@@ -237,6 +342,30 @@ impl Desktop {
 
     fn repo_ready(&self, cx: &App) -> bool {
         self.repo_form.draft.ready(&self.repo_form_name(cx))
+    }
+
+    fn repo_unsaved(&self, cx: &App) -> bool {
+        let f = &self.repo_form.draft;
+        f.editing.as_ref().is_none_or(|path| f.unsaved(&self.repo_config(path, self.repo_form_name(cx), cx)))
+    }
+
+    fn copy_repo_path(&mut self, path: String, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(path));
+        // A second copy inside the window would have the first timer clear the check early.
+        if self.repo_form.draft.copied {
+            return;
+        }
+        self.repo_form.draft.copied = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(1200)).await;
+            this.update(cx, |d, cx| {
+                d.repo_form.draft.copied = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(crate) fn save_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -276,16 +405,40 @@ impl Desktop {
         cx.notify();
     }
 
-    /// The Reset line under an edited project, or the list it asks to confirm.
-    fn reset_line(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let f = &self.repo_form.draft;
-        if !f.resetting {
-            let link = ui::link("repo-reset", format!("Reset {name} to defaults\u{2026}")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.repo_form.draft.resetting = true;
-                cx.notify();
-            }));
-            return div().flex().justify_end().text_size(px(12.5)).child(link);
+    /// Reset and Remove, on their own plate under an edited project's settings.
+    fn project_actions(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
+        let changed = match project_changes(&self.repo_config(path, name.into(), cx)).len() {
+            0 => "At defaults".to_string(),
+            n => format!("{n} changed"),
+        };
+        let row = |id: &'static str, glyph: &str, label: &str, color: Token, aside: String| {
+            plate_row()
+                .id(id)
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_1))
+                .child(icon(glyph, 14., color))
+                .child(div().flex_1().text_size(px(13.)).text_color(color).child(label.to_string()))
+                .child(div().text_size(px(12.)).text_color(TEXT_4).child(aside))
+        };
+        let reset = row("repo-reset", "discard", "Reset to defaults\u{2026}", TEXT, changed).rounded_t(px(12.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.repo_form.draft.resetting ^= true;
+            cx.notify();
+        }));
+        let p = path.to_string();
+        let remove = row("repo-remove", "trash", "Remove from Anywhere\u{2026}", FAILED, "Files and worktrees stay on disk".into()).rounded_b(px(12.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            (this.confirm, this.overlay) = (Some(Confirm::RemoveProject(p.clone())), Some(Overlay::Confirm));
+            cx.notify();
+        }));
+        let mut rows = vec![reset.into_any_element()];
+        if self.repo_form.draft.resetting {
+            rows.push(div().p(px(12.)).child(self.reset_confirm(path, name, cx)).into_any_element());
         }
+        rows.push(remove.into_any_element());
+        group(None, rows, None)
+    }
+
+    /// The settings Reset would put back, asking to be confirmed.
+    fn reset_confirm(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
         let changes = project_changes(&self.repo_config(path, name.into(), cx));
         let lead = match changes.len() {
             0 => "Every setting here is already at its default.".to_string(),
@@ -334,108 +487,99 @@ impl Desktop {
         self.refresh_git(cx);
     }
 
-    fn folder_card(&self) -> Div {
-        let f = &self.repo_form.draft;
-        let title = match &f.path {
+    /// The project's mark, name, folder and what git says of it, centred over its settings.
+    fn repo_hero(&self, name: &str, cx: &mut Context<Self>) -> Div {
+        let f = &self.repo_form;
+        let (title, copy) = match &f.draft.path {
             Some(p) => match hosts::split(p) {
-                (Some(h), path) => format!("{}:{path}", self.host_name(h)),
-                (None, _) => tilde(p),
+                (Some(h), path) => (format!("{}:{path}", self.host_name(h)), Some(path.to_string())),
+                (None, _) => (tilde(p), Some(p.clone())),
             },
-            None => "No folder chosen".into(),
+            None => ("No folder chosen".into(), None),
         };
-        let (mark, line, color) = match &f.probe {
-            None => (None, "Pick a folder.".into(), TEXT_4),
-            Some(Probe::Loading) => (None, "Checking…".into(), TEXT_4),
-            Some(Probe::NotGit) => (None, "Folder · not a git repository".into(), TEXT_3),
-            Some(Probe::Git { branch, clean, remotes }) => {
-                let state = if *clean { "clean" } else { "uncommitted changes" };
-                let remotes = match remotes {
-                    1 => "1 remote".to_string(),
-                    n => format!("{n} remotes"),
-                };
-                (Some("check"), format!("Git repository · {branch} · {state} · {remotes}"), SUCCESS_TEXT)
-            }
-        };
-        div()
-            .h(px(60.))
-            .px(px(14.))
+        let copied = f.draft.copied;
+        let copy = copy.map(|path| {
+            div()
+                .id("repo-copy-path")
+                .size(px(20.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(5.))
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_3))
+                .child(if copied { icon("check", 12., SUCCESS_TEXT) } else { icon("copy", 12., TEXT_4) })
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.copy_repo_path(path.clone(), cx)))
+        });
+        let name_field = div()
+            .mt(px(10.))
+            .w(px(360.))
+            .h(px(40.))
+            .px(px(10.))
             .flex()
             .items_center()
-            .gap(px(12.))
-            .rounded(px(14.))
-            .bg(SURFACE)
-            .shadow(vec![ui::ring(SEPARATOR, 0.5)])
-            .child(div().size(px(36.)).flex().flex_none().items_center().justify_center().rounded(px(10.)).bg(FILL_2).child(icon("folder", 16., TEXT_2)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(div().truncate().font_family(MONO).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(title))
-                    .child(div().flex().items_center().gap(px(4.)).text_size(px(12.5)).text_color(color).children(mark.map(|m| icon(m, 12., color))).child(line)),
-            )
+            .rounded(px(8.))
+            .hover(|d| d.bg(FILL_1))
+            .child(div().flex_1().child(Input::new(&f.name).appearance(false).p_0().h(px(36.)).line_height(px(30.)).text_size(px(22.)).font_weight(FontWeight::BOLD).text_center()));
+        let path = div().flex().items_center().gap(px(4.)).font_family(MONO).text_size(px(12.)).text_color(TEXT_3).child(div().max_w(px(480.)).truncate().child(title)).children(copy);
+        let facts = div().pt(px(6.)).flex().flex_wrap().justify_center().gap(px(6.)).children(folder_facts(f.draft.probe.as_ref()).into_iter().map(fact_chip));
+        div().pb(px(4.)).flex().flex_col().items_center().gap(px(6.)).child(self.mark_picker(name, cx)).child(name_field).child(path).child(facts)
     }
 
-    pub fn repo_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Div {
+    pub fn repo_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let name = self.repo_form_name(cx);
-        let reset = self.repo_form.draft.editing.clone().map(|p| self.reset_line(&p, &name, cx));
-        let accounts = self.project_accounts_field(cx);
+        let editing = self.repo_form.draft.editing.clone();
+        let mut body: Vec<AnyElement> = Vec::new();
+        if self.repo_form.draft.source == Source::Host && editing.is_none() {
+            body.push(self.host_browser(cx).into_any_element());
+        }
+        body.push(self.repo_hero(&name, cx).into_any_element());
+        let accounts = self.project_account_rows(cx);
+        if !accounts.is_empty() {
+            body.push(group(Some("Sessions"), accounts, Some("New chats in this project start on these accounts.")).into_any_element());
+        }
         let f = &self.repo_form;
-        let identity = div()
-            .flex()
-            .gap(px(14.))
-            .child(field("Name", ui::field_box().child(div().flex_1().child(Input::new(&f.name).appearance(false).p_0().text_size(px(14.))))))
-            .child(field("Icon", self.icon_choices(&name, cx)).flex_none());
-        let setup = field(
-            "When a worktree is created",
-            ui::field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.setup).appearance(false).p_0().text_size(px(13.)))),
-        );
-        let teardown = field(
-            "When a worktree is deleted",
-            ui::field_box().child(icon("terminal", 13., TEXT_3)).child(div().flex_1().font_family(MONO).child(Input::new(&f.teardown).appearance(false).p_0().text_size(px(13.)))),
-        );
-        let remove = f.draft.editing.clone().map(|p| {
-            let text = div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(ui::field_label("Remove project".to_string())).child(
-                div().text_size(px(12.)).text_color(TEXT_4).child("Removes it from Anywhere. Files and worktrees stay on disk."),
-            );
-            let button = ui::button("repo-remove", Variant::Secondary, None, "Remove project\u{2026}").text_color(FAILED).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                (this.confirm, this.overlay) = (Some(Confirm::RemoveProject(p.clone())), Some(Overlay::Confirm));
-                cx.notify();
-            }));
-            div().flex().items_center().gap(px(12.)).child(text).child(button)
-        });
-        let editing = f.draft.editing.is_some();
-        let note = if editing || name.is_empty() { div() } else { div().truncate().child(format!("Adds {name} to the project rail")) };
-        let ready = self.repo_ready(cx);
-        let label = if editing { "Save" } else { "Add project" };
+        if !f.draft.plain_folder() {
+            let scripts = vec![script_row("When one is created", "Runs in the new worktree", &f.setup), script_row("When one is deleted", "Runs before it\u{2019}s removed", &f.teardown)];
+            body.push(group(Some("Worktrees"), scripts, Some("Leave empty to skip.")).into_any_element());
+        }
+        if let Some(p) = &editing {
+            body.push(self.project_actions(p, &name, cx).into_any_element());
+        }
+        let unsaved = self.repo_unsaved(cx);
+        let note = match &editing {
+            Some(_) if unsaved => div().flex().items_center().gap(px(7.)).child(ui::dot(6., WAITING_DOT)).child("Unsaved changes"),
+            None if !name.is_empty() => div().truncate().child(format!("Adds {name} to the project rail")),
+            _ => div(),
+        };
+        let ready = self.repo_ready(cx) && unsaved;
+        let label = if editing.is_some() { "Save" } else { "Add project" };
         let cancel = ui::large(ui::button("repo-cancel", Variant::Ghost, None, "Cancel").text_color(TEXT))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let submit = ui::large(ui::button("repo-submit", Variant::Primary, None, label))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_repo(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let close = ui::icon_button("repo-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let title = if editing { "Project settings" } else { "Add project" };
-        let mut body: Vec<AnyElement> = Vec::new();
-        if f.draft.source == Source::Host && !editing {
-            body.push(self.host_browser(cx).into_any_element());
-        }
-        body.extend([self.folder_card().into_any_element(), identity.into_any_element()]);
-        body.extend(accounts.map(IntoElement::into_any_element));
-        if !f.draft.plain_folder() {
-            body.push(div().flex().flex_col().gap(px(10.)).child(setup).child(teardown).into_any_element());
-        }
-        body.extend(remove.map(IntoElement::into_any_element));
-        body.extend(reset.map(IntoElement::into_any_element));
-        body.push(footer(note, cancel, submit).into_any_element());
-        ui::modal(title, 640., 64., close, body)
+        let title = if editing.is_some() { "Project settings" } else { "Add project" };
+        let header = div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
+        // The settings scroll between a fixed header and footer when the window is too short for them.
+        let max_h = window.viewport_size().height - px(2. * SHEET_TOP);
+        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        div().absolute().top(px(SHEET_TOP)).left_0().right_0().flex().justify_center().child(
+            ui::pop(div().w(px(600.)).max_h(max_h).pt(px(14.)).pb(px(20.)).flex().flex_col().gap(px(14.)))
+                .rounded(px(R_DIALOG))
+                .occlude()
+                .child(header.px(px(18.)))
+                .child(scroll)
+                .child(footer(note, cancel, submit).px(px(24.))),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Probe, RepoDraft, project_changes};
+    use super::{Fact, Probe, RepoDraft, Tone, folder_facts, project_changes};
     use store::{ProjectIcon, RepoConfig};
 
     fn local(probe: Option<Probe>) -> RepoDraft {
@@ -457,6 +601,24 @@ mod tests {
         assert!(local(Some(Probe::NotGit)).plain_folder());
         assert!(!local(Some(Probe::Git { branch: "main".into(), clean: true, remotes: 1 })).plain_folder());
         assert!(!local(Some(Probe::Loading)).plain_folder());
+    }
+
+    #[test]
+    fn a_repository_reads_as_its_branch_whether_it_has_changes_and_its_remotes() {
+        let labels = |probe: Probe| folder_facts(Some(&probe)).into_iter().map(|f: Fact| (f.label, f.tone)).collect::<Vec<_>>();
+        let plain = |l: &str| (l.to_string(), Tone::Plain);
+        assert_eq!(labels(Probe::Git { branch: "develop".into(), clean: false, remotes: 1 }), [plain("develop"), ("Uncommitted changes".into(), Tone::Dirty), plain("1 remote")]);
+        assert_eq!(labels(Probe::Git { branch: "main".into(), clean: true, remotes: 0 }), [plain("main"), ("Clean".into(), Tone::Good), plain("No remote")]);
+        assert_eq!(labels(Probe::NotGit), [plain("Not a git repository")]);
+    }
+
+    #[test]
+    fn an_edited_project_is_unsaved_only_once_it_differs_from_how_it_opened_and_a_new_one_always_is() {
+        let opened = RepoConfig { name: "app".into(), setup: "pnpm install".into(), ..RepoConfig::default() };
+        let edited = RepoDraft { saved: Some(opened.clone()), ..local(None) };
+        assert!(!edited.unsaved(&opened));
+        assert!(edited.unsaved(&RepoConfig { setup: String::new(), ..opened.clone() }));
+        assert!(local(None).unsaved(&opened));
     }
 
     #[test]
