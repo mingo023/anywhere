@@ -1,131 +1,86 @@
 import DesignSystem
 import Domain
-import FeatureChat
-import FeatureFiles
-import FeatureGit
-import FeatureGitHub
 import FeaturePairing
-import FeatureSessions
 import FeatureSettings
-import FeatureTerminal
 import Stores
 import SwiftUI
 
-/// The app's root: pairing until a Mac is paired, then a stack on iPhone and a split view on iPad.
+/// The app's root: pairing until a Mac is paired, then tabs on iPhone and a split view on iPad. It opens deep links,
+/// restores where the user was, and tells each Mac when the app goes to the background.
 @MainActor
 public struct RootView: View {
+    public enum Layout: Sendable {
+        case phone
+        case pad
+    }
+
     let app: AppModel
-    @State private var navigator = Navigator()
+    let layout: Layout?
+    @State private var navigator: Navigator
+    @State private var restored = false
+    @SceneStorage("navigation") private var savedNavigation: Data?
+    @AppStorage(Appearance.key) private var appearance = Appearance.system
     @Environment(\.scenePhase) private var scenePhase
     #if os(iOS)
         @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
-    public init(app: AppModel) {
+    /// `layout` forces one layout, as the gallery does; nil follows the size class.
+    public init(app: AppModel, layout: Layout? = nil, navigator: Navigator = Navigator()) {
         self.app = app
+        self.layout = layout
+        _navigator = State(initialValue: navigator)
     }
 
     public var body: some View {
         Group {
             if app.hosts.isEmpty {
-                NavigationStack { PairingView(app: app) }
-            } else if isWide {
-                split
+                PairingView(app: app, link: navigator.pairing?.link)
+                    .id(navigator.pairing?.id)
+            } else if resolvedLayout == .pad {
+                PadRoot(app: app, navigator: navigator)
             } else {
-                stack
+                PhoneRoot(app: app, navigator: navigator)
             }
         }
+        .preferredColorScheme(appearance.colorScheme)
         .tint(Palette.accent.color)
+        .sheet(item: pairingSheet) { request in
+            PairingView(app: app, link: request.link, knownHost: request.knownHost) { navigator.pairing = nil }
+        }
         .onOpenURL { url in
             guard let link = DeepLink.parse(url) else { return }
-            navigator.open(link, macKnown: link.mac.map { app.host(mac: $0) != nil } ?? true)
+            navigator.open(link, macs: macs)
         }
-        .onChange(of: app.hosts.compactMap(\.hello?.serverId)) { _, macs in
-            navigator.release(knownMacs: Set(macs))
+        .onChange(of: macs, initial: true) { _, macs in
+            if !restored {
+                restored = true
+                if let savedNavigation { navigator.restore(savedNavigation, macs: macs) }
+            }
+            navigator.keepSelection(macs)
+            navigator.release(macs)
         }
+        .onChange(of: navigator.saved) { _, _ in savedNavigation = navigator.encoded() }
         .onChange(of: scenePhase) { _, phase in
             for host in app.hosts { host.scene(active: phase == .active) }
         }
     }
 
-    private var isWide: Bool {
+    private var resolvedLayout: Layout {
+        if let layout { return layout }
         #if os(iOS)
-            sizeClass == .regular
+            return sizeClass == .regular ? .pad : .phone
         #else
-            true
+            return .pad
         #endif
     }
 
-    private var stack: some View {
-        NavigationStack(path: $navigator.path) {
-            home.navigationDestination(for: Route.self, destination: destination)
-        }
+    private var macs: [MacRef] {
+        app.hosts.map { MacRef(id: $0.id, serverId: $0.hello?.serverId ?? $0.credentials.serverId, online: $0.link == .online) }
     }
 
-    private var split: some View {
-        NavigationSplitView {
-            List(app.hosts) { host in
-                NavigationLink(value: Route.sessions(mac: host.hello?.serverId ?? host.id)) {
-                    Label(host.name, systemImage: "laptopcomputer")
-                }
-            }
-            .navigationTitle("Macs")
-        } detail: {
-            NavigationStack(path: $navigator.path) {
-                home.navigationDestination(for: Route.self, destination: destination)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var home: some View {
-        if let host = app.hosts.first {
-            SessionsView(host: host, route: .sessions(mac: host.hello?.serverId ?? host.id))
-        }
-    }
-
-    @ViewBuilder
-    private func destination(_ route: Route) -> some View {
-        switch route {
-        case .pairing:
-            PairingView(app: app)
-        case .settings:
-            SettingsView(app: app)
-        default:
-            if let mac = route.mac, let host = app.host(mac: mac) ?? app.hosts.first(where: { $0.id == mac }) {
-                Self.screen(route, host)
-            } else {
-                Placeholder("This Mac isn't connected", systemImage: "laptopcomputer.slash")
-            }
-        }
-    }
-
-    @ViewBuilder
-    static func screen(_ route: Route, _ host: HostModel) -> some View {
-        switch route {
-        case .sessions, .project, .worktree, .local, .newSession, .automations:
-            SessionsView(host: host, route: route)
-        case .chat(_, let agentId):
-            ChatView(host: host, agentId: agentId)
-        case .terminals, .terminal:
-            TerminalsView(host: host, route: route)
-        case .changes, .diff, .history, .commit, .branches:
-            GitView(host: host, route: route)
-        case .pullRequest, .pullRequests:
-            GitHubView(host: host, route: route)
-        case .files, .file:
-            FilesView(host: host, route: route)
-        case .pairing, .settings:
-            EmptyView()
-        }
-    }
-}
-
-extension DeepLink {
-    var mac: String? {
-        switch self {
-        case .pair: nil
-        case .mac(let mac), .agent(let mac, _): mac
-        }
+    /// With no Mac yet, the root itself is the pairing flow, so no sheet.
+    private var pairingSheet: Binding<PairingRequest?> {
+        Binding(get: { app.hosts.isEmpty ? nil : navigator.pairing }, set: { navigator.pairing = $0 })
     }
 }

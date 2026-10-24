@@ -32,6 +32,14 @@ struct DeepLinkTests {
         #expect(DeepLink.parse(link) == nil)
     }
 
+    @Test("a tapped notification opens its link, else the agent or Mac its Notice names")
+    func notification() {
+        #expect(DeepLink.notification(["link": "anywhere://mac/m1/agent/a1"]) == .agent(mac: "m1", agentId: "a1"))
+        #expect(DeepLink.notification(["mac": "m1", "agent": "a2"]) == .agent(mac: "m1", agentId: "a2"))
+        #expect(DeepLink.notification(["mac": "m1"]) == .mac("m1"))
+        #expect(DeepLink.notification(["aps": ["alert": "x"]]) == nil)
+    }
+
     @Test("a link written from its parts parses back to them")
     func roundTrip() {
         for link in [DeepLink.mac("mac 1"), .agent(mac: "m/1", agentId: "a?1")] {
