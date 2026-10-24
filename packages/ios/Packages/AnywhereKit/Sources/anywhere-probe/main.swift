@@ -6,7 +6,7 @@ import Wire
 // Drives a real pocketd through Client and Stores, as the app would, and prints PASS/FAIL/SKIP per check.
 let usage = """
     usage: anywhere-probe --host <ip:port> (--token <device token> | --pair-code <code> | --owner-socket <path>)
-                          [--project <path>] [--changed <relative file>] [--claude] [--timeout <s>]
+                          [--project <path>] [--changed <relative file>] [--claude] [--relay-log <path>] [--timeout <s>]
 
       --token          say hello with a device token pairing gave earlier
       --pair-code      pair with a code the Mac shows, then say hello
@@ -14,6 +14,8 @@ let usage = """
       --project        a registered project the git, fs and workspace checks use
       --changed        a file with uncommitted changes in --project, for git.diff
       --claude         start a claude in --project over the owner socket, then prompt it and read its timeline
+      --relay-log      a fake relay's log of /v1/send, for the push.test check
+    With FAKEGH set to a fake gh's folder (the gh pocketd runs), the gh.pr checks run too.
     Exits 0 when nothing failed.
     """
 
@@ -25,6 +27,7 @@ struct Options {
     var project: String?
     var changed: String?
     var claude = false
+    var relayLog: String?
     var timeout: Double = 15
 
     init(_ args: [String]) throws {
@@ -42,6 +45,7 @@ struct Options {
             case "--project": project = try value(flag)
             case "--changed": changed = try value(flag)
             case "--claude": claude = true
+            case "--relay-log": relayLog = try value(flag)
             case "--timeout": timeout = Double(try value(flag)) ?? timeout
             default: throw Probe.Failure("unknown flag \(flag)")
             }
@@ -109,7 +113,8 @@ func main() async -> Int32 {
         return 1
     }
 
-    var setup = Setup(project: options.project, changedFile: options.changed)
+    var setup = Setup(
+        project: options.project, changedFile: options.changed, relayLog: options.relayLog, fakeGh: ProcessInfo.processInfo.environment["FAKEGH"])
     if options.claude, let owner, let project = options.project {
         do {
             setup.claudeTerminal = try owner.spawn("claude", cwd: project, env: ProcessInfo.processInfo.environment.map { "\($0)=\($1)" })
