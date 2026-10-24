@@ -2535,27 +2535,31 @@ fn slice_fades(
 const CELL_PAD_PX: f32 = 24.0; // 12px horizontal padding
 const CELL_MIN_PX: f32 = 48.0;
 
-/// The max-content width of every table column: the widest cell line,
-/// shaped with the runs the cell renders with, plus the cell's padding and
-/// border. Never capped: a cap would clip overflowing text *and* leave it
-/// outside the scrollable width, making it unreachable.
+/// The max-content and min-content widths of every table column, plus the
+/// cell's padding and border. Max-content is the widest cell line, shaped
+/// with the runs the cell renders with; min-content the widest inline
+/// element or image, which no wrap can narrow (text breaks anywhere). Never
+/// capped: a cap would clip overflowing text *and* leave it outside the
+/// scrollable width, making it unreachable.
 fn measure_table_columns(
     table: &Table,
     col_count: usize,
     node_cx: &NodeContext,
     window: &mut Window,
     cx: &mut App,
-) -> Vec<f32> {
+) -> (Vec<f32>, Vec<f32>) {
     let text_style = window.text_style();
     let font_size = text_style.font_size.to_pixels(window.rem_size());
     let mut col_w = vec![CELL_MIN_PX; col_count];
+    let mut col_min_content = vec![0.0_f32; col_count];
     for (row_ix, row) in table.children.iter().enumerate() {
         let mut text_style = text_style.clone();
         if row_ix == 0 {
             text_style.font_weight = FontWeight::SEMIBOLD;
         }
         for (ix, cell) in row.children.iter().enumerate() {
-            let Some(slot) = col_w.get_mut(ix) else {
+            let (Some(slot), Some(min_slot)) = (col_w.get_mut(ix), col_min_content.get_mut(ix))
+            else {
                 continue;
             };
             if cell
@@ -2565,8 +2569,9 @@ fn measure_table_columns(
                 .any(|node| node.custom.is_some())
             {
                 let items = cell.children.inline_flow_items(&[], node_cx, cx);
-                let width = super::inline_flow::intrinsic_width(&items, window, cx);
-                *slot = slot.max(f32::from(width) + CELL_PAD_PX);
+                let (max, min) = super::inline_flow::intrinsic_widths(&items, window, cx);
+                *slot = slot.max(f32::from(max) + CELL_PAD_PX);
+                *min_slot = min_slot.max(f32::from(min) + CELL_PAD_PX);
                 continue;
             }
             let text = cell.children.text();
@@ -2618,7 +2623,24 @@ fn measure_table_columns(
             *slot = slot.max(w + CELL_PAD_PX);
         }
     }
-    col_w
+    (col_w, col_min_content)
+}
+
+/// How narrow a column of `width` (max-content) may shrink before the table
+/// scrolls instead: roughly the width at which its text wraps to
+/// `CELL_WRAP_MAX_LINES` lines, clamped between the two bounds so moderate
+/// columns can still wrap meaningfully while one huge column of text cannot
+/// push the scroll threshold arbitrarily high. Never below `content_min`, the
+/// widest inline element it holds, which can't wrap and would be clipped.
+fn column_floor(width: f32, content_min: f32) -> f32 {
+    const CELL_WRAP_MAX_LINES: f32 = 2.0;
+    const CELL_WRAP_MIN_PX: f32 = 160.0;
+    const CELL_WRAP_MAX_PX: f32 = 480.0;
+
+    (width / CELL_WRAP_MAX_LINES)
+        .clamp(CELL_WRAP_MIN_PX, CELL_WRAP_MAX_PX)
+        .max(content_min)
+        .min(width)
 }
 
 impl Paragraph {
@@ -2852,21 +2874,11 @@ impl BlockNode {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        // Shrinking columns stop (and the table starts to scroll) at a floor
-        // scaled to their content: roughly the width at which the text wraps
-        // to `CELL_WRAP_MAX_LINES` lines, clamped between the two bounds so
-        // moderate columns can still wrap meaningfully while one huge column
-        // cannot push the scroll threshold arbitrarily high.
-        const CELL_WRAP_MAX_LINES: f32 = 2.0;
-        const CELL_WRAP_MIN_PX: f32 = 160.0;
-        const CELL_WRAP_MAX_PX: f32 = 480.0;
-
+        let (col_w, col_min_content) = measure_table_columns(table, col_count, node_cx, window, cx);
         // Rounded up: layout snaps a fractional width down, which would wrap
-        // the last word of the widest cell.
-        let col_w: Vec<f32> = measure_table_columns(table, col_count, node_cx, window, cx)
-            .into_iter()
-            .map(f32::ceil)
-            .collect();
+        // the last word of the widest cell, or clip an inline element.
+        let col_w: Vec<f32> = col_w.into_iter().map(f32::ceil).collect();
+        let col_min_content: Vec<f32> = col_min_content.into_iter().map(f32::ceil).collect();
         let style = &node_cx.style;
         // Nowrap cells (via the `table_cell` refinement, which cascades to
         // the cell text) must never shrink below their single-line content,
@@ -2877,11 +2889,8 @@ impl BlockNode {
         } else {
             col_w
                 .iter()
-                .map(|w| {
-                    (w / CELL_WRAP_MAX_LINES)
-                        .clamp(CELL_WRAP_MIN_PX, CELL_WRAP_MAX_PX)
-                        .min(*w)
-                })
+                .zip(&col_min_content)
+                .map(|(w, content_min)| column_floor(*w, *content_min))
                 .collect()
         };
         let min_total_w: f32 = col_min_w.iter().sum();
@@ -3457,11 +3466,55 @@ mod tests {
             for expected in [400, 600] {
                 width.store(expected, std::sync::atomic::Ordering::Relaxed);
                 assert_eq!(
-                    measure_table_columns(&table, 1, &node_cx, window, cx)[0],
+                    measure_table_columns(&table, 1, &node_cx, window, cx).0[0],
                     expected as f32 + CELL_PAD_PX
                 );
             }
         });
+    }
+
+    #[test]
+    fn a_columns_min_content_is_the_widest_inline_element_it_holds() {
+        use crate::text::InlineElement;
+        use crate::text::inline::test_draw::in_prepaint;
+        use crate::text::markdown_ext::TestInlinePlugin;
+        use gpui::TestApp;
+        let mut app = TestApp::new();
+        let mut node_cx = NodeContext::default();
+        node_cx.markdown_extensions = Arc::new(
+            MarkdownExtensions::default()
+                .plugin(TestInlinePlugin::new("chip").render_with(|_, _, _, _| {
+                    Some(InlineElement::new(gpui::div().w(px(300.)).h(px(20.))))
+                }))
+                .plugin(TestInlinePlugin::new("plain")),
+        );
+        let cell = |name: &'static str| TableCell {
+            children: Paragraph {
+                children: vec![
+                    InlineNode::custom(MarkdownNode::new(name, ()).text("x")),
+                    InlineNode::new(" and some words"),
+                ],
+                ..Default::default()
+            },
+            width: None,
+        };
+        let table = table_of(
+            vec![vec![cell("chip"), cell("plain"), plain_cell("only words")]],
+            vec![],
+        );
+        in_prepaint(&mut app, move |window, cx| {
+            let (_, min) = measure_table_columns(&table, 3, &node_cx, window, cx);
+            assert_eq!(min[0], 300. + CELL_PAD_PX);
+            assert_eq!(min[1], CELL_PAD_PX, "a plain-text object shrinks to fit");
+            assert_eq!(min[2], 0., "text breaks anywhere");
+        });
+    }
+
+    #[test]
+    fn a_column_never_shrinks_below_an_inline_element_it_holds() {
+        assert_eq!(column_floor(500., 0.), 250.);
+        assert_eq!(column_floor(500., 324.), 324.);
+        assert_eq!(column_floor(100., 0.), 100., "never wider than its content");
     }
 
     /// Table columns are sized from shaped text, so a column of inline code
@@ -3496,7 +3549,7 @@ mod tests {
             cx.set_global(theme);
             let font_size = window.text_style().font_size.to_pixels(window.rem_size());
             (
-                measure_table_columns(&table, 1, &node_cx, window, cx),
+                measure_table_columns(&table, 1, &node_cx, window, cx).0,
                 font_size,
             )
         });

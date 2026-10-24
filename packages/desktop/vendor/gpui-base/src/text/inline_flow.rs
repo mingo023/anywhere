@@ -611,12 +611,14 @@ impl MeasureItem {
     }
 }
 
-/// Intrinsic width for table sizing, using the same objects and wrapping inputs as painting.
-pub(super) fn intrinsic_width(
+/// Intrinsic widths for table sizing, using the same objects and wrapping inputs as painting:
+/// the unwrapped width, and the widest piece no wrap can narrow (an element or image keeps
+/// its size on a line of any width; only a plain-text object shrinks to fit).
+pub(super) fn intrinsic_widths(
     items: &[InlineFlowItem],
     window: &mut Window,
     cx: &mut App,
-) -> Pixels {
+) -> (Pixels, Pixels) {
     let items = items.iter().map(MeasureItem::from).collect::<Vec<_>>();
     let line_height = window.line_height();
     let rem_size = window.rem_size();
@@ -641,9 +643,18 @@ pub(super) fn intrinsic_width(
             _ => None,
         })
         .collect::<Vec<_>>();
-    layout_flow(&items, &images, &window.text_style(), None, window, cx)
+    let text_style = window.text_style();
+    let objects = prepare_objects(&items, &text_style, window, cx);
+    let min = objects
+        .iter()
+        .flatten()
+        .map(MeasuredInlineObject::min_width)
+        .chain(images.iter().flatten().map(|size| size.width))
+        .fold(Pixels::ZERO, Pixels::max);
+    let max = layout_measured_flow(&items, &images, &objects, &text_style, None, window, cx)
         .size
-        .width
+        .width;
+    (max, min)
 }
 
 fn prepare_objects(
