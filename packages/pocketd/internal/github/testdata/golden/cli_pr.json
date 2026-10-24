@@ -1,0 +1,90 @@
+{
+  "type": "gh.pr",
+  "id": "p",
+  "tree": "/Users/me/dev/cli",
+  "pr": {
+    "number": 14580,
+    "title": "`gh issue artifact` stack 10/11: Add `edit --restore-version`",
+    "url": "https://github.com/cli/cli/pull/14580",
+    "state": "OPEN",
+    "draft": false,
+    "base": "bagtoad/artifact-skill-docs",
+    "head": "5f85ec828f6d2fe28d81ba71a61b8a2181edfb6a",
+    "checks": {
+      "passed": 2,
+      "failed": 0,
+      "pending": 1
+    },
+    "runs": [
+      {
+        "name": "label-external",
+        "outcome": "skipped",
+        "url": "https://github.com/cli/cli/actions/runs/37048637304/job/110976263673"
+      },
+      {
+        "name": "CodeQL-Build",
+        "outcome": "passed",
+        "url": "https://github.com/cli/cli/actions/runs/37048540763/job/110975885942"
+      },
+      {
+        "name": "lint",
+        "outcome": "pending",
+        "url": "https://github.com/cli/cli/actions/runs/1/job/2"
+      }
+    ],
+    "review": "APPROVED",
+    "reviews": [
+      {
+        "login": "babakks",
+        "state": "APPROVED"
+      },
+      {
+        "login": "andyfeller",
+        "state": "CHANGES_REQUESTED"
+      }
+    ],
+    "requested": [
+      "williammartin",
+      "cli"
+    ],
+    "mergeable": "MERGEABLE",
+    "gate": "checksRunning",
+    "threads": [
+      {
+        "id": "PRRT_a",
+        "path": "src/sync.rs",
+        "line": 42,
+        "outdated": false,
+        "resolved": false,
+        "comments": [
+          {
+            "author": "rina",
+            "body": "This retries forever.",
+            "at": 1790966222,
+            "hunk": " fn sync() {\n+    loop {\n+        retry();"
+          },
+          {
+            "author": "mingo",
+            "body": "Capped at 5.",
+            "at": 1790966400
+          }
+        ]
+      },
+      {
+        "id": "PRRT_b",
+        "path": "README.md",
+        "line": 7,
+        "left": true,
+        "outdated": true,
+        "resolved": true,
+        "comments": [
+          {
+            "author": "ghost",
+            "body": "Typo",
+            "at": 1790966222
+          }
+        ]
+      }
+    ]
+  }
+}

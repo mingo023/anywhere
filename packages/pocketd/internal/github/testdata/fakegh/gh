@@ -1,0 +1,64 @@
+#!/bin/sh
+# A gh for tests. $FAKEGH is a folder: each call is logged to calls as one
+# line, "GH_TOKEN=<token> <args>"; the answers are files in it.
+#   version          what gh --version prints (absent: gh is "missing")
+#   auth             what gh auth status prints; auth.fail makes it exit 1
+#   view.json        what gh pr view prints; view.err is printed to stderr with exit 1 instead
+#   threads.json     what the reviewThreads query prints
+#   created          what gh pr create prints
+#   fail             printed to stderr with exit 1 by every verb that acts
+#   unauthorized     the next call fails with HTTP 401 and removes it
+#   sleep            seconds every call waits first
+d="$FAKEGH"
+printf 'GH_TOKEN=%s %s\n' "$GH_TOKEN" "$*" >> "$d/calls"
+[ -f "$d/sleep" ] && sleep "$(cat "$d/sleep")"
+if [ -f "$d/unauthorized" ]; then
+	rm "$d/unauthorized"
+	echo "HTTP 401: Bad credentials (https://api.github.com/graphql)" >&2
+	exit 1
+fi
+act() {
+	if [ -f "$d/fail" ]; then
+		cat "$d/fail" >&2
+		exit 1
+	fi
+}
+case "$1 $2" in
+"--version ")
+	[ -f "$d/version" ] || { echo "gh: command not found" >&2; exit 127; }
+	cat "$d/version"
+	;;
+"auth status")
+	cat "$d/auth" >&2
+	[ -f "$d/auth.fail" ] && exit 1
+	exit 0
+	;;
+"pr view")
+	if [ -f "$d/view.err" ]; then
+		cat "$d/view.err" >&2
+		exit 1
+	fi
+	cat "$d/view.json"
+	;;
+"api graphql")
+	case "$*" in
+	*reviewThreads*) cat "$d/threads.json" ;;
+	*)
+		act
+		echo '{"data":{}}'
+		;;
+	esac
+	;;
+"pr create")
+	act
+	cat > "$d/body"
+	cat "$d/created"
+	;;
+"pr merge" | "pr ready")
+	act
+	;;
+*)
+	echo "unknown command $*" >&2
+	exit 1
+	;;
+esac

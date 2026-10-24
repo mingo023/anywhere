@@ -1,0 +1,9 @@
+{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+    {"id":"PRRT_a","isResolved":false,"isOutdated":false,"path":"src/sync.rs","line":42,"originalLine":40,"diffSide":"RIGHT","comments":{"nodes":[
+        {"author":{"login":"rina"},"body":"This retries forever.","createdAt":"2026-10-02T18:37:02Z","diffHunk":"@@ -38,3 +38,5 @@\n fn sync() {\n+    loop {\n+        retry();"},
+        {"author":{"login":"mingo"},"body":"Capped at 5.","createdAt":"2026-10-02T18:40:00Z","diffHunk":"@@"}
+    ]}},
+    {"id":"PRRT_b","isResolved":true,"isOutdated":true,"path":"README.md","line":null,"originalLine":7,"diffSide":"LEFT","comments":{"nodes":[
+        {"author":null,"body":"Typo","createdAt":"2026-10-02T18:37:02Z","diffHunk":"@@"}
+    ]}}
+]}}}}}
