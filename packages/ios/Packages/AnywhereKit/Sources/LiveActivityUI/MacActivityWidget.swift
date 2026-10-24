@@ -11,29 +11,33 @@
 
         public var body: some WidgetConfiguration {
             ActivityConfiguration(for: MacActivity.self) { context in
-                HStack {
-                    Label(context.attributes.macName, systemImage: "laptopcomputer")
-                    Spacer()
-                    Text(Self.summary(context.state))
-                }
-                .padding()
-                .widgetURL(URL(string: "anywhere://mac/\(context.attributes.mac)"))
+                let s = Self.snapshot(context)
+                LockScreenActivity(s)
+                    .activitySystemActionForegroundColor(.primary)
+                    .widgetURL(s.link)
             } dynamicIsland: { context in
-                DynamicIsland {
-                    DynamicIslandExpandedRegion(.leading) { Label(context.attributes.macName, systemImage: "laptopcomputer") }
-                    DynamicIslandExpandedRegion(.trailing) { Text(Self.summary(context.state)) }
+                let s = Self.snapshot(context)
+                return DynamicIsland {
+                    DynamicIslandExpandedRegion(.leading) { IslandRegion.expandedLeading(s).padding(.leading, 4) }
+                    DynamicIslandExpandedRegion(.trailing) { IslandRegion.expandedTrailing(s).padding(.trailing, 4) }
+                    DynamicIslandExpandedRegion(.center) { IslandRegion.expandedCenter(s) }
+                    DynamicIslandExpandedRegion(.bottom) { IslandRegion.expandedBottom(s) }
                 } compactLeading: {
-                    Image(systemName: "laptopcomputer")
+                    IslandRegion.compactLeading(s)
                 } compactTrailing: {
-                    Text("\(context.state.needsYou + context.state.working)")
+                    IslandRegion.compactTrailing(s)
                 } minimal: {
-                    Image(systemName: "laptopcomputer")
+                    IslandRegion.minimal(s)
                 }
+                .widgetURL(s.link)
+                .keylineTint(Color.of(ActivityGlyph.tint(ActivityDisplay.glyph(s.state)), dark: true))
             }
         }
 
-        static func summary(_ state: MacActivity.ContentState) -> String {
-            state.needsYou > 0 ? "\(state.needsYou) need you" : "\(state.working) working"
+        static func snapshot(_ context: ActivityViewContext<MacActivity>) -> ActivitySnapshot {
+            let titles = UserDefaults(suiteName: ActivityTitles.appGroup).map(ActivityTitles.init(defaults:))
+            let entry = titles?.entry(mac: context.attributes.mac, slot: context.state.top?.slot) ?? ActivityTitles.fallback
+            return ActivitySnapshot(attributes: context.attributes, state: context.state, isStale: context.isStale, entry: entry)
         }
     }
 #endif

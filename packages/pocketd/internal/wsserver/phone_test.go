@@ -78,6 +78,9 @@ func TestEveryPhoneVerbUnderItsCapIsNotImplementedYet(t *testing.T) {
 	_, _, p := local(t, peer.OwnerOf(1))
 	helloWith(p, phoneCaps...)
 	for name, raw := range phoneGoldens(t) {
+		if strings.HasPrefix(name, "push_") {
+			continue
+		}
 		var req struct{ ID, Type string }
 		json.Unmarshal([]byte(raw), &req)
 		if strings.HasPrefix(req.Type, "terminal.") || slices.Contains(servedVerbs, req.Type) {

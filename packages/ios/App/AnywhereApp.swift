@@ -1,16 +1,19 @@
+import AppIntents
 import AppShell
-import Client
-import Stores
+import LiveActivityUI
 import SwiftUI
 
 @main
 struct AnywhereApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var app = AppModel.restore(from: CredentialsStore(keychain: Keychain(service: CredentialsStore.service, accessGroup: Keychain.appGroup)))
 
     var body: some Scene {
         WindowGroup {
-            RootView(app: app)
+            RootView(app: delegate.app)
         }
     }
+}
+
+struct AnywhereIntents: AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] { [LiveActivityIntents.self] }
 }

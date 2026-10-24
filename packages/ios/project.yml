@@ -38,6 +38,13 @@ targets:
         product: Client
       - package: AnywhereKit
         product: PushSupport
+      - package: AnywhereKit
+        product: Wire
+      # AnswerIntent performs in the app's process, so the app links the Live Activity's module too.
+      - package: AnywhereKit
+        product: LiveActivityUI
+      - package: AnywhereKit
+        product: ActivityModel
       - target: AnywhereWidgets
       - target: AnywhereNotify
   AnywhereWidgets:

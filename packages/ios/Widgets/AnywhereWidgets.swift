@@ -1,3 +1,4 @@
+import AppIntents
 import LiveActivityUI
 import SwiftUI
 import WidgetKit
@@ -7,4 +8,8 @@ struct AnywhereWidgets: WidgetBundle {
     var body: some Widget {
         MacActivityWidget()
     }
+}
+
+struct AnywhereWidgetIntents: AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] { [LiveActivityIntents.self] }
 }

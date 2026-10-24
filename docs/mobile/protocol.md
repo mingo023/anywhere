@@ -253,6 +253,7 @@ POST /v1/register  {"token":"<hex>","kind":"alert"|"activity"|"start","env":"dev
 POST /v1/send      headers X-Anywhere-Timestamp: <unix>, X-Anywhere-Signature: b64url(HMAC-SHA256(secret, ts + "." + body))
   {"handle","priority":5|10,"expiration"?,"collapseId"?,"payload":{…}}
   → 200 {"apnsId"} | 410 {"reason"} (drop the handle) | 413 | 429 {"reason","resetsAt"} | 503 {"retryAfter"}
+    | 401 (timestamp or signature) | 400 (payload, priority or collapseId) | 502 (APNs refused it otherwise)
 ```
 
 `handle` = b64url(nonce12 ‖ AES-GCM(K_seal, {"v":1,"t":token,"k":kind,"e":env,"x":expiresAt})); `secret` = b64url(HMAC-SHA256(K_mac, handle)). The relay checks the timestamp (±300 s), the signature, the handle's expiry, the 4096-byte payload cap, that the payload fits the kind (`aps.event` start/update/end only for activity/start kinds), and per-handle rate limits; then posts to APNs with a cached ES256 JWT. Topic `<bundle>` for alert, `<bundle>.push-type.liveactivity` for activity and start. Bundle id `dev.mingo.anywhere`.
@@ -267,11 +268,11 @@ POST /v1/send      headers X-Anywhere-Timestamp: <unix>, X-Anywhere-Signature: b
 
 `e` opens to `Notice = {mac, agent, kind:"needsYou"|"done"|"failed"|"automation"|"test", title, place, line, request?, badge}` (mac = the `hello.ok` serverId). Categories: `PERM` (Allow, Deny), `PERM_NOTE` (Allow, Deny, Deny with note), `QUESTION` (Open), `DONE` and `FAILED` (Reply), `AUTOMATION`. Levels: needsYou time-sensitive, others active, automation passive unless failed. `apns-collapse-id` = opaque per agent.
 
-Triggers: →needsYou (debounce 1.5 s), working→done (3 s, Failed picks FAILED), automation run end. Nothing is pushed for an agent that is Seen at send time, to a device with a foreground connection, or twice for one `(agent, status, updatedAt)`.
+Triggers: →needsYou (debounce 1.5 s), working→done (3 s, Failed picks FAILED), automation run end. Nothing is pushed for an agent that is Seen at send time, to a device with a foreground connection, or twice for one `(agent, status, updatedAt)`. A connection counts as foreground from its hello until it sends `agent.view{agentIds:[]}` (the app going to the background), and again from its next non-empty `agent.view`.
 
 ### Live Activity
 
-`ActivityAttributes` type name `MacActivity`: `{mac, macName}`; `ContentState = {working, needsYou, unseen, top?:{slot, status, sinceUnix, verb?, subject?, answerable, request?}}`. `slot` = agent id; `sinceUnix` = Unix seconds as a Double (ActivityKit decodes `Date` from 2001). pocketd sends `update` priority 5 coalesced to ≤1 per 15 s, priority 10 on entering or leaving Needs you or on Failed, a heartbeat every 4 min while anything works, `stale-date = now+300`, and `end` with `dismissal-date = now+900` ten minutes after nothing works or needs you. With a `start` handle and no live activity, entering Needs you sends `event:"start"` with `input-push-token:1`.
+`ActivityAttributes` type name `MacActivity`: `{mac, macName}`; `ContentState = {working, needsYou, unseen, top?:{slot, status, sinceUnix, verb?, subject?, answerable, request?}}`. `slot` = agent id; `sinceUnix` = Unix seconds as a Double (ActivityKit decodes `Date` from 2001). pocketd sends `update` priority 5 coalesced to ≤1 per 15 s, priority 10 on entering or leaving Needs you or on Failed, a heartbeat every 4 min for as long as the activity lives (a long Needs you or the idle minutes before `end` would otherwise pass the stale date and read as offline), `stale-date = now+300`, and `end` with `dismissal-date = now+900` ten minutes after nothing works or needs you. With a `start` handle and no live activity, entering Needs you sends `event:"start"` with `input-push-token:1`.
 
 ## Deep links
 

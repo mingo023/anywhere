@@ -44,6 +44,7 @@ import (
 	"pocketd/internal/pairing"
 	"pocketd/internal/proc"
 	"pocketd/internal/proto"
+	"pocketd/internal/push"
 	"pocketd/internal/reach"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
@@ -125,14 +126,23 @@ func serve(sock, handed string) error {
 	}
 	mon := host.NewMonitor()
 	kick := make(chan struct{}, 1)
+	hostname, _ := os.Hostname()
+	pushes, err := push.Open(push.Path(home))
+	if err != nil {
+		log.Printf("push.json: %v; no phone is registered for pushes", err)
+	}
+	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
+	d.Broker.OnAsk = notifier.Ask
 	d.Agents.OnStatus = func(id, provider, from, to string) {
 		evs.Emit(events.Event{Kind: "status", Agent: id, Provider: provider, From: from, To: to})
+		notifier.Kick(id, from, to)
 		select {
 		case kick <- struct{}{}:
 		default:
 		}
 	}
 	settings := config.NewSettings(home)
+	notifier.Relay = &push.Client{URL: settings.PushRelay, HTTP: push.NewHTTP()}
 	keeper := &awake.Keeper{S: awake.System(), Enabled: settings.KeepAwake, Linger: settings.AwakeLinger, After: time.After,
 		OnHeld: func(on bool) { mon.Set(func(s *proto.HostState) { s.KeepingAwake = on }) }}
 	go keeper.Run(ctx, kick, func() bool { return agent.Busy(d.Agents.List()) })
@@ -142,7 +152,6 @@ func serve(sock, handed string) error {
 	}
 	d.Terminals.OnInput = d.Input
 	d.Terminals.OnReport = d.Report
-	hostname, _ := os.Hostname()
 	hostID, err := state.HostID(home)
 	if err != nil {
 		return err
@@ -187,6 +196,10 @@ func serve(sock, handed string) error {
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
 		Start: func(runID string, a proto.Automation) launch.Result {
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
+		},
+		OnFinish: func(r proto.Run) {
+			a, _ := autos.Automation(r.AutomationID)
+			notifier.Automation(r, a.Name)
 		}}
 	ownerTokens := &owners.Store{Path: owners.Path(home)}
 	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv)}
@@ -195,7 +208,14 @@ func serve(sock, handed string) error {
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}
 	ws.GitHub = github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
 	ws.Files = &fsview.Service{Registry: reg, Env: d.LoginEnv, Attachments: filepath.Join(home, "attachments")}
-	if err := endGrace(devs, ws.CloseDevice); err != nil {
+	notifier.MacName, notifier.Foreground, ws.Push = ws.MacName, ws.Foreground, notifier
+	go notifier.Run(ctx)
+	// A revoked phone's sockets close and its push registration goes with it.
+	unpair := func(id, reason string) {
+		ws.CloseDevice(id, reason)
+		notifier.Forget(id)
+	}
+	if err := endGrace(devs, unpair); err != nil {
 		return err
 	}
 	statePath := state.Path(d.Home)
@@ -288,7 +308,7 @@ func serve(sock, handed string) error {
 	}
 	srv := &ops.Server{
 		Terminals: d.Terminals, Spawn: d.Spawn, Hook: d.Hook, Pipe: d.Pipe,
-		Devices: devs, Kick: ws.CloseDevice,
+		Devices: devs, Kick: unpair,
 		Pairing: pairs, Host: pairHost, MacName: ws.MacName,
 		WS: ws, AskOpen: d.AskOpen,
 		Status:     status,
