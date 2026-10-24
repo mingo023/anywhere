@@ -76,9 +76,11 @@ func (n *NewWorktree) valid() bool {
 	return set <= 1 && (n.Name != "" || n.Branch != "" || n.PR != "") && (!n.AutoName || n.Name != "" && n.Branch == "" && n.PR == "")
 }
 
+// AgentCreating answers a create once its Terminal runs. Without an id it is
+// pushed to every conn for a phone's terminal.create, so the desktop opens a tab.
 type AgentCreating struct {
 	Type       string `json:"type"`
-	ID         string `json:"id"`
+	ID         string `json:"id,omitempty"`
 	RequestID  string `json:"requestId"`
 	TerminalID string `json:"terminalId"`
 	Cwd        string `json:"cwd"`
