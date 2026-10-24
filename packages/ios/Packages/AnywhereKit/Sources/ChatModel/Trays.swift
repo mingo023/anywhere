@@ -180,3 +180,28 @@ public struct Drafts<T: Sendable>: Sendable {
 
     public mutating func restore(_ drafts: [String: T]) { parked.merge(drafts) { current, _ in current } }
 }
+
+/// The access pill: what the agent may do without asking.
+public enum AccessPill {
+    static let text: [(value: String, label: String, hint: String)] = [
+        ("settings", "Agent's settings", "Use the agent's own permission config."),
+        ("ask", "Ask", "Ask before commands and file changes."),
+        ("edits", "Edits", "Auto-approve edits, ask before other actions."),
+        ("auto", "Auto", "A reviewer model approves or denies actions."),
+        ("full", "Full", "Skip every approval."),
+    ]
+
+    public static func label(_ access: String) -> String {
+        (text.first { $0.value == access } ?? text[0]).label
+    }
+
+    /// Full skips every approval, so it stands out.
+    public static func warns(_ access: String) -> Bool { access == "full" }
+
+    /// What a chat agent's access switches to, up to what pocketd lets a phone set.
+    public static func choices(upTo max: String) -> [(value: String, label: String, hint: String)] {
+        let switchable = text.dropFirst()
+        guard let last = switchable.firstIndex(where: { $0.value == max }) else { return Array(switchable) }
+        return Array(switchable[...last])
+    }
+}
