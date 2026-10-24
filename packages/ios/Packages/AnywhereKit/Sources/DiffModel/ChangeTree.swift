@@ -115,20 +115,37 @@ public enum Composer {
     /// Commits the staged files, or with `commitAll` every change when none is staged. Amending keeps the last
     /// message unless a new one is typed.
     public static func step(files: [GitFile], kind: CommitKind, message: String, busy: Bool, commitAll: Bool) -> CommitStep {
+        step(totals: totals(files), kind: kind, message: message, busy: busy, commitAll: commitAll)
+    }
+
+    /// `step` from a status's totals, which hold every file when only a page of them is loaded.
+    public static func step(totals: GitTotals, kind: CommitKind, message: String, busy: Bool, commitAll: Bool) -> CommitStep {
         let amend = kind == .amend
-        if busy || (!amend && files.isEmpty) { return .skip }
-        let noneStaged = !files.contains(where: \.staged)
+        if busy || (!amend && totals.files == 0) { return .skip }
+        let noneStaged = totals.staged == 0
         if !amend, noneStaged, !commitAll { return .stageFirst }
         if !amend, message.isEmpty { return .askMessage }
         return .run(all: !amend && noneStaged, busy: amend ? "Amending…" : "Committing…")
     }
 
     public static func label(files: [GitFile], busy: String?, commitAll: Bool) -> String {
+        label(totals: totals(files), busy: busy, commitAll: commitAll)
+    }
+
+    public static func label(totals: GitTotals, busy: String?, commitAll: Bool) -> String {
         if let busy { return busy }
-        return commitAll && !files.isEmpty && !files.contains(where: \.staged) ? "Commit All" : "Commit"
+        return commitAll && totals.files > 0 && totals.staged == 0 ? "Commit All" : "Commit"
     }
 
     public static func ready(files: [GitFile], message: String, busy: Bool, commitAll: Bool) -> Bool {
-        !files.isEmpty && !message.allSatisfy(\.isWhitespace) && !busy && (commitAll || files.contains(where: \.staged))
+        ready(totals: totals(files), message: message, busy: busy, commitAll: commitAll)
+    }
+
+    public static func ready(totals: GitTotals, message: String, busy: Bool, commitAll: Bool) -> Bool {
+        totals.files > 0 && !message.allSatisfy(\.isWhitespace) && !busy && (commitAll || totals.staged > 0)
+    }
+
+    private static func totals(_ files: [GitFile]) -> GitTotals {
+        GitTotals(files: files.count, added: 0, removed: 0, staged: files.count { $0.staged })
     }
 }

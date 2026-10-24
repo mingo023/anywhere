@@ -137,6 +137,21 @@ struct LanesTests {
         #expect(row.color == .upstream)
     }
 
+    @Test("a row's strokes pass other lanes by, end waiting lanes in the dot and leave it for each parent")
+    func edges() {
+        var lanes = Lanes()
+        _ = lanes.push("t", parents: s("a", "b"))
+        _ = lanes.push("u", parents: s("a"))
+        let row = lanes.push("a", parents: s("z", "y"))
+        let e = GraphEdges(row, sha: "a", parents: 2)
+        #expect(shas(row.input) == ["a", "b", "a"] && shas(row.output) == ["z", "b", "y"])
+        #expect(e.into.map(\.column) == [0, 2])
+        #expect(e.through.map { [$0.from, $0.to] } == [[1, 1]])
+        #expect(e.out.map(\.column) == [0, 2])
+        let root = GraphEdges(lanes.push("z", parents: []), sha: "z", parents: 0)
+        #expect(root.into.map(\.column) == [0] && root.out.isEmpty && root.through.map { [$0.from, $0.to] } == [[1, 0], [2, 1]])
+    }
+
     @Test("a layout continues the lanes of the page before it")
     func pages() {
         let commits = Sample.log(commits: 120).commits

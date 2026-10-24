@@ -93,3 +93,47 @@ public struct GraphLayout: Sendable {
         }
     }
 }
+
+/// The strokes of one graph row, as lane columns: lanes passing by, lanes ending in the commit's dot, and lanes
+/// leaving it for its parents. Draw `through` from the top edge to the bottom, `into` from the top to the dot,
+/// `out` from the dot to the bottom.
+public struct GraphEdges: Hashable, Sendable {
+    public struct Through: Hashable, Sendable {
+        public var from: Int
+        public var to: Int
+        public var color: LaneColor
+    }
+
+    public struct End: Hashable, Sendable {
+        public var column: Int
+        public var color: LaneColor
+    }
+
+    public var through: [Through] = []
+    public var into: [End] = []
+    public var out: [End] = []
+
+    /// Follows `Lanes.push`: lanes other than the commit's keep their order, its first parent takes the place of the
+    /// first lane that waited for it, and further parents open lanes at the end.
+    public init(_ row: GraphRow, sha: String, parents: Int) {
+        var j = 0
+        var placed = false
+        for (k, lane) in row.input.enumerated() {
+            if lane.sha != sha {
+                through.append(Through(from: k, to: j, color: lane.color))
+                j += 1
+            } else {
+                into.append(End(column: k, color: lane.color))
+                if !placed, parents > 0 {
+                    out.append(End(column: j, color: row.output[j].color))
+                    j += 1
+                    placed = true
+                }
+            }
+        }
+        while j < row.output.count {
+            out.append(End(column: j, color: row.output[j].color))
+            j += 1
+        }
+    }
+}

@@ -117,7 +117,7 @@ public final class GitStore: HostStore {
 
     /// A diff ready to draw, from the cache while the tree's rev holds. Rows are built off the main actor.
     public func diff(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool = false) async throws -> DiffDocument {
-        let key = DiffKey(tree: tree, path: path, at: at, rev: Self.revKey(at, rev: changes[tree]?.head?.rev), ignoreWhitespace: ignoreWhitespace)
+        let key = diffKey(tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace)
         if let hit = diffs[key] { return hit }
         guard let connection else { throw DaemonError.offline }
         let reply = try await connection.request(.gitDiff(.init(tree: tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace ? true : nil)))
@@ -125,6 +125,15 @@ public final class GitStore: HostStore {
         let doc = await Task.detached(priority: .userInitiated) { DiffDocument(diff) }.value
         diffs[key] = doc
         return doc
+    }
+
+    /// The diff already in the cache, so a screen can draw it on its first frame.
+    public func cachedDiff(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool = false) -> DiffDocument? {
+        diffs[diffKey(tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace)]
+    }
+
+    private func diffKey(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool) -> DiffKey {
+        DiffKey(tree: tree, path: path, at: at, rev: Self.revKey(at, rev: changes[tree]?.head?.rev), ignoreWhitespace: ignoreWhitespace)
     }
 
     /// A commit's diffs never change; the working tree's change with its rev, and a base diff with HEAD.
@@ -152,6 +161,8 @@ public final class GitStore: HostStore {
         }
     }
 
+    public func cachedCommit(_ sha: String) -> CommitDetail? { commits[sha] }
+
     public func commit(_ tree: String, sha: String) async throws -> CommitDetail {
         if let hit = commits[sha] { return hit }
         guard let connection else { throw DaemonError.offline }
@@ -160,6 +171,26 @@ public final class GitStore: HostStore {
         }
         commits[sha] = detail
         return detail
+    }
+
+    // MARK: Replies taken as they are, for previews and the gallery
+
+    /// Takes a whole status as its tree's first page.
+    public func take(_ status: GitStatus) {
+        let t = changes(status.tree)
+        t.take(status, cursor: 0, generation: t.generation)
+    }
+
+    public func take(_ log: GitLog, tree: String) {
+        history(tree).take(log, skip: 0)
+    }
+
+    public func take(_ diff: GitDiff, at: DiffAt) {
+        diffs[diffKey(diff.tree, path: diff.path, at: at, ignoreWhitespace: false)] = DiffDocument(diff)
+    }
+
+    public func take(_ commit: CommitDetail) {
+        commits[commit.sha] = commit
     }
 
     // MARK: Writes
@@ -219,7 +250,8 @@ public final class GitStore: HostStore {
         }
     }
 
-    nonisolated static func describe(_ error: any Error) -> String {
+    /// The Mac's own words for a refused request, else what went wrong in a few.
+    public nonisolated static func describe(_ error: any Error) -> String {
         switch error as? DaemonError {
         case .server(let e)?: e.message
         case .offline?: "The Mac is offline"
@@ -291,7 +323,9 @@ public final class TreeChanges {
 
     func flip(_ paths: [String], staged: Bool) {
         generation += 1
+        let before = files.count(where: \.staged)
         ChangeTree.flipStaged(&files, paths: paths, staged: staged)
+        head?.totals.staged += files.count(where: \.staged) - before
     }
 
     /// Every changed file is loaded, so section-wide actions see them all.
