@@ -30,6 +30,8 @@ public final class TerminalAttachment: Identifiable {
     public internal(set) var state = State.attaching
     public internal(set) var cols: Int
     public internal(set) var rows: Int
+    /// A keystroke was refused because the terminal's agent waits on a permission; answer it from its card.
+    public internal(set) var askOpen = false
     @ObservationIgnored weak var sink: (any TerminalSink)?
 
     init(id: String, cols: Int, rows: Int, sink: any TerminalSink) {
@@ -65,21 +67,48 @@ public final class TerminalStore: HostStore {
 
     @ObservationIgnored let connection: DaemonConnection?
     /// Fire-and-forget messages, sent one after another so keystrokes keep their order.
-    @ObservationIgnored private let post: (ClientMessage) -> Void
+    @ObservationIgnored private var post: (ClientMessage) -> Void = { _ in }
+    /// The terminal each recent attach and keystroke named, by message id, so a refusal finds its screen.
+    @ObservationIgnored private var sent: [String: String] = [:]
+    @ObservationIgnored private var sentOrder: [String] = []
 
     public init(connection: DaemonConnection? = nil) {
         self.connection = connection
         let (stream, outbox) = AsyncStream.makeStream(of: ClientMessage.self)
-        Task { [connection] in
-            for await message in stream { _ = try? await connection?.send(message) }
-        }
         post = { outbox.yield($0) }
+        Task { [weak self, connection] in
+            for await message in stream {
+                guard let id = try? await connection?.send(message) else { continue }
+                self?.note(id, message)
+            }
+        }
     }
 
-    /// A store whose sends go to `post`, for tests.
-    init(post: @escaping (ClientMessage) -> Void) {
+    /// A store whose sends go to `post`, numbered c1, c2… as a connection numbers them: for tests and the gallery.
+    public init(post: @escaping (ClientMessage) -> Void) {
         connection = nil
-        self.post = post
+        var last = 0
+        self.post = { [unowned self] message in
+            post(message)
+            last += 1
+            note("c\(last)", message)
+        }
+    }
+
+    private static let keptIds = 256
+
+    private func note(_ id: String, _ message: ClientMessage) {
+        let terminalId: String
+        switch message {
+        case .terminalAttach(let ref): terminalId = ref.terminalId
+        case .terminalInput(let input): terminalId = input.terminalId
+        default: return
+        }
+        sent[id] = terminalId
+        sentOrder.append(id)
+        if sentOrder.count > Self.keptIds {
+            sent[sentOrder.removeFirst()] = nil
+        }
     }
 
     public func terminal(_ id: String) -> Terminal? { terminals.first { $0.id == id } }
@@ -116,6 +145,17 @@ public final class TerminalStore: HostStore {
             guard !writesOff else { return false }
             writesOff = true
             return true
+        case .error(let e):
+            return refused(e)
+        case .permissionResolved:
+            var changed = false
+            for open in attachments.values where open.askOpen {
+                open.askOpen = false
+                changed = true
+            }
+            return changed
+        case .hostChanged(let changed):
+            return follow(changed.host)
         default:
             return false
         }
@@ -134,8 +174,11 @@ public final class TerminalStore: HostStore {
     /// The list and every open screen come back on their own, each screen from a fresh snapshot.
     public func connected(_ hello: HelloOk) {
         available = hello.has(Caps.terminal)
-        // Only a refused write says terminals are off, and the owner may have turned them on while this was away.
+        // An older Mac says terminals are off only by refusing a write, and the owner may have turned them on while this was away.
         writesOff = false
+        sent = [:]
+        sentOrder = []
+        if let host = hello.host { _ = follow(host) }
         guard available else { return }
         post(.terminalList)
         for open in attachments.values where open.running {
@@ -198,6 +241,27 @@ public final class TerminalStore: HostStore {
         guard let connection else { throw DaemonError.offline }
         guard case .projectList(let list) = try await connection.request(.projectList) else { return [] }
         return list.projects
+    }
+
+    /// Any refused attach means its terminal ended (an older pocketd gives no code); a keystroke refused with ask_open
+    /// means the terminal's agent waits on a permission.
+    private func refused(_ error: ServerError) -> Bool {
+        guard let id = error.replyTo, let terminalId = sent.removeValue(forKey: id), let open = attachments[terminalId] else { return false }
+        if error.code == .askOpen {
+            guard !open.askOpen else { return false }
+            open.askOpen = true
+            return true
+        }
+        guard open.state == .attaching || error.code == .terminalEnded else { return false }
+        open.state = .gone
+        return true
+    }
+
+    /// Follows the Mac's phone.terminals setting; nil from a pocketd too old to say.
+    private func follow(_ host: HostState) -> Bool {
+        guard let on = host.terminals, writesOff == on else { return false }
+        writesOff = !on
+        return true
     }
 
     private func replace(_ list: [Terminal]) -> Bool {

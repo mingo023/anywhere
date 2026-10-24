@@ -149,9 +149,12 @@ extension ClientMessage {
     public struct WorktreeDelete: Codable, Hashable, Sendable {
         public var path: String
         public var deleteBranch: Bool?
-        public init(path: String, deleteBranch: Bool? = nil) {
+        /// Deletes the branch even when commits on it are nowhere else (`unpushed_commits` otherwise).
+        public var force: Bool?
+        public init(path: String, deleteBranch: Bool? = nil, force: Bool? = nil) {
             self.path = path
             self.deleteBranch = deleteBranch
+            self.force = force
         }
     }
 

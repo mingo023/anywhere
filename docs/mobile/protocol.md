@@ -18,6 +18,8 @@ A **tree** is an absolute path that `worktree.Containing` (or the Locals store) 
 | `terminal.list`, `terminal.attach`, `terminal.detach` | observe |
 | `terminal.input`, `terminal.resize`, `terminal.create`, `terminal.close` | drive, and refused for every peer but the owner with `error{code:"terminals_off"}` when the owner setting `phone.terminals` is `off` (default `on`; set with `config.set {key:"phone.terminals", value:"on"|"off"}` from an owner, or `pocketd config set`) |
 
+The setting reaches host.v1 conns as `terminals:bool` in `hello.ok.host` (`HostState = {tailnet, keepingAwake, terminals, upgradeFailed?}`), and a `host.changed` follows each change to it, so a phone shows its screens view-only before it types.
+
 ```
 → {type:"terminal.list", id}
 ← {type:"terminal.list", id?, terminals:[Terminal]}       // also pushed whole, without id, on spawn, exit and title change
@@ -32,6 +34,8 @@ Terminal = {id, cwd, cols, rows, title?, localId?, agentId?, exited?:bool}
 → {type:"terminal.detach", id, terminalId}  ← ack           // a closed socket detaches everything
 
 → {type:"terminal.input", id, terminalId, data}             // data = base64 bytes; no reply unless refused
+   // refused with code "ask_open" while the agent in the terminal waits on a permission, so a keystroke
+   //   can't answer its dialog; the phone answers from the permission card
 → {type:"terminal.resize", id, terminalId, cols, rows}  ← ack   // cols and rows 1..1000
 → {type:"terminal.create", id, requestId, cwd?, localId?, cols?, rows?}
 ← {type:"terminal.created", id, requestId, terminalId}      // a login shell, like the desktop's; cwd must be a tree
@@ -40,7 +44,8 @@ Terminal = {id, cwd, cols, rows, title?, localId?, agentId?, exited?:bool}
    //   {type:"agent.creating", requestId, terminalId, cwd, setup:false}   (no id) to every conn,
    // which the desktop takes as it takes an agent's, opening the terminal in a tab of its tree.
 → {type:"terminal.close", id, terminalId}  ← ack
-   // a terminalId that isn't running is error{id, message} (no code) for attach, input, resize and close
+   // a terminalId that isn't running is error{id, code:"terminal_ended", message} for attach, input, resize and close;
+   //   its id is the request's, so the phone knows which screen it ended
 ```
 
 `terminal.list` is sorted by `cwd`, then `id`, and is not sent on hello: ask for it once connected. Exited terminals leave the list, so `exited` is never set today.
@@ -79,9 +84,12 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
    // a branch already checked out returns that worktree as it is
    // setup runs in a new login-shell terminal of the worktree, which stays open; worktree.created doesn't wait for it
    // the asking conn gets the new project.list before worktree.created
-→ {type:"worktree.delete", id, path, deleteBranch?:bool}  ← ack
+→ {type:"worktree.delete", id, path, deleteBranch?:bool, force?:bool}  ← ack
    // closes its terminals (not its Locals'), removes the folder and its display name, then `branch -D` when asked
    // the main worktree is refused before anything closes (code "main_worktree"); unknown_worktree; git_failed
+   // with deleteBranch and without force, a branch holding commits no other branch, remote or tag holds
+   //   (rev-list --count <branch> --not --exclude=<branch> --branches --remotes --tags, the desktop's lost_commits)
+   //   is refused before anything closes: error{id, code:"unpushed_commits", message, count}; force:true deletes it anyway
 
 → {type:"branch.list", id, tree}
 ← {type:"branch.list", id, current?, local:[{name, at}], remote:[{name, at}]}   // at = unix seconds; newest first; ≤200 each
@@ -190,6 +198,7 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
 - `gh.pr.create` pushes the branch first, as the desktop does (`git -c push.autoSetupRemote=true push`); a failed push is `error{code:"git_failed", message, detail}` and opens nothing. Without `base`, gh opens it into the repo's default branch.
 - `gh.prs` lists the cached PRs of the project's worktrees; a project not registered is `error{code:"unknown_project"}`.
 - pocketd polls while any gh.v1 conn is connected: one gh at a time, killed after 60 s; the trees conns name in `git.watch` every 30 s, every other non-main, non-detached worktree every 5 min; a missing or signed-out gh is asked again after 5 min. `gh.pr` answers from that cache while it is under 30 s old, else asks gh then.
+- Every gh pocketd runs, the poller's and each phone's (`gh.status`, `gh.pr`, the mutations), takes one turn: one gh at a time, killed after 60 s. At most 4 phone calls wait for it; one more is `error{code:"gh_failed"}` saying gh is busy, and a busy `gh.pr` answers from the cache however old. `gh.prs` reads only the cache.
 
 ## fs.v1
 
@@ -225,7 +234,8 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
 ← ack per chunk; on last: {type:"attach.done", id, uploadId, path}  // path under <home>/attachments, as the desktop's pasted images
    // png jpg jpeg gif webp heic only, and chunk 0 must start as that type does; code "attach_invalid" otherwise.
    // index counts from 0 with no gaps; index 0 starts (or restarts) the upload. The file is <uploadId>.<ext>,
-   //   mode 0600 in a 0700 folder. A socket that closes mid-upload leaves nothing; ≤4 uploads open per socket.
+   //   mode 0600 in a 0700 folder. A socket that closes mid-upload leaves nothing, nor does an upload
+   //   that gets no chunk for 60 s (a later chunk is attach_invalid); ≤4 uploads open per socket.
 ```
 
 ## push.v1

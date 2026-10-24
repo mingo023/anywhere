@@ -146,7 +146,7 @@ export type ClientMessage = typeof ClientMessage.Type;
 
 export const CAP_HOST = "host.v1";
 
-export const HostState = Schema.Struct({ tailnet: Schema.Boolean, keepingAwake: Schema.Boolean });
+export const HostState = Schema.Struct({ tailnet: Schema.Boolean, keepingAwake: Schema.Boolean, terminals: Schema.Boolean });
 export type HostState = typeof HostState.Type;
 
 export const ServerMessage = Schema.Union(
@@ -236,6 +236,7 @@ export const ServerMessage = Schema.Union(
     message: Schema.String,
     code: Schema.optional(Schema.String),
     detail: Schema.optional(Schema.String),
+    count: Schema.optional(Schema.Int),
   }),
   Schema.Struct({ type: Schema.Literal("host.changed"), host: HostState }),
   Schema.Struct({ type: Schema.Literal("worktree.names"), names: Schema.Record({ key: Schema.String, value: Schema.String }) }),

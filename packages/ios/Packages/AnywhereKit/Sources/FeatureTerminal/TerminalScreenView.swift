@@ -1,4 +1,5 @@
 import DesignSystem
+import Domain
 import Foundation
 import Stores
 import SwiftTerm
@@ -16,6 +17,8 @@ public struct TerminalScreenView: View {
     let store: TerminalStore
     let terminalId: String
     let title: String
+    /// The Mac, so a banner can open the chat of the terminal's agent.
+    let mac: String?
     @State private var session: TerminalSession?
     @State private var fit = false
     @State private var pinch: CGFloat = 1
@@ -26,23 +29,27 @@ public struct TerminalScreenView: View {
     @AppStorage("terminal.fontSize") private var savedFontSize = Double(Fit.defaultFontSize)
     @Environment(\.dismiss) private var dismiss
 
-    public init(store: TerminalStore, terminalId: String, title: String) {
+    public init(store: TerminalStore, terminalId: String, title: String, mac: String? = nil) {
         self.store = store
         self.terminalId = terminalId
         self.title = title
+        self.mac = mac
     }
 
     /// A screen already fed, for the gallery.
-    init(store: TerminalStore, session: TerminalSession, title: String) {
+    init(store: TerminalStore, session: TerminalSession, title: String, mac: String? = nil) {
         self.store = store
         terminalId = session.id
         self.title = title
+        self.mac = mac
         _session = State(initialValue: session)
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            if let banner = Banner(state: store.attachments[terminalId]?.state, writesOff: store.writesOff, problem: problem) {
+            let open = store.attachments[terminalId]
+            if let banner = Banner(state: open?.state, writesOff: store.writesOff, askOpen: open?.askOpen == true, problem: problem,
+                                   chat: chat) {
                 banner
             }
             if let session {
@@ -79,6 +86,12 @@ public struct TerminalScreenView: View {
 
     private var writable: Bool {
         !store.writesOff && store.attachments[terminalId]?.state == .live
+    }
+
+    /// The chat of the agent running in the terminal, where its permission card is.
+    private var chat: Route? {
+        guard let mac, let agentId = store.terminal(terminalId)?.agentId else { return nil }
+        return .chat(mac: mac, agentId: agentId)
     }
 
     private var pasting: Binding<Bool> {
@@ -215,8 +228,10 @@ struct Banner: View {
     let systemImage: String
     let tone: Tone
     let busy: Bool
+    /// Where the banner's Open button goes, if it has one.
+    var link: Route?
 
-    init?(state: TerminalAttachment.State?, writesOff: Bool, problem: String?) {
+    init?(state: TerminalAttachment.State?, writesOff: Bool, askOpen: Bool = false, problem: String?, chat: Route? = nil) {
         let shown: (String, String, Tone, Bool)
         switch state {
         case .attaching?: shown = ("Connecting…", "bolt.horizontal", .neutral, true)
@@ -227,6 +242,9 @@ struct Banner: View {
         case .live?, nil:
             if let problem {
                 shown = (problem, "exclamationmark.triangle", .failed, false)
+            } else if askOpen {
+                shown = ("Waiting on a permission: answer it on its card in the chat. Keys are refused until then.", "hand.raised", .waiting, false)
+                link = chat
             } else if writesOff {
                 shown = ("View only: terminals are off for phones on this Mac", "eye", .waiting, false)
             } else {
@@ -249,6 +267,9 @@ struct Banner: View {
             if busy { ProgressView().controlSize(.small) } else { Image(systemName: systemImage) }
             Text(text).font(Typography.footnote).lineLimit(2)
             Spacer(minLength: 0)
+            if let link {
+                NavigationLink(value: link) { Text("Open").font(Typography.footnote.weight(.semibold)) }
+            }
         }
         .foregroundStyle(colors.text.color)
         .padding(.horizontal, Space.l)

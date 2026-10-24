@@ -153,6 +153,47 @@ struct TerminalStoreTests {
         #expect(!store.writesOff)
     }
 
+    @Test("an attach refused as ended shows the screen ended instead of connecting forever")
+    func attachEnded() {
+        let (store, _) = store()
+        let ended = store.attach("t-shell", sink: Screen())
+        let other = store.attach("t-review", sink: Screen())
+        #expect(!store.apply(.error(ServerError(message: "This terminal has ended", code: .terminalEnded, replyTo: "c9"))))
+        #expect(ended.state == .attaching)
+        // An older pocketd refuses it without a code.
+        #expect(store.apply(.error(ServerError(message: "This terminal has ended", replyTo: "c1"))))
+        #expect(ended.state == .gone)
+        #expect(other.state == .attaching)
+        #expect(store.apply(.error(ServerError(message: "This terminal has ended", code: .terminalEnded, replyTo: "c2"))))
+        #expect(other.state == .gone)
+    }
+
+    @Test("a keystroke refused while the terminal's agent asks marks the screen as waiting on the ask, until it resolves")
+    func askOpen() {
+        let (store, sent) = store()
+        let open = store.attach("t-shell", sink: Screen())
+        _ = store.apply(.terminalAttached(.init(terminalId: "t-shell", cols: 120, rows: 40)))
+        store.input("t-shell", Data("y".utf8))
+        #expect(sent.messages.count == 2)
+        #expect(store.apply(.error(ServerError(message: "waiting on a permission", code: .askOpen, replyTo: "c2"))))
+        #expect(open.askOpen)
+        #expect(store.apply(.permissionResolved(PermissionResolved(requestId: "r1", decision: .allow))))
+        #expect(!open.askOpen)
+    }
+
+    @Test("the Mac's terminals setting makes the screens view-only before anything is typed")
+    func terminalsSetting() {
+        let (store, _) = store()
+        var hello = Sample.hello
+        hello.host = HostState(tailnet: true, keepingAwake: false, terminals: false)
+        store.connected(hello)
+        #expect(store.writesOff)
+        #expect(store.apply(.hostChanged(HostChanged(host: HostState(tailnet: true, keepingAwake: false, terminals: true)))))
+        #expect(!store.writesOff)
+        #expect(!store.apply(.hostChanged(HostChanged(host: HostState(tailnet: false, keepingAwake: false)))))
+        #expect(!store.writesOff)
+    }
+
     @Test("the Locals a terminal may open in follow local.list")
     func locals() {
         let (store, _) = store()

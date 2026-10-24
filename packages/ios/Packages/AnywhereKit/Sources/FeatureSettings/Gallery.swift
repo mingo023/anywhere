@@ -35,7 +35,7 @@ public enum SettingsGallery {
 
         let studioHello = HelloOk(
             serverId: "studio", hostname: "Studio", protocolVersion: 3, caps: Caps.phone, protocol: .phone,
-            scopes: [.observe, .drive, .approve], host: HostState(tailnet: true, keepingAwake: false, upgradeFailed: "0.1.14"), version: "0.1.12")
+            scopes: [.observe, .drive, .approve], host: HostState(tailnet: true, keepingAwake: false, terminals: false, upgradeFailed: "0.1.14"), version: "0.1.12")
         let dropped = Date().addingTimeInterval(-12)
         let studio = HostModel(credentials: credentials("d-studio", "studio.tail4a2b.ts.net:4517", "Studio"), now: { dropped })
         studio.apply([.connected(studioHello), .closed(.retrying(seconds: 4))])

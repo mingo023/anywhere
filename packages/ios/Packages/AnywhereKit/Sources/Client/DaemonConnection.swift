@@ -253,6 +253,11 @@ public actor DaemonConnection {
                 if !frame.message.isInterim { abandoned.remove(id) }
                 return
             }
+            if case .error(var refused) = frame.message {
+                refused.replyTo = id
+                continuation.yield(.message(.error(refused)))
+                return
+            }
         }
         continuation.yield(.message(frame.message))
     }

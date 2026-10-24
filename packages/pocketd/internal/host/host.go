@@ -4,6 +4,7 @@ package host
 import (
 	"sync"
 
+	"pocketd/internal/config"
 	"pocketd/internal/hub"
 	"pocketd/internal/proto"
 )
@@ -36,3 +37,14 @@ func (m *Monitor) Set(f func(*proto.HostState)) {
 }
 
 func (m *Monitor) Subscribe() (<-chan []byte, func()) { return m.hub.Subscribe() }
+
+// FollowTerminals keeps m's Terminals at s's phone.terminals as Set changes it.
+func FollowTerminals(m *Monitor, s *config.Settings) {
+	set := func() { m.Set(func(h *proto.HostState) { h.Terminals = s.PhoneTerminals() }) }
+	set()
+	s.Changed = func(key string) {
+		if key == "phone.terminals" {
+			set()
+		}
+	}
+}

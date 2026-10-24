@@ -11,6 +11,9 @@ const CapTerminal = "terminal.v1"
 // CodeTerminalsOff: the owner turned phone.terminals off.
 const CodeTerminalsOff = "terminals_off"
 
+// CodeTerminalEnded: the terminal a verb names isn't running.
+const CodeTerminalEnded = "terminal_ended"
+
 const maxTermSize = 1000
 
 var terminalVerbs = map[string]verbDecoder{

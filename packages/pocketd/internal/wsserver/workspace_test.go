@@ -139,7 +139,7 @@ func TestAWorkspacePhoneGetsTheProjectListAfterHelloThenAPushForEachChange(t *te
 		t.Fatalf("the list wasn't pushed before worktree.created: %v", before)
 	}
 	p.send(`{"type":"project.list","id":"pl"}`)
-	if m := p.recv(); m["id"] != "pl" || len(treePaths(m)) != 2 {
+	if m := p.reply("pl"); len(treePaths(m)) != 2 {
 		t.Fatalf("%v", m)
 	}
 }
@@ -235,6 +235,32 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 	}
 	if list, _ := b.s.Workspace.Projects.List(); len(list[0].Worktrees) != 1 {
 		t.Fatalf("the cache still lists it: %+v", list)
+	}
+}
+
+func TestDeletingABranchWithCommitsNowhereElseIsRefusedUnlessForced(t *testing.T) {
+	var b bench
+	_, _, p := local(t, aPhone, withWorkspace(t, &b))
+	wt := filepath.Join(b.root, "pocket", "lone")
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "lone", wt)
+	gitOut(t, wt, "commit", "-q", "--allow-empty", "-m", "one")
+	gitOut(t, wt, "commit", "-q", "--allow-empty", "-m", "two")
+	// A branch holding the first commit keeps it; only the second is on lone alone.
+	gitOut(t, b.project, "branch", "keeper", "lone~1")
+	helloWith(p, proto.CapWorkspace)
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + wt + `","deleteBranch":true}`)
+	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 1.0 {
+		t.Fatalf("%v", m)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("the folder went: %v", err)
+	}
+	p.send(`{"type":"worktree.delete","id":"wf","path":"` + wt + `","deleteBranch":true,"force":true}`)
+	if m := p.reply("wf"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	if gitOut(t, b.project, "branch", "--list", "lone") != "" {
+		t.Fatal("the branch stayed")
 	}
 }
 

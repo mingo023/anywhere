@@ -9,7 +9,7 @@ public enum Sample {
 
     public static let hello = HelloOk(
         serverId: mac, hostname: "Mingo's MacBook Pro", protocolVersion: 3, caps: Caps.phone, protocol: .phone,
-        scopes: [.observe, .drive, .approve, .spawn], host: HostState(tailnet: true, keepingAwake: true), version: "0.1.13")
+        scopes: [.observe, .drive, .approve, .spawn], host: HostState(tailnet: true, keepingAwake: true, terminals: true), version: "0.1.13")
 
     public static let projects: [Project] = [
         Project(path: "/Users/mingo/dev/anywhere", name: "anywhere", worktrees: [

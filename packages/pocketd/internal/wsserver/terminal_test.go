@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -246,6 +247,39 @@ func TestAnAttachedPhoneHearsResizesAndTheExit(t *testing.T) {
 	if m := p.recv(); m["type"] != "error" || m["id"] != "b" {
 		t.Fatalf("%v", m)
 	}
+}
+
+func TestATerminalThatEndedIsRefusedAsEndedUnderTheRequestsID(t *testing.T) {
+	terms := terminal.NewManager()
+	_, _, p := local(t, peer.OwnerOf(1), withTerminals(t, terms, "/p"))
+	helloWith(p, proto.CapTerminal)
+	p.send(`{"type":"terminal.attach","id":"a","terminalId":"t-gone"}`)
+	if m := p.recv(); m["type"] != "error" || m["id"] != "a" || m["code"] != proto.CodeTerminalEnded {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"terminal.input","id":"i","terminalId":"t-gone","data":"eA=="}`)
+	if m := p.recv(); m["type"] != "error" || m["id"] != "i" || m["code"] != proto.CodeTerminalEnded {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestAKeystrokeCannotAnswerAnOpenAskInTheTerminal(t *testing.T) {
+	terms := terminal.NewManager()
+	var asking atomic.Bool
+	asking.Store(true)
+	_, _, p := local(t, peer.FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes}), withTerminals(t, terms, "/p"), func(s *Server) {
+		s.AskOpen = func(string) bool { return asking.Load() }
+	})
+	s := run(t, terms, `read x; echo got-$x; sleep 30`)
+	id := s.Info().ID
+	helloWith(p, proto.CapTerminal)
+	p.input(id, "y\n")
+	if m := p.reply("i"); m["type"] != "error" || m["code"] != proto.CodeAskOpen {
+		t.Fatalf("%v", m)
+	}
+	asking.Store(false)
+	p.input(id, "n\n")
+	waitScreen(t, s, "got-n")
 }
 
 // A phone that stops reading fills its socket, then its queue; the shell and

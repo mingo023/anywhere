@@ -64,6 +64,17 @@ struct PlacesTests {
     }
 }
 
+@Suite("Row actions")
+struct RowActionsTests {
+    @Test("the confirm before a forced delete counts the commits the branch alone holds")
+    func lost() {
+        #expect(RowActions.lostTitle(1, branch: "fix-login") == "Delete fix-login and its 1 unpushed commit?")
+        #expect(RowActions.lostTitle(3, branch: "fix-login") == "Delete fix-login and its 3 unpushed commits?")
+        #expect(RowActions.lostMessage(1) == "That commit is on no other branch, remote or tag, so it will be lost.")
+        #expect(RowActions.lostMessage(3) == "Those 3 commits are on no other branch, remote or tag, so they will be lost.")
+    }
+}
+
 @Suite("Automation text")
 struct AutomationTextTests {
     @Test("a schedule reads as days at a time, or as an interval")

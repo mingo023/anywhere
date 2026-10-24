@@ -163,7 +163,9 @@ func (c *conn) findTerminal(id string) *terminal.Terminal {
 	return c.s.Terminals.Get(id)
 }
 
-func noTerminal(id string) proto.Error { return proto.NewError(id, "This terminal has ended") }
+func noTerminal(id string) proto.Error {
+	return proto.NewErrorCode(id, proto.CodeTerminalEnded, "This terminal has ended")
+}
 
 // terminalAttach replaces any attach this conn has to the terminal, so a
 // phone that lost track gets a fresh snapshot.
@@ -209,6 +211,11 @@ func (c *conn) terminalDetach(m proto.ClientMessage) error {
 }
 
 func (c *conn) terminalInput(m proto.ClientMessage) error {
+	// A keystroke meant for the shell could answer the agent's permission dialog, as the PTY guard prevents.
+	if c.s.AskOpen != nil && c.s.AskOpen(m.TerminalID) {
+		c.send(proto.NewErrorCode(m.ID, proto.CodeAskOpen, "This terminal's session is waiting on a permission; answer it from its card"))
+		return nil
+	}
 	t := c.findTerminal(m.TerminalID)
 	if t == nil || t.Write(m.Data) != nil {
 		c.send(noTerminal(m.ID))

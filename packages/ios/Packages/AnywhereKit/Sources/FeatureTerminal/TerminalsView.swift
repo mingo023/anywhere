@@ -16,8 +16,8 @@ public struct TerminalsView: View {
 
     public var body: some View {
         switch route {
-        case .terminal(_, let terminalId):
-            TerminalScreenView(store: host.terminals, terminalId: terminalId, title: host.terminals.terminal(terminalId)?.title ?? "Shell")
+        case .terminal(let mac, let terminalId):
+            TerminalScreenView(store: host.terminals, terminalId: terminalId, title: host.terminals.terminal(terminalId)?.title ?? "Shell", mac: mac)
         default:
             TerminalListView(host: host)
         }

@@ -107,7 +107,7 @@ var serverGolden = map[string]any{
 	}, "full", "ask"),
 	"error_detail":  NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
 	"hello_ok_host": helloOKHost(),
-	"host_changed":  NewHostChanged(HostState{Tailnet: true, KeepingAwake: true}),
+	"host_changed":  NewHostChanged(HostState{Tailnet: true, KeepingAwake: true, Terminals: true}),
 	"error_coded":   NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
 	"pair_ok":       NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
 	"hello_ok_scopes": func() HelloOK {
@@ -135,7 +135,7 @@ var serverGolden = map[string]any{
 
 func helloOKHost() HelloOK {
 	ok := NewHelloOK("h1", "mac", 3, []string{CapHost})
-	ok.Host = &HostState{Tailnet: true}
+	ok.Host = &HostState{Tailnet: true, Terminals: true}
 	return ok
 }
 

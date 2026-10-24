@@ -162,8 +162,20 @@ public final class WorkspaceStore: HostStore {
         }
     }
 
-    public func deleteWorktree(path: String, deleteBranch: Bool) async throws {
-        _ = try await request(.worktreeDelete(.init(path: path, deleteBranch: deleteBranch ? true : nil)), timeout: .seconds(600))
+    /// Deletes a worktree, and its branch when asked. Without `force`, a branch with commits nowhere else is refused:
+    /// `unpushedCommits(error)` says how many.
+    public func deleteWorktree(path: String, deleteBranch: Bool, force: Bool = false) async throws {
+        _ = try await request(Self.deletion(path: path, deleteBranch: deleteBranch, force: force), timeout: .seconds(600))
+    }
+
+    nonisolated static func deletion(path: String, deleteBranch: Bool, force: Bool) -> ClientMessage {
+        .worktreeDelete(.init(path: path, deleteBranch: deleteBranch ? true : nil, force: force ? true : nil))
+    }
+
+    /// How many commits a forced delete would lose, when `error` is the refusal that says so.
+    public nonisolated static func unpushedCommits(_ error: any Error) -> Int? {
+        guard case DaemonError.server(let e) = error, e.code == .unpushedCommits else { return nil }
+        return e.count ?? 0
     }
 
     /// Names a worktree at once; a refusal puts the old name back.

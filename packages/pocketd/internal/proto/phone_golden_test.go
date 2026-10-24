@@ -15,12 +15,18 @@ var phoneServerGolden = map[string]any{
 		{ID: "t1", Cwd: "/Users/me/dev/pocket", Cols: 120, Rows: 40, Title: "claude", AgentID: "a1"},
 		{ID: "t2", Cwd: "/Users/me/dev/pocket", Cols: 80, Rows: 24, LocalID: "l1", Exited: true},
 	}),
-	"terminal_list_push":    NewTerminalList("", nil),
-	"terminal_attached":     NewTerminalAttached("ta", "t1", 120, 40),
-	"terminal_resized":      NewTerminalResized("t1", 48, 30),
-	"terminal_exited":       NewTerminalExited("t1", 0),
-	"terminal_created":      NewTerminalCreated("tc", "r1", "t3"),
-	"error_terminals_off":   NewErrorCode("ti", CodeTerminalsOff, "Terminals are off for phones on this Mac"),
+	"terminal_list_push":   NewTerminalList("", nil),
+	"terminal_attached":    NewTerminalAttached("ta", "t1", 120, 40),
+	"terminal_resized":     NewTerminalResized("t1", 48, 30),
+	"terminal_exited":      NewTerminalExited("t1", 0),
+	"terminal_created":     NewTerminalCreated("tc", "r1", "t3"),
+	"error_terminals_off":  NewErrorCode("ti", CodeTerminalsOff, "Terminals are off for phones on this Mac"),
+	"error_terminal_ended": NewErrorCode("ta", CodeTerminalEnded, "This terminal has ended"),
+	"error_unpushed_commits": func() Error {
+		e := NewErrorCode("wd", CodeUnpushedCommits, "2 commits are only on this branch")
+		e.Count = 2
+		return e
+	}(),
 	"error_not_implemented": NewErrorCode("gs", CodeNotImplemented, "git.status isn't served by this pocketd yet"),
 	"error_not_a_tree":      NewErrorCode("gs", CodeNotATree, "This folder isn't a project on your Mac"),
 	"project_list_push":     NewProjectList("", nil),

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"pocketd/internal/proto"
@@ -19,7 +20,11 @@ const (
 	// treesEvery is how long the list of trees to poll is kept, since listing
 	// runs git once per Project.
 	treesEvery = 30 * time.Second
+	// ghQueue is how many phone calls may wait for gh's turn; one more is refused as busy.
+	ghQueue = 4
 )
+
+var errBusy = errors.New("GitHub CLI is busy with other requests; try again in a moment")
 
 // pushArgv is the desktop's PUSH (crates/git/src/git.rs): a branch never
 // pushed gets its upstream on the way.
@@ -46,6 +51,10 @@ type Service struct {
 	watchers map[string]*watcher
 	cancel   context.CancelFunc
 	wake     chan struct{}
+
+	// turn lets one gh run at a time, the poller's and every phone's, as the desktop does.
+	turn    chan struct{}
+	waiting atomic.Int32
 }
 
 type watcher struct {
@@ -54,7 +63,27 @@ type watcher struct {
 }
 
 func New(env Env, reg *registry.Registry) *Service {
-	return &Service{env: env, reg: reg, now: time.Now, cache: newCache(), watchers: map[string]*watcher{}, wake: make(chan struct{}, 1)}
+	return &Service{env: env, reg: reg, now: time.Now, cache: newCache(), watchers: map[string]*watcher{}, wake: make(chan struct{}, 1),
+		turn: make(chan struct{}, 1)}
+}
+
+// gh runs argv in dir on its turn, killed after timeout. A phone's call
+// (queued) is refused with errBusy once ghQueue others wait; the poller and
+// Status wait however long the queue.
+func (s *Service) gh(ctx context.Context, queued bool, dir string, argv []string, stdin string, timeout time.Duration) (string, string, error) {
+	if n := s.waiting.Add(1); queued && n > ghQueue {
+		s.waiting.Add(-1)
+		return "", "", errBusy
+	}
+	select {
+	case s.turn <- struct{}{}:
+		s.waiting.Add(-1)
+	case <-ctx.Done():
+		s.waiting.Add(-1)
+		return "", "", ctx.Err()
+	}
+	defer func() { <-s.turn }()
+	return s.env.both(ctx, dir, argv, stdin, timeout)
 }
 
 // Listen adds a phone, told through changed when the PR of a tree it watches
@@ -107,7 +136,7 @@ func (s *Service) poll(ctx context.Context) {
 	defer tick.Stop()
 	for ctx.Err() == nil {
 		if tree, started, ok := s.next(); ok {
-			pr, problem := s.ask(ctx, tree)
+			pr, problem, _ := s.ask(ctx, false, tree)
 			// A run killed because the last phone left says nothing about the PR.
 			if ctx.Err() != nil {
 				s.mu.Lock()
@@ -195,13 +224,17 @@ func (s *Service) changed(tree string, everyTree bool) {
 
 // ask runs view in tree, then the review threads of an open PR. Threads that
 // fail to load keep the ones already shown rather than emptying the list.
-func (s *Service) ask(ctx context.Context, tree string) (*PR, Problem) {
-	out, err := s.env.run(ctx, tree, view, "", ghTurn)
+// A queued ask refused as busy says so and asks nothing.
+func (s *Service) ask(ctx context.Context, queued bool, tree string) (*PR, Problem, error) {
+	out, _, err := s.gh(ctx, queued, tree, view, "", ghTurn)
+	if err == errBusy {
+		return nil, "", err
+	}
 	pr, problem := viewResult(out, err)
 	if pr == nil || pr.State != "OPEN" {
-		return pr, problem
+		return pr, problem, nil
 	}
-	out, err = s.env.run(ctx, tree, threadsArgv(pr.Number), "", ghTurn)
+	out, _, err = s.gh(ctx, false, tree, threadsArgv(pr.Number), "", ghTurn)
 	threads, ok := threadsResult(out)
 	if err != nil || !ok {
 		s.mu.Lock()
@@ -211,18 +244,18 @@ func (s *Service) ask(ctx context.Context, tree string) (*PR, Problem) {
 		s.mu.Unlock()
 	}
 	pr.Threads = threads
-	return pr, ""
+	return pr, "", nil
 }
 
 // Status checks gh as tree's Project account, or as the active one without a tree.
 func (s *Service) Status(ctx context.Context, tree string) Status {
-	version, verr := s.env.run(ctx, "/", versionArgv, "", actTimeout)
+	version, _, verr := s.gh(ctx, false, "/", versionArgv, "", actTimeout)
 	dir := tree
 	if dir == "" {
 		dir = "/"
 	}
 	// gh auth status writes to stderr.
-	auth, authErr, aerr := s.env.both(ctx, dir, authArgv, "", actTimeout)
+	auth, authErr, aerr := s.gh(ctx, false, dir, authArgv, "", actTimeout)
 	st := status(version, verr, auth+authErr, aerr)
 	s.mu.Lock()
 	s.cache.checked(st)
@@ -250,7 +283,11 @@ func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 	case problem != "" && !had:
 		return nil, problem
 	}
-	pr, problem := s.ask(ctx, tree)
+	pr, problem, err := s.ask(ctx, true, tree)
+	if err != nil {
+		// Busy: what is cached, however old, rather than another gh at once.
+		return wire(a.pr), ""
+	}
 	if ctx.Err() != nil {
 		return nil, ""
 	}
@@ -291,7 +328,7 @@ func (s *Service) PRs(project string) []proto.PRItem {
 
 // act runs a gh verb in tree; its failure is coded for the phone.
 func (s *Service) act(ctx context.Context, tree string, argv []string, stdin string) (string, error) {
-	out, err := s.env.run(ctx, tree, argv, stdin, actTimeout)
+	out, _, err := s.gh(ctx, true, tree, argv, stdin, actTimeout)
 	if err == nil {
 		return out, nil
 	}

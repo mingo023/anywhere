@@ -265,6 +265,40 @@ func TestMergingNeverDeletesTheBranchAndShowsThePRMergedAtOnce(t *testing.T) {
 	}
 }
 
+func TestPhonesRunGhOneAtATimeAndAFullQueueIsRefused(t *testing.T) {
+	f := newFake(t)
+	f.put("sleep", "0.3")
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	const calls = ghQueue + 2
+	errs := make(chan error, calls)
+	start := time.Now()
+	for i := range calls {
+		go func() { errs <- s.Ready(ctx(t), tree, i+1) }()
+		// The first holds the turn before the rest queue.
+		time.Sleep(20 * time.Millisecond)
+	}
+	var busy int
+	for range calls {
+		err := <-errs
+		var e *Error
+		switch {
+		case err == nil:
+		case errors.As(err, &e) && e.Code == proto.CodeGhFailed && e.Message == errBusy.Error():
+			busy++
+		default:
+			t.Fatal(err)
+		}
+	}
+	if busy != 1 {
+		t.Fatalf("%d refused, want the one past the queue", busy)
+	}
+	// One at a time: the gh calls that ran took their 0.3 s each in turn.
+	if ran := len(f.calls()); ran != calls-1 || time.Since(start) < time.Duration(ran)*300*time.Millisecond {
+		t.Fatalf("%d calls in %s", ran, time.Since(start))
+	}
+}
+
 func TestResolvingAThreadShowsItResolvedAtOnce(t *testing.T) {
 	f := newFake(t)
 	f.put("view.json", fixture(t, "open.json"))

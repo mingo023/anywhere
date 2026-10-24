@@ -13,6 +13,7 @@
   },
   "host": {
     "tailnet": true,
-    "keepingAwake": false
+    "keepingAwake": false,
+    "terminals": true
   }
 }

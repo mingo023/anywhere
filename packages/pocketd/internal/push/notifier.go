@@ -102,7 +102,7 @@ func (n *Notifier) wait(f func(*loop)) {
 	}
 }
 
-// Run is the loop; it returns when ctx ends.
+// Run is the loop; it returns when ctx ends, once no sender can write the store.
 func (n *Notifier) Run(ctx context.Context) {
 	n.init()
 	n.ctx = ctx
@@ -110,6 +110,10 @@ func (n *Notifier) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			for _, ch := range l.senders {
+				close(ch)
+			}
+			l.delivering.Wait()
 			return
 		case f := <-n.in:
 			f(l)
@@ -246,6 +250,8 @@ type loop struct {
 	sent    map[string]map[string]time.Time
 	lives   map[string]*live
 	senders map[string]chan job
+	// delivering counts the senders still running, forgotten ones included.
+	delivering sync.WaitGroup
 }
 
 func (l *loop) status(id, from, to string) {
@@ -543,7 +549,7 @@ func (l *loop) enqueue(device string, j job) {
 	if ch == nil {
 		ch = make(chan job, 64)
 		l.senders[device] = ch
-		go l.n.deliverAll(device, ch)
+		l.delivering.Go(func() { l.n.deliverAll(device, ch) })
 	}
 	select {
 	case ch <- j:
@@ -554,7 +560,9 @@ func (l *loop) enqueue(device string, j job) {
 
 func (n *Notifier) deliverAll(device string, jobs <-chan job) {
 	for j := range jobs {
-		n.deliver(device, j)
+		if n.ctx.Err() == nil {
+			n.deliver(device, j)
+		}
 	}
 }
 
