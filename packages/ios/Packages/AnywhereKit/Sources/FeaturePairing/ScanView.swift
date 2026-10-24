@@ -10,7 +10,8 @@ import SwiftUI
 struct ScanView: View {
     let model: PairingModel
     @State private var notOurs = false
-    @State private var denied = false
+    /// nil until the camera permission is known; the camera starts only once it's granted.
+    @State private var allowed: Bool?
 
     var body: some View {
         ZStack {
@@ -40,13 +41,15 @@ struct ScanView: View {
         }
         .navigationTitle("Scan")
         .inlineTitle()
-        .task { denied = !(await Self.cameraAllowed()) }
+        .task { allowed = await Self.cameraAllowed() }
     }
+
+    private var denied: Bool { allowed == false }
 
     @ViewBuilder
     private var camera: some View {
         #if os(iOS)
-            if !denied {
+            if allowed == true {
                 QRScanner { text in
                     if model.open(text) {
                         Haptics.success()
