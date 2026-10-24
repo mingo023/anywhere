@@ -55,7 +55,7 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
 |---|---|
 | `branch.list` | observe |
 | `worktree.create`, `worktree.delete` | spawn |
-| `local.create/rename/delete`, `worktree.rename` | spawn for a peer that negotiated workspace.v1 (checked as `ws:<verb>.workspace`); owner for everyone else, as before |
+| `local.create/rename/delete`, `worktree.rename` | spawn for a peer that negotiated workspace.v1 (checked as `ws:<verb>.workspace`); owner for everyone else, as before. A non-owner's `worktree.rename` path must be a tree (`not_a_tree`) |
 | `account.list` | observe |
 | `agent.account` | drive |
 

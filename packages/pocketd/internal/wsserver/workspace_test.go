@@ -379,7 +379,7 @@ func TestAWorkspacePhoneNamesAWorktreeAndOneWithoutTheCapMayNot(t *testing.T) {
 		var b bench
 		_, _, p := local(t, aPhone, withWorkspace(t, &b))
 		helloWith(p, caps...)
-		p.send(`{"type":"worktree.rename","id":"wr","path":"/w/calm-otter","title":"Fix login"}`)
+		p.send(`{"type":"worktree.rename","id":"wr","path":"` + b.project + `","title":"Fix login"}`)
 		want := "error"
 		if len(caps) == 2 {
 			want = "ack"
@@ -387,8 +387,21 @@ func TestAWorkspacePhoneNamesAWorktreeAndOneWithoutTheCapMayNot(t *testing.T) {
 		if m, _ := p.until(want); m["id"] != "wr" {
 			t.Fatalf("%v: %v", caps, m)
 		}
-		if got := b.s.Names.Titles()["/w/calm-otter"]; (got == "Fix login") != (len(caps) == 2) {
+		if got := b.s.Names.Titles()[b.project]; (got == "Fix login") != (len(caps) == 2) {
 			t.Fatalf("%v: %q", caps, got)
 		}
+	}
+}
+
+func TestAPhoneNamesOnlyAFolderInAProject(t *testing.T) {
+	var b bench
+	_, _, p := local(t, aPhone, withWorkspace(t, &b))
+	helloWith(p, proto.CapNames, proto.CapWorkspace)
+	p.send(`{"type":"worktree.rename","id":"wr","path":"/","title":"Everything"}`)
+	if m, _ := p.until("error"); m["id"] != "wr" || m["code"] != proto.CodeNotATree {
+		t.Fatalf("%v", m)
+	}
+	if got := b.s.Names.Titles()["/"]; got != "" {
+		t.Fatalf("named %q", got)
 	}
 }

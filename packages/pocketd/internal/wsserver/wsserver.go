@@ -569,6 +569,11 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		if c.s.Names == nil {
 			return errors.New("Names are off")
 		}
+		if _, ok := c.workspaceTree(m.Path); !ok && !c.who.Has(peer.Own) {
+			// Its retitle reaches every terminal under the path.
+			c.send(proto.NewErrorCode(m.ID, proto.CodeNotATree, "This folder isn't in a project on your Mac"))
+			return nil
+		}
 		if err := c.s.Names.Rename(m.Path, m.Title); err != nil {
 			return err
 		}
