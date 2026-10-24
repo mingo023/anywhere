@@ -18,6 +18,7 @@ struct FilePreviewScreen: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
+        let _ = BodyCount.hit("FilePreviewScreen")
         let read = loaded
         VStack(spacing: 0) {
             if let read, let note = PreviewBody.truncation(read) {

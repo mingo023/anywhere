@@ -160,18 +160,23 @@ public final class GitStore: HostStore {
         if h.all != all { h.reset(all: all) }
         guard h.more, !h.loading, let connection else { return }
         h.loading = true
-        defer { h.loading = false }
         do {
-            // A page whose tips moved empties the list; read the first page again, or the screen has no row to ask for more.
-            repeat {
-                let skip = h.commits.count
-                guard case .gitLog(let log) = try await connection.request(.gitLog(.init(tree: tree, all: all ? true : nil, skip: skip > 0 ? skip : nil)))
-                else { return }
-                h.take(log, skip: skip)
-            } while h.commits.isEmpty && h.more
+            try await readHistory(h, all: all, connection)
         } catch {
             h.error = Self.describe(error)
         }
+        h.loading = false
+    }
+
+    /// Kept out of `loadHistory`: the loop inside its `defer` and `do` crashed the 6.2 optimizer in release builds.
+    private func readHistory(_ h: TreeHistory, all: Bool, _ connection: DaemonConnection) async throws {
+        // A page whose tips moved empties the list; read the first page again, or the screen has no row to ask for more.
+        repeat {
+            let skip = h.commits.count
+            guard case .gitLog(let log) = try await connection.request(.gitLog(.init(tree: h.tree, all: all ? true : nil, skip: skip > 0 ? skip : nil)))
+            else { return }
+            h.take(log, skip: skip)
+        } while h.commits.isEmpty && h.more
     }
 
     public func cachedCommit(_ sha: String) -> CommitDetail? { commits[sha] }

@@ -22,6 +22,7 @@ struct BlockView: View {
     let muted: Bool
 
     var body: some View {
+        let _ = BodyCount.hit("BlockView")
         switch block {
         case .paragraph(let inlines):
             ParagraphView(inlines: inlines, style: InlineStyle(size: metrics.body, muted: muted), line: metrics.line)

@@ -20,10 +20,13 @@ public struct DiffView: View {
     }
 
     public var body: some View {
+        let _ = BodyCount.hit("DiffView")
         GeometryReader { geo in
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if let spans {
+            // The scroll view comes with its rows: one that starts empty centres its content, and keeps that offset
+            // when the rows land, opening a long diff mid-way and off its left edge.
+            if let spans {
+                ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         if sideBySide {
                             let column = max(geo.size.width / 2, CGFloat(min(document.widest, CodeStyle.maxChars) + 2) * charWidth + gutter)
                             ForEach(document.pairs) { pair in
@@ -38,8 +41,8 @@ public struct DiffView: View {
                             }
                         }
                     }
+                    .padding(.bottom, Space.l)
                 }
-                .padding(.bottom, Space.l)
             }
             // The rows arrive after the colours; without an anchor the scroll stays centred on the empty first layout.
             .defaultScrollAnchor(.topLeading)
@@ -113,6 +116,7 @@ struct DiffLineRow: View {
     let dark: Bool
 
     var body: some View {
+        let _ = BodyCount.hit("DiffLineRow")
         HStack(spacing: Space.s) {
             if line.kind == .hunk {
                 Text(line.text)

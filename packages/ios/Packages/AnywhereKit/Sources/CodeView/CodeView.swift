@@ -27,6 +27,7 @@ public struct CodeTextView: View {
     }
 
     public var body: some View {
+        let _ = BodyCount.hit("CodeTextView")
         GeometryReader { geo in
             if let loaded {
                 ScrollView([.vertical, .horizontal]) {
@@ -70,6 +71,7 @@ private struct CodeRow: View {
     let dark: Bool
 
     var body: some View {
+        let _ = BodyCount.hit("CodeRow")
         HStack(spacing: Space.m) {
             if number != nil { LineNumber(number: number, width: gutter) }
             Text(CodeStyle.attributed(text, spans: spans.spans(line), dark: dark))

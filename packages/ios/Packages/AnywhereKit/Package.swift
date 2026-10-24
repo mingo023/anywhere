@@ -40,7 +40,10 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
 let executables: [(name: String, deps: [Target.Dependency])] = [
     ("anywhere-probe", ["Wire", "Client", "Stores", "PushSupport"]),
     ("anywhere-gallery", ["Fixtures", "DesignSystem", "AppShell", "Stores", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit", "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "MarkdownView", "CodeView", "LiveActivityUI"]),
-    ("anywhere-bench", ["Wire", "Fixtures", "MarkdownModel", "ChatModel", "DiffModel", "Highlight", "CodeView", "Domain", .product(name: "SwiftTerm", package: "SwiftTerm")]),
+    ("anywhere-bench", [
+        "Wire", "Fixtures", "MarkdownModel", "ChatModel", "DiffModel", "Highlight", "CodeView", "Domain", "Client", "Stores", "DesignSystem",
+        "FeatureChat", "FeatureGit", "FeatureFiles", .product(name: "SwiftTerm", package: "SwiftTerm"),
+    ]),
 ]
 
 let package = Package(

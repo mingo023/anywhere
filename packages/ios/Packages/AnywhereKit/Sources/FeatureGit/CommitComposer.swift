@@ -17,6 +17,7 @@ struct CommitComposer: View {
     static let commitAll = true
 
     var body: some View {
+        let _ = BodyCount.hit("CommitComposer")
         let totals = changes.head?.totals ?? .init(files: 0, added: 0, removed: 0, staged: 0)
         let busy = changes.busy
         VStack(alignment: .leading, spacing: Space.s) {

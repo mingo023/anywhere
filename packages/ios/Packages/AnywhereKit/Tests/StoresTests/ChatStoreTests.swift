@@ -1,3 +1,4 @@
+import ChatModel
 import Foundation
 import Fixtures
 import Testing
@@ -240,5 +241,19 @@ struct ChatStoreTests {
         c.appear()
         c.disappear()
         #expect(c.draft.text == "look at @src/a.rs ")
+    }
+
+    @Test("the background tray and the agent map are worked out as the transcript refolds")
+    func backgroundAndAgentsFollowTheTranscript() {
+        let c = chat([timeline(Sample.chat("background-agents"))])
+        #expect(!c.background.isEmpty)
+        #expect(!c.agents.isEmpty)
+        #expect(c.background == inBackground(c.session.transcript.turns[...]).map(\.call))
+        #expect(c.agents == spawned(c.session.transcript))
+        _ = c.apply(timeline([]))
+        _ = c.apply(.agentUpdate(.init(agent: agent(resets: 1))))
+        c.flush()
+        #expect(c.background.isEmpty)
+        #expect(c.agents.isEmpty)
     }
 }

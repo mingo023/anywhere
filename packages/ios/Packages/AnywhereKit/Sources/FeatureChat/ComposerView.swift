@@ -28,6 +28,7 @@ struct ComposerView: View {
     private var cursor: Int { store.draft.text.utf8.count }
 
     var body: some View {
+        let _ = BodyCount.hit("ComposerView")
         let session = store.session
         VStack(spacing: Space.s) {
             if let goal = store.summary?.goal {
@@ -36,7 +37,7 @@ struct ComposerView: View {
             if let btw = store.btw {
                 BtwCard(question: btw.question, answer: btw.answer, error: btw.error) { store.closeBtw() }
             }
-            let tasks = inBackground(session.transcript.turns[...]).map(\.call)
+            let tasks = store.background
             if !tasks.isEmpty {
                 BackgroundTray(
                     tasks: tasks, stops: Background.stops(chatOnly: store.summary?.chatOnly ?? false, interrupt: caps.interrupt, busy: store.busy, tasks),
@@ -195,7 +196,7 @@ struct ComposerView: View {
 
     @ViewBuilder
     private var agentsChip: some View {
-        let map = spawned(store.session.transcript)
+        let map = store.agents
         let (live, label) = AgentMap.chipLabel(map)
         if !map.isEmpty && (live || mapOpen) {
             Button {

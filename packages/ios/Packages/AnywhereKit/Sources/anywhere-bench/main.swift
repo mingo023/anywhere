@@ -8,6 +8,11 @@ import SwiftTerm
 import Wire
 
 // Timings of the hot paths at repo scale. Run in release: swift run -c release anywhere-bench
+// `anywhere-bench ui` times the screens themselves instead; see UIBench.
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "ui" {
+    exit(MainActor.assumeIsolated { UIBench.main(Array(CommandLine.arguments.dropFirst(2))) })
+}
+
 func measure(_ name: String, runs: Int = 20, _ work: () throws -> Void) rethrows {
     var best = Double.infinity
     for _ in 0..<runs {
@@ -87,3 +92,8 @@ took.sort()
 print(
     "chat stream frame, perf-5000".padding(toLength: 44, withPad: " ", startingAt: 0)
         + String(format: "p50 %.0f µs, p95 %.0f µs, max %.0f µs", took[took.count / 2], took[took.count * 95 / 100], took[took.count - 1]))
+// What the composer's body used to walk on every keystroke; the store now works it out once per refold.
+measure("composer tray + agent map scans, perf-5000") {
+    _ = inBackground(session.transcript.turns[...]).map(\.call)
+    _ = spawned(session.transcript)
+}

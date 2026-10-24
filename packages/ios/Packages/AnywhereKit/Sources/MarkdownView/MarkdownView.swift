@@ -63,6 +63,7 @@ public struct MarkdownView: View {
     }
 
     public var body: some View {
+        let _ = BodyCount.hit("MarkdownView")
         let now = MarkdownCache.shared.documentIfCheap(source)
         let document = now ?? parsed
         let metrics = Metrics.of(style, scale: Metrics.scale(typeSize))
