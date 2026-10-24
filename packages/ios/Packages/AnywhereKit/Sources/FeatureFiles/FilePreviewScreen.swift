@@ -4,6 +4,7 @@ import Domain
 import MarkdownView
 import Stores
 import SwiftUI
+import UniformTypeIdentifiers
 import Wire
 
 /// One file: code, rendered markdown (or its source), an image to zoom, an SVG, or why it can't be shown.
@@ -102,10 +103,26 @@ struct FilePreviewScreen: View {
         let name = FileText.baseName(preview.path)
         if let text = read.text {
             ShareLink(item: text, subject: Text(name), preview: SharePreview(name)) { Label("Share", systemImage: "square.and.arrow.up") }
-        } else if let data = read.data, let image = ZoomableImage.decode(data, maxPixels: 1024) {
-            ShareLink(item: Image(decorative: image, scale: 1), preview: SharePreview(name, image: Image(decorative: image, scale: 1))) {
+        } else if let data = read.data {
+            ShareLink(item: SharedImage(data: data, name: name), preview: SharePreview(name)) {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
+        }
+    }
+}
+
+/// An image shared as its own bytes, written to a file only once the reader shares it.
+struct SharedImage: Transferable {
+    let data: Data
+    let name: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .image) { image in
+            let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appending(path: image.name)
+            try image.data.write(to: url)
+            return SentTransferredFile(url)
         }
     }
 }
