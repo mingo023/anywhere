@@ -228,7 +228,7 @@ Triggers: →needsYou (debounce 1.5 s), working→done (3 s, Failed picks FAILED
 
 ### Live Activity
 
-`ActivityAttributes` type name `MacActivity`: `{mac, macName}`; `ContentState = {working, needsYou, unseen, top?:{slot, status, sinceUnix, verb?, subject?, answerable, request?}}`. `slot` = agent id; `sinceUnix` = Unix seconds as a Double (ActivityKit decodes `Date` from 2001). pocketd sends `update` priority 5 coalesced to ≤1 per 15 s, priority 10 on entering or leaving Needs you or on Failed, a heartbeat every 4 min while anything works, `stale-date = now+300`, and `end` with `dismissal-date = now+900` ten minutes after nothing works or needs you. With a `start` handle and no live activity, entering Needs you sends `event:"start"` with `input-push-token:1`.
+`ActivityAttributes` type name `MacActivity`: `{mac, macName}`; `ContentState = {working, needsYou, unseen, top?:{slot, status, sinceUnix, verb?, subject?, answerable, request?}}`. `slot` = agent id; `sinceUnix` = Unix seconds as a Double (ActivityKit decodes `Date` from 2001). pocketd sends `update` priority 5 coalesced to ≤1 per 15 s, priority 10 on entering or leaving Needs you or on Failed, a heartbeat every 4 min for as long as the activity lives (a long Needs you or the idle minutes before `end` would otherwise pass the stale date and read as offline), `stale-date = now+300`, and `end` with `dismissal-date = now+900` ten minutes after nothing works or needs you. With a `start` handle and no live activity, entering Needs you sends `event:"start"` with `input-push-token:1`.
 
 ## Deep links
 

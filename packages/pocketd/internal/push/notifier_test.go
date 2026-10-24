@@ -401,6 +401,32 @@ func TestAnActivityEndsOnceNothingHasWorkedForAWhile(t *testing.T) {
 	}
 }
 
+func TestAnActivityWaitingOnTheUserKeepsBeatingSoItNeverGoesStale(t *testing.T) {
+	timing := fast
+	timing.Coalesce, timing.Heartbeat = 20*time.Millisecond, 200*time.Millisecond
+	r := newRig(t, timing)
+	r.register("d1", false)
+	a := r.add("a1")
+	a.Working()
+	a.NeedsYou()
+	r.n.Activity("d1", "act-1", h("act-d1"), false)
+	sent := r.relay.await("act-", 3, 0)
+	for i, s := range sent[1:] {
+		var p struct {
+			Aps struct {
+				State State `json:"content-state"`
+			} `json:"aps"`
+		}
+		json.Unmarshal(s.Payload, &p)
+		if s.Priority != 5 || p.Aps.State.NeedsYou != 1 || p.Aps.State.Working != 0 {
+			t.Fatalf("beat %d: p%d %s", i, s.Priority, s.Payload)
+		}
+	}
+	if gap := sent[2].at.Sub(sent[1].at); gap < timing.Heartbeat-20*time.Millisecond {
+		t.Fatalf("beat after %s", gap)
+	}
+}
+
 func TestAGoneHandleIsDroppedAndABusyRelayIsTriedFourTimes(t *testing.T) {
 	r := newRig(t, fast)
 	r.register("d1", false)

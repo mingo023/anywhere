@@ -429,8 +429,8 @@ func (l *loop) activities() {
 
 // activity brings device's Live Activity up to date: priority 10 at once on
 // entering or leaving Needs you or on a new failure, else priority 5 at most
-// once per Coalesce, a heartbeat while anything works, and an end once
-// nothing has for EndAfter. With no activity, entering Needs you starts one
+// once per Coalesce, a heartbeat for as long as it lives, and an end once
+// nothing has worked or needed the user for EndAfter. With no activity, entering Needs you starts one
 // by push when the phone gave a start handle.
 func (l *loop) activity(device string, in inputs) {
 	n := l.n
@@ -481,7 +481,9 @@ func (l *loop) activity(device string, in inputs) {
 	fails := failures(in.agents)
 	changed := !bytes.Equal(raw, lv.last)
 	urgent := needs != lv.needs || fails > lv.failed
-	heartbeat := st.Working > 0 && now.Sub(lv.lastSent) >= n.Timing.Heartbeat
+	// Every live state beats, not only working: a long wait on the user or the idle minutes before the end would
+	// otherwise pass the stale date and show the Mac as offline.
+	heartbeat := now.Sub(lv.lastSent) >= n.Timing.Heartbeat
 	due := lv.lastSent.Add(coalesce)
 	priority := 0
 	switch {
@@ -505,9 +507,7 @@ func (l *loop) activity(device string, in inputs) {
 	if changed {
 		soonest(due)
 	}
-	if st.Working > 0 {
-		soonest(lv.lastSent.Add(n.Timing.Heartbeat))
-	}
+	soonest(lv.lastSent.Add(n.Timing.Heartbeat))
 	if !st.Busy() {
 		soonest(lv.idle.Add(n.Timing.EndAfter))
 	}
