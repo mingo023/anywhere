@@ -2,6 +2,9 @@ import DesignSystem
 import Domain
 import Stores
 import SwiftUI
+#if os(iOS)
+    import UIKit
+#endif
 
 /// Paired Macs, notifications, appearance and about.
 @MainActor
