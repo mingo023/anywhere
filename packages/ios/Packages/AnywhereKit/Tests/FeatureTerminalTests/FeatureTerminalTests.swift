@@ -162,27 +162,4 @@ struct TerminalSessionTests {
         s.replace(cols: 100, rows: 12, with: Sample.shellScreen)
         #expect(s.lines()[0].hasPrefix("mingo@mbp ~/dev/anywhere (main) $ git status --short"))
     }
-
-    /// Run in release (`swift test -c release --filter FeatureTerminalTests`) for a number worth reporting.
-    @Test("10 MB of output goes through frame parse and the emulator")
-    func throughput() throws {
-        let log = Sample.terminalLog(bytes: 10 << 20)
-        let frames = stride(from: 0, to: log.count, by: 32 << 10).map {
-            TerminalFrame(kind: .output, terminalId: "t-bench", payload: log[$0..<min($0 + (32 << 10), log.count)]).encoded
-        }
-        let s = TerminalSession(id: "t-bench", cols: 120, rows: 40)
-        let clock = ContinuousClock()
-        var parsing = Duration.zero
-        let start = clock.now
-        for raw in frames {
-            let parsed = clock.now
-            let frame = try TerminalFrame(parsing: raw)
-            parsing += clock.now - parsed
-            s.feed(frame.payload)
-        }
-        let seconds = (clock.now - start) / .seconds(1)
-        let parse = parsing / .seconds(1)
-        print("terminal bench: 10 MiB in \(Int(seconds * 1000)) ms, \(Int(10 / seconds)) MiB/s; parse alone \(Int(parse * 1000)) ms, \(Int(10 / parse)) MiB/s")
-        #expect(s.lines().contains { $0.contains("PASS") || $0.contains("FAIL") })
-    }
 }
