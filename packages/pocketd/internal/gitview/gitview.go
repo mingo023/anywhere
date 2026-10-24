@@ -58,7 +58,8 @@ func (s *Service) env() []string {
 
 // git runs git in tree; a non-zero exit is a *Failed unless ok lists the code.
 func (s *Service) git(tree string, stdin []byte, timeout time.Duration, args []string, ok ...int) ([]byte, error) {
-	argv := append([]string{"git", "-c", "core.quotepath=off", "-C", tree}, args...)
+	// Phone paths are names: "*" or ":/" must not widen a discard to the whole tree.
+	argv := append([]string{"git", "--literal-pathspecs", "-c", "core.quotepath=off", "-C", tree}, args...)
 	code, out, errOut, err := hostop.Run(context.Background(), s.env(), "", argv, stdin, timeout)
 	if err != nil {
 		return nil, err

@@ -259,3 +259,22 @@ func TestAWatcherHearsWhenItsTreeMovesAndPollingStopsWithTheLastWatcher(t *testi
 		t.Fatal(s.Watching())
 	}
 }
+
+func TestAPathIsANameNotAPattern(t *testing.T) {
+	repo := scratch(t)
+	s := service()
+	write(t, repo, "b", "b\n")
+	sh(t, repo, "add", "b")
+	sh(t, repo, "commit", "-qm", "b")
+	write(t, repo, "a", "edited\n")
+	write(t, repo, "b", "edited\n")
+	write(t, repo, "loose", "x\n")
+	if s.Discard(repo, []string{"*"}) == nil || s.Stage(repo, []string{":/"}, true) == nil {
+		t.Error("no file has those names")
+	}
+	for _, p := range []string{"a", "b", "loose"} {
+		if f, ok := file(t, s, repo, p); !ok || f.Staged {
+			t.Errorf("%s: %+v %v", p, f, ok)
+		}
+	}
+}
