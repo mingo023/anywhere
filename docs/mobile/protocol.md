@@ -127,6 +127,7 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 → {type:"git.push", id, tree, lease?:bool}  ← ack
 → {type:"git.pull", id, tree}  ← ack                           // pull --ff-only
    // failures: error{code:"git_failed", message:<first stderr line>, detail?:<stderr>}
+   // a git.* tree must be a worktree's top folder, else not_a_tree; paths are file names, never pathspec patterns
 ```
 
 ## gh.v1

@@ -24,6 +24,7 @@ type GitService interface {
 	Push(tree string, lease bool) error
 	Pull(tree string) error
 	Watch(trees []string, changed func(tree, rev string)) (stop func())
+	Top(tree string) error
 }
 
 // gitConn is a conn's watch set.
@@ -59,7 +60,11 @@ func (c *conn) gitVerb(m proto.ClientMessage) error {
 	}
 	// git takes a while on a big repo; the conn's other messages don't wait.
 	go func() {
-		if err := c.gitServe(m); err != nil {
+		err := c.s.Git.Top(m.Tree)
+		if err == nil {
+			err = c.gitServe(m)
+		}
+		if err != nil {
 			c.send(gitError(m.ID, err))
 		}
 	}()
@@ -169,6 +174,9 @@ func (c *conn) gitTree(tree string) error {
 func gitError(id string, err error) proto.Error {
 	if f, ok := errors.AsType[*gitview.Failed](err); ok {
 		return proto.NewCodedError(id, proto.CodeGitFailed, f.Message, f.Detail)
+	}
+	if errors.Is(err, gitview.ErrNotTop) {
+		return proto.NewErrorCode(id, proto.CodeNotATree, err.Error())
 	}
 	if errors.Is(err, gitview.ErrOutsideTree) {
 		return proto.NewErrorCode(id, proto.CodeOutsideTree, err.Error())

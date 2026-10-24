@@ -30,6 +30,9 @@ func (f *Failed) Error() string { return f.Message }
 // ErrOutsideTree: a path leaves its tree.
 var ErrOutsideTree = errors.New("The path is outside the tree")
 
+// ErrNotTop: a tree inside a worktree but not its top, where git's paths would not be the tree's.
+var ErrNotTop = errors.New("Not the top of a git worktree")
+
 // Service runs git for phones. The zero value runs with pocketd's own env.
 type Service struct {
 	// Env is the login env git runs with, so hooks, gpg and credential helpers find the user's tools.
@@ -39,6 +42,7 @@ type Service struct {
 
 	mu     sync.Mutex
 	common map[string]string
+	tops   map[string]bool
 	locks  map[string]*sync.Mutex
 	bases  map[string]baseEntry
 	last   map[string]cached
@@ -114,6 +118,34 @@ func (s *Service) commonDir(tree string) (string, error) {
 	s.common[tree] = dir
 	s.mu.Unlock()
 	return dir, nil
+}
+
+// Top checks that tree is a worktree's top folder, since status paths are relative to it.
+func (s *Service) Top(tree string) error {
+	s.mu.Lock()
+	ok, known := s.tops[tree]
+	s.mu.Unlock()
+	if !known {
+		top, err := s.text(tree, "rev-parse", "--show-toplevel")
+		if err != nil {
+			return err
+		}
+		real, err := filepath.EvalSymlinks(tree)
+		if err != nil {
+			real = tree
+		}
+		ok = top == real || top == tree
+		s.mu.Lock()
+		if s.tops == nil {
+			s.tops = map[string]bool{}
+		}
+		s.tops[tree] = ok
+		s.mu.Unlock()
+	}
+	if !ok {
+		return ErrNotTop
+	}
+	return nil
 }
 
 // lock serializes writes to one repository, so they don't race on index.lock.
