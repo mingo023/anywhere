@@ -43,9 +43,8 @@ public struct DiffView: View {
                     }
                     .padding(.bottom, Space.l)
                 }
+                .defaultScrollAnchor(.topLeading)
             }
-            // The rows arrive after the colours; without an anchor the scroll stays centred on the empty first layout.
-            .defaultScrollAnchor(.topLeading)
         }
         .background(Palette.surface.color)
         .task(id: DocumentKey(document)) {
