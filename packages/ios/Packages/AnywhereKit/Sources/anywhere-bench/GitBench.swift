@@ -36,9 +36,9 @@ func gitBench() throws {
     for _ in 0..<runs {
         let start = DispatchTime.now().uptimeNanoseconds
         for (i, line) in lines.enumerated() {
-            _ = CodeStyle.attributed(line.text, spans: spans[i], words: line.words, word: .green, dark: false)
+            _ = DrawnText(CodeStyle.diffRow(line, gutter: .both, digits: 5, spans: spans[i], dark: false), size: 13, color: 0x0000_00ff)
         }
         total = min(total == 0 ? .infinity : total, Double(DispatchTime.now().uptimeNanoseconds - start) / 1e3 / Double(lines.count))
     }
-    print("diff row styled text, per visible row".padding(toLength: 44, withPad: " ", startingAt: 0) + String(format: "%8.2f µs", total))
+    print("diff row drawn text, per visible row".padding(toLength: 44, withPad: " ", startingAt: 0) + String(format: "%8.2f µs", total))
 }

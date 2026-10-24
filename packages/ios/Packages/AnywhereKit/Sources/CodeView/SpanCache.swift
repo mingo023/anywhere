@@ -1,5 +1,6 @@
 import DiffModel
 import Highlight
+import CoreGraphics
 import Observation
 
 /// One window's colours, observed only by the rows inside it.
@@ -16,6 +17,8 @@ final class SpanCache {
     private let lines: [String]
     private let windows: [SpanWindow]
     private var started = Set<Int>()
+    /// Each line's text, by line and appearance.
+    let texts = RowTexts<RowKey>()
 
     init(lines: [String], language: String) {
         self.lines = lines
@@ -28,6 +31,12 @@ final class SpanCache {
         let w = HighlightWindow.window(of: line)
         guard w < windows.count, let spans = windows[w].spans else { return [] }
         return spans[line - w * HighlightWindow.size]
+    }
+
+    /// Whether the line's colours are in, or it has none to wait for.
+    func coloured(_ line: Int) -> Bool {
+        let w = HighlightWindow.window(of: line)
+        return language == "text" || w >= windows.count || windows[w].spans != nil
     }
 
     /// Starts colouring the line's window, once.
@@ -70,8 +79,29 @@ final class DiffSpans {
         return cache.spans(line)
     }
 
+    func coloured(_ row: Int) -> Bool {
+        guard let (cache, line) = side(row) else { return true }
+        return cache.coloured(line)
+    }
+
+    /// Each row's text, by row, gutter and appearance.
+    let texts = RowTexts<DiffRowKey>()
+
     func need(_ row: Int) {
         guard let (cache, line) = side(row) else { return }
         cache.need(line)
     }
+}
+
+struct RowKey: Hashable {
+    let line: Int
+    let dark: Bool
+    let size: CGFloat
+}
+
+struct DiffRowKey: Hashable {
+    let row: Int
+    let gutter: CodeStyle.Gutter
+    let dark: Bool
+    let size: CGFloat
 }

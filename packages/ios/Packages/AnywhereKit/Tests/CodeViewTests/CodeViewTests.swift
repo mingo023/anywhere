@@ -1,6 +1,7 @@
 import Highlight
 import SwiftUI
 import Testing
+import DiffModel
 @testable import CodeView
 
 @Suite("Code lines")
@@ -48,15 +49,36 @@ struct CodeLinesTests {
 struct CodeStyleTests {
     @Test("changed words tint their UTF-16 range and nothing else")
     func words() {
-        let text = CodeStyle.attributed("é = 2", spans: [], words: [4..<5], word: .green, dark: false)
-        let tinted = text.runs.filter { $0.backgroundColor != nil }.map { String(text[$0.range].characters) }
-        #expect(tinted == ["2"])
+        var runs = LineRuns()
+        runs.code("é = 2", spans: [], words: [4..<5], word: 0x00ff_00ff, dark: false)
+        let utf16 = Array(runs.string.utf16)
+        #expect(runs.tints.map { String(decoding: utf16[$0.range], as: UTF16.self) } == ["2"])
     }
 
     @Test("a range past the line's end is ignored")
     func outside() {
-        let text = CodeStyle.attributed("ab", spans: [HighlightSpan(range: 1..<9, kind: .keyword)], words: [5..<6], word: .red, dark: true)
-        #expect(String(text.characters) == "ab")
-        #expect(text.runs.allSatisfy { $0.backgroundColor == nil })
+        var runs = LineRuns()
+        runs.code("ab", spans: [HighlightSpan(range: 1..<9, kind: .keyword)], words: [5..<6], word: 0xff00_00ff, dark: true)
+        #expect(runs.string == "ab")
+        #expect(runs.tints.isEmpty && runs.colors.isEmpty)
+    }
+
+    @Test("a diff row is its numbers right-aligned, its sign, then its code, with word tints moved past the gutter")
+    func diffRow() {
+        let line = UnifiedLine(id: 3, kind: .added, new: 12, text: "let a = 2", words: [8..<9], cut: true)
+        let runs = CodeStyle.diffRow(line, gutter: .both, digits: 3, spans: [HighlightSpan(range: 0..<3, kind: .keyword)], dark: false)
+        #expect(runs.string == "     12 + let a = 2 …")
+        let utf16 = Array(runs.string.utf16)
+        #expect(runs.tints.map { String(decoding: utf16[$0.range], as: UTF16.self) } == ["2"])
+        #expect(runs.colors.contains { String(decoding: utf16[$0.range], as: UTF16.self) == "let" })
+        #expect(CodeStyle.diffRow(line, gutter: .old, digits: 2, spans: [], dark: false).string.hasPrefix("   + "))
+    }
+
+    @Test("a drawn line is as wide as its text and puts a word's tint over that word")
+    func drawn() {
+        var runs = LineRuns()
+        runs.code("abcd", spans: [], words: [2..<4], word: 0x00ff_00ff, dark: false)
+        let text = DrawnText(runs, size: 13, color: 0x0000_00ff)
+        #expect(text.width > 4 * 6 && text.width < 4 * 10)
     }
 }

@@ -193,7 +193,7 @@ enum UIBench {
         idle(view, seconds: 0.3)
         _ = BodyCount.take()
         var scrolls: [Double] = []
-        let steps = 12
+        let steps = Int(ProcessInfo.processInfo.environment["UIBENCH_PAGES"] ?? "") ?? 12
         if let scroll = mainScroll(view) {
             // The chat follows its tail until the user drags it; a drag on the list takes it, as a finger would.
             if scenario.up { drag(window, at: NSPoint(x: rect.midX, y: rect.midY)) }
