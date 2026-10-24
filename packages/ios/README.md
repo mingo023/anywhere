@@ -20,7 +20,7 @@ swift build --scratch-path /tmp/ak-me --target Wire
 swift test --scratch-path /tmp/ak-me --filter WireTests
 ```
 
-Code that needs the iOS SDK (UIKit, ActivityKit, WidgetKit, SwiftTerm's view, iOS 26 glass) sits inside `#if os(iOS)` and is only compiled by Xcode.
+Code that needs the iOS SDK (UIKit, ActivityKit, WidgetKit, SwiftTerm's view, iOS 26 glass) sits inside `#if os(iOS)` and is only compiled by Xcode. `make typecheck-ios` typechecks it, and the `App/`, `Widgets/` and `NotificationService/` sources, as Mac Catalyst against the Command Line Tools SDK; [`scripts/ios-typecheck`](scripts/ios-typecheck/typecheck.py) says what that can't see.
 
 ## With Xcode
 

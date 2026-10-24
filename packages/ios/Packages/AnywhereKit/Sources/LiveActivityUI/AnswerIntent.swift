@@ -22,7 +22,7 @@ public enum Answering {
     public struct LiveActivityIntents: AppIntentsPackage {}
 
     public struct AnswerIntent: LiveActivityIntent {
-        public static let title: LocalizedStringResource = "Answer a session"
+        public static var title: LocalizedStringResource { "Answer a session" }
         public static let isDiscoverable = false
 
         @Parameter(title: "Mac") public var mac: String

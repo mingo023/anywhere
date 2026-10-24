@@ -141,7 +141,7 @@ struct ScanView: View {
             }
 
             nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput objects: [AVMetadataObject], from connection: AVCaptureConnection) {
-                let text = objects.compactMap { ($0 as? AVMachineReadableCodeObject)?.stringValue }.first
+                let text = objects.compactMap { ($0 as? AVMetadataMachineReadableCodeObject)?.stringValue }.first
                 // The delegate queue is main.
                 MainActor.assumeIsolated {
                     guard let text, text != last else { return }
