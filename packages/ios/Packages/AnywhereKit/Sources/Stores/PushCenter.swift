@@ -45,18 +45,34 @@ public final class PushCenter {
         didSet {
             #if os(iOS)
                 guard let agent = visibleAgent, agent != oldValue else { return }
-                Task { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: await Self.delivered(agent: agent)) }
+                Task { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: await Self.delivered { $0["agent"] as? String == agent }) }
             #endif
         }
     }
 
     #if os(iOS)
-        nonisolated static func delivered(agent: String) async -> [String] {
+        nonisolated static func delivered(_ matches: @Sendable ([AnyHashable: Any]) -> Bool) async -> [String] {
             await UNUserNotificationCenter.current().deliveredNotifications()
-                .filter { $0.request.content.userInfo["agent"] as? String == agent }
+                .filter { matches($0.request.content.userInfo) }
                 .map(\.request.identifier)
         }
     #endif
+
+    /// Clears the Mac's delivered alerts for sessions that no longer want a look, since a Mac can't take a banner back.
+    func clearDelivered(mac: String, keep: Set<String>) {
+        #if os(iOS)
+            Task {
+                let ids = await Self.delivered { Self.outdated(mac: $0["mac"] as? String, agent: $0["agent"] as? String, kind: $0["kind"] as? String, on: mac, keep: keep) }
+                if !ids.isEmpty { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids) }
+            }
+        #endif
+    }
+
+    /// A session's alert from `on` is outdated once the session is no longer among `keep`; automation and test alerts stay.
+    nonisolated static func outdated(mac: String?, agent: String?, kind: String?, on: String, keep: Set<String>) -> Bool {
+        guard mac == on, let agent, !agent.isEmpty, kind != "automation", kind != "test" else { return false }
+        return !keep.contains(agent)
+    }
 
     /// Starts a Mac's Live Activity once it turns busy; `LiveActivities.install` sets it on iOS.
     @ObservationIgnored public var startActivity: (@MainActor (MacActivity, MacActivity.ContentState) -> Void)?

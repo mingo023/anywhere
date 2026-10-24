@@ -141,3 +141,16 @@ struct PushStoreTests {
         #expect(BadgeLedger(defaults: c.defaults).record(mac: "other", count: 0) == 4)
     }
 }
+
+@Suite("Delivered alerts")
+struct DeliveredAlertTests {
+    @Test("a sync clears a Mac's alerts for sessions no longer needing a look, and nothing else")
+    func outdated() {
+        let keep: Set = ["a1"]
+        #expect(PushCenter.outdated(mac: "m", agent: "a2", kind: "done", on: "m", keep: keep))
+        #expect(!PushCenter.outdated(mac: "m", agent: "a1", kind: "needsYou", on: "m", keep: keep))
+        #expect(!PushCenter.outdated(mac: "other", agent: "a2", kind: "done", on: "m", keep: keep))
+        #expect(!PushCenter.outdated(mac: "m", agent: "a2", kind: "automation", on: "m", keep: keep))
+        #expect(!PushCenter.outdated(mac: "m", agent: nil, kind: "test", on: "m", keep: keep))
+    }
+}

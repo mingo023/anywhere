@@ -53,6 +53,12 @@ public final class PushStore: HostStore {
         switch message {
         case .agentList(let list):
             agents = Dictionary(list.agents.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+            sessionsChanged()
+            if let mac {
+                let wanting = Self.sessions(Array(agents.values)).filter { $0.status != MacActivity.Top.working }.map(\.id)
+                center.clearDelivered(mac: mac, keep: Set(wanting))
+            }
+            return false
         case .agentUpdate(let update):
             agents[update.agent.id] = update.agent.status == .closed ? nil : update.agent
         default:
