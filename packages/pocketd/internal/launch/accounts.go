@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,24 @@ func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 	}
 	auto := s.AutoSwitch()
 	return ops.Msg{Ev: "accounts", Accounts: s.List(l.d.Running), AutoSwitch: &auto}
+}
+
+// ConfigDir is where provider keeps the config of the account a new session
+// in project would run on, account being the one it names.
+func (l *Launcher) ConfigDir(provider, account, project string) (string, error) {
+	f := l.reg.Load()
+	if !slices.Contains(f.Projects, project) {
+		return "", errors.New("This project isn't on your Mac anymore")
+	}
+	if l.d.Accounts == nil {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, "."+provider), nil
+	}
+	id, err := l.d.Accounts.Resolve(provider, l.pick(provider, account, f.Repos[project].Accounts[provider]))
+	if err != nil {
+		return "", err
+	}
+	return l.d.Accounts.Dir(provider, id), nil
 }
 
 // signIn opens a Terminal running provider's login for account id, or for a

@@ -1,0 +1,17 @@
+{
+  "type": "skills.list",
+  "id": "s1",
+  "provider": "claude",
+  "account": "3f9a0c1b2d4e",
+  "project": "/Users/me/dev/pocket",
+  "commands": [
+    {
+      "name": "fix-root-cause",
+      "description": "Trace each symptom to its root cause"
+    },
+    {
+      "name": "skill-creator:skill-creator",
+      "argumentHint": "\u003cskill\u003e"
+    }
+  ]
+}

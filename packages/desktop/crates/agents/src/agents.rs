@@ -355,6 +355,9 @@ struct Frame {
     names: HashMap<String, String>,
     locals: Vec<Local>,
     commands: Vec<Command>,
+    provider: String,
+    project: String,
+    account: String,
     servers: Vec<McpServer>,
     auth_url: String,
     answer: String,
@@ -419,6 +422,8 @@ pub enum Event {
     InterruptFailed { agent: String, reason: String },
     /// The slash commands the agent offers; empty when pocketd couldn't list them.
     Commands { agent: String, commands: Vec<Command> },
+    /// The slash commands `provider` offers in `project` on `account`, read before any agent runs there.
+    Skills { provider: String, account: String, project: String, commands: Vec<Command> },
     /// The answer to the side question `request` asked, or why there's none.
     Btw { request: String, answer: Result<String, String> },
     /// How the agent's MCP servers stand, or why pocketd couldn't tell; after a sign-in starts, the URL the user
@@ -545,7 +550,7 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
-            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
+            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
         }
     }
 
@@ -783,6 +788,7 @@ fn names_event(f: &Frame) -> Option<Event> {
         "naming.failed" => Some(Event::NamingFailed(f.agent_id.clone())),
         "local.list" => Some(Event::Locals(f.locals.clone())),
         "agent.commands" => Some(Event::Commands { agent: f.agent_id.clone(), commands: f.commands.clone() }),
+        "skills.list" => Some(Event::Skills { provider: f.provider.clone(), account: f.account.clone(), project: f.project.clone(), commands: f.commands.clone() }),
         "agent.btw" => Some(Event::Btw { request: f.id.clone(), answer: Ok(f.answer.clone()) }),
         "error" if f.id.starts_with(BTW) => Some(Event::Btw { request: f.id.clone(), answer: Err(readable(&f.message)) }),
         "agent.mcp" => Some(Event::Mcp { agent: f.agent_id.clone(), servers: Ok(f.servers.clone()), auth_url: f.auth_url.clone(), acted: f.id.starts_with(MCP_ACT) }),
@@ -879,6 +885,12 @@ impl Outbox {
     /// Asks for the agent's slash commands; a pocketd that can't list them answers with an empty `Commands`.
     pub fn commands(&self, agent_id: &str) {
         self.send(json!({"type": "agent.commands", "id": format!("{COMMANDS}{agent_id}"), "agentId": agent_id}));
+    }
+
+    /// Asks for the slash commands `provider` offers in `project` on `account`, "" being the project's own: what
+    /// pocketd last found, then what it finds now if that differs.
+    pub fn skills(&self, provider: &str, account: &str, project: &str) {
+        self.send(json!({"type": "skills.list", "id": "skills", "provider": provider, "account": account, "project": project}));
     }
 
     /// Asks how the agent's MCP servers stand.
@@ -1020,7 +1032,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 14] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP];
+const CAPS: [&str; 15] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1"];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1413,7 +1425,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -2052,6 +2064,19 @@ mod tests {
         let Some(Event::Commands { agent, commands }) = names_event(&f) else { panic!("no commands") };
         assert_eq!((agent.as_str(), commands.len()), ("a1", 2));
         assert_eq!((commands[1].name.as_str(), commands[1].argument_hint.as_str()), ("review", "<pr>"));
+    }
+
+    #[test]
+    fn skills_sends_the_golden_skills_list_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.skills("codex", "3f9a0c1b2d4e", "/Users/me/dev/pocket")), without_id(golden!("client/skills_list_account.json")));
+    }
+
+    #[test]
+    fn the_golden_skills_list_becomes_skills_for_its_provider_account_and_project() {
+        let f: Frame = serde_json::from_value(golden!("server/skills_list.json")).unwrap();
+        let Some(Event::Skills { provider, account, project, commands }) = names_event(&f) else { panic!("no skills") };
+        assert_eq!((provider.as_str(), account.as_str(), project.as_str()), ("claude", "3f9a0c1b2d4e", "/Users/me/dev/pocket"));
+        assert_eq!((commands[1].name.as_str(), commands[1].argument_hint.as_str()), ("skill-creator:skill-creator", "<skill>"));
     }
 
     #[test]

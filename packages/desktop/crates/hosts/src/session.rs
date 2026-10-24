@@ -129,6 +129,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(agent);
         }
         Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } => t(agent),
+        Event::Skills { project, .. } => *project = crate::place(host, project),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
         Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } => {}
         Event::Host(_)
@@ -242,6 +243,13 @@ impl Outboxes {
 
     pub fn commands(&self, agent_id: &str) {
         self.by_id(agent_id, |o, id| o.commands(id));
+    }
+
+    pub fn skills(&self, provider: &str, account: &str, project: &str) {
+        let (host, path) = crate::split(project);
+        if let Some(out) = self.to(host) {
+            out.skills(provider, account, path);
+        }
     }
 
     pub fn mcp(&self, agent_id: &str) {
