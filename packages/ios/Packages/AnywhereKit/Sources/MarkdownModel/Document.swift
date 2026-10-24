@@ -39,8 +39,7 @@ public enum Markdown {
     /// so the blocks before it keep their identity. CommonMark never changes a block once another follows it, except
     /// through reference definitions and footnotes, which take a whole parse.
     public static func parse(_ source: String, growing previous: MarkdownDocument) -> MarkdownDocument {
-        let old = previous.source.utf8
-        guard !previous.global, source.utf8.count >= old.count, source.utf8.starts(with: old) else { return parse(source) }
+        guard !previous.global, hasPrefix(source, previous.source) else { return parse(source) }
         let start = source.utf8.index(source.utf8.startIndex, offsetBy: previous.tailOffset)
         let tail = source.utf8[start...]
         guard !isGlobal(tail) else { return parse(source) }
@@ -98,6 +97,17 @@ public enum Markdown {
         return false
     }
 
+    /// Whether `text`'s bytes start with `prefix`'s, compared a word at a time.
+    static func hasPrefix(_ text: String, _ prefix: String) -> Bool {
+        guard text.utf8.count >= prefix.utf8.count else { return false }
+        let fast = text.utf8.withContiguousStorageIfAvailable { a in
+            prefix.utf8.withContiguousStorageIfAvailable { b in
+                b.isEmpty || memcmp(a.baseAddress!, b.baseAddress!, b.count) == 0
+            }
+        }
+        return (fast ?? nil) ?? text.utf8.starts(with: prefix.utf8)
+    }
+
     /// A 64-bit FNV-1a digest of the bytes, stable across runs, unlike `hashValue`.
     public static func digest(_ text: String) -> UInt64 {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
@@ -132,12 +142,12 @@ public final class MarkdownCache: @unchecked Sendable {
     public func document(_ source: String) -> MarkdownDocument {
         let key = Markdown.digest(source)
         if let hit = cached(source, digest: key) { return hit }
-        let base = lock.withLock { recent.last { $0.source.utf8.count < source.utf8.count && source.utf8.starts(with: $0.source.utf8) } }
+        let base = lock.withLock { recent.last { $0.source.utf8.count < source.utf8.count && Markdown.hasPrefix(source, $0.source) } }
         let document = base.map { Markdown.parse(source, growing: $0) } ?? Markdown.parse(source)
         lock.withLock {
             if documents.updateValue(document, forKey: key) == nil { order.append(key) }
             if order.count > limit { documents[order.removeFirst()] = nil }
-            recent.removeAll { source.utf8.starts(with: $0.source.utf8) }
+            recent.removeAll { Markdown.hasPrefix(source, $0.source) }
             recent.append(document)
             if recent.count > 16 { recent.removeFirst() }
         }
