@@ -28,6 +28,7 @@ struct FileRow: View, Equatable {
     var nameOnly = false
 
     var body: some View {
+        let _ = BodyCount.hit("FileRow")
         let (name, dir) = GitText.split(path)
         HStack(spacing: Space.s) {
             StatusLetter(status: status)

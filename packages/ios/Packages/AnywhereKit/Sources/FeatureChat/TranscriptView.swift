@@ -59,6 +59,7 @@ struct TranscriptView: View {
     }
 
     var body: some View {
+        let _ = BodyCount.hit("TranscriptView")
         let session = store.session
         let builder = RowBuilder(
             session: session, provider: store.provider, model: store.summary?.model, ask: store.ask.map { !$0.questions.isEmpty },

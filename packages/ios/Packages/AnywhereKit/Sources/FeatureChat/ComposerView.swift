@@ -26,6 +26,7 @@ struct ComposerView: View {
     private var cursor: Int { store.draft.text.utf8.count }
 
     var body: some View {
+        let _ = BodyCount.hit("ComposerView")
         let session = store.session
         VStack(spacing: Space.s) {
             if let goal = store.summary?.goal {

@@ -29,6 +29,7 @@ struct DiffScreen: View {
     }
 
     var body: some View {
+        let _ = BodyCount.hit("DiffScreen")
         let rev = host.git.changes(tree).head?.rev
         GeometryReader { geo in
             VStack(spacing: 0) {

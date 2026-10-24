@@ -8,6 +8,11 @@ import SwiftTerm
 import Wire
 
 // Timings of the hot paths at repo scale. Run in release: swift run -c release anywhere-bench
+// `anywhere-bench ui` times the screens themselves instead; see UIBench.
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "ui" {
+    exit(MainActor.assumeIsolated { UIBench.main(Array(CommandLine.arguments.dropFirst(2))) })
+}
+
 func measure(_ name: String, runs: Int = 20, _ work: () throws -> Void) rethrows {
     var best = Double.infinity
     for _ in 0..<runs {

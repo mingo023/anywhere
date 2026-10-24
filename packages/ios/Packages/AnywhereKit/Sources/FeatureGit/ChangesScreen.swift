@@ -49,6 +49,7 @@ struct ChangesScreen: View {
     @State private var discarding: [String]?
 
     var body: some View {
+        let _ = BodyCount.hit("ChangesScreen")
         let store = host.git
         let changes = store.changes(tree)
         let sections = SectionRows.split(ChangeTree.rows(changes.files, tree: asTree, folded: folded))

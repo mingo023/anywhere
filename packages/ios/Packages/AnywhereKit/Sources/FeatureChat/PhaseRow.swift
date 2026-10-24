@@ -11,6 +11,7 @@ struct PhaseRow: View {
     let actions: RowActions
 
     var body: some View {
+        let _ = BodyCount.hit("PhaseRow")
         if phase.lone, let step = phase.steps.first {
             StepView(step: step, phaseLive: phase.live, provider: provider, actions: actions)
         } else {

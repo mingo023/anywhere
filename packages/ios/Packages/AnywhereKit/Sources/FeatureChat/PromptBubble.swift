@@ -12,6 +12,7 @@ struct PromptBubble: View {
     var dimmed = false
 
     var body: some View {
+        let _ = BodyCount.hit("PromptBubble")
         VStack(alignment: .trailing, spacing: Space.xs) {
             BubbleBody(text: text, images: images).opacity(dimmed ? 0.65 : 1)
             if let at {

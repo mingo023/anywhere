@@ -28,6 +28,7 @@ struct RowView: View, Equatable {
     }
 
     var body: some View {
+        let _ = BodyCount.hit("RowView")
         if case .hidden = item.content {
             Color.clear.frame(height: 0)
         } else {

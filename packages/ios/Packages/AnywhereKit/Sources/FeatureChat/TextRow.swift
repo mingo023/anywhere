@@ -10,6 +10,7 @@ struct TextRow: View {
     let onLink: (MarkdownLink) -> Void
 
     var body: some View {
+        let _ = BodyCount.hit("TextRow")
         VStack(alignment: .leading, spacing: 6) {
             if text.planHeader {
                 Label("Plan", systemImage: "checklist").font(ChatFont.small.weight(.medium)).foregroundStyle(Palette.text2.color)
