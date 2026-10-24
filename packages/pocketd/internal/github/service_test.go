@@ -408,3 +408,13 @@ func TestAPhoneSlowToTakeAChangeDoesNotHoldTheOthers(t *testing.T) {
 		t.Fatal("no change told")
 	}
 }
+
+func TestAGhThatCantStartIsAFailureNotAMissingGh(t *testing.T) {
+	f := newFake(t)
+	_, tree, reg := repo(t, false)
+	var e *Error
+	err := New(f.env(true), reg).Reply(ctx(t), tree, "PRRT_a", strings.Repeat("x", 4<<20))
+	if !errors.As(err, &e) || e.Code != proto.CodeGhFailed {
+		t.Fatalf("%#v", err)
+	}
+}

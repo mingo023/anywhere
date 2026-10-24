@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -44,7 +45,7 @@ func (env Env) once(ctx context.Context, dir string, argv []string, stdin string
 	e := append(slices.Clip(env(dir)), "GH_PROMPT_DISABLED=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
 	code, stdout, stderr, err := hostop.Run(ctx, e, dir, argv, []byte(stdin), timeout)
 	switch {
-	case err != nil && argv[0] == "gh":
+	case argv[0] == "gh" && errors.Is(err, exec.ErrNotFound):
 		return "", "", ErrMissing
 	case err != nil:
 		return "", "", err
