@@ -18,10 +18,11 @@ public enum Composer {
         case question(answerable: Bool)
     }
 
-    public static func mode(observeOnly: Bool, ask: Ask?) -> Mode {
+    /// Prompts need the drive scope and answers the approve scope; a phone may hold either without the other.
+    public static func mode(observeOnly: Bool, canApprove: Bool, ask: Ask?) -> Mode {
         switch ask {
-        case let a? where !a.questions.isEmpty: .question(answerable: !observeOnly)
-        case .some: .permission(answerable: !observeOnly)
+        case let a? where !a.questions.isEmpty: .question(answerable: canApprove)
+        case .some: .permission(answerable: canApprove)
         case nil: observeOnly ? .viewOnly : .prompt
         }
     }

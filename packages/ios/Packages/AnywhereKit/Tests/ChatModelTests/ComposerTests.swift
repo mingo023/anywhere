@@ -96,10 +96,17 @@ func aTerminalOnlyCommand() {
 
 @Test("an observe only agent gets no composer")
 func anObserveOnlyAgentGetsNoComposer() {
-    #expect(Composer.mode(observeOnly: true, ask: nil) == .viewOnly)
-    #expect(Composer.mode(observeOnly: false, ask: nil) == .prompt)
-    #expect(Composer.mode(observeOnly: true, ask: ask([])) == .permission(answerable: false))
-    #expect(Composer.mode(observeOnly: false, ask: ask([Question(question: "")])) == .question(answerable: true))
+    #expect(Composer.mode(observeOnly: true, canApprove: false, ask: nil) == .viewOnly)
+    #expect(Composer.mode(observeOnly: false, canApprove: true, ask: nil) == .prompt)
+    #expect(Composer.mode(observeOnly: true, canApprove: false, ask: ask([])) == .permission(answerable: false))
+    #expect(Composer.mode(observeOnly: false, canApprove: true, ask: ask([Question(question: "")])) == .question(answerable: true))
+}
+
+@Test("an ask is answerable by the approve scope, not the drive scope")
+func anAskIsAnswerableByTheApproveScope() {
+    #expect(Composer.mode(observeOnly: true, canApprove: true, ask: ask([])) == .permission(answerable: true))
+    #expect(Composer.mode(observeOnly: false, canApprove: false, ask: ask([])) == .permission(answerable: false))
+    #expect(Composer.mode(observeOnly: true, canApprove: true, ask: nil) == .viewOnly)
 }
 
 @Test("the input grows to eleven rows before it scrolls")
