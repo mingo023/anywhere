@@ -1,4 +1,5 @@
 import CryptoKit
+import Fixtures
 import Foundation
 import Testing
 import Wire
@@ -135,54 +136,4 @@ struct PushSupportTests {
             try await relay.register(token: "00", kind: .alert, env: .production)
         }
     }
-}
-
-/// Answers URLSession requests in-process, as the relay would.
-final class RelayStub: URLProtocol, @unchecked Sendable {
-    typealias Answer = @Sendable (URLRequest) throws -> (Int, String)
-    nonisolated(unsafe) static var answers: [String: Answer] = [:]
-    static let lock = NSLock()
-
-    static func session(_ answer: @escaping Answer) -> URLSession {
-        let id = UUID().uuidString
-        lock.withLock { answers[id] = answer }
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [RelayStub.self]
-        config.httpAdditionalHeaders = ["X-Stub": id]
-        return URLSession(configuration: config)
-    }
-
-    static func body(_ request: URLRequest) -> Data {
-        if let body = request.httpBody { return body }
-        guard let stream = request.httpBodyStream else { return Data() }
-        stream.open()
-        defer { stream.close() }
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while stream.hasBytesAvailable {
-            let n = stream.read(&buffer, maxLength: buffer.count)
-            if n <= 0 { break }
-            data.append(buffer, count: n)
-        }
-        return data
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        let id = request.value(forHTTPHeaderField: "X-Stub") ?? ""
-        let answer = Self.lock.withLock { Self.answers[id] }
-        do {
-            let (status, body) = try answer?(request) ?? (500, "")
-            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(body.utf8))
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
 }

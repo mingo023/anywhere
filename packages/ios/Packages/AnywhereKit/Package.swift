@@ -18,7 +18,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("ActivityModel", [], true),
     ("PushSupport", ["Wire"], true),
     ("Fixtures", ["Wire"], true),
-    ("Stores", ["Wire", "Client", "Domain", "ChatModel", "DiffModel"], true),
+    ("Stores", ["Wire", "Client", "Domain", "ChatModel", "DiffModel", "PushSupport", "ActivityModel"], true),
     ("DesignSystem", ["Domain"], true),
     ("MarkdownView", ["MarkdownModel", "Highlight", "DesignSystem"], true),
     ("CodeView", ["Highlight", "DiffModel", "DesignSystem"], true),
