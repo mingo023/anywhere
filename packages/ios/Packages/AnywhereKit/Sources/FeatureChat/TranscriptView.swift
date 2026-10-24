@@ -95,6 +95,7 @@ struct TranscriptView: View {
                     // Bottom-aligned: a short chat sits on the composer, as the desktop's list does.
                     .frame(maxWidth: .infinity, minHeight: outer.size.height, alignment: .bottom)
                 }
+                .opensAtEnd()
                 .coordinateSpace(name: "chat")
                 .simultaneousGesture(DragGesture(minimumDistance: 6).onChanged { _ in dragged() }.onEnded { _ in scroll.dragging = false })
                 .onPreferenceChange(RowFrames.self) { frames in
@@ -269,5 +270,18 @@ struct TranscriptView: View {
                 }
             }
         }
+    }
+}
+
+extension View {
+    /// Opens a long transcript at its end rather than laying it out from the top and chasing the end with `scrollTo`,
+    /// which can leave the list on an offset where it builds no rows (under a tall code block, say).
+    fileprivate func opensAtEnd() -> some View {
+        #if os(iOS)
+            defaultScrollAnchor(.bottom, for: .initialOffset)
+        #else
+            // The macOS 14 SDK has no anchor roles; only the gallery runs this.
+            defaultScrollAnchor(.bottom)
+        #endif
     }
 }
