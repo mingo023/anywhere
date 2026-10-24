@@ -54,8 +54,6 @@ pub(crate) struct View {
     expanded: HashSet<String>,
     /// The prompt last shown more or less of, and when.
     toggled: Option<(String, Instant)>,
-    /// Code blocks wrapping their long lines, by row id.
-    wrapped: HashSet<String>,
     code: Highlights,
     /// Messages still streaming onto the screen, by id.
     reveals: HashMap<String, Reveal>,
@@ -77,7 +75,7 @@ impl View {
         let tools = cx.new(|_| Tools::default());
         let agent = agent.to_string();
         let _tools = cx.observe(&tools, move |d, _, _| d.chats.views.get(&agent).into_iter().for_each(View::remeasure_under_pin));
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
     }
 
     /// How far the list sits above its end.
@@ -582,15 +580,6 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn chat_toggle_wrap(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
-        let Some(view) = self.chats.views.get_mut(agent) else { return };
-        if !view.wrapped.remove(row) {
-            view.wrapped.insert(row.to_string());
-        }
-        view.remeasure_under_pin();
-        cx.notify();
-    }
-
     fn chat_retry(&mut self, agent: &str, send: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.retry(send)) else { return };
         self.chat_take_back(agent, &text, window, cx);
@@ -735,13 +724,7 @@ impl Desktop {
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
-                        let key = format!("code:{id}");
-                        let copied = view.copied(&key);
-                        let on_wrap = {
-                            let (agent, row) = (agent.to_string(), id.clone());
-                            cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_wrap(&agent, &row, cx))
-                        };
-                        let block = markdown::code_block(&id, lang, &code, styles, (copied, copy(agent, key, code.to_string(), cx)), (view.wrapped.contains(&id), on_wrap));
+                        let block = div().child(markdown::code_block(SharedString::from(format!("code-{agent}-{id}")), lang, &code, styles));
                         let block = match reveal {
                             Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,
