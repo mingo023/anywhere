@@ -52,7 +52,7 @@ struct ChatScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             TranscriptView(store: store, showing: $showing, openLink: openLink)
-            ComposerView(store: store, machine: machine, show: { showing = $0 }, mapOpen: $mapOpen)
+            ComposerView(store: store, machine: machine, show: { showing = $0 }, mapOpen: $mapOpen, openLink: openLink)
         }
         .screenBackground()
         .navigationTitle(store.summary?.title ?? "Chat")
@@ -70,7 +70,7 @@ struct ChatScreen: View {
             if PushCenter.shared.visibleAgent == store.agentId { PushCenter.shared.visibleAgent = nil }
         }
         .sheet(isPresented: $mapOpen) {
-            AgentMapSheet(transcript: store.session.transcript, provider: store.provider) { showing = $0 }
+            AgentMapSheet(transcript: store.session.transcript, provider: store.provider, show: { showing = $0 }, openLink: openLink)
         }
     }
 
