@@ -89,3 +89,11 @@ struct FeatureChatTests {
         }
     }
 }
+
+@Test("a message's paragraphs share list rows four at a time, counted from its first, so a run keeps its id as it grows")
+func paragraphsShareListRows() {
+    let text = (0..<6).map { Row.text(turn: 1, block: 2, range: $0..<$0 + 1) }
+    let rows: [Row] = [.prompt(turn: 1)] + text + [.text(turn: 1, block: 4, range: 0..<1), .end(turn: 1)]
+    #expect(textRuns(rows) == [0..<1, 1..<5, 5..<7, 7..<8, 8..<9])
+    #expect(textRuns(Array(rows[..<4])) == [0..<1, 1..<4])
+}

@@ -63,6 +63,10 @@ struct RowView: View, Equatable {
         case .live(let live): LiveRow(live: live, provider: provider)
         case .working: Text("Sending…").font(ChatFont.small).foregroundStyle(Palette.text3.color).shimmer().padding(.top, 6)
         case .pending(let p): PendingBubble(pending: p, actions: actions)
+        case .run(let items):
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(items) { RowView(item: $0, provider: provider, flash: false, actions: actions).equatable() }
+            }
         }
     }
 }

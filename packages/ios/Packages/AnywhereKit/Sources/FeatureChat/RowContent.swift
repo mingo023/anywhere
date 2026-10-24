@@ -33,6 +33,8 @@ enum RowContent: Hashable, Sendable {
     case live(LiveContent)
     case working
     case pending(PendingContent)
+    /// Paragraphs of one message held in one list row, each shown as its own row would be.
+    case run([RowItem])
 }
 
 struct PromptContent: Hashable, Sendable {
@@ -170,6 +172,14 @@ struct RowBuilder {
         let rail: Rail = railed(ix) ? (ix + 1 < session.rows.count && railed(ix + 1) ? .mid : .last) : .none
         let prev = ix > 0 ? session.rows[ix - 1] : nil
         return RowItem(id: id, gap: topGap(prev, row), rail: rail, content: content(row, id))
+    }
+
+    /// The list row for model rows `rows`: one row's item, or a run of them.
+    func item(_ rows: Range<Int>) -> RowItem {
+        guard rows.count > 1 else { return item(rows.lowerBound) }
+        let members = rows.map(item)
+        let content: RowContent = members.allSatisfy { $0.content == .hidden } ? .hidden : .run(members)
+        return RowItem(id: members[0].id, gap: 0, rail: .none, content: content)
     }
 
     func content(_ row: Row, _ id: String) -> RowContent {

@@ -28,8 +28,7 @@ struct ComposerView: View {
     private var cursor: Int { store.draft.text.utf8.count }
 
     var body: some View {
-        let _ = BodyCount.hit("ComposerView")
-        let session = store.session
+        let _ = BodyCount.hit("ComposerView");
         VStack(spacing: Space.s) {
             if let goal = store.summary?.goal {
                 GoalStripView(goal: goal, pauses: store.adapter.pausesGoal) { store.goal($0) }
@@ -43,12 +42,7 @@ struct ComposerView: View {
                     tasks: tasks, stops: Background.stops(chatOnly: store.summary?.chatOnly ?? false, interrupt: caps.interrupt, busy: store.busy, tasks),
                     stop: { store.stopBackground() }, show: show)
             }
-            let queued = Queue.waiting(session.outgoing.list)
-            if !queued.isEmpty {
-                QueueTray(
-                    sends: queued, paused: session.outgoing.paused(session.transcript), canSteer: store.busy && caps.sendWhileWorking,
-                    resume: { store.resume() }, steer: { store.steerQueued($0) }, edit: { store.editQueued($0) }, remove: { store.removeQueued($0) })
-            }
+            QueueSlot(store: store, canSteer: store.busy && caps.sendWhileWorking)
             switch store.mode {
             case .prompt:
                 box
@@ -262,6 +256,23 @@ struct ComposerView: View {
             ForEach(efforts(agent), id: \.self) { e in Button(ModelPill.effortLabel(e)) { store.settings(effort: e) } }
         } else {
             ForEach(ModelPill.aliases(agent.provider), id: \.self) { m in Button(modelName(m)) { store.settings(model: m) } }
+        }
+    }
+}
+
+/// The queue tray; its own view, so only it reads the session that every stream frame changes.
+@MainActor
+private struct QueueSlot: View {
+    let store: ChatStore
+    let canSteer: Bool
+
+    var body: some View {
+        let session = store.session
+        let queued = Queue.waiting(session.outgoing.list)
+        if !queued.isEmpty {
+            QueueTray(
+                sends: queued, paused: session.outgoing.paused(session.transcript), canSteer: canSteer,
+                resume: { store.resume() }, steer: { store.steerQueued($0) }, edit: { store.editQueued($0) }, remove: { store.removeQueued($0) })
         }
     }
 }
