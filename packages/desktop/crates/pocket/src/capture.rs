@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 223] = [
+const STEPS: [(&str, Step); 222] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -155,29 +155,20 @@ const STEPS: [(&str, Step); 223] = [
     // skips were never laid out.
     ("chat-table", |d, _, cx| {
         let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-        let Some(ix) = first_reply_end(&v.session.rows) else { return };
+        let Some(ix) = first_reply_end(d) else { return };
         v.list.scroll_to(ListOffset { item_ix: ix.saturating_sub(2), offset_in_item: px(0.) });
         cx.notify();
     }),
     // A sideways swipe over the wide table, so it shows scrolled partway.
-    ("chat-table-swipe", |d, window, cx| swipe_table(d, -160., window, cx)),
+    ("chat-table-swipe", |d, window, cx| swipe(d, first_reply_end, -160., window, cx)),
     // A swipe past its far end, so it shows scrolled all the way.
-    ("chat-table-end", |d, window, cx| swipe_table(d, -4000., window, cx)),
+    ("chat-table-end", |d, window, cx| swipe(d, first_reply_end, -4000., window, cx)),
     ("chat-jump", |d, window, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_jump_to_bottom(&agent, window, cx);
         }
     }),
-    ("chat-code-copied", |d, _, cx| {
-        if let Some((agent, row, code)) = last_code(d) {
-            d.chat_copy(&agent, format!("code:{row}"), code, cx);
-        }
-    }),
-    ("chat-code-wrapped", |d, _, cx| {
-        if let Some((agent, row, _)) = last_code(d) {
-            d.chat_toggle_wrap(&agent, &row, cx);
-        }
-    }),
+    ("chat-code-swipe", |d, window, cx| swipe(d, last_code, -160., window, cx)),
     ("chat-typed", |d, window, cx| d.set_chat_text("Refactor the parser", window, cx)),
     ("chat-model-open", |d, _, cx| {
         d.chats.composer.draft.toggle(Menu::Model);
@@ -907,15 +898,16 @@ fn open_agent(d: &mut Desktop, pick: fn(&chat::ToolCall) -> bool, cx: &mut Conte
     });
 }
 
-/// The shown chat's last code block: its agent, row id and code.
-fn last_code(d: &Desktop) -> Option<(String, String, String)> {
-    let agent = d.session()?.to_string();
-    let s = &d.chats.views.get(&agent)?.session;
-    s.rows.iter().zip(&s.ids).rev().find_map(|(row, id)| {
-        let Row::Text { turn, block, range } = row else { return None };
-        let Some(Block::Text(m)) = s.transcript.turns.get(*turn)?.blocks.get(*block) else { return None };
-        let (_, code) = crate::chat::markdown::fence(m.text.get(range.clone())?)?;
-        Some((agent.clone(), id.clone(), code.to_string()))
+/// The shown chat's last code block row.
+fn last_code(d: &Desktop) -> Option<usize> {
+    let s = &d.chats.views.get(d.session()?)?.session;
+    s.rows.iter().rposition(|row| {
+        let Row::Text { turn, block, range } = row else { return false };
+        let text = match s.transcript.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+            Some(Block::Text(m)) => m.text.get(range.clone()),
+            _ => None,
+        };
+        text.and_then(crate::chat::markdown::fence).is_some()
     })
 }
 
@@ -1032,10 +1024,10 @@ fn scroll_from_prompt(d: &mut Desktop, n: usize, rows: isize, cx: &mut Context<D
     cx.notify();
 }
 
-/// Swipes the first reply's last block sideways by `dx` px.
-fn swipe_table(d: &mut Desktop, dx: f32, window: &mut Window, cx: &mut Context<Desktop>) {
+/// Swipes the shown chat's `row` sideways by `dx` px.
+fn swipe(d: &mut Desktop, row: fn(&Desktop) -> Option<usize>, dx: f32, window: &mut Window, cx: &mut Context<Desktop>) {
     let Some(v) = d.session().and_then(|a| d.chats.views.get(a)) else { return };
-    let Some(at) = first_reply_end(&v.session.rows).and_then(|ix| v.list.bounds_for_item(ix)).map(|b| b.center()) else { return };
+    let Some(at) = row(d).and_then(|ix| v.list.bounds_for_item(ix)).map(|b| b.center()) else { return };
     window.defer(cx, move |window, cx| {
         window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }), cx);
         let delta = ScrollDelta::Pixels(point(px(dx), px(0.)));
@@ -1044,7 +1036,8 @@ fn swipe_table(d: &mut Desktop, dx: f32, window: &mut Window, cx: &mut Context<D
 }
 
 /// The last markdown block of the first reply.
-fn first_reply_end(rows: &[Row]) -> Option<usize> {
+fn first_reply_end(d: &Desktop) -> Option<usize> {
+    let rows = &d.chats.views.get(d.session()?)?.session.rows;
     rows.iter().rposition(|r| matches!(r, Row::Text { turn: 0, .. }))
 }
 
