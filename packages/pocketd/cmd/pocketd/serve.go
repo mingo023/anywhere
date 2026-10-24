@@ -27,6 +27,7 @@ import (
 	"pocketd/internal/daemon"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
+	"pocketd/internal/fsview"
 	"pocketd/internal/handoff"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
@@ -186,6 +187,7 @@ func serve(sock, handed string) error {
 		}}
 	ownerTokens := &owners.Store{Path: owners.Path(home)}
 	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings}
+	ws.Files = &fsview.Service{Registry: reg, Env: d.LoginEnv, Attachments: filepath.Join(home, "attachments")}
 	if err := endGrace(devs, ws.CloseDevice); err != nil {
 		return err
 	}
