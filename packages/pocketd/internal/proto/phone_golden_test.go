@@ -112,10 +112,13 @@ func TestEveryPhoneVerbHasAClientGolden(t *testing.T) {
 }
 
 func TestPhoneCapsWaitForTheirHandlers(t *testing.T) {
-	for _, c := range []string{CapTerminal, CapWorkspace, CapGit, CapGitHub, CapFiles, CapPush} {
+	for _, c := range []string{CapTerminal, CapGit, CapGitHub, CapFiles, CapPush} {
 		if slices.Contains(ServerCaps, c) {
 			t.Errorf("%s is served before its handlers land", c)
 		}
+	}
+	if !slices.Contains(ServerCaps, CapWorkspace) {
+		t.Error("workspace.v1's handlers landed but it isn't served")
 	}
 }
 

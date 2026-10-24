@@ -509,6 +509,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		// Signing in to or enabling a server drives the agent; listing them only observes it.
 		verb += ".act"
 	}
+	verb = c.localScope(verb)
 	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
 	}
@@ -527,7 +528,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		c.send(proto.NewAgentList(m.ID, c.s.Agents.List()))
 		return nil
 	case "project.list":
-		c.send(proto.NewProjectList(m.ID, c.s.Projects()))
+		c.projectList(m)
 		return nil
 	case "agent.view":
 		c.emitSeen(m.AgentIDs)
