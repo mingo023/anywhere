@@ -211,6 +211,11 @@ func (c *conn) terminalDetach(m proto.ClientMessage) error {
 }
 
 func (c *conn) terminalInput(m proto.ClientMessage) error {
+	// A keystroke meant for the shell could answer the agent's permission dialog, as the PTY guard prevents.
+	if c.s.AskOpen != nil && c.s.AskOpen(m.TerminalID) {
+		c.send(proto.NewErrorCode(m.ID, proto.CodeAskOpen, "This terminal's session is waiting on a permission; answer it from its card"))
+		return nil
+	}
 	t := c.findTerminal(m.TerminalID)
 	if t == nil || t.Write(m.Data) != nil {
 		c.send(noTerminal(m.ID))

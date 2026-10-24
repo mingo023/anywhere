@@ -32,6 +32,8 @@ Terminal = {id, cwd, cols, rows, title?, localId?, agentId?, exited?:bool}
 → {type:"terminal.detach", id, terminalId}  ← ack           // a closed socket detaches everything
 
 → {type:"terminal.input", id, terminalId, data}             // data = base64 bytes; no reply unless refused
+   // refused with code "ask_open" while the agent in the terminal waits on a permission, so a keystroke
+   //   can't answer its dialog; the phone answers from the permission card
 → {type:"terminal.resize", id, terminalId, cols, rows}  ← ack   // cols and rows 1..1000
 → {type:"terminal.create", id, requestId, cwd?, localId?, cols?, rows?}
 ← {type:"terminal.created", id, requestId, terminalId}      // a login shell, like the desktop's; cwd must be a tree
