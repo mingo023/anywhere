@@ -60,7 +60,7 @@ struct TranscriptView: View {
     }
 
     var body: some View {
-        let _ = BodyCount.hit("TranscriptView");
+        let _ = BodyCount.hit("TranscriptView")
         let rows = transcriptRows
         let ids = rows.ids.list
         let last = ids.last

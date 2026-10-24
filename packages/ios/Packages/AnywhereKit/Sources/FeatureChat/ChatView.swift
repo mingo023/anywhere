@@ -50,7 +50,7 @@ struct ChatScreen: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let _ = BodyCount.hit("ChatScreen");
+        let _ = BodyCount.hit("ChatScreen")
         VStack(spacing: 0) {
             TranscriptView(store: store, showing: $showing, openLink: openLink)
             ComposerView(store: store, machine: machine, show: { showing = $0 }, mapOpen: $mapOpen, openLink: openLink)
