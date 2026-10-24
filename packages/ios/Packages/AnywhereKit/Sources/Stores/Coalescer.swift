@@ -3,10 +3,14 @@ public actor Coalescer<Element: Sendable> {
     private var buffer: [Element] = []
     private let wake: AsyncStream<Void>.Continuation
 
-    public init(interval: Duration = .milliseconds(16), sink: @escaping @MainActor @Sendable ([Element]) -> Void) {
+    public init(
+        interval: Duration = .milliseconds(16),
+        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        sink: @escaping @MainActor @Sendable ([Element]) -> Void
+    ) {
         let (wakes, wake) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         self.wake = wake
-        Task { await self.run(wakes, interval, sink) }
+        Task { await self.run(wakes, interval, sleep, sink) }
     }
 
     public func add(_ element: Element) {
@@ -17,9 +21,14 @@ public actor Coalescer<Element: Sendable> {
     /// Stops after handing on what's buffered.
     public func finish() { wake.finish() }
 
-    private func run(_ wakes: AsyncStream<Void>, _ interval: Duration, _ sink: @escaping @MainActor @Sendable ([Element]) -> Void) async {
+    private func run(
+        _ wakes: AsyncStream<Void>,
+        _ interval: Duration,
+        _ sleep: @Sendable (Duration) async -> Void,
+        _ sink: @escaping @MainActor @Sendable ([Element]) -> Void
+    ) async {
         for await _ in wakes {
-            try? await Task.sleep(for: interval)
+            await sleep(interval)
             let batch = buffer
             buffer = []
             if !batch.isEmpty { await sink(batch) }
