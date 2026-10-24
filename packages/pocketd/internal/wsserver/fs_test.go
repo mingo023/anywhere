@@ -1,6 +1,7 @@
 package wsserver
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -116,5 +117,38 @@ func TestAnObservingPeerMayBrowseButNotUpload(t *testing.T) {
 	p.send(chunk("a", 0, []byte("\x89PNG\r\n\x1a\n"), true))
 	if m := p.recv(); m["code"] != proto.CodeScopeDenied {
 		t.Fatalf("%v", m)
+	}
+}
+
+// stuckFiles lists nothing until release closes.
+type stuckFiles struct {
+	FileService
+	release chan struct{}
+}
+
+func (s stuckFiles) List(ctx context.Context, tree, dir string) ([]proto.FsEntry, error) {
+	<-s.release
+	return nil, nil
+}
+
+func TestSlowFileRequestsDontHoldUpTheConnsOtherMessages(t *testing.T) {
+	files, _, _ := withFiles(t)
+	var real Server
+	files(&real)
+	stuck := stuckFiles{real.Files, make(chan struct{})}
+	_, _, p := local(t, peer.OwnerOf(1), func(s *Server) { s.Files = stuck })
+	helloWith(p, proto.CapFiles)
+	for range fsReads + 2 {
+		p.send(`{"type":"fs.list","id":"l","tree":"/x","dir":""}`)
+	}
+	p.send(chunk("a", 0, []byte("plain text"), true))
+	if m := p.recv(); m["code"] != proto.CodeAttachInvalid {
+		t.Fatalf("%v", m)
+	}
+	close(stuck.release)
+	for range fsReads + 2 {
+		if m := p.recv(); m["type"] != "fs.list" {
+			t.Fatalf("%v", m)
+		}
 	}
 }

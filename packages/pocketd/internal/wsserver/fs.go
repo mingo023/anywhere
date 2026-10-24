@@ -72,15 +72,16 @@ func (c *conn) filesVerb(m proto.ClientMessage) error {
 	return proto.ErrMalformed
 }
 
-// background answers m off the read loop, a few at a time.
+// background answers m off the read loop, a few at a time; the rest wait
+// there too, so the conn's other messages don't.
 func (c *conn) background(m proto.ClientMessage, serve func() (any, error)) error {
 	c.helloFiles()
-	select {
-	case c.files.reads <- struct{}{}:
-	case <-c.ctx.Done():
-		return nil
-	}
 	go func() {
+		select {
+		case c.files.reads <- struct{}{}:
+		case <-c.ctx.Done():
+			return
+		}
 		defer func() { <-c.files.reads }()
 		reply, err := serve()
 		if err != nil {
