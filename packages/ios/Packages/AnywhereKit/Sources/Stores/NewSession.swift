@@ -133,6 +133,15 @@ public struct NewSessionDraft: Hashable, Sendable {
     }
 
     /// Picking another agent drops the model, effort and account picked for the last one; access holds for any.
+    /// Another project: the last one's base, branch or pull request and name don't carry over, as the desktop's
+    /// `pick_repo`; nor does a workspace of it.
+    public mutating func pick(project: String) {
+        guard project != self.project else { return }
+        self.project = project
+        (source, base, name) = (.new, nil, "")
+        if place != .newLocal { place = .newWorktree }
+    }
+
     public mutating func pick(provider: ProviderId) {
         guard provider != self.provider else { return }
         self.provider = provider
@@ -146,9 +155,12 @@ public struct NewSessionDraft: Hashable, Sendable {
         return Array(all[...top])
     }
 
-    /// The access a draft starts with: Edits, or the most allowed below it.
-    public static func defaultAccess(max: String) -> Access {
-        accesses(max: max).last { $0 != .auto && $0 != .full } ?? .ask
+    /// The access a draft starts with: the Mac's own default when this phone may pick it, else Edits, or the most
+    /// allowed below it.
+    public static func defaultAccess(max: String, mac: String? = nil) -> Access {
+        let allowed = accesses(max: max)
+        if let mac, allowed.contains(Access(rawValue: mac)) { return Access(rawValue: mac) }
+        return allowed.last { $0 != .auto && $0 != .full } ?? .ask
     }
 
     /// The models a picker offers besides the agent's own default.

@@ -143,10 +143,12 @@ type AgentProviders struct {
 	Providers      []ProviderInfo `json:"providers"`
 	MaxAccess      string         `json:"maxAccess"`
 	PhoneMaxAccess string         `json:"phoneMaxAccess"`
+	// DefaultAccess is the desktop's Settings › Permission mode, which a new session starts with.
+	DefaultAccess string `json:"defaultAccess,omitempty"`
 }
 
-func NewAgentProviders(id string, p []ProviderInfo, maxAccess, phoneMaxAccess string) AgentProviders {
-	return AgentProviders{"agent.providers", id, p, maxAccess, phoneMaxAccess}
+func NewAgentProviders(id string, p []ProviderInfo, maxAccess, phoneMaxAccess, defaultAccess string) AgentProviders {
+	return AgentProviders{"agent.providers", id, p, maxAccess, phoneMaxAccess, defaultAccess}
 }
 
 // strictObject reads a JSON object whose keys are all in allowed, matched

@@ -68,6 +68,9 @@ struct NewSessionTests {
         #expect(NewSessionDraft.accesses(max: "nonsense") == [.ask])
         #expect(NewSessionDraft.defaultAccess(max: "full") == .edits)
         #expect(NewSessionDraft.defaultAccess(max: "ask") == .ask)
+        #expect(NewSessionDraft.defaultAccess(max: "auto", mac: "auto") == .auto)
+        #expect(NewSessionDraft.defaultAccess(max: "edits", mac: "auto") == .edits)
+        #expect(NewSessionDraft.defaultAccess(max: "full", mac: "settings") == .edits)
     }
 
     @Test("picking another agent drops the model, effort and account picked for the last")
@@ -88,5 +91,16 @@ struct NewSessionTests {
         var nothing = draft(.newLocal)
         nothing.resume(after: Creation(kind: .session))
         #expect(nothing.place == .newLocal)
+    }
+
+    @Test("another project starts a fresh worktree: the last one's base, branch, name and workspace don't carry over")
+    func anotherProjectStartsFresh() {
+        var draft = NewSessionDraft(project: "/a", place: .tree("/a/w"))
+        (draft.source, draft.base, draft.name) = (.branch("fix"), "dev", "mine")
+        draft.pick(project: "/b")
+        #expect(draft.project == "/b" && draft.place == .newWorktree && draft.source == .new && draft.base == nil && draft.name.isEmpty)
+        draft.place = .newLocal
+        draft.pick(project: "/a")
+        #expect(draft.place == .newLocal)
     }
 }

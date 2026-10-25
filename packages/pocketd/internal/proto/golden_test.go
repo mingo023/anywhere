@@ -104,7 +104,7 @@ var serverGolden = map[string]any{
 			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true, SendNow: true}},
 		{ID: "codex", Available: false, Efforts: []string{}, Plan: false,
 			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}},
-	}, "full", "ask"),
+	}, "full", "ask", "edits"),
 	"error_detail":  NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
 	"hello_ok_host": helloOKHost(),
 	"host_changed":  NewHostChanged(HostState{Tailnet: true, KeepingAwake: true, Terminals: true}),

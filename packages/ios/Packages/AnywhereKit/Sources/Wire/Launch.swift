@@ -141,11 +141,14 @@ public struct AgentProviders: Codable, Hashable, Sendable {
     public var providers: [ProviderInfo]
     public var maxAccess: String
     public var phoneMaxAccess: String
+    /// The desktop's Settings › Permission mode; absent from a pocketd before it.
+    public var defaultAccess: String?
 
-    public init(providers: [ProviderInfo], maxAccess: String, phoneMaxAccess: String) {
+    public init(providers: [ProviderInfo], maxAccess: String, phoneMaxAccess: String, defaultAccess: String? = nil) {
         self.providers = providers
         self.maxAccess = maxAccess
         self.phoneMaxAccess = phoneMaxAccess
+        self.defaultAccess = defaultAccess
     }
 }
 

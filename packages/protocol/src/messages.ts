@@ -229,6 +229,7 @@ export const ServerMessage = Schema.Union(
     providers: Schema.Array(ProviderInfo),
     maxAccess: Schema.String,
     phoneMaxAccess: Schema.String,
+    defaultAccess: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     type: Schema.Literal("error"),

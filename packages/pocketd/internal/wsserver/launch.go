@@ -48,7 +48,11 @@ func (c *conn) create(m proto.ClientMessage) {
 
 func (c *conn) providers(m proto.ClientMessage) {
 	list, maxAccess, phoneMax := c.s.Launch.Providers(launchWho(c.who))
-	c.send(proto.NewAgentProviders(m.ID, list, maxAccess, phoneMax))
+	var defaultAccess string
+	if c.s.Registry != nil {
+		defaultAccess = c.s.Registry.Load().Agents.Access
+	}
+	c.send(proto.NewAgentProviders(m.ID, list, maxAccess, phoneMax, defaultAccess))
 }
 
 func (c *conn) configSet(m proto.ClientMessage) {
