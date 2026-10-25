@@ -102,7 +102,7 @@ final class BenchDriver {
             phase = .streaming(n + 1)
         case .streaming:
             phase = .scrolling(0)
-        case .scrolling(let n) where n < 240:
+        case .scrolling(let n) where n < Self.scrollFrames:
             flick(by: scenario.up ? -30 : 30)
             phase = .scrolling(n + 1)
         case .scrolling:
@@ -110,8 +110,10 @@ final class BenchDriver {
         }
     }
 
+    private lazy var list = mainScroll()
+
     private func flick(by dy: CGFloat) {
-        guard let list = mainScroll() else { return }
+        guard let list else { return }
         let top = -list.adjustedContentInset.top
         let bottom = max(list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom, top)
         let y = min(max(list.contentOffset.y + dy, top), bottom)
@@ -137,6 +139,8 @@ final class BenchDriver {
         NSLog("%@", line)
         exit(0)
     }
+
+    static let scrollFrames = Int(ProcessInfo.processInfo.environment["UIBENCH_SCROLL"] ?? "") ?? 240
 
     /// The main thread's own CPU time, so the host's other processes don't blur the numbers.
     static func clock() -> UInt64 { clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) }

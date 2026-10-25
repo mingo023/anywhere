@@ -83,6 +83,7 @@ struct TableLayout: Layout {
     let available: CGFloat
 
     struct Cache {
+        var sizes: [CGSize] = []
         var natural: [CGFloat] = []
         var widths: [CGFloat] = []
         var heights: [CGFloat] = []
@@ -96,9 +97,10 @@ struct TableLayout: Layout {
     func measure(_ subviews: Subviews, _ cache: inout Cache) {
         guard columns > 0, cache.available != available else { return }
         if cache.natural.isEmpty {
+            cache.sizes = subviews.map { $0.sizeThatFits(.unspecified) }
             var natural = [CGFloat](repeating: 0, count: columns)
-            for (i, view) in subviews.enumerated() {
-                natural[i % columns] = max(natural[i % columns], view.sizeThatFits(.unspecified).width.rounded(.up))
+            for (i, size) in cache.sizes.enumerated() {
+                natural[i % columns] = max(natural[i % columns], size.width.rounded(.up))
             }
             cache.natural = natural
         }
@@ -106,7 +108,10 @@ struct TableLayout: Layout {
         let rows = (subviews.count + columns - 1) / columns
         var heights = [CGFloat](repeating: 0, count: rows)
         for (i, view) in subviews.enumerated() {
-            heights[i / columns] = max(heights[i / columns], view.sizeThatFits(ProposedViewSize(width: widths[i % columns], height: nil)).height)
+            let width = widths[i % columns]
+            // A cell given its natural width or more doesn't wrap, so its height is the one already measured.
+            let height = width >= cache.sizes[i].width ? cache.sizes[i].height : view.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+            heights[i / columns] = max(heights[i / columns], height)
         }
         cache.widths = widths
         cache.heights = heights
