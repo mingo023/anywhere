@@ -4,14 +4,16 @@ import Stores
 import SwiftUI
 import Wire
 
-/// The new session sheet: which agent, how, on which account, where, and the first prompt. Starting shows pocketd's
-/// steps, then opens the chat.
+/// The new session sheet, prompt first as on the desktop: what to build in a composer whose pills pick the agent, its
+/// model and access, over where it runs. Starting shows pocketd's steps, then opens the chat.
 @MainActor
 struct NewSessionView: View {
     let host: HostModel
     let mac: String
     @State private var draft: NewSessionDraft
     @State private var requestId: String?
+    @State private var worktreeOptions = false
+    @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -35,20 +37,25 @@ struct NewSessionView: View {
     private var problem: String? {
         canSpawn ? draft.problem(taken: taken, maxAccess: maxAccess) : "Your Mac doesn't let this phone start sessions"
     }
+    private var places: [Places.Option] {
+        project.map { Places.options(project: $0, locals: workspace.locals, names: workspace.names, canManage: workspace.canManage, canSpawn: canSpawn) } ?? []
+    }
 
     var body: some View {
-        Form {
+        Group {
             if let requestId {
-                CreationProgress(creation: workspace.creations[requestId]) {
-                    if let creation = workspace.creations[requestId] { draft.resume(after: creation) }
-                    workspace.forget(creation: requestId)
-                    self.requestId = nil
+                Form {
+                    CreationProgress(creation: workspace.creations[requestId]) {
+                        if let creation = workspace.creations[requestId] { draft.resume(after: creation) }
+                        workspace.forget(creation: requestId)
+                        self.requestId = nil
+                    }
                 }
+                .formStyle(.grouped)
             } else {
-                fields
+                compose
             }
         }
-        .formStyle(.grouped)
         .navigationTitle("New Session")
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -60,11 +67,22 @@ struct NewSessionView: View {
                     dismiss()
                 }
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Start", action: start).disabled(requestId != nil || providers == nil || problem != nil)
+        }
+        .sheet(isPresented: $worktreeOptions) {
+            NavigationStack {
+                Form {
+                    WorktreeFields(draft: $draft, branches: workspace.branches[mainTree], canChooseSource: workspace.canManage, taken: taken)
+                }
+                .navigationTitle("New Worktree")
+                #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { worktreeOptions = false } } }
             }
+            .presentationDetents([.medium, .large])
         }
         .task { await load() }
+        .onAppear { focused = true }
         .onChange(of: draft.provider) { _, provider in Task { try? await workspace.loadAccounts(provider: provider.rawValue) } }
         .onChange(of: draft.project) { _, _ in
             draft.place = .tree(mainTree)
@@ -72,68 +90,167 @@ struct NewSessionView: View {
         }
     }
 
-    @ViewBuilder
-    private var fields: some View {
-        if workspace.projects.count > 1 {
-            Picker("Project", selection: $draft.project) {
-                ForEach(workspace.projects) { Text($0.name).tag($0.path) }
+    // MARK: Compose
+
+    private var compose: some View {
+        VStack(spacing: Space.m) {
+            Spacer()
+            Text("What should we build next?")
+                .font(Typography.title)
+                .foregroundStyle(Palette.text.color)
+                .multilineTextAlignment(.center)
+            Spacer()
+            box
+            where_
+            if let problem {
+                Text(problem).font(Typography.footnote).foregroundStyle(Palette.failedText.color).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        if let project {
-            Section("Where") {
-                Picker("Where", selection: $draft.place) {
-                    ForEach(Places.options(project: project, locals: workspace.locals, names: workspace.names, canManage: workspace.canManage,
-                                           canSpawn: canSpawn)) { option in
-                        // A fixed slot, so names line up whatever the symbol's width.
-                        Label { Text(option.label) } icon: { Image(systemName: option.systemImage).frame(width: 22) }.tag(option.place)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                if draft.place == .newWorktree {
-                    WorktreeFields(draft: $draft, branches: workspace.branches[mainTree], canChooseSource: workspace.canManage, taken: taken)
-                }
+        .padding(.horizontal, Space.m)
+        .padding(.bottom, Space.s)
+        .frame(maxWidth: 744)
+        .frame(maxWidth: .infinity)
+        .screenBackground()
+    }
+
+    private var box: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("Prompt", text: $draft.prompt, prompt: Text("Describe the task…"), axis: .vertical)
+                .lineLimit(3...8)
+                .font(Typography.body)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .padding(.horizontal, 4)
+                .padding(.top, 4)
+            HStack(spacing: 0) {
+                agentMenu
+                modelMenu
+                accessMenu
+                Spacer(minLength: Space.s)
+                startButton
             }
         }
-        Section {
-            ChipRow(options: (providers?.providers.filter(\.available) ?? []).map { (ProviderId(rawValue: $0.id), SessionText.provider($0.id)) },
-                    selection: Binding(get: { draft.provider }, set: { draft.pick(provider: $0) }))
-            let models = NewSessionDraft.models(draft.provider)
-            if !models.isEmpty {
-                ChipRow(options: [(String?.none, "Default")] + models.map { (Optional($0), Sidebar.modelName($0)) }, selection: $draft.model)
-            }
-            if let efforts = info?.efforts, !efforts.isEmpty {
-                ChipRow(options: [(String?.none, "Default effort")] + efforts.map { (Optional($0), $0.capitalized) }, selection: $draft.effort)
-            }
-            if info?.plan == true { Toggle("Plan first", isOn: $draft.plan) }
-            Toggle("Chat only", isOn: $draft.chat)
-        } header: {
-            Text("Agent")
-        } footer: {
-            Text(draft.chat ? "Runs without a terminal: you drive it from the chat." : "Runs in a terminal you can open too.")
+        .padding(8)
+        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.separator.color))
+    }
+
+    private var startButton: some View {
+        let blocked = requestId != nil || providers == nil || problem != nil
+        return Button(action: start) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle((blocked ? Palette.text4 : Palette.onText).color)
+                .frame(width: 34, height: 34)
+                .background((blocked ? Palette.fill3 : Palette.text).color, in: Circle())
         }
-        Section {
-            ChipRow(options: NewSessionDraft.accesses(max: maxAccess).map { ($0, NewSessionDraft.accessLabel($0)) }, selection: $draft.access)
-        } header: {
-            Text("Access")
-        } footer: {
-            Text(NewSessionDraft.accessHint(draft.access))
-        }
-        if let accounts = workspace.accounts[draft.provider.rawValue]?.filter(\.signedIn), !accounts.isEmpty {
-            Section("Account") {
+        .buttonStyle(.plain)
+        .disabled(blocked)
+        .accessibilityLabel("Start")
+    }
+
+    private var agentMenu: some View {
+        Menu {
+            Picker("Agent", selection: Binding(get: { draft.provider }, set: { draft.pick(provider: $0) })) {
+                ForEach(providers?.providers.filter(\.available) ?? [], id: \.id) { Text(SessionText.provider($0.id)).tag(ProviderId(rawValue: $0.id)) }
+            }
+            if info?.plan == true { Toggle("Plan First", isOn: $draft.plan) }
+            Toggle("Chat Only", isOn: $draft.chat)
+            if let accounts = workspace.accounts[draft.provider.rawValue]?.filter(\.signedIn), !accounts.isEmpty {
+                // pocketd picks the project's account, else the Mac's default.
                 Picker("Account", selection: $draft.account) {
-                    // pocketd picks the project's account, else the Mac's default; the built-in login is listed as its own row.
-                    Text("Default").tag(String?.none)
+                    Text("Default Account").tag(String?.none)
                     ForEach(accounts) { Text(SessionText.account($0)).tag(Optional($0.id)) }
                 }
+                .pickerStyle(.menu)
+            }
+        } label: {
+            ComposerPill(systemImage: "sparkle", text: SessionText.provider(draft.provider.rawValue))
+        }
+        .menuOrder(.fixed)
+    }
+
+    private var modelMenu: some View {
+        let models = NewSessionDraft.models(draft.provider)
+        let efforts = info?.efforts ?? []
+        let model = draft.model.map(Sidebar.modelName) ?? "Default model"
+        return Menu {
+            if !models.isEmpty {
+                Picker("Model", selection: $draft.model) {
+                    Text("Default").tag(String?.none)
+                    ForEach(models, id: \.self) { Text(Sidebar.modelName($0)).tag(Optional($0)) }
+                }
+            }
+            if !efforts.isEmpty {
+                Picker("Effort", selection: $draft.effort) {
+                    Text("Default Effort").tag(String?.none)
+                    ForEach(efforts, id: \.self) { Text($0.capitalized).tag(Optional($0)) }
+                }
+                .pickerStyle(.menu)
+            }
+        } label: {
+            ComposerPill(text: draft.effort.map { "\(model) · \($0.capitalized)" } ?? model)
+        }
+        .menuOrder(.fixed)
+        .disabled(models.isEmpty && efforts.isEmpty)
+    }
+
+    private var accessMenu: some View {
+        Menu {
+            // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
+            ForEach(NewSessionDraft.accesses(max: maxAccess), id: \.self) { access in
+                Button { draft.access = access } label: {
+                    if access == draft.access {
+                        Label(NewSessionDraft.accessLabel(access), systemImage: "checkmark")
+                    } else {
+                        Text(NewSessionDraft.accessLabel(access))
+                    }
+                    Text(NewSessionDraft.accessHint(access))
+                }
+            }
+        } label: {
+            ComposerPill(systemImage: "shield", text: NewSessionDraft.accessLabel(draft.access))
+        }
+        .menuOrder(.fixed)
+    }
+
+    /// The project, where in it the agent runs, and a new worktree's name and branch.
+    private var where_: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                Menu {
+                    Picker("Project", selection: $draft.project) {
+                        ForEach(workspace.projects) { Text($0.name).tag($0.path) }
+                    }
+                } label: {
+                    ComposerPill(systemImage: "shippingbox", text: project?.name ?? "Project")
+                }
+                .disabled(workspace.projects.count < 2)
+                let place = places.first { $0.place == draft.place }
+                Menu {
+                    Picker("Where", selection: $draft.place) {
+                        ForEach(places) { Label($0.label, systemImage: $0.systemImage).tag($0.place) }
+                    }
+                } label: {
+                    ComposerPill(systemImage: place?.systemImage ?? "laptopcomputer", text: place?.label ?? "Local")
+                }
+                .menuOrder(.fixed)
+                if draft.place == .newWorktree {
+                    Button { worktreeOptions = true } label: {
+                        ComposerPill(systemImage: "arrow.triangle.branch", text: worktreeLabel, chevron: false)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
-        Section {
-            TextField("Prompt", text: $draft.prompt, prompt: Text("What should it do?"), axis: .vertical).lineLimit(3...10)
-        } header: {
-            Text("Prompt")
-        } footer: {
-            if let problem { Text(problem).foregroundStyle(Palette.failedText.color) }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    private var worktreeLabel: String {
+        switch draft.source {
+        case .new: draft.autoNames ? "Named from the prompt" : draft.worktreeName(taken: taken) + (draft.base.map { " from \($0)" } ?? "")
+        case .branch(let b): b.isEmpty ? "Pick a branch" : b
+        case .pr(let typed): typed.isEmpty ? "Pick a pull request" : "PR \(typed)"
         }
     }
 
@@ -173,5 +290,26 @@ struct NewSessionView: View {
 
     static func main(of project: Project?) -> String? {
         project.map { $0.worktrees.first(where: \.isMain)?.path ?? $0.path }
+    }
+}
+
+/// A composer's menu button: a symbol, what it holds, and the up-down chevron of a choice.
+@MainActor
+private struct ComposerPill: View {
+    var systemImage: String?
+    let text: String
+    var chevron = true
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let systemImage { Image(systemName: systemImage).font(.system(size: 11)) }
+            Text(text).lineLimit(1)
+            if chevron { Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
+        }
+        .font(Typography.footnote)
+        .foregroundStyle(Palette.text2.color)
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .contentShape(Rectangle())
     }
 }
