@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Answering.handler = { [app] mac, request, decision in
             try await app.deliver(.permissionResolve(.init(requestId: request, decision: Decision(rawValue: decision))), mac: mac)
         }
+        #if DEBUG || BENCH
+            if BenchRun.scenario != nil { return true }
+        #endif
         Task {
             let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
             PushCenter.shared.granted(granted)

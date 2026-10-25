@@ -10,9 +10,9 @@ struct AnywhereApp: App {
 
     var body: some Scene {
         WindowGroup {
-            #if DEBUG
-                if let scenario = BenchRun.scenario {
-                    BenchView(scenario: scenario)
+            #if DEBUG || BENCH
+                if let driver = BenchRun.driver {
+                    BenchView(run: driver)
                 } else {
                     RootView(app: delegate.app)
                 }

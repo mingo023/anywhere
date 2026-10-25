@@ -47,7 +47,7 @@ targets:
         product: LiveActivityUI
       - package: AnywhereKit
         product: ActivityModel
-      # Linked in every build; only a debug build's `-bench` reads it.
+      # Linked in every build; only a debug or BENCH build's `-bench` reads it.
       - package: AnywhereKit
         product: BenchScenes
       - target: AnywhereWidgets

@@ -100,6 +100,7 @@ struct TranscriptView: View {
                 .opensAtEnd()
                 .coordinateSpace(name: "chat")
                 .simultaneousGesture(DragGesture(minimumDistance: 6).onChanged { _ in dragged() }.onEnded { _ in scroll.dragging = false })
+                .leavesEndOnScrollUp { left() }
                 .onPreferenceChange(RowFrames.self) { frames in
                     MainActor.assumeIsolated {
                         scroll.viewport = outer.size.height
@@ -224,6 +225,12 @@ struct TranscriptView: View {
     private func dragged() {
         guard !scroll.dragging else { return }
         scroll.dragging = true
+        left()
+    }
+
+    /// The list moved off the end by the user's doing: it follows the tail again once they bring it back.
+    private func left() {
+        guard scroll.following || scroll.pin != nil else { return }
         scroll.following = false
         scroll.pin?.moved(atEnd: scroll.distance <= 2)
     }
@@ -327,7 +334,25 @@ private struct StickyOverlay: View {
     }
 }
 
+/// Where the list sits and how tall its rows are, to tell the user scrolling up from rows growing under it.
+private struct ScrollSpot: Equatable {
+    let y: CGFloat
+    let height: CGFloat
+}
+
 extension View {
+    /// Calls `leave` when the list moves up with its rows unchanged: a drag, a flick or a tap on the status bar, none of
+    /// which the list's own scrolls do. Only iOS 18 reports it; elsewhere the drag gesture alone takes the list.
+    fileprivate func leavesEndOnScrollUp(_ leave: @escaping () -> Void) -> some View {
+        #if os(iOS)
+            onScrollGeometryChange(for: ScrollSpot.self) { ScrollSpot(y: $0.contentOffset.y, height: $0.contentSize.height) } action: { old, new in
+                if new.height == old.height && new.y < old.y - 1 { leave() }
+            }
+        #else
+            self
+        #endif
+    }
+
     /// Opens a long transcript at its end rather than laying it out from the top and chasing the end with `scrollTo`,
     /// which can leave the list on an offset where it builds no rows (under a tall code block, say).
     fileprivate func opensAtEnd() -> some View {
