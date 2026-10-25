@@ -22,12 +22,21 @@ public struct ChatView: View {
 
     public var body: some View {
         if let store {
+            let mac = host.hello?.serverId ?? host.id
             ChatScreen(store: store, machine: host.name) { link in
                 switch link {
                 case .web: break
                 case .file(let path, _):
                     guard let cwd = store.summary?.cwd else { return }
-                    open(.file(mac: host.hello?.serverId ?? host.id, tree: cwd, path: path))
+                    open(.file(mac: mac, tree: cwd, path: path))
+                }
+            }
+            .toolbar {
+                if let cwd = store.summary?.cwd {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button { open(.changes(mac: mac, tree: cwd)) } label: { Label("Changes", systemImage: "plusminus") }
+                        Button { open(.files(mac: mac, tree: cwd, dir: "")) } label: { Label("Files", systemImage: "folder") }
+                    }
                 }
             }
         } else {
