@@ -31,6 +31,14 @@ final class ScrollState {
     var firstId: String?
 }
 
+/// The jump pill and the sticky card, read only by their overlays: a change to them redraws those, not the list.
+@MainActor
+@Observable
+final class Floating {
+    var jump = false
+    var stuck: Stuck?
+}
+
 /// The prompt card over the list's top, and how far the next prompt pushed it.
 struct Stuck: Equatable {
     let row: Int
@@ -48,8 +56,7 @@ struct TranscriptView: View {
 
     @State private var scroll = ScrollState()
     @State private var spacer: CGFloat = 0
-    @State private var jump = false
-    @State private var stuck: Stuck?
+    @State private var floating = Floating()
     @State private var flash: String?
     @State private var made = Made()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -124,19 +131,8 @@ struct TranscriptView: View {
                     show(call: id)
                 }
                 .onChange(of: ids.first) { old, _ in keepTop(old) }
-                // Each animation on its own overlay: on the list, it would carry a scroll landing in the same update.
-                .overlay(alignment: .bottom) {
-                    ZStack {
-                        if jump { JumpPill { toEnd() }.padding(.bottom, Space.m) }
-                    }
-                    .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.18), value: jump)
-                }
-                .overlay(alignment: .top) {
-                    ZStack {
-                        if let stuck { StickyOverlay(store: store, stuck: stuck) { pinToTop($0) } }
-                    }
-                    .animation(.easeOut(duration: 0.22), value: stuck?.row)
-                }
+                .overlay(alignment: .bottom) { JumpOverlay(floating: floating) { toEnd() } }
+                .overlay(alignment: .top) { StickyOverlay(store: store, floating: floating) { pinToTop($0) } }
             }
         }
     }
@@ -185,8 +181,8 @@ struct TranscriptView: View {
         if !scroll.dragging && distance <= 2 && scroll.pin == nil { scroll.following = true }
         // Rows grew under a list that keeps to its end: it's back there below, so the pill stays as it was.
         let snaps = scroll.following && scroll.pin == nil && distance > 2 && !scroll.dragging
-        let showJump = snaps ? jump : jumpVisibility(wasShown: jump, distance: distance)
-        if showJump != jump { jump = showJump }
+        let showJump = snaps ? floating.jump : jumpVisibility(wasShown: floating.jump, distance: distance)
+        if showJump != floating.jump { floating.jump = showJump }
         updateSticky(frames)
         if scroll.pin != nil { stepPin(frames, end: end) }
         if snaps { scroll.proxy?.scrollTo("end", anchor: .bottom) }
@@ -276,13 +272,13 @@ struct TranscriptView: View {
         // Rows built but none on screen: frames from before the lazy stack corrected its estimates, so keep the card.
         if shown.isEmpty && !built.isEmpty { return }
         guard let top = shown.first, let ix = Sticky.stuck(rows, top: top.ix, offset: Double(max(-top.minY, 0))) else {
-            if stuck != nil { stuck = nil }
+            if floating.stuck != nil { floating.stuck = nil }
             return
         }
         let next = Sticky.nextPrompt(rows, top: top.ix).flatMap { n in built.first { $0.ix == n } }
         let shift = Sticky.pushed(bottom: Sticky.marginTop + Sticky.height, next: next.map { Double($0.minY) }).rounded()
         let now = Stuck(row: ix, shift: shift)
-        if now != stuck { stuck = now }
+        if now != floating.stuck { floating.stuck = now }
     }
 
     private func pinToTop(_ id: String) {
@@ -315,14 +311,36 @@ private struct RowSlot: View {
     }
 }
 
+/// Each animation on its own overlay: on the list, it would carry a scroll landing in the same update.
+@MainActor
+private struct JumpOverlay: View {
+    let floating: Floating
+    let action: () -> Void
+
+    var body: some View {
+        ZStack {
+            if floating.jump { JumpPill(action: action).padding(.bottom, Space.m) }
+        }
+        .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.18), value: floating.jump)
+    }
+}
+
 /// The prompt card over the list's top; its own view, so only it reads the session for the prompt.
 @MainActor
 private struct StickyOverlay: View {
     let store: ChatStore
-    let stuck: Stuck
+    let floating: Floating
     let tap: (_ id: String) -> Void
 
     var body: some View {
+        ZStack {
+            if let stuck = floating.stuck { card(stuck) }
+        }
+        .animation(.easeOut(duration: 0.22), value: floating.stuck?.row)
+    }
+
+    @ViewBuilder
+    private func card(_ stuck: Stuck) -> some View {
         let session = store.session
         if session.rows.indices.contains(stuck.row), case .prompt(let turn) = session.rows[stuck.row],
             let prompt = session.transcript.turns[turn].prompt

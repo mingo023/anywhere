@@ -11,24 +11,6 @@ final class RowIds {
         didSet { index = Dictionary(list.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a }) }
     }
     @ObservationIgnored fileprivate(set) var index: [String: Int] = [:]
-    /// The model rows each list row shows, by position in `list`.
-    @ObservationIgnored fileprivate(set) var spans: [Range<Int>] = []
-}
-
-/// The list rows over model rows `rows`: a message's paragraphs in runs of up to `size`, counted from its first, so a
-/// streaming reply adds a list row every `size` paragraphs rather than every one, and a run keeps its id as it grows.
-func textRuns(_ rows: [Row], size: Int = 4) -> [Range<Int>] {
-    var runs: [Range<Int>] = []
-    var i = 0
-    while i < rows.count {
-        var j = i + 1
-        if case .text(let turn, let block, _) = rows[i] {
-            while j < rows.count, j - i < size, case .text(turn, block, _) = rows[j] { j += 1 }
-        }
-        runs.append(i..<j)
-        i = j
-    }
-    return runs
 }
 
 /// One row's item, observed by that row alone.
@@ -71,8 +53,7 @@ final class TranscriptRows {
         return box
     }
 
-    /// The model row a list row starts at.
-    func index(_ id: String) -> Int { ids.index[id].map { ids.spans[$0].lowerBound } ?? -1 }
+    func index(_ id: String) -> Int { ids.index[id] ?? -1 }
 
     func appeared(_ id: String) {
         guard let box = boxes[id] else { return }
@@ -93,10 +74,7 @@ final class TranscriptRows {
             // Called before the change is made: read it once it's in.
             Task { @MainActor [weak self] in self?.refresh() }
         }
-        let session = builder.session
-        let spans = textRuns(session.rows)
-        ids.spans = spans
-        let list = spans.map { session.ids[$0.lowerBound] }
+        let list = builder.session.ids
         if list != ids.list {
             ids.list = list
             boxes = boxes.filter { ids.index[$0.key] != nil }
@@ -113,7 +91,7 @@ final class TranscriptRows {
     }
 
     private func item(_ id: String) -> RowItem? {
-        ids.index[id].map { builder.item(ids.spans[$0]) }
+        ids.index[id].map(builder.item)
     }
 
     private static func builder(_ store: ChatStore) -> RowBuilder {

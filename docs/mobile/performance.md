@@ -28,7 +28,8 @@ iPhone 17 Pro simulator, iOS 27.0, 60 Hz (a 16.7 ms frame), on an M-series Mac. 
 
 | Scenario | Load ms | Stream | Stream hitches | Scroll | Scroll hitches | Memory MB |
 |---|---:|---:|---:|---:|---:|---:|
-| chat-5000 | ~750 | 6.2 / 7.9 / 15–20 | 0–1 / 600 | 3.7 / 11 / 24 | 1–2 / 241 | 37 |
+| chat-5000 | ~750 | 6.0 / 8.1 / 14–22 | 0–1 / 600 | 4.4 / 8.3 / 19–21 | 1 / 241 | 37 |
+| chat-send | ~750 | send 67–75 | 1 / 1 | 4.2 / 8.5 / 22 | 4 / 241 | 37 |
 | changes-1500 | ~420 | 7.0 / 30 / 30 | 0–1 / 20 | 3.7 / 6.9 / 12 | 0 / 241 | 38 |
 | diff-20k | ~290 | – | – | 1.2 / 3.1 / 12 | 0–1 / 241 | 29 |
 | file-10k | ~285 | – | – | 1.1 / 3.5 / 6.8 | 0 / 241 | 26 |
@@ -37,7 +38,9 @@ iPhone 17 Pro simulator, iOS 27.0, 60 Hz (a 16.7 ms frame), on an M-series Mac. 
 Hitch counts vary between runs of the same build; run a scenario three times before reading a change into them.
 
 - **Markdown selects in a sheet on iOS.** `.textSelection(.enabled)` gives each `Text` a `UITextInteraction` and its gesture recognizers as it comes on screen, about a third of the main thread while markdown scrolled (1–10 hitches, max ~28 ms). Markdown text is now selectable in place on the Mac only (`selectableOnMac`); on iOS a reply's footer and a file's menu open `SelectTextSheet`, a read-only `UITextView`. One modifier over the whole document instead was worse (load 2.9 s).
-- **What is left in chat scroll is the lazy stack**: `LazyHVStack.lengthAndSpacing` re-estimating the rows above, ~16% of the main thread (see below).
+- **Chat list rows are one per model row again.** Runs of four paragraphs (below) didn't move the iOS stream (p95 ~8 ms either way) and made scroll build four markdown paragraphs at once as a run came on screen: max 29–30 ms at four, 25 at two, 19 at one; scroll hitches in chat-send went from 7–9 to 4.
+- **The jump pill and the sticky card live in `Floating`**, read only by their overlays, so their changes don't rerun `TranscriptView.body` over thousands of ids.
+- **What is left:** chat's one hitch is the first heading and list it lays out (frame 11, ~19 ms; later long replies cost ~12 ms), and `LazyHVStack.lengthAndSpacing` re-estimating the rows above is ~16% of chat scroll. Sending a prompt in the 5000-item chat is one ~70 ms frame, as before this pass.
 - **A table measured each cell twice**; a cell at its natural width or wider now keeps the height it measured then.
 - **A Live Activity start blocked the main thread ~0.7 s** in ActivityKit's synchronous XPC; it now runs off it.
 
