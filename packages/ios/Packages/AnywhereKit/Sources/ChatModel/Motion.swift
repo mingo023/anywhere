@@ -70,25 +70,9 @@ public struct Reveal: Hashable, Sendable {
     }
 }
 
-/// A scroll to the end, eased over 300 ms; past 2.5 viewports there's no glide and the list jumps.
-public struct Glide: Hashable, Sendable {
+/// A scroll to the end, eased over 300 ms however far the end is.
+public enum Glide {
     public static let duration: Seconds = 0.3
-    var distance: Double
-    var moved = 0.0
-
-    public init?(distance: Double, viewport: Double) {
-        guard distance <= viewport * 2.5 else { return nil }
-        self.distance = distance
-    }
-
-    /// The points to scroll `elapsed` into the glide, and whether it has arrived.
-    public mutating func step(_ elapsed: Seconds) -> (by: Double, done: Bool) {
-        let t = min(elapsed / Self.duration, 1)
-        let to = distance * easeOutQuint(t)
-        let by = to - moved
-        moved = to
-        return (by, t >= 1)
-    }
 }
 
 /// Once offered, the jump pill stays until the end is within 2 pt; one 320 pt threshold dropped it halfway through a scroll down.

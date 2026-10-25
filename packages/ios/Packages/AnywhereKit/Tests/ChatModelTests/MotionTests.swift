@@ -86,17 +86,6 @@ func theJumpPillShows() {
     #expect(!jumpVisibility(wasShown: true, distance: 2))
 }
 
-@Test("a glide eases the whole distance and a far end jumps")
-func aGlideEasesTheWholeDistance() {
-    #expect(Glide(distance: 2501, viewport: 1000) == nil)
-    var glide = Glide(distance: 1000, viewport: 1000)!
-    let (first, done) = glide.step(0.06)
-    #expect(!done && first > 500)
-    let (rest, end) = glide.step(0.4)
-    #expect(end)
-    #expect(abs(first + rest - 1000) < 0.01)
-}
-
 @Test("a prompt with nothing before it holds at the top as soon as its row is measured")
 func aPromptWithNothingBefore() {
     var pin = Pin()
