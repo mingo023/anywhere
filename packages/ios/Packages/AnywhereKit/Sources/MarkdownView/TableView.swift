@@ -58,6 +58,7 @@ struct TableView: View {
         }
         let style = InlineStyle(size: metrics.body, weight: header ? .semibold : .regular, color: header ? Palette.text : Palette.textBody)
         return InlineText.text(inlines, style: style)
+            .codeChips(inlines)
             .lineSpacing(Metrics.spacing(size: metrics.body, line: metrics.line))
             .multilineTextAlignment(text)
             .selectableOnMac()

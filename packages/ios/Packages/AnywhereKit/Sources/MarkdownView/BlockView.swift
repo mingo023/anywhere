@@ -131,6 +131,7 @@ struct ParagraphView: View {
     func text(_ content: [MDInline]) -> some View {
         let spacing = Metrics.spacing(size: style.size, line: line)
         return InlineText.text(trimmed(content), style: style)
+            .codeChips(content)
             .lineSpacing(spacing)
             .padding(.vertical, spacing / 2)
             .fixedSize(horizontal: false, vertical: true)
@@ -258,6 +259,7 @@ struct AlertView: View {
                     .font(.system(size: metrics.body, weight: .semibold))
                     .foregroundStyle(colour)
                 InlineText.text(alert.title, style: InlineStyle(size: metrics.body, weight: .semibold, color: Palette.text))
+                    .codeChips(alert.title)
                     .foregroundStyle(colour)
                     .fixedSize(horizontal: false, vertical: true)
             }

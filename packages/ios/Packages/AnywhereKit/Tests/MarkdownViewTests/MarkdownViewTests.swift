@@ -197,3 +197,25 @@ import Testing
         #expect(first == lead.utf16.count)
     }
 }
+
+@Suite struct CodeChips {
+    @Test("a chip's runs side by side make one box, and text between two chips keeps them apart")
+    @available(macOS 15, *)
+    func chipRunsOnALineShareABox() {
+        let pad = CGRect(x: 10, y: 0, width: 3, height: 16)
+        let code = CGRect(x: 13, y: 0, width: 40, height: 16)
+        let tail = CGRect(x: 53, y: 0, width: 3, height: 16)
+        let words = CGRect(x: 56, y: 0, width: 30, height: 16)
+        let next = CGRect(x: 86, y: 0, width: 20, height: 16)
+        let boxes = CodeChipRenderer.boxes([(pad, true), (code, true), (tail, true), (words, false), (next, true)])
+        #expect(boxes == [CGRect(x: 10, y: 0, width: 46, height: 16), next])
+        #expect(CodeChipRenderer.boxes([(words, false)]).isEmpty)
+    }
+
+    @Test("only text holding code or a path, at any depth, takes the chip renderer")
+    func chipsAreFoundInsideMarks() {
+        #expect(!MDInline.text("plain").hasChip)
+        #expect(MDInline.code("x").hasChip)
+        #expect(MDInline.strong([.link(destination: "a", title: nil, [.path("src/a.rs", folder: false)])]).hasChip)
+    }
+}
