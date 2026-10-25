@@ -15,6 +15,7 @@ struct FilePreviewScreen: View {
 
     @AppStorage("files.markdownSource") private var source = false
     @State private var linked: FilePick?
+    @State private var selecting = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -42,6 +43,9 @@ struct FilePreviewScreen: View {
         .navigationDestination(item: $linked) { pick in
             FilePreviewScreen(files: files, preview: files.preview(tree: preview.tree, path: pick.path))
         }
+        #if os(iOS)
+            .sheet(isPresented: $selecting) { SelectTextSheet(loaded?.text ?? "") }
+        #endif
     }
 
     private var loaded: FsRead? {
@@ -104,6 +108,11 @@ struct FilePreviewScreen: View {
                     Clipboard.copy(FileText.absolute(tree: preview.tree, preview.path))
                     Haptics.success()
                 } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+                #if os(iOS)
+                    if read?.text != nil {
+                        Button { selecting = true } label: { Label("Select Text", systemImage: "text.cursor") }
+                    }
+                #endif
                 if let read { share(read) }
                 Button { files.load(preview) } label: { Label("Reload", systemImage: "arrow.clockwise") }
             } label: {

@@ -179,7 +179,7 @@ public struct CodeBlockView: View {
             .font(.system(size: size, design: .monospaced))
             .foregroundStyle(Palette.text.color)
             .lineSpacing(Metrics.spacing(size: size, line: line))
-            .textSelection(.enabled)
+            .selectableOnMac()
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         if wrapped {

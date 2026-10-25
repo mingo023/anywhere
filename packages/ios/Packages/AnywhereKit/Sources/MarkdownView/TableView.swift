@@ -60,7 +60,7 @@ struct TableView: View {
         return InlineText.text(inlines, style: style)
             .lineSpacing(Metrics.spacing(size: metrics.body, line: metrics.line))
             .multilineTextAlignment(text)
-            .textSelection(.enabled)
+            .selectableOnMac()
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: frame)
             .overlay(alignment: .trailing) {

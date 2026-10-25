@@ -135,7 +135,7 @@ struct ParagraphView: View {
             .padding(.vertical, spacing / 2)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
+            .selectableOnMac()
     }
 
     /// Without breaks at either end, which an image cut out of the run leaves behind.

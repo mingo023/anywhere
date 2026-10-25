@@ -28,15 +28,16 @@ iPhone 17 Pro simulator, iOS 27.0, 60 Hz (a 16.7 ms frame), on an M-series Mac. 
 
 | Scenario | Load ms | Stream | Stream hitches | Scroll | Scroll hitches | Memory MB |
 |---|---:|---:|---:|---:|---:|---:|
-| chat-5000 | ~750 | 6.1 / 7.4 / 19 | 0–1 / 600 | 3.8 / 12 / 26 | 1–5 / 241 | 37 |
+| chat-5000 | ~750 | 6.2 / 7.9 / 15–20 | 0–1 / 600 | 3.7 / 11 / 24 | 1–2 / 241 | 37 |
 | changes-1500 | ~420 | 7.0 / 30 / 30 | 0–1 / 20 | 3.7 / 6.9 / 12 | 0 / 241 | 38 |
 | diff-20k | ~290 | – | – | 1.2 / 3.1 / 12 | 0–1 / 241 | 29 |
 | file-10k | ~285 | – | – | 1.1 / 3.5 / 6.8 | 0 / 241 | 26 |
-| markdown-258k | ~505 | – | – | 1.5 / 12.7 / 26 | 1–10 / 241 | 40 |
+| markdown-258k | ~505 | – | – | 1.5 / 10.5 / 21 | 0–2 / 241 | 39 |
 
 Hitch counts vary between runs of the same build; run a scenario three times before reading a change into them.
 
-- **Markdown and chat scroll hitches are text selection.** `.textSelection(.enabled)` gives each `Text` a `UITextInteraction` and its gesture recognizers as it comes on screen, about a third of the main thread while markdown scrolls. Without it in markdown, scroll falls to 0–3 hitches, max ~19 ms; one modifier over the whole document is worse (load 2.9 s). Keeping per-text selection is a product choice; the iOS alternative is a long-press "Select text" sheet.
+- **Markdown selects in a sheet on iOS.** `.textSelection(.enabled)` gives each `Text` a `UITextInteraction` and its gesture recognizers as it comes on screen, about a third of the main thread while markdown scrolled (1–10 hitches, max ~28 ms). Markdown text is now selectable in place on the Mac only (`selectableOnMac`); on iOS a reply's footer and a file's menu open `SelectTextSheet`, a read-only `UITextView`. One modifier over the whole document instead was worse (load 2.9 s).
+- **What is left in chat scroll is the lazy stack**: `LazyHVStack.lengthAndSpacing` re-estimating the rows above, ~16% of the main thread (see below).
 - **A table measured each cell twice**; a cell at its natural width or wider now keeps the height it measured then.
 - **A Live Activity start blocked the main thread ~0.7 s** in ActivityKit's synchronous XPC; it now runs off it.
 

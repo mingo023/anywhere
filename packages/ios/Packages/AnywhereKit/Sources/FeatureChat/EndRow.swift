@@ -6,6 +6,7 @@ import SwiftUI
 struct EndRow: View {
     let end: EndContent
     let actions: RowActions
+    @State private var selecting = false
 
     var body: some View {
         switch end {
@@ -28,6 +29,18 @@ struct EndRow: View {
         case .done(let footer?):
             HStack(spacing: Space.m) {
                 CopyButton(text: footer.answer, label: "Copy answer")
+                #if os(iOS)
+                    Button {
+                        selecting = true
+                    } label: {
+                        Image(systemName: "text.cursor").frame(minWidth: 28, minHeight: 28).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Select text")
+                    .font(ChatFont.caption)
+                    .foregroundStyle(Palette.text3.color)
+                    .sheet(isPresented: $selecting) { SelectTextSheet(footer.answer) }
+                #endif
                 if let turn = footer.retry {
                     Button {
                         Haptics.tap()
