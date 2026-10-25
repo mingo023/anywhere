@@ -1,0 +1,48 @@
+# Uploads a tagged release's iPhone app to TestFlight and submits it to the public group: packages/ios/scripts/release.sh.
+# Runs on a v* tag push, or dispatched on a tag by release.yml; secrets live in the `release` environment, which only v* tags can deploy to.
+name: Release iOS
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-ios
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    # The app needs the iOS 26 SDK.
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: XcodeGen
+        run: brew install xcodegen
+
+      # The archive compiles Metal shaders, whose compiler Xcode 26 ships as a separate download.
+      - name: Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: App Store Connect key
+        env:
+          ASC_KEY: ${{ secrets.ANYWHERE_ASC_KEY }}
+        run: |
+          printf '%s' "$ASC_KEY" > "$RUNNER_TEMP/asc.p8"
+          echo "ANYWHERE_ASC_KEY=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
+
+      - name: Release
+        env:
+          ANYWHERE_ASC_KEY_ID: ${{ secrets.ANYWHERE_ASC_KEY_ID }}
+          ANYWHERE_ASC_ISSUER: ${{ secrets.ANYWHERE_ASC_ISSUER }}
+        run: packages/ios/scripts/release.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Remove key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8"
