@@ -1,6 +1,6 @@
 # First Xcode build of the iOS app
 
-The iOS targets have never been built by Xcode. `make -C packages/ios typecheck-ios` typechecks all of the iOS-only code as Mac Catalyst against the Command Line Tools SDK (iOS 17.2-era), with ActivityKit and the newer API stubbed from Apple's docs. It passes, but it can't stand in for a build. These are the steps for the first build, then what is still unverified.
+Built with Xcode 27.1 for the iOS Simulator and for devices (unsigned), all three targets, with no warnings in our code. `make -C packages/ios typecheck-ios` typechecks all of the iOS-only code as Mac Catalyst against the Command Line Tools SDK (iOS 17.2-era), with ActivityKit and the newer API stubbed from Apple's docs. It passes, but it can't stand in for a build. These are the steps for the first build, then what is still unverified.
 
 ## Needs
 
@@ -16,7 +16,7 @@ The iOS targets have never been built by Xcode. `make -C packages/ios typecheck-
    make -C packages/ios gen        # writes packages/ios/Anywhere.xcodeproj (not committed)
    open packages/ios/Anywhere.xcodeproj
    ```
-2. **Packages.** Xcode resolves `swift-cmark` (branch `gfm`) and `SwiftTerm` (exactly 1.20.0) on its own; it doesn't read `Packages/AnywhereKit/Package.resolved`. On the first build Xcode asks you to trust **SwiftTermBuildInfoPlugin**, SwiftTerm's build-tool plugin: choose *Trust & Enable*. From the command line, pass `-skipPackagePluginValidation` to `xcodebuild`.
+2. **Packages.** Xcode resolves `swift-cmark` (branch `gfm`) and `SwiftTerm` (exactly 1.20.0) on its own; it doesn't read `Packages/AnywhereKit/Package.resolved`. On the first build Xcode asks you to trust **SwiftTermBuildInfoPlugin**, SwiftTerm's build-tool plugin: choose *Trust & Enable*. From the command line, pass `-skipPackagePluginValidation` to `xcodebuild`. SwiftTerm also compiles Metal shaders: on a fresh Xcode, run `xcodebuild -downloadComponent MetalToolchain` once.
 3. **Signing.** Under *Signing & Capabilities*, set your team on all three targets: `Anywhere`, `AnywhereWidgets` and `AnywhereNotify`. Leave "Automatically manage signing" on. `make gen` rewrites the project, so set the team again after each run, or pass it on the command line: `xcodebuild -scheme Anywhere DEVELOPMENT_TEAM=<TEAMID> -allowProvisioningUpdates …`.
 4. **Bundle IDs.** These are `dev.mingo.anywhere`, `dev.mingo.anywhere.widgets` and `dev.mingo.anywhere.notify`. If your team can't register them, change all of these together:
    - `bundleIdPrefix` and the three `PRODUCT_BUNDLE_IDENTIFIER`s in `packages/ios/project.yml`.
