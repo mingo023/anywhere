@@ -158,18 +158,6 @@ func (t *Timeline) lastBefore(end int) int {
 	return -1
 }
 
-// LastPrompt is the text of the newest prompt, "" when there's none.
-func (t *Timeline) LastPrompt() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for i := len(t.items) - 1; i >= 0; i-- {
-		if it := t.items[i]; it.ParentToolUseID == "" && it.Kind == "user" {
-			return it.Text
-		}
-	}
-	return ""
-}
-
 // Unanswered says whether the newest prompt has nothing after it yet.
 func (t *Timeline) Unanswered() bool {
 	t.mu.Lock()

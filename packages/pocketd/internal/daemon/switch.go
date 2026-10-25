@@ -17,6 +17,11 @@ var (
 	errSwitchToOut = errors.New("Sign in to this account before switching to it")
 )
 
+// limitContinue is what an agent moved at its limit is sent: its resumed
+// conversation already holds the stopped turn, which a prompt, a task
+// notification or a goal may have started.
+const limitContinue = "continue"
+
 // LimitRefresh bounds the usage read that picks the account an agent at its limit moves to.
 var LimitRefresh = 10 * time.Second
 
@@ -47,7 +52,7 @@ func (d *Daemon) Switch(agentID, account string) error {
 }
 
 // limitHit moves pr, whose turn its account's limit ended, to the signed-in
-// account with the most left, and sends its prompt again there. With
+// account with the most left, and continues its turn there. With
 // switching at a limit off, or every account at one, the agent's own error stands.
 func (d *Daemon) limitHit(pr *presence) {
 	if pr.typed || d.Resume == nil || d.Accounts == nil || !d.Accounts.AutoSwitch() {
@@ -66,7 +71,7 @@ func (d *Daemon) limitHit(pr *presence) {
 	}
 	// Set before the switch, which a turn ending may carry out at once.
 	pr.mu.Lock()
-	pr.resend = pr.a.Timeline.LastPrompt()
+	pr.resend = limitContinue
 	pr.mu.Unlock()
 	pr.a.SetSwitching(best)
 	d.switchPending(pr)
@@ -204,9 +209,12 @@ func (d *Daemon) move(pr *presence, want, resend string) bool {
 // moved sends a moved agent's resend, once it has settled on its new account.
 func (d *Daemon) moved(h *hint) {
 	if h.resend == "" {
+		log.Printf("switch %s: on %s", h.a.ID(), storeAccount(h.saved.Account))
 		return
 	}
 	if err := h.a.Driver().Prompt(h.resend); err != nil {
-		log.Printf("switch %s: sending the prompt again: %v", h.a.ID(), err)
+		log.Printf("switch %s: on %s, continuing: %v", h.a.ID(), storeAccount(h.saved.Account), err)
+		return
 	}
+	log.Printf("switch %s: on %s, sent %q", h.a.ID(), storeAccount(h.saved.Account), h.resend)
 }
