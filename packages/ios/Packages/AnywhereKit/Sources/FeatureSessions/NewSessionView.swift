@@ -10,8 +10,6 @@ import Wire
 struct NewSessionView: View {
     let host: HostModel
     let mac: String
-    /// The workspace the page was opened from, offered beside a new Worktree or Local.
-    let opened: NewSessionDraft.Place?
     @State private var draft: NewSessionDraft
     @State private var requestId: String?
     @State private var worktreeOptions = false
@@ -22,7 +20,6 @@ struct NewSessionView: View {
     init(host: HostModel, mac: String, project: String?, place: NewSessionDraft.Place?) {
         self.host = host
         self.mac = mac
-        opened = place
         var draft = NewSessionDraft(project: project ?? host.workspace.projects.first?.path ?? "", place: place ?? .newWorktree)
         draft.seed = Int.random(in: 0..<1_000_000)
         _draft = State(initialValue: draft)
@@ -39,8 +36,9 @@ struct NewSessionView: View {
     private var problem: String? {
         canSpawn ? draft.problem(taken: taken, maxAccess: maxAccess) : "Your Mac doesn't let this phone start sessions"
     }
-    private var places: [Places.Option] {
-        project.map { Places.options(project: $0, opened: opened, locals: workspace.locals, names: workspace.names, canManage: workspace.canManage, canSpawn: canSpawn) } ?? []
+    private var places: [Places.Option] { Places.options(canManage: workspace.canManage, canSpawn: canSpawn) }
+    private var existing: Places.Option? {
+        project.flatMap { Places.existing(draft.place, project: $0, locals: workspace.locals, names: workspace.names) }
     }
 
     var body: some View {
@@ -86,10 +84,7 @@ struct NewSessionView: View {
         .task { await load() }
         .onAppear { focused = true }
         .onChange(of: draft.provider) { _, provider in Task { try? await workspace.loadAccounts(provider: provider.rawValue) } }
-        .onChange(of: draft.project) { _, _ in
-            if draft.place != .newLocal { draft.place = .newWorktree }
-            Task { await loadBranches() }
-        }
+        .onChange(of: draft.project) { _, _ in Task { await loadBranches() } }
     }
 
     // MARK: Compose
@@ -211,7 +206,7 @@ struct NewSessionView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 Menu {
-                    Picker("Project", selection: $draft.project) {
+                    Picker("Project", selection: Binding(get: { draft.project }, set: { draft.pick(project: $0) })) {
                         ForEach(workspace.projects) { Text($0.name).tag($0.path) }
                     }
                 } label: {
@@ -219,19 +214,23 @@ struct NewSessionView: View {
                 }
                 .disabled(workspace.projects.count < 2)
                 Text("·").font(Typography.footnote).foregroundStyle(Palette.text4.color)
-                let place = places.first { $0.place == draft.place }
-                Menu {
-                    // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
-                    ForEach(places) { option in
-                        Button { draft.place = option.place } label: {
-                            Label(option.label, systemImage: option.place == draft.place ? "checkmark" : option.systemImage)
-                            if let hint = option.hint { Text(hint) }
+                if let existing {
+                    ComposerPill(text: existing.label, chevron: false) { Image(systemName: existing.systemImage) }
+                } else {
+                    let place = places.first { $0.place == draft.place }
+                    Menu {
+                        // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
+                        ForEach(places) { option in
+                            Button { draft.place = option.place } label: {
+                                Label(option.label, systemImage: option.place == draft.place ? "checkmark" : option.systemImage)
+                                if let hint = option.hint { Text(hint) }
+                            }
                         }
+                    } label: {
+                        ComposerPill(text: place?.label ?? "Worktree") { Image(systemName: place?.systemImage ?? "arrow.triangle.branch") }
                     }
-                } label: {
-                    ComposerPill(text: place?.label ?? "Worktree") { Image(systemName: place?.systemImage ?? "arrow.triangle.branch") }
+                    .menuOrder(.fixed)
                 }
-                .menuOrder(.fixed)
                 if draft.place == .newWorktree {
                     Button { worktreeOptions = true } label: {
                         ComposerPill(text: branchLabel, mono: true) { Image(systemName: branchIcon) }
@@ -258,7 +257,7 @@ struct NewSessionView: View {
 
     private func load() async {
         if let providers = try? await workspace.loadProviders() {
-            draft.access = NewSessionDraft.defaultAccess(max: providers.phoneMaxAccess)
+            draft.access = NewSessionDraft.defaultAccess(max: providers.phoneMaxAccess, mac: providers.defaultAccess)
             if !providers.providers.contains(where: { $0.id == draft.provider.rawValue && $0.available }),
                let first = providers.providers.first(where: \.available) {
                 draft.pick(provider: ProviderId(rawValue: first.id))
@@ -300,13 +299,14 @@ struct NewSessionView: View {
 private struct ComposerPill<Icon: View>: View {
     let text: String
     var mono = false
+    var chevron = true
     @ViewBuilder let icon: Icon
 
     var body: some View {
         HStack(spacing: 5) {
             icon.font(.system(size: 11))
             Text(text).font(mono ? Typography.codeSmall : Typography.footnote).lineLimit(1)
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color)
+            if chevron { Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
         }
         .foregroundStyle(Palette.text2.color)
         .padding(.horizontal, 8)

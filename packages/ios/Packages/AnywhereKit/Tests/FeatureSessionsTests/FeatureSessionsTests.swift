@@ -41,18 +41,22 @@ struct SessionTextTests {
 
 @Suite("Places")
 struct PlacesTests {
-    @Test("a session starts in a new Worktree or Local as on the desktop, or in the workspace the page was opened from")
+    @Test("a session starts in a new Worktree or Local as on the desktop, each as the Mac allows")
     func options() {
+        #expect(Places.options(canManage: true, canSpawn: true).map(\.label) == ["Worktree", "Local"])
+        #expect(Places.options(canManage: false, canSpawn: true).map(\.place) == [.newWorktree])
+        #expect(Places.options(canManage: false, canSpawn: false).isEmpty)
+    }
+
+    @Test("a session asked for from a workspace's row names that workspace, only in its own project")
+    func existing() {
         let project = Sample.projects[0]
-        let fresh = Places.options(project: project, opened: nil, locals: Sample.locals, names: [:], canManage: true, canSpawn: true)
-        #expect(fresh.map(\.place) == [.newWorktree, .newLocal])
         let calm = "/Users/mingo/.worktrees/anywhere/calm-otter"
-        let fromTree = Places.options(project: project, opened: .tree(calm), locals: [], names: Sample.worktreeNames, canManage: true, canSpawn: true)
-        #expect(fromTree.map(\.label) == ["Phone terminal", "Worktree", "Local"])
-        let fromLocal = Places.options(project: project, opened: .local("review"), locals: Sample.locals, names: [:], canManage: false, canSpawn: true)
-        #expect(fromLocal.map(\.label) == ["Review", "Worktree"])
-        let elsewhere = Places.options(project: Sample.projects[1], opened: .tree(calm), locals: [], names: [:], canManage: false, canSpawn: false)
-        #expect(elsewhere.isEmpty)
+        #expect(Places.existing(.tree(calm), project: project, locals: [], names: Sample.worktreeNames)?.label == "Phone terminal")
+        #expect(Places.existing(.tree(project.path), project: project, locals: [], names: [:])?.label == "Local")
+        #expect(Places.existing(.local("review"), project: project, locals: Sample.locals, names: [:])?.label == "Review")
+        #expect(Places.existing(.tree(calm), project: Sample.projects[1], locals: [], names: [:]) == nil)
+        #expect(Places.existing(.newWorktree, project: project, locals: [], names: [:]) == nil)
     }
 
     @Test("a new worktree starts from main as pocketd picks it, or from the checkout's branch before branches are listed")

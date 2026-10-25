@@ -99,6 +99,9 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
 ← {type:"project.list", projects}       // pushed without id to workspace.v1 conns once after each hello and whenever the list changes
    // served from a cache pocketd re-reads every 2 s from stats of each project's git folder, and at once after a worktree verb;
    // a workspace.v1 conn's project.list request is answered from it
+   // each project's worktrees are those the desktop's sidebar lists: the main one, those in desktop.json's tracked, those in
+   // the project's worktrees folder (<root>/<name>, which Anywhere made, from a desktop or a phone), or all while
+   // sidebar.external_worktrees is on
 
 → {type:"account.list", id, provider?}
 ← {type:"account.list", id, accounts:[Account]}
