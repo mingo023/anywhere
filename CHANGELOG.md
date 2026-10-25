@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.15
+
+- Native iOS app (#132): (729212ce)
+- An agent that switches account at its limit continues its turn there (#131): (32f08866)
+- A sub-agent Claude resumes shows in the background tray again (#130): (f3cacd72)
+
 ## 0.1.14
 
 - Chat command rows say what they do and open onto the command and output (#129): (8a5c74a)
