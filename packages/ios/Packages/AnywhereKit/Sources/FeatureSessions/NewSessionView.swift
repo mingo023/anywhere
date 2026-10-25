@@ -10,6 +10,8 @@ import Wire
 struct NewSessionView: View {
     let host: HostModel
     let mac: String
+    /// The workspace the page was opened from, offered beside a new Worktree or Local.
+    let opened: NewSessionDraft.Place?
     @State private var draft: NewSessionDraft
     @State private var requestId: String?
     @State private var worktreeOptions = false
@@ -20,8 +22,8 @@ struct NewSessionView: View {
     init(host: HostModel, mac: String, project: String?, place: NewSessionDraft.Place?) {
         self.host = host
         self.mac = mac
-        let path = project ?? host.workspace.projects.first?.path ?? ""
-        var draft = NewSessionDraft(project: path, place: place ?? .tree(Self.main(of: host.workspace.project(path)) ?? path))
+        opened = place
+        var draft = NewSessionDraft(project: project ?? host.workspace.projects.first?.path ?? "", place: place ?? .newWorktree)
         draft.seed = Int.random(in: 0..<1_000_000)
         _draft = State(initialValue: draft)
     }
@@ -38,7 +40,7 @@ struct NewSessionView: View {
         canSpawn ? draft.problem(taken: taken, maxAccess: maxAccess) : "Your Mac doesn't let this phone start sessions"
     }
     private var places: [Places.Option] {
-        project.map { Places.options(project: $0, locals: workspace.locals, names: workspace.names, canManage: workspace.canManage, canSpawn: canSpawn) } ?? []
+        project.map { Places.options(project: $0, opened: opened, locals: workspace.locals, names: workspace.names, canManage: workspace.canManage, canSpawn: canSpawn) } ?? []
     }
 
     var body: some View {
@@ -85,7 +87,7 @@ struct NewSessionView: View {
         .onAppear { focused = true }
         .onChange(of: draft.provider) { _, provider in Task { try? await workspace.loadAccounts(provider: provider.rawValue) } }
         .onChange(of: draft.project) { _, _ in
-            draft.place = .tree(mainTree)
+            if draft.place != .newLocal { draft.place = .newWorktree }
             Task { await loadBranches() }
         }
     }
@@ -165,7 +167,7 @@ struct NewSessionView: View {
                 .pickerStyle(.menu)
             }
         } label: {
-            ComposerPill(systemImage: "sparkle", text: SessionText.provider(draft.provider.rawValue))
+            ComposerPill(text: SessionText.provider(draft.provider.rawValue)) { BrandMark(draft.provider.rawValue, size: 12) }
         }
         .menuOrder(.fixed)
     }
@@ -189,7 +191,7 @@ struct NewSessionView: View {
                 .pickerStyle(.menu)
             }
         } label: {
-            ComposerPill(text: draft.effort.map { "\(model) · \($0.capitalized)" } ?? model)
+            ComposerPill(text: draft.effort.map { "\(model) · \($0.capitalized)" } ?? model) { EmptyView() }
         }
         .menuOrder(.fixed)
         .disabled(models.isEmpty && efforts.isEmpty)
@@ -209,12 +211,12 @@ struct NewSessionView: View {
                 }
             }
         } label: {
-            ComposerPill(systemImage: "shield", text: NewSessionDraft.accessLabel(draft.access))
+            ComposerPill(text: NewSessionDraft.accessLabel(draft.access)) { Image(systemName: "shield") }
         }
         .menuOrder(.fixed)
     }
 
-    /// The project, where in it the agent runs, and a new worktree's name and branch.
+    /// The desktop's footer: the project · a new Worktree or Local · the branch a worktree starts from.
     private var where_: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
@@ -223,21 +225,26 @@ struct NewSessionView: View {
                         ForEach(workspace.projects) { Text($0.name).tag($0.path) }
                     }
                 } label: {
-                    ComposerPill(systemImage: "shippingbox", text: project?.name ?? "Project")
+                    ComposerPill(text: project?.name ?? "Project") { ProjectTile(name: project?.name ?? "") }
                 }
                 .disabled(workspace.projects.count < 2)
+                Text("·").font(Typography.footnote).foregroundStyle(Palette.text4.color)
                 let place = places.first { $0.place == draft.place }
                 Menu {
-                    Picker("Where", selection: $draft.place) {
-                        ForEach(places) { Label($0.label, systemImage: $0.systemImage).tag($0.place) }
+                    // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
+                    ForEach(places) { option in
+                        Button { draft.place = option.place } label: {
+                            Label(option.label, systemImage: option.place == draft.place ? "checkmark" : option.systemImage)
+                            if let hint = option.hint { Text(hint) }
+                        }
                     }
                 } label: {
-                    ComposerPill(systemImage: place?.systemImage ?? "laptopcomputer", text: place?.label ?? "Local")
+                    ComposerPill(text: place?.label ?? "Worktree") { Image(systemName: place?.systemImage ?? "arrow.triangle.branch") }
                 }
                 .menuOrder(.fixed)
                 if draft.place == .newWorktree {
                     Button { worktreeOptions = true } label: {
-                        ComposerPill(systemImage: "arrow.triangle.branch", text: worktreeLabel, chevron: false)
+                        ComposerPill(text: branchLabel, mono: true) { Image(systemName: branchIcon) }
                     }
                     .buttonStyle(.plain)
                 }
@@ -246,11 +253,18 @@ struct NewSessionView: View {
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
-    private var worktreeLabel: String {
+    private var branchIcon: String {
+        if case .pr = draft.source { "arrow.triangle.pull" } else { "arrow.triangle.branch" }
+    }
+
+    /// The base a new branch starts from, or the branch or pull request it opens.
+    private var branchLabel: String {
         switch draft.source {
-        case .new: draft.autoNames ? "Named from the prompt" : draft.worktreeName(taken: taken) + (draft.base.map { " from \($0)" } ?? "")
-        case .branch(let b): b.isEmpty ? "Pick a branch" : b
-        case .pr(let typed): typed.isEmpty ? "Pick a pull request" : "PR \(typed)"
+        case .new:
+            let branches = workspace.branches[mainTree]
+            return draft.base ?? WorktreeName.defaultBase(branches?.local.map(\.name) ?? [], current: branches?.current ?? "") ?? "Default"
+        case .branch(let b): return b.isEmpty ? "Pick a branch" : b
+        case .pr(let typed): return typed.isEmpty ? "Pick a pull request" : "PR \(typed)"
         }
     }
 
@@ -293,23 +307,35 @@ struct NewSessionView: View {
     }
 }
 
-/// A composer's menu button: a symbol, what it holds, and the up-down chevron of a choice.
+/// A composer's menu button: an icon, what it holds, and the up-down chevron of a choice.
 @MainActor
-private struct ComposerPill: View {
-    var systemImage: String?
+private struct ComposerPill<Icon: View>: View {
     let text: String
-    var chevron = true
+    var mono = false
+    @ViewBuilder let icon: Icon
 
     var body: some View {
         HStack(spacing: 5) {
-            if let systemImage { Image(systemName: systemImage).font(.system(size: 11)) }
-            Text(text).lineLimit(1)
-            if chevron { Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
+            icon.font(.system(size: 11))
+            Text(text).font(mono ? Typography.codeSmall : Typography.footnote).lineLimit(1)
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color)
         }
-        .font(Typography.footnote)
         .foregroundStyle(Palette.text2.color)
         .padding(.horizontal, 8)
         .frame(height: 28)
         .contentShape(Rectangle())
+    }
+}
+
+/// A project's initials on a small tile, as the desktop's project chip.
+@MainActor
+private struct ProjectTile: View {
+    let name: String
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(Palette.fill3.color)
+            .overlay(Text(Workspaces.initials(name)).font(.system(size: 8, weight: .bold)).foregroundStyle(Palette.text2.color))
+            .frame(width: 16, height: 16)
     }
 }

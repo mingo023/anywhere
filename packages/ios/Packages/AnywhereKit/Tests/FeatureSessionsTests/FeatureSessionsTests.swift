@@ -41,15 +41,18 @@ struct SessionTextTests {
 
 @Suite("Places")
 struct PlacesTests {
-    @Test("a session can start in the own checkout, a Local or a worktree, and in new ones when the Mac allows")
+    @Test("a session starts in a new Worktree or Local as on the desktop, or in the workspace the page was opened from")
     func options() {
         let project = Sample.projects[0]
-        let all = Places.options(project: project, locals: Sample.locals, names: Sample.worktreeNames, canManage: true, canSpawn: true)
-        #expect(all.map(\.label) == ["Local", "Review", "Phone terminal", "fix/login", "New Local", "New worktree"])
-        #expect(all[1].place == .local("review"))
-        let legacy = Places.options(project: project, locals: [], names: [:], canManage: false, canSpawn: true)
-        #expect(legacy.map(\.label) == ["Local", "calm-otter", "fix/login", "New worktree"])
-        #expect(!Places.options(project: project, locals: [], names: [:], canManage: false, canSpawn: false).contains { $0.place == .newWorktree })
+        let fresh = Places.options(project: project, opened: nil, locals: Sample.locals, names: [:], canManage: true, canSpawn: true)
+        #expect(fresh.map(\.place) == [.newWorktree, .newLocal])
+        let calm = "/Users/mingo/.worktrees/anywhere/calm-otter"
+        let fromTree = Places.options(project: project, opened: .tree(calm), locals: [], names: Sample.worktreeNames, canManage: true, canSpawn: true)
+        #expect(fromTree.map(\.label) == ["Phone terminal", "Worktree", "Local"])
+        let fromLocal = Places.options(project: project, opened: .local("review"), locals: Sample.locals, names: [:], canManage: false, canSpawn: true)
+        #expect(fromLocal.map(\.label) == ["Review", "Worktree"])
+        let elsewhere = Places.options(project: Sample.projects[1], opened: .tree(calm), locals: [], names: [:], canManage: false, canSpawn: false)
+        #expect(elsewhere.isEmpty)
     }
 
     @Test("a new worktree can't take a branch's name, local or on origin, or a worktree's folder")

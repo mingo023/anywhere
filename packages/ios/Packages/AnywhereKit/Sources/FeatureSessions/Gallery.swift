@@ -9,7 +9,7 @@ public enum SessionsGallery {
         let screens: [(String, @MainActor (HostModel) -> AnyView)] = [
             ("sessions-home", { AnyView(HomeView(host: $0, mac: Sample.mac)) }),
             ("sessions-tree", { AnyView(TreeView(host: $0, mac: Sample.mac, key: "/Users/mingo/.worktrees/anywhere/calm-otter")) }),
-            ("sessions-new", { AnyView(NewSessionView(host: $0, mac: Sample.mac, project: nil, place: .newWorktree)) }),
+            ("sessions-new", { AnyView(NewSessionView(host: $0, mac: Sample.mac, project: nil, place: nil)) }),
             ("sessions-new-worktree", { AnyView(NewWorktreeView(host: $0, project: Sample.projects[0].path)) }),
             ("sessions-automations", { AnyView(AutomationsView(host: $0, mac: Sample.mac)) }),
         ]

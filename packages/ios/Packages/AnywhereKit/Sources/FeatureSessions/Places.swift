@@ -2,26 +2,39 @@ import Domain
 import Stores
 import Wire
 
-/// Where the new session sheet offers to start: the project's own checkout, its Locals and worktrees, then new ones.
+/// Where a new session starts, as the desktop's page offers it: a new Worktree, or a new Local; and the workspace the
+/// page was opened from, when it was.
 enum Places {
     struct Option: Hashable, Identifiable {
         var place: NewSessionDraft.Place
         var label: String
+        var hint: String?
         var systemImage: String
         var id: NewSessionDraft.Place { place }
     }
 
-    /// A new Local and a worktree from a base, branch or PR take workspace.v1; a new worktree off the default base takes spawn only.
-    static func options(project: Project, locals: [Local], names: [String: String], canManage: Bool, canSpawn: Bool) -> [Option] {
-        let main = project.worktrees.first(where: \.isMain)?.path ?? project.path
-        var options = [Option(place: .tree(main), label: Sidebar.ownLocalName(given: names[main]), systemImage: "laptopcomputer")]
-        options += locals.filter { $0.project == project.path }.map { Option(place: .local($0.id), label: $0.name, systemImage: "folder") }
-        options += project.worktrees.filter { !$0.isMain }.map {
-            Option(place: .tree($0.path), label: Sidebar.treeLabel(path: $0.path, branch: $0.branch, given: names[$0.path]).label,
-                   systemImage: "arrow.triangle.branch")
+    /// A new Local takes workspace.v1; a new worktree takes spawn only.
+    static func options(project: Project, opened: NewSessionDraft.Place?, locals: [Local], names: [String: String], canManage: Bool, canSpawn: Bool) -> [Option] {
+        var options: [Option] = []
+        switch opened {
+        case .tree(let path):
+            let tree = project.worktrees.first { $0.path == path }
+            if tree?.isMain ?? (path == project.path) {
+                options.append(Option(place: .tree(path), label: Sidebar.ownLocalName(given: names[path]), systemImage: "laptopcomputer"))
+            } else if let tree {
+                let label = Sidebar.treeLabel(path: path, branch: tree.branch, given: names[path]).label
+                options.append(Option(place: .tree(path), label: label, systemImage: "arrow.triangle.branch"))
+            }
+        case .local(let id):
+            if let local = locals.first(where: { $0.id == id && $0.project == project.path }) {
+                options.append(Option(place: .local(id), label: local.name, systemImage: "folder"))
+            }
+        default: break
         }
-        if canManage { options.append(Option(place: .newLocal, label: "New Local", systemImage: "folder.badge.plus")) }
-        if canSpawn { options.append(Option(place: .newWorktree, label: "New worktree", systemImage: "plus.square.on.square")) }
+        if canSpawn { options.append(Option(place: .newWorktree, label: "Worktree", hint: "Its own branch and copy of the files", systemImage: "arrow.triangle.branch")) }
+        if canManage {
+            options.append(Option(place: .newLocal, label: "Local", hint: "A new place over the project's checkout: files and branch are shared", systemImage: "laptopcomputer"))
+        }
         return options
     }
 
