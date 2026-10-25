@@ -635,6 +635,53 @@ func TestKillingEveryAgentEndsTheBackgroundAgentsAndLeavesCommandsRunning(t *tes
 	}
 }
 
+func resumeOf(task string) []string {
+	return []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"s-` + task + `","name":"SendMessage","input":{"to":"` + task + `","message":"Resume"}}]}}`,
+		`{"type":"user","toolUseResult":{"success":true,"message":"Resuming agent ` + task + `","resumedAgentId":"` + task + `"},"message":{"content":[{"type":"tool_result","tool_use_id":"s-` + task + `","content":"{}"}]}}`,
+	}
+}
+
+func failed(call, task string) string {
+	return notification("<task-id>" + task + "</task-id>\n<tool-use-id>" + call + "</tool-use-id>\n<status>failed</status>\n<summary>Agent \"Review the branch\" failed: rate limit</summary>")
+}
+
+func TestAResumeSetsTheAgentGoingAgainAndAMessageToARunningOneDoesNot(t *testing.T) {
+	ev := Map([]byte(resumeOf("a1")[1]))
+	if len(ev) != 2 || ev[1].Kind != "tool_resumed" || ev[1].TaskID != "a1" {
+		t.Fatalf("resume: %+v", ev)
+	}
+	ev = Map([]byte(`{"type":"user","toolUseResult":{"success":true,"message":"Message queued for the agent"},"message":{"content":[{"type":"tool_result","tool_use_id":"s1","content":"{}"}]}}`))
+	if len(ev) != 1 || ev[0].Kind != "tool_end" {
+		t.Fatalf("queued: %+v", ev)
+	}
+}
+
+func TestAFailedAgentClaudeResumesRunsInTheBackgroundUntilItsNextNotification(t *testing.T) {
+	lines := append([]string{asyncAgent, agentLaunched, failed("t1", "a1"), nextPrompt}, resumeOf("a1")...)
+	tl := replay(lines...)
+	if c := callOf(t, tl, "t1"); c.Status != "running" || c.DurationMs != nil || c.Output != nil || tl.BackgroundAgents() != 1 {
+		t.Fatalf("resumed: %+v", c)
+	}
+	tl = replay(append(lines, nextPrompt, notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>No issues.</result>"))...)
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "No issues." || tl.BackgroundAgents() != 0 {
+		t.Fatalf("ended: %+v %q", c, output(c))
+	}
+}
+
+func TestStopEndsEveryResumedAgentStillRunning(t *testing.T) {
+	lines := []string{asyncAgent, agentLaunched, failed("t1", "a1"),
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Agent","input":{"description":"Docs","run_in_background":true}}]}}`,
+		`{"type":"user","toolUseResult":{"isAsync":true,"agentId":"a2"},"message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"Async agent launched successfully."}]}}`,
+		failed("t2", "a2"), nextPrompt}
+	lines = append(append(lines, resumeOf("a1")...), resumeOf("a2")...)
+	lines = append(lines, notification("<task-id>a1</task-id>\n<status>completed</status>\n<result>Done.</result>"), `{"type":"system","subtype":"agents_killed"}`)
+	tl := replay(lines...)
+	if c := callOf(t, tl, "t2"); c.Status != "ok" || tl.BackgroundAgents() != 0 {
+		t.Fatalf("still running: %+v", c)
+	}
+}
+
 func TestABackgroundAgentsHandBackIsItsReportWhicheverArrivesFirst(t *testing.T) {
 	const preamble = "[Subagent hand-back] The text below is the final report of a subagent this session delegated to. The harness indents every line of the report. The report follows:\n"
 	body, _ := json.Marshal(preamble + "  ## Findings\n  \n  - one\n    - nested")
