@@ -11,6 +11,18 @@ struct RowFrame: Equatable {
     let ix: Int
     let minY: CGFloat
     let maxY: CGFloat
+
+    /// The bottom-most row on screen, not the end marker: what `scrolledUp` compares the next layout against.
+    static func seen(_ frames: [RowFrame], viewport: CGFloat) -> RowFrame? {
+        frames.last { $0.ix >= 0 && $0.ix != end && $0.maxY > 0 && $0.minY < viewport }
+    }
+
+    /// The list scrolled up when a row on screen moved down. Rows growing at the end move none above them, and rows
+    /// above re-estimated as they're built shift the offset, not what's on screen.
+    static func scrolledUp(from seen: RowFrame?, to frames: [RowFrame]) -> Bool {
+        guard let seen, let now = frames.first(where: { $0.ix == seen.ix }) else { return false }
+        return now.minY > seen.minY + 1
+    }
 }
 
 struct RowFrames: PreferenceKey {
@@ -28,6 +40,8 @@ final class ScrollState {
     var following = true
     var dragging = false
     var pin: Pin?
+    /// A row on screen at the last layout, to tell the list scrolling up from rows growing at its end.
+    var seen: RowFrame?
     var firstId: String?
 }
 
@@ -107,7 +121,6 @@ struct TranscriptView: View {
                 .opensAtEnd()
                 .coordinateSpace(name: "chat")
                 .simultaneousGesture(DragGesture(minimumDistance: 6).onChanged { _ in dragged() }.onEnded { _ in scroll.dragging = false })
-                .leavesEndOnScrollUp { left() }
                 .onPreferenceChange(RowFrames.self) { frames in
                     MainActor.assumeIsolated {
                         scroll.viewport = outer.size.height
@@ -117,7 +130,7 @@ struct TranscriptView: View {
                 .onAppear {
                     scroll.proxy = proxy
                     scroll.viewport = outer.size.height
-                    proxy.scrollTo("end", anchor: .bottom)
+                    proxy.scrollTo(endId, anchor: .bottom)
                 }
                 .onChange(of: outer.size.height) { _, height in scroll.viewport = height }
                 .onChange(of: store.sends) { _, _ in
@@ -151,6 +164,10 @@ struct TranscriptView: View {
             reveal: { [store] in store.reveals[$0] })
     }
 
+    /// What a scroll to the end lands on: the last row, which holds the room under the rows and the end marker. A lazy
+    /// stack scrolls only to its own rows, and the last one isn't built once the list is scrolled far from it.
+    private var endId: String { transcriptRows.ids.list.last ?? "end" }
+
     /// Room under the rows for a held prompt and the list's padding, then the end.
     @ViewBuilder
     private var end: some View {
@@ -178,6 +195,8 @@ struct TranscriptView: View {
         let end = frames.first { $0.ix == RowFrame.end }
         let distance = end.map { $0.minY - viewport } ?? .infinity
         scroll.distance = distance
+        if RowFrame.scrolledUp(from: scroll.seen, to: frames) { left() }
+        scroll.seen = RowFrame.seen(frames, viewport: viewport)
         if !scroll.dragging && distance <= 2 && scroll.pin == nil { scroll.following = true }
         // Rows grew under a list that keeps to its end: it's back there below, so the pill stays as it was.
         let snaps = scroll.following && scroll.pin == nil && distance > 2 && !scroll.dragging
@@ -185,7 +204,7 @@ struct TranscriptView: View {
         if showJump != floating.jump { floating.jump = showJump }
         updateSticky(frames)
         if scroll.pin != nil { stepPin(frames, end: end) }
-        if snaps { scroll.proxy?.scrollTo("end", anchor: .bottom) }
+        if snaps { scroll.proxy?.scrollTo(endId, anchor: .bottom) }
     }
 
     private func stepPin(_ frames: [RowFrame], end: RowFrame?) {
@@ -237,7 +256,7 @@ struct TranscriptView: View {
         scroll.following = true
         let glides = Glide(distance: Double(scroll.distance), viewport: Double(scroll.viewport)) != nil && !reduceMotion
         withAnimation(glides ? .timingCurve(0.22, 1, 0.36, 1, duration: Glide.duration) : nil) {
-            scroll.proxy?.scrollTo("end", anchor: .bottom)
+            scroll.proxy?.scrollTo(endId, anchor: .bottom)
         }
     }
 
@@ -352,25 +371,7 @@ private struct StickyOverlay: View {
     }
 }
 
-/// Where the list sits and how tall its rows are, to tell the user scrolling up from rows growing under it.
-private struct ScrollSpot: Equatable {
-    let y: CGFloat
-    let height: CGFloat
-}
-
 extension View {
-    /// Calls `leave` when the list moves up with its rows unchanged: a drag, a flick or a tap on the status bar, none of
-    /// which the list's own scrolls do. Only iOS 18 reports it; elsewhere the drag gesture alone takes the list.
-    fileprivate func leavesEndOnScrollUp(_ leave: @escaping () -> Void) -> some View {
-        #if os(iOS)
-            onScrollGeometryChange(for: ScrollSpot.self) { ScrollSpot(y: $0.contentOffset.y, height: $0.contentSize.height) } action: { old, new in
-                if new.height == old.height && new.y < old.y - 1 { leave() }
-            }
-        #else
-            self
-        #endif
-    }
-
     /// Opens a long transcript at its end rather than laying it out from the top and chasing the end with `scrollTo`,
     /// which can leave the list on an offset where it builds no rows (under a tall code block, say).
     fileprivate func opensAtEnd() -> some View {

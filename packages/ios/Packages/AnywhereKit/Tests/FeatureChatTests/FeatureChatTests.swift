@@ -89,3 +89,15 @@ struct FeatureChatTests {
         }
     }
 }
+
+@Test("a row on screen moving down means the list scrolled up; the last row growing or the end moving doesn't")
+func scrollingUpIsARowMovingDown() {
+    let before = [RowFrame(ix: 3, minY: 100, maxY: 300), RowFrame(ix: 4, minY: 300, maxY: 700), RowFrame(ix: RowFrame.end, minY: 700, maxY: 700)]
+    let seen = RowFrame.seen(before, viewport: 800)
+    #expect(seen?.ix == 4)
+    let grew = [RowFrame(ix: 3, minY: 100, maxY: 300), RowFrame(ix: 4, minY: 300, maxY: 900), RowFrame(ix: RowFrame.end, minY: 900, maxY: 900)]
+    #expect(!RowFrame.scrolledUp(from: seen, to: grew))
+    let up = before.map { RowFrame(ix: $0.ix, minY: $0.minY + 30, maxY: $0.maxY + 30) }
+    #expect(RowFrame.scrolledUp(from: seen, to: up))
+    #expect(!RowFrame.scrolledUp(from: nil, to: up))
+}
