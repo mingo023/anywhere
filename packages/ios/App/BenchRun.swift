@@ -155,3 +155,56 @@ final class BenchDriver {
     }
 }
 #endif
+
+#if DEBUG || BENCH
+import ActivityKit
+import ActivityModel
+import Stores
+
+/// `-check live-activity`: starts a Live Activity as a Mac turning busy would, and logs how long the main thread
+/// waited and the longest gap between its frames while ActivityKit worked, then whether the activity is running.
+/// The request asks for a push token, so the app needs its entitlements: sign it, ad hoc (`CODE_SIGN_IDENTITY=-`) on a simulator.
+@MainActor
+enum LiveActivityCheck {
+    static var requested: Bool { ProcessInfo.processInfo.arguments.contains("-check") }
+
+    static func run() {
+        Task {
+            // ActivityKit starts one only for an app in front.
+            try? await Task.sleep(for: .seconds(1))
+            check()
+        }
+    }
+
+    private static func check() {
+        let ticker = Ticker()
+        let start = CACurrentMediaTime()
+        PushCenter.shared.startActivity?(MacActivity(mac: "check", macName: "Check Mac"), .init(working: 1, needsYou: 0, unseen: 0))
+        let call = (CACurrentMediaTime() - start) * 1000
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            let active = Activity<MacActivity>.activities.filter { $0.attributes.mac == "check" && $0.activityState == .active }.count
+            NSLog("IOSCHECK|live-activity|start returned in %.1f ms|longest frame gap %.0f ms|%d active", call, ticker.longest * 1000, active)
+            for activity in Activity<MacActivity>.activities { await activity.end(nil, dismissalPolicy: .immediate) }
+            exit(0)
+        }
+    }
+
+    private final class Ticker: NSObject {
+        var longest: CFTimeInterval = 0
+        private var last: CFTimeInterval = 0
+        private var link: CADisplayLink?
+
+        override init() {
+            super.init()
+            link = CADisplayLink(target: self, selector: #selector(tick))
+            link?.add(to: .main, forMode: .common)
+        }
+
+        @objc private func tick(_ link: CADisplayLink) {
+            if last != 0 { longest = max(longest, link.timestamp - last) }
+            last = link.timestamp
+        }
+    }
+}
+#endif

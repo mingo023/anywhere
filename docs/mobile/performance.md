@@ -42,7 +42,8 @@ Hitch counts vary between runs of the same build; run a scenario three times bef
 - **The jump pill and the sticky card live in `Floating`**, read only by their overlays, so their changes don't rerun `TranscriptView.body` over thousands of ids.
 - **What is left:** chat's one hitch is the first heading and list it lays out (frame 11, ~19 ms; later long replies cost ~12 ms), and `LazyHVStack.lengthAndSpacing` re-estimating the rows above is ~16% of chat scroll. Sending a prompt in the 5000-item chat is one ~70 ms frame, as before this pass.
 - **A table measured each cell twice**; a cell at its natural width or wider now keeps the height it measured then.
-- **A Live Activity start blocked the main thread ~0.7 s** in ActivityKit's synchronous XPC; it now runs off it.
+- **A Live Activity start blocked the main thread ~0.7 s** in ActivityKit's synchronous XPC; it now runs off it. `-check live-activity` starts one as a Mac turning busy would: the call returns in 0.2–1.2 ms, no frame gap over 17 ms, and the activity runs. It needs the app's push entitlement, so sign the build (ad hoc on a simulator: `CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=`); unsigned, ActivityKit refuses a push-token request (`PermissionsError 3`).
+- **`select-text`** (run by name) is the Select Text sheet over the 258 KB document: ~200 ms to open, scroll p95 ~4–5 ms, no hitches.
 
 ## How `anywhere-bench ui` measures
 

@@ -22,6 +22,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
         #if DEBUG || BENCH
             if BenchRun.scenario != nil { return true }
+            if LiveActivityCheck.requested {
+                LiveActivityCheck.run()
+                return true
+            }
         #endif
         Task {
             let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false

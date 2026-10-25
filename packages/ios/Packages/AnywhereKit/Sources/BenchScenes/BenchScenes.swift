@@ -53,9 +53,14 @@ public enum BenchScenes {
     ]
 
     /// Run only by name: a prompt sent at the end of a long chat glides up and is held a quarter down (see its PNGs).
-    public static let extras: [Scenario] = [
-        Scenario(name: "chat-send", up: true, make: chatSend),
-    ]
+    public static var extras: [Scenario] {
+        var extras = [Scenario(name: "chat-send", up: true, make: chatSend)]
+        #if os(iOS)
+            // The sheet iOS selects markdown text in, over the 258 KB document.
+            extras.append(Scenario(name: "select-text", make: { Screen(view: AnyView(SelectTextSheet(Sample.markdownDocument(bytes: 258 * 1024)))) }))
+        #endif
+        return extras
+    }
 
     // MARK: Scenarios
 
