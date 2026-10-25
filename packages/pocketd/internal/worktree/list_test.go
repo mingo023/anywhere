@@ -85,3 +85,27 @@ func TestProjectsLeaveOutAFolderThatIsGone(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestProjectsListTheWorktreesTheDesktopListsAndThoseAnywhereMade(t *testing.T) {
+	p := repo(t)
+	root := filepath.Join(p, "..", "trees")
+	made, mine, theirs := filepath.Join(root, "pocket", "made"), filepath.Join(p, "..", "mine"), filepath.Join(p, "..", "theirs")
+	for _, w := range []string{made, mine, theirs} {
+		git(t, p, "worktree", "add", "-q", "-b", filepath.Base(w), w)
+	}
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}, Tracked: []string{filepath.Clean(mine)}}
+	paths := func() []string {
+		var out []string
+		for _, w := range Projects(f)[0].Worktrees {
+			out = append(out, filepath.Base(w.Path))
+		}
+		return out
+	}
+	if got := paths(); !reflect.DeepEqual(got, []string{"pocket", "made", "mine"}) {
+		t.Fatalf("got %v", got)
+	}
+	f.Sidebar.ExternalWorktrees = true
+	if got := paths(); !reflect.DeepEqual(got, []string{"pocket", "made", "mine", "theirs"}) {
+		t.Fatalf("with external worktrees, got %v", got)
+	}
+}

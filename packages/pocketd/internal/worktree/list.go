@@ -65,11 +65,28 @@ func Projects(f registry.File) []proto.Project {
 		if err != nil {
 			continue
 		}
-		pp := proto.Project{Path: p, Name: f.Name(p), Worktrees: make([]proto.Worktree, len(ws))}
+		trees := make([]proto.Worktree, len(ws))
 		for i, w := range ws {
-			pp.Worktrees[i] = proto.Worktree{Name: w.Name, Path: w.Path, Branch: w.Branch, IsMain: w.Main}
+			trees[i] = proto.Worktree{Name: w.Name, Path: w.Path, Branch: w.Branch, IsMain: w.Main}
 		}
-		ps = append(ps, pp)
+		ps = append(ps, proto.Project{Path: p, Name: f.Name(p), Worktrees: Listed(f, p, trees)})
 	}
 	return ps
+}
+
+// Listed is the worktrees of project the desktop's sidebar lists (`Store::lists`): the main one, those it tracks,
+// those in the project's worktrees folder, which Anywhere made for it or a phone, and all while it lists those
+// made elsewhere.
+func Listed(f registry.File, project string, ws []proto.Worktree) []proto.Worktree {
+	if f.Sidebar.ExternalWorktrees {
+		return ws
+	}
+	dir := resolved(Dir(f, project)) + "/"
+	out := []proto.Worktree{}
+	for _, w := range ws {
+		if w.IsMain || slices.Contains(f.Tracked, w.Path) || strings.HasPrefix(resolved(w.Path), dir) {
+			out = append(out, w)
+		}
+	}
+	return out
 }

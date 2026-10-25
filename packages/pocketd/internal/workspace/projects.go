@@ -107,7 +107,7 @@ func (p *Projects) Scan() {
 			}
 		}
 		next[path] = c
-		list = append(list, proto.Project{Path: path, Name: f.Name(path), Worktrees: c.trees})
+		list = append(list, proto.Project{Path: path, Name: f.Name(path), Worktrees: worktree.Listed(f, path, c.trees)})
 	}
 	p.mu.Lock()
 	changed := !p.ready || !reflect.DeepEqual(list, p.list)

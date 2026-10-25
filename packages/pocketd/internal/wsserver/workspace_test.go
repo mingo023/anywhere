@@ -436,7 +436,7 @@ func TestAPeerWithoutWorkspaceV1GetsTheProjectListAsItIsNow(t *testing.T) {
 	var b bench
 	_, _, p := local(t, peer.OwnerOf(1), withWorkspace(t, &b))
 	helloWith(p)
-	tree := filepath.Join(b.root, "made-outside")
+	tree := filepath.Join(b.root, "pocket", "made-outside")
 	gitOut(t, b.project, "worktree", "add", "-q", "-b", "made-outside", tree)
 	p.send(`{"type":"project.list","id":"pl"}`)
 	m, _ := p.untilType("project.list")

@@ -43,12 +43,17 @@ func repo(t *testing.T, name string) string {
 	return dir
 }
 
+// registryOf lists every worktree, as the desktop does with external worktrees on.
 func registryOf(t *testing.T, projects ...string) *registry.Registry {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "desktop.json")
-	raw, _ := json.Marshal(registry.File{Projects: projects, Repos: map[string]registry.Repo{}})
-	os.WriteFile(path, raw, 0o600)
+	write(path, registry.File{Projects: projects, Sidebar: registry.Sidebar{ExternalWorktrees: true}})
 	return registry.New(path)
+}
+
+func write(path string, f registry.File) {
+	raw, _ := json.Marshal(f)
+	os.WriteFile(path, raw, 0o600)
 }
 
 // pushed is the next list published, or nil when none comes.
@@ -106,6 +111,27 @@ func TestTheProjectListIsPushedOnceThenOnlyWhenAWorktreeComesGoesOrSwitches(t *t
 	}
 	if list, ok := ps.List(); !ok || len(list) != 1 {
 		t.Fatalf("cache %v %v", list, ok)
+	}
+}
+
+func TestTrackingAWorktreeOnTheDesktopPushesTheListWithIt(t *testing.T) {
+	p := repo(t, "pocket")
+	wt := filepath.Join(filepath.Dir(p), "calm-otter")
+	git(t, p, "worktree", "add", "-q", "-b", "calm-otter", wt)
+	path := filepath.Join(t.TempDir(), "desktop.json")
+	write(path, registry.File{Projects: []string{p}})
+	ps := NewProjects(registry.New(path))
+	msgs, stop := ps.Subscribe()
+	defer stop()
+	ps.Scan()
+	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main"}) {
+		t.Fatalf("before tracking: %v", got)
+	}
+	time.Sleep(10 * time.Millisecond)
+	write(path, registry.File{Projects: []string{p}, Tracked: []string{wt}})
+	ps.Scan()
+	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main", wt + "@calm-otter"}) {
+		t.Fatalf("after tracking: %v", got)
 	}
 }
 
