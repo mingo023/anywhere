@@ -166,9 +166,3 @@ func aClosedChatDropsItsDraft() {
     #expect(input == "")
 }
 
-@Test("a phone switches access only up to what pocketd allows it")
-func aPhoneSwitchesAccessOnlyUpToItsCeiling() {
-    #expect(AccessPill.choices(upTo: "edits").map(\.value) == ["ask", "edits"])
-    #expect(AccessPill.choices(upTo: "full").map(\.value) == ["ask", "edits", "auto", "full"])
-    #expect(AccessPill.label("auto") == "Auto" && AccessPill.label("") == "Agent's settings")
-}

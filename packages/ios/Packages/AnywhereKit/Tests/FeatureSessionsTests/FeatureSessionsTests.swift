@@ -55,6 +55,14 @@ struct PlacesTests {
         #expect(elsewhere.isEmpty)
     }
 
+    @Test("a new worktree starts from main as pocketd picks it, or from the checkout's branch before branches are listed")
+    func defaultBase() {
+        let project = Sample.projects[0]
+        #expect(Places.defaultBase(project: project, branches: Sample.branches) == "main")
+        #expect(Places.defaultBase(project: project, branches: nil) == project.worktrees.first(where: \.isMain)?.branch)
+        #expect(Places.defaultBase(project: Project(path: "/p", name: "p", worktrees: []), branches: nil) == nil)
+    }
+
     @Test("a new worktree can't take a branch's name, local or on origin, or a worktree's folder")
     func taken() {
         let taken = Places.taken(project: Sample.projects[0], branches: Sample.branches)

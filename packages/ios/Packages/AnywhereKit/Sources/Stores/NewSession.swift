@@ -155,24 +155,4 @@ public struct NewSessionDraft: Hashable, Sendable {
     public static func models(_ provider: ProviderId) -> [String] {
         provider == .claude ? ["opus", "sonnet", "haiku"] : []
     }
-
-    public static func accessLabel(_ access: Access) -> String {
-        switch access {
-        case .ask: "Ask"
-        case .edits: "Edits"
-        case .auto: "Auto"
-        case .full: "Full"
-        default: access.rawValue.capitalized
-        }
-    }
-
-    public static func accessHint(_ access: Access) -> String {
-        switch access {
-        case .ask: "Ask before commands and file changes."
-        case .edits: "Auto-approve edits, ask before other actions."
-        case .auto: "A reviewer model approves or denies actions."
-        case .full: "Everything runs without asking."
-        default: ""
-        }
-    }
 }

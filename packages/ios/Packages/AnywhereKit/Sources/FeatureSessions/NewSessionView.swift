@@ -199,19 +199,9 @@ struct NewSessionView: View {
 
     private var accessMenu: some View {
         Menu {
-            // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
-            ForEach(NewSessionDraft.accesses(max: maxAccess), id: \.self) { access in
-                Button { draft.access = access } label: {
-                    if access == draft.access {
-                        Label(NewSessionDraft.accessLabel(access), systemImage: "checkmark")
-                    } else {
-                        Text(NewSessionDraft.accessLabel(access))
-                    }
-                    Text(NewSessionDraft.accessHint(access))
-                }
-            }
+            AccessChoices(choices: AccessPill.choices(max: maxAccess, launching: true), picked: draft.access.rawValue) { draft.access = Access(rawValue: $0) }
         } label: {
-            ComposerPill(text: NewSessionDraft.accessLabel(draft.access)) { Image(systemName: "shield") }
+            ComposerPill(text: AccessPill.label(draft.access.rawValue)) { Image(systemName: "shield") }
         }
         .menuOrder(.fixed)
     }
@@ -260,9 +250,7 @@ struct NewSessionView: View {
     /// The base a new branch starts from, or the branch or pull request it opens.
     private var branchLabel: String {
         switch draft.source {
-        case .new:
-            let branches = workspace.branches[mainTree]
-            return draft.base ?? WorktreeName.defaultBase(branches?.local.map(\.name) ?? [], current: branches?.current ?? "") ?? "Default"
+        case .new: return draft.base ?? Places.defaultBase(project: project, branches: workspace.branches[mainTree]) ?? "Default"
         case .branch(let b): return b.isEmpty ? "Pick a branch" : b
         case .pr(let typed): return typed.isEmpty ? "Pick a pull request" : "PR \(typed)"
         }

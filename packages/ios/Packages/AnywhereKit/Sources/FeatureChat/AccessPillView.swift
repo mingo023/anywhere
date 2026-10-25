@@ -1,5 +1,5 @@
-import ChatModel
 import DesignSystem
+import Domain
 import SwiftUI
 
 /// What the agent may do without asking: a shield and the access, a picker for a chat agent pocketd lets the phone set.
@@ -13,18 +13,7 @@ struct AccessPillView: View {
     var body: some View {
         if editable {
             Menu {
-                ForEach(AccessPill.choices(upTo: max), id: \.value) { choice in
-                    Button {
-                        pick(choice.value)
-                    } label: {
-                        if choice.value == access {
-                            Label(choice.label, systemImage: "checkmark")
-                        } else {
-                            Text(choice.label)
-                        }
-                        Text(choice.hint)
-                    }
-                }
+                AccessChoices(choices: AccessPill.choices(max: max, launching: false), picked: access, pick: pick)
             } label: {
                 label
             }

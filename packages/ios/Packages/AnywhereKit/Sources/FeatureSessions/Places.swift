@@ -38,6 +38,14 @@ enum Places {
         return options
     }
 
+    /// The branch a new worktree starts from when none is picked, as pocketd's `defaultBase` picks it; without the
+    /// branch list (pocketd lacking workspace.v1), the branch the project's own checkout is on.
+    static func defaultBase(project: Project?, branches: BranchList?) -> String? {
+        let main = project?.worktrees.first(where: \.isMain)?.branch ?? ""
+        guard let branches else { return main.isEmpty ? nil : main }
+        return WorktreeName.defaultBase(branches.local.map(\.name), current: branches.current ?? main)
+    }
+
     /// The names a new worktree can't take: its project's branches, local and on origin, and its worktrees' folders.
     static func taken(project: Project?, branches: BranchList?) -> Set<String> {
         WorktreeName.taken(
