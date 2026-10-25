@@ -211,6 +211,26 @@ func TestAStopOnABackgroundAgentNamesItsTask(t *testing.T) {
 	}
 }
 
+func TestOnlyAResumeSetsAnEndedBackgroundAgentRunningAgain(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: json.RawMessage(`{"description":"Review","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "a1"}, 2)
+	out := "Done."
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "t1", OK: true, Output: &out}, 3)
+	tl.StartEpoch()
+	waiting := "Still waiting on tests."
+	if _, ok := tl.Apply(Event{Kind: "tool_background", TaskID: "a1", Output: &waiting}, 4); ok {
+		t.Fatal("a stray notification set the agent running")
+	}
+	it, ok := tl.Apply(Event{Kind: "tool_resumed", TaskID: "a1"}, 5)
+	if !ok || it.Call.Status != "running" || it.Call.DurationMs != nil || *it.Call.Output != "Done." || tl.BackgroundAgents() != 1 {
+		t.Fatalf("resumed: %+v", it.Call)
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_resumed", TaskID: "a1"}, 6); ok {
+		t.Fatal("resuming a running agent changed it")
+	}
+}
+
 func TestABackgroundCallTheAgentStoppedEndsAtTheStopsResult(t *testing.T) {
 	tl := New()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"npx wrangler login","run_in_background":true}`)}, 1)

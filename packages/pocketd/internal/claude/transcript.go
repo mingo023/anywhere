@@ -128,8 +128,9 @@ type Turns struct {
 	// Claude writes a caveat before a command it runs itself, like /goal clear;
 	// no model turn follows, so the command's output ends its turn.
 	local, running bool
-	// agents maps the task id of each agent running in the background to its call.
-	agents map[string]string
+	// agents maps the task id of each agent running in the background to its call; launched keeps every agent's, for
+	// one Claude resumes.
+	agents, launched map[string]string
 	// hooked is set while a hook that kept Claude going has ended the run it stopped,
 	// and retime until the next end, which Claude times from the start of both runs.
 	hooked, retime bool
@@ -215,9 +216,14 @@ func (t *Turns) follow(l line, events []timeline.Event) {
 		case "tool_background":
 			if _, agent, _ := l.background(); agent {
 				if t.agents == nil {
-					t.agents = map[string]string{}
+					t.agents, t.launched = map[string]string{}, map[string]string{}
 				}
 				t.agents[e.TaskID] = e.ToolUseID
+				t.launched[e.TaskID] = e.ToolUseID
+			}
+		case "tool_resumed":
+			if call, ok := t.launched[e.TaskID]; ok {
+				t.agents[e.TaskID] = call
 			}
 		case "tool_end":
 			delete(t.agents, e.TaskID)
@@ -328,6 +334,9 @@ func (l line) events() (events []timeline.Event) {
 			return events
 		}
 		events = userEvents(l.Message.Content)
+		if task := l.resumed(); task != "" {
+			events = append(events, timeline.Event{Kind: "tool_resumed", TaskID: task})
+		}
 		// Claude writes no notification for a command or workflow the agent stopped, so the stop's result ends it.
 		if task, ok := l.stopped(); ok {
 			out := "Stopped"
@@ -424,6 +433,15 @@ func (l line) background() (task string, agent, ok bool) {
 		return r.TaskID, false, r.TaskID != ""
 	}
 	return r.BackgroundTaskID, false, r.BackgroundTaskID != ""
+}
+
+// resumed is the agent a SendMessage set going again, or "".
+func (l line) resumed() string {
+	var r struct {
+		ResumedAgentID string `json:"resumedAgentId"`
+	}
+	json.Unmarshal(l.ToolUseResult, &r)
+	return r.ResumedAgentID
 }
 
 // handback ends a background agent's call with the report it hands back; its notification only points here.
