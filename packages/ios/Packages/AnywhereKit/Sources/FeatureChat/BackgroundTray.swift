@@ -50,7 +50,7 @@ struct BackgroundTray: View {
                         show(call.id)
                     } label: {
                         HStack(spacing: 8) {
-                            if let agent = call.agent { AgentMark(mark: Agent.mark(call, agent)) } else { RingSpinner(size: 12) }
+                            if let agent = call.agent { AgentMark(mark: Agent.mark(call, agent)) } else { DotSpinner(size: 12) }
                             Text(Background.name(call)).font(ChatFont.small).foregroundStyle(Palette.text2.color).lineLimit(1)
                             if let doing = Background.doing(call) {
                                 Text(doing).font(ChatFont.monoSmall).foregroundStyle(Palette.text4.color).lineLimit(1)

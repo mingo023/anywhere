@@ -1,7 +1,7 @@
 import Domain
 import SwiftUI
 
-/// A session's status as a dot: amber Needs you, red Failed, green Done, a turning arc for Working, a ring for Idle.
+/// A session's status as a dot: amber Needs you, red Failed, green Done, the dot spinner for Working, a ring for Idle.
 @MainActor
 public struct StatusGlyph: View {
     let status: Status
@@ -16,7 +16,7 @@ public struct StatusGlyph: View {
         Group {
             switch status {
             case .working:
-                Spinner(size: size)
+                DotSpinner(size: size)
             case .idle:
                 Circle().strokeBorder(Palette.text5.color, lineWidth: 1.5)
             default:
@@ -38,19 +38,25 @@ public struct StatusGlyph: View {
     }
 }
 
-/// A ring with an arc turning once a second, redrawn at most 20 times a second.
+/// The desktop's braille dot spinner, a frame every tenth of a second.
 @MainActor
-struct Spinner: View {
-    let size: CGFloat
+public struct DotSpinner: View {
+    static let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20)) { context in
-            let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1)
-            ZStack {
-                Circle().stroke(Palette.fill4.color, lineWidth: 1.5)
-                Circle().trim(from: 0, to: 0.3).stroke(Palette.working.color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                    .rotationEffect(.degrees(turn * 360))
-            }
+    let size: CGFloat
+    let tint: Token
+
+    public init(size: CGFloat, tint: Token = Palette.working) {
+        self.size = size
+        self.tint = tint
+    }
+
+    public var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { context in
+            let frame = Int(context.date.timeIntervalSinceReferenceDate * 10) % Self.frames.count
+            // A braille glyph's dots cover a fraction of its em box.
+            Text(Self.frames[frame]).font(.system(size: size * 1.6)).foregroundStyle(tint.color).fixedSize()
         }
+        .frame(width: size, height: size)
     }
 }

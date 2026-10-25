@@ -94,7 +94,7 @@ struct AgentMark: View {
         Group {
             switch mark {
             case .starting: Circle().strokeBorder(Palette.text5.color, style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
-            case .running: RingSpinner(size: 12)
+            case .running: DotSpinner(size: 12)
             case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.success.color)
             case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.failed.color)
             }
