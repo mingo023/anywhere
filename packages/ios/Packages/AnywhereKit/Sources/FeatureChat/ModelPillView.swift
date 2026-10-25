@@ -29,7 +29,7 @@ struct ModelPillView: View {
     private var label: some View {
         let (model, effort) = ModelPill.label(agent)
         return HStack(spacing: 5) {
-            ProviderIcon(provider: agent.provider, size: 11)
+            BrandMark(agent.provider, size: 11)
             Text(model).foregroundStyle(Palette.text2.color)
             if let effort { Text(effort).foregroundStyle(Palette.text4.color) }
             if editable { Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }

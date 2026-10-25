@@ -24,7 +24,7 @@ struct AccountChip: View {
             open = true
         } label: {
             HStack(spacing: 5) {
-                ProviderIcon(provider: provider, size: 10)
+                BrandMark(provider, size: 10)
                 Text(current.name).lineLimit(1)
                 UsageBar(pct: Self.peak(current)).frame(width: 22)
                 Text("\(Int(Self.peak(current)))%").monospacedDigit()

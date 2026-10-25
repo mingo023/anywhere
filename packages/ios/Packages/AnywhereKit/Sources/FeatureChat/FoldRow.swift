@@ -21,7 +21,7 @@ struct FoldRow: View {
                 if open {
                     Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).frame(width: 14)
                 } else {
-                    ProviderIcon(provider: provider).frame(width: 14)
+                    BrandMark(provider).frame(width: 14)
                 }
                 Text(label)
                 if !open { Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)) }
@@ -50,7 +50,7 @@ struct LiveRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            ProviderIcon(provider: provider).frame(width: 14)
+            BrandMark(provider).frame(width: 14)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(live.label(now: Int(context.date.timeIntervalSince1970 * 1000))).monospacedDigit()
             }

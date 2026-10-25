@@ -74,7 +74,7 @@ struct SuggestList: View {
         let (label, tone) = Mcp.label(provider, s, signingIn: signsIn(s.name), acting: acting(s.name))
         let place = [provider == "codex" ? "Codex" : "Claude", s.scope ?? ""] + (Mcp.action(provider, s) != nil ? [Mcp.status(s, signingIn: signsIn(s.name))] : [])
         return row(i, enabled: pickable) {
-            ProviderIcon(provider: provider, size: 14)
+            BrandMark(provider, size: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(s.name).font(ChatFont.small).lineLimit(1)
                 Text(place.filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(Palette.text3.color).lineLimit(1)

@@ -88,7 +88,7 @@ struct AgentMapSheet: View {
                     }
                     .frame(width: size.x, height: size.y)
                     node(selected: nav.selected == 0) {
-                        ProviderIcon(provider: provider)
+                        BrandMark(provider)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(who(provider)).font(ChatFont.small.weight(.medium))
                             Text(AgentMap.mainLine(transcript, map)).font(ChatFont.caption).foregroundStyle(Palette.text3.color).lineLimit(1)

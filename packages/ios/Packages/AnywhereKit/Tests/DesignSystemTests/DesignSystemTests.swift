@@ -5,6 +5,15 @@ import Testing
 
 @Suite("Design system")
 struct DesignSystemTests {
+    @Test("a brand mark's path fills its 24-point box")
+    func marks() {
+        for mark in [Mark.claude, Mark.openai] {
+            let box = mark.boundingRect
+            #expect(box.minX > -0.5 && box.minY > -0.5 && box.maxX < 24.5 && box.maxY < 24.5)
+            #expect(box.width > 20 && box.height > 20)
+        }
+    }
+
     @Test("a file badge names its language", arguments: [
         ("src/chat.rs", "RS", 0xC2410C), ("App.TSX", "TS", 0x3178C6), ("Cargo.toml", "TM", 0x9C4221), ("Makefile", "", 0x8B8B94),
         ("Sources/Wire/Caps.swift", "SW", 0xF05138), ("README.md", "MD", 0x3E8EF7), ("package.json", "JS", 0x8B8B94),

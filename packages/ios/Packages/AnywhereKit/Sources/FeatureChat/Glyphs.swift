@@ -20,19 +20,6 @@ extension Glyph {
     }
 }
 
-/// The agent's brand mark: a tinted sparkle for Claude, a hexagon for Codex.
-@MainActor
-struct ProviderIcon: View {
-    let provider: String
-    var size: CGFloat = 13
-
-    var body: some View {
-        Image(systemName: provider == "codex" ? "hexagon" : "sparkle")
-            .font(.system(size: size, weight: .semibold))
-            .foregroundStyle((provider == "codex" ? Palette.agentCodex : provider == "claude" ? Palette.agentClaude : Palette.text3).color)
-    }
-}
-
 /// The chat's own sizes, from the desktop's points.
 enum ChatFont {
     static let body = Font.system(size: 14)
