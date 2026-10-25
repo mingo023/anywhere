@@ -74,6 +74,7 @@ struct TranscriptView: View {
     @State private var spacer: CGFloat = 0
     @State private var floating = Floating()
     @State private var flash: String?
+    @State private var halted = false
     @State private var made = Made()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -121,6 +122,7 @@ struct TranscriptView: View {
                     .frame(maxWidth: .infinity, minHeight: outer.size.height, alignment: .bottom)
                 }
                 .opensAtEnd()
+                .scrollDisabled(halted)
                 .coordinateSpace(name: "chat")
                 .simultaneousGesture(DragGesture(minimumDistance: 6).onChanged { _ in dragged() }.onEnded { _ in scroll.dragging = false })
                 .onPreferenceChange(RowFrames.self) { frames in
@@ -256,13 +258,16 @@ struct TranscriptView: View {
     private func toEnd() {
         scroll.pin = nil
         spacer = 0
-        scroll.following = true
-        scroll.gliding = !reduceMotion
-        withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: Glide.duration)) {
-            scroll.proxy?.scrollTo(endId, anchor: .bottom)
-        }
-        // The animation's own completion fires at once for a scroll, so the glide is timed.
-        Task { @MainActor [scroll] in
+        // The pill isn't on the list, so a tap on it leaves a flick's momentum running under the glide: halt it first.
+        halted = true
+        Task { @MainActor in
+            halted = false
+            scroll.following = true
+            scroll.gliding = !reduceMotion
+            withAnimation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: Glide.duration)) {
+                scroll.proxy?.scrollTo(endId, anchor: .bottom)
+            }
+            // The animation's own completion fires at once for a scroll, so the glide is timed.
             try? await Task.sleep(for: .seconds(Glide.duration + 0.05))
             scroll.gliding = false
         }
