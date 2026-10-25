@@ -43,13 +43,4 @@ struct StatusTests {
     func recent() {
         #expect(Order.recent([r("a", .idle, updated: 0, created: 1), r("b", .idle, updated: 0, created: 3), r("c", .idle, updated: 0, created: 2)]) == ["b", "c", "a"])
     }
-
-    @Test("the summary counts what wants a look and what works, else the sessions")
-    func summary() {
-        #expect(Order.summary([]) == nil)
-        #expect(Order.summary([.needsYou, .needsYou, .failed, .working]) == "2 need you · 1 failed · 1 working")
-        #expect(Order.summary([.needsYou, .done]) == "1 needs you · 1 done")
-        #expect(Order.summary([.idle]) == "1 session")
-        #expect(Order.summary([.idle, .idle]) == "2 sessions")
-    }
 }

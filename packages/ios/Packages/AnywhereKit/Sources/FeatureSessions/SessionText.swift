@@ -32,18 +32,6 @@ enum SessionText {
         }
     }
 
-    static func link(_ link: LinkState) -> (text: String, tone: Pill.Tone) {
-        switch link {
-        case .connecting: ("Connecting", .neutral)
-        case .online: ("Online", .success)
-        case .retrying: ("Reconnecting", .waiting)
-        case .ended(.revoked): ("Pair again", .failed)
-        case .ended(.updateMac): ("Update the Mac", .failed)
-        case .ended(.updatePhone): ("Update the app", .failed)
-        case .ended: ("Offline", .neutral)
-        }
-    }
-
     /// "Work · 42%": an account and the fuller of its two usage windows.
     static func account(_ a: Account) -> String {
         guard let peak = [a.fiveHour?.pct, a.week?.pct].compactMap(\.self).max() else { return a.name }

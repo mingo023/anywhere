@@ -69,19 +69,4 @@ public enum Order {
     public static func recent(_ sessions: [Ranked]) -> [String] {
         sessions.sorted { a, b in a.createdAt != b.createdAt ? a.createdAt > b.createdAt : a.id < b.id }.map(\.id)
     }
-
-    /// "2 need you · 1 failed · 3 working", or the session count when none of them wants anything.
-    public static func summary(_ statuses: [Status]) -> String? {
-        guard !statuses.isEmpty else { return nil }
-        let count = { (s: Status) in statuses.filter { $0 == s }.count }
-        let needs = count(.needsYou)
-        let parts = [
-            needs > 0 ? "\(needs) \(needs == 1 ? "needs" : "need") you" : nil,
-            count(.failed) > 0 ? "\(count(.failed)) failed" : nil,
-            count(.done) > 0 ? "\(count(.done)) done" : nil,
-            count(.working) > 0 ? "\(count(.working)) working" : nil,
-        ].compactMap(\.self)
-        if !parts.isEmpty { return parts.joined(separator: " · ") }
-        return statuses.count == 1 ? "1 session" : "\(statuses.count) sessions"
-    }
 }

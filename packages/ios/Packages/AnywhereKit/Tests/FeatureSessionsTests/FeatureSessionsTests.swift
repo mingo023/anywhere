@@ -1,3 +1,4 @@
+import Domain
 import Fixtures
 import Foundation
 import Stores
@@ -29,14 +30,6 @@ struct SessionTextTests {
         #expect(SessionText.step("setup") == "Setting up")
         #expect(SessionText.step("agent") == "Starting agent")
         #expect(SessionText.step("warmup") == "Warmup")
-    }
-
-    @Test("a Mac's link reads as online, reconnecting, or what to do about its end")
-    func link() {
-        #expect(SessionText.link(.online).text == "Online")
-        #expect(SessionText.link(.retrying(seconds: 2)).tone == .waiting)
-        #expect(SessionText.link(.ended(.revoked)).text == "Pair again")
-        #expect(SessionText.link(.ended(.stopped)).text == "Offline")
     }
 
     @Test("an account shows the fuller of its usage windows")
@@ -104,5 +97,42 @@ struct AutomationTextTests {
         let runs = Sample.automations.runs
         #expect(AutomationText.last(runs[0], now: Sample.now, timeZone: utc) == "Working")
         #expect(AutomationText.last(runs[1], now: Sample.now, timeZone: utc) == "Fri 09:00")
+    }
+}
+
+@Suite("Workspaces")
+struct WorkspacesTests {
+    @Test("a project's avatar takes the first letters of its first two words, or of its one word")
+    func initials() {
+        #expect(Workspaces.initials("glow-me") == "GM")
+        #expect(Workspaces.initials("regulations_api_ingestion") == "RA")
+        #expect(Workspaces.initials("employer backend") == "EB")
+        #expect(Workspaces.initials("anywhere") == "AN")
+        #expect(Workspaces.initials("") == "?")
+    }
+
+    @Test("a roll-up reads as a count and what those sessions are doing; idle ones say nothing")
+    func rollUp() {
+        #expect(Workspaces.label(.working, count: 1) == "1 running")
+        #expect(Workspaces.label(.needsYou, count: 2) == "2 waiting")
+        #expect(Workspaces.label(.failed, count: 1) == "1 failed")
+        #expect(Workspaces.label(.idle, count: 3) == nil)
+    }
+
+    @Test("active now is what waits on you, then what runs, each newest first; the rest isn't active")
+    func active() {
+        let cards = [
+            Sidebar.Card(id: "run-old", title: "", status: .working, createdAt: 0, updatedAt: 10),
+            Sidebar.Card(id: "wait", title: "", status: .needsYou, createdAt: 0, updatedAt: 5),
+            Sidebar.Card(id: "run-new", title: "", status: .working, createdAt: 0, updatedAt: 20),
+            Sidebar.Card(id: "done", title: "", status: .done, createdAt: 0, updatedAt: 30),
+        ]
+        #expect(Workspaces.active(cards) == ["wait", "run-new", "run-old"])
+    }
+
+    @Test("a project's line counts its workspaces and says when it last moved")
+    func projectLine() {
+        #expect(Workspaces.line(workspaces: 2, latest: 1_000, now: 1_000) == "2 workspaces · now")
+        #expect(Workspaces.line(workspaces: 1, latest: 0, now: 1_000) == "1 workspace")
     }
 }
