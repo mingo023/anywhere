@@ -45,7 +45,7 @@ type presence struct {
 	hooked     bool   // a SessionStart came; a restored Agent has its Conversation before that
 	reported   bool   // an OSC 7501 report came: status is theirs, not the hooks'
 	typed      bool   // the user started it in a shell: Pocket never restarts it
-	resend     string // the prompt its account's limit stopped, sent again once it switches
+	resend     string // what it is sent once it switches at its account's limit
 	drafted    bool   // Claude's input may hold text the user typed
 	stashed    bool   // Claude holds a draft put aside with Ctrl+S
 	line       line   // the text keys put in Claude's input since the last Enter
