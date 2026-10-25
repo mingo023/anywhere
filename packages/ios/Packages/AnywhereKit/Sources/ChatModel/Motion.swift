@@ -144,6 +144,10 @@ public struct Pin: Hashable, Sendable {
     /// Whether the prompt's row is still to be measured: until then it shows at the list's end, not yet held.
     public var unmeasured: Bool { sent }
 
+    /// Whether the list rests where the pin holds it, rather than where the user took it: then it's at its end, room
+    /// and all, and offers no jump there, however far the room's lagging layout puts the end for a frame.
+    public var holds: Bool { sent || anchored }
+
     /// The height of the prompt and what follows it, for `step`: as measured now, else, until first held, as last laid
     /// out once the prompt's own row was. A reply streaming in under it is remeasured on every update, so waiting for all
     /// of it to measure at once would hold the prompt only once the reply stops.

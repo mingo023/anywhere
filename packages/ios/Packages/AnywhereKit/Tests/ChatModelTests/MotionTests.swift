@@ -211,3 +211,13 @@ func aBlockBeforeTheRevealIsWhole() {
     #expect(r.cut(first, 0) == first.utf8.count)
     #expect(r.reaches(before: first.utf8.count + 1))
 }
+
+@Test("a held prompt keeps the list at its end until the user takes it elsewhere")
+func aHeldPromptKeepsTheListAtItsEnd() {
+    var pin = Pin()
+    #expect(pin.holds)
+    pin.moved(atEnd: true)
+    #expect(pin.holds)
+    pin.moved(atEnd: false)
+    #expect(!pin.holds)
+}

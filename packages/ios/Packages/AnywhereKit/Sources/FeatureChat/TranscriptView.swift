@@ -204,7 +204,7 @@ struct TranscriptView: View {
         if !scroll.dragging && distance <= 2 && scroll.pin == nil { scroll.following = true }
         // Rows grew under a list that keeps to its end: it's back there below, so the pill stays as it was.
         let snaps = scroll.following && scroll.pin == nil && distance > 2 && !scroll.dragging && !scroll.gliding
-        let showJump = snaps ? floating.jump : jumpVisibility(wasShown: floating.jump, distance: distance)
+        let showJump = scroll.pin?.holds == true ? false : snaps ? floating.jump : jumpVisibility(wasShown: floating.jump, distance: distance)
         if showJump != floating.jump { floating.jump = showJump }
         updateSticky(frames)
         if scroll.pin != nil { stepPin(frames, end: end) }
