@@ -32,6 +32,7 @@ import (
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/skills"
 	"pocketd/internal/terminal"
 )
 
@@ -98,6 +99,9 @@ type Server struct {
 	GitHub       GitHubService
 	Files        FileService
 	Push         PushService
+
+	// Skills keeps what skills.list last found; nil serves none.
+	Skills *skills.Store
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -547,6 +551,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.providers":
 		c.providers(m)
 		return nil
+	case "skills.list":
+		return c.skills(m)
 	case "config.set":
 		c.configSet(m)
 		return nil

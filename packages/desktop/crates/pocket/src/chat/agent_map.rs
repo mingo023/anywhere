@@ -370,7 +370,7 @@ mod tests {
     }
 
     fn shell(id: &str) -> Block {
-        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "cargo test".into() }, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 })
+        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() }, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 })
     }
 
     fn turn(blocks: Vec<Block>, ended: bool) -> Turn {

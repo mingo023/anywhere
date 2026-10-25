@@ -52,6 +52,10 @@ var serverGolden = map[string]any{
 		{Name: "goal", Description: "Set a goal — keep working until the condition is met"},
 		{Name: "review", Description: "Review a pull request", ArgumentHint: "<pr>"},
 	}),
+	"skills_list": NewSkillsList("s1", "claude", "3f9a0c1b2d4e", "/Users/me/dev/pocket", []Command{
+		{Name: "fix-root-cause", Description: "Trace each symptom to its root cause"},
+		{Name: "skill-creator:skill-creator", ArgumentHint: "<skill>"},
+	}),
 	"agent_btw": NewAgentBtw("b1", "a1", "It reads the config once at start."),
 	"agent_mcp": NewAgentMcp("m1", "a1", []McpServer{
 		{Name: "fff", Status: "connected", Scope: "user"},
@@ -201,6 +205,8 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.close","id":null,"agentId":"a"}`,
 		`{"type":"agent.view","id":"1"}`,
 		`{"type":"agent.pin","id":"1","agentId":"a"}`,
+		`{"type":"skills.list","id":"1","provider":"claude"}`,
+		`{"type":"skills.list","id":"1","provider":"claude","project":""}`,
 		`{"type":"agent.settings","id":"1","agentId":"a"}`,
 		`{"type":"agent.mcp","id":"1","agentId":"a","action":"auth"}`,
 		`{"type":"agent.mcp","id":"1","agentId":"a","action":"delete","server":"x"}`,

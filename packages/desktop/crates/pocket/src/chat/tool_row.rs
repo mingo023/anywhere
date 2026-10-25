@@ -1,21 +1,31 @@
 use super::diff::{self, Highlights};
+use super::selectable::selectable;
 use super::shimmer::shimmer;
-use super::tool_detail::{self, Details};
+use super::tool_detail::{self, Details, LINE, Lines, TEXT_SIZE};
+use super::user_bubble::{grow, tween};
 use chat::{Diff, ToolCall, ToolKind, ToolStatus};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::time::Instant;
 use theme::*;
 
-/// A chat's tool views: which rows the user opened and their diffs' colours.
+/// Space above and below a command's detail, inside it, and between the command and what it printed.
+const RUN_MARGIN: f32 = 4.;
+const RUN_PAD: f32 = 8.;
+const RUN_GAP: f32 = 8.;
+
+/// A chat's tool views: which rows the user opened, the last one opened or shut and when, and their diffs' colours.
 #[derive(Default)]
 pub(crate) struct Tools {
     pub(crate) details: Details,
+    pub(crate) toggled: Option<(String, Instant)>,
     pub(crate) highlights: Highlights,
 }
 
 impl Tools {
     /// Opens or closes a row; a diff opening for the first time gets coloured in the background.
     pub(crate) fn toggle(&mut self, key: &str, default: bool, diff: Option<(String, String, Diff)>, cx: &mut Context<Self>) {
+        self.toggled = Some((key.to_string(), Instant::now()));
         if self.details.toggle(key, default)
             && let Some((id, path, diff)) = diff
             && self.highlights.start(&id)
@@ -67,14 +77,86 @@ pub(crate) fn line(call: &ToolCall) -> (&'static str, Arg) {
         ToolKind::Write { path, .. } => ("Create", Arg::File(path.clone())),
         ToolKind::Search { query } => ("Find", Arg::Text(one(query))),
         ToolKind::Fetch { url } => ("Fetch", Arg::Text(url.clone())),
+        ToolKind::Shell { description, .. } if !description.is_empty() => (verb(&call.name), Arg::Text(one(description))),
         // pocketd names the command, or the task, a call on a background task acts on.
-        ToolKind::Shell { command } => (verb(&call.name), Arg::Raw(command.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Shell").to_string())),
+        ToolKind::Shell { command, .. } => (verb(&call.name), Arg::Raw(command.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Shell").to_string())),
         ToolKind::Other { description, .. } if !description.is_empty() => (verb(&call.name), Arg::Text(one(description))),
         ToolKind::Other { input, .. } if call.name == "Skill" => ("Skill", Arg::Text(skill(input).map_or_else(String::new, |s| format!("/{s}")))),
         ToolKind::Other { .. } => ("", Arg::Raw(mcp(&call.name).unwrap_or_else(|| call.name.clone()))),
         ToolKind::Agent(a) => ("", Arg::Raw(one(&a.description))),
         ToolKind::Question(_) => ("", Arg::Raw(call.name.clone())),
     }
+}
+
+/// What a command's row opens onto: the command whole, and the head of what it printed if anything.
+struct Run {
+    command: Lines,
+    output: Option<Lines>,
+}
+
+/// Built only for a row that shows it: a command's output can run to 64KB.
+fn run(call: &ToolCall) -> Option<Run> {
+    let ToolKind::Shell { command, .. } = &call.kind else { return None };
+    let command = Lines { lines: command.trim_end().lines().map(str::to_string).collect(), more: 0 };
+    let output = call.output.as_deref().filter(|o| !o.trim().is_empty()).map(tool_detail::output);
+    Some(Run { command, output })
+}
+
+impl Run {
+    /// Exact, since its lines scroll sideways instead of wrapping; an empty command still takes a line.
+    fn height(&self) -> f32 {
+        let lines = |l: &Lines| l.rows().max(1) as f32 * LINE;
+        2. * (RUN_MARGIN + RUN_PAD) + lines(&self.command) + self.output.as_ref().map_or(0., |o| RUN_GAP + lines(o))
+    }
+
+    fn view(&self, id: &str, failed: bool) -> Div {
+        let selectable_lines = |key: &str, lines: &Lines, colour: Token| {
+            let text = SharedString::from(lines.text());
+            let styled = StyledText::new(text.clone());
+            div().text_color(colour).child(selectable(SharedString::from(format!("{key}-{id}")), text, styled.layout().clone(), styled))
+        };
+        let (command_ink, output_ink) = if failed { (FAILED, FAILED) } else { (TEXT_2, TEXT_3) };
+        let column = div()
+            .flex_none()
+            .min_w_full()
+            .flex()
+            .flex_col()
+            .child(selectable_lines("run-command", &self.command, command_ink))
+            .children(self.output.as_ref().map(|o| div().pt(px(RUN_GAP)).child(selectable_lines("run-output", o, output_ink))));
+        let card = div()
+            .id(SharedString::from(format!("run-{id}")))
+            .flex()
+            .overflow_x_scroll()
+            .px(px(10.))
+            .py(px(RUN_PAD))
+            .rounded(px(8.))
+            .bg(FILL_4)
+            .font_family(code_font())
+            .text_size(px(TEXT_SIZE))
+            .line_height(px(LINE))
+            .whitespace_nowrap()
+            .child(column);
+        div().py(px(RUN_MARGIN)).child(card)
+    }
+}
+
+/// A command call's detail while open or easing open or shut; `toggled` is when its row last was.
+fn run_detail(call: &ToolCall, failed: bool, open: bool, toggled: Option<Instant>) -> Option<AnyElement> {
+    if !open && toggled.is_none() {
+        return None;
+    }
+    let (run, id) = (run(call)?, call.id.as_str());
+    let height = run.height();
+    let moving = toggled.is_some_and(|at| at.elapsed() < tween(height));
+    if !open && !moving {
+        return None;
+    }
+    let view = run.view(id, failed);
+    if !moving {
+        return Some(view.into_any_element());
+    }
+    let (from, to) = if open { (0., height) } else { (height, 0.) };
+    Some(div().overflow_hidden().child(view).with_animation(SharedString::from(format!("run-{id}-{open}")), grow(height), move |d, t| d.h(px(from + (to - from) * t))).into_any_element())
 }
 
 fn verb(name: &str) -> &'static str {
@@ -145,12 +227,13 @@ fn file_chip(path: &str, failed: bool) -> Div {
 }
 
 /// One tool call: dim and shut when it went well, red with its error a click away when it failed.
-/// An edit's chip opens its diff. `settled` says the work around it is over, so a call still running runs in the background.
+/// An edit's chip opens its diff, a command's row the command whole and what it printed. `settled` says the work around it is over, so a call still running runs in the background.
 pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &App) -> Div {
     let state = tools.read(cx);
     let background = settled && call.status == ToolStatus::Running;
     let (running, failed) = (call.status == ToolStatus::Running && !background, call.status == ToolStatus::Failed);
     let (verb, arg) = line(call);
+    let lead = !verb.is_empty();
     let toggle = |default: bool, diff: Option<(String, String, Diff)>| {
         let (tools, key) = (tools.clone(), call.id.clone());
         move |_: &ClickEvent, _: &mut Window, cx: &mut App| tools.update(cx, |t, cx| t.toggle(&key, default, diff.clone(), cx))
@@ -176,15 +259,22 @@ pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &Ap
                 None => chip.into_any_element(),
             }
         }
-        Arg::Text(text) => div().min_w_0().pl(px(2.)).truncate().text_color(if failed { FAILED } else { TEXT_BODY }).child(text).into_any_element(),
+        Arg::Text(text) => {
+            let base = if failed { FAILED } else { TEXT_BODY };
+            let shown = div().min_w_0().when(lead, |d| d.pl(px(2.))).truncate().text_color(base);
+            // A row with a verb shimmers that; one without, as a command its agent described, shimmers this.
+            if running && !lead { shown.child(shimmer(SharedString::from(format!("text-{}", call.id)), text, base)) } else { shown.child(text) }.into_any_element()
+        }
         Arg::Raw(label) => {
             let base = if failed { FAILED } else { TEXT_2 };
             let raw = div().min_w_0().overflow_hidden().whitespace_nowrap().font_family(code_font()).text_size(px(13.)).text_color(base);
             if running { raw.child(shimmer(SharedString::from(format!("raw-{}", call.id)), label, base)).into_any_element() } else { raw.truncate().child(label).into_any_element() }
         }
     };
-    let error = call.output.as_deref().filter(|o| failed && !o.trim().is_empty());
+    let command = matches!(call.kind, ToolKind::Shell { .. });
+    let error = call.output.as_deref().filter(|o| failed && !o.trim().is_empty() && !command);
     let open = state.details.open(&call.id, false);
+    let chevron = |colour: Token| icon(if open { "chevron-down" } else { "chevron-right" }, 14., colour);
     let caret = error.map(|_| {
         div()
             .id(SharedString::from(format!("err-{}", call.id)))
@@ -199,9 +289,11 @@ pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &Ap
             .cursor_pointer()
             .hover(|s| s.opacity(1.).bg(FILL_3))
             .on_click(toggle(false, None))
-            .child(icon(if open { "chevron-down" } else { "chevron-right" }, 14., FAILED))
+            .child(chevron(FAILED))
     });
+    let run_caret = command.then(|| div().flex_none().opacity(if open || failed { 0.7 } else { 0. }).group_hover("tool-head", |s| s.opacity(0.7)).child(chevron(if failed { FAILED } else { TEXT_3 })));
     let head = div()
+        .id(SharedString::from(format!("head-{}", call.id)))
         .py(px(4.))
         .min_w_0()
         .flex()
@@ -212,8 +304,12 @@ pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &Ap
         .child(div().min_w_0().flex_1().flex().items_center().gap(px(6.)).children(verb).child(arg))
         .when(background, |d| d.child(div().flex_none().text_size(px(12.)).text_color(TEXT_4).child("background")))
         .when(failed, |d| d.child(icon("x", 14., FAILED)))
-        .children(caret);
+        .children(caret)
+        .children(run_caret)
+        .when(command, |d| d.group("tool-head").cursor_pointer().on_click(toggle(false, None)));
+    let toggled = state.toggled.as_ref().filter(|(key, _)| *key == call.id).map(|(_, at)| *at);
     let body = match (open, error, edit(call)) {
+        _ if command => run_detail(call, failed, open, toggled),
         (true, Some(text), _) => Some(tool_detail::pre(&tool_detail::output(text), FAILED, 0.88).into_any_element()),
         (true, None, Some((_, d))) => Some(div().py(px(4.)).child(diff::body(&diff::lines(d), state.highlights.get(&call.id).as_deref().map(Vec::as_slice))).into_any_element()),
         _ => None,
@@ -223,7 +319,7 @@ pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &Ap
 
 #[cfg(test)]
 mod tests {
-    use super::{Arg, badge, line};
+    use super::{Arg, LINE, badge, line, run};
     use chat::{ToolCall, ToolKind, ToolStatus};
 
     fn call(name: &str, kind: ToolKind) -> ToolCall {
@@ -241,19 +337,54 @@ mod tests {
             (call("Edit", ToolKind::Edit { path: "b.ts".into(), diff: None }), "Edit", Arg::File("b.ts".into())),
             (call("Write", ToolKind::Write { path: "c.md".into(), diff: None }), "Create", Arg::File("c.md".into())),
             (call("Grep", ToolKind::Search { query: "fn  group\n".into() }), "Find", Arg::Text("fn group".into())),
-            (call("Bash", ToolKind::Shell { command: "\ncargo test\nmore".into() }), "", Arg::Raw("cargo test".into())),
-            (call("Bash", ToolKind::Shell { command: String::new() }), "", Arg::Raw("Shell".into())),
+            (call("Bash", ToolKind::Shell { command: "\ncargo test\nmore".into(), description: String::new() }), "", Arg::Raw("cargo test".into())),
+            (call("Bash", ToolKind::Shell { command: String::new(), description: String::new() }), "", Arg::Raw("Shell".into())),
+            (call("Bash", ToolKind::Shell { command: "cd /r && go test ./...".into(), description: "Run the  Go tests".into() }), "", Arg::Text("Run the Go tests".into())),
             (call("mcp__linear__list", other("")), "", Arg::Raw("linear · list".into())),
             (call("Skill", ToolKind::Other { input: r#"{"skill": "apple-design"}"#.into(), description: String::new() }), "Skill", Arg::Text("/apple-design".into())),
             (call("NotebookEdit", other("")), "", Arg::Raw("NotebookEdit".into())),
-            (call("Monitor", ToolKind::Shell { command: "tail -f build.log".into() }), "Watch", Arg::Raw("tail -f build.log".into())),
+            (call("Monitor", ToolKind::Shell { command: "tail -f build.log".into(), description: String::new() }), "Watch", Arg::Raw("tail -f build.log".into())),
             (call("TaskStop", other("Standards review\nof quit diff")), "Stop", Arg::Text("Standards review of quit diff".into())),
-            (call("TaskStop", ToolKind::Shell { command: "bun run dev".into() }), "Stop", Arg::Raw("bun run dev".into())),
-            (call("TaskOutput", ToolKind::Shell { command: "bun run dev".into() }), "Read output of", Arg::Raw("bun run dev".into())),
+            (call("TaskStop", ToolKind::Shell { command: "bun run dev".into(), description: String::new() }), "Stop", Arg::Raw("bun run dev".into())),
+            (call("TaskOutput", ToolKind::Shell { command: "bun run dev".into(), description: String::new() }), "Read output of", Arg::Raw("bun run dev".into())),
         ];
         for (c, verb, arg) in cases {
             assert_eq!(line(&c), (verb, arg), "{}", c.name);
         }
+    }
+
+    fn bash(command: &str, output: Option<&str>) -> ToolCall {
+        ToolCall { output: output.map(str::to_string), ..call("Bash", ToolKind::Shell { command: command.into(), description: "Run it".into() }) }
+    }
+
+    #[test]
+    fn a_command_opens_onto_itself_whole_however_long() {
+        let long = (0..30).map(|i| format!("  step {i}")).collect::<Vec<_>>().join("\n");
+        let shown = run(&bash(&long, None)).expect("a command opens").command;
+        assert_eq!((shown.lines.len(), shown.lines[0].as_str(), shown.more), (30, "  step 0", 0));
+    }
+
+    #[test]
+    fn a_command_opens_onto_what_it_printed_and_grows_a_line_a_line() {
+        let (bare, one, two) = (run(&bash("ls", None)).unwrap(), run(&bash("ls", Some("a\n"))).unwrap(), run(&bash("ls", Some("a\nb"))).unwrap());
+        assert_eq!(one.output.as_ref().map(|o| o.lines.clone()), Some(vec!["a".to_string()]));
+        assert_eq!(two.height() - one.height(), LINE);
+        assert!(one.height() > bare.height());
+    }
+
+    #[test]
+    fn blank_output_adds_nothing_under_a_command() {
+        assert!(run(&bash("ls", Some(" \n"))).unwrap().output.is_none());
+    }
+
+    #[test]
+    fn an_empty_command_still_takes_a_line() {
+        assert_eq!(run(&bash("", None)).unwrap().height(), run(&bash("ls", None)).unwrap().height());
+    }
+
+    #[test]
+    fn only_a_command_opens_onto_a_run() {
+        assert!(run(&call("Read", ToolKind::Read { path: "a.rs".into() })).is_none());
     }
 
     #[test]

@@ -271,12 +271,18 @@ pub(crate) enum Prompt {
     Launch,
 }
 
-/// Who a draft goes to: the chat's agent, or the agent and project a new session starts; `key` is the agent's id or
-/// the provider.
+/// Who a draft goes to: the chat's agent, or the agent, account and project a new session starts; `key` is the agent's
+/// id or `launch_key`'s.
 struct Target {
     key: String,
     provider: String,
+    account: String,
     cwd: String,
+}
+
+/// What a new session's commands go by: its provider, account and project.
+pub(crate) fn launch_key(provider: &str, account: &str, cwd: &str) -> String {
+    format!("{provider}\0{account}\0{cwd}")
 }
 
 impl Desktop {
@@ -303,24 +309,28 @@ impl Desktop {
 
     fn suggest_target(&self, p: Prompt) -> Option<Target> {
         match p {
-            Prompt::Chat => self.chats.drafts.owner().and_then(|id| self.agents.get(id)).map(|a| Target { key: a.id.clone(), provider: a.provider.clone(), cwd: a.cwd.clone() }),
+            Prompt::Chat => self.chats.drafts.owner().and_then(|id| self.agents.get(id)).map(|a| Target { key: a.id.clone(), provider: a.provider.clone(), account: a.account.clone(), cwd: a.cwd.clone() }),
             Prompt::Launch => {
-                let provider = self.new_form_pick().provider;
-                self.new_form.project().map(|cwd| Target { key: provider.clone(), provider, cwd: cwd.into() })
+                let pick = self.new_form_pick();
+                self.new_form.project().map(|cwd| Target { key: launch_key(&pick.provider, &pick.account, cwd), provider: pick.provider, account: pick.account, cwd: cwd.into() })
             }
         }
     }
 
-    /// Asks for what the list needs as the draft changes: the agent's commands each time a `/` starts one, its MCP
-    /// servers each time an `@mcp/` tag does, and the folder's files each time another `@` does.
+    /// Asks for what the list needs as the draft changes: the agent's commands each time a `/` starts one, or a new
+    /// session's skills as pocketd reads them off disk, its MCP servers each time an `@mcp/` tag does, and the folder's
+    /// files each time another `@` does.
     pub(crate) fn draft_changed(&mut self, p: Prompt, cx: &mut Context<Self>) {
         self.suggest_state_mut(p).selected = 0;
         let Some(t) = self.suggest_target(p) else { return self.suggest(p, cx) };
         let input = self.suggest_input(p).read(cx);
         let (text, cursor) = (input.value().to_string(), input.cursor());
         let s = self.suggest_state_mut(p);
-        if p == Prompt::Chat && s.asks_commands(&t.key, &text, cursor) {
-            self.outbox.commands(&t.key);
+        if s.asks_commands(&t.key, &text, cursor) {
+            match p {
+                Prompt::Chat => self.outbox.commands(&t.key),
+                Prompt::Launch => self.outbox.skills(&t.provider, &t.account, &t.cwd),
+            }
         }
         if p == Prompt::Chat && offers_mcp(&t.provider) && word(&text, cursor, '@').is_some_and(|(_, q)| q.starts_with(mcp_word())) {
             if self.suggest_state_mut(p).asks_servers(&t.key, &text, cursor) {
@@ -596,7 +606,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHOWN, Suggest, named, rank, replaced, starts_draft, window, word};
+    use super::{SHOWN, Suggest, launch_key, named, rank, replaced, starts_draft, window, word};
     use agents::{McpAction, McpServer, McpStatus};
     use std::collections::HashSet;
 
@@ -659,6 +669,12 @@ mod tests {
         assert!(s.asks_commands("b", "/mo", 3));
         assert!(s.asks_commands("a", "ok /", 4), "a slash past the start asks too");
         assert!(!s.asks_commands("c", "a/b", 3));
+    }
+
+    #[test]
+    fn a_new_sessions_skills_are_kept_apart_by_provider_account_and_project() {
+        let keys = [launch_key("claude", "", "/a"), launch_key("claude", "work", "/a"), launch_key("claude", "", "/b"), launch_key("codex", "", "/a")];
+        assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
     }
 
     #[test]

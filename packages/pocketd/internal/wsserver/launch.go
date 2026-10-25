@@ -2,12 +2,15 @@ package wsserver
 
 import (
 	"errors"
+	"log"
+	"os"
 	"slices"
 
 	"pocketd/internal/config"
 	"pocketd/internal/launch"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/skills"
 )
 
 func launchWho(p peer.Principal) launch.Who {
@@ -53,6 +56,29 @@ func (c *conn) providers(m proto.ClientMessage) {
 		defaultAccess = c.s.Registry.Load().Agents.Access
 	}
 	c.send(proto.NewAgentProviders(m.ID, list, maxAccess, phoneMax, defaultAccess))
+}
+
+// skills sends the slash commands m's provider offers in its project as last
+// found, then again if a fresh read of the disk finds others.
+func (c *conn) skills(m proto.ClientMessage) error {
+	if c.s.Skills == nil {
+		return errors.New("Skills are off")
+	}
+	config, err := c.s.Launch.ConfigDir(m.Provider, m.Account, m.Project)
+	if err != nil {
+		return err
+	}
+	home, _ := os.UserHomeDir()
+	go func() {
+		k := skills.Key{Provider: m.Provider, Config: config, Cwd: m.Project}
+		err := c.s.Skills.List(k, home, func(list []proto.Command) {
+			c.send(proto.NewSkillsList(m.ID, m.Provider, m.Account, m.Project, list))
+		})
+		if err != nil {
+			log.Printf("skills: %v", err)
+		}
+	}()
+	return nil
 }
 
 func (c *conn) configSet(m proto.ClientMessage) {

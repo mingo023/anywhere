@@ -29,8 +29,11 @@ const CapCommands = "commands.v1"
 // CapAccess: agent.settings switches a chat agent's access, and its summary names it.
 const CapAccess = "access.v1"
 
+// CapSkills: skills.list lists the slash commands a provider offers in a project before any agent runs there.
+const CapSkills = "skills.v1"
+
 // ServerCaps are the optional features this pocketd speaks, named <area>.v<n>.
-var ServerCaps = []string{"pair.v1", CapScopes, CapHost, CapRegistry, CapSummaryV2, CapLaunch, CapRestore, CapOpen, CapNames, CapAutomations, CapLocals, CapFork, CapAccounts, CapSubagents, CapSettings, CapCommands, CapAccess, CapTerminal, CapWorkspace, CapGit, CapGitHub, CapFiles, CapPush}
+var ServerCaps = []string{"pair.v1", CapScopes, CapHost, CapRegistry, CapSummaryV2, CapLaunch, CapRestore, CapOpen, CapNames, CapAutomations, CapLocals, CapFork, CapAccounts, CapSubagents, CapSettings, CapCommands, CapAccess, CapTerminal, CapWorkspace, CapGit, CapGitHub, CapFiles, CapPush, CapSkills}
 
 // Versions is the client's protocol range; a hello without one speaks only protocolVersion.
 func (m ClientMessage) Versions() Range {

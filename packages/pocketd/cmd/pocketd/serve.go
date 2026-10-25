@@ -48,6 +48,7 @@ import (
 	"pocketd/internal/reach"
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
+	"pocketd/internal/skills"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 	"pocketd/internal/workspace"
@@ -203,7 +204,11 @@ func serve(sock, handed string) error {
 			notifier.Automation(r, a.Name)
 		}}
 	ownerTokens := &owners.Store{Path: owners.Path(home)}
-	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv)}
+	skillStore, err := skills.Open(home)
+	if err != nil {
+		log.Printf("skills: %v", err)
+	}
+	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}

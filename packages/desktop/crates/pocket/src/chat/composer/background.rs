@@ -139,7 +139,7 @@ mod tests {
         let reading = agent("Review the spec", vec![call(ToolKind::Search { query: "fold".into() }, 1), call(ToolKind::Read { path: "docs/spec.md".into() }, 2)]);
         assert_eq!((name(&reading), doing(&reading).as_deref()), ("Review the spec".into(), Some("Read docs/spec.md")));
         assert_eq!(doing(&agent("Review the spec", vec![])).as_deref(), Some("Starting…"));
-        let server = call(ToolKind::Shell { command: "bun run dev\n".into() }, 0);
+        let server = call(ToolKind::Shell { command: "bun run dev\n".into(), description: String::new() }, 0);
         assert_eq!((name(&server), doing(&server)), ("bun run dev".into(), None));
     }
 
@@ -147,14 +147,14 @@ mod tests {
     fn the_folded_tray_shows_the_newest_step_of_any_task() {
         let a = agent("a", vec![call(ToolKind::Read { path: "old.rs".into() }, 5)]);
         let b = agent("b", vec![call(ToolKind::Search { query: "left-pad".into() }, 9)]);
-        let server = call(ToolKind::Shell { command: "bun run dev".into() }, 20);
+        let server = call(ToolKind::Shell { command: "bun run dev".into(), description: String::new() }, 20);
         assert_eq!(newest(&[&a, &b, &server]).as_deref(), Some("Find left-pad"));
         assert_eq!(newest(&[&server]), None);
     }
 
     #[test]
     fn a_chat_left_with_only_background_work_still_offers_a_stop() {
-        let (a, server) = (agent("Review", vec![]), call(ToolKind::Shell { command: "bun run dev".into() }, 0));
+        let (a, server) = (agent("Review", vec![]), call(ToolKind::Shell { command: "bun run dev".into(), description: String::new() }, 0));
         assert!(stops(true, true, false, &[&a, &server]));
         assert!(!stops(false, true, false, &[&a]), "a terminal agent's Esc doesn't reach what it left in the background");
         assert!(!stops(true, false, false, &[&a]));
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn the_tray_offers_no_stop_that_would_end_a_turn_or_reach_no_sub_agent() {
-        let (a, server) = (agent("Review", vec![]), call(ToolKind::Shell { command: "bun run dev".into() }, 0));
+        let (a, server) = (agent("Review", vec![]), call(ToolKind::Shell { command: "bun run dev".into(), description: String::new() }, 0));
         assert!(!stops(true, true, true, &[&a]), "the composer's Stop ends the turn and its sub-agents");
         assert!(!stops(true, true, false, &[&server]), "pocketd leaves background commands running");
     }

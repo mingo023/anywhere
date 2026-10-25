@@ -1,0 +1,87 @@
+# Tests pocketd and builds and tests the desktop workspace on every PR to main.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/pocketd/go.mod
+          cache-dependency-path: packages/pocketd/go.sum
+
+      # internal/vt links libghostty through cgo.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: ghostty
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        with:
+          version: 0.16.0
+
+      - name: Ghostty
+        run: scripts/build-ghostty.sh
+
+      - name: Test
+        working-directory: packages/pocketd
+        run: go test ./...
+
+  desktop:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Rust version
+        id: rust
+        run: echo "rustc=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      # Same key as release-cache-mac.yml.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: ghostty
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            packages/desktop/target
+          key: cargo-ci-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
+          restore-keys: cargo-ci-${{ steps.rust.outputs.rustc }}-
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        with:
+          version: 0.16.0
+
+      - name: Ghostty
+        run: scripts/build-ghostty.sh
+
+      - name: Build
+        working-directory: packages/desktop
+        run: cargo build --workspace
+
+      - name: Test
+        working-directory: packages/desktop
+        run: cargo test --workspace

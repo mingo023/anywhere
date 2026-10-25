@@ -104,6 +104,15 @@ impl MeasuredInlineObject {
         result
     }
 
+    /// The narrowest it gets on a line of any width: an element keeps its
+    /// size, while the plain-text fallback can shrink away.
+    pub fn min_width(&self) -> Pixels {
+        match self.content {
+            Some(_) => self.metrics.size.width,
+            None => Pixels::ZERO,
+        }
+    }
+
     pub fn fit_text(mut self, width: Option<Pixels>) -> Self {
         // GPUI has no general subtree scale. Only our own plain-text fallback
         // can be proportionally fitted; custom elements retain their real size.

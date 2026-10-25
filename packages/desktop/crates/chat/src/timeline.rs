@@ -229,7 +229,7 @@ fn tool(id: &str, item: &Item, call: &Call) -> ToolCall {
 
 fn kind(name: &str, d: &Detail) -> ToolKind {
     match d.kind.as_str() {
-        "shell" => ToolKind::Shell { command: d.command.clone() },
+        "shell" => ToolKind::Shell { command: d.command.clone(), description: d.description.clone() },
         "read" => ToolKind::Read { path: d.path.clone() },
         "edit" => ToolKind::Edit { path: d.path.clone(), diff: d.diff.as_ref().map(diff) },
         "write" => ToolKind::Write { path: d.path.clone(), diff: d.diff.as_ref().map(diff) },
@@ -353,7 +353,14 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         let Block::Tool(call) = &blocks[0] else { panic!("the tool keeps its place") };
         assert_eq!((call.id.as_str(), call.status, call.output.as_deref(), call.duration_ms), ("tu1", ToolStatus::Ok, Some("a\nb"), Some(7)));
-        assert_eq!(call.kind, ToolKind::Shell { command: "ls".into() });
+        assert_eq!(call.kind, ToolKind::Shell { command: "ls".into(), description: String::new() });
+    }
+
+    #[test]
+    fn a_command_keeps_what_the_agent_said_it_does() {
+        let t = fold(&items(json!([tool("tu1", "Bash", json!({"kind": "shell", "command": "go test ./...", "description": "Run the Go tests"}), "ok")])));
+        let Block::Tool(call) = &t.turns[0].blocks[0] else { panic!("a tool call") };
+        assert_eq!(call.kind, ToolKind::Shell { command: "go test ./...".into(), description: "Run the Go tests".into() });
     }
 
     #[test]
@@ -524,7 +531,7 @@ mod tests {
         assert!(matches!(&list.kind, ToolKind::Agent(a) if a.model == "claude-haiku-4-5-20251001"), "the model it replied as");
         let list = sub_agent(list);
         assert_eq!(list.turns[0].prompt.as_ref().map(|m| m.text.as_str()), Some("Run ls in /w and report what is there"));
-        assert!(matches!(&list.turns[0].blocks[..], [Block::Tool(ToolCall { kind: ToolKind::Shell { command }, status: ToolStatus::Ok, .. }), Block::Text(m)]
+        assert!(matches!(&list.turns[0].blocks[..], [Block::Tool(ToolCall { kind: ToolKind::Shell { command, .. }, status: ToolStatus::Ok, .. }), Block::Text(m)]
             if command == "ls /w" && m.text == "README.md and src/"));
         let count = sub_agent(count);
         assert!(matches!(&count.turns[0].blocks[..], [Block::Text(m)] if m.text == "1, 2, 3"));
@@ -598,6 +605,6 @@ mod tests {
     fn a_permission_maps_to_an_ask_with_its_tool() {
         let golden: Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/permission_request.json")).unwrap();
         let p: Permission = serde_json::from_value(golden["request"].clone()).unwrap();
-        assert_eq!(ask(&p), Ask { request_id: "r1".into(), tool: ToolKind::Shell { command: "rm x".into() }, tool_name: "Bash".into(), questions: vec![] });
+        assert_eq!(ask(&p), Ask { request_id: "r1".into(), tool: ToolKind::Shell { command: "rm x".into(), description: "remove".into() }, tool_name: "Bash".into(), questions: vec![] });
     }
 }

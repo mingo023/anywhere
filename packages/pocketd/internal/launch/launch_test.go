@@ -92,7 +92,7 @@ func TestProvidersShowWhatIsInstalledAndTheCeiling(t *testing.T) {
 	if list[1].Efforts == nil || len(list[1].Efforts) != 0 || list[0].ID != "claude" || list[1].ID != "codex" {
 		t.Fatalf("got %+v", list)
 	}
-	if list[0].Chat != (providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true}) ||
+	if list[0].Chat != (providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true, SendNow: true}) ||
 		list[1].Chat != (providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}) {
 		t.Fatalf("chat %+v %+v", list[0].Chat, list[1].Chat)
 	}

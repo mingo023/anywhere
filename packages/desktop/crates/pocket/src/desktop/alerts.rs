@@ -155,6 +155,10 @@ impl Desktop {
             self.chats.composer.suggest.listed(agent, commands);
             return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
         }
+        if let Event::Skills { provider, account, project, commands } = ev {
+            self.new_form.composer.suggest.listed(crate::chat::composer::suggest::launch_key(&provider, &account, &project), commands);
+            return self.suggest(crate::chat::composer::suggest::Prompt::Launch, cx);
+        }
         if let Event::Mcp { agent, servers, auth_url, acted } = ev {
             if !auth_url.is_empty() {
                 cx.open_url(&auth_url);

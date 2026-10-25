@@ -1,7 +1,6 @@
 use gpui_kit::base::text::{InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, TextViewMotion, TextViewStyle, markdown_ast};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::borrow::Cow;
@@ -177,6 +176,7 @@ fn style() -> TextViewStyle {
         .with_border(SEPARATOR.into())
         .with_code_background(ink(0.035))
         .with_code_border(SEPARATOR.into())
+        .with_code_block(StyleRefinement::default().rounded(px(10.)).border_1())
         .with_aside_background(ink(0.035))
         .with_inline_code(HighlightStyle { color: Some(TEXT.into()), background_color: Some(FILL_4.into()), ..Default::default() })
         .with_blockquote(quote)
@@ -217,74 +217,28 @@ pub(super) fn block(id: impl Into<ElementId>, text: SharedString, live: bool, op
         .text_color(TEXT_BODY)
 }
 
-/// A fenced code block: language, wrap and copy in a header over the code, which scrolls sideways unless `wrapped`.
-pub(super) fn code_block(
-    id: &str,
-    lang: &str,
-    code: &str,
-    styles: Option<Styles>,
-    (copied, on_copy): (bool, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static),
-    (wrapped, on_wrap): (bool, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static),
-) -> Div {
-    let wrap = div()
-        .id(SharedString::from(format!("wrap-{id}")))
-        .size(px(22.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(5.))
-        .cursor_pointer()
-        .when(wrapped, |d| d.bg(ink(0.06)))
-        .hover(|d| d.bg(ink(0.08)))
-        .tooltip(move |window, cx| Tooltip::new(if wrapped { "Scroll long lines" } else { "Wrap long lines" }).build(window, cx))
-        .on_click(on_wrap)
-        .child(icon("text-wrap", 13., if wrapped { TEXT } else { TEXT_2 }));
-    let copy = div()
-        .id(SharedString::from(format!("copy-{id}")))
-        .h(px(22.))
-        .px(px(6.))
-        .flex()
-        .items_center()
-        .gap(px(4.))
-        .rounded(px(5.))
-        .cursor_pointer()
-        .hover(|d| d.bg(ink(0.08)))
-        .text_size(px(10.5))
-        .text_color(TEXT_2)
-        .tooltip(|window, cx| Tooltip::new("Copy code").build(window, cx))
-        .on_click(on_copy)
-        .child(icon(if copied { "check" } else { "copy" }, 12., TEXT_2))
-        .when(copied, |d| d.child("Copied"));
-    let header = div()
-        .h(px(28.))
-        .flex_none()
-        .pl(px(12.))
-        .pr(px(5.))
-        .border_b_1()
-        .border_color(SEPARATOR)
-        .bg(ink(0.02))
-        .flex()
-        .items_center()
-        .justify_between()
-        .child(div().min_w_0().text_size(px(11.)).text_color(TEXT_2).child(lang.to_string()))
-        .child(div().flex().items_center().gap(px(2.)).child(wrap).child(copy));
-    let text = StyledText::new(code.to_string()).with_highlights(styles.iter().flat_map(|s| s.iter().cloned()));
-    let body = div()
-        .id(SharedString::from(format!("code-{id}")))
-        .when(!wrapped, |d| d.overflow_x_scroll().restrict_scroll_to_axis())
-        .px(px(12.))
-        .py(px(10.))
-        .font_family(code_font())
+/// A fenced code block, selectable: language, wrap and copy over code that scrolls sideways, coloured once `styles` land.
+pub(super) fn code_block(id: impl Into<ElementId>, lang: &str, code: &str, styles: Option<Styles>) -> TextView {
+    TextView::markdown(id, fenced(lang, code))
+        .style(style())
+        .code_block_highlighter(move |_| styles.iter().flat_map(|s| s.iter().cloned()).collect())
+        .selectable(true)
+        .scrollable(false)
+        .w_full()
         .text_size(px(12.5))
-        .line_height(px(18.))
         .text_color(TEXT)
-        .child(div().min_w_full().map(|d| if wrapped { d.whitespace_normal() } else { d.flex_none().whitespace_nowrap() }).child(text));
-    div().w_full().min_w_0().flex().flex_col().rounded(px(10.)).bg(ink(0.035)).border_1().border_color(SEPARATOR).overflow_hidden().child(header).child(body)
+}
+
+/// `code` refenced at column 0 with a fence longer than any backtick run inside it, so it parses back whole.
+fn fenced(lang: &str, code: &str) -> String {
+    let longest = code.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let ticks = "`".repeat(longest.max(2) + 1);
+    format!("{ticks}{lang}\n{code}\n{ticks}")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Highlights, Target, fence, path_in, target};
+    use super::{Highlights, Target, fence, fenced, path_in, target};
     use gpui_kit::HighlightStyle;
     use std::sync::Arc;
 
@@ -298,6 +252,13 @@ mod tests {
     #[test]
     fn a_fence_under_a_list_item_loses_its_indent_from_each_line() {
         assert_eq!(fence("   ```sh\n   brew install\n     --cask x\n  y\n   ```"), Some(("sh", "brew install\n  --cask x\ny".into())));
+    }
+
+    #[test]
+    fn a_refenced_block_parses_back_to_its_code() {
+        assert_eq!(fenced("rust", "fn main() {}"), "```rust\nfn main() {}\n```");
+        let code = "~~~md\n````\nx\n````";
+        assert_eq!(fence(&fenced("", code)), Some(("", code.into())));
     }
 
     #[test]

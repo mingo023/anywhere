@@ -469,7 +469,7 @@ mod tests {
     }
 
     fn shell() -> Block {
-        call(ToolKind::Shell { command: "ls".into() }, ToolStatus::Ok)
+        call(ToolKind::Shell { command: "ls".into(), description: String::new() }, ToolStatus::Ok)
     }
 
     fn agent() -> Block {
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn row_ids_stay_the_same_when_a_tool_finishes() {
-        let running = Transcript { turns: vec![turn("u1", vec![call(ToolKind::Shell { command: "ls".into() }, ToolStatus::Running)], None)] };
+        let running = Transcript { turns: vec![turn("u1", vec![call(ToolKind::Shell { command: "ls".into(), description: String::new() }, ToolStatus::Running)], None)] };
         let finished = Transcript { turns: vec![turn("u1", vec![shell(), text("done")], None)] };
         let (before, after) = (ids(&running, 0), ids(&finished, 0));
         assert_eq!(before, vec!["u1", "u1#fold", "u1#p0", "u1#live"]);
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn a_command_left_in_the_background_counts_but_leaves_the_agent_idle() {
-        let server = call(ToolKind::Shell { command: "bun run dev".into() }, ToolStatus::Running);
+        let server = call(ToolKind::Shell { command: "bun run dev".into(), description: String::new() }, ToolStatus::Running);
         let t = Transcript { turns: vec![turn("u1", vec![server, shell()], done())] };
         assert_eq!(in_background(&t.turns).count(), 1);
         assert!(!at_work_on(&t, 0..1));
@@ -686,7 +686,7 @@ mod tests {
 
     #[test]
     fn a_background_task_is_found_at_its_turn_and_block_and_shown_by_its_row() {
-        let server = call(ToolKind::Shell { command: "bun run dev".into() }, ToolStatus::Running);
+        let server = call(ToolKind::Shell { command: "bun run dev".into(), description: String::new() }, ToolStatus::Running);
         let t = Transcript { turns: vec![turn("u1", vec![shell()], done()), turn("u2", vec![shell(), server, agent()], done())] };
         let found: Vec<_> = in_background(&t.turns).map(|(turn, block, _)| (turn, block)).collect();
         assert_eq!(found, [(1, 1), (1, 2)]);
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn a_command_that_finished_in_the_background_is_reported_like_a_sub_agent() {
-        let cmd = Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into() }, status: ToolStatus::Failed, output: None, duration_ms: Some(10_000), at: 100 });
+        let cmd = Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() }, status: ToolStatus::Failed, output: None, duration_ms: Some(10_000), at: 100 });
         let own = Turn { prompt: None, ..turn("n1", vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "It failed.".into() })], done()) };
         let t = Transcript { turns: vec![turn("u1", vec![cmd], Some(End::Done { duration_ms: 1_000, usage: None })), own] };
         assert_eq!(reported(&t, 1).len(), 1);
@@ -759,7 +759,7 @@ mod tests {
 
     #[test]
     fn a_call_that_finished_after_its_turn_failed_is_reported_by_the_turn_it_set_going() {
-        let cmd = |ms| Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into() }, status: ToolStatus::Ok, output: None, duration_ms: Some(ms), at: 100 });
+        let cmd = |ms| Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() }, status: ToolStatus::Ok, output: None, duration_ms: Some(ms), at: 100 });
         let failed = |blocks| turn("u1", blocks, Some(End::Failed { error: "API Error: Connection lost".into(), duration_ms: 1_000 }));
         let own = Turn { prompt: None, ..turn("n1", vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "Tests pass.".into() })], done()) };
         assert_eq!(reported(&Transcript { turns: vec![failed(vec![cmd(10_000)]), own.clone()] }, 1).len(), 1);

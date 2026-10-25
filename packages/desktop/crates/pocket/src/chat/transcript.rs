@@ -52,10 +52,8 @@ pub(crate) struct View {
     settled: Option<(String, Instant)>,
     copied: Option<(String, Task<()>)>,
     expanded: HashSet<String>,
-    /// The prompt last shown more or less of, and when.
+    /// The row last shown more or less of, and when.
     toggled: Option<(String, Instant)>,
-    /// Code blocks wrapping their long lines, by row id.
-    wrapped: HashSet<String>,
     code: Highlights,
     /// Messages still streaming onto the screen, by id.
     reveals: HashMap<String, Reveal>,
@@ -77,7 +75,7 @@ impl View {
         let tools = cx.new(|_| Tools::default());
         let agent = agent.to_string();
         let _tools = cx.observe(&tools, move |d, _, _| d.chats.views.get(&agent).into_iter().for_each(View::remeasure_under_pin));
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, wrapped: HashSet::new(), code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
     }
 
     /// How far the list sits above its end.
@@ -335,7 +333,7 @@ fn find_call(t: &Transcript, id: &str) -> Option<(usize, usize)> {
 fn notice_label(calls: &[&chat::ToolCall]) -> String {
     match calls {
         [chat::ToolCall { kind: ToolKind::Agent(a), .. }] => format!("{} is done", sub_agent::name(a)),
-        [c @ chat::ToolCall { kind: ToolKind::Shell { command }, .. }] => {
+        [c @ chat::ToolCall { kind: ToolKind::Shell { command, .. }, .. }] => {
             let command = command.lines().next().unwrap_or_default();
             match (c.name.as_str(), c.status) {
                 ("Monitor", _) => format!("Monitor `{command}` ended"),
@@ -377,7 +375,7 @@ fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: b
     let toggle = user_bubble::needs_collapse(lines).then(|| {
         let toggled = view.toggled.as_ref().filter(|(row, _)| row == id).map(|(_, at)| *at);
         let (agent, row) = (agent.to_string(), id.to_string());
-        (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_prompt(&agent, &row, cx)))
+        (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx)))
     });
     let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), toggle);
     let under = under.unwrap_or_else(|| {
@@ -572,21 +570,12 @@ impl Desktop {
         cx.notify();
     }
 
-    fn chat_toggle_prompt(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
+    pub(crate) fn chat_toggle_expanded(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get_mut(agent) else { return };
         if !view.expanded.remove(row) {
             view.expanded.insert(row.to_string());
         }
         view.toggled = Some((row.to_string(), Instant::now()));
-        view.remeasure_under_pin();
-        cx.notify();
-    }
-
-    pub(crate) fn chat_toggle_wrap(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
-        let Some(view) = self.chats.views.get_mut(agent) else { return };
-        if !view.wrapped.remove(row) {
-            view.wrapped.insert(row.to_string());
-        }
         view.remeasure_under_pin();
         cx.notify();
     }
@@ -735,13 +724,7 @@ impl Desktop {
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
-                        let key = format!("code:{id}");
-                        let copied = view.copied(&key);
-                        let on_wrap = {
-                            let (agent, row) = (agent.to_string(), id.clone());
-                            cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_wrap(&agent, &row, cx))
-                        };
-                        let block = markdown::code_block(&id, lang, &code, styles, (copied, copy(agent, key, code.to_string(), cx)), (view.wrapped.contains(&id), on_wrap));
+                        let block = div().child(markdown::code_block(SharedString::from(format!("code-{agent}-{id}")), lang, &code, styles));
                         let block = match reveal {
                             Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,
@@ -755,7 +738,12 @@ impl Desktop {
                 div().flex().flex_col().gap(px(8.)).children(plan.then(todos::plan_header)).child(body)
             }
             Row::Question { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::Tool(call)) => question_marker::marker(call),
+                Some(Block::Tool(call)) => {
+                    let toggled = view.toggled.as_ref().filter(|(row, _)| *row == id).map(|(_, at)| *at);
+                    let (agent, row) = (agent.to_string(), id.clone());
+                    let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx));
+                    question_marker::marker(&id, call, width, question_marker::Open { expanded: view.expanded.contains(&id), toggled, on_click }, window)
+                }
                 _ => div(),
             },
             Row::Compacted { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
@@ -867,7 +855,7 @@ mod tests {
     }
 
     fn shell(at: i64) -> Block {
-        tool(ToolKind::Shell { command: "ls".into() }, ToolStatus::Ok, at)
+        tool(ToolKind::Shell { command: "ls".into(), description: String::new() }, ToolStatus::Ok, at)
     }
 
     fn turn(blocks: Vec<Block>, end: Option<End>) -> Transcript {
@@ -877,7 +865,7 @@ mod tests {
     #[test]
     fn a_notice_names_the_command_that_finished_in_the_background_and_how() {
         let call = |name: &str, kind, status| ToolCall { id: "t".into(), name: name.into(), kind, status, output: None, duration_ms: None, at: 0 };
-        let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into() };
+        let cmd = || ToolKind::Shell { command: "cargo test\n--workspace".into(), description: String::new() };
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Failed)]), "Background command `cargo test` failed");
         assert_eq!(notice_label(&[&call("Bash", cmd(), ToolStatus::Ok)]), "Background command `cargo test` is done");
         assert_eq!(notice_label(&[&call("Monitor", cmd(), ToolStatus::Ok)]), "Monitor `cargo test` ended");

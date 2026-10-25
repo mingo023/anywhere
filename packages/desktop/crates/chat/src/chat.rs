@@ -1,6 +1,7 @@
 //! An agent's conversation as a chat shows it: the shared transcript every agent's history folds into, and the rows it lays out as.
 
 mod adapter;
+mod answers;
 mod commands;
 mod marks;
 pub mod mcp;
@@ -11,6 +12,7 @@ mod spawned;
 mod timeline;
 
 pub use adapter::{capabilities, for_provider, Backend, Capabilities};
+pub use answers::answers;
 pub use commands::{menu, skips_queue, slash, Builtin, Kind, Local, Slash};
 pub use marks::{marks, mention_name, Marks};
 pub use outgoing::{action, busy, Action, Delivery, Outgoing, Pending};
@@ -79,7 +81,8 @@ pub enum ToolStatus {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToolKind {
-    Shell { command: String },
+    /// `description` is what the agent said the command does, when it said.
+    Shell { command: String, description: String },
     Read { path: String },
     Edit { path: String, diff: Option<Diff> },
     Write { path: String, diff: Option<Diff> },

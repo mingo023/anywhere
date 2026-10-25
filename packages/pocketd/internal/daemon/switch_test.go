@@ -403,7 +403,7 @@ func usageOf(t *testing.T, peak int) {
 
 const limitLine = `{"type":"assistant","isApiErrorMessage":true,"error":"rate_limit","message":{"model":"<synthetic>","content":[{"type":"text","text":"You've hit your session limit · resets 9:20am"}]}}`
 
-func TestAnAgentAtItsLimitMovesToTheAccountWithTheMostLeftAndSendsItsPromptAgain(t *testing.T) {
+func TestAnAgentAtItsLimitMovesToTheAccountWithTheMostLeftAndContinuesThere(t *testing.T) {
 	usageOf(t, 30)
 	s := onBuiltIn(t)
 	asks := asking(s, settleOn(fakeAgent(t, "claude"), s.work, "--resume", "c1"))
@@ -416,10 +416,10 @@ func TestAnAgentAtItsLimitMovesToTheAccountWithTheMostLeftAndSendsItsPromptAgain
 	}
 	next := s.next(t, s.pr)
 	s.settle(t, next)
-	eventually(t, "the prompt sent again", func() bool {
+	eventually(t, "the turn continued", func() bool {
 		next.sending.Lock()
 		defer next.sending.Unlock()
-		return slices.Contains(next.typing, "hi")
+		return slices.Equal(next.typing, []string{"continue"})
 	})
 }
 

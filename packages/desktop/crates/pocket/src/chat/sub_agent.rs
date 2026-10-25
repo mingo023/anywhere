@@ -212,7 +212,7 @@ mod tests {
     use chat::{Block, Message, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn tool(id: &str, status: ToolStatus) -> Block {
-        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "ls".into() }, status, output: None, duration_ms: None, at: 0 })
+        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "ls".into(), description: String::new() }, status, output: None, duration_ms: None, at: 0 })
     }
 
     fn agent(blocks: Vec<Block>) -> SubAgent {
@@ -276,7 +276,7 @@ mod tests {
         let mut read = ToolCall { id: "r".into(), name: "Read".into(), kind: ToolKind::Read { path: "docs/spec.md".into() }, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 };
         let a = agent(vec![tool("a", ToolStatus::Ok), Block::Tool(read.clone()), Block::Text(Message::default())]);
         assert_eq!(latest(&a).map(step).as_deref(), Some("Read docs/spec.md"));
-        read.kind = ToolKind::Shell { command: "\ncargo test\n".into() };
+        read.kind = ToolKind::Shell { command: "\ncargo test\n".into(), description: String::new() };
         assert_eq!(step(&read), "cargo test");
         assert_eq!(latest(&agent(vec![])), None);
     }
