@@ -20,6 +20,26 @@ swift build -c release --scratch-path /tmp/ak-bench-ui -Xswiftc -DPERF_COUNTERS 
 
 Give `-DPERF_COUNTERS` its own scratch path: changing the flags rebuilds everything. Without it the counters compile to nothing and the body columns read `-`. `UIBENCH_ITEMS` (chat size) and `UIBENCH_FRAMES` (stream frames, for sampling with `sample <pid>`) override the chat fixture; `UIBENCH_PAGES` the scroll pages. `anywhere-bench ui chat-send --png <dir>` sends a prompt at the end of the long chat; its `-updated.png` shows the prompt held a quarter down.
 
+## On iOS, frame by frame
+
+`make -C packages/ios bench-ios` (after `make gen`; `scripts/ios-bench.sh [scenario…]`, `SIM=<udid>` for a simulator not booted) builds the app in Release with `BENCH` and launches it with `-bench <scenario>`: the same `BenchScenes` screens as `anywhere-bench ui`, in the real app. After 1.5 s for off-main work, a `CADisplayLink` applies one update per display frame (600 stream frames), then moves the main scroll view 30 pt per frame (240 frames). Each frame's cost is the main thread's CPU time since the last tick; a hitch is a tick more than 1.5 frames after the one before. `ending … above the end` checks the chat left its end when scrolled up. Debug builds take `-bench` too, for `sample <pid>`.
+
+iPhone 17 Pro simulator, iOS 27.0, 60 Hz (a 16.7 ms frame), on an M-series Mac. ms of main-thread CPU per frame, p50 / p95 / max.
+
+| Scenario | Load ms | Stream | Stream hitches | Scroll | Scroll hitches | Memory MB |
+|---|---:|---:|---:|---:|---:|---:|
+| chat-5000 | ~750 | 6.1 / 7.4 / 19 | 0–1 / 600 | 3.8 / 12 / 26 | 1–5 / 241 | 37 |
+| changes-1500 | ~420 | 7.0 / 30 / 30 | 0–1 / 20 | 3.7 / 6.9 / 12 | 0 / 241 | 38 |
+| diff-20k | ~290 | – | – | 1.2 / 3.1 / 12 | 0–1 / 241 | 29 |
+| file-10k | ~285 | – | – | 1.1 / 3.5 / 6.8 | 0 / 241 | 26 |
+| markdown-258k | ~505 | – | – | 1.5 / 12.7 / 26 | 1–10 / 241 | 40 |
+
+Hitch counts vary between runs of the same build; run a scenario three times before reading a change into them.
+
+- **Markdown and chat scroll hitches are text selection.** `.textSelection(.enabled)` gives each `Text` a `UITextInteraction` and its gesture recognizers as it comes on screen, about a third of the main thread while markdown scrolls. Without it in markdown, scroll falls to 0–3 hitches, max ~19 ms; one modifier over the whole document is worse (load 2.9 s). Keeping per-text selection is a product choice; the iOS alternative is a long-press "Select text" sheet.
+- **A table measured each cell twice**; a cell at its natural width or wider now keeps the height it measured then.
+- **A Live Activity start blocked the main thread ~0.7 s** in ActivityKit's synchronous XPC; it now runs off it.
+
 ## How `anywhere-bench ui` measures
 
 Each scenario runs in its own process (so memory is its own) and hosts the public entry view (`ChatView`, `GitView`, `FilesView`) in an `NSHostingView` inside an offscreen, ordered-in window at phone size (393×852; the split diff at 1024×768).
@@ -116,4 +136,4 @@ Visuals were checked against the gallery from `mobile-swift`: Changes, diff (uni
 - **Changes refresh p95 ~30 ms and scroll ~44 / 79 ms a page** on the Mac. Swipe and multi-select are custom now: try them on a device (scroll vs swipe conflicts, VoiceOver actions, Edit mode).
 - **Canvas blocks hold bitmaps**: the split diff is 59 MB against 39, bounded by the window drawing only what's on screen.
 - **Markdown file scroll is unchanged**, ~37 / 70 ms a page.
-- **`make typecheck-ios` fails on `mobile-swift` already**: `TranscriptView.opensAtEnd` uses `defaultScrollAnchor(_:for:)`, which the iOS 17.2 SDK lacks.
+- **Numbers above are the Mac's**; the iOS table under "On iOS, frame by frame" is the one to beat on the phone. Check on a device (120 Hz: an 8.3 ms frame) with Instruments.
