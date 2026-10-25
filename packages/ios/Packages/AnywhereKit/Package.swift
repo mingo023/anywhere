@@ -35,6 +35,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
         "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "Fixtures",
     ], true),
     ("LiveActivityUI", ["ActivityModel", "DesignSystem"], true),
+    ("BenchScenes", ["Client", "DesignSystem", "FeatureChat", "FeatureFiles", "FeatureGit", "Fixtures", "Stores", "Wire"], false),
 ]
 
 let executables: [(name: String, deps: [Target.Dependency])] = [
@@ -42,7 +43,7 @@ let executables: [(name: String, deps: [Target.Dependency])] = [
     ("anywhere-gallery", ["Fixtures", "DesignSystem", "AppShell", "Stores", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit", "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "MarkdownView", "CodeView", "LiveActivityUI"]),
     ("anywhere-bench", [
         "Wire", "Fixtures", "MarkdownModel", "ChatModel", "DiffModel", "Highlight", "CodeView", "Domain", "Client", "Stores", "DesignSystem",
-        "FeatureChat", "FeatureGit", "FeatureFiles", .product(name: "SwiftTerm", package: "SwiftTerm"),
+        "FeatureChat", "FeatureGit", "FeatureFiles", "BenchScenes", .product(name: "SwiftTerm", package: "SwiftTerm"),
     ]),
 ]
 

@@ -10,7 +10,15 @@ struct AnywhereApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(app: delegate.app)
+            #if DEBUG
+                if let scenario = BenchRun.scenario {
+                    BenchView(scenario: scenario)
+                } else {
+                    RootView(app: delegate.app)
+                }
+            #else
+                RootView(app: delegate.app)
+            #endif
         }
     }
 }
