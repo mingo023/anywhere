@@ -1,0 +1,10 @@
+{"isDraft":false,"number":42,"state":"OPEN","title":"Fix the flaky snapshot","url":"https://github.com/acme/app/pull/42","statusCheckRollup":[
+    {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},
+    {"__typename":"CheckRun","name":"label","status":"COMPLETED","conclusion":"SKIPPED"},
+    {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"},
+    {"__typename":"CheckRun","name":"e2e","status":"COMPLETED","conclusion":"TIMED_OUT"},
+    {"__typename":"CheckRun","name":"lint","status":"IN_PROGRESS","conclusion":""},
+    {"__typename":"StatusContext","context":"ci/circleci","state":"PENDING"},
+    {"__typename":"StatusContext","context":"deploy","state":"ERROR"},
+    {"__typename":"StatusContext","context":"vercel","state":"SUCCESS"}
+]}

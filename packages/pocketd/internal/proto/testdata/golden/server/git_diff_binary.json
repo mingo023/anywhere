@@ -1,0 +1,13 @@
+{
+  "type": "git.diff",
+  "id": "gd",
+  "tree": "/Users/me/dev/pocket",
+  "path": "shot.png",
+  "oldPath": "old.png",
+  "language": "text",
+  "added": 0,
+  "removed": 0,
+  "binary": true,
+  "image": true,
+  "lines": []
+}

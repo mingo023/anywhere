@@ -1,0 +1,32 @@
+# Example Fly.io app for the relay. Secrets, not env, hold the keys:
+#   fly secrets set SEAL_KEY="$(openssl rand -base64 32)" MAC_KEY="$(openssl rand -base64 32)" \
+#     APNS_KEY_ID=ABC123DEFG APNS_TEAM_ID=TEAM123456 APNS_P8="$(base64 < AuthKey_ABC123DEFG.p8)"
+# Fly writes the APNS_P8 secret (base64) to the file below at boot.
+app = "anywhere-push"
+primary_region = "iad"
+
+[env]
+  BUNDLE_ID = "dev.mingo.anywhere"
+  LISTEN = ":8080"
+  CLIENT_IP = "Fly-Client-IP"
+  APNS_KEY_P8 = "/secrets/AuthKey.p8"
+
+[[files]]
+  guest_path = "/secrets/AuthKey.p8"
+  secret_name = "APNS_P8"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

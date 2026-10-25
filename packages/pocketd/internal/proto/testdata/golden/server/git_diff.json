@@ -1,0 +1,53 @@
+{
+  "type": "git.diff",
+  "id": "gd",
+  "tree": "/Users/me/dev/pocket",
+  "path": "src/main.rs",
+  "language": "rust",
+  "added": 1,
+  "removed": 1,
+  "lines": [
+    {
+      "k": "h",
+      "t": "@@ -1,2 +1,2 @@ fn main()"
+    },
+    {
+      "k": "c",
+      "o": 1,
+      "n": 1,
+      "t": "fn main() {"
+    },
+    {
+      "k": "d",
+      "o": 2,
+      "t": "    println!(\"hi\");",
+      "w": [
+        [
+          14,
+          16
+        ]
+      ]
+    },
+    {
+      "k": "a",
+      "n": 2,
+      "t": "    println!(\"hello\");",
+      "w": [
+        [
+          14,
+          19
+        ]
+      ]
+    },
+    {
+      "k": "a",
+      "n": 3,
+      "t": "xxxxxxxxxxxxxxxx",
+      "cut": true
+    }
+  ],
+  "truncated": {
+    "shown": 5,
+    "total": 9000
+  }
+}

@@ -2,6 +2,7 @@
   "type": "host.changed",
   "host": {
     "tailnet": true,
-    "keepingAwake": true
+    "keepingAwake": true,
+    "terminals": true
   }
 }

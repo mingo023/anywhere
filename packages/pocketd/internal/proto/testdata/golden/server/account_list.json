@@ -1,0 +1,28 @@
+{
+  "type": "account.list",
+  "id": "al",
+  "accounts": [
+    {
+      "id": "3f9a0c1b2d4e",
+      "provider": "claude",
+      "name": "Work",
+      "plan": "max",
+      "email": "me@example.com",
+      "signedIn": true,
+      "isDefault": true,
+      "fiveHour": {
+        "pct": 42.5,
+        "resetsAt": 1790003600
+      },
+      "week": {
+        "pct": 12
+      }
+    },
+    {
+      "id": "builtin",
+      "provider": "codex",
+      "name": "Codex",
+      "signedIn": false
+    }
+  ]
+}

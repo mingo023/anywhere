@@ -36,5 +36,6 @@
     }
   ],
   "maxAccess": "full",
-  "phoneMaxAccess": "ask"
+  "phoneMaxAccess": "ask",
+  "defaultAccess": "edits"
 }

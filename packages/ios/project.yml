@@ -1,0 +1,96 @@
+# XcodeGen spec for the three thin iOS targets. Everything else is the AnywhereKit package.
+# Generate with `make gen`; the .xcodeproj is not committed.
+name: Anywhere
+options:
+  bundleIdPrefix: dev.mingo
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: KK9V7PRPF2
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+packages:
+  AnywhereKit:
+    path: Packages/AnywhereKit
+targets:
+  Anywhere:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes: [Info.plist]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.mingo.anywhere
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/Anywhere.entitlements
+    dependencies:
+      - package: AnywhereKit
+        product: AppShell
+      - package: AnywhereKit
+        product: Stores
+      - package: AnywhereKit
+        product: Client
+      - package: AnywhereKit
+        product: Domain
+      - package: AnywhereKit
+        product: PushSupport
+      - package: AnywhereKit
+        product: Wire
+      # AnswerIntent performs in the app's process, so the app links the Live Activity's module too.
+      - package: AnywhereKit
+        product: LiveActivityUI
+      - package: AnywhereKit
+        product: ActivityModel
+      # Linked in every build; only a debug or BENCH build's `-bench` reads it.
+      - package: AnywhereKit
+        product: BenchScenes
+      - target: AnywhereWidgets
+      - target: AnywhereNotify
+  AnywhereWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+        excludes: [Info.plist]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.mingo.anywhere.widgets
+        INFOPLIST_FILE: Widgets/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widgets/AnywhereWidgets.entitlements
+    dependencies:
+      - package: AnywhereKit
+        product: LiveActivityUI
+      - package: AnywhereKit
+        product: ActivityModel
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+  AnywhereNotify:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+        excludes: [Info.plist]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.mingo.anywhere.notify
+        INFOPLIST_FILE: NotificationService/Info.plist
+        CODE_SIGN_ENTITLEMENTS: NotificationService/AnywhereNotify.entitlements
+    dependencies:
+      - package: AnywhereKit
+        product: PushSupport
+      - package: AnywhereKit
+        product: Client
+schemes:
+  Anywhere:
+    build:
+      targets:
+        Anywhere: all
+    run:
+      config: Debug

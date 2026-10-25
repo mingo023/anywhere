@@ -19,6 +19,7 @@ import (
 	"pocketd/internal/agent"
 	"pocketd/internal/automation"
 	"pocketd/internal/broker"
+	"pocketd/internal/config"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
 	"pocketd/internal/host"
@@ -88,6 +89,17 @@ type Server struct {
 	Retitle func(match func(terminal.Info) bool, title string)
 	// Owners are the tokens a TCP peer sends in hello's ownerToken to become the owner.
 	Owners *owners.Store
+	// Settings are the owner's choices in config.json; nil takes only phone.maxAccess in config.set.
+	Settings *config.Settings
+
+	// The phone areas of protocol.md, each typed in its own file.
+	TerminalHost TerminalService
+	Workspace    WorkspaceService
+	Git          GitService
+	GitHub       GitHubService
+	Files        FileService
+	Push         PushService
+
 	// Skills keeps what skills.list last found; nil serves none.
 	Skills *skills.Store
 
@@ -122,6 +134,14 @@ type conn struct {
 	stopAutomations func()
 	// automationMu keeps a verb's ack ahead of the snapshot its change triggers.
 	automationMu sync.Mutex
+
+	// Each phone area's per-conn state, typed in its own file.
+	terminal  terminalConn
+	workspace workspaceConn
+	git       gitConn
+	gh        ghConn
+	files     filesConn
+	push      pushConn
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +189,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if c.stopLocals != nil {
 			c.stopLocals()
 		}
+		c.closeAreas()
 	}()
 	go c.keepalive()
 	helloCtx, cancelHello := context.WithTimeout(ctx, cmp.Or(s.HelloTimeout, defaultHelloTimeout))
@@ -305,6 +326,7 @@ func (c *conn) handle(raw []byte) {
 		if c.stopLocals != nil && slices.Contains(caps, proto.CapLocals) {
 			c.send(proto.NewLocalList(c.s.Locals.List()))
 		}
+		c.helloAreas()
 		if msgs != nil {
 			go c.forward(msgs)
 		}
@@ -355,6 +377,32 @@ func (c *conn) withNames(caps []string) <-chan []byte {
 	var msgs <-chan []byte
 	msgs, c.stopNames = c.s.Names.Subscribe()
 	return msgs
+}
+
+// helloAreas runs after each hello's snapshot; c.caps holds what it negotiated.
+func (c *conn) helloAreas() {
+	c.helloTerminal()
+	c.helloWorkspace()
+	c.helloGit()
+	c.helloGitHub()
+	c.helloFiles()
+	c.helloPush()
+}
+
+// closeAreas runs once the socket is gone.
+func (c *conn) closeAreas() {
+	c.closeTerminal()
+	c.closeWorkspace()
+	c.closeGit()
+	c.closeGitHub()
+	c.closeFiles()
+	c.closePush()
+}
+
+// notImplemented answers a phone verb whose handler hasn't landed.
+func (c *conn) notImplemented(m proto.ClientMessage) error {
+	c.send(proto.NewErrorCode(m.ID, proto.CodeNotImplemented, m.Type+" isn't served by this pocketd yet"))
+	return nil
 }
 
 func errorReply(id string, err error) proto.Error {
@@ -465,6 +513,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		// Signing in to or enabling a server drives the agent; listing them only observes it.
 		verb += ".act"
 	}
+	verb = c.workspaceScope(verb)
 	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
 	}
@@ -483,11 +532,12 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		c.send(proto.NewAgentList(m.ID, c.s.Agents.List()))
 		return nil
 	case "project.list":
-		c.send(proto.NewProjectList(m.ID, c.s.Projects()))
+		c.projectList(m)
 		return nil
 	case "agent.view":
 		c.emitSeen(m.AgentIDs)
 		c.s.Agents.SetView(c.key, m.AgentIDs)
+		c.viewed(m.AgentIDs)
 		c.send(proto.NewAck(m.ID))
 		return nil
 	case "agent.seen":
@@ -510,9 +560,26 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.automation(m)
 	case "local.create", "local.rename", "local.delete":
 		return c.local(m)
+	case "terminal.list", "terminal.attach", "terminal.detach", "terminal.input", "terminal.resize", "terminal.create", "terminal.close":
+		return c.terminalVerb(m)
+	case "worktree.create", "worktree.delete", "branch.list", "account.list", "agent.account":
+		return c.workspaceVerb(m)
+	case "git.status", "git.watch", "git.diff", "git.log", "git.commit", "git.stage", "git.discard", "git.commit.create", "git.push", "git.pull":
+		return c.gitVerb(m)
+	case "gh.status", "gh.pr", "gh.prs", "gh.pr.create", "gh.pr.merge", "gh.pr.ready", "gh.thread.reply", "gh.thread.resolve":
+		return c.ghVerb(m)
+	case "fs.list", "fs.read", "fs.search", "attach.put":
+		return c.filesVerb(m)
+	case "push.register", "push.activity", "push.prefs", "push.unregister", "push.test":
+		return c.pushVerb(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")
+		}
+		if _, ok := c.workspaceTree(m.Path); !ok && !c.who.Has(peer.Own) {
+			// Its retitle reaches every terminal under the path.
+			c.send(proto.NewErrorCode(m.ID, proto.CodeNotATree, "This folder isn't in a project on your Mac"))
+			return nil
 		}
 		if err := c.s.Names.Rename(m.Path, m.Title); err != nil {
 			return err
@@ -534,11 +601,18 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		if m.Limit != nil {
 			limit = int(*m.Limit)
 		}
+		subagents := slices.Contains(c.caps, proto.CapSubagents)
 		page := a.Timeline.Page
-		if slices.Contains(c.caps, proto.CapSubagents) {
+		if subagents {
 			page = a.Timeline.PageWithSubagents
 		}
-		items, older := page(since, limit)
+		var items []proto.Item
+		var older bool
+		if m.BeforeSeq != nil {
+			items, older = a.Timeline.Before(int64(max(0, min(*m.BeforeSeq, 1<<53))), limit, subagents)
+		} else {
+			items, older = page(since, limit)
+		}
 		epoch, maxSeq := a.Timeline.State()
 		c.send(proto.NewAgentTimeline(m.ID, a.ID(), epoch, items, older, maxSeq))
 		return nil

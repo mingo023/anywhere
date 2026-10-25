@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,12 +22,19 @@ import (
 	"pocketd/internal/providers"
 )
 
-var ErrInvalid = errors.New("phone.maxAccess is ask, edits or auto")
+var (
+	ErrInvalid      = errors.New("phone.maxAccess is ask, edits or auto")
+	ErrInvalidRelay = errors.New("push.relay is an https URL, or http on this Mac")
+)
+
+const DefaultPushRelay = "https://push.getanywhere.dev"
 
 // Settings are the owner's choices in config.json.
 type Settings struct {
-	path string
-	mu   sync.Mutex
+	// Changed, when set before use, hears each key Set saves.
+	Changed func(key string)
+	path    string
+	mu      sync.Mutex
 }
 
 func NewSettings(home string) *Settings {
@@ -54,6 +63,34 @@ func (s *Settings) SetPhoneMaxAccess(v string) error {
 		return ErrInvalid
 	}
 	return s.set("phone", "maxAccess", v)
+}
+
+// PhoneTerminals is whether phones may type into, resize, open and close terminals: on unless phone.terminals is "off".
+func (s *Settings) PhoneTerminals() bool {
+	v := "on"
+	s.get("phone", "terminals", &v)
+	return v != "off"
+}
+
+// PushRelay is the relay base URL pocketd sends pushes through, DefaultPushRelay when unset or not valid.
+func (s *Settings) PushRelay() string {
+	v := ""
+	if s.get("push", "relay", &v) && ValidRelay(v) == nil {
+		return v
+	}
+	return DefaultPushRelay
+}
+
+// ValidRelay takes an https URL, or plain http to this Mac for a relay under test.
+func ValidRelay(v string) error {
+	u, err := url.Parse(v)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return ErrInvalidRelay
+	}
+	if u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback()) {
+		return nil
+	}
+	return ErrInvalidRelay
 }
 
 // ResumeAgents is true unless restore.resumeAgents is false.
@@ -125,8 +162,14 @@ func (s *Settings) AgentCommand(provider string) string {
 
 // Values is every setting by its config-set key, for the owner's settings screen.
 func (s *Settings) Values() map[string]any {
+	terminals := "off"
+	if s.PhoneTerminals() {
+		terminals = "on"
+	}
 	v := map[string]any{
 		"phone.maxAccess":        s.PhoneMaxAccess(),
+		"phone.terminals":        terminals,
+		"push.relay":             s.PushRelay(),
 		"restore.resumeAgents":   s.ResumeAgents(),
 		"awake.enabled":          s.KeepAwake(),
 		"awake.lingerMinutes":    s.number("awake", "lingerMinutes", 2, 0, 60),
@@ -181,7 +224,16 @@ func (s *Settings) SetListen(v string) error { return s.set("", "listen", v) }
 func (s *Settings) SetPort(n int) error { return s.set("", "port", n) }
 
 // Set parses value for one of the keys below; phone.maxAccess goes through the launcher.
+// Changed hears the key once it is saved.
 func (s *Settings) Set(key, value string) error {
+	err := s.parseAndSet(key, value)
+	if err == nil && s.Changed != nil {
+		s.Changed(key)
+	}
+	return err
+}
+
+func (s *Settings) parseAndSet(key, value string) error {
 	switch key {
 	case "restore.resumeAgents", "awake.enabled":
 		on, err := strconv.ParseBool(value)
@@ -190,6 +242,16 @@ func (s *Settings) Set(key, value string) error {
 		}
 		section, name, _ := strings.Cut(key, ".")
 		return s.set(section, name, on)
+	case "phone.terminals":
+		if value != "on" && value != "off" {
+			return errors.New("phone.terminals is on or off")
+		}
+		return s.set("phone", "terminals", value)
+	case "push.relay":
+		if err := ValidRelay(value); err != nil {
+			return err
+		}
+		return s.set("push", "relay", value)
 	case "awake.lingerMinutes":
 		return s.setNumber(key, value, 0, 60)
 	case "automations.graceHours":

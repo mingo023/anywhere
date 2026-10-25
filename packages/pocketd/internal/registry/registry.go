@@ -27,6 +27,20 @@ type File struct {
 	Projects []string        `json:"projects"`
 	Repos    map[string]Repo `json:"repos"`
 	Worktree Worktree        `json:"worktree"`
+	// Tracked is the worktrees the desktop made or imported, by path.
+	Tracked []string `json:"tracked"`
+	Sidebar Sidebar  `json:"sidebar"`
+	Agents  Agents   `json:"agents"`
+}
+
+type Agents struct {
+	// Access is Settings › Permission mode, the access new sessions start with.
+	Access string `json:"access"`
+}
+
+type Sidebar struct {
+	// ExternalWorktrees lists the worktrees Anywhere didn't make too.
+	ExternalWorktrees bool `json:"external_worktrees"`
 }
 
 // Worktree is where new worktrees go.

@@ -476,6 +476,22 @@ func (t *Timeline) page(sinceSeq int64, limit int, subagents bool) ([]proto.Item
 	return append([]proto.Item(nil), items...), len(items) < len(newer) || sinceSeq > 0
 }
 
+// Before returns up to limit items older than beforeSeq, newest last, with
+// sub-agents' items when subagents is set. older is exact: true only when an
+// item older than the first returned exists.
+func (t *Timeline) Before(beforeSeq int64, limit int, subagents bool) (items []proto.Item, older bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var earlier []proto.Item
+	for _, it := range t.items {
+		if it.Seq < beforeSeq && (subagents || it.ParentToolUseID == "") {
+			earlier = append(earlier, it)
+		}
+	}
+	items = earlier[len(earlier)-min(len(earlier), max(0, limit)):]
+	return append([]proto.Item(nil), items...), len(items) < len(earlier)
+}
+
 func clamp(out string) string {
 	if len(out) <= proto.ToolOutputLimit {
 		return out

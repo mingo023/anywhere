@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "ta",
+  "message": "This terminal has ended",
+  "code": "terminal_ended"
+}

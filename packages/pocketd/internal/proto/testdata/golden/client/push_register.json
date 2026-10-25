@@ -1,0 +1,1 @@
+{"type":"push.register","id":"pr","key":"q83vEjRWeJCrze8SNFZ4kKvN7xI0VniQq83vEjRWeJA=","env":"production","alert":{"handle":"aGFuZGxl","secret":"c2VjcmV0","expiresAt":1800000000},"start":{"handle":"c3RhcnQ","secret":"c2VjcmV0Mg","expiresAt":1800000000},"prefs":{"needsYou":true,"done":true,"failed":true,"automations":false,"details":true},"frequent":true}

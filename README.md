@@ -38,7 +38,7 @@ On Linux (x86_64) or Windows (x64), unpack [Anywhere-linux-amd64.tar.gz](https:/
 |---|---|
 | [`packages/desktop`](packages/desktop) | The desktop app, in Rust with [GPUI](https://www.gpui.rs) |
 | [`packages/pocketd`](packages/pocketd) | The Go daemon that owns the terminals and outlives the app |
-| [`packages/app`](packages/app) | The phone app |
+| [`packages/ios`](packages/ios) | The phone app, native SwiftUI ([ADR 0007](docs/adr/0007-native-ios-app.md)) |
 | [`packages/protocol`](packages/protocol) | The protocol the daemon and its clients share |
 
 Design decisions are recorded in [`docs/adr`](docs/adr), and the vocabulary used across the code in [`CONTEXT.md`](CONTEXT.md).
@@ -48,6 +48,9 @@ Design decisions are recorded in [`docs/adr`](docs/adr), and the vocabulary used
 ```sh
 make app        # Anywhere Dev.app, side by side with the release app
 make run        # release build of the desktop app, run in place
+make ios        # build and test the phone app's Swift package
 ```
+
+The phone app's targets need Xcode; [`packages/ios`](packages/ios/README.md) says how to build them.
 
 `scripts/release-mac.sh <version>` builds the signed, notarized DMG and `scripts/release-desktop.sh <version> <linux-amd64|windows-amd64>` the Linux and Windows archives. Running the Release workflow from the Actions tab, or pushing a `v*` tag, publishes all three ([ADR 0004](docs/adr/0004-release-and-updates.md)).

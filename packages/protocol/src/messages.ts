@@ -3,6 +3,12 @@ import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timel
 import { Automation, AutomationDraft, Run } from "./automation.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
 import { Local, LocalId } from "./locals.js";
+import { TerminalClient, TerminalServer } from "./terminal.js";
+import { WorkspaceClient, WorkspaceServer } from "./workspace.js";
+import { GitClient, GitServer } from "./git.js";
+import { GhClient, GhServer } from "./gh.js";
+import { FsClient, FsServer } from "./fs.js";
+import { PushClient } from "./push.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
 export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
@@ -89,6 +95,7 @@ export const ClientMessage = Schema.Union(
     id: Schema.String,
     agentId: Schema.String,
     sinceSeq: Schema.optional(Schema.Number),
+    beforeSeq: Schema.optional(Schema.Number),
     limit: Schema.optional(Schema.Number.pipe(Schema.lessThanOrEqualTo(500))),
   }),
   Schema.Struct({
@@ -110,6 +117,13 @@ export const ClientMessage = Schema.Union(
     value: PhoneAccess,
   }),
   Schema.Struct({
+    type: Schema.Literal("config.set"),
+    id: Schema.String,
+    key: Schema.Literal("phone.terminals"),
+    value: Schema.Literal("on", "off"),
+  }),
+  Schema.Struct({ type: Schema.Literal("config.set"), id: Schema.String, key: Schema.Literal("push.relay"), value: Schema.NonEmptyString }),
+  Schema.Struct({
     type: Schema.Literal("worktree.rename"),
     id: Schema.String,
     path: Schema.NonEmptyString,
@@ -128,12 +142,18 @@ export const ClientMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("automation.enable"), id: Schema.String, automationId: Schema.String, enabled: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("automation.delete"), id: Schema.String, automationId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("automation.run"), id: Schema.String, automationId: Schema.String }),
+  ...TerminalClient,
+  ...WorkspaceClient,
+  ...GitClient,
+  ...GhClient,
+  ...FsClient,
+  ...PushClient,
 );
 export type ClientMessage = typeof ClientMessage.Type;
 
 export const CAP_HOST = "host.v1";
 
-export const HostState = Schema.Struct({ tailnet: Schema.Boolean, keepingAwake: Schema.Boolean });
+export const HostState = Schema.Struct({ tailnet: Schema.Boolean, keepingAwake: Schema.Boolean, terminals: Schema.Boolean });
 export type HostState = typeof HostState.Type;
 
 export const ServerMessage = Schema.Union(
@@ -197,7 +217,8 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("ack"), id: Schema.String }),
   Schema.Struct({
     type: Schema.Literal("agent.creating"),
-    id: Schema.String,
+    // Absent when pushed to every conn for a phone's terminal.create.
+    id: Schema.optional(Schema.String),
     requestId: Schema.String,
     terminalId: Schema.String,
     cwd: Schema.String,
@@ -223,6 +244,7 @@ export const ServerMessage = Schema.Union(
     providers: Schema.Array(ProviderInfo),
     maxAccess: Schema.String,
     phoneMaxAccess: Schema.String,
+    defaultAccess: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     type: Schema.Literal("error"),
@@ -230,6 +252,7 @@ export const ServerMessage = Schema.Union(
     message: Schema.String,
     code: Schema.optional(Schema.String),
     detail: Schema.optional(Schema.String),
+    count: Schema.optional(Schema.Int),
   }),
   Schema.Struct({ type: Schema.Literal("host.changed"), host: HostState }),
   Schema.Struct({ type: Schema.Literal("worktree.names"), names: Schema.Record({ key: Schema.String, value: Schema.String }) }),
@@ -237,6 +260,11 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("local.list"), locals: Schema.Array(Local) }),
   Schema.Struct({ type: Schema.Literal("automations"), automations: Schema.Array(Automation), runs: Schema.Array(Run) }),
   ProjectList,
+  ...TerminalServer,
+  ...WorkspaceServer,
+  ...GitServer,
+  ...GhServer,
+  ...FsServer,
 );
 export type ServerMessage = typeof ServerMessage.Type;
 

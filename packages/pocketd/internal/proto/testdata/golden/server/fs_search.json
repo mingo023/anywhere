@@ -1,0 +1,8 @@
+{
+  "type": "fs.search",
+  "id": "fs",
+  "paths": [
+    "src/main.rs",
+    "src/main_test.rs"
+  ]
+}

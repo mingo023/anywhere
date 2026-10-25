@@ -123,6 +123,26 @@ func TestAWorktreesFolderBehindASymlinkGivesThePathListReports(t *testing.T) {
 	}
 }
 
+func TestARootBehindASymlinkContainsTheRealPathsGitReports(t *testing.T) {
+	p := repo(t)
+	real, _ := filepath.EvalSymlinks(t.TempDir())
+	link := filepath.Join(t.TempDir(), "root")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	f := registered(p, registry.Repo{Name: "Pocket"})
+	f.Worktree.Root = link
+	c, err := Create(f, p, "calm-otter", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{c.Path, filepath.Join(link, "Pocket", "calm-otter")} {
+		if got, ok := Containing(f, dir); !ok || got != p {
+			t.Errorf("%s: got %q, %v", dir, got, ok)
+		}
+	}
+}
+
 func TestARepoWithoutBranchesBranchesFromHEAD(t *testing.T) {
 	p := repo(t)
 	git(t, p, "checkout", "-q", "--detach")

@@ -51,7 +51,11 @@ func (c *conn) create(m proto.ClientMessage) {
 
 func (c *conn) providers(m proto.ClientMessage) {
 	list, maxAccess, phoneMax := c.s.Launch.Providers(launchWho(c.who))
-	c.send(proto.NewAgentProviders(m.ID, list, maxAccess, phoneMax))
+	var defaultAccess string
+	if c.s.Registry != nil {
+		defaultAccess = c.s.Registry.Load().Agents.Access
+	}
+	c.send(proto.NewAgentProviders(m.ID, list, maxAccess, phoneMax, defaultAccess))
 }
 
 // skills sends the slash commands m's provider offers in its project as last
@@ -78,9 +82,17 @@ func (c *conn) skills(m proto.ClientMessage) error {
 }
 
 func (c *conn) configSet(m proto.ClientMessage) {
-	err := c.s.Launch.SetPhoneMaxAccess(m.Value)
+	var err error
 	switch {
-	case errors.Is(err, config.ErrInvalid):
+	case m.Key == "phone.maxAccess":
+		err = c.s.Launch.SetPhoneMaxAccess(m.Value)
+	case c.s.Settings == nil:
+		err = errors.New("This pocketd can't change " + m.Key)
+	default:
+		err = c.s.Settings.Set(m.Key, m.Value)
+	}
+	switch {
+	case errors.Is(err, config.ErrInvalid), errors.Is(err, config.ErrInvalidRelay):
 		c.send(proto.NewCodedError(m.ID, "invalid_config", err.Error(), ""))
 	case err != nil:
 		c.send(proto.NewError(m.ID, err.Error()))

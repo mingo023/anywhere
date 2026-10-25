@@ -1,0 +1,7 @@
+{
+  "type": "worktree.progress",
+  "id": "wc",
+  "requestId": "r1",
+  "step": "fetch",
+  "note": "Couldn't fetch, using local main"
+}

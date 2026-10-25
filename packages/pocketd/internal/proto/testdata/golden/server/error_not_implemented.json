@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "gs",
+  "message": "git.status isn't served by this pocketd yet",
+  "code": "not_implemented"
+}

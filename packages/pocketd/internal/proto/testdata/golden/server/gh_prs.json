@@ -1,0 +1,19 @@
+{
+  "type": "gh.prs",
+  "id": "hps",
+  "items": [
+    {
+      "tree": "/Users/me/.worktrees/pocket/calm-otter",
+      "number": 118,
+      "title": "Fix login",
+      "state": "OPEN",
+      "draft": true,
+      "gate": "draft",
+      "checks": {
+        "passed": 0,
+        "failed": 0,
+        "pending": 2
+      }
+    }
+  ]
+}

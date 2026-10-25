@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,10 +108,10 @@ var serverGolden = map[string]any{
 			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true, SendNow: true}},
 		{ID: "codex", Available: false, Efforts: []string{}, Plan: false,
 			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}},
-	}, "full", "ask"),
+	}, "full", "ask", "edits"),
 	"error_detail":  NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
 	"hello_ok_host": helloOKHost(),
-	"host_changed":  NewHostChanged(HostState{Tailnet: true, KeepingAwake: true}),
+	"host_changed":  NewHostChanged(HostState{Tailnet: true, KeepingAwake: true, Terminals: true}),
 	"error_coded":   NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
 	"pair_ok":       NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
 	"hello_ok_scopes": func() HelloOK {
@@ -138,13 +139,21 @@ var serverGolden = map[string]any{
 
 func helloOKHost() HelloOK {
 	ok := NewHelloOK("h1", "mac", 3, []string{CapHost})
-	ok.Host = &HostState{Tailnet: true}
+	ok.Host = &HostState{Tailnet: true, Terminals: true}
 	return ok
+}
+
+func all(goldens ...map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, g := range goldens {
+		maps.Copy(out, g)
+	}
+	return out
 }
 
 // TestServerGolden pins the exact JSON the phone decodes.
 func TestServerGolden(t *testing.T) {
-	for name, msg := range serverGolden {
+	for name, msg := range all(serverGolden, phoneServerGolden) {
 		got, err := json.MarshalIndent(msg, "", "  ")
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

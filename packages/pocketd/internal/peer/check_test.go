@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"pocketd/internal/devices"
+	"pocketd/internal/proto"
 )
 
 func code(r *Refusal) string {
@@ -37,6 +38,45 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ws:automation.enable":  {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ws:automation.delete":  {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ws:automation.run":     {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:terminal.list":      {"", "", "", ""},
+		"ws:terminal.attach":    {"", "", "", ""},
+		"ws:terminal.detach":    {"", "", "", ""},
+		"ws:branch.list":        {"", "", "", ""},
+		"ws:account.list":       {"", "", "", ""},
+		"ws:git.status":         {"", "", "", ""},
+		"ws:git.watch":          {"", "", "", ""},
+		"ws:git.diff":           {"", "", "", ""},
+		"ws:git.log":            {"", "", "", ""},
+		"ws:git.commit":         {"", "", "", ""},
+		"ws:gh.status":          {"", "", "", ""},
+		"ws:gh.pr":              {"", "", "", ""},
+		"ws:gh.prs":             {"", "", "", ""},
+		"ws:fs.list":            {"", "", "", ""},
+		"ws:fs.read":            {"", "", "", ""},
+		"ws:fs.search":          {"", "", "", ""},
+		"ws:push.register":      {"", "", "", ""},
+		"ws:push.activity":      {"", "", "", ""},
+		"ws:push.prefs":         {"", "", "", ""},
+		"ws:push.unregister":    {"", "", "", ""},
+		"ws:push.test":          {"", "", "", ""},
+		"ws:terminal.input":     {"", "", "", "scope_denied"},
+		"ws:terminal.resize":    {"", "", "", "scope_denied"},
+		"ws:terminal.create":    {"", "", "", "scope_denied"},
+		"ws:terminal.close":     {"", "", "", "scope_denied"},
+		"ws:agent.account":      {"", "", "", "scope_denied"},
+		"ws:git.stage":          {"", "", "", "scope_denied"},
+		"ws:git.discard":        {"", "", "", "scope_denied"},
+		"ws:git.commit.create":  {"", "", "", "scope_denied"},
+		"ws:git.push":           {"", "", "", "scope_denied"},
+		"ws:git.pull":           {"", "", "", "scope_denied"},
+		"ws:gh.pr.create":       {"", "", "", "scope_denied"},
+		"ws:gh.pr.merge":        {"", "", "", "scope_denied"},
+		"ws:gh.pr.ready":        {"", "", "", "scope_denied"},
+		"ws:gh.thread.reply":    {"", "", "", "scope_denied"},
+		"ws:gh.thread.resolve":  {"", "", "", "scope_denied"},
+		"ws:attach.put":         {"", "", "", "scope_denied"},
+		"ws:worktree.create":    {"", "", "scope_denied", "scope_denied"},
+		"ws:worktree.delete":    {"", "", "scope_denied", "scope_denied"},
 		"ops:list":              {"", "", "", ""},
 		"ops:status":            {"", "", "", ""},
 		"ops:hook":              {"", "", "", ""},
@@ -54,6 +94,28 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 			if got := code(p.Check(verb, "", "")); got != want[i] {
 				t.Errorf("%s by principal %d: %q, want %q", verb, i, got, want[i])
 			}
+		}
+	}
+}
+
+func TestASideQuestionNeedsDriveLikeAPrompt(t *testing.T) {
+	phone := FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes})
+	pty := Principal{Kind: PTY, Pid: 2, Terminal: "t1", Scopes: PTYScopes}
+	if got := code(OwnerOf(1).Check("ws:agent.btw", "", "")); got != "" {
+		t.Errorf("owner: %q", got)
+	}
+	if got := code(phone.Check("ws:agent.btw", "", "")); got != "" {
+		t.Errorf("phone: %q", got)
+	}
+	if got := code(pty.Check("ws:agent.btw", "", "")); got != "scope_denied" {
+		t.Errorf("pty: %q", got)
+	}
+}
+
+func TestEveryPhoneVerbHasAScope(t *testing.T) {
+	for _, verb := range proto.PhoneVerbs() {
+		if _, ok := Needs["ws:"+verb]; !ok {
+			t.Errorf("ws:%s is missing from Needs", verb)
 		}
 	}
 }

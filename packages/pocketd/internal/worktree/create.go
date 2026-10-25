@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,17 +100,29 @@ func Dir(f registry.File, project string) string {
 
 // Containing is the registered Project whose folder or worktrees folder holds
 // dir; the deepest wins. Worktrees under ~/.worktrees, the former default, still count.
+// Both sides are compared as real paths: git reports a worktree under a root
+// behind a link (/tmp is /private/tmp) by its real path.
 func Containing(f registry.File, dir string) (string, bool) {
 	home, _ := os.UserHomeDir()
+	dir = resolved(dir)
 	best, depth := "", 0
 	for _, p := range f.Projects {
 		for _, root := range []string{p, Dir(f, p), filepath.Join(home, ".worktrees", f.Name(p))} {
+			root = resolved(root)
 			if (dir == root || strings.HasPrefix(dir, root+"/")) && len(root) > depth {
 				best, depth = p, len(root)
 			}
 		}
 	}
 	return best, depth > 0
+}
+
+// resolved is p's real path, or p as written when it doesn't exist.
+func resolved(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	return p
 }
 
 type Created struct {
@@ -231,6 +244,19 @@ func defaultBase(project string) string {
 		return all[0]
 	}
 	return "HEAD"
+}
+
+// LostCommits is how many commits deleting branch would lose: those no other
+// branch, remote or tag holds (lost_commits in crates/git/src/git.rs).
+func LostCommits(project, branch string) int {
+	// --exclude matches the names --branches lists, which lack refs/heads/.
+	out, err := exec.Command("git", "-C", project, "rev-list", "--count", "refs/heads/"+branch, "--not",
+		"--exclude="+branch, "--branches", "--remotes", "--tags").Output()
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return n
 }
 
 // Remove deletes a linked Worktree's folder, uncommitted changes included, as

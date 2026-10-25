@@ -1,0 +1,51 @@
+{
+  "type": "git.status",
+  "id": "gs",
+  "tree": "/Users/me/dev/pocket",
+  "rev": "9f2c",
+  "branch": "fix-login",
+  "upstream": "origin/fix-login",
+  "base": "origin/main",
+  "ahead": 2,
+  "behind": 1,
+  "unpushed": 1,
+  "totals": {
+    "files": 3,
+    "added": 12,
+    "removed": 4,
+    "staged": 1
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "status": "M",
+      "staged": true,
+      "unstaged": false,
+      "added": 2,
+      "removed": 1
+    },
+    {
+      "path": "src/new.rs",
+      "oldPath": "src/old.rs",
+      "status": "R",
+      "staged": false,
+      "unstaged": true,
+      "added": 10,
+      "removed": 3
+    },
+    {
+      "path": "shot.png",
+      "status": "?",
+      "staged": false,
+      "unstaged": true,
+      "binary": true
+    }
+  ],
+  "commits": [
+    {
+      "sha": "1b59160",
+      "subject": "Fix login"
+    }
+  ],
+  "nextCursor": 500
+}

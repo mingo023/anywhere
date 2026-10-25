@@ -247,6 +247,13 @@ func (r *Registry) MarkSeen(ids []string) {
 func (a *Agent) ID() string       { return a.id }
 func (a *Agent) Provider() string { return a.provider }
 
+// Seen is whether a phone or the desktop shows the agent right now.
+func (a *Agent) Seen() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.seen
+}
+
 func (a *Agent) Named() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()

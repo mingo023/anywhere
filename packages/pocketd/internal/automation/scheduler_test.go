@@ -258,3 +258,22 @@ func TestARunRecordsItsModeAndTheWorktreeItRanIn(t *testing.T) {
 	}
 	sc.stopped.Store(true)
 }
+
+func TestOnFinishSeesARunOnceItHasFinished(t *testing.T) {
+	s := Open(t.TempDir())
+	finished := make(chan proto.Run, 2)
+	sched := scheduler(s, at(9, 8, 30), refuse("no claude"), nil)
+	sched.OnFinish = func(r proto.Run) { finished <- r }
+	run, _ := sched.RunNow(saved(t, s, at(9, 8, 0)).ID)
+	if got := <-finished; got.ID != run.ID || got.Status != "failed" || got.Why != "no claude" {
+		t.Fatalf("%+v", got)
+	}
+	start := func(string, proto.Automation) launch.Result { return launch.Result{AgentID: "ag1"} }
+	watch := func(string) (Seen, bool) { return Seen{Status: "done", Summary: "Done it."}, true }
+	sched = scheduler(s, at(9, 9, 30), start, watch)
+	sched.OnFinish = func(r proto.Run) { finished <- r }
+	run, _ = sched.RunNow(saved(t, s, at(9, 8, 0)).ID)
+	if got := <-finished; got.ID != run.ID || got.Status != "succeeded" || got.Summary != "Done it." {
+		t.Fatalf("%+v", got)
+	}
+}

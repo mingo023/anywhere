@@ -1,0 +1,11 @@
+{
+  "type": "fs.read",
+  "id": "fr",
+  "tree": "/Users/me/dev/pocket",
+  "path": "logo.png",
+  "kind": "image",
+  "size": 8,
+  "mtime": 1790000000000,
+  "mime": "image/png",
+  "data": "iVBORw0KGgo="
+}

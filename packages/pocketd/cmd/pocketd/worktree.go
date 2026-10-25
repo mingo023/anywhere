@@ -79,7 +79,9 @@ func list(f registry.File, arg string, asJSON bool, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	projects := worktree.Projects(registry.File{Projects: []string{p}, Repos: f.Repos})
+	one := f
+	one.Projects = []string{p}
+	projects := worktree.Projects(one)
 	if asJSON {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
