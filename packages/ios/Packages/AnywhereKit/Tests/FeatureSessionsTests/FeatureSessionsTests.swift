@@ -9,14 +9,16 @@ private let utc = TimeZone(secondsFromGMT: 0)!
 
 @Suite("Session text")
 struct SessionTextTests {
-    @Test("a session's second line is its status and what it is doing, else its model")
+    @Test("a session's second line is what it is doing, else a status its glyph alone can't tell apart, else its model")
     func detail() {
-        let working = Sample.agents.first { $0.id == "a-working" }!
-        #expect(SessionText.detail(working, .working) == "Working")
         let needs = Sample.agents.first { $0.id == "a-needs" }!
-        #expect(SessionText.detail(needs, .needsYou) == "Needs you · Approve Bash: rm -rf build")
+        #expect(SessionText.detail(needs, .needsYou) == "Approve Bash: rm -rf build")
         let compacting = Sample.agents.first { $0.id == "a-compacting" }!
-        #expect(SessionText.detail(compacting, .working) == "Working · Compacting…")
+        #expect(SessionText.detail(compacting, .working) == "Compacting…")
+        let failed = Sample.agents.first { $0.id == "a-failed" }!
+        #expect(SessionText.detail(failed, .failed) == "Failed")
+        let working = Sample.agents.first { $0.id == "a-working" }!
+        #expect(SessionText.detail(working, .working) == "Opus 5.5")
         let idle = Sample.agents.first { $0.id == "a-chat" }!
         #expect(SessionText.detail(idle, .idle) == "Sonnet 5")
     }

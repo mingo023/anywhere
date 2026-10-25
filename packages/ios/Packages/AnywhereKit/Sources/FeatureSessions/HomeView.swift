@@ -24,19 +24,19 @@ struct HomeView: View {
     @State private var collapsed: Set<String> = []
     @State private var action: RowAction?
     @State private var making: Making?
+    @State private var automations = false
+
+    /// Rows without separators read as a group by their spacing, tighter than the list's default.
+    static let rowInsets = EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20)
 
     var body: some View {
         let built = host.homeList(query: query, sort: sort, projectSort: projectSort)
         let sections = only.map { p in built.sections.filter { $0.id == p } } ?? built.sections
         List {
             if only == nil {
-                Section {
-                    MacRow(host: host)
-                    // A link inside the toolbar's Menu doesn't push onto the stack.
-                    if host.workspace.automations != nil {
-                        NavigationLink(value: Route.automations(mac: mac)) { Label("Automations", systemImage: "clock.arrow.circlepath") }
-                    }
-                }
+                MacStatus(host: host)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: Space.s, trailing: Space.l))
                 if query.isEmpty && !host.sessions.upNext.isEmpty {
                     Section("Up next") {
                         ForEach(host.sessions.upNext, id: \.self) { sessionRow($0) }
@@ -47,7 +47,7 @@ struct HomeView: View {
                 Section(isExpanded: expanded(section.id)) {
                     ForEach(section.trees) { tree in
                         treeRow(tree, project: section.id)
-                        ForEach(tree.sessions, id: \.self) { sessionRow($0).padding(.leading, Space.l) }
+                        ForEach(tree.sessions, id: \.self) { sessionRow($0).padding(.leading, TreeHeading.indent) }
                     }
                 } header: {
                     ProjectHeader(section: section, canManage: host.workspace.canManage, making: $making, action: $action)
@@ -69,6 +69,7 @@ struct HomeView: View {
             try? await host.workspace.refreshProjects()
         }
         .sheet(item: $making) { making in MakingSheet(host: host, mac: mac, making: making) }
+        .navigationDestination(isPresented: $automations) { AutomationsView(host: host, mac: mac) }
         .rowActions(host, $action)
     }
 
@@ -93,8 +94,12 @@ struct HomeView: View {
                         Text("Recent activity").tag(HomeList.ProjectSort.recent)
                     }
                 }
+                if only == nil && host.workspace.automations != nil {
+                    // A link inside a Menu doesn't push onto the stack.
+                    Button { automations = true } label: { Label("Automations", systemImage: "clock.arrow.circlepath") }
+                }
             } label: {
-                Label("Sort", systemImage: "line.3.horizontal.decrease.circle")
+                Label("More", systemImage: "ellipsis.circle")
             }
         }
     }
@@ -117,18 +122,44 @@ struct HomeView: View {
     }
 
     private func treeRow(_ tree: HomeList.Tree, project: String) -> some View {
-        NavigationLink(value: TreeRow.route(tree, mac: mac)) {
-            TreeRow(tree: tree)
-        }
-        .contextMenu { TreeMenu(tree: tree, project: project, canManage: host.workspace.canManage, making: $making, action: $action) }
+        PushRow(value: TreeRow.route(tree, mac: mac)) { TreeHeading(tree: tree) }
+            .padding(.top, Space.xs)
+            .listRowInsets(HomeView.rowInsets)
+            .listRowSeparator(.hidden)
+            .contextMenu { TreeMenu(tree: tree, project: project, canManage: host.workspace.canManage, making: $making, action: $action) }
     }
 
     @ViewBuilder
     private func sessionRow(_ id: String) -> some View {
         if let session = host.sessions.session(id) {
-            NavigationLink(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
+            PushRow(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
+                .listRowInsets(HomeView.rowInsets)
+                .listRowSeparator(.hidden)
                 .modifier(SessionActions(host: host, session: session, action: $action))
         }
+    }
+}
+
+/// A worktree's or Local's name over its sessions on the home list. Its sessions show their own status, so unlike
+/// `TreeRow` it rolls up nothing.
+@MainActor
+struct TreeHeading: View {
+    let tree: HomeList.Tree
+
+    /// How far a tree's sessions sit in: their glyphs line up under its name.
+    static let indent: CGFloat = 26
+
+    var body: some View {
+        HStack(spacing: Space.s) {
+            Image(systemName: TreeRow.symbol(tree.kind)).font(Typography.footnote).foregroundStyle(Palette.text3.color).frame(width: 18)
+            Text(tree.label).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text2.color).lineLimit(1)
+            if let place = tree.place, place != tree.label {
+                Text(place).font(Typography.codeSmall).foregroundStyle(Palette.text4.color).lineLimit(1).layoutPriority(-1)
+            }
+            Spacer(minLength: Space.s)
+            Image(systemName: "chevron.right").font(Typography.caption.weight(.semibold)).foregroundStyle(Palette.text4.color)
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -197,7 +228,7 @@ struct ProjectHeader: View {
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Text(section.name)
+            Text(section.name).font(Typography.headline).foregroundStyle(Palette.text.color).textCase(nil)
             if let roll = section.rollUp { StatusGlyph(roll.status, size: 8) }
             Spacer()
             Menu {
@@ -216,23 +247,33 @@ struct ProjectHeader: View {
     }
 }
 
-/// The Mac this list is of, with its link.
+/// The Mac's link and what its sessions are doing, under the title that names it.
 @MainActor
-struct MacRow: View {
+struct MacStatus: View {
     let host: HostModel
 
     var body: some View {
         let link = SessionText.link(host.link)
-        HStack(spacing: Space.m) {
-            Image(systemName: "laptopcomputer").font(.title3).foregroundStyle(Palette.text2.color)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(host.name).font(Typography.headline).foregroundStyle(Palette.text.color)
-                if let summary = Order.summary(host.sessions.sessions.values.map(\.status)) {
-                    Text(summary).font(Typography.footnote).foregroundStyle(Palette.text3.color)
-                }
-            }
-            Spacer()
+        HStack(spacing: Space.s) {
             Pill(link.text, tone: link.tone)
+            if let summary = Order.summary(host.sessions.sessions.values.map(\.status)) {
+                Text(summary).font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
+            }
+        }
+    }
+}
+
+/// A row that pushes `value`, without the disclosure chevron a `NavigationLink` row draws: the list's rows are
+/// plainly places to go, and the chevron costs every title its width.
+@MainActor
+struct PushRow<Content: View>: View {
+    let value: Route
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            NavigationLink(value: value) { EmptyView() }.opacity(0)
+            content
         }
     }
 }

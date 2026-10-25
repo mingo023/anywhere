@@ -9,11 +9,12 @@ enum SessionText {
         s.title.isEmpty ? "New session" : s.title
     }
 
-    /// The line under a session's title: its status and what it is doing, else its model.
+    /// The line under a session's title: what it is doing, else its status, else its model. Working shows as the
+    /// glyph's spin, so it isn't spelled out; the other statuses are, as their dots differ by colour alone.
     static func detail(_ s: AgentSummary, _ status: Status) -> String? {
-        let doing = s.compacting == true ? "Compacting…" : s.activity.flatMap { $0.isEmpty ? nil : $0 }
-        let parts = [status.label, doing].compactMap(\.self)
-        if !parts.isEmpty { return parts.joined(separator: " · ") }
+        if s.compacting == true { return "Compacting…" }
+        if let doing = s.activity, !doing.isEmpty { return doing }
+        if status != .working, let label = status.label { return label }
         return s.model.map(Sidebar.modelName).flatMap { $0.isEmpty ? nil : $0 }
     }
 
