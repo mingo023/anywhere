@@ -42,6 +42,10 @@ struct Destination: View {
             SessionsView(host: host, route: route)
         case .chat(_, let agentId):
             ChatView(host: host, agentId: agentId, open: open)
+                #if os(iOS)
+                    // A session takes the screen: the composer sits where the tab bar would.
+                    .toolbar(.hidden, for: .tabBar)
+                #endif
         case .terminals, .terminal:
             TerminalsView(host: host, route: route)
         case .changes, .diff, .history, .commit, .branches:
