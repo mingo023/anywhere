@@ -1,5 +1,5 @@
 // Waits for an uploaded build to finish processing, then gives it its "What to Test", adds it to an external
-// TestFlight group and submits it to Beta App Review, through the App Store Connect API.
+// TestFlight group (made with a public link if missing) and submits it to Beta App Review, through the App Store Connect API.
 // Usage: swift testflight.swift <bundle-id> <version> <build> <group> <notes-file>
 // with ANYWHERE_ASC_KEY (path to a .p8), ANYWHERE_ASC_KEY_ID and ANYWHERE_ASC_ISSUER.
 import CryptoKit
@@ -88,9 +88,18 @@ if let english = localizations.first(where: { ($0["attributes"] as? [String: Any
     ])
 }
 
-guard let group = try await list("betaGroups?filter[app]=\(app)&filter[name]=\(query(groupName))").first?["id"] as? String else {
-    fail("no TestFlight group named \(groupName)")
+// App Store Connect's site can't make an external group before the app's first build, so the first release makes it.
+var group = try await list("betaGroups?filter[app]=\(app)&filter[name]=\(query(groupName))").first?["id"] as? String
+if group == nil {
+    let created = try await api("POST", "betaGroups", [
+        "data": [
+            "type": "betaGroups", "attributes": ["name": groupName, "publicLinkEnabled": true],
+            "relationships": ["app": ["data": ["type": "apps", "id": app]]],
+        ],
+    ])
+    group = (created["data"] as? [String: Any])?["id"] as? String
 }
+guard let group else { fail("couldn't make the TestFlight group \(groupName)") }
 try await api("POST", "betaGroups/\(group)/relationships/builds", ["data": [["type": "builds", "id": buildID]]])
 try await api("POST", "betaAppReviewSubmissions", [
     "data": ["type": "betaAppReviewSubmissions", "relationships": ["build": buildRef]],
