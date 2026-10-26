@@ -310,7 +310,9 @@ impl Desktop {
                 d.opacity(t.0.clamp(0., 1.)).mb(px(RISE * t.0)).pl(px(INSET * rest)).pr(px(INSET * rest))
             },
         );
-        Some(div().relative().w_full().h_0().child(shown).into_any_element())
+        // Deferred so it paints after the chip below it: capture handlers run in paint order, and the chip's must stop
+        // this one's press-outside, or a press on the chip shuts the map and the chip opens it again.
+        Some(div().relative().w_full().h_0().child(deferred(shown)).into_any_element())
     }
 
     fn chat_map_key(&mut self, agent: &str, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
