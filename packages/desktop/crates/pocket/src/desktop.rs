@@ -446,6 +446,11 @@ impl Desktop {
         open
     }
 
+    /// Whether the main view shows panes with no overlay, menu or creating page over them.
+    pub(crate) fn panes_on_screen(&self) -> bool {
+        self.session_tree().is_some() && self.shown_create().is_none() && self.overlay.is_none() && !self.menu_open()
+    }
+
     /// The worktree whose panes the main view shows.
     pub(crate) fn session_tree(&self) -> Option<String> {
         if self.terminals.link.is_down() || self.screen != Screen::Sessions || self.new_form.shown {
@@ -605,6 +610,11 @@ impl Render for Desktop {
                     return;
                 }
                 cx.stop_propagation();
+            }))
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                if this.type_into_chat(&ev.keystroke, window, cx) {
+                    cx.stop_propagation();
+                }
             }))
             .on_action(cx.listener(|this, _: &crate::actions::OpenPalette, window, cx| this.open(Overlay::Palette, window, cx)))
             .on_action(cx.listener(|this, _: &crate::actions::StartSession, window, cx| this.new_session(None, false, window, cx)))

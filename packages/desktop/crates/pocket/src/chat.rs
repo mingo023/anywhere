@@ -85,9 +85,13 @@ impl Desktop {
         let chat = self.chat_shown(&terminal).then(|| self.summary(&terminal).map(|a| a.id.clone())).flatten();
         self.focus_pane(terminal, window, cx);
         if let Some(agent) = chat {
-            self.chat_take_input(&agent, window, cx);
-            self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+            self.chat_focus_input(&agent, window, cx);
         }
+    }
+
+    pub(crate) fn chat_focus_input(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.chat_take_input(agent, window, cx);
+        self.chats.input.update(cx, |s, cx| s.focus(window, cx));
     }
 
     /// A session's agent can be listed after its terminal took focus; keys then belong to the chat's input.
