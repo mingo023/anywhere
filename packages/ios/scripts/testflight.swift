@@ -52,8 +52,9 @@ func list(_ path: String) async throws -> [[String: Any]] {
     try await api("GET", path)["data"] as? [[String: Any]] ?? []
 }
 
+// Leaves the unreserved characters bare: App Store Connect's filters match "dev%2Emingo" against nothing.
 func query(_ value: String) -> String {
-    value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
+    value.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~"))) ?? value
 }
 
 guard let app = try await list("apps?filter[bundleId]=\(query(bundleID))").first?["id"] as? String else {
