@@ -43,7 +43,7 @@ jobs:
             libfontconfig-dev libfreetype-dev libvulkan-dev libssl-dev libasound2-dev libzstd-dev \
             libdbus-1-dev libgbm-dev libegl-dev libdrm-dev
 
-      # Saved by release-cache-mac.yml, which builds linux-amd64 too.
+      # Saved by cache-mac.yml, which builds linux-amd64 too.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/ghostty

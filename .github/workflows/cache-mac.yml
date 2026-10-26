@@ -1,7 +1,7 @@
-# Saves the caches release-mac.yml restores. A tag run can only restore caches saved by its own ref or main,
-# so without this every release builds cold. The daily run keeps them past GitHub's 7-day eviction,
-# building only when the key changed.
-name: Release cache macOS
+# Saves on main the caches release-mac.yml and ci.yml restore. A run can only restore caches saved by its own ref
+# or main, so without this every release and every new PR builds cold. The daily run keeps them past GitHub's
+# 7-day eviction, building only when the key changed.
+name: Cache macOS
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
       - packages/desktop/Cargo.lock
       - packages/desktop/Cargo.toml
       - scripts/build-ghostty.sh
+      - .github/workflows/cache-mac.yml
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
@@ -18,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-cache-mac
+  group: cache-mac
   cancel-in-progress: false
 
 jobs:
@@ -75,3 +76,40 @@ jobs:
           for triple in aarch64-apple-darwin x86_64-apple-darwin; do
             cargo build --profile dist -p pocket --target "$triple"
           done
+
+  ci:
+    # After warm, so warm saves the Ghostty cache with its Linux builds and this one only restores it.
+    needs: warm
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Rust version
+        id: rust
+        run: echo "rustc=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      # Keys and paths must match ci.yml.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: third_party/ghostty
+          key: ghostty-${{ hashFiles('scripts/build-ghostty.sh') }}
+          fail-on-cache-miss: true
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cargo
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            packages/desktop/target
+          key: cargo-ci-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
+          restore-keys: cargo-ci-${{ steps.rust.outputs.rustc }}-
+
+      - name: Build
+        if: steps.cargo.outputs.cache-hit != 'true'
+        working-directory: packages/desktop
+        run: |
+          cargo build --workspace
+          cargo test --workspace --no-run
