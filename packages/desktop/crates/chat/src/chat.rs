@@ -8,6 +8,7 @@ pub mod mcp;
 mod outgoing;
 mod rows;
 mod session;
+pub mod shared;
 mod spawned;
 mod timeline;
 
@@ -89,6 +90,9 @@ pub enum ToolKind {
     Search { query: String },
     Fetch { url: String },
     Question(Vec<Question>),
+    /// A file the agent shared through Anywhere's `share_file`: the path it named and its caption. The copy the user
+    /// sees is the call's output (`shared::kept`).
+    Shared { path: String, caption: String },
     Agent(SubAgent),
     /// Any other tool; `input` is its JSON input, pretty-printed, and `description` what it is about in words, when known.
     Other { input: String, description: String },

@@ -15,6 +15,8 @@ public enum Row: Hashable, Sendable {
     case text(turn: Int, block: Int, range: Range<Int>)
     /// An AskUserQuestion call: a marker that ends the phase before it.
     case question(turn: Int, block: Int)
+    /// A file the agent shared: a card that, like a question, ends the phase before it.
+    case shared(turn: Int, block: Int)
     case compacted(turn: Int, block: Int)
     case end(turn: Int)
     /// What the agent is doing, under the reply it's at work on (`turn` holds its fold). Rebuilt with the trailer.
@@ -32,7 +34,7 @@ public enum Row: Hashable, Sendable {
         case .fold(let ix): "\(t.turns[ix].id)#fold"
         case .phase(let ix, let blocks): "\(t.turns[ix].id)#p\(blocks.lowerBound)"
         case .text(let ix, let block, let range): "\(t.turns[ix].id)#\(block).\(range.lowerBound)"
-        case .tasks(let ix, let block), .question(let ix, let block), .compacted(let ix, let block), .note(let ix, let block):
+        case .tasks(let ix, let block), .question(let ix, let block), .shared(let ix, let block), .compacted(let ix, let block), .note(let ix, let block):
             "\(t.turns[ix].id)#\(block)"
         case .end(let ix): "\(t.turns[ix].id)#end"
         case .live(let ix): "\(t.turns[ix].id)#live"
@@ -44,7 +46,7 @@ public enum Row: Hashable, Sendable {
     public var turn: Int? {
         switch self {
         case .prompt(let t), .notice(let t), .note(let t, _), .fold(let t), .phase(let t, _), .tasks(let t, _), .text(let t, _, _),
-            .question(let t, _), .compacted(let t, _), .end(let t):
+            .question(let t, _), .shared(let t, _), .compacted(let t, _), .end(let t):
             t
         case .live, .working, .pending: nil
         }
@@ -107,6 +109,7 @@ private func plain(_ rows: inout [Row], _ turn: Int, _ b: Int, _ block: Block) {
         rows.append(contentsOf: markdownBlocks(m.text).map { .text(turn: turn, block: b, range: $0) })
     case .tool(let c):
         if case .question = c.kind { rows.append(.question(turn: turn, block: b)) }
+        if case .shared = c.kind { rows.append(.shared(turn: turn, block: b)) }
     case .compacted: rows.append(.compacted(turn: turn, block: b))
     case .notice: rows.append(.note(turn: turn, block: b))
     default: break
@@ -120,12 +123,13 @@ private func flush(_ rows: inout [Row], _ turn: Int, _ phase: inout Int?, _ end:
     }
 }
 
-/// A step of a phase: thinking, a tool call or a sub-agent, but not a question, which stands apart.
+/// A step of a phase: thinking, a tool call or a sub-agent, but not a question or a shared file, which stand apart.
 public func isWork(_ b: Block) -> Bool {
     switch b {
     case .thinking: return true
     case .tool(let c):
         if case .question = c.kind { return false }
+        if case .shared = c.kind { return false }
         return true
     default: return false
     }
@@ -303,7 +307,7 @@ public func topGap(_ prev: Row?, _ row: Row) -> Double {
     case (_, .phase), (_, .working): return 0
     case (.text(let a, let x, _), .text(let b, let y, _)) where a == b && x == y: return 10
     case (_, .tasks): return 12
-    case (_, .question), (_, .compacted), (_, .notice), (_, .note): return 8
+    case (_, .question), (_, .shared), (_, .compacted), (_, .notice), (_, .note): return 8
     default: return 6
     }
 }

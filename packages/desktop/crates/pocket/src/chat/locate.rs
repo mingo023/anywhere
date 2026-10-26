@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use chat::shared::Shown;
 use chat::{Block, ToolKind, Transcript};
 use gpui_kit::*;
 use std::collections::HashSet;
@@ -72,6 +73,14 @@ impl Desktop {
             .ok();
         })
         .detach();
+    }
+
+    /// Opens a file the agent shared: in the Mac's app for it, else in the preview.
+    pub(super) fn chat_open_shared(&mut self, path: &str, shown: Shown, cx: &mut Context<Self>) {
+        match shown {
+            Shown::App => cx.open_with_system(Path::new(path)),
+            Shown::Image | Shown::Preview => self.open_doc(Doc::File(path.to_string()), false, cx),
+        }
     }
 
     /// The files a chip in `agent`'s chat may mean, while they're offered.

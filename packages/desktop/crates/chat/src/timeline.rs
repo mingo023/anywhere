@@ -13,7 +13,7 @@ use std::collections::HashMap;
 /// - `notice` → `Block::Notice`: its `text`, else the `error` the agent went on after.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
 /// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
-/// - AskUserQuestion → `ToolKind::Question`.
+/// - AskUserQuestion → `ToolKind::Question`; `share_file` → `ToolKind::Shared`.
 /// - Items carrying `parent_tool_use_id` fold into that tool's `SubAgent::transcript`.
 pub(crate) fn fold(items: &[Item]) -> Transcript {
     let mut ordered: Vec<&Item> = items.iter().collect();
@@ -237,6 +237,7 @@ fn kind(name: &str, d: &Detail) -> ToolKind {
         "search" => ToolKind::Search { query: format!("{} in {}", d.query, d.path) },
         "task" => ToolKind::Agent(SubAgent { description: d.description.clone(), model: d.model.clone(), tokens: d.tokens, ..Default::default() }),
         _ if name == "AskUserQuestion" => ToolKind::Question(questions(d.questions())),
+        _ if name == crate::shared::TOOL => ToolKind::Shared { path: input_text(&d.input, "path"), caption: input_text(&d.input, "caption") },
         _ if name == "WebFetch" => ToolKind::Fetch { url: input_text(&d.input, "url") },
         _ if name == "WebSearch" => ToolKind::Search { query: input_text(&d.input, "query") },
         _ if d.input.is_null() => ToolKind::Other { input: String::new(), description: d.description.clone() },
@@ -447,6 +448,13 @@ mod tests {
         assert_eq!(kinds[1], ToolKind::Search { query: "gpui list".into() });
         assert_eq!(kinds[2], ToolKind::Search { query: "fn group in src".into() });
         assert_eq!(kinds[3], ToolKind::Other { input: "{\n  \"team\": \"Desktop\"\n}".into(), description: String::new() });
+    }
+
+    #[test]
+    fn a_share_file_call_becomes_a_shared_file() {
+        let detail = json!({"kind": "other", "name": crate::shared::TOOL, "input": {"path": "out/chart.png", "caption": "Q3 revenue"}});
+        let t = fold(&items(json!([tool("sh", crate::shared::TOOL, detail, "ok")])));
+        assert_eq!(only_tool(&t).kind, ToolKind::Shared { path: "out/chart.png".into(), caption: "Q3 revenue".into() });
     }
 
     #[test]

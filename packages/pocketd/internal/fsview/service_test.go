@@ -177,3 +177,31 @@ func TestAFolderOutsideARepositoryListsWithoutLetters(t *testing.T) {
 		t.Fatal(got, err)
 	}
 }
+
+func TestAReadOfTheAttachmentsFolderServesWhatAnAgentShared(t *testing.T) {
+	s, _ := repo(t)
+	put(t, s.Attachments, "0a1b2c3d4e5f-chart.png", "\x89PNG\r\n\x1a\n")
+	r, err := s.Read(s.Attachments, "0a1b2c3d4e5f-chart.png", 0)
+	if err != nil || r.Kind != "image" || r.Tree != s.Attachments || r.Path != "0a1b2c3d4e5f-chart.png" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := s.Read(s.Attachments, "../../desktop.json", 0); codeOf(err) != proto.CodeOutsideTree {
+		t.Fatalf("a path out of the folder: %v", err)
+	}
+	if _, err := s.Read(filepath.Dir(s.Attachments), "attachments/0a1b2c3d4e5f-chart.png", 0); codeOf(err) != proto.CodeNotATree {
+		t.Fatalf("pocketd's home: %v", err)
+	}
+}
+
+func TestTheAttachmentsFolderServesThroughALinkToIt(t *testing.T) {
+	s, _ := repo(t)
+	put(t, s.Attachments, "0a1b2c3d4e5f-notes.md", "# notes\n")
+	link := filepath.Join(t.TempDir(), "attachments")
+	if err := os.Symlink(s.Attachments, link); err != nil {
+		t.Fatal(err)
+	}
+	s.Attachments = link
+	if r, err := s.Read(link, "0a1b2c3d4e5f-notes.md", 0); err != nil || r.Kind != "text" || r.Tree != link {
+		t.Fatalf("%+v %v", r, err)
+	}
+}

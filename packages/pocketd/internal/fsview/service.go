@@ -105,8 +105,18 @@ func (s *Service) env() []string {
 	return s.Env()
 }
 
-// Resolve is tree's real root and rel's real path inside it.
+// Resolve is tree's real root and rel's real path inside it. A tree is a
+// project's worktree, or the attachments folder, so the phone can open what
+// an agent shared.
 func (s *Service) Resolve(tree, rel string) (root, full string, err error) {
+	if s.Attachments != "" && tree == s.Attachments {
+		// Join measures the real path, so the root must be real too.
+		if root, err = filepath.EvalSymlinks(tree); err != nil {
+			return "", "", errNotATree
+		}
+		full, err = Join(root, rel)
+		return root, full, err
+	}
 	if root, err = Tree(s.Registry.Load(), tree); err != nil {
 		return "", "", err
 	}

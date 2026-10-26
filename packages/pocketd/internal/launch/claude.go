@@ -6,6 +6,7 @@ import (
 
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
+	"pocketd/internal/share"
 	"pocketd/internal/state"
 )
 
@@ -26,9 +27,11 @@ const allowBypass = "--allow-dangerously-skip-permissions"
 
 // chatFlags run claude for the chat: stream-json both ways, its asks to use a
 // tool as control requests rather than a dialog, Full allowed so the chat
-// can switch to it whatever it launched or resumed at, and its text as it
-// streams, which the transcript holds only once a block is whole.
-var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio", allowBypass}
+// can switch to it whatever it launched or resumed at, its text as it
+// streams, which the transcript holds only once a block is whole, and
+// share_file without asking: it only copies a file the agent can read into
+// pocketd's home for the user to see.
+var chatFlags = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio", allowBypass, "--allowedTools", share.Tool}
 
 func (claude) switchEffort(effort string) error {
 	if !slices.Contains(providers.Claude.Efforts, effort) {

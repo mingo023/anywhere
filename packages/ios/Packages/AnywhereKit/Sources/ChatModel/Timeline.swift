@@ -252,6 +252,7 @@ func kind(_ name: String, _ d: ToolDetail) -> ToolKind {
     let description: String
     if case .other(_, let i, let d) = d { (input, description) = (i, d ?? "") } else { (input, description) = (.null, "") }
     if name == "AskUserQuestion" { return .question(questions(input)) }
+    if name == SharedFile.tool { return .shared(path: input["path"]?.string ?? "", caption: input["caption"]?.string ?? "") }
     if name == "WebFetch" { return .fetch(url: input["url"]?.string ?? "") }
     if name == "WebSearch" { return .search(query: input["query"]?.string ?? "") }
     if input == .null { return .other(input: "", description: description) }
