@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.16
+
+- Typing with nothing focused goes to the chat composer (#137): (5f933b4d)
+
 ## 0.1.15
 
 - Native iOS app (#132): (729212ce)
