@@ -40,7 +40,7 @@ jobs:
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
           echo "rustc=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
-      # Restore only: release-cache-mac.yml saves these on main, the one ref every tag can restore from.
+      # Restore only: cache-mac.yml saves these on main, the one ref every tag can restore from.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/ghostty
