@@ -84,6 +84,15 @@ fn stop_beside_steer(action: Action, interrupt: bool) -> bool {
     action == Action::Steer && interrupt
 }
 
+/// The text `key` types, if it types any: shortcuts and keys like Enter, Tab or Escape don't.
+fn typed_text(key: &Keystroke) -> Option<String> {
+    let m = &key.modifiers;
+    if m.platform || m.control || m.function {
+        return None;
+    }
+    key.key_char.clone().filter(|c| !c.is_empty() && !c.chars().any(char::is_control))
+}
+
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
     let drop = attachments::drop_images(cx.weak_entity());
@@ -293,11 +302,28 @@ impl Desktop {
         }
     }
 
+    fn chat_mode(&self, terminal: &str) -> Mode {
+        composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a))
+    }
+
+    /// Text typed while nothing holds the keys goes to the focused pane's chat, as in Discord. Returns whether it did.
+    pub(crate) fn type_into_chat(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(text) = typed_text(key) else { return false };
+        if !self.root.is_focused(window) || !self.panes_on_screen() {
+            return false;
+        }
+        let Some(t) = self.focused_chat().filter(|t| self.chat_mode(t) == Mode::Prompt) else { return false };
+        let Some(agent) = self.summary(&t).map(|a| a.id.clone()) else { return false };
+        self.chat_focus_input(&agent, window, cx);
+        self.chats.input.update(cx, |s, cx| s.replace_text_in_range(None, &text, window, cx));
+        true
+    }
+
     /// Sends the draft unless the agent can't take it now; Enter never stops.
     /// While the agent works a send goes into the running turn, as the CLI's does; behind a stop, or to `queue`, it waits for the turn to end.
     fn chat_send(&mut self, terminal: &str, queue: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
-        if composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a)) != Mode::Prompt {
+        if self.chat_mode(terminal) != Mode::Prompt {
             return;
         }
         let busy = self.chat_busy(a);
@@ -557,10 +583,7 @@ impl Desktop {
         self.suggest_keys(Prompt::Chat, framed, cx)
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                    this.chat_take_input(&a, window, cx);
-                    this.chats.input.update(cx, |s, cx| s.focus(window, cx));
-                }),
+                cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)),
             )
             .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" {
@@ -580,7 +603,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, working};
+    use super::{Mode, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, typed_text, working};
+    use gpui_kit::{Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
     use chat::{Action, Ask, Block, End, Message, Question, Session, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
@@ -689,5 +713,18 @@ mod tests {
         assert_eq!(composer_mode(false, None), Mode::Prompt);
         assert_eq!(composer_mode(true, Some(&ask(vec![]))), Mode::Permission { answerable: false });
         assert_eq!(composer_mode(false, Some(&ask(vec![Question::default()]))), Mode::Question { answerable: true });
+    }
+
+    #[test]
+    fn shortcuts_and_control_keys_type_no_text() {
+        let key = |name: &str, key_char: Option<&str>, modifiers: Modifiers| typed_text(&Keystroke { modifiers, key: name.into(), key_char: key_char.map(Into::into) });
+        assert_eq!(key("a", Some("a"), Modifiers::default()).as_deref(), Some("a"));
+        assert_eq!(key("a", Some("A"), Modifiers::shift()).as_deref(), Some("A"));
+        assert_eq!(key("s", Some("ß"), Modifiers::alt()).as_deref(), Some("ß"));
+        assert_eq!(key("v", None, Modifiers::command()), None);
+        assert_eq!(key("c", Some("c"), Modifiers::control()), None);
+        assert_eq!(key("enter", Some("\n"), Modifiers::default()), None);
+        assert_eq!(key("tab", Some("\t"), Modifiers::default()), None);
+        assert_eq!(key("escape", None, Modifiers::default()), None);
     }
 }
