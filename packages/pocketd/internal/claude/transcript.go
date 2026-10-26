@@ -505,10 +505,11 @@ func taskEnd(content json.RawMessage) []timeline.Event {
 	return each(e, head)
 }
 
-// each is e for the call a notification names, or for each task it names when it leaves the call out, as Claude does
-// for an agent's later run and for the tasks a previous session left behind.
+// each is e for the call and task a notification names, or for each task it names when it leaves the call out, as
+// Claude does for the tasks a previous session left behind.
 func each(e timeline.Event, head string) []timeline.Event {
 	if e.ToolUseID != "" {
+		e.TaskID = tag(head, "task-id")
 		return []timeline.Event{e}
 	}
 	var events []timeline.Event
