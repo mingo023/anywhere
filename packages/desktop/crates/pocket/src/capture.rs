@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 223] = [
+const STEPS: [(&str, Step); 224] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -240,6 +240,13 @@ const STEPS: [(&str, Step); 223] = [
     ("chat-queued", |d, _, cx| {
         if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
             v.session.outgoing.push("Now run the parser tests".into(), true, crate::util::now_ms());
+            cx.notify();
+        }
+    }),
+    // A command sent into the running turn, which Claude holds until the turn ends, without the fixture echoing it.
+    ("chat-command-steered", |d, _, cx| {
+        if let Some(v) = d.session().map(str::to_string).and_then(|a| d.chats.views.get_mut(&a)) {
+            v.session.outgoing.steer_text("/goal Every parser test passes".into(), crate::util::now_ms());
             cx.notify();
         }
     }),

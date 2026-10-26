@@ -667,6 +667,17 @@ func aCommandSteeredMidTurnShowsUntilTheTurnEnds() {
     #expect(o.list.isEmpty, "it runs now, echoing nothing")
 }
 
+@Test("a command steered into a long turn waits for it to end however long")
+func aCommandSteeredIntoALongTurnWaitsForItToEndHoweverLong() {
+    var o = Outgoing()
+    _ = o.steerText("/goal ship it", now: 1_000)
+    _ = o.steerText("are you reading my goal?", now: 2_000)
+    o.settle(tx(turn("u1", 0, "long job", false), turn("u2", 2_500, "are you reading my goal?", false)), working: true, now: 300_000)
+    #expect(o.afterTurn.map(\.text) == ["/goal ship it"])
+    o.settle(tx(turn("u1", 0, "long job", false), turn("u2", 2_500, "are you reading my goal?", true), turn("u3", 301_000, "/goal ship it", false)), working: true, now: 301_500)
+    #expect(o.list.isEmpty, "its own turn echoes it")
+}
+
 @Test("a send queued while stopping goes once the stop lands")
 func aSendQueuedWhileStoppingGoesOnceTheStopLands() {
     var o = Outgoing()

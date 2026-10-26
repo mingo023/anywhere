@@ -137,6 +137,15 @@ pub(super) fn actions(id: &str, copied: bool, copy: impl Fn(&ClickEvent, &mut Wi
 /// Under the last prompt the agent hasn't taken: when it will, and `action` to have it take them sooner.
 pub(super) fn waiting(who: &str, count: usize, action: Option<AnyElement>) -> Div {
     let what = if count > 1 { format!("{who} reads these {count} after its current step") } else { format!("{who} reads this after its current step") };
+    note(what).when_some(action, |d, action| d.child("·").child(action))
+}
+
+/// Under a command sent mid-turn, which the agent runs only once the turn ends.
+pub(super) fn after_turn(who: &str) -> Div {
+    note(format!("{who} runs this when its current turn ends"))
+}
+
+fn note(what: String) -> Div {
     div()
         .h(px(28.))
         .flex()
@@ -147,7 +156,6 @@ pub(super) fn waiting(who: &str, count: usize, action: Option<AnyElement>) -> Di
         .text_color(TEXT_3)
         .child(div().size(px(6.)).flex_none().rounded_full().bg(TEXT_3))
         .child(what)
-        .when_some(action, |d, action| d.child("·").child(action))
 }
 
 pub(super) fn send_now(id: &str) -> Stateful<Div> {

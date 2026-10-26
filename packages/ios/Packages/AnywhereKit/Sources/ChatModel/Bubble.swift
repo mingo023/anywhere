@@ -59,5 +59,10 @@ public enum Bubble {
         count > 1 ? "\(who) reads these \(count) after its current step" : "\(who) reads this after its current step"
     }
 
+    /// Under a command sent mid-turn, which the agent runs only once the turn ends.
+    public static func afterTurn(_ who: String) -> String {
+        "\(who) runs this when its current turn ends"
+    }
+
     public static let notDelivered = "Not delivered — tap to retry"
 }

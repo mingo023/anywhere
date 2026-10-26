@@ -112,9 +112,10 @@ public struct Outgoing: Sendable {
             ran.worked = ran.worked || (working && (ran.idled || age > statusLagMs))
             command = (ran.worked && !working) || (!ran.worked && age > statusLagMs) || age > commandMs ? nil : ran
         }
-        // A command steered in echoes nothing; it runs once the turn it came into ends.
+        // A command steered in waits in the agent's queue, however long the turn it came into runs, and goes as that turn
+        // ends. One that takes a turn settles by its echo before then, should the agent start it before we see it idle.
         let since = idleSince
-        sends.removeAll { $0.delivery == .steered && isCommand($0.text) && ((idle && $0.sentAt <= since) || now - $0.sentAt > commandMs) }
+        sends.removeAll { $0.delivery == .steered && isCommand($0.text) && idle && $0.sentAt <= since }
         let before = sends.count
         var kept: [Pending] = []
         for send in sends {
@@ -165,6 +166,11 @@ public struct Outgoing: Sendable {
     /// echoes nothing, so it never shows as waiting.
     public var waiting: [Pending] {
         sends.filter { $0.delivery == .steered && !isCommand($0.text) }
+    }
+
+    /// The commands steered into the turn; the agent runs them only once it ends.
+    public var afterTurn: [Pending] {
+        sends.filter { $0.delivery == .steered && isCommand($0.text) }
     }
 
     /// Asks for every waiting send to go now; false when none waits or a Send now is already on its way.

@@ -132,9 +132,10 @@ impl Outgoing {
                 self.command = None;
             }
         }
-        // A command steered in echoes nothing; it runs once the turn it came into ends.
+        // A command steered in waits in the agent's queue, however long the turn it came into runs, and goes as that turn
+        // ends. One that takes a turn settles by its echo before then, should the agent start it before we see it idle.
         let since = self.idle_since;
-        self.sends.retain(|s| !(s.delivery == Delivery::Steered && command(&s.text) && ((idle && s.sent_at <= since) || now_ms - s.sent_at > COMMAND_MS)));
+        self.sends.retain(|s| !(s.delivery == Delivery::Steered && command(&s.text) && idle && s.sent_at <= since));
         let (claimed, before) = (&mut self.claimed, self.sends.len());
         self.sends.retain(|send| {
             if send.delivery == Delivery::Queued && !send.stopped {
@@ -200,6 +201,11 @@ impl Outgoing {
     /// echoes nothing, so it never shows as waiting.
     pub fn waiting(&self) -> impl Iterator<Item = &Pending> {
         self.sends.iter().filter(|s| s.delivery == Delivery::Steered && !command(&s.text))
+    }
+
+    /// The commands steered into the turn; the agent runs them only once it ends.
+    pub fn after_turn(&self) -> impl Iterator<Item = &Pending> {
+        self.sends.iter().filter(|s| s.delivery == Delivery::Steered && command(&s.text))
     }
 
     /// Asks for every waiting send to go now; false when none waits or a Send now is already on its way.
@@ -1062,6 +1068,19 @@ mod tests {
         assert_eq!(texts(&o), ["/compact"]);
         o.settle(&Transcript { turns: vec![turn("u1", 0, "long job", true)] }, false, 6_000);
         assert!(o.list().is_empty(), "it runs now, echoing nothing");
+    }
+
+    #[test]
+    fn a_command_steered_into_a_long_turn_waits_for_it_to_end_however_long() {
+        let mut o = Outgoing::default();
+        o.steer_text("/goal ship it".into(), 1_000);
+        o.steer_text("are you reading my goal?".into(), 2_000);
+        let asked = Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 2_500, "are you reading my goal?", false)] };
+        o.settle(&asked, true, 300_000);
+        assert_eq!(o.after_turn().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["/goal ship it"]);
+        let goal = Transcript { turns: vec![turn("u1", 0, "long job", false), turn("u2", 2_500, "are you reading my goal?", true), turn("u3", 301_000, "/goal ship it", false)] };
+        o.settle(&goal, true, 301_500);
+        assert!(o.list().is_empty(), "its own turn echoes it");
     }
 
     #[test]

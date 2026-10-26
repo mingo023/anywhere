@@ -795,6 +795,7 @@ impl Desktop {
                         };
                         user_bubble::waiting(who, waiting.len(), action)
                     });
+                    let under = under.or_else(|| s.outgoing.after_turn().any(|c| c.id == p.id).then(|| user_bubble::after_turn(who)));
                     let dim = p.delivery == Delivery::Failed || under.is_some();
                     prompt_bubble(view, agent, &id, &p.text, p.sent_at, dim, under, width, window, cx).children(retry)
                 }
