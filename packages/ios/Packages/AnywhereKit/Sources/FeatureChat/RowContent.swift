@@ -221,9 +221,11 @@ struct RowBuilder {
             let p = echoed[i].pending
             let waiting = session.outgoing.waiting
             let last = waiting.last?.id == p.id
+            let afterTurn = session.outgoing.afterTurn.contains { $0.id == p.id }
             let (text, images) = splitImages(p.text)
             return .pending(PendingContent(
-                id: p.id, text: text, images: images, delivery: p.delivery, waiting: last ? Bubble.waiting(who, waiting.count) : nil,
+                id: p.id, text: text, images: images, delivery: p.delivery,
+                waiting: last ? Bubble.waiting(who, waiting.count) : afterTurn ? Bubble.afterTurn(who) : nil,
                 sendNow: last && canSendNow ? (session.outgoing.sendingNow ? .sending : .offer) : nil))
         }
     }
