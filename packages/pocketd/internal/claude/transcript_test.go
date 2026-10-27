@@ -669,6 +669,19 @@ func TestAFailedAgentClaudeResumesRunsInTheBackgroundUntilItsNextNotification(t 
 	}
 }
 
+func TestAResumedAgentsRunEndsItsCallThoughItsNotificationNamesTheResumingMessage(t *testing.T) {
+	done := notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<result>Done.</result>")
+	lines := append([]string{asyncAgent, agentLaunched, done, nextPrompt}, resumeOf("a1")...)
+	lines = append(lines, notification("<task-id>a1</task-id>\n<tool-use-id>s-a1</tool-use-id>\n<status>completed</status>\n<result>Tests restored.</result>"))
+	tl := replay(lines...)
+	if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "Tests restored." || tl.BackgroundAgents() != 0 {
+		t.Fatalf("still running: %+v %q", c, output(c))
+	}
+	if c := callOf(t, tl, "s-a1"); output(c) == "Tests restored." {
+		t.Fatalf("the report went to the message that resumed the agent: %+v", c)
+	}
+}
+
 func TestStopEndsEveryResumedAgentStillRunning(t *testing.T) {
 	lines := []string{asyncAgent, agentLaunched, failed("t1", "a1"),
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Agent","input":{"description":"Docs","run_in_background":true}}]}}`,

@@ -263,7 +263,7 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.items[n], true
 
 	case "tool_background":
-		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
+		if n, ok := t.tasks[e.TaskID]; ok {
 			e.ToolUseID = t.items[n].Call.ToolUseID
 		}
 		n, ok := t.tools[e.ToolUseID]
@@ -300,11 +300,13 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.items[n], true
 
 	case "tool_end":
-		if n, ok := t.tasks[e.TaskID]; ok && e.ToolUseID == "" {
+		// An agent's later run names the SendMessage that resumed it, so its task, not the call named, says which call ends.
+		if n, ok := t.tasks[e.TaskID]; ok {
+			named := e.ToolUseID != ""
 			e.ToolUseID = t.items[n].Call.ToolUseID
 			// Claude names a task again after its call ended for an agent's afterthought or a summary of the tasks a
 			// session left; only a report the call lacks lands, or one from the run that followed its failure.
-			if c := t.items[n].Call; c.Status != "running" {
+			if c := t.items[n].Call; !named && c.Status != "running" {
 				if e.Output == nil || c.Output != nil && c.Status == "ok" {
 					return proto.Item{}, false
 				}
