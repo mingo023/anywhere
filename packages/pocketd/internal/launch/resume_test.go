@@ -145,7 +145,7 @@ func TestAChatClaudeResumesForTheChatBehindAPipe(t *testing.T) {
 	s.Chat = true
 	found := func(string) (string, bool) { return "/bin/claude", true }
 	_, args, reason := resumeCmd(s, config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, found)
-	want := "/pd pipe /bin/claude --resume c-1 --permission-mode default --model opus -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"
+	want := "/pd pipe /bin/claude --resume c-1 --permission-mode default --model opus -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions --allowedTools mcp__plugin_anywhere_anywhere__share_file"
 	if reason != "" || !strings.Contains(strings.Join(args, " "), want) {
 		t.Fatalf("resumeCmd = %q %q", args, reason)
 	}

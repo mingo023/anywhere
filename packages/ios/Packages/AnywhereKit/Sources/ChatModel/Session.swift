@@ -122,7 +122,7 @@ func sameContent(_ old: [Turn], _ from: Int, _ new: Transcript, _ row: Row) -> B
     case .prompt: return a.prompt == b.prompt
     case .text(_, let block, let range): return slice(text(a, block), range) == slice(text(b, block), range)
     case .phase(_, let blocks): return slice(a.blocks, blocks) == slice(b.blocks, blocks)
-    case .tasks(_, let block), .question(_, let block), .compacted(_, let block), .note(_, let block):
+    case .tasks(_, let block), .question(_, let block), .shared(_, let block), .compacted(_, let block), .note(_, let block):
         return slice(a.blocks, block..<block + 1) == slice(b.blocks, block..<block + 1)
     // One line, whatever the reply it heads does.
     case .fold, .notice: return true

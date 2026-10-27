@@ -84,6 +84,7 @@ pub(crate) fn line(call: &ToolCall) -> (&'static str, Arg) {
         ToolKind::Other { input, .. } if call.name == "Skill" => ("Skill", Arg::Text(skill(input).map_or_else(String::new, |s| format!("/{s}")))),
         ToolKind::Other { .. } => ("", Arg::Raw(mcp(&call.name).unwrap_or_else(|| call.name.clone()))),
         ToolKind::Agent(a) => ("", Arg::Raw(one(&a.description))),
+        ToolKind::Shared { path, .. } => ("Share", Arg::File(path.clone())),
         ToolKind::Question(_) => ("", Arg::Raw(call.name.clone())),
     }
 }

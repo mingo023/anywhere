@@ -5,7 +5,7 @@ use super::markdown::{self, Highlights};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
-use super::{end_row, meta, phase, question_marker, sticky, sub_agent, todos, user_bubble};
+use super::{end_row, meta, phase, question_marker, shared_card, sticky, sub_agent, todos, user_bubble};
 use crate::creating;
 use crate::desktop::Desktop;
 use crate::util::now_ms;
@@ -603,10 +603,11 @@ impl Desktop {
 
     fn chat_row(&mut self, agent: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let (provider, model) = self.agents.get(agent).map(|a| (a.provider.clone(), agents::model_label(a))).unwrap_or_default();
+        let cwd = self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default();
         let ask = self.agents.pending.iter().find(|p| p.agent_id == agent).map(|p| !chat::for_provider(&provider).ask(p).questions.is_empty());
         let send_now = self.chat_caps(&provider).send_now;
         let open: markdown::Open = {
-            let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
+            let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), cwd.clone());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
         };
         let Some(view) = self.chats.views.get_mut(agent) else { return div().into_any_element() };
@@ -737,6 +738,19 @@ impl Desktop {
                 let plan = range.start == 0 && !text.trim_start().starts_with('#') && matches!(t.turns.get(*turn).and_then(|t| t.blocks.get(*block)), Some(Block::Plan(_)));
                 div().flex().flex_col().gap(px(8.)).children(plan.then(todos::plan_header)).child(body)
             }
+            Row::Shared { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+                Some(Block::Tool(call)) => {
+                    let (how, target) = shared_card::opening(call, &cwd);
+                    let card = |on_click| shared_card::card(&id, call, how, target.as_deref(), width, on_click);
+                    let opens = target.clone();
+                    card(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if let Some(target) = &opens {
+                            this.chat_open_shared(target, how, cx);
+                        }
+                    }))
+                }
+                _ => div(),
+            },
             Row::Question { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
                 Some(Block::Tool(call)) => {
                     let toggled = view.toggled.as_ref().filter(|(row, _)| *row == id).map(|(_, at)| *at);
@@ -981,5 +995,20 @@ mod tests {
     fn a_replys_answer_leaves_out_the_text_between_its_work() {
         let t = turn(vec![Block::Text(msg("Let me look.", 1)), shell(2), Block::Text(msg("All good.", 3))], Some(End::Done { duration_ms: 1, usage: None }));
         assert_eq!(answer(&t, 0..1), "All good.");
+    }
+
+    #[test]
+    fn a_shared_file_shows_under_a_shut_fold() {
+        let call = ToolCall {
+            id: "s".into(),
+            name: chat::shared::TOOL.into(),
+            kind: ToolKind::Shared { path: "chart.png".into(), caption: String::new() },
+            status: ToolStatus::Ok,
+            output: Some("/h/attachments/0a1b-chart.png".into()),
+            duration_ms: None,
+            at: 0,
+        };
+        let t = Transcript { turns: vec![Turn { id: "u1".into(), blocks: vec![Block::Tool(call)], ..Turn::default() }] };
+        assert!(shown(&t, &Row::Shared { turn: 0, block: 0 }, false));
     }
 }

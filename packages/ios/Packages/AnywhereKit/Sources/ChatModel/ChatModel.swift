@@ -92,6 +92,9 @@ public enum ToolKind: Hashable, Sendable {
     case search(query: String)
     case fetch(url: String)
     case question([Question])
+    /// A file the agent shared through Anywhere's `share_file`: the path it named and its caption. The copy the user
+    /// sees is the call's output (`SharedFile.kept`).
+    case shared(path: String, caption: String)
     case agent(SubAgent)
     /// Any other tool; `input` is its JSON input, pretty-printed, and `description` what it is about in words, when known.
     case other(input: String, description: String)

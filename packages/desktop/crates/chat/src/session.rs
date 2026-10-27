@@ -109,7 +109,7 @@ fn same_content(old: &[Turn], from: usize, new: &Transcript, row: &Row) -> bool 
         Row::Prompt { .. } => a.prompt == b.prompt,
         Row::Text { block, range, .. } => text(a, *block).get(range.clone()) == text(b, *block).get(range.clone()),
         Row::Phase { blocks, .. } => a.blocks.get(blocks.clone()) == b.blocks.get(blocks.clone()),
-        Row::Tasks { block, .. } | Row::Question { block, .. } | Row::Compacted { block, .. } | Row::Note { block, .. } => {
+        Row::Tasks { block, .. } | Row::Question { block, .. } | Row::Shared { block, .. } | Row::Compacted { block, .. } | Row::Note { block, .. } => {
             a.blocks.get(*block) == b.blocks.get(*block)
         }
         // One line, whatever the reply it heads does.

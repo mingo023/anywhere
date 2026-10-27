@@ -196,6 +196,7 @@ public func permissionSubject(_ tool: ToolKind, _ toolName: String) -> (glyph: G
     case .search(let query): (.search, "Search", query)
     case .fetch(let url): (.globe, "Fetch", url)
     case .agent(let a): (.bot, "Start agent", a.description)
+    case .shared(let path, _): (.file, "Share", path)
     case .question, .other: (.blocks, "Use", toolName)
     }
 }
@@ -232,6 +233,7 @@ public func toolLine(_ call: Call) -> (verb: String, arg: Arg) {
     case .other(let input, _) where call.name == "Skill": return ("Skill", .text(skill(input).map { "/\($0)" } ?? ""))
     case .other: return ("", .raw(mcpName(call.name) ?? call.name))
     case .agent(let a): return ("", .raw(oneLine(a.description)))
+    case .shared(let path, _): return ("Share", .file(path))
     case .question: return ("", .raw(call.name))
     }
 }
