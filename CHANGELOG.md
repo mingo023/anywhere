@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.17
+
+- A session ends its turn after a sub-agent Claude resumed has finished (#140): (e09f1e4f)
+- A slash command sent mid-turn stays until the turn ends (#139): (787d37d2)
+- Anywhere gets a new app icon (#138): (7a7c1c1c)
+- The agents chip closes the agent map it opened (#135): (b8d3cbee)
+
 ## 0.1.16
 
 - Typing with nothing focused goes to the chat composer (#137): (5f933b4d)
