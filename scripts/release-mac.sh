@@ -115,7 +115,12 @@ make_dmg() {
   ditto "$APP" "$stage/Anywhere.app"
   ln -s /Applications "$stage/Applications"
   # LZMA: about a quarter smaller than UDZO; mounts on macOS 10.15+.
-  hdiutil create -volname Anywhere -srcfolder "$stage" -format ULMO -ov "$DMG"
+  # On CI runners hdiutil can fail with "Resource busy" while the system still holds the staged files.
+  for attempt in 1 2 3 4 5; do
+    hdiutil create -volname Anywhere -srcfolder "$stage" -format ULMO -ov "$DMG" && break
+    [ "$attempt" = 5 ] && exit 1
+    sleep $((attempt * 5))
+  done
   rm -rf "$stage"
   codesign --force --timestamp --sign "$SIGN_ID" "$DMG"
 }
