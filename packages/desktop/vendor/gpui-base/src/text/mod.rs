@@ -10,6 +10,7 @@ mod markdown_ext;
 mod node;
 pub(crate) mod selection;
 mod selection_adapter;
+mod selection_cell;
 mod state;
 mod stream_fade;
 mod style;
