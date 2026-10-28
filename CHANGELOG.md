@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.18
+
+- The agent map scrolls to its top agents (#142): (f2d17f51)
+- Selecting in a table cell selects only that cell (#141): (ddfeed2e)
+
 ## 0.1.17
 
 - A session ends its turn after a sub-agent Claude resumed has finished (#140): (e09f1e4f)
