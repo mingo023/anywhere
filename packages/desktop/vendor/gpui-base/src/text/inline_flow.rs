@@ -1012,8 +1012,11 @@ fn line_ranges(
 /// Appends the wrap fragments for `range` of `text`. The line wrapper
 /// measures text fragments in the body font, so a span whose highlight sets
 /// another family is shaped with the same run the renderer uses and enters
-/// the wrapper as measured elements. Oversized spans retain word boundaries;
-/// oversized words can break at grapheme boundaries without splitting Unicode.
+/// the wrapper as measured elements. A span too wide for a line is packed
+/// into line-sized chunks, each padded once as each line paints its own chip.
+/// Like CSS `overflow-wrap: break-word`, it starts on a fresh line rather
+/// than filling the current one; chunks break at word boundaries, and inside
+/// an oversized word at grapheme boundaries without splitting Unicode.
 fn push_text_wrap_fragments<'a>(
     fragments: &mut Vec<WrapLineFragment<'a>>,
     text: &'a str,
@@ -1055,19 +1058,39 @@ fn push_text_wrap_fragments<'a>(
         if width <= wrap_width {
             fragments.push(WrapLineFragment::element(width, span.len()));
         } else {
+            let mut pieces = Vec::new();
             for word in span.split_word_bounds() {
-                let width = measure(word) + padding;
-                if width <= wrap_width {
-                    fragments.push(WrapLineFragment::element(width, word.len()));
+                let width = measure(word);
+                if width + padding <= wrap_width {
+                    pieces.push((word.len(), width));
                 } else {
-                    for grapheme in word.graphemes(true) {
-                        fragments.push(WrapLineFragment::element(
-                            measure(grapheme) + padding,
-                            grapheme.len(),
-                        ));
-                    }
+                    pieces.extend(word.graphemes(true).map(|g| (g.len(), measure(g))));
                 }
             }
+            // Text glued to the span (`(` in "(`code`") wraps with its first
+            // chunk, so that chunk leaves it room.
+            let before = &text[cursor..start];
+            let attached = &before[before.trim_end_matches(|c: char| !c.is_whitespace()).len()..];
+            let mut limit = wrap_width
+                - window
+                    .text_system()
+                    .layout_line(
+                        attached,
+                        font_size,
+                        &[text_style.to_run(attached.len())],
+                        None,
+                    )
+                    .width;
+            let (mut chunk_len, mut chunk_width) = (0, Pixels::ZERO);
+            for (len, width) in pieces {
+                if chunk_len > 0 && chunk_width + width + padding > limit {
+                    fragments.push(WrapLineFragment::element(chunk_width + padding, chunk_len));
+                    (chunk_len, chunk_width, limit) = (0, Pixels::ZERO, wrap_width);
+                }
+                chunk_len += len;
+                chunk_width += width;
+            }
+            fragments.push(WrapLineFragment::element(chunk_width + padding, chunk_len));
         }
         cursor = end;
     }
@@ -1464,6 +1487,76 @@ mod tests {
                 })
                 .collect();
             assert_eq!(reconstructed, text);
+        }
+    }
+    #[test]
+    fn long_inline_code_fills_each_line_before_wrapping() {
+        use super::super::inline::test_fonts::{BODY, MONO, WideMonoTextSystem};
+        use gpui::{Empty, TestApp};
+        let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+        let mut window = app.open_window(|_, _| Empty);
+        let font_size = px(10.);
+        let style = TextStyle {
+            font_family: BODY.into(),
+            font_size: AbsoluteLength::Pixels(font_size),
+            ..Default::default()
+        };
+        // Ten mono glyphs and the chip's padding.
+        let wrap_width = WideMonoTextSystem::width_of("0123456789", MONO, font_size)
+            + inline_code_padding(font_size) * 2.;
+        for (lead, code, expected) in [
+            (
+                "",
+                "filterableData.companyMappings",
+                vec!["filterable", "Data.compa", "nyMappings"],
+            ),
+            (
+                "",
+                "{ userId, id, name, rest }",
+                vec!["{ userId, ", "id, name, ", "rest }"],
+            ),
+            (
+                "see ",
+                "filterableData.companyMappings",
+                vec!["see ", "filterable", "Data.compa", "nyMappings"],
+            ),
+            (
+                "(",
+                "filterableData.companyMappings",
+                vec!["(filterabl", "eData.comp", "anyMapping", "s"],
+            ),
+        ] {
+            let text = format!("{lead}{code}");
+            let items = vec![MeasureItem::Text {
+                text: text.clone().into(),
+                links: vec![],
+                highlights: vec![(
+                    lead.len()..text.len(),
+                    InlineHighlight {
+                        font_family: Some(MONO.into()),
+                        ..Default::default()
+                    },
+                )],
+            }];
+            let layout = window.update(|_, window, cx| {
+                layout_flow(&items, &[None], &style, Some(wrap_width), window, cx)
+            });
+            let mut lines: Vec<(Pixels, String)> = Vec::new();
+            for fragment in &layout.fragments {
+                if let PositionedFragment::Text { text, origin, .. } = fragment {
+                    match lines.last_mut() {
+                        Some((y, line)) if *y == origin.y => line.push_str(text),
+                        _ => lines.push((origin.y, text.to_string())),
+                    }
+                }
+            }
+            let lines: Vec<&str> = lines.iter().map(|(_, line)| line.as_str()).collect();
+            assert!(
+                layout.size.width <= wrap_width,
+                "{text:?}: {:?}",
+                layout.size
+            );
+            assert_eq!(lines, expected, "{text:?}");
         }
     }
     #[test]
