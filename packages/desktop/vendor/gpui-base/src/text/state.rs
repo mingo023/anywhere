@@ -27,6 +27,7 @@ use crate::{
         format,
         node::{self, NodeContext},
         selection_adapter::TextViewSelectionAdapter,
+        selection_cell::clamp_to_cell,
         stream_fade::{StreamFadeTracker, TextViewMotion},
     },
     v_flex,
@@ -114,6 +115,8 @@ pub struct TextViewState {
     pub(super) is_selecting: bool,
     /// Logical ranges retained across an explicitly requested resource reflow.
     pub(super) preserve_inline_selection: bool,
+    /// The table cell painting now, which the selection endpoints are pinned to.
+    pub(super) selection_cell: Option<Bounds<Pixels>>,
     multi_click_selection: Option<TextViewMultiClickSelection>,
     selected_text_override: Option<String>,
     select_all: bool,
@@ -227,6 +230,7 @@ impl TextViewState {
             markdown_extensions: Arc::default(),
             is_selecting: false,
             preserve_inline_selection: false,
+            selection_cell: None,
             auto_scroll: AutoScroll::default(),
             selection_adapter,
             parsed_content: Default::default(),
@@ -677,7 +681,11 @@ impl TextViewState {
         if !self.selectable {
             return None;
         }
-        self.selection_adapter.selection_points(cx)
+        let (anchor, cursor) = self.selection_adapter.selection_points(cx)?;
+        Some(match self.selection_cell {
+            Some(cell) => (clamp_to_cell(anchor, cell), clamp_to_cell(cursor, cell)),
+            None => (anchor, cursor),
+        })
     }
 
     pub(crate) fn has_selection(&self, cx: &App) -> bool {

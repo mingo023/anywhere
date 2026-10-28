@@ -26,6 +26,7 @@ use crate::{
             text_size_ranges,
         },
         inline_flow::{InlineFlow, InlineFlowItem, inline_code_padding, slice_ranges},
+        selection_cell::selection_cell,
         stream_fade::{StreamFadeFrame, TextLeafKey},
         text_view::handle_link_click,
     },
@@ -2915,7 +2916,7 @@ impl BlockNode {
                 let align = table.column_align(ix);
                 let width = col_w.get(ix).copied().unwrap_or(CELL_MIN_PX);
                 let min_width = col_min_w.get(ix).copied().unwrap_or(CELL_MIN_PX);
-                cells.push(
+                cells.push(selection_cell(
                     div()
                         // Measured max-content width is the flex-basis;
                         // `flex_grow` (proportional to it) distributes extra
@@ -2934,7 +2935,7 @@ impl BlockNode {
                         .py(px(8.))
                         .refine_style(&style.table_cell())
                         .child(cell.children.render(fade_key, node_cx, window, cx)),
-                );
+                ));
             }
             rows.push(
                 div()
@@ -3061,7 +3062,7 @@ impl BlockNode {
                     .unwrap_or(MAX_LENGTH)
                     .min(MAX_LENGTH);
 
-                cells.push(
+                cells.push(selection_cell(
                     div()
                         .overflow_hidden()
                         .when(align == ColumnumnAlign::Center, |this| this.text_center())
@@ -3072,7 +3073,7 @@ impl BlockNode {
                         .py(px(8.))
                         .refine_style(&style.table_cell())
                         .child(cell.children.render(fade_key, node_cx, window, cx)),
-                );
+                ));
             }
 
             rows.push(

@@ -87,6 +87,7 @@ gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # It also stops an input's caret blinking while the window is inactive, where it draws no caret but redrew the window twice a second.
 # It also scrolls a textarea to the end of a paste once the pasted text is laid out, where it clamped to the pre-paste height; drop once upstream does.
 # It also grows a double- or triple-click selection a word or line at a time as the pointer drags, as a browser does; drop once upstream does.
+# It also selects a table in reading order, cell by cell, where a drag inside one cell selected the cells beside it; drop once upstream does.
 gpui-base = { path = "vendor/gpui-base" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.
