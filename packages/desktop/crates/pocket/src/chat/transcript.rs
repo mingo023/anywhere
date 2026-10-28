@@ -736,29 +736,29 @@ impl Desktop {
                 let body = match markdown::fence(text) {
                     // Drawn once whole: a fence still streaming is half a diagram, which wouldn't parse.
                     Some(("mermaid", code)) if markdown::closed(text) => {
-                        let (source, key) = (view.sources.contains(&id), mermaid::key(&code, is_dark()));
-                        // One that didn't parse shows its source already.
-                        let switchable = !diagrams.read(cx).failed(key);
+                        let (source, key, place) = (view.sources.contains(&id), mermaid::key(&code, is_dark()), mermaid::place((agent, &id)));
                         let body = match source {
                             true => div().child(markdown::code_block(SharedString::from(format!("code-{agent}-{id}")), "mermaid", &code, None)),
                             false => {
-                                let diagram = mermaid::diagram(&diagrams, key, &SharedString::from(code.to_string()), cx);
+                                let diagram = mermaid::diagram(&diagrams, key, place, &SharedString::from(code.to_string()), cx);
                                 let copy_key = format!("mermaid:{id}");
-                                let header = switchable.then(|| {
+                                let header = diagrams.read(cx).ready(key).then(|| {
                                     let fit = diagrams.clone();
-                                    let on_fit = move |_: &ClickEvent, _: &mut Window, cx: &mut App| fit.update(cx, |d, cx| d.fit(key, cx));
+                                    let on_fit = move |_: &ClickEvent, _: &mut Window, cx: &mut App| fit.update(cx, |d, cx| d.fit(place, cx));
                                     markdown::diagram_header(&id, view.copied(&copy_key), on_fit, copy(agent, copy_key.clone(), code.to_string(), cx))
                                 });
                                 // Framed as a code block is, so flipping to the source keeps the card.
-                                div().rounded(px(10.)).border_1().border_color(SEPARATOR).bg(super::DIAGRAM_BG).children(header).child(diagram.pt(px(if switchable { 8. } else { 16. })))
+                                let diagram = diagram.pt(px(if header.is_some() { 8. } else { 16. }));
+                                div().rounded(px(10.)).border_1().border_color(SEPARATOR).bg(super::DIAGRAM_BG).children(header).child(diagram)
                             }
                         };
+                        // Not while it lays out, nor once it fails to parse: it shows its source already.
+                        let switchable = source || diagrams.read(cx).ready(key);
                         let switch = switchable.then(|| {
                             let (agent, row) = (agent.to_string(), id.clone());
                             let segment = |value, label: &str| ui::Segment { icon: None, value, label: label.to_string().into(), badge: None };
                             let on = move |d: &mut Self, source, cx: &mut Context<Self>| d.chat_show_source(&agent, &row, source, cx);
-                            // Left of the header's two buttons, as a code block's action would sit: its border, padding, two buttons and gaps.
-                            div().absolute().top(px(8.)).right(px(75.)).child(ui::segmented(vec![segment(false, "Preview"), segment(true, "Source")], source, true, false, on, cx))
+                            markdown::header_switch(ui::segmented(vec![segment(false, "Preview"), segment(true, "Source")], source, true, false, on, cx))
                         });
                         let block = div().relative().child(body).children(switch);
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }

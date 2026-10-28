@@ -29,6 +29,11 @@ impl Viewport {
         Self { zoom, offset: ((self.offset.0 + at.0) * k - at.0, (self.offset.1 + at.1) * k - at.1) }.clamped(diagram, card)
     }
 
+    /// Kept on a card that resized: never under the new fit, its offset back inside the diagram.
+    pub fn within(self, diagram: (f32, f32), card: (f32, f32)) -> Self {
+        Self { zoom: self.zoom.clamp(fit_zoom(diagram, card), MAX_ZOOM), ..self }.clamped(diagram, card)
+    }
+
     /// Moved along with a drag or swipe of `by`.
     pub fn panned(self, by: (f32, f32), diagram: (f32, f32), card: (f32, f32)) -> Self {
         Self { offset: (self.offset.0 - by.0, self.offset.1 - by.1), ..self }.clamped(diagram, card)
@@ -97,6 +102,13 @@ mod tests {
         let v = Viewport::fit(tall, CARD);
         assert_eq!(v.overflow(tall, CARD), (0., 600.));
         assert_eq!(v.panned((-80., -80.), tall, CARD).offset, (0., 80.));
+    }
+
+    #[test]
+    fn a_view_kept_on_a_wider_card_refits_and_stays_inside_the_diagram() {
+        let v = Viewport::fit(DIAGRAM, CARD).zoomed(2., (0., 0.), DIAGRAM, CARD).panned((-500., -400.), DIAGRAM, CARD);
+        assert_eq!(v.within(DIAGRAM, (800., 400.)), Viewport { zoom: 1., offset: (200., 400.) });
+        assert_eq!(Viewport::fit(DIAGRAM, CARD).within(DIAGRAM, (800., 640.)), Viewport { zoom: 0.8, offset: (0., 0.) });
     }
 
     #[test]

@@ -145,11 +145,11 @@ pub struct Diagrams {
     rastering: HashSet<u64>,
     /// The raster zoom each image was drawn for.
     drawn: HashMap<u64, f32>,
-    /// Diagrams panned or zoomed off their fit.
+    /// Cards panned or zoomed off their fit, by place: two cards of one diagram pan apart.
     views: HashMap<u64, Viewport>,
-    /// Each card's size when last painted, which sizes its image.
+    /// Each card's size when last painted, by place, which sizes its image.
     cards: HashMap<u64, (f32, f32)>,
-    /// The diagram being dragged, and where the pointer last was.
+    /// The card being dragged, by place, and where the pointer last was.
     drag: Option<(u64, Point<Pixels>)>,
 }
 
@@ -173,16 +173,16 @@ impl Diagrams {
         }
     }
 
-    /// Back to showing the whole diagram.
-    pub(crate) fn fit(&mut self, key: u64, cx: &mut Context<Self>) {
-        if self.views.remove(&key).is_some() {
+    /// The card at `place` back to showing the whole diagram.
+    pub(crate) fn fit(&mut self, place: u64, cx: &mut Context<Self>) {
+        if self.views.remove(&place).is_some() {
             cx.notify();
         }
     }
 
-    /// Whether the diagram under `key` was laid out and didn't parse.
-    pub(crate) fn failed(&self, key: u64) -> bool {
-        matches!(self.items.get(&key), Some(Diagram::Failed(_)))
+    /// Whether the diagram under `key` was laid out and parsed.
+    pub(crate) fn ready(&self, key: u64) -> bool {
+        matches!(self.items.get(&key), Some(Diagram::Ready(_)))
     }
 
     fn relayout(&self, cx: &mut App) {
@@ -250,6 +250,7 @@ impl Diagrams {
                 for image in evict(&mut this.images, BUDGET) {
                     window.drop_image(image).ok();
                 }
+                this.drawn.retain(|key, _| this.images.contains_key(key));
                 cx.notify();
             })
             .ok();
@@ -265,10 +266,17 @@ pub(crate) fn key(source: &str, dark: bool) -> u64 {
     hasher.finish()
 }
 
-/// Mermaid `source` drawn in the current scheme once laid out; its error and source if it doesn't parse.
-pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, source: &SharedString, cx: &mut App) -> Stateful<Div> {
+/// Where a card shows its diagram, so each card pans and zooms on its own.
+pub(crate) fn place(at: impl Hash) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    at.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Mermaid `source` drawn in the current scheme once laid out, in the card at `place`; its error and source if it doesn't parse.
+pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, cx: &mut App) -> Stateful<Div> {
     let dark = theme::is_dark();
-    let frame = div().id(SharedString::from(format!("mermaid-{key}"))).p(px(16.)).rounded(px(15.)).bg(diagrams.read(cx).canvas);
+    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).p(px(16.)).rounded(px(15.)).bg(diagrams.read(cx).canvas);
     match diagrams.update(cx, |d, cx| d.get(key, source, dark, cx)) {
         Diagram::Ready(tree) => {
             let size = tree.size();
@@ -277,17 +285,20 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, source: &SharedStri
             let image = d.images.get(&key).map(|(image, _)| image.clone());
             // Fresh for twice the fade, so dropping the animation can't cut it short; cached images scrolled back into view don't fade.
             let fresh = d.rastered.get(&key).is_some_and(|t| t.elapsed() < FADE * 2);
-            let view = d.views.get(&key).copied();
-            let shown = d.cards.get(&key).map(|card| view.unwrap_or_else(|| Viewport::fit(natural, *card)));
-            let grabbing = d.drag.is_some_and(|(k, _)| k == key);
+            let view = d.views.get(&place).copied();
+            let shown = move |card: (f32, f32)| view.map_or_else(|| Viewport::fit(natural, card), |v| v.within(natural, card));
+            let image = image.zip(d.cards.get(&place).copied().map(shown));
+            let grabbing = d.drag.is_some_and(|(p, _)| p == place);
             let diagrams = diagrams.clone();
             let input = canvas(
                 |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
                 move |bounds, hitbox, window, cx| {
                     let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                    let shown = view.unwrap_or_else(|| Viewport::fit(natural, card));
+                    let shown = shown(card);
                     diagrams.update(cx, |d, cx| {
-                        if d.cards.insert(key, card) != Some(card) {
+                        if d.cards.insert(place, card) != Some(card) {
+                            // The card's height follows its width, so the markdown around it lays out again.
+                            d.relayout(cx);
                             cx.notify();
                         }
                         d.painted(key, &tree, shown.zoom, window, cx);
@@ -296,21 +307,21 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, source: &SharedStri
                     if grabbing || x + y > 0.5 {
                         window.set_cursor_style(if grabbing { CursorStyle::ClosedHand } else { CursorStyle::OpenHand }, &hitbox);
                     }
-                    listen(&diagrams, key, natural, bounds, hitbox, window);
+                    listen(&diagrams, place, natural, bounds, hitbox, window);
                 },
             );
             // Its natural size until wider than the card, then the card's width; never taller than MAX_HEIGHT. Its height
             // follows its laid-out width once known, as the layout takes an aspect ratio from the width before `max_w` caps it.
             let card = div().relative().overflow_hidden().w_full().max_w(px(natural.0)).max_h(px(MAX_HEIGHT));
-            let card = match d.cards.get(&key) {
+            let card = match d.cards.get(&place) {
                 Some((width, _)) => card.h(px(width * natural.1 / natural.0)),
                 None => card.aspect_ratio(natural.0 / natural.1),
             };
             // Sized outright: an image left a side to fill takes its raster's pixels, twice the diagram on a 2x display.
-            frame.child(card.child(input.absolute().size_full()).children(image.zip(shown).map(|(image, v)| {
+            frame.child(card.child(input.absolute().size_full()).children(image.map(|(image, v)| {
                 let image = img(ImageSource::Render(image)).absolute().left(px(-v.offset.0)).top(px(-v.offset.1)).w(px(natural.0 * v.zoom)).h(px(natural.1 * v.zoom));
                 match fresh {
-                    true => image.with_animation(("mermaid-in", key), Animation::new(FADE).with_easing(ease_out_quint()), |i, t| i.opacity(t)).into_any_element(),
+                    true => image.with_animation(("mermaid-in", place), Animation::new(FADE).with_easing(ease_out_quint()), |i, t| i.opacity(t)).into_any_element(),
                     false => image.into_any_element(),
                 }
             })))
@@ -326,16 +337,20 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, source: &SharedStri
     }
 }
 
-/// Drag pans, pinch or ⌘-scroll zooms around the pointer, a sideways swipe pans, a double-click fits it again.
-/// A plain scroll goes on to the page.
-fn listen(diagrams: &Entity<Diagrams>, key: u64, natural: (f32, f32), bounds: Bounds<Pixels>, hitbox: Hitbox, window: &mut Window) {
+/// Drag pans, pinch or ⌘-scroll zooms around the pointer, a sideways swipe pans one wider than its card, a double-click
+/// fits it again. A plain scroll goes on to the page.
+fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: Bounds<Pixels>, hitbox: Hitbox, window: &mut Window) {
     let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     let at = move |p: Point<Pixels>| (f32::from(p.x - bounds.origin.x), f32::from(p.y - bounds.origin.y));
+    let current = move |d: &Diagrams| d.views.get(&place).map_or_else(|| Viewport::fit(natural, card), |v| v.within(natural, card));
+    // A gesture that moves nothing keeps the card fitted, so it refits as the card resizes.
     let change = move |diagrams: &Entity<Diagrams>, cx: &mut App, f: &dyn Fn(Viewport) -> Viewport| {
         diagrams.update(cx, |d, cx| {
-            let view = d.views.get(&key).copied().unwrap_or_else(|| Viewport::fit(natural, card));
-            d.views.insert(key, f(view));
-            cx.notify();
+            let (was, now) = (current(d), f(current(d)));
+            if now != was {
+                d.views.insert(place, now);
+                cx.notify();
+            }
         })
     };
     let (d, hit) = (diagrams.clone(), hitbox.clone());
@@ -345,9 +360,9 @@ fn listen(diagrams: &Entity<Diagrams>, key: u64, natural: (f32, f32), bounds: Bo
         }
         d.update(cx, |d, cx| {
             if e.click_count == 2 {
-                d.views.remove(&key);
+                d.views.remove(&place);
             } else {
-                d.drag = Some((key, e.position));
+                d.drag = Some((place, e.position));
             }
             cx.notify();
         });
@@ -356,7 +371,7 @@ fn listen(diagrams: &Entity<Diagrams>, key: u64, natural: (f32, f32), bounds: Bo
     });
     let d = diagrams.clone();
     window.on_mouse_event(move |e: &MouseMoveEvent, phase, _, cx| {
-        let Some((dragged, last)) = d.read(cx).drag.filter(|(k, _)| phase == DispatchPhase::Bubble && *k == key) else { return };
+        let Some((dragged, last)) = d.read(cx).drag.filter(|(p, _)| phase == DispatchPhase::Bubble && *p == place) else { return };
         if e.pressed_button != Some(MouseButton::Left) {
             d.update(cx, |d, cx| {
                 d.drag = None;
@@ -370,7 +385,7 @@ fn listen(diagrams: &Entity<Diagrams>, key: u64, natural: (f32, f32), bounds: Bo
     });
     let d = diagrams.clone();
     window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
-        if phase == DispatchPhase::Bubble && d.read(cx).drag.is_some_and(|(k, _)| k == key) {
+        if phase == DispatchPhase::Bubble && d.read(cx).drag.is_some_and(|(p, _)| p == place) {
             d.update(cx, |d, cx| {
                 d.drag = None;
                 cx.notify();
@@ -387,7 +402,7 @@ fn listen(diagrams: &Entity<Diagrams>, key: u64, natural: (f32, f32), bounds: Bo
         if e.modifiers.platform {
             let point = at(e.position);
             change(&d, cx, &|v| v.zoomed((dy / 200.).exp(), point, natural, card));
-        } else if dx.abs() > dy.abs() {
+        } else if dx.abs() > dy.abs() && current(d.read(cx)).overflow(natural, card).0 > 0. {
             change(&d, cx, &|v| v.panned((dx, 0.), natural, card));
         } else {
             return;
@@ -407,6 +422,7 @@ fn listen(diagrams: &Entity<Diagrams>, key: u64, natural: (f32, f32), bounds: Bo
 struct Fence {
     /// Indexed by `dark`.
     keys: [u64; 2],
+    place: u64,
     source: SharedString,
 }
 
@@ -427,13 +443,14 @@ impl MarkdownPlugin for Mermaid {
         if code.lang.as_deref() != Some("mermaid") {
             return None;
         }
-        let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], source: code.value.clone().into() };
+        let at = code.position.as_ref().map(|p| p.start.offset);
+        let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into() };
         Some(MarkdownNode::new("mermaid", fence).text(code.value.clone()).markdown(cx.node_source(node).unwrap_or(&code.value).to_string()))
     }
 
     fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let Fence { keys, source } = node.data::<Fence>().unwrap();
-        diagram(&self.0, keys[theme::is_dark() as usize], source, cx)
+        let Fence { keys, place, source } = node.data::<Fence>().unwrap();
+        diagram(&self.0, keys[theme::is_dark() as usize], *place, source, cx)
     }
 }
 

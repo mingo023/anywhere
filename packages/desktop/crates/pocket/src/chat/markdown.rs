@@ -35,11 +35,14 @@ pub(crate) fn fence(text: &str) -> Option<(&str, Cow<'_, str>)> {
     Some((lang, Cow::Owned(code.split('\n').map(dedent).collect::<Vec<_>>().join("\n"))))
 }
 
-/// Whether a fenced block has its closing fence; one still streaming hasn't.
+/// Whether a fenced block has its closing fence, as long as its opening one or longer; one still streaming hasn't.
 pub(crate) fn closed(text: &str) -> bool {
     let text = text.trim();
-    let Some(marker) = ["```", "~~~"].into_iter().find(|m| text.starts_with(m)) else { return false };
-    text.split_once('\n').and_then(|(_, body)| body.lines().last()).is_some_and(|l| l.trim().starts_with(marker))
+    let Some(c) = ['`', '~'].into_iter().find(|c| text.starts_with(*c)) else { return false };
+    let run = |l: &str| l.len() - l.trim_start_matches(c).len();
+    let opened = run(text);
+    let closing = |l: &str| run(l.trim()) >= opened && l.trim().trim_start_matches(c).is_empty();
+    opened >= 3 && text.split_once('\n').and_then(|(_, body)| body.lines().last()).is_some_and(closing)
 }
 
 /// Code-block highlights by row id, for the code length and appearance they were computed for.
@@ -236,6 +239,20 @@ pub(super) fn code_block(id: impl Into<ElementId>, lang: &str, code: &str, style
         .text_color(TEXT)
 }
 
+// A code block's header as gpui-base lays it out, which a diagram card's copies; the switch sits over both by them.
+const HEADER_TOP: f32 = 8.;
+const HEADER_RIGHT: f32 = 10.;
+const BUTTON: f32 = 28.;
+const BUTTON_GAP: f32 = 4.;
+/// A small `ui::segmented`'s height: 24 and its padding.
+const SWITCH_HEIGHT: f32 = 30.;
+
+/// `switch` over a card's header, left of its two buttons as a code block's action would sit, inside its 1px border.
+pub(super) fn header_switch(switch: Div) -> Div {
+    let top = 1. + HEADER_TOP + (BUTTON - SWITCH_HEIGHT) / 2.;
+    div().absolute().top(px(top)).right(px(1. + HEADER_RIGHT + 2. * (BUTTON + BUTTON_GAP))).child(switch)
+}
+
 /// A diagram card's header, laid out as a code block's so the switch over both stays put: its name, then fit and copy.
 pub(super) fn diagram_header(id: &str, copied: bool, on_fit: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, on_copy: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Div {
     let button = |name: &str, glyph: &str| {
@@ -244,7 +261,7 @@ pub(super) fn diagram_header(id: &str, copied: bool, on_fit: impl Fn(&ClickEvent
             .id(group.clone())
             .group(group.clone())
             .flex_none()
-            .size(px(28.))
+            .size(px(BUTTON))
             .flex()
             .items_center()
             .justify_center()
@@ -257,9 +274,9 @@ pub(super) fn diagram_header(id: &str, copied: bool, on_fit: impl Fn(&ClickEvent
     div()
         .flex()
         .items_center()
-        .gap(px(4.))
-        .pt(px(8.))
-        .pr(px(10.))
+        .gap(px(BUTTON_GAP))
+        .pt(px(HEADER_TOP))
+        .pr(px(HEADER_RIGHT))
         .pl(px(16.))
         .child(div().flex_1().text_size(px(11.)).line_height(px(14.)).text_color(TEXT_2).child("mermaid"))
         .child(button("fit", "fit").on_click(on_fit))
@@ -293,6 +310,9 @@ mod tests {
         assert!(!closed("```mermaid\nflowchart LR\n  A --> B"));
         assert!(!closed("```mermaid"));
         assert!(!closed("Some *text*"));
+        assert!(closed("````md\n```\nx\n```\n````"));
+        assert!(!closed("````md\n```\nx\n```"), "a shorter fence inside is code");
+        assert!(!closed("```mermaid\nA\n```js"), "a closing fence has nothing after it");
     }
 
     #[test]
