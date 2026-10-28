@@ -35,6 +35,13 @@ pub(crate) fn fence(text: &str) -> Option<(&str, Cow<'_, str>)> {
     Some((lang, Cow::Owned(code.split('\n').map(dedent).collect::<Vec<_>>().join("\n"))))
 }
 
+/// Whether a fenced block has its closing fence; one still streaming hasn't.
+pub(crate) fn closed(text: &str) -> bool {
+    let text = text.trim();
+    let Some(marker) = ["```", "~~~"].into_iter().find(|m| text.starts_with(m)) else { return false };
+    text.split_once('\n').and_then(|(_, body)| body.lines().last()).is_some_and(|l| l.trim().starts_with(marker))
+}
+
 /// Code-block highlights by row id, for the code length and appearance they were computed for.
 #[derive(Default)]
 pub(super) struct Highlights(HashMap<String, ((usize, bool), Option<Styles>)>);
@@ -229,6 +236,36 @@ pub(super) fn code_block(id: impl Into<ElementId>, lang: &str, code: &str, style
         .text_color(TEXT)
 }
 
+/// A diagram card's header, laid out as a code block's so the switch over both stays put: its name, then fit and copy.
+pub(super) fn diagram_header(id: &str, copied: bool, on_fit: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, on_copy: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Div {
+    let button = |name: &str, glyph: &str| {
+        let group = SharedString::from(format!("{name}-{id}"));
+        div()
+            .id(group.clone())
+            .group(group.clone())
+            .flex_none()
+            .size(px(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .cursor_pointer()
+            .hover(|s| s.bg(Hsla::from(TEXT_BODY).opacity(0.1)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(icon(glyph, 16., TEXT_2).group_hover(group, |s| s.text_color(TEXT_BODY)))
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .pt(px(8.))
+        .pr(px(10.))
+        .pl(px(16.))
+        .child(div().flex_1().text_size(px(11.)).line_height(px(14.)).text_color(TEXT_2).child("mermaid"))
+        .child(button("fit", "fit").on_click(on_fit))
+        .child(button("copy", if copied { "block-check" } else { "block-copy" }).on_click(on_copy))
+}
+
 /// `code` refenced at column 0 with a fence longer than any backtick run inside it, so it parses back whole.
 fn fenced(lang: &str, code: &str) -> String {
     let longest = code.split(|c| c != '`').map(str::len).max().unwrap_or(0);
@@ -238,7 +275,7 @@ fn fenced(lang: &str, code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Highlights, Target, fence, fenced, path_in, target};
+    use super::{Highlights, Target, closed, fence, fenced, path_in, target};
     use gpui_kit::HighlightStyle;
     use std::sync::Arc;
 
@@ -247,6 +284,15 @@ mod tests {
         assert_eq!(fence("```rust\nfn main() {}\n```\n"), Some(("rust", "fn main() {}".into())));
         assert_eq!(fence("~~~\na\nb"), Some(("", "a\nb".into())));
         assert_eq!(fence("Some *text*"), None);
+    }
+
+    #[test]
+    fn a_fence_is_closed_only_once_its_closing_fence_arrives() {
+        assert!(closed("```mermaid\nflowchart LR\n  A --> B\n```\n"));
+        assert!(closed("   ~~~\n   a\n   ~~~"));
+        assert!(!closed("```mermaid\nflowchart LR\n  A --> B"));
+        assert!(!closed("```mermaid"));
+        assert!(!closed("Some *text*"));
     }
 
     #[test]

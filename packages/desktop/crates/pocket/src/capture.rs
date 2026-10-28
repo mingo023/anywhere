@@ -774,8 +774,9 @@ const STEPS: [(&str, Step); 224] = [
 
 /// Steps that drive real input through the window, each taking its next argument from the environment:
 /// `key` from `CAPTURE_KEYS` ("enter;cmd-shift-l"), `type` from `CAPTURE_TYPE` ("text|text"), `click` from
-/// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG).
-const INPUT_STEPS: [(&str, Step); 9] = [
+/// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
+/// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…").
+const INPUT_STEPS: [(&str, Step); 11] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse(&k).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -835,6 +836,29 @@ const INPUT_STEPS: [(&str, Step); 9] = [
             if let Some(held) = held {
                 cx.write_to_clipboard(held);
             }
+        });
+    }),
+    ("pan", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_PANS", ';') else { return };
+        let Some((from, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
+        window.defer(cx, move |window, cx| {
+            let (modifiers, left) = (Modifiers::default(), Some(MouseButton::Left));
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: from, pressed_button: None, modifiers }), cx);
+            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }), cx);
+            for step in 1..=4 {
+                let position = from + by * (step as f32 / 4.);
+                window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: left, modifiers }), cx);
+            }
+            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
+        });
+    }),
+    ("pinch", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_PINCHES", ';') else { return };
+        let Some((at, delta)) = arg.rsplit_once(',').and_then(|(at, d)| Some((point_arg(at)?, d.trim().parse::<f32>().ok()?))) else { return };
+        window.defer(cx, move |window, cx| {
+            let modifiers = Modifiers::default();
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
+            window.dispatch_event(PlatformInput::Pinch(PinchEvent { position: at, delta, modifiers, phase: TouchPhase::Moved }), cx);
         });
     }),
     ("pause", |_, _, _| {}),

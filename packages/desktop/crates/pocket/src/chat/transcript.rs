@@ -8,6 +8,7 @@ use super::working::{self, format_elapsed};
 use super::{end_row, meta, phase, question_marker, sticky, sub_agent, todos, user_bubble};
 use crate::creating;
 use crate::desktop::Desktop;
+use crate::explorer::mermaid;
 use crate::util::now_ms;
 use chat::{Block, Command, Delivery, End, Message, Row, Session, ToolKind, ToolStatus, Transcript, Turn};
 use gpui_kit::*;
@@ -52,6 +53,8 @@ pub(crate) struct View {
     settled: Option<(String, Instant)>,
     copied: Option<(String, Task<()>)>,
     expanded: HashSet<String>,
+    /// Mermaid rows showing their source, not their diagram.
+    sources: HashSet<String>,
     /// The row last shown more or less of, and when.
     toggled: Option<(String, Instant)>,
     code: Highlights,
@@ -75,7 +78,7 @@ impl View {
         let tools = cx.new(|_| Tools::default());
         let agent = agent.to_string();
         let _tools = cx.observe(&tools, move |d, _, _| d.chats.views.get(&agent).into_iter().for_each(View::remeasure_under_pin));
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), sources: HashSet::new(), toggled: None, code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
     }
 
     /// How far the list sits above its end.
@@ -580,6 +583,17 @@ impl Desktop {
         cx.notify();
     }
 
+    fn chat_show_source(&mut self, agent: &str, row: &str, source: bool, cx: &mut Context<Self>) {
+        let Some(view) = self.chats.views.get_mut(agent) else { return };
+        if source {
+            view.sources.insert(row.to_string());
+        } else {
+            view.sources.remove(row);
+        }
+        view.remeasure_under_pin();
+        cx.notify();
+    }
+
     fn chat_retry(&mut self, agent: &str, send: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.retry(send)) else { return };
         self.chat_take_back(agent, &text, window, cx);
@@ -609,6 +623,7 @@ impl Desktop {
             let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
         };
+        let diagrams = self.chats.diagrams.clone();
         let Some(view) = self.chats.views.get_mut(agent) else { return div().into_any_element() };
         // Field by field, so the code highlights stay free to borrow mutably.
         let s = &view.session;
@@ -719,6 +734,35 @@ impl Desktop {
                     }
                 }
                 let body = match markdown::fence(text) {
+                    // Drawn once whole: a fence still streaming is half a diagram, which wouldn't parse.
+                    Some(("mermaid", code)) if markdown::closed(text) => {
+                        let (source, key) = (view.sources.contains(&id), mermaid::key(&code, is_dark()));
+                        // One that didn't parse shows its source already.
+                        let switchable = !diagrams.read(cx).failed(key);
+                        let body = match source {
+                            true => div().child(markdown::code_block(SharedString::from(format!("code-{agent}-{id}")), "mermaid", &code, None)),
+                            false => {
+                                let diagram = mermaid::diagram(&diagrams, key, &SharedString::from(code.to_string()), cx);
+                                let copy_key = format!("mermaid:{id}");
+                                let header = switchable.then(|| {
+                                    let fit = diagrams.clone();
+                                    let on_fit = move |_: &ClickEvent, _: &mut Window, cx: &mut App| fit.update(cx, |d, cx| d.fit(key, cx));
+                                    markdown::diagram_header(&id, view.copied(&copy_key), on_fit, copy(agent, copy_key.clone(), code.to_string(), cx))
+                                });
+                                // Framed as a code block is, so flipping to the source keeps the card.
+                                div().rounded(px(10.)).border_1().border_color(SEPARATOR).bg(super::DIAGRAM_BG).children(header).child(diagram.pt(px(if switchable { 8. } else { 16. })))
+                            }
+                        };
+                        let switch = switchable.then(|| {
+                            let (agent, row) = (agent.to_string(), id.clone());
+                            let segment = |value, label: &str| ui::Segment { icon: None, value, label: label.to_string().into(), badge: None };
+                            let on = move |d: &mut Self, source, cx: &mut Context<Self>| d.chat_show_source(&agent, &row, source, cx);
+                            // Left of the header's two buttons, as a code block's action would sit: its border, padding, two buttons and gaps.
+                            div().absolute().top(px(8.)).right(px(75.)).child(ui::segmented(vec![segment(false, "Preview"), segment(true, "Source")], source, true, false, on, cx))
+                        });
+                        let block = div().relative().child(body).children(switch);
+                        if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
+                    }
                     Some((lang, code)) => {
                         let (styles, start) = view.code.get(&id, &code, is_dark());
                         if start {

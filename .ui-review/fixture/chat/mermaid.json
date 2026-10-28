@@ -1,0 +1,18 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Draw the prompt flow as mermaid."
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "Here's how a prompt flows:\n\n```mermaid\nflowchart LR\n  U[User] --> C[Composer]\n  C --> D{pocketd}\n  D -->|stream| T[Transcript]\n  D -->|tools| R[Repo]\n```\n\nAnd the turn, step by step:\n\n```mermaid\nsequenceDiagram\n  participant App\n  participant Daemon\n  participant Claude\n  App->>Daemon: send prompt\n  Daemon->>Claude: start turn\n  Claude-->>Daemon: text + tool calls\n  Daemon-->>App: timeline items\n```\n\nA broken one shows its error:\n\n```mermaid\nflowchart LR\n  A -->\n```\n\nA wide one fits the card's width:\n\n```mermaid\nflowchart LR\n  A[Prompt typed] --> B[Draft saved] --> C[Sent to pocketd] --> D[Claude starts] --> E[Tools run] --> F[Text streams] --> G[Turn ends] --> H[Result shown]\n```\n\nDone."
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 12000
+ }
+]
