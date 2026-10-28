@@ -226,7 +226,7 @@ impl Desktop {
                     d.opacity(t.0.clamp(0., 1.)).left(px(x - ENTER * (1. - t.0)))
                 })
         });
-        let canvas = div().relative().flex_none().m_auto().w(px(size.0)).h(px(size.1)).child(layer).child(main).children(nodes);
+        let canvas = div().relative().flex_none().mx_auto().w(px(size.0)).h(px(size.1)).child(layer).child(main).children(nodes);
         let scroll = div().id(id(format!("chat-map-graph:{}", agent.id))).flex_1().min_h_0().overflow_scroll().flex().child(canvas);
         (scroll.into_any_element(), size.1)
     }
