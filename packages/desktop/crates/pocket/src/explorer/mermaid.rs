@@ -1,4 +1,3 @@
-use gpui_kit::base::text::{TextView, TextViewStyle};
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextViewState, markdown_ast as mdast};
 use gpui_kit::*;
 use resvg::usvg::{Options, Tree};
@@ -13,6 +12,7 @@ use viewport::Viewport;
 mod hud;
 mod pele;
 mod popup;
+mod source;
 mod viewport;
 
 const BUDGET: usize = 64 << 20;
@@ -109,6 +109,11 @@ pub struct Diagrams {
     sources: HashSet<u64>,
 }
 
+/// A card changed height, which a list measuring its rows can't see.
+pub struct Resized;
+
+impl EventEmitter<Resized> for Diagrams {}
+
 impl Diagrams {
     pub fn new(md: &Entity<TextViewState>) -> Self {
         Self { md: Some(md.downgrade()), ..Self::standalone(MD_CODE_BG) }
@@ -170,10 +175,11 @@ impl Diagrams {
         cx.notify();
     }
 
-    fn relayout(&self, cx: &mut App) {
+    fn relayout(&self, cx: &mut Context<Self>) {
         if let Some(md) = &self.md {
             md.update(cx, |md, cx| md.invalidate_inline_layout(cx)).ok();
         }
+        cx.emit(Resized);
     }
 
     fn get(&mut self, key: u64, source: &SharedString, dark: bool, cx: &mut Context<Self>) -> Diagram {
@@ -268,7 +274,7 @@ struct Fullscreen {
 /// `heading` finds the nearest heading above it, asked only while its buttons show.
 pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: impl FnOnce() -> Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
     if diagrams.read(cx).sources.contains(&place) {
-        return div().id(SharedString::from(format!("mermaid-{place}"))).child(source_block(diagrams, place, source, cx));
+        return div().id(SharedString::from(format!("mermaid-{place}"))).child(source::block(diagrams, place, source, cx));
     }
     let dark = theme::is_dark();
     let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).border(px(0.5)).border_color(SEPARATOR).bg(diagrams.read(cx).canvas);
@@ -302,42 +308,6 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
 /// A card `width` wide fitting a `natural`-sized diagram [`PAD`] inside it by width, up to `tallest`.
 fn card_height(width: f32, natural: (f32, f32), tallest: f32) -> f32 {
     ((width - 2. * PAD).max(0.) * natural.1 / natural.0 + 2. * PAD).min(tallest)
-}
-
-/// `source` as a code block framed as its card, with wrap, copy and a button back to the diagram.
-fn source_block(diagrams: &Entity<Diagrams>, place: u64, source: &str, cx: &App) -> TextView {
-    let style = TextViewStyle::default()
-        .with_foreground(TEXT.into())
-        .with_muted_foreground(TEXT_2.into())
-        .with_code_background(diagrams.read(cx).canvas.into())
-        .with_code_border(SEPARATOR.into())
-        .with_code_block(StyleRefinement::default().rounded(px(15.)).border(px(0.5)))
-        .with_code_font(MONO)
-        .with_dark(theme::is_dark());
-    let d = diagrams.clone();
-    TextView::markdown(("mermaid-source", place), crate::chat::markdown::fenced("mermaid", source))
-        .style(style)
-        .code_block_actions(move |_, _, _| {
-            let d = d.clone();
-            div()
-                .id(("mermaid-diagram", place))
-                .flex_none()
-                .size(px(28.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .cursor_pointer()
-                .hover(|s| s.bg(Hsla::from(TEXT).opacity(0.1)))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(move |_, _, cx| d.update(cx, |d, cx| d.toggle_source(place, cx)))
-                .child(icon("flow", 16., TEXT_2))
-        })
-        .selectable(true)
-        .scrollable(false)
-        .w_full()
-        .text_size(px(12.5))
-        .text_color(TEXT)
 }
 
 /// The diagram filling its parent, fitted `pad` inside its edges, with zoom buttons over it while the pointer is, and

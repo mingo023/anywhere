@@ -32,12 +32,12 @@ fn title(heading: Option<&str>) -> String {
     heading.map_or_else(|| "Mermaid diagram".to_string(), |h| format!("{h} — Mermaid diagram"))
 }
 
-/// Shows `source` drawn on `canvas` in the diagram window, centred on `window`'s screen when it opens.
+/// Shows `source` in the diagram window, which opens drawing on `canvas`, centred on `window`'s screen.
 pub(super) fn open(source: SharedString, canvas: Token, heading: Option<SharedString>, window: &Window, cx: &mut App) {
     let title = title(heading.as_deref());
     if let Some(handle) = cx.try_global::<Open>().map(|o| o.0) {
         let shown = handle.update(cx, |popup, window, cx| {
-            popup.show(source.clone(), canvas, window, cx);
+            popup.show(source.clone(), window, cx);
             window.set_window_title(&title);
             window.activate_window();
         });
@@ -66,12 +66,8 @@ impl Popup {
         Self { diagrams: cx.new(|_| Diagrams::standalone(canvas)), source, focus }
     }
 
-    fn show(&mut self, source: SharedString, canvas: Token, window: &mut Window, cx: &mut Context<Self>) {
-        if self.diagrams.read(cx).canvas == canvas {
-            self.diagrams.update(cx, |d, cx| d.set_view(PLACE, Viewport::default(), cx));
-        } else {
-            self.diagrams = cx.new(|_| Diagrams::standalone(canvas));
-        }
+    fn show(&mut self, source: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        self.diagrams.update(cx, |d, cx| d.set_view(PLACE, Viewport::default(), cx));
         self.source = source;
         window.focus(&self.focus, cx);
         cx.notify();

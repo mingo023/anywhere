@@ -161,13 +161,23 @@ fn substitute(s: &str, value: impl Fn(&str) -> Option<String>) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
     while let Some(start) = rest.find("var(--") {
-        let Some(len) = rest[start..].find(')') else { break };
+        let mut depth = 0;
+        let Some(len) = rest[start..].find(|c| {
+            depth += (c == '(') as i32 - (c == ')') as i32;
+            c == ')' && depth == 0
+        }) else {
+            break;
+        };
         let (name, fallback) = rest[start + 4..start + len].split_once(',').map_or((&rest[start + 4..start + len], None), |(n, f)| (n, Some(f)));
         out.push_str(&rest[..start]);
         out.push_str(&value(name).or(fallback.map(str::to_string)).unwrap_or_else(|| rest[start..=start + len].to_string()));
         rest = &rest[start + len + 1..];
     }
     out + rest
+}
+
+fn root_style(svg: &str) -> &str {
+    svg.split_once("style=\"").and_then(|(_, s)| s.split_once('"')).map_or("", |(s, _)| s)
 }
 
 /// Pele's `svg` with its variables resolved for `canvas`, an opaque `0xRRGGBBAA`.
@@ -177,12 +187,10 @@ pub(super) fn resolve(svg: &str, canvas: u32, dark: bool) -> String {
     let svg = svg.replace("style=\"rx:var(--_r)\"", &format!("rx=\"{RADIUS}\"")).replacen("max-width:100%;height:auto;", "", 1);
     let svg = substitute(&svg, |name| vars.iter().find(|(n, _)| *n == name).map(|(_, v)| v.clone()));
     // The root's style aliases each input as `--_x`, which the drawing reads.
-    let root = svg.split_once("style=\"").and_then(|(_, s)| s.split_once('"')).map_or("", |(s, _)| s);
-    let aliases: Vec<(&str, &str)> = root.split(';').filter_map(|d| d.split_once(':')).filter(|(n, _)| n.starts_with("--_")).collect();
+    let aliases: Vec<(&str, &str)> = root_style(&svg).split(';').filter_map(|d| d.split_once(':')).filter(|(n, _)| n.starts_with("--_")).collect();
     let svg = substitute(&svg, |name| aliases.iter().find(|(n, _)| *n == name).map(|(_, v)| v.to_string()));
     // resvg misreads the root's font, falling back to serif; nothing else in that style is read once resolved.
-    let style = svg.split_once("style=\"").and_then(|(_, s)| s.split_once('"')).map_or("", |(s, _)| s);
-    let svg = svg.replacen(&format!("style=\"{style}\""), &format!("font-family=\"{}\" font-size=\"{FONT_SIZE}\"", family(&SANS, "sans-serif")), 1);
+    let svg = svg.replacen(&format!("style=\"{}\"", root_style(&svg)), &format!("font-family=\"{}\" font-size=\"{FONT_SIZE}\"", family(&SANS, "sans-serif")), 1);
     // Pele leaves the background to the page; the raster carries it.
     let body = svg.find('>').map_or(0, |i| i + 1);
     format!("{}<rect width=\"100%\" height=\"100%\" fill=\"{}\"/>{}", &svg[..body], css(rgb(canvas)), &svg[body..])
@@ -197,6 +205,7 @@ mod tests {
         let known = |n: &str| (n == "--a").then(|| "#111".to_string());
         assert_eq!(substitute("fill=\"var(--a)\" stroke=\"var(--b,#fff)\" x", known), "fill=\"#111\" stroke=\"#fff\" x");
         assert_eq!(substitute("fill=\"var(--c)\"", known), "fill=\"var(--c)\"");
+        assert_eq!(substitute("fill=\"var(--b,rgb(0,0,0))\"", known), "fill=\"rgb(0,0,0)\"");
     }
 
     #[test]

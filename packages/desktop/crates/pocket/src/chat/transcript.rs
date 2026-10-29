@@ -150,7 +150,7 @@ impl View {
     }
 
     /// A row changed height where the list wouldn't know: the held prompt's room can't come from what was measured.
-    fn remeasure_under_pin(&self) {
+    pub(super) fn remeasure_under_pin(&self) {
         if let Some(ix) = self.pin.as_ref().and_then(|p| p.row(&self.session.rows)) {
             self.list.remeasure_items(ix..self.list.item_count());
         }
