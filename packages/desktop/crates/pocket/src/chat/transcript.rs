@@ -1,7 +1,7 @@
 use super::fold::{self, Live};
 use super::jump::{self, Glide};
 use super::pin::{self, Pin};
-use super::markdown::{self, Highlights};
+use super::markdown::{self, Docs, Highlights};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
@@ -11,6 +11,7 @@ use crate::desktop::Desktop;
 use crate::explorer::mermaid;
 use crate::util::now_ms;
 use chat::{Block, Command, Delivery, End, Message, Row, Session, ToolKind, ToolStatus, Transcript, Turn};
+use gpui_kit::base::text::TextView;
 use gpui_kit::*;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -56,6 +57,7 @@ pub(crate) struct View {
     /// The row last shown more or less of, and when.
     toggled: Option<(String, Instant)>,
     code: Highlights,
+    docs: Docs,
     /// Messages still streaming onto the screen, by id.
     reveals: HashMap<String, Reveal>,
     /// The prompt row whose card over the top is opened in full.
@@ -76,7 +78,7 @@ impl View {
         let tools = cx.new(|_| Tools::default());
         let agent = agent.to_string();
         let _tools = cx.observe(&tools, move |d, _, _| d.chats.views.get(&agent).into_iter().for_each(View::remeasure_under_pin));
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, code: Highlights::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
     }
 
     /// How far the list sits above its end.
@@ -191,7 +193,9 @@ impl View {
             if let Some(fold) = rows.iter().rposition(|r| matches!(r, Row::Fold { .. })) {
                 self.list.remeasure_items(fold..changed.start);
             }
-            self.code.retain(|row| self.session.ids.contains(row));
+            let ids: HashSet<&str> = self.session.ids.iter().map(String::as_str).collect();
+            self.code.retain(|row| ids.contains(row.as_str()));
+            self.docs.retain(|row| ids.contains(row));
         }
         self.session.outgoing.released()
     }
@@ -733,7 +737,7 @@ impl Desktop {
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
-                        let block = div().child(markdown::code_block(SharedString::from(format!("code-{agent}-{id}")), lang, &code, styles));
+                        let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), styles));
                         let block = match reveal {
                             Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,
@@ -741,7 +745,7 @@ impl Desktop {
                         // An indented fence belongs to the list item above it.
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
-                    None => div().child(markdown::block(SharedString::from(format!("md-{agent}-{id}")), SharedString::from(text.to_string()), reveal.is_some() || live(t, *turn), open.clone())),
+                    None => div().child(markdown::block(TextView::new(&view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx)), open.clone())),
                 };
                 let plan = range.start == 0 && !text.trim_start().starts_with('#') && matches!(t.turns.get(*turn).and_then(|t| t.blocks.get(*block)), Some(Block::Plan(_)));
                 div().flex().flex_col().gap(px(8.)).children(plan.then(todos::plan_header)).child(body)

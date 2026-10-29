@@ -3,6 +3,7 @@ use super::markdown;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use chat::{Ask, Command, Question};
+use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -364,7 +365,7 @@ impl Desktop {
                 .mt(px(6.))
                 .max_h(px(BODY_MAX_HEIGHT))
                 .overflow_y_scroll()
-                .child(markdown::block(id(format!("chat-question-md:{}:{}", ask.request_id, w.page)), SharedString::from(text.to_string()), false, open).text_size(px(13.5)).line_height(px(21.)))
+                .child(markdown::block(TextView::markdown(id(format!("chat-question-md:{}:{}", ask.request_id, w.page)), SharedString::from(text.to_string())), open).text_size(px(13.5)).line_height(px(21.)))
         });
         let other = answerable.then(|| {
             // The textarea pads itself 8 × 10, so the row adds no vertical padding and the pencil drops to its first line.
