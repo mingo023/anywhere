@@ -197,6 +197,11 @@ impl Diagrams {
         cx.notify();
     }
 
+    /// Whether the card at `place` shows its zoom buttons: under the pointer or being dragged.
+    fn shows_hud(&self, place: u64) -> bool {
+        self.hovered == Some(place) || self.drag.is_some_and(|(p, _)| p == place)
+    }
+
     fn hover(&mut self, place: u64, hovered: bool, cx: &mut Context<Self>) {
         let now = if hovered { Some(place) } else { self.hovered.filter(|p| *p != place) };
         if now != self.hovered {
@@ -293,11 +298,17 @@ pub(crate) fn place(at: impl Hash) -> u64 {
     hasher.finish()
 }
 
+/// What the fullscreen button opens: the diagram's source and the heading above it, which titles the window.
+struct Fullscreen {
+    source: SharedString,
+    heading: Option<SharedString>,
+}
+
 /// Mermaid `source` drawn in the current scheme once laid out, in the card at `place`; its error and source if it doesn't parse.
-/// `heading`, the nearest above it, titles its window.
-pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
+/// `heading` finds the nearest heading above it, asked only while its buttons show.
+pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: impl FnOnce() -> Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
     let dark = theme::is_dark();
-    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).bg(diagrams.read(cx).canvas);
+    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).border_1().border_color(SEPARATOR).bg(diagrams.read(cx).canvas);
     match diagrams.update(cx, |d, cx| d.get(key, source, dark, cx)) {
         Diagram::Ready(tree) => {
             let size = tree.size();
@@ -305,12 +316,13 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
             let tallest = (f32::from(window.viewport_size().height) * 0.7).min(MAX_HEIGHT).min(natural.1 + 2. * PAD);
             // The card spans the column, its height following its width by the diagram's shape; the width is known
             // once painted, before which the layout's aspect ratio stands in. The 2 is the border.
-            let frame = frame.relative().w_full().overflow_hidden().border_1().border_color(SEPARATOR);
+            let frame = frame.relative().w_full().overflow_hidden();
             let frame = match diagrams.read(cx).cards.get(&place) {
                 Some((width, _)) => frame.h(px((width * natural.1 / natural.0).min(tallest) + 2.)),
                 None => frame.aspect_ratio(natural.0 / natural.1).max_h(px(tallest + 2.)),
             };
-            frame.child(surface(diagrams, key, place, tree, PAD, Some((source.clone(), heading)), cx))
+            let heading = diagrams.read(cx).shows_hud(place).then(heading).flatten();
+            frame.child(surface(diagrams, key, place, tree, PAD, Some(Fullscreen { source: source.clone(), heading }), cx))
         }
         Diagram::Pending => frame.p(px(PAD)).text_size(px(12.)).text_color(TEXT_3).child("Rendering diagram…"),
         Diagram::Failed(error) => frame
@@ -324,9 +336,9 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
     }
 }
 
-/// The diagram filling its parent, fitted `pad` inside its edges, with zoom buttons over it while the pointer is. With
-/// `window`, its source and heading, a button opens it in a window of its own.
-fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, pad: f32, window: Option<(SharedString, Option<SharedString>)>, cx: &mut App) -> Stateful<Div> {
+/// The diagram filling its parent, fitted `pad` inside its edges, with zoom buttons over it while the pointer is, and
+/// with `fullscreen` one opening it in a window of its own.
+fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, pad: f32, fullscreen: Option<Fullscreen>, cx: &mut App) -> Stateful<Div> {
     let size = tree.size();
     let natural = (size.width(), size.height());
     let d = diagrams.read(cx);
@@ -336,7 +348,7 @@ fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, p
     let view = d.view(place);
     let placed = d.cards.get(&place).map(|card| view.placed(natural, *card, pad));
     let grabbing = d.drag.is_some_and(|(p, _)| p == place);
-    let hovered = grabbing || d.hovered == Some(place);
+    let hovered = d.shows_hud(place);
     let canvas_color = d.canvas;
     let input = {
         let diagrams = diagrams.clone();
@@ -371,8 +383,8 @@ fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, p
         }
     });
     let hud = hovered.then(|| {
-        let (d, fullscreen) = (diagrams.clone(), window.is_some());
-        hud::hud(place, view.level(), fullscreen, move |act, w, cx| match act {
+        let d = diagrams.clone();
+        hud::hud(place, view.level(), fullscreen.is_some(), move |act, window, cx| match act {
             Act::Zoom(k) => d.update(cx, |d, cx| {
                 let card = d.cards.get(&place).copied().unwrap_or_default();
                 let view = d.view(place).zoomed(k, (card.0 / 2., card.1 / 2.), card);
@@ -380,8 +392,8 @@ fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, p
             }),
             Act::Fit => d.update(cx, |d, cx| d.set_view(place, Viewport::default(), cx)),
             Act::Fullscreen => {
-                if let Some((source, heading)) = &window {
-                    popup::open(source.clone(), canvas_color, heading.clone(), w, cx);
+                if let Some(f) = &fullscreen {
+                    popup::open(f.source.clone(), canvas_color, f.heading.clone(), window, cx);
                 }
             }
         })
@@ -468,8 +480,13 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, bounds: Bounds<Pixels>, hitbo
     });
 }
 
+/// The nearest heading above byte `at` of `markdown`.
+pub(crate) fn heading_above(markdown: &str, at: usize) -> Option<SharedString> {
+    markdown.get(..at).and_then(heading).map(|h| h.to_string().into())
+}
+
 /// The last ATX heading's text in `markdown`, skipping fenced code.
-pub(crate) fn heading(markdown: &str) -> Option<&str> {
+fn heading(markdown: &str) -> Option<&str> {
     let mut fence: Option<&str> = None;
     let mut last = None;
     for line in markdown.lines().map(str::trim_start) {
@@ -516,14 +533,14 @@ impl MarkdownPlugin for Mermaid {
             return None;
         }
         let at = code.position.as_ref().map(|p| p.start.offset);
-        let heading = at.and_then(|at| cx.source().get(..at)).and_then(heading).map(|h| SharedString::from(h.to_string()));
+        let heading = at.and_then(|at| heading_above(cx.source(), at));
         let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into(), heading };
         Some(MarkdownNode::new("mermaid", fence).text(code.value.clone()).markdown(cx.node_source(node).unwrap_or(&code.value).to_string()))
     }
 
     fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let Fence { keys, place, source, heading } = node.data::<Fence>().unwrap();
-        diagram(&self.0, keys[theme::is_dark() as usize], *place, source, heading.clone(), window, cx)
+        diagram(&self.0, keys[theme::is_dark() as usize], *place, source, || heading.clone(), window, cx)
     }
 }
 

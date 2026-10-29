@@ -724,7 +724,7 @@ impl Desktop {
                     // Drawn once whole: a fence still streaming is half a diagram, which wouldn't parse.
                     Some(("mermaid", code)) if markdown::closed(text) => {
                         let (key, place) = (mermaid::key(&code, is_dark()), mermaid::place((agent, &id)));
-                        let heading = mermaid::heading(full.get(..range.start).unwrap_or_default()).map(|h| SharedString::from(h.to_string()));
+                        let heading = || mermaid::heading_above(full, range.start);
                         let block = div().child(mermaid::diagram(&diagrams, key, place, &SharedString::from(code.to_string()), heading, window, cx));
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
