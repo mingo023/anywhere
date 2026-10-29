@@ -74,7 +74,7 @@ impl Draft {
         self.chosen.as_ref().filter(|(p, _)| p.as_deref() == project).map_or_else(last, |(_, pick)| pick.clone())
     }
 
-    fn choose(&mut self, project: Option<String>, pick: LaunchPick) {
+    pub(crate) fn choose(&mut self, project: Option<String>, pick: LaunchPick) {
         (self.chosen, self.menu) = (Some((project, pick)), None);
     }
 
@@ -328,7 +328,7 @@ impl Desktop {
         cx.notify();
     }
 
-    fn access_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn access_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Access));
         let app = self.store.agents.access();
         let chip = launch::access_chip("composer-access", open, &pick.access, app, move |this, cx| this.toggle_composer(slot, Menu::Access, cx), cx);

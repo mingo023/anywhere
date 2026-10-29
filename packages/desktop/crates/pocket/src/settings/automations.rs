@@ -231,6 +231,9 @@ mod tests {
             enabled,
             access: String::new(),
             new_worktree: false,
+            base: String::new(),
+            model: String::new(),
+            effort: String::new(),
             next_run_at,
         };
         assert_eq!(missed(&[auto(true, 100), auto(true, 300), auto(false, 100), auto(true, 0)], 200), 1);

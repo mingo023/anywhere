@@ -299,7 +299,7 @@ const RECENT: usize = 20;
 const FOUND: usize = 50;
 
 /// The branch menu's rows: the recent local branches, or every local then origin branch holding `search`. Each carries its index among the local branches, or none when only origin has it.
-fn listed_branches<'a>(branches: &'a [(String, Option<i64>)], remote: &'a [String], search: &str) -> Vec<(Option<usize>, &'a str)> {
+pub(crate) fn listed_branches<'a>(branches: &'a [(String, Option<i64>)], remote: &'a [String], search: &str) -> Vec<(Option<usize>, &'a str)> {
     let search = search.trim().to_lowercase();
     let local = branches.iter().enumerate().map(|(i, (b, _))| (Some(i), b.as_str()));
     if search.is_empty() {
@@ -374,7 +374,7 @@ pub(crate) fn may_start(agents: &Agents) -> bool {
     !agents.observe_only()
 }
 
-fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, current: &str) {
+pub(crate) fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, current: &str) {
     let default = default_base(branches.iter().map(|(b, _)| b.as_str()), preferred, current);
     if !branches.is_empty() {
         branches[..=default].rotate_right(1);

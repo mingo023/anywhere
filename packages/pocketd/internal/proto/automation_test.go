@@ -100,6 +100,8 @@ func TestAnAutomationSaveWithAnythingOffTheContractIsMalformed(t *testing.T) {
 		save(withSchedule(`{"kind":"weekly"}`)),
 		save(good(`,"access":"plan"`)),
 		save(good(`,"newWorktree":"yes"`)),
+		save(good(`,"base":"--upload-pack=x"`)),
+		save(good(`,"model":1`)),
 		save(`null`),
 		`{"type":"automation.save","id":"1"}`,
 		`{"type":"automation.enable","id":"1","automationId":"a"}`,
@@ -121,6 +123,14 @@ func TestAnAutomationSaveCarriesItsAccessAndWorktreeAndOlderOnesGoWithout(t *tes
 	}
 	m, err = DecodeClient([]byte(old))
 	if err != nil || m.Automation.Access != "" || m.Automation.NewWorktree {
+		t.Fatalf("%+v %v", m, err)
+	}
+}
+
+func TestAnAutomationSaveCarriesItsBaseModelAndEffort(t *testing.T) {
+	const save = `{"type":"automation.save","id":"1","automation":{"name":"n","prompt":"p","provider":"claude","folder":"/f","schedule":{"kind":"interval","everyMin":60},"enabled":true,"newWorktree":true,"base":"develop","model":"opus","effort":"high"}}`
+	m, err := DecodeClient([]byte(save))
+	if err != nil || m.Automation.Base != "develop" || m.Automation.Model != "opus" || m.Automation.Effort != "high" {
 		t.Fatalf("%+v %v", m, err)
 	}
 }

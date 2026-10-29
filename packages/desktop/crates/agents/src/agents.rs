@@ -1921,6 +1921,9 @@ mod tests {
             enabled: true,
             access: String::new(),
             new_worktree: false,
+            base: String::new(),
+            model: String::new(),
+            effort: String::new(),
         };
         out.automation_save(draft);
         out.automation_enable("au1", false);

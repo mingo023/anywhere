@@ -16,7 +16,7 @@ pub enum Picker {
 
 const BRANCH_ROW: &str = "branch-row";
 
-fn pick_head(label: &str) -> Div {
+pub(crate) fn pick_head(label: &str) -> Div {
     div().pt(px(8.)).px(px(8.)).pb(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string())
 }
 
@@ -191,7 +191,7 @@ impl Desktop {
         picker_menu("project-menu", 260., rows, cx).gap(px(2.))
     }
 
-    fn repo_tile_for(&self, repo: &str, size: f32) -> Div {
+    pub(crate) fn repo_tile_for(&self, repo: &str, size: f32) -> Div {
         ui::repo_tile(&self.project_mark(repo, crate::util::initials(&self.repo_name(repo))), size, false, None)
     }
 

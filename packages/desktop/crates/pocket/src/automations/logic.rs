@@ -20,23 +20,47 @@ pub enum Tab {
     Runs,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub enum Filter {
-    #[default]
-    All,
-    Active,
-    Paused,
+/// A row of the Automations list: the Active or Paused group's heading, or automation `i`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Entry {
+    Head { active: bool, count: usize, open: bool },
+    Item(usize),
 }
 
-/// Indices of the automations `filter` keeps, in list order.
-pub fn visible(autos: &[Automation], filter: Filter) -> Vec<usize> {
-    autos.iter().enumerate().filter(|(_, a)| filter == Filter::All || a.enabled == (filter == Filter::Active)).map(|(i, _)| i).collect()
+/// The groups folded shut. Paused starts folded: it's rarely what the list is opened for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Folds {
+    pub active: bool,
+    pub paused: bool,
 }
 
-/// "3 active · 1 paused", over every automation whatever the filter.
-pub fn counts_text(autos: &[Automation]) -> String {
-    let active = autos.iter().filter(|a| a.enabled).count();
-    format!("{active} active · {} paused", autos.len() - active)
+impl Default for Folds {
+    fn default() -> Self {
+        Self { active: false, paused: true }
+    }
+}
+
+impl Folds {
+    pub fn toggle(&mut self, active: bool) {
+        let folded = if active { &mut self.active } else { &mut self.paused };
+        *folded = !*folded;
+    }
+}
+
+/// Active then Paused, each under a heading with its count; a group with none has no heading, a folded one only that.
+pub fn entries(autos: &[Automation], folds: Folds) -> Vec<Entry> {
+    let mut out = Vec::new();
+    for (active, folded) in [(true, folds.active), (false, folds.paused)] {
+        let group: Vec<usize> = (0..autos.len()).filter(|&i| autos[i].enabled == active).collect();
+        if group.is_empty() {
+            continue;
+        }
+        out.push(Entry::Head { active, count: group.len(), open: !folded });
+        if !folded {
+            out.extend(group.into_iter().map(Entry::Item));
+        }
+    }
+    out
 }
 
 /// The enabled automations due soonest, at most `n`, as indices into `autos`.
@@ -311,15 +335,20 @@ pub fn access_label(access: &str) -> &'static str {
     }
 }
 
-/// Keeps `selected` while it is listed; if it is gone or unset, the first automation, or none.
+/// Keeps `selected` while it is listed; if it is gone or unset, the first listed automation, or none.
 pub fn reselect(selected: Option<&str>, autos: &[Automation]) -> Option<String> {
-    let kept = selected.and_then(|id| autos.iter().find(|a| a.id == id)).or(autos.first());
-    kept.map(|a| a.id.clone())
+    let kept = selected.and_then(|id| autos.iter().find(|a| a.id == id));
+    kept.map(|a| a.id.clone()).or_else(|| first_listed(autos))
 }
 
-/// The selection a freshly opened screen starts from: the one kept, else the first automation.
+/// The selection a freshly opened screen starts from: the one kept, else the first listed automation.
 pub fn opening_selection(selected: Option<&str>, autos: &[Automation]) -> Option<String> {
-    selected.map(str::to_string).or_else(|| autos.first().map(|a| a.id.clone()))
+    selected.map(str::to_string).or_else(|| first_listed(autos))
+}
+
+/// The top row of the list: Active comes first, and Paused starts folded.
+fn first_listed(autos: &[Automation]) -> Option<String> {
+    autos.iter().find(|a| a.enabled).or(autos.first()).map(|a| a.id.clone())
 }
 
 /// `only` while that automation is still listed.
@@ -368,6 +397,9 @@ mod tests {
             enabled,
             access: String::new(),
             new_worktree: false,
+            base: String::new(),
+            model: String::new(),
+            effort: String::new(),
             next_run_at: next,
         }
     }
@@ -397,17 +429,21 @@ mod tests {
     const NOW: i64 = 1_791_374_400_000;
 
     #[test]
-    fn a_filter_keeps_the_active_or_the_paused_automations() {
+    fn the_list_groups_active_then_paused_under_counted_headings_with_paused_folded() {
         let autos = [auto("a", true, 1), auto("b", false, 0), auto("c", true, 2)];
-        assert_eq!(visible(&autos, Filter::All), [0, 1, 2]);
-        assert_eq!(visible(&autos, Filter::Active), [0, 2]);
-        assert_eq!(visible(&autos, Filter::Paused), [1]);
+        let head = |active, count, open| Entry::Head { active, count, open };
+        assert_eq!(entries(&autos, Folds::default()), [head(true, 2, true), Entry::Item(0), Entry::Item(2), head(false, 1, false)]);
+        let mut folds = Folds::default();
+        folds.toggle(false);
+        folds.toggle(true);
+        assert_eq!(entries(&autos, folds), [head(true, 2, false), head(false, 1, true), Entry::Item(1)]);
     }
 
     #[test]
-    fn the_counts_cover_every_automation_whatever_the_filter() {
-        assert_eq!(counts_text(&[auto("a", true, 1), auto("b", false, 0), auto("c", true, 2)]), "2 active · 1 paused");
-        assert_eq!(counts_text(&[]), "0 active · 0 paused");
+    fn a_group_with_no_automations_has_no_heading() {
+        assert_eq!(entries(&[auto("a", true, 1)], Folds::default()), [Entry::Head { active: true, count: 1, open: true }, Entry::Item(0)]);
+        assert_eq!(entries(&[auto("b", false, 0)], Folds::default()), [Entry::Head { active: false, count: 1, open: false }]);
+        assert!(entries(&[], Folds::default()).is_empty());
     }
 
     #[test]
@@ -580,6 +616,14 @@ mod tests {
         assert_eq!(opening_selection(Some("b"), &autos).as_deref(), Some("b"));
         assert_eq!(opening_selection(None, &autos).as_deref(), Some("a"));
         assert_eq!(opening_selection(None, &[]), None);
+    }
+
+    #[test]
+    fn with_nothing_kept_the_selection_starts_on_the_first_active_automation() {
+        let autos = [auto("paused", false, 1), auto("active", true, 2)];
+        assert_eq!(opening_selection(None, &autos).as_deref(), Some("active"));
+        assert_eq!(reselect(Some("gone"), &autos).as_deref(), Some("active"));
+        assert_eq!(reselect(None, &[auto("paused", false, 1)]).as_deref(), Some("paused"));
     }
 
     #[test]

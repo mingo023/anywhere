@@ -78,6 +78,11 @@ type Automation struct {
 	Access string `json:"access,omitempty"`
 	// NewWorktree starts each run in a fresh Worktree of Folder, named from the prompt.
 	NewWorktree bool `json:"newWorktree,omitempty"`
+	// Base is the branch a NewWorktree run starts from; empty is the project's default.
+	Base string `json:"base,omitempty"`
+	// Model and Effort start each run, as a session's; empty leaves them to the agent.
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
 }
 
 // Valid is what a client's automation.save must satisfy.
@@ -85,7 +90,7 @@ func (a Automation) Valid() bool {
 	name := utf8.RuneCountInString(strings.TrimSpace(a.Name))
 	return name >= 1 && name <= MaxName && a.Prompt != "" && len(a.Prompt) <= MaxPrompt &&
 		providers.Get(a.Provider) != nil && a.Folder != "" && a.Schedule.Valid() &&
-		(a.Access == "" || slices.Contains(Accesses, a.Access))
+		(a.Access == "" || slices.Contains(Accesses, a.Access)) && !strings.HasPrefix(a.Base, "-")
 }
 
 type Run struct {
@@ -123,7 +128,7 @@ func NewAutomations(autos []Automation, runs []Run) Automations {
 }
 
 func decodeAutomation(raw json.RawMessage, dst **Automation) bool {
-	f, ok := strictObject(raw, "id", "name", "prompt", "provider", "folder", "schedule", "enabled", "access", "newWorktree")
+	f, ok := strictObject(raw, "id", "name", "prompt", "provider", "folder", "schedule", "enabled", "access", "newWorktree", "base", "model", "effort")
 	if !ok {
 		return false
 	}

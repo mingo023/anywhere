@@ -19,3 +19,13 @@ func TestAnAutomationInANewWorktreeStartsEachRunInOneNamedFromThePrompt(t *testi
 		t.Fatalf("%+v %+v", s, s.Checkout.New)
 	}
 }
+
+func TestAnAutomationStartsEachRunOnItsModelAndEffortAndBranchesOffItsBase(t *testing.T) {
+	s := Spec(proto.Automation{Folder: "/r", Provider: "claude", Prompt: "p", NewWorktree: true, Base: "develop", Model: "opus", Effort: "high"}, "abcdef12-3456")
+	if s.Model != "opus" || s.Effort != "high" || s.Checkout.New == nil || s.Checkout.New.Base != "develop" {
+		t.Fatalf("%+v %+v", s, s.Checkout.New)
+	}
+	if s := Spec(proto.Automation{Folder: "/r", Provider: "claude", Prompt: "p", Base: "develop"}, "abcdef12-3456"); s.Checkout.Worktree != "/r" || s.Checkout.New != nil {
+		t.Fatalf("a run in the folder has no base: %+v", s)
+	}
+}

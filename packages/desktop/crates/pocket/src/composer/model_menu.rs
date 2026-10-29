@@ -64,7 +64,7 @@ pub(crate) fn check(on: bool) -> Div {
 
 impl Desktop {
     /// The agent, model and effort a session starts with, in one pill.
-    pub(super) fn model_pill(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn model_pill(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Model));
         let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &self.agents.provider_info(&pick.provider).efforts, self.catalog_models());
         let pill = super::pill()
