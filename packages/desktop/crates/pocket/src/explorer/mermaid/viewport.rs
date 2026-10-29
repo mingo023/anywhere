@@ -35,18 +35,14 @@ pub(super) struct Placed {
 }
 
 impl Viewport {
-    /// Zoomed by `factor`, keeping the point under `at`, card-relative, where it was; centred again once it fits.
-    pub fn zoomed(self, factor: f32, at: (f32, f32), card: (f32, f32)) -> Self {
+    /// Zoomed by `factor`, keeping the point under `at`, card-relative, where it was.
+    pub fn zoomed(self, factor: f32, at: (f32, f32)) -> Self {
         let scale = (self.scale * factor).clamp(MIN_SCALE, MAX_SCALE);
         if scale == self.scale {
             return self;
         }
         let k = scale / self.scale;
-        let offset = match scale <= 1.001 {
-            true => (card.0 * (1. - scale) / 2., card.1 * (1. - scale) / 2.),
-            false => (at.0 - (at.0 - self.offset.0) * k, at.1 - (at.1 - self.offset.1) * k),
-        };
-        Self { scale, offset }
+        Self { scale, offset: (at.0 - (at.0 - self.offset.0) * k, at.1 - (at.1 - self.offset.1) * k) }
     }
 
     /// Moved along with a drag of `by`.
@@ -55,14 +51,14 @@ impl Viewport {
     }
 
     /// Back to fitted when zoomed, else zoomed in twice around `at`.
-    pub fn double_clicked(self, at: (f32, f32), card: (f32, f32)) -> Self {
+    pub fn double_clicked(self, at: (f32, f32)) -> Self {
         match (self.scale - 1.).abs() > 0.001 {
             true => Self::default(),
-            false => self.zoomed(2., at, card),
+            false => self.zoomed(2., at),
         }
     }
 
-    /// Kept on a card that resized from `was`: zoomed out, it stays centred.
+    /// Kept on a card that resized from `was`: zoomed out, it keeps its place relative to the card's centre.
     pub fn resized(self, was: (f32, f32), card: (f32, f32)) -> Self {
         if self.scale >= 1. {
             return self;
@@ -110,31 +106,26 @@ mod tests {
     }
 
     #[test]
-    fn zooming_in_keeps_the_point_under_the_pointer_in_place() {
+    fn zooming_keeps_the_point_under_the_pointer_in_place_even_zoomed_out() {
         let at = (100., 100.);
         let under = |v: Viewport| {
             let p = v.placed(DIAGRAM, CARD, 16.);
             ((at.0 - p.origin.0) / p.zoom, (at.1 - p.origin.1) / p.zoom)
         };
-        let v = Viewport::default().zoomed(2., at, CARD);
-        assert_eq!(v.scale, 2.);
-        assert_eq!(under(v), under(Viewport::default()));
-    }
-
-    #[test]
-    fn zoomed_out_the_diagram_stays_centred() {
-        let v = Viewport::default().panned((40., 40.)).zoomed(0.5, (0., 0.), CARD);
-        assert_eq!(v, Viewport { scale: 0.5, offset: (133., 108.) });
-        let p = v.placed(DIAGRAM, CARD, 16.);
-        assert_eq!((p.origin.0 * 2. + 1000. * p.zoom, p.origin.1 * 2. + 500. * p.zoom), CARD);
+        let zoomed_out = Viewport { scale: 0.5, offset: (133., 108.) };
+        for (from, factor) in [(Viewport::default(), 2.), (Viewport::default(), 0.5), (zoomed_out, 1.5), (zoomed_out, 4.)] {
+            let v = from.zoomed(factor, at);
+            assert_eq!(v.scale, from.scale * factor, "{factor}x from {from:?}");
+            assert_eq!(under(v), under(from), "{factor}x from {from:?}");
+        }
     }
 
     #[test]
     fn zoom_stays_between_a_quarter_and_eight_times_the_fit() {
-        assert_eq!(Viewport::default().zoomed(0.01, (0., 0.), CARD).scale, 0.25);
-        assert_eq!(Viewport::default().zoomed(100., (0., 0.), CARD).scale, 8.);
-        let max = Viewport::default().zoomed(100., (0., 0.), CARD);
-        assert_eq!(max.zoomed(2., (50., 50.), CARD), max);
+        assert_eq!(Viewport::default().zoomed(0.01, (0., 0.)).scale, 0.25);
+        assert_eq!(Viewport::default().zoomed(100., (0., 0.)).scale, 8.);
+        let max = Viewport::default().zoomed(100., (0., 0.));
+        assert_eq!(max.zoomed(2., (50., 50.)), max);
     }
 
     #[test]
@@ -144,17 +135,18 @@ mod tests {
 
     #[test]
     fn double_click_zooms_in_twice_then_fits_again() {
-        let zoomed = Viewport::default().double_clicked((10., 10.), CARD);
+        let zoomed = Viewport::default().double_clicked((10., 10.));
         assert_eq!(zoomed, Viewport { scale: 2., offset: (-10., -10.) });
-        assert_eq!(zoomed.double_clicked((10., 10.), CARD), Viewport::default());
+        assert_eq!(zoomed.double_clicked((10., 10.)), Viewport::default());
     }
 
     #[test]
     fn a_zoomed_out_view_stays_centred_on_a_resized_card() {
-        let v = Viewport::default().zoomed(0.5, (0., 0.), CARD);
+        let centre = |card: (f32, f32)| (card.0 / 2., card.1 / 2.);
+        let v = Viewport::default().zoomed(0.5, centre(CARD));
         let wider = (CARD.0 + 100., CARD.1);
-        assert_eq!(v.resized(CARD, wider), Viewport::default().zoomed(0.5, (0., 0.), wider));
-        let zoomed = Viewport::default().zoomed(2., (0., 0.), CARD);
+        assert_eq!(v.resized(CARD, wider), Viewport::default().zoomed(0.5, centre(wider)));
+        let zoomed = Viewport::default().zoomed(2., (0., 0.));
         assert_eq!(zoomed.resized(CARD, wider), zoomed);
     }
 

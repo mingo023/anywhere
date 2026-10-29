@@ -361,7 +361,7 @@ fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, p
         hud::hud(place, view.level(), fullscreen.is_some(), move |act, window, cx| match act {
             Act::Zoom(k) => d.update(cx, |d, cx| {
                 let card = d.cards.get(&place).copied().unwrap_or_default();
-                let view = d.view(place).zoomed(k, (card.0 / 2., card.1 / 2.), card);
+                let view = d.view(place).zoomed(k, (card.0 / 2., card.1 / 2.));
                 d.set_view(place, view, cx);
             }),
             Act::Fit => d.update(cx, |d, cx| d.set_view(place, Viewport::default(), cx)),
@@ -388,7 +388,6 @@ fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, p
 /// Drag pans, pinch or ⌘-scroll zooms around the pointer, a double-click zooms in or fits it again. A plain scroll,
 /// sideways too, goes on to the page.
 fn listen(diagrams: &Entity<Diagrams>, place: u64, bounds: Bounds<Pixels>, hitbox: Hitbox, window: &mut Window) {
-    let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     let at = move |p: Point<Pixels>| (f32::from(p.x - bounds.origin.x), f32::from(p.y - bounds.origin.y));
     let change = move |diagrams: &Entity<Diagrams>, cx: &mut App, f: &dyn Fn(Viewport) -> Viewport| {
         diagrams.update(cx, |d, cx| {
@@ -403,7 +402,7 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, bounds: Bounds<Pixels>, hitbo
         }
         if e.click_count == 2 {
             let point = at(e.position);
-            change(&d, cx, &|v| v.double_clicked(point, card));
+            change(&d, cx, &|v| v.double_clicked(point));
         } else {
             d.update(cx, |d, cx| {
                 d.drag = Some((place, e.position));
@@ -442,14 +441,14 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, bounds: Bounds<Pixels>, hitbo
             return;
         }
         let (point, dy) = (at(e.position), f32::from(e.delta.pixel_delta(px(20.)).y));
-        change(&d, cx, &|v| v.zoomed((dy * 0.01).exp(), point, card));
+        change(&d, cx, &|v| v.zoomed((dy * 0.01).exp(), point));
         cx.stop_propagation();
     });
     let d = diagrams.clone();
     window.on_mouse_event(move |e: &PinchEvent, phase, window, cx| {
         if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
             let point = at(e.position);
-            change(&d, cx, &|v| v.zoomed(1. + e.delta, point, card));
+            change(&d, cx, &|v| v.zoomed(1. + e.delta, point));
             cx.stop_propagation();
         }
     });
