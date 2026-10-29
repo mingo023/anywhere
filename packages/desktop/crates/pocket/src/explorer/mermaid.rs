@@ -1,17 +1,16 @@
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextViewState, markdown_ast as mdast};
 use gpui_kit::*;
-use merman::svg::{HostTheme, Presentation, ResolvedPresentation, SvgOutputPolicy, SvgPipelinePreset, ThemeRole};
-use merman::{OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest};
 use resvg::usvg::{Options, Tree};
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use theme::*;
 use hud::Act;
 use viewport::Viewport;
 
 mod hud;
+mod pele;
 mod popup;
 mod viewport;
 
@@ -25,44 +24,6 @@ const PAD: f32 = 16.;
 /// A card's tallest, unless 70% of the window is less; a taller diagram shrinks to fit.
 const MAX_HEIGHT: f32 = 720.;
 
-struct Merman {
-    renderer: Renderer,
-    presentation: ResolvedPresentation,
-}
-
-type Engines = HashMap<(u32, bool), Arc<Merman>>;
-
-/// By canvas colour and `dark`: each scheme and canvas lays out its own colours.
-static MERMAN: LazyLock<Mutex<Engines>> = LazyLock::new(Default::default);
-
-fn merman(canvas: Token, dark: bool) -> Arc<Merman> {
-    let mut cache = MERMAN.lock().unwrap();
-    cache.entry((canvas.pick(dark), dark)).or_insert_with(|| Arc::new(build(canvas, dark))).clone()
-}
-
-fn build(canvas: Token, dark: bool) -> Merman {
-    let roles = [
-        (ThemeRole::Canvas, canvas),
-        (ThemeRole::Surface, SURFACE_SUNKEN),
-        (ThemeRole::SurfaceAlt, WINDOW_SOLID),
-        (ThemeRole::Text, TEXT),
-        (ThemeRole::SubtleText, TEXT_3),
-        (ThemeRole::Border, TEXT_6),
-        (ThemeRole::Line, TEXT_4),
-        (ThemeRole::ClusterBackground, SURFACE_SUNKEN),
-        (ThemeRole::ClusterBorder, TEXT_6),
-        (ThemeRole::NoteBackground, ACCENT_BG),
-        (ThemeRole::NoteBorder, ACCENT),
-        (ThemeRole::NoteText, TEXT),
-        (ThemeRole::Error, FAILED),
-    ];
-    let flat = |c: u32| hex(c, dark);
-    let theme = roles.into_iter().fold(HostTheme::new().try_with_font_family("Geist, sans-serif").unwrap(), |t, (role, c)| t.try_with_role(role, flat(c.pick(dark))).unwrap());
-    let presentation = Presentation::new().with_theme(theme.try_with_series_palette(PALETTE.map(flat)).unwrap()).resolve();
-    let renderer = Renderer::new().with_engine(presentation.materialize_engine(merman::Engine::new()));
-    Merman { renderer, presentation }
-}
-
 static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
     let mut options = Options::default();
     let db = Arc::make_mut(&mut options.fontdb);
@@ -73,24 +34,9 @@ static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
     options
 });
 
-/// Merman wants opaque colours, so translucent tokens are flattened onto white, or onto the window in dark.
-fn hex(c: u32, dark: bool) -> String {
-    let [br, bg, bb, _] = if dark { WINDOW_SOLID.pick(true) } else { 0xffffffff }.to_be_bytes();
-    let a = (c & 0xff) as f32 / 255.;
-    let mix = |v: u32, base: u8| ((v & 0xff) as f32 * a + base as f32 * (1. - a)).round() as u8;
-    format!("#{:02x}{:02x}{:02x}", mix(c >> 24, br), mix(c >> 16, bg), mix(c >> 8, bb))
-}
-
-/// Mermaid source as SVG that resvg can draw: labels are plain `<text>`, not `<foreignObject>`.
+/// Mermaid source as SVG that resvg can draw, on `canvas`.
 fn svg(source: &str, canvas: Token, dark: bool) -> Result<String, String> {
-    let merman = merman(canvas, dark);
-    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, root_background_color: Some(hex(canvas.pick(dark), dark)), ..Default::default() }.pipeline();
-    let request = SvgRequest { pipeline: Some(pipeline), presentation: merman.presentation.render_policy(), ..Default::default() };
-    match merman.renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
-        Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.svg().to_string()),
-        Ok(_) => Err("Not a Mermaid diagram".into()),
-        Err(e) => Err(e.to_string()),
-    }
+    pele::render(source).map(|svg| pele::resolve(&svg, canvas.pick(dark), dark))
 }
 
 fn tree(source: &str, canvas: Token, dark: bool) -> Result<Arc<Tree>, String> {
@@ -308,18 +254,18 @@ struct Fullscreen {
 /// `heading` finds the nearest heading above it, asked only while its buttons show.
 pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: impl FnOnce() -> Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
     let dark = theme::is_dark();
-    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).border_1().border_color(SEPARATOR).bg(diagrams.read(cx).canvas);
+    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).border(px(0.5)).border_color(SEPARATOR).bg(diagrams.read(cx).canvas);
     match diagrams.update(cx, |d, cx| d.get(key, source, dark, cx)) {
         Diagram::Ready(tree) => {
             let size = tree.size();
             let natural = (size.width(), size.height());
             let tallest = (f32::from(window.viewport_size().height) * 0.7).min(MAX_HEIGHT).min(natural.1 + 2. * PAD);
             // The card spans the column, its height following its width by the diagram's shape; the width is known
-            // once painted, before which the layout's aspect ratio stands in. The 2 is the border.
+            // once painted, before which the layout's aspect ratio stands in. The 1 is the border.
             let frame = frame.relative().w_full().overflow_hidden();
             let frame = match diagrams.read(cx).cards.get(&place) {
-                Some((width, _)) => frame.h(px((width * natural.1 / natural.0).min(tallest) + 2.)),
-                None => frame.aspect_ratio(natural.0 / natural.1).max_h(px(tallest + 2.)),
+                Some((width, _)) => frame.h(px((width * natural.1 / natural.0).min(tallest) + 1.)),
+                None => frame.aspect_ratio(natural.0 / natural.1).max_h(px(tallest + 1.)),
             };
             let heading = diagrams.read(cx).shows_hud(place).then(heading).flatten();
             frame.child(surface(diagrams, key, place, tree, PAD, Some(Fullscreen { source: source.clone(), heading }), cx))
@@ -546,7 +492,7 @@ impl MarkdownPlugin for Mermaid {
 
 #[cfg(test)]
 mod tests {
-    use super::{BUDGET, IN_USE, evict, heading, hex, rasterize, svg, tree};
+    use super::{BUDGET, IN_USE, evict, heading, rasterize, svg, tree};
     use gpui_kit::RenderImage;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -559,15 +505,6 @@ mod tests {
     }
 
     #[test]
-    fn flattens_translucent_tokens_onto_the_canvas() {
-        assert_eq!(hex(0x5b5bd6ff, false), "#5b5bd6");
-        assert_eq!(hex(0x00000000, false), "#ffffff");
-        assert_eq!(hex(0x00000080, false), "#7f7f7f");
-        assert_eq!(hex(0x00000000, true), "#171717");
-        assert_eq!(hex(0xebebeb1a, true), "#2d2d2d");
-    }
-
-    #[test]
     fn renders_resvg_safe_svg_with_text_labels() {
         let out = svg("flowchart LR\n  A[Open] --> B[Close]\n", MD_CODE_BG, false).unwrap();
         assert!(out.starts_with("<svg"));
@@ -577,7 +514,7 @@ mod tests {
 
     #[test]
     fn reports_syntax_errors() {
-        assert!(svg("flowchart LR\n  A -->\n", MD_CODE_BG, false).unwrap_err().contains("parse error"));
+        assert!(svg("flowchart LR\n  A -->\n", MD_CODE_BG, false).unwrap_err().contains("syntax error"));
     }
 
     #[test]

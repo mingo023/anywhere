@@ -50,7 +50,6 @@ ignore = "0.4"
 image = { version = "0.25", default-features = false }
 imara-diff = "0.2"
 libc = "0.2"
-merman = { version = "=0.8.0-alpha.6", default-features = false, features = ["svg", "layout-cytoscape"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSDockTile", "NSResponder", "NSWorkspace"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
@@ -59,10 +58,12 @@ objc2-web-kit = { version = "0.3", default-features = false, features = ["std"] 
 petname = { version = "3.2", default-features = false, features = ["default-words"] }
 qrcode = { version = "0.14", default-features = false }
 resvg = "0.46"
+rquickjs = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tree-sitter-javascript = "0.23.1"
 tree-sitter-swift = "0.7.3"
+ttf-parser = "0.25"
 tungstenite = "0.26"
 uds_windows = "1.2"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }

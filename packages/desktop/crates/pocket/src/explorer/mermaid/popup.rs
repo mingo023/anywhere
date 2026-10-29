@@ -2,6 +2,7 @@
 //! shape, the diagram fitted inside it. Space fits it again.
 
 use super::{Diagram, Diagrams, Viewport, key, surface};
+use crate::actions::CloseTab;
 use gpui_kit::*;
 use theme::*;
 
@@ -92,6 +93,7 @@ impl Render for Popup {
             .bg(self.diagrams.read(cx).canvas)
             .font_family(SANS)
             .track_focus(&self.focus)
+            .on_action(|_: &CloseTab, window, _| window.remove_window())
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "space" {
                     this.diagrams.update(cx, |d, cx| d.set_view(PLACE, Viewport::default(), cx));
