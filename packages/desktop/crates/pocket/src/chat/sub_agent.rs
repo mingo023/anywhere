@@ -7,6 +7,7 @@ use crate::util::now_ms;
 use chat::{Block, SubAgent, ToolCall, ToolStatus};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use gpui_kit::base::text::TextView;
 use std::time::Duration;
 use theme::*;
 
@@ -133,7 +134,7 @@ pub(crate) fn glyph(id: &str, mark: Mark) -> AnyElement {
 
 /// A sub-agent as one line: its mark, its task, what it does now while it runs, its model, then how far it got and,
 /// running, for how long. Opened, its brief, its steps on a rail and its report.
-pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, links: &markdown::Open, tools: &Entity<Tools>, cx: &App) -> Div {
+pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, links: &markdown::Open, tools: &Entity<Tools>, cx: &mut App) -> Div {
     let m = mark(call, agent);
     let steps = steps(agent);
     let report = report(call, agent);
@@ -182,6 +183,16 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl
             let text = div().whitespace_normal().text_size(px(13.)).line_height(px(20.)).text_color(TEXT_3).child(b.to_string());
             div().pl(px(20.)).pt(px(2.)).pb(px(6.)).child(clipped(format!("brief-{}", call.id), b, BRIEF_LINES, 20., text, tools, cx))
         });
+        let report = report.clone().map(|r| {
+            let d = div().pt(px(6.));
+            if failed {
+                d.whitespace_normal().font_family(code_font()).text_size(px(12.)).line_height(px(20.)).text_color(FAILED).child(r)
+            } else {
+                let doc = tools.update(cx, |t, cx| t.docs.get(&call.id, &r, false, cx));
+                let text = markdown::block(TextView::new(&doc), links.clone()).text_size(px(13.5)).line_height(px(21.));
+                d.child(clipped(format!("report-{}", call.id), &r, REPORT_LINES, 21., text, tools, cx))
+            }
+        });
         let n = steps.len();
         let rail = steps.iter().enumerate().map(|(i, b)| {
             let last = i + 1 == n && report.is_none();
@@ -191,15 +202,6 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl
                 _ => div(),
             };
             phase::step(last, step)
-        });
-        let report = report.clone().map(|r| {
-            let d = div().pt(px(6.));
-            if failed {
-                d.whitespace_normal().font_family(code_font()).text_size(px(12.)).line_height(px(20.)).text_color(FAILED).child(r)
-            } else {
-                let text = markdown::block(SharedString::from(format!("report-{}", call.id)), SharedString::from(r.clone()), false, links.clone()).text_size(px(13.5)).line_height(px(21.));
-                d.child(clipped(format!("report-{}", call.id), &r, REPORT_LINES, 21., text, tools, cx))
-            }
         });
         div().pt(px(2.)).pb(px(4.)).flex().flex_col().children(brief).children(rail).children(report)
     });

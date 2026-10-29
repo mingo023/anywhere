@@ -1,4 +1,5 @@
 use super::diff::{self, Highlights};
+use super::markdown::Docs;
 use super::selectable::selectable;
 use super::shimmer::shimmer;
 use super::tool_detail::{self, Details, LINE, Lines, TEXT_SIZE};
@@ -20,6 +21,8 @@ pub(crate) struct Tools {
     pub(crate) details: Details,
     pub(crate) toggled: Option<(String, Instant)>,
     pub(crate) highlights: Highlights,
+    /// Sub-agents' reports, by call.
+    pub(crate) docs: Docs,
 }
 
 impl Tools {
