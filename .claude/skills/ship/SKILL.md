@@ -25,11 +25,7 @@ Match the history: the title is a plain sentence saying what the app now does, f
 - `Sidebar rows pin only from their menu`
 - `Markdown table columns stop clipping a file chip`
 
-The body (wrapped at 72) says what was wrong or missing and what changed, in a few sentences. End with:
-
-```
-Co-authored-by: Claude <noreply@anthropic.com>
-```
+The body (wrapped at 72) says what was wrong or missing and what changed, in a few sentences.
 
 ## Label
 
