@@ -1,4 +1,4 @@
-use gpui_kit::base::text::{InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, TextViewMotion, TextViewStyle, markdown_ast};
+use gpui_kit::base::text::{InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, TextViewMotion, TextViewState, TextViewStyle, markdown_ast};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -43,6 +43,48 @@ pub(crate) fn closed(text: &str) -> bool {
     let opened = run(text);
     let closing = |l: &str| run(l.trim()) >= opened && l.trim().trim_start_matches(c).is_empty();
     opened >= 3 && text.split_once('\n').and_then(|(_, body)| body.lines().last()).is_some_and(closing)
+}
+
+/// Parsed markdown by key, kept while its row is off screen: a `TextView` keeps its own only while drawn every frame, so a
+/// row scrolled back into view would parse and lay out its text all over again. Code keeps its own, so a paragraph that
+/// turns out to open a fence doesn't hand its code the stream fade.
+#[derive(Default)]
+pub(crate) struct Docs {
+    text: HashMap<String, Entity<TextViewState>>,
+    code: HashMap<String, Entity<TextViewState>>,
+}
+
+impl Docs {
+    /// `key`'s document, holding `text`; a `live` one fades in what streams onto its end.
+    pub(super) fn get(&mut self, key: &str, text: &str, live: bool, cx: &mut App) -> Entity<TextViewState> {
+        let doc = held(&mut self.text, key, text, cx);
+        if live {
+            doc.update(cx, |d, _| d.set_motion(TextViewMotion::default().with_stream_fade(super::reveal::FADE)));
+        }
+        doc.update(cx, |d, cx| d.set_text(text, cx));
+        doc
+    }
+
+    /// `key`'s document, holding `code` fenced as `lang`.
+    pub(super) fn code(&mut self, key: &str, lang: &str, code: &str, cx: &mut App) -> Entity<TextViewState> {
+        let text = fenced(lang, code);
+        let doc = held(&mut self.code, key, &text, cx);
+        doc.update(cx, |d, cx| d.set_text(&text, cx));
+        doc
+    }
+
+    pub(super) fn retain(&mut self, keep: impl Fn(&str) -> bool) {
+        self.text.retain(|key, _| keep(key));
+        self.code.retain(|key, _| keep(key));
+    }
+}
+
+/// `key`'s document in `docs`, made from `text` the first time.
+fn held(docs: &mut HashMap<String, Entity<TextViewState>>, key: &str, text: &str, cx: &mut App) -> Entity<TextViewState> {
+    if let Some(doc) = docs.get(key) {
+        return doc.clone();
+    }
+    docs.entry(key.to_string()).or_insert_with(|| cx.new(|cx| TextViewState::markdown(text, cx))).clone()
 }
 
 /// Code-block highlights by row id, for the code length and appearance they were computed for.
@@ -211,16 +253,13 @@ fn style() -> TextViewStyle {
         .with_dark(is_dark())
 }
 
-/// One markdown block of an assistant message. Its parsed state lives only while the row renders;
-/// a `live` one fades in what streams onto its end. Its links and file chips go to `open`.
-pub(super) fn block(id: impl Into<ElementId>, text: SharedString, live: bool, open: Open) -> TextView {
-    TextView::markdown(id, text)
-        .style(style())
+/// One markdown block of an assistant message. Its links and file chips go to `open`.
+pub(super) fn block(view: TextView, open: Open) -> TextView {
+    view.style(style())
         .plugin(Paths(open.clone()))
         .on_link_click(move |url, _, window, cx| open(url, window, cx))
         .selectable(true)
         .scrollable(false)
-        .when(live, |v| v.motion(TextViewMotion::default().with_stream_fade(super::reveal::FADE)))
         .w_full()
         .text_size(px(14.))
         .line_height(px(24.))
@@ -228,8 +267,8 @@ pub(super) fn block(id: impl Into<ElementId>, text: SharedString, live: bool, op
 }
 
 /// A fenced code block, selectable: language, wrap and copy over code that scrolls sideways, coloured once `styles` land.
-pub(super) fn code_block(id: impl Into<ElementId>, lang: &str, code: &str, styles: Option<Styles>) -> TextView {
-    TextView::markdown(id, fenced(lang, code))
+pub(super) fn code_block(doc: &Entity<TextViewState>, styles: Option<Styles>) -> TextView {
+    TextView::new(doc)
         .style(style())
         .code_block_highlighter(move |_| styles.iter().flat_map(|s| s.iter().cloned()).collect())
         .selectable(true)

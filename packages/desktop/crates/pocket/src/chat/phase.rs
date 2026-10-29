@@ -92,7 +92,7 @@ fn thought(id: &str, text: &str, label: Option<String>, live: bool, tools: &Enti
 }
 
 /// One step of a phase. `next` is when the agent did its next thing, which ends a thought.
-fn step_view(block: &Block, next: Option<i64>, live: bool, links: &markdown::Open, tools: &Entity<Tools>, cx: &App) -> Div {
+fn step_view(block: &Block, next: Option<i64>, live: bool, links: &markdown::Open, tools: &Entity<Tools>, cx: &mut App) -> Div {
     match block {
         Block::Thinking(m) => thought(&m.id, &m.text, thought_for(m.at, next), live && next.is_none(), tools, cx),
         Block::Tool(c @ chat::ToolCall { kind: ToolKind::Agent(a), .. }) => {
@@ -113,7 +113,7 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, links: &markdown::Ope
 /// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents. Links in a
 /// sub-agent's report go to `links`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, links: &markdown::Open, tools: &Entity<Tools>, cx: &App) -> Div {
+pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, links: &markdown::Open, tools: &Entity<Tools>, cx: &mut App) -> Div {
     let steps = steps(blocks);
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
