@@ -58,7 +58,7 @@ impl Viewport {
         }
     }
 
-    /// Kept on a card that resized from `was`: zoomed out, it holds its place about the card's centre.
+    /// Kept on a card that resized from `was`: zoomed out, it keeps its place relative to the card's centre.
     pub fn resized(self, was: (f32, f32), card: (f32, f32)) -> Self {
         if self.scale >= 1. {
             return self;
@@ -113,10 +113,10 @@ mod tests {
             ((at.0 - p.origin.0) / p.zoom, (at.1 - p.origin.1) / p.zoom)
         };
         let zoomed_out = Viewport { scale: 0.5, offset: (133., 108.) };
-        for (from, factor) in [(Viewport::default(), 2.), (Viewport::default(), 0.5), (zoomed_out, 1.5)] {
+        for (from, factor) in [(Viewport::default(), 2.), (Viewport::default(), 0.5), (zoomed_out, 1.5), (zoomed_out, 4.)] {
             let v = from.zoomed(factor, at);
-            assert_eq!(v.scale, from.scale * factor);
-            assert_eq!(under(v), under(from));
+            assert_eq!(v.scale, from.scale * factor, "{factor}x from {from:?}");
+            assert_eq!(under(v), under(from), "{factor}x from {from:?}");
         }
     }
 
