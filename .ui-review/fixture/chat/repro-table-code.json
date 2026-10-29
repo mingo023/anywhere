@@ -1,0 +1,9 @@
+[
+  { "id": "u1", "kind": "user", "text": "What do these three fields hold?" },
+  {
+    "id": "a1",
+    "kind": "assistant",
+    "text": "**What the three fields hold**\n\n| Field | On the shared report | On a team copy today |\n|---|---|---|\n| `collections` `{ userId, id, name }` | Each **owner**'s personal collections that hold the report | Inherits the owner's entries at copy time; the client then `$push`/`$pull`s them through `bulk-collections` |\n| `assignments` | Review assignments for the **owner** (or \"System\") | Inherits the owner's as is. Nothing writes a copy's own assignments |\n| `searchIndex.teamMappings` | Id and name of every team it is assigned to, written by `SyncSearchIndexTeamMappingsReportHandler` | Inherits the list of **every** team (a data leak) |\n\nAlso found (not in the ticket): `restore-team-report.handler.ts` restores a soft-deleted copy, then runs `updateMany({...sharedReport})`."
+  },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 18000, "usage": { "inputTokens": 4000, "outputTokens": 900 } }
+]
