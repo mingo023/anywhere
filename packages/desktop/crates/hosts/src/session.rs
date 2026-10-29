@@ -114,7 +114,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
     match ev {
         Event::Agents(list) => list.iter_mut().for_each(|a| tag_summary(host, a)),
         Event::Agent(a) => tag_summary(host, a),
-        Event::Items(id, _) | Event::Resolved(id) | Event::NamingFailed(id) | Event::Progress { request: id, .. } | Event::CreateFailed { request: id, .. } => t(id),
+        Event::Items(id, _) | Event::Page { agent: id, .. } | Event::Resolved(id) | Event::NamingFailed(id) | Event::Progress { request: id, .. } | Event::CreateFailed { request: id, .. } => t(id),
         Event::Asked(p) => {
             t(&mut p.request_id);
             t(&mut p.agent_id);
