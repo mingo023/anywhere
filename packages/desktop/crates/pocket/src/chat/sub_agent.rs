@@ -5,9 +5,9 @@ use super::tool_row::{self, Arg, Tools};
 use super::working::format_elapsed;
 use crate::util::now_ms;
 use chat::{Block, SubAgent, ToolCall, ToolStatus};
+use gpui_kit::base::text::TextView;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use gpui_kit::base::text::TextView;
 use std::time::Duration;
 use theme::*;
 
@@ -183,6 +183,7 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl
             let text = div().whitespace_normal().text_size(px(13.)).line_height(px(20.)).text_color(TEXT_3).child(b.to_string());
             div().pl(px(20.)).pt(px(2.)).pb(px(6.)).child(clipped(format!("brief-{}", call.id), b, BRIEF_LINES, 20., text, tools, cx))
         });
+        // Before `rail`, which holds `cx` until the children take it.
         let report = report.clone().map(|r| {
             let d = div().pt(px(6.));
             if failed {

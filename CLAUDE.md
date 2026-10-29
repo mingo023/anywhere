@@ -31,3 +31,4 @@ Baselines to beat:
 |---|---|---|
 | Changes list, one frame with 1137 files | 67ms | 3ms |
 | Click file → diff shown | 490ms | ~100ms |
+| Chat with 1200 items scrolled back over, frames over 8.3ms of CPU (of 300) | 139 | 2 |

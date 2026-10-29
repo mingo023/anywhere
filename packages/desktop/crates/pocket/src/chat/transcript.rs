@@ -11,8 +11,8 @@ use crate::desktop::Desktop;
 use crate::explorer::mermaid;
 use crate::util::now_ms;
 use chat::{Block, Command, Delivery, End, Message, Row, Session, ToolKind, ToolStatus, Transcript, Turn};
-use gpui_kit::*;
 use gpui_kit::base::text::TextView;
+use gpui_kit::*;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -195,8 +195,9 @@ impl View {
             if let Some(fold) = rows.iter().rposition(|r| matches!(r, Row::Fold { .. })) {
                 self.list.remeasure_items(fold..changed.start);
             }
-            self.code.retain(|row| self.session.ids.contains(row));
-            self.docs.retain(|row| self.session.ids.contains(row));
+            let ids: HashSet<&str> = self.session.ids.iter().map(String::as_str).collect();
+            self.code.retain(|row| ids.contains(row.as_str()));
+            self.docs.retain(|row| ids.contains(row));
         }
         self.session.outgoing.released()
     }

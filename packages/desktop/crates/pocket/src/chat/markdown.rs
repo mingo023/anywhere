@@ -46,31 +46,45 @@ pub(crate) fn closed(text: &str) -> bool {
 }
 
 /// Parsed markdown by key, kept while its row is off screen: a `TextView` keeps its own only while drawn every frame, so a
-/// row scrolled back into view would parse and lay out its text all over again.
+/// row scrolled back into view would parse and lay out its text all over again. Code keeps its own, so a paragraph that
+/// turns out to open a fence doesn't hand its code the stream fade.
 #[derive(Default)]
-pub(crate) struct Docs(HashMap<String, Entity<TextViewState>>);
+pub(crate) struct Docs {
+    text: HashMap<String, Entity<TextViewState>>,
+    code: HashMap<String, Entity<TextViewState>>,
+}
 
 impl Docs {
     /// `key`'s document, holding `text`; a `live` one fades in what streams onto its end.
     pub(super) fn get(&mut self, key: &str, text: &str, live: bool, cx: &mut App) -> Entity<TextViewState> {
-        let doc = self.0.entry(key.to_string()).or_insert_with(|| cx.new(|cx| TextViewState::markdown(text, cx))).clone();
-        doc.update(cx, |d, cx| {
-            if live {
-                d.set_motion(TextViewMotion::default().with_stream_fade(super::reveal::FADE));
-            }
-            d.set_text(text, cx);
-        });
+        let doc = held(&mut self.text, key, text, cx);
+        if live {
+            doc.update(cx, |d, _| d.set_motion(TextViewMotion::default().with_stream_fade(super::reveal::FADE)));
+        }
+        doc.update(cx, |d, cx| d.set_text(text, cx));
         doc
     }
 
     /// `key`'s document, holding `code` fenced as `lang`.
     pub(super) fn code(&mut self, key: &str, lang: &str, code: &str, cx: &mut App) -> Entity<TextViewState> {
-        self.get(key, &fenced(lang, code), false, cx)
+        let text = fenced(lang, code);
+        let doc = held(&mut self.code, key, &text, cx);
+        doc.update(cx, |d, cx| d.set_text(&text, cx));
+        doc
     }
 
-    pub(super) fn retain(&mut self, keep: impl Fn(&String) -> bool) {
-        self.0.retain(|key, _| keep(key));
+    pub(super) fn retain(&mut self, keep: impl Fn(&str) -> bool) {
+        self.text.retain(|key, _| keep(key));
+        self.code.retain(|key, _| keep(key));
     }
+}
+
+/// `key`'s document in `docs`, made from `text` the first time.
+fn held(docs: &mut HashMap<String, Entity<TextViewState>>, key: &str, text: &str, cx: &mut App) -> Entity<TextViewState> {
+    if let Some(doc) = docs.get(key) {
+        return doc.clone();
+    }
+    docs.entry(key.to_string()).or_insert_with(|| cx.new(|cx| TextViewState::markdown(text, cx))).clone()
 }
 
 /// Code-block highlights by row id, for the code length and appearance they were computed for.
