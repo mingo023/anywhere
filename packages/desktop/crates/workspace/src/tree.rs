@@ -276,13 +276,33 @@ impl<T> Default for Tree<T> {
 
 impl<T> Tree<T> {
     /// The tree around `root`: panes renumbered in reading order, so saved ids can neither repeat nor overflow, empty panes closed, and `focused` kept if it is still a pane.
-    pub fn from_root(mut root: Node<T>, focused: PaneId) -> Self {
-        let (mut next, mut found) = (0, None);
+    pub fn from_root(root: Node<T>, focused: PaneId) -> Self {
+        Self::from_root_at(root, focused, 0)
+    }
+
+    /// As `from_root`, numbering panes from `start`, so the tree can sit beside others without sharing an id.
+    pub fn from_root_at(mut root: Node<T>, focused: PaneId, start: PaneId) -> Self {
+        let (mut next, mut found) = (start, None);
         root.repair(&mut next, &mut found, focused);
         let mut t = Self { root, focused: found.unwrap_or(next), zoomed: None, next: 0 };
         t.tidy();
-        t.next = t.panes().iter().map(|p| p.id + 1).max().unwrap_or(0);
+        t.next = t.panes().iter().map(|p| p.id + 1).max().unwrap_or(start).max(start);
         t
+    }
+
+    /// A tree of one pane, numbered `id`, holding `tab`.
+    pub fn lone(id: PaneId, tab: T) -> Self {
+        Self { root: Node::Pane(Pane { id, tabs: vec![tab], active: 0 }), focused: id, zoomed: None, next: id + 1 }
+    }
+
+    /// The id the next pane opened here gets; every pane's is below it.
+    pub fn next_id(&self) -> PaneId {
+        self.next
+    }
+
+    /// Numbers panes opened from now on `next` or above, clear of another tree's.
+    pub fn reserve(&mut self, next: PaneId) {
+        self.next = self.next.max(next);
     }
 
     /// In reading order: left to right, then top to bottom within each split.
@@ -436,6 +456,38 @@ impl<T> Tree<T> {
                 self.split(pane, edge, tab);
             }
         }
+    }
+
+    /// Takes `pane` out whole, tabs and all, focusing the pane that took its place; the last pane stays.
+    pub fn detach(&mut self, pane: PaneId) -> Option<Pane<T>> {
+        if self.panes().len() < 2 {
+            return None;
+        }
+        let p = self.pane_mut(pane)?;
+        let taken = Pane { id: p.id, tabs: std::mem::take(&mut p.tabs), active: p.active };
+        self.tidy();
+        Some(taken)
+    }
+
+    /// Puts `node`, numbered clear of this tree's panes, at `edge` of `pane` and focuses `focus`, one of its panes; hands `node` back when `pane` is gone.
+    pub fn attach(&mut self, pane: PaneId, edge: Edge, node: Node<T>, focus: PaneId) -> Result<(), Node<T>> {
+        self.root.split(pane, edge, node)?;
+        self.next = self.panes().iter().map(|p| p.id + 1).max().unwrap_or(0).max(self.next);
+        self.focused = focus;
+        self.zoomed = None;
+        self.tidy();
+        Ok(())
+    }
+
+    /// Moves pane `from` to `edge` of pane `to` and focuses it.
+    pub fn move_pane(&mut self, from: PaneId, to: PaneId, edge: Edge) {
+        if from == to || self.pane(to).is_none() {
+            return;
+        }
+        let Some(p) = self.detach(from) else { return };
+        let id = p.id;
+        // `to` still holds its tabs, so detaching `from` left it in the tree.
+        _ = self.attach(to, edge, Node::Pane(p), id);
     }
 
     /// Whether `pane`, drawn within `bounds`, has room for two panes along `edge`'s axis.
@@ -950,5 +1002,59 @@ mod tests {
         assert_eq!(t.drawn_layout(WINDOW), t.layout(WINDOW));
         t.toggle_zoom();
         assert_eq!(t.drawn_layout(WINDOW), vec![(b, WINDOW)]);
+    }
+
+    #[test]
+    fn moving_a_pane_puts_it_at_the_edge_of_another_and_focuses_it() {
+        let mut t = with(&["a"]);
+        let b = t.split(0, Edge::Right, "b").unwrap();
+        let c = t.split(b, Edge::Right, "c").unwrap();
+        t.move_pane(c, 0, Edge::Bottom);
+        assert_eq!((tabs(&t), t.focused), (vec![vec!["a"], vec!["c"], vec!["b"]], c));
+        assert_eq!(t.layout(UNIT)[1].1, Rect { x: 0., y: 0.5, w: 2. / 3., h: 0.5 });
+    }
+
+    #[test]
+    fn a_pane_moved_beside_a_sibling_along_its_split_halves_that_sibling() {
+        let mut t = with(&["a"]);
+        let b = t.split(0, Edge::Bottom, "b").unwrap();
+        let c = t.split(0, Edge::Right, "c").unwrap();
+        t.move_pane(c, b, Edge::Right);
+        assert_eq!(tabs(&t), vec![vec!["a"], vec!["b"], vec!["c"]]);
+        assert_eq!(t.layout(UNIT)[2].1, Rect { x: 0.5, y: 0.5, w: 0.5, h: 0.5 });
+    }
+
+    #[test]
+    fn a_pane_cannot_move_beside_itself_or_to_a_missing_pane() {
+        let mut t = with(&["a"]);
+        let b = t.split(0, Edge::Right, "b").unwrap();
+        t.move_pane(b, b, Edge::Left);
+        t.move_pane(b, 9, Edge::Left);
+        assert_eq!(tabs(&t), vec![vec!["a"], vec!["b"]]);
+    }
+
+    #[test]
+    fn detaching_takes_a_pane_out_whole_but_never_the_last() {
+        let mut t = with(&["a", "x"]);
+        let b = t.split(0, Edge::Right, "b").unwrap();
+        let p = t.detach(0).unwrap();
+        assert_eq!((p.tabs, tabs(&t), t.focused), (vec!["a", "x"], vec![vec!["b"]], b));
+        assert_eq!(t.detach(b), None);
+    }
+
+    #[test]
+    fn attaching_to_a_missing_pane_hands_the_node_back() {
+        let mut t = with(&["a"]);
+        let node = Node::Pane(Pane { id: 5, tabs: vec!["b"], active: 0 });
+        assert!(t.attach(9, Edge::Right, node, 5).is_err());
+        assert_eq!(tabs(&t), vec![vec!["a"]]);
+    }
+
+    #[test]
+    fn a_tree_numbered_from_a_start_opens_new_panes_past_it() {
+        let mut t = Tree::from_root_at(with(&["a"]).root, 0, 10);
+        assert_eq!((t.focused, t.next_id()), (10, 11));
+        t.reserve(20);
+        assert_eq!(t.split(10, Edge::Right, "b"), Some(20));
     }
 }

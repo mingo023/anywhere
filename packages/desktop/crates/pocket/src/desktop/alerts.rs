@@ -214,7 +214,7 @@ impl Desktop {
         self.hand_off_creates();
         self.focus_arrived_chat(window, cx);
         self.refresh_chats();
-        if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.tab_of(t).is_some())) {
+        if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.holds_term(t))) {
             self.close_pane(&term, cx);
         }
         if connected && host.is_none() {

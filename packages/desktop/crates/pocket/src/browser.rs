@@ -62,7 +62,7 @@ impl Browsers {
                 let image = cx.background_spawn(async move { tiff.and_then(|t| shot(&t)) }).await;
                 let applied = this.update_in(cx, |d: &mut Desktop, window, cx| {
                     // A shot that lands after the drop would cover the live page.
-                    if d.panels.drag.is_some()
+                    if d.panels.holding()
                         && let Some(b) = d.browsers.tabs.get_mut(&id)
                     {
                         if let Some(old) = std::mem::replace(&mut b.shot, image) {
@@ -143,13 +143,13 @@ impl Desktop {
         if self.browsers.tabs.is_empty() {
             return;
         }
-        let covered = self.overlay.is_some() || self.menu_open() || self.sidebar.menu_at.is_some() || self.shown_create().is_some() || self.panels.drag.as_ref().is_some_and(|(_, d)| d.away);
+        let covered = self.overlay.is_some() || self.menu_open() || self.sidebar.menu_at.is_some() || self.shown_create().is_some() || self.panels.parks_pages();
         let shown: Vec<u64> = match self.session_tree().and_then(|t| self.workspaces.get(&t)) {
             Some(w) if !covered => w.shown().into_iter().filter_map(|(_, t)| web(t)).collect(),
             _ => Vec::new(),
         };
-        let live: HashSet<u64> = self.workspaces.values().flat_map(|w| w.tree.panes()).flat_map(|p| &p.tabs).filter_map(web).collect();
-        let ended = self.panels.drag.is_none();
+        let live: HashSet<u64> = self.workspaces.values().flat_map(|w| w.tops()).flat_map(|t| t.panes()).flat_map(|p| &p.tabs).filter_map(web).collect();
+        let ended = !self.panels.holding();
         for shot in self.browsers.tabs.iter_mut().filter(|(id, _)| ended || !live.contains(*id)).filter_map(|(_, b)| b.shot.take()) {
             window.drop_image(shot).ok();
         }

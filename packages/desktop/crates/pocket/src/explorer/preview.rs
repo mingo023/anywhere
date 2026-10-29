@@ -1,8 +1,5 @@
 mod code;
-mod header;
 mod markdown;
-
-pub(crate) use header::relative;
 
 use crate::add_to_chat::offers_chat;
 use crate::desktop::Desktop;
@@ -24,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::prefs::files::{Autosave, Files};
 use theme::*;
+use ui::Segment;
 use workspace::Doc;
 use workspace::tree::PaneId;
 
@@ -97,25 +95,9 @@ pub fn load(path: &str, changed: bool) -> (String, Preview, Vec<Line>) {
     (path.to_string(), preview, diff)
 }
 
-pub fn language(path: &str) -> &'static str {
-    match path.rsplit_once('.').map(|(_, e)| e) {
-        Some("ts" | "tsx") => "TypeScript",
-        Some("js" | "jsx" | "mjs" | "cjs") => "JavaScript",
-        Some("rs") => "Rust",
-        Some("py") => "Python",
-        Some("go") => "Go",
-        Some("swift") => "Swift",
-        Some("kt" | "kts") => "Kotlin",
-        Some("java") => "Java",
-        Some("json") => "JSON",
-        Some("md") => "Markdown",
-        Some("toml") => "TOML",
-        Some("yml" | "yaml") => "YAML",
-        Some("sh" | "zsh" | "bash") => "Shell",
-        Some("css") => "CSS",
-        Some("html") => "HTML",
-        _ => "Plain text",
-    }
+/// `path` relative to `root`, or whole when it lies outside.
+pub fn relative(path: &str, root: &str) -> String {
+    path.strip_prefix(root).map(|r| r.trim_start_matches('/').to_string()).unwrap_or_else(|| path.to_string())
 }
 
 pub fn size(bytes: usize) -> String {
@@ -262,8 +244,6 @@ impl<V> FilePane<V> {
 /// The file each pane shows, and the unsaved edits all panes share. The editors are `V` so the rules over the plain state test without GPUI.
 pub struct PreviewState<V = Views> {
     pub(crate) panes: HashMap<PaneId, FilePane<V>>,
-    /// The copied path and the timer that turns its check back; a new copy replaces, and so cancels, the old one.
-    pub(crate) path_copied: Option<(String, Task<()>)>,
     /// Saves every draft once typing pauses; a new edit replaces, and so restarts, it.
     autosave: Option<Task<()>>,
     /// Unsaved text by file path. Panes showing one file share its draft, so edits live here, not in an editor.
@@ -272,7 +252,7 @@ pub struct PreviewState<V = Views> {
 
 impl<V> Default for PreviewState<V> {
     fn default() -> Self {
-        Self { panes: HashMap::new(), path_copied: None, autosave: None, drafts: HashMap::new() }
+        Self { panes: HashMap::new(), autosave: None, drafts: HashMap::new() }
     }
 }
 
@@ -455,8 +435,24 @@ impl Desktop {
 
     pub fn file_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
         let Some(path) = self.preview.file(pane).map(str::to_string) else { return div() };
-        let header = self.file_header(pane, &path, cx);
-        let Some(FilePane { views: Some(views), marks, .. }) = self.preview.pane(pane) else { return div() };
+        let Some(file @ FilePane { views: Some(views), marks, .. }) = self.preview.pane(pane) else { return div() };
+        let switch = file.markdown().then(|| {
+            div().absolute().top(px(8.)).right(px(16.)).child(div().id("md-mode").child(ui::segmented(
+                vec![Segment { icon: None, value: false, label: "Preview".into(), badge: None }, Segment { icon: None, value: true, label: "Source".into(), badge: None }],
+                file.md_source,
+                true,
+                false,
+                move |this, v, cx| {
+                    let Some(f) = this.preview.panes.get_mut(&pane) else { return };
+                    f.md_source = v;
+                    if let Some(views) = &f.views {
+                        views.md.update(cx, |md, cx| md.set_text(&f.code_text, cx));
+                    }
+                    cx.notify();
+                },
+                cx,
+            )))
+        });
         let body = match self.preview.body(pane) {
             Body::Markdown => offers_chat(pane, markdown_pane(views), cx).into_any_element(),
             Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone(), self.store.files.font_size as f32), cx).into_any_element(),
@@ -471,13 +467,7 @@ impl Desktop {
             Body::Note(note) => empty(note).into_any_element(),
             Body::Blank => div().flex_1().into_any_element(),
         };
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(header)
-            .child(body)
+        div().relative().flex_1().min_h_0().flex().flex_col().child(body).children(switch)
     }
 
     /// Loads each pane's file into its code editor after it changed, keeping the scroll position when the same file refreshes.
@@ -527,17 +517,21 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Body, FilePane, Mark, Preview, PreviewState, classify, decode, language, preview, size};
+    use super::{Body, FilePane, Mark, Preview, PreviewState, classify, decode, preview, relative, size};
     use crate::desktop::MAIN;
     use git::{Kind, Line};
     use workspace::tree::PaneId;
 
     #[test]
-    fn names_languages_and_sizes() {
-        assert_eq!(language("src/a.tsx"), "TypeScript");
-        assert_eq!(language("Makefile"), "Plain text");
+    fn names_sizes() {
         assert_eq!(size(612), "612 B");
         assert_eq!(size(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn paths_show_relative_to_the_root_unless_outside_it() {
+        assert_eq!(relative("/r/src/a.rs", "/r"), "src/a.rs");
+        assert_eq!(relative("/elsewhere/a.rs", "/r"), "/elsewhere/a.rs");
     }
 
     #[test]

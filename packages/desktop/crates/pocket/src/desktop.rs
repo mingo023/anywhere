@@ -248,7 +248,7 @@ impl Desktop {
         self.show_tree(&tree);
         self.side = Side::Sessions;
         let w = self.workspace(&tree);
-        if let Some((pane, i)) = w.tab_of(&term) {
+        if let Some((pane, i)) = w.show_term(&term) {
             w.tree.select(pane, i);
         }
         self.load_active(cx);
@@ -329,7 +329,7 @@ impl Desktop {
     }
 
     pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
-        self.place().and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tree.panes().iter().map(|p| p.id).collect())
+        self.place().and_then(|t| self.workspaces.get(&t)).map_or(vec![MAIN], |w| w.tops().iter().flat_map(|t| t.panes()).map(|p| p.id).collect())
     }
 
     /// The tab `pane` shows in the worktree on screen.
@@ -596,7 +596,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_account_menu() || this.close_menus() {
+                if this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_account_menu() || this.close_menus() {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);

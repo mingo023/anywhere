@@ -16,6 +16,7 @@ impl Desktop {
         let o = self.panels.bounds;
         let mark = match self.panels.aim {
             Some(Aim::To(target)) => self.drop_mark(t, target, y),
+            Some(Aim::Top(i)) => self.top_caret(tree, i, o),
             _ => None,
         };
         let tab = t.pane(*from)?.tabs.get(d.from)?;
@@ -34,7 +35,7 @@ impl Desktop {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(TEXT)
             .whitespace_nowrap()
-            .child(self.tab_lead(tab, false, TEXT));
+            .child(self.tab_lead(tab, false, true));
         Some(deferred(div().absolute().inset_0().children(mark).child(ghost)))
     }
 
@@ -47,7 +48,7 @@ impl Desktop {
             Target::Into { pane, index } if rect_of(pane).is_some_and(|r| y - r.y < drop::STRIP_H) => {
                 let r = rect_of(pane)?;
                 let caret = drop::caret(self.panels.slots.get(&pane).map_or(&[][..], Vec::as_slice), index).unwrap_or(r.x + 12.).min(r.x + r.w - 12.).max(r.x + 12.);
-                div().absolute().left(px(caret - 1. - o.x)).top(px(r.y + 11. - o.y)).w(px(2.)).h(px(20.)).rounded(px(1.)).bg(ACCENT)
+                div().absolute().left(px(caret - 1. - o.x)).top(px(r.y + 8. - o.y)).w(px(2.)).h(px(20.)).rounded(px(1.)).bg(ACCENT)
             }
             Target::Into { pane, .. } | Target::Split { pane, .. } => {
                 let edge = if let Target::Split { edge, .. } = target { Some(edge) } else { None };
