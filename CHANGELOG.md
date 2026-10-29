@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.19
+
+- Mermaid diagrams zoom from a corner HUD and open in their own window, as markdown-preview's (#146): (834ece84)
+- Scrolling back through a chat no longer re-parses its messages (#148): (3117fdf1)
+- A reconnect drops chat items its page no longer covers (#147): (a878ffd1)
+- A long inline code span fills each line before it wraps (#145): (e03d65f8)
+- Mermaid diagrams show in chat, with pan, zoom and a Preview/Source switch (#144): (4dcbd00a)
+
 ## 0.1.18
 
 - The agent map scrolls to its top agents (#142): (f2d17f51)
