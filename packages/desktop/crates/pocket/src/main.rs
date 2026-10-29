@@ -22,6 +22,7 @@ mod modals;
 mod notch;
 mod palette;
 mod panels;
+mod region;
 mod removal;
 mod settings;
 mod sidebar;

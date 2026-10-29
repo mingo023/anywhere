@@ -123,7 +123,7 @@ fn clipped(key: String, text: &str, max: usize, line: f32, body: impl IntoElemen
 }
 
 pub(crate) fn glyph(id: &str, mark: Mark) -> AnyElement {
-    let spin = |svg: Svg| svg.with_animation(SharedString::from(format!("agent-spin-{id}")), Animation::new(Duration::from_secs(1)).repeat().with_max_fps(20.), |s, t| s.with_transformation(Transformation::rotate(percentage(t))));
+    let spin = |svg: Svg| svg.with_animation(SharedString::from(format!("agent-spin-{id}")), Animation::new(Duration::from_secs(1)).repeat_synced().with_max_fps(20.), |s, t| s.with_transformation(Transformation::rotate(percentage(t))));
     match mark {
         Mark::Starting => icon("agent-starting", 14., TEXT_2).into_any_element(),
         Mark::Running => div().size(px(14.)).flex_none().relative().child(icon("agent-ring", 14., RAIL).absolute()).child(spin(icon("agent-arc", 14., TEXT_2).absolute())).into_any_element(),

@@ -586,7 +586,7 @@ fn lit(x: f32, t: f32) -> f32 {
 pub fn sweep(id: impl Into<ElementId>, text: SharedString, base: Token) -> AnimationElement<Div> {
     let (base, peak): (Hsla, Hsla) = (base.into(), SHIMMER.into());
     // Uncapped, a repeating animation redraws the whole window every vsync.
-    div().with_animation(id, Animation::new(SWEEP).repeat().with_max_fps(20.), move |d, t| {
+    div().with_animation(id, Animation::new(SWEEP).repeat_synced().with_max_fps(20.), move |d, t| {
         let n = text.chars().count().max(1) as f32;
         let runs: Vec<_> = text
             .char_indices()

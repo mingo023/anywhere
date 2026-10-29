@@ -194,7 +194,7 @@ impl Desktop {
         let flowing = edges.iter().any(|e| e.status == ToolStatus::Running);
         let layer = if flowing {
             let edges = edges.clone();
-            div().absolute().top_0().left_0().size_full().with_animation(id(format!("chat-map-flow:{}", agent.id)), Animation::new(Duration::from_millis(900)).repeat().with_max_fps(30.), move |d, p| d.child(edges_layer(edges.clone(), p * (DASH + DASH_GAP), size))).into_any_element()
+            div().absolute().top_0().left_0().size_full().with_animation(id(format!("chat-map-flow:{}", agent.id)), Animation::new(Duration::from_millis(900)).repeat_synced().with_max_fps(30.), move |d, p| d.child(edges_layer(edges.clone(), p * (DASH + DASH_GAP), size))).into_any_element()
         } else {
             edges_layer(edges, 0., size).into_any_element()
         };

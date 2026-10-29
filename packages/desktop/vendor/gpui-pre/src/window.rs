@@ -124,6 +124,7 @@ struct WindowInvalidatorInner {
     pub dirty: bool,
     pub draw_phase: DrawPhase,
     pub dirty_views: FxHashSet<EntityId>,
+    pub redrawn_views: FxHashSet<EntityId>,
     pub update_count: usize,
     #[cfg(feature = "profiler")]
     pub frame_dirty: FrameDirtyAccumulator,
@@ -156,6 +157,7 @@ impl WindowInvalidator {
                 dirty: true,
                 draw_phase: DrawPhase::None,
                 dirty_views: FxHashSet::default(),
+                redrawn_views: FxHashSet::default(),
                 update_count: 0,
                 #[cfg(feature = "profiler")]
                 frame_dirty: FrameDirtyAccumulator::default(),
@@ -259,6 +261,17 @@ impl WindowInvalidator {
 
     pub fn take_views(&self) -> FxHashSet<EntityId> {
         mem::take(&mut self.inner.borrow_mut().dirty_views)
+    }
+
+    /// Marks `view` for a redraw without notifying it: nothing observing it runs, and a cached view that read it
+    /// keeps its drawing.
+    pub fn redraw_view(&self, view: EntityId) {
+        self.inner.borrow_mut().redrawn_views.insert(view);
+        self.set_dirty(true);
+    }
+
+    pub fn take_redrawn_views(&self) -> FxHashSet<EntityId> {
+        mem::take(&mut self.inner.borrow_mut().redrawn_views)
     }
 
     pub fn replace_views(&self, views: FxHashSet<EntityId>) {
@@ -1194,6 +1207,8 @@ pub struct Window {
     pub(crate) tooltip_bounds: Option<TooltipBounds>,
     pub(crate) next_frame_callbacks: Rc<RefCell<Vec<FrameCallback>>>,
     pub(crate) dirty_views: FxHashSet<EntityId>,
+    /// The entities notified since the last frame, which a cached view that read any of them can't reuse.
+    pub(crate) notified_entities: FxHashSet<EntityId>,
     focus_listeners: SubscriberSet<(), AnyWindowFocusListener>,
     pub(crate) focus_lost_listeners: SubscriberSet<(), AnyObserver>,
     focus_lost_path: SmallVec<[FocusId; 8]>,
@@ -2087,6 +2102,7 @@ impl Window {
             next_tooltip_id: TooltipId::default(),
             tooltip_bounds: None,
             dirty_views: FxHashSet::default(),
+            notified_entities: FxHashSet::default(),
             focus_listeners: SubscriberSet::new(),
             focus_lost_listeners: SubscriberSet::new(),
             focus_lost_path: SmallVec::new(),
@@ -2304,6 +2320,11 @@ impl Window {
     /// Obtain a handle to the window that belongs to this context.
     pub fn window_handle(&self) -> AnyWindowHandle {
         self.handle
+    }
+
+    /// The hitboxes of the last frame drawn, whether inserted during it or reused from a cached view.
+    pub fn drawn_hitboxes(&self) -> impl Iterator<Item = HitboxId> + '_ {
+        self.rendered_frame.hitboxes.iter().map(|hitbox| hitbox.id)
     }
 
     /// Mark the window as dirty, scheduling it to be redrawn on the next frame.
@@ -2651,6 +2672,12 @@ impl Window {
         // Next-frame callbacks create frame demand without dirtying the
         // window, so the platform's frame source must be woken explicitly.
         self.invalidator.wake_platform();
+    }
+
+    /// Redraws `view` for a change only its own elements show, such as an animation's next step: a cached view that
+    /// read it keeps its drawing, where [`App::notify`] would redraw it too.
+    pub fn redraw_view(&self, view: EntityId) {
+        self.invalidator.redraw_view(view);
     }
 
     /// Schedule a frame to be drawn on the next animation frame.
@@ -3374,6 +3401,7 @@ impl Window {
             }
         }
         self.dirty_views.clear();
+        self.notified_entities.clear();
         self.next_frame.window_active = self.active.get();
 
         // Register requested input handler with the platform window.
@@ -3494,6 +3522,8 @@ impl Window {
 
     fn invalidate_entities(&mut self) {
         let mut views = self.invalidator.take_views();
+        self.notified_entities.extend(views.iter().copied());
+        views.extend(self.invalidator.take_redrawn_views());
         for entity in views.drain() {
             self.mark_view_dirty(entity);
         }

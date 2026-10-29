@@ -19,7 +19,7 @@ fn button(id: ElementId, tip: &'static str) -> Stateful<Div> {
 pub(crate) fn send_button(id: ElementId, action: Action, empty: bool, blocked: bool) -> Stateful<Div> {
     let b = match action {
         Action::Stop => {
-            let ring = icon("send-ring", SIZE, ON_TEXT).absolute().top_0().left_0().with_animation("send-ring", Animation::new(Duration::from_secs(1)).repeat().with_max_fps(30.), |s, t| {
+            let ring = icon("send-ring", SIZE, ON_TEXT).absolute().top_0().left_0().with_animation("send-ring", Animation::new(Duration::from_secs(1)).repeat_synced().with_max_fps(30.), |s, t| {
                 s.with_transformation(Transformation::rotate(percentage(t)))
             });
             button(id, "Stop · esc").relative().bg(TEXT).child(ring).child(stop_square(ON_TEXT))

@@ -10,7 +10,7 @@
 use crate::{
     AnyElement, App, AvailableSpace, Bounds, ContentMask, DispatchPhase, Edges, Element, EntityId,
     FocusHandle, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
-    Overflow, Pixels, Point, ScrollDelta, ScrollWheelEvent, Size, Style, StyleRefinement, Styled,
+    Overflow, Pixels, Point, ScrollWheelEvent, Size, Style, StyleRefinement, Styled,
     Window, point, px, size,
 };
 use collections::VecDeque;
@@ -73,6 +73,8 @@ struct StateInner {
     measuring_behavior: ListMeasuringBehavior,
     pending_scroll: Option<PendingScroll>,
     follow_state: FollowState,
+    /// The first item on screen at the last layout.
+    shown_top: Option<usize>,
 }
 
 /// Deferred scroll adjustment applied after the scroll-top item has been remeasured.
@@ -325,6 +327,7 @@ impl ListState {
             measuring_behavior: ListMeasuringBehavior::default(),
             pending_scroll: None,
             follow_state: FollowState::default(),
+            shown_top: None,
         })));
         this.splice(0..0, item_count);
         this
@@ -546,6 +549,10 @@ impl ListState {
                 *item_ix = *item_ix - (old_range.end - old_range.start) + spliced_count;
             }
         }
+        state.shown_top = state
+            .shown_top
+            .filter(|ix| !old_range.contains(ix))
+            .map(|ix| if old_range.end <= ix { ix - old_range.len() + spliced_count } else { ix });
     }
 
     /// Set a handler that will be called when the list is scrolled.
@@ -1084,6 +1091,19 @@ impl StateInner {
 
         let mut cursor = old_items.cursor::<Count>(());
 
+        // Items scrolled into above the first one shown last time can be a stale height, their content having grown
+        // off screen (a diagram drawn late): they grow upward, so that item and the ones under it stay put.
+        let mut anchor = self.shown_top.filter(|&anchor| {
+            if anchor <= scroll_top.item_ix {
+                return false;
+            }
+            let mut heights = self.items.cursor::<ListItemSummary>(());
+            heights.seek(&Count(scroll_top.item_ix), Bias::Right);
+            let top = heights.start().height;
+            heights.seek_forward(&Count(anchor), Bias::Right);
+            padding.top + heights.start().height - top - scroll_top.offset_in_item < available_height
+        });
+
         // Render items after the scroll top, including those in the trailing overdraw
         cursor.seek(&Count(scroll_top.item_ix), Bias::Right);
         for (ix, item) in cursor.by_ref().enumerate() {
@@ -1116,6 +1136,7 @@ impl StateInner {
                             PendingScroll::Proportional(pending_scroll)
                                 if pending_scroll.item_ix == scroll_top.item_ix =>
                             {
+                                anchor = None;
                                 // Ensuring proportional scroll position is
                                 // maintained after re-measuring.
                                 scroll_top.offset_in_item =
@@ -1125,6 +1146,14 @@ impl StateInner {
                             _ => {}
                         }
                     }
+                }
+
+                if anchor.is_some_and(|anchor| item_index < anchor)
+                    && let Some(cached) = item.size_hint()
+                {
+                    scroll_top.offset_in_item =
+                        (scroll_top.offset_in_item + element_size.height - cached.height).max(px(0.));
+                    self.logical_scroll_top = Some(scroll_top);
                 }
 
                 if visible_height < available_height {
@@ -1241,6 +1270,8 @@ impl StateInner {
                 self.follow_state.start_following();
             }
         }
+
+        self.shown_top = item_layouts.front().map(|item| item.index);
 
         // If none of the visible items are focused, check if an off-screen item is focused
         // and include it to be rendered after the visible items so keyboard interaction continues
@@ -1631,15 +1662,16 @@ impl Element for List {
         let height = bounds.size.height;
         let scroll_top = prepaint.layout.scroll_top;
         let hitbox_id = prepaint.hitbox.id;
-        let mut accumulated_scroll_delta = ScrollDelta::default();
+        let mut accumulated_scroll_delta = Point::<Pixels>::default();
         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
             if phase == DispatchPhase::Bubble && hitbox_id.should_handle_scroll(window) {
-                accumulated_scroll_delta = accumulated_scroll_delta.coalesce(event.delta);
-                let pixel_delta = accumulated_scroll_delta.pixel_delta(px(20.));
+                // Each event scrolls from the painted top, so it must carry every delta since that paint: a zero
+                // one (a finger lifting) or an opposite one (a reversal) dropping the rest snaps the list back.
+                accumulated_scroll_delta += event.delta.pixel_delta(px(20.));
                 list_state.0.borrow_mut().scroll(
                     &scroll_top,
                     height,
-                    pixel_delta,
+                    accumulated_scroll_delta,
                     current_view,
                     window,
                     cx,

@@ -74,6 +74,11 @@ wry = { version = "0.57", default-features = false, features = ["devtools"] }
 # It also adds `ListState::height_from`, so the chat can size the room under a sent prompt; upstream has no equivalent.
 # It also asks for a frame when a `List`'s height changes, since its view rendered against the old height; upstream has no equivalent.
 # It also moves a `with_max_fps` animation in whole steps, waking at the start of each, where it drifted by however late each frame came.
+# It also redraws a cached view when an entity it read is notified, where only notifying the view itself did; upstream has no equivalent.
+# It also adds `Window::drawn_hitboxes`, so gpui-base can tell what a reused cached view drew; upstream has no equivalent.
+# It also has an animation's next step redraw only its view, where notifying the view redrew every cached view that read it; upstream has no equivalent.
+# It also scrolls a `List` by every wheel delta since its last paint, where a zero or reversed one dropped the rest and snapped it back; drop once upstream does.
+# It also keeps the rows a `List` showed still when ones scrolled into above them turn out a different height than cached; drop once upstream does.
 [patch.crates-io]
 gpui-pre = { path = "vendor/gpui-pre" }
 # gpui-pre-apple 0.3.6 compositing alpha "over" instead of adding it, so a translucent layer doesn't make the glass window opaque; drop once upstream does.
@@ -90,6 +95,7 @@ gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # It also grows a double- or triple-click selection a word or line at a time as the pointer drags, as a browser does; drop once upstream does.
 # It also selects a table in reading order, cell by cell, where a drag inside one cell selected the cells beside it; drop once upstream does.
 # It also wraps a long inline code span only once a line is full, where padding counted per word or glyph broke it every few characters; drop once upstream does.
+# It also keeps selectable text inside a reused cached view, where the frame dropped it, clearing its selection and refreshing the window; drop once upstream does.
 gpui-base = { path = "vendor/gpui-base" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.

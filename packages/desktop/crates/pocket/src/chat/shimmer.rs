@@ -16,7 +16,7 @@ pub(super) fn shimmer(id: impl Into<ElementId>, text: impl Into<SharedString>, b
     let text = text.into();
     let (base, peak): (Hsla, Hsla) = (base.into(), TEXT.into());
     // Uncapped, a repeating animation redraws the whole window every vsync.
-    div().with_animation(id, Animation::new(SWEEP).repeat().with_max_fps(20.), move |d, t| {
+    div().with_animation(id, Animation::new(SWEEP).repeat_synced().with_max_fps(20.), move |d, t| {
         let n = text.chars().count().max(1) as f32;
         let runs: Vec<_> = text
             .char_indices()

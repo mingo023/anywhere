@@ -36,6 +36,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer; `terminal_view/menu` its right-click menu |
 | `browser` | browser tabs: pages, address bar, navigation |
 | `sidebar` | projects aside, compact rail, `sidebar/sections` the aside's Pinned, groups and Other with the Projects header and its organize menu, `sidebar/filter` the header's filter, `sidebar/fold` the folds' spring open and shut, `sidebar/project_picker` the rail's project switcher, `sidebar/rename` inline worktree rename, `sidebar/column` the inbox and Automations column and the panel's body, `sidebar/panel` the right-hand panel: its rail and edge drag |
+| `region` | a part of the window drawn as its own cached view, which a redraw started elsewhere (a chat's scroll) leaves as drawn; `Regions` the columns either side of the page |
 | `removal` | deleting a worktree: its teardown script, its branch, the confirm and the row's "Deleting…" |
 | `git_ui` | `changes` panel and commit, `diff` view, `graph` commit graph, `commit` stacked commit diff |
 | `accounts` | each machine's Claude Code and Codex sign-ins as its pocketd lists them, their usage, the sign-in terminals, and the account a session starts on |
