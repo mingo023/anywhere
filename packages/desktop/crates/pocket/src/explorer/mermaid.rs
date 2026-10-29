@@ -1,15 +1,18 @@
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextViewState, markdown_ast as mdast};
 use gpui_kit::*;
-use merman::svg::{HostTheme, Presentation, ResolvedPresentation, SvgOutputPolicy, SvgPipelinePreset, ThemeRole};
-use merman::{OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest};
 use resvg::usvg::{Options, Tree};
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use theme::*;
+use hud::Act;
 use viewport::Viewport;
 
+mod hud;
+mod pele;
+mod popup;
+mod source;
 mod viewport;
 
 const BUDGET: usize = 64 << 20;
@@ -17,46 +20,10 @@ const MAX_SIDE: f32 = 8192.;
 // Diagrams painted this recently are on screen, so eviction spares them.
 const IN_USE: Duration = Duration::from_millis(250);
 const FADE: Duration = Duration::from_millis(200);
-/// A card's tallest; a taller diagram pans.
-const MAX_HEIGHT: f32 = 480.;
-
-struct Merman {
-    renderer: Renderer,
-    presentation: ResolvedPresentation,
-}
-
-type Engines = HashMap<(u32, bool), Arc<Merman>>;
-
-/// By canvas colour and `dark`: each scheme and canvas lays out its own colours.
-static MERMAN: LazyLock<Mutex<Engines>> = LazyLock::new(Default::default);
-
-fn merman(canvas: Token, dark: bool) -> Arc<Merman> {
-    let mut cache = MERMAN.lock().unwrap();
-    cache.entry((canvas.pick(dark), dark)).or_insert_with(|| Arc::new(build(canvas, dark))).clone()
-}
-
-fn build(canvas: Token, dark: bool) -> Merman {
-    let roles = [
-        (ThemeRole::Canvas, canvas),
-        (ThemeRole::Surface, SURFACE_SUNKEN),
-        (ThemeRole::SurfaceAlt, WINDOW_SOLID),
-        (ThemeRole::Text, TEXT),
-        (ThemeRole::SubtleText, TEXT_3),
-        (ThemeRole::Border, TEXT_6),
-        (ThemeRole::Line, TEXT_4),
-        (ThemeRole::ClusterBackground, SURFACE_SUNKEN),
-        (ThemeRole::ClusterBorder, TEXT_6),
-        (ThemeRole::NoteBackground, ACCENT_BG),
-        (ThemeRole::NoteBorder, ACCENT),
-        (ThemeRole::NoteText, TEXT),
-        (ThemeRole::Error, FAILED),
-    ];
-    let flat = |c: u32| hex(c, dark);
-    let theme = roles.into_iter().fold(HostTheme::new().try_with_font_family("Geist, sans-serif").unwrap(), |t, (role, c)| t.try_with_role(role, flat(c.pick(dark))).unwrap());
-    let presentation = Presentation::new().with_theme(theme.try_with_series_palette(PALETTE.map(flat)).unwrap()).resolve();
-    let renderer = Renderer::new().with_engine(presentation.materialize_engine(merman::Engine::new()));
-    Merman { renderer, presentation }
-}
+/// Between a card's edges and its diagram, fitted.
+const PAD: f32 = 16.;
+/// A card's tallest, unless 70% of the window is less; a taller diagram shrinks to fit.
+const MAX_HEIGHT: f32 = 720.;
 
 static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
     let mut options = Options::default();
@@ -68,24 +35,9 @@ static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
     options
 });
 
-/// Merman wants opaque colours, so translucent tokens are flattened onto white, or onto the window in dark.
-fn hex(c: u32, dark: bool) -> String {
-    let [br, bg, bb, _] = if dark { WINDOW_SOLID.pick(true) } else { 0xffffffff }.to_be_bytes();
-    let a = (c & 0xff) as f32 / 255.;
-    let mix = |v: u32, base: u8| ((v & 0xff) as f32 * a + base as f32 * (1. - a)).round() as u8;
-    format!("#{:02x}{:02x}{:02x}", mix(c >> 24, br), mix(c >> 16, bg), mix(c >> 8, bb))
-}
-
-/// Mermaid source as SVG that resvg can draw: labels are plain `<text>`, not `<foreignObject>`.
+/// Mermaid source as SVG that resvg can draw, on `canvas`.
 fn svg(source: &str, canvas: Token, dark: bool) -> Result<String, String> {
-    let merman = merman(canvas, dark);
-    let pipeline = SvgOutputPolicy { preset: SvgPipelinePreset::ResvgSafe, root_background_color: Some(hex(canvas.pick(dark), dark)), ..Default::default() }.pipeline();
-    let request = SvgRequest { pipeline: Some(pipeline), presentation: merman.presentation.render_policy(), ..Default::default() };
-    match merman.renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
-        Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.svg().to_string()),
-        Ok(_) => Err("Not a Mermaid diagram".into()),
-        Err(e) => Err(e.to_string()),
-    }
+    pele::render(source).map(|svg| pele::resolve(&svg, canvas.pick(dark), dark))
 }
 
 fn tree(source: &str, canvas: Token, dark: bool) -> Result<Arc<Tree>, String> {
@@ -151,7 +103,16 @@ pub struct Diagrams {
     cards: HashMap<u64, (f32, f32)>,
     /// The card being dragged, by place, and where the pointer last was.
     drag: Option<(u64, Point<Pixels>)>,
+    /// The card under the pointer, by place, which shows its zoom buttons.
+    hovered: Option<u64>,
+    /// Cards showing their source instead, by place.
+    sources: HashSet<u64>,
 }
+
+/// A card changed height, which a list measuring its rows can't see.
+pub struct Resized;
+
+impl EventEmitter<Resized> for Diagrams {}
 
 impl Diagrams {
     pub fn new(md: &Entity<TextViewState>) -> Self {
@@ -170,25 +131,55 @@ impl Diagrams {
             views: HashMap::new(),
             cards: HashMap::new(),
             drag: None,
+            hovered: None,
+            sources: HashSet::new(),
         }
     }
 
-    /// The card at `place` back to showing the whole diagram.
-    pub(crate) fn fit(&mut self, place: u64, cx: &mut Context<Self>) {
-        if self.views.remove(&place).is_some() {
+    fn view(&self, place: u64) -> Viewport {
+        self.views.get(&place).copied().unwrap_or_default()
+    }
+
+    fn set_view(&mut self, place: u64, view: Viewport, cx: &mut Context<Self>) {
+        if view == self.view(place) {
+            return;
+        }
+        if view == Viewport::default() {
+            self.views.remove(&place);
+        } else {
+            self.views.insert(place, view);
+        }
+        cx.notify();
+    }
+
+    /// Whether the card at `place` shows its zoom buttons: under the pointer or being dragged.
+    fn shows_hud(&self, place: u64) -> bool {
+        self.hovered == Some(place) || self.drag.is_some_and(|(p, _)| p == place)
+    }
+
+    fn hover(&mut self, place: u64, hovered: bool, cx: &mut Context<Self>) {
+        let now = if hovered { Some(place) } else { self.hovered.filter(|p| *p != place) };
+        if now != self.hovered {
+            self.hovered = now;
             cx.notify();
         }
     }
 
-    /// Whether the diagram under `key` was laid out and parsed.
-    pub(crate) fn ready(&self, key: u64) -> bool {
-        matches!(self.items.get(&key), Some(Diagram::Ready(_)))
+    fn toggle_source(&mut self, place: u64, cx: &mut Context<Self>) {
+        if !self.sources.remove(&place) {
+            self.sources.insert(place);
+        }
+        // The card's buttons go with it; the pointer brings them back.
+        self.hovered = None;
+        self.relayout(cx);
+        cx.notify();
     }
 
-    fn relayout(&self, cx: &mut App) {
+    fn relayout(&self, cx: &mut Context<Self>) {
         if let Some(md) = &self.md {
             md.update(cx, |md, cx| md.invalidate_inline_layout(cx)).ok();
         }
+        cx.emit(Resized);
     }
 
     fn get(&mut self, key: u64, source: &SharedString, dark: bool, cx: &mut Context<Self>) -> Diagram {
@@ -273,61 +264,38 @@ pub(crate) fn place(at: impl Hash) -> u64 {
     hasher.finish()
 }
 
+/// What the fullscreen button opens: the diagram's source and the heading above it, which titles the window.
+struct Fullscreen {
+    source: SharedString,
+    heading: Option<SharedString>,
+}
+
 /// Mermaid `source` drawn in the current scheme once laid out, in the card at `place`; its error and source if it doesn't parse.
-pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, cx: &mut App) -> Stateful<Div> {
+/// `heading` finds the nearest heading above it, asked only while its buttons show.
+pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: impl FnOnce() -> Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
+    if diagrams.read(cx).sources.contains(&place) {
+        return div().id(SharedString::from(format!("mermaid-{place}"))).child(source::block(diagrams, place, source, cx));
+    }
     let dark = theme::is_dark();
-    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).p(px(16.)).rounded(px(15.)).bg(diagrams.read(cx).canvas);
+    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).border(px(0.5)).border_color(SEPARATOR).bg(diagrams.read(cx).canvas);
     match diagrams.update(cx, |d, cx| d.get(key, source, dark, cx)) {
         Diagram::Ready(tree) => {
             let size = tree.size();
             let natural = (size.width(), size.height());
-            let d = diagrams.read(cx);
-            let image = d.images.get(&key).map(|(image, _)| image.clone());
-            // Fresh for twice the fade, so dropping the animation can't cut it short; cached images scrolled back into view don't fade.
-            let fresh = d.rastered.get(&key).is_some_and(|t| t.elapsed() < FADE * 2);
-            let view = d.views.get(&place).copied();
-            let shown = move |card: (f32, f32)| view.map_or_else(|| Viewport::fit(natural, card), |v| v.within(natural, card));
-            let image = image.zip(d.cards.get(&place).copied().map(shown));
-            let grabbing = d.drag.is_some_and(|(p, _)| p == place);
-            let diagrams = diagrams.clone();
-            let input = canvas(
-                |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-                move |bounds, hitbox, window, cx| {
-                    let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                    let shown = shown(card);
-                    diagrams.update(cx, |d, cx| {
-                        if d.cards.insert(place, card) != Some(card) {
-                            // The card's height follows its width, so the markdown around it lays out again.
-                            d.relayout(cx);
-                            cx.notify();
-                        }
-                        d.painted(key, &tree, shown.zoom, window, cx);
-                    });
-                    let (x, y) = shown.overflow(natural, card);
-                    if grabbing || x + y > 0.5 {
-                        window.set_cursor_style(if grabbing { CursorStyle::ClosedHand } else { CursorStyle::OpenHand }, &hitbox);
-                    }
-                    listen(&diagrams, place, natural, bounds, hitbox, window);
-                },
-            );
-            // Its natural size until wider than the card, then the card's width; never taller than MAX_HEIGHT. Its height
-            // follows its laid-out width once known, as the layout takes an aspect ratio from the width before `max_w` caps it.
-            let card = div().relative().overflow_hidden().w_full().max_w(px(natural.0)).max_h(px(MAX_HEIGHT));
-            let card = match d.cards.get(&place) {
-                Some((width, _)) => card.h(px(width * natural.1 / natural.0)),
-                None => card.aspect_ratio(natural.0 / natural.1),
+            let tallest = (f32::from(window.viewport_size().height) * 0.7).min(MAX_HEIGHT).min(natural.1 + 2. * PAD);
+            // The card spans the column, its height following its width by the diagram's shape; the width is known
+            // once painted, before which the layout's aspect ratio stands in. The 1 is the border.
+            let frame = frame.relative().w_full().overflow_hidden();
+            let frame = match diagrams.read(cx).cards.get(&place) {
+                Some((width, _)) => frame.h(px(card_height(*width, natural, tallest) + 1.)),
+                None => frame.aspect_ratio(natural.0 / natural.1).max_h(px(tallest + 1.)),
             };
-            // Sized outright: an image left a side to fill takes its raster's pixels, twice the diagram on a 2x display.
-            frame.child(card.child(input.absolute().size_full()).children(image.map(|(image, v)| {
-                let image = img(ImageSource::Render(image)).absolute().left(px(-v.offset.0)).top(px(-v.offset.1)).w(px(natural.0 * v.zoom)).h(px(natural.1 * v.zoom));
-                match fresh {
-                    true => image.with_animation(("mermaid-in", place), Animation::new(FADE).with_easing(ease_out_quint()), |i, t| i.opacity(t)).into_any_element(),
-                    false => image.into_any_element(),
-                }
-            })))
+            let heading = diagrams.read(cx).shows_hud(place).then(heading).flatten();
+            frame.child(surface(diagrams, key, place, tree, PAD, Some(Fullscreen { source: source.clone(), heading }), cx))
         }
-        Diagram::Pending => frame.text_size(px(12.)).text_color(TEXT_3).child("Rendering diagram…"),
+        Diagram::Pending => frame.p(px(PAD)).text_size(px(12.)).text_color(TEXT_3).child("Rendering diagram…"),
         Diagram::Failed(error) => frame
+            .p(px(PAD))
             .flex()
             .flex_col()
             .gap(px(6.))
@@ -337,20 +305,95 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
     }
 }
 
-/// Drag pans, pinch or ⌘-scroll zooms around the pointer, a sideways swipe pans one wider than its card, a double-click
-/// fits it again. A plain scroll goes on to the page.
-fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: Bounds<Pixels>, hitbox: Hitbox, window: &mut Window) {
+/// A card `width` wide fitting a `natural`-sized diagram [`PAD`] inside it by width, up to `tallest`.
+fn card_height(width: f32, natural: (f32, f32), tallest: f32) -> f32 {
+    ((width - 2. * PAD).max(0.) * natural.1 / natural.0 + 2. * PAD).min(tallest)
+}
+
+/// The diagram filling its parent, fitted `pad` inside its edges, with zoom buttons over it while the pointer is, and
+/// with `fullscreen` one opening it in a window of its own.
+fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, pad: f32, fullscreen: Option<Fullscreen>, cx: &mut App) -> Stateful<Div> {
+    let size = tree.size();
+    let natural = (size.width(), size.height());
+    let d = diagrams.read(cx);
+    let image = d.images.get(&key).map(|(image, _)| image.clone());
+    // Fresh for twice the fade, so dropping the animation can't cut it short; cached images scrolled back into view don't fade.
+    let fresh = d.rastered.get(&key).is_some_and(|t| t.elapsed() < FADE * 2);
+    let view = d.view(place);
+    let placed = d.cards.get(&place).map(|card| view.placed(natural, *card, pad));
+    let grabbing = d.drag.is_some_and(|(p, _)| p == place);
+    let hovered = d.shows_hud(place);
+    let canvas_color = d.canvas;
+    let input = {
+        let diagrams = diagrams.clone();
+        canvas(
+            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            move |bounds, hitbox, window, cx| {
+                let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+                diagrams.update(cx, |d, cx| {
+                    let was = d.cards.insert(place, card);
+                    if was != Some(card) {
+                        if let (Some(was), Some(view)) = (was, d.views.get_mut(&place)) {
+                            *view = view.resized(was, card);
+                        }
+                        // The card's height follows its width, so the markdown around it lays out again.
+                        d.relayout(cx);
+                        cx.notify();
+                    }
+                    let zoom = d.view(place).placed(natural, card, pad).zoom;
+                    d.painted(key, &tree, zoom, window, cx);
+                });
+                window.set_cursor_style(if grabbing { CursorStyle::ClosedHand } else { CursorStyle::OpenHand }, &hitbox);
+                listen(&diagrams, place, bounds, hitbox, window);
+            },
+        )
+    };
+    // Sized outright: an image left a side to fill takes its raster's pixels, twice the diagram on a 2x display.
+    let image = image.zip(placed).map(|(image, p)| {
+        let image = img(ImageSource::Render(image)).absolute().left(px(p.origin.0)).top(px(p.origin.1)).w(px(natural.0 * p.zoom)).h(px(natural.1 * p.zoom));
+        match fresh {
+            true => image.with_animation(("mermaid-in", place), Animation::new(FADE).with_easing(ease_out_quint()), |i, t| i.opacity(t)).into_any_element(),
+            false => image.into_any_element(),
+        }
+    });
+    let hud = hovered.then(|| {
+        let d = diagrams.clone();
+        hud::hud(place, view.level(), fullscreen.is_some(), move |act, window, cx| match act {
+            Act::Zoom(k) => d.update(cx, |d, cx| {
+                let card = d.cards.get(&place).copied().unwrap_or_default();
+                let view = d.view(place).zoomed(k, (card.0 / 2., card.1 / 2.), card);
+                d.set_view(place, view, cx);
+            }),
+            Act::Fit => d.update(cx, |d, cx| d.set_view(place, Viewport::default(), cx)),
+            Act::Source => d.update(cx, |d, cx| d.toggle_source(place, cx)),
+            Act::Fullscreen => {
+                if let Some(f) = &fullscreen {
+                    popup::open(f.source.clone(), canvas_color, f.heading.clone(), window, cx);
+                }
+            }
+        })
+    });
+    let d = diagrams.clone();
+    div()
+        .id(("mermaid-surface", place))
+        .relative()
+        .size_full()
+        .overflow_hidden()
+        .on_hover(move |hovered, _, cx| d.update(cx, |d, cx| d.hover(place, *hovered, cx)))
+        .child(input.absolute().size_full())
+        .children(image)
+        .children(hud)
+}
+
+/// Drag pans, pinch or ⌘-scroll zooms around the pointer, a double-click zooms in or fits it again. A plain scroll,
+/// sideways too, goes on to the page.
+fn listen(diagrams: &Entity<Diagrams>, place: u64, bounds: Bounds<Pixels>, hitbox: Hitbox, window: &mut Window) {
     let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     let at = move |p: Point<Pixels>| (f32::from(p.x - bounds.origin.x), f32::from(p.y - bounds.origin.y));
-    let current = move |d: &Diagrams| d.views.get(&place).map_or_else(|| Viewport::fit(natural, card), |v| v.within(natural, card));
-    // A gesture that moves nothing keeps the card fitted, so it refits as the card resizes.
     let change = move |diagrams: &Entity<Diagrams>, cx: &mut App, f: &dyn Fn(Viewport) -> Viewport| {
         diagrams.update(cx, |d, cx| {
-            let (was, now) = (current(d), f(current(d)));
-            if now != was {
-                d.views.insert(place, now);
-                cx.notify();
-            }
+            let view = f(d.view(place));
+            d.set_view(place, view, cx);
         })
     };
     let (d, hit) = (diagrams.clone(), hitbox.clone());
@@ -358,14 +401,15 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: 
         if phase != DispatchPhase::Bubble || e.button != MouseButton::Left || !hit.is_hovered(window) {
             return;
         }
-        d.update(cx, |d, cx| {
-            if e.click_count == 2 {
-                d.views.remove(&place);
-            } else {
+        if e.click_count == 2 {
+            let point = at(e.position);
+            change(&d, cx, &|v| v.double_clicked(point, card));
+        } else {
+            d.update(cx, |d, cx| {
                 d.drag = Some((place, e.position));
-            }
-            cx.notify();
-        });
+                cx.notify();
+            });
+        }
         // Not a text selection starting.
         cx.stop_propagation();
     });
@@ -381,7 +425,7 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: 
         }
         let by = (f32::from(e.position.x - last.x), f32::from(e.position.y - last.y));
         d.update(cx, |d, _| d.drag = Some((dragged, e.position)));
-        change(&d, cx, &|v| v.panned(by, natural, card));
+        change(&d, cx, &|v| v.panned(by));
     });
     let d = diagrams.clone();
     window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
@@ -394,29 +438,48 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: 
     });
     let (d, hit) = (diagrams.clone(), hitbox.clone());
     window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
-        if phase != DispatchPhase::Bubble || !hit.is_hovered(window) {
+        if phase != DispatchPhase::Bubble || !hit.is_hovered(window) || !(e.modifiers.platform || e.modifiers.control) {
             return;
         }
-        let delta = e.delta.pixel_delta(px(20.));
-        let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
-        if e.modifiers.platform {
-            let point = at(e.position);
-            change(&d, cx, &|v| v.zoomed((dy / 200.).exp(), point, natural, card));
-        } else if dx.abs() > dy.abs() && current(d.read(cx)).overflow(natural, card).0 > 0. {
-            change(&d, cx, &|v| v.panned((dx, 0.), natural, card));
-        } else {
-            return;
-        }
+        let (point, dy) = (at(e.position), f32::from(e.delta.pixel_delta(px(20.)).y));
+        change(&d, cx, &|v| v.zoomed((dy * 0.01).exp(), point, card));
         cx.stop_propagation();
     });
     let d = diagrams.clone();
     window.on_mouse_event(move |e: &PinchEvent, phase, window, cx| {
         if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
             let point = at(e.position);
-            change(&d, cx, &|v| v.zoomed(1. + e.delta, point, natural, card));
+            change(&d, cx, &|v| v.zoomed(1. + e.delta, point, card));
             cx.stop_propagation();
         }
     });
+}
+
+/// The nearest heading above byte `at` of `markdown`.
+pub(crate) fn heading_above(markdown: &str, at: usize) -> Option<SharedString> {
+    markdown.get(..at).and_then(heading).map(|h| h.to_string().into())
+}
+
+/// The last ATX heading's text in `markdown`, skipping fenced code.
+fn heading(markdown: &str) -> Option<&str> {
+    let mut fence: Option<&str> = None;
+    let mut last = None;
+    for line in markdown.lines().map(str::trim_start) {
+        let marker = ["```", "~~~"].into_iter().find(|m| line.starts_with(m));
+        match (fence, marker) {
+            (None, Some(m)) => fence = Some(m),
+            (Some(open), Some(m)) if open == m => fence = None,
+            (None, None) => {
+                let text = line.trim_start_matches('#');
+                let level = line.len() - text.len();
+                if (1..=6).contains(&level) && (text.is_empty() || text.starts_with([' ', '\t'])) {
+                    last = Some(text.trim().trim_end_matches('#').trim_end()).filter(|t| !t.is_empty());
+                }
+            }
+            _ => {}
+        }
+    }
+    last
 }
 
 struct Fence {
@@ -424,6 +487,7 @@ struct Fence {
     keys: [u64; 2],
     place: u64,
     source: SharedString,
+    heading: Option<SharedString>,
 }
 
 /// Renders `mermaid` code fences in a markdown `TextView` as diagrams.
@@ -444,37 +508,38 @@ impl MarkdownPlugin for Mermaid {
             return None;
         }
         let at = code.position.as_ref().map(|p| p.start.offset);
-        let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into() };
+        let heading = at.and_then(|at| heading_above(cx.source(), at));
+        let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into(), heading };
         Some(MarkdownNode::new("mermaid", fence).text(code.value.clone()).markdown(cx.node_source(node).unwrap_or(&code.value).to_string()))
     }
 
-    fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let Fence { keys, place, source } = node.data::<Fence>().unwrap();
-        diagram(&self.0, keys[theme::is_dark() as usize], *place, source, cx)
+    fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Fence { keys, place, source, heading } = node.data::<Fence>().unwrap();
+        diagram(&self.0, keys[theme::is_dark() as usize], *place, source, || heading.clone(), window, cx)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BUDGET, IN_USE, evict, hex, rasterize, svg, tree};
+    use super::{BUDGET, IN_USE, PAD, Viewport, card_height, evict, heading, rasterize, svg, tree};
     use gpui_kit::RenderImage;
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Instant;
     use theme::{MD_CODE_BG, Token};
 
+    #[test]
+    fn a_wide_diagram_fits_its_card_by_width() {
+        let natural = (1150., 60.);
+        let card = (720., card_height(720., natural, 500.));
+        let zoom = Viewport::default().placed(natural, card, PAD).zoom;
+        assert!((zoom - (720. - 2. * PAD) / 1150.).abs() < 1e-4, "{zoom}");
+        assert_eq!(card_height(720., (100., 2000.), 500.), 500.);
+    }
+
     fn image(w: u32, h: u32) -> Arc<RenderImage> {
         let buffer = image::ImageBuffer::from_raw(w, h, vec![0; (w * h * 4) as usize]).unwrap();
         Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]))
-    }
-
-    #[test]
-    fn flattens_translucent_tokens_onto_the_canvas() {
-        assert_eq!(hex(0x5b5bd6ff, false), "#5b5bd6");
-        assert_eq!(hex(0x00000000, false), "#ffffff");
-        assert_eq!(hex(0x00000080, false), "#7f7f7f");
-        assert_eq!(hex(0x00000000, true), "#171717");
-        assert_eq!(hex(0xebebeb1a, true), "#2d2d2d");
     }
 
     #[test]
@@ -487,7 +552,7 @@ mod tests {
 
     #[test]
     fn reports_syntax_errors() {
-        assert!(svg("flowchart LR\n  A -->\n", MD_CODE_BG, false).unwrap_err().contains("parse error"));
+        assert!(svg("flowchart LR\n  A -->\n", MD_CODE_BG, false).unwrap_err().contains("syntax error"));
     }
 
     #[test]
@@ -529,6 +594,15 @@ mod tests {
         ]);
         assert_eq!(evict(&mut images, BUDGET).len(), 1);
         assert!(!images.contains_key(&1) && images.contains_key(&2));
+    }
+
+    #[test]
+    fn finds_the_last_heading_above_a_diagram() {
+        assert_eq!(heading("# Doc\n\nText\n\n## Architecture ##\n\nMore\n"), Some("Architecture"));
+        assert_eq!(heading("Text\n#hashtag\n"), None);
+        assert_eq!(heading("## Flow\n```sh\n# a comment\n```\n"), Some("Flow"));
+        assert_eq!(heading("   ### Indented\n"), Some("Indented"));
+        assert_eq!(heading("####### Seven\n"), None);
     }
 
     #[test]

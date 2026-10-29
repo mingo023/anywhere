@@ -278,52 +278,8 @@ pub(super) fn code_block(doc: &Entity<TextViewState>, styles: Option<Styles>) ->
         .text_color(TEXT)
 }
 
-// A code block's header as gpui-base lays it out, which a diagram card's copies; the switch sits over both by them.
-const HEADER_TOP: f32 = 8.;
-const HEADER_RIGHT: f32 = 10.;
-const BUTTON: f32 = 28.;
-const BUTTON_GAP: f32 = 4.;
-/// A small `ui::segmented`'s height: 24 and its padding.
-const SWITCH_HEIGHT: f32 = 30.;
-
-/// `switch` over a card's header, left of its two buttons as a code block's action would sit, inside its 1px border.
-pub(super) fn header_switch(switch: Div) -> Div {
-    let top = 1. + HEADER_TOP + (BUTTON - SWITCH_HEIGHT) / 2.;
-    div().absolute().top(px(top)).right(px(1. + HEADER_RIGHT + 2. * (BUTTON + BUTTON_GAP))).child(switch)
-}
-
-/// A diagram card's header, laid out as a code block's so the switch over both stays put: its name, then fit and copy.
-pub(super) fn diagram_header(id: &str, copied: bool, on_fit: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, on_copy: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Div {
-    let button = |name: &str, glyph: &str| {
-        let group = SharedString::from(format!("{name}-{id}"));
-        div()
-            .id(group.clone())
-            .group(group.clone())
-            .flex_none()
-            .size(px(BUTTON))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .cursor_pointer()
-            .hover(|s| s.bg(Hsla::from(TEXT_BODY).opacity(0.1)))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(icon(glyph, 16., TEXT_2).group_hover(group, |s| s.text_color(TEXT_BODY)))
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(BUTTON_GAP))
-        .pt(px(HEADER_TOP))
-        .pr(px(HEADER_RIGHT))
-        .pl(px(16.))
-        .child(div().flex_1().text_size(px(11.)).line_height(px(14.)).text_color(TEXT_2).child("mermaid"))
-        .child(button("fit", "fit").on_click(on_fit))
-        .child(button("copy", if copied { "block-check" } else { "block-copy" }).on_click(on_copy))
-}
-
 /// `code` refenced at column 0 with a fence longer than any backtick run inside it, so it parses back whole.
-fn fenced(lang: &str, code: &str) -> String {
+pub(crate) fn fenced(lang: &str, code: &str) -> String {
     let longest = code.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let ticks = "`".repeat(longest.max(2) + 1);
     format!("{ticks}{lang}\n{code}\n{ticks}")

@@ -28,7 +28,7 @@ mod user_bubble;
 mod working;
 
 use crate::composer::Draft;
-use crate::explorer::mermaid::Diagrams;
+use crate::explorer::mermaid::{Diagrams, Resized};
 use crate::desktop::Desktop;
 use agents::Summary;
 use gpui_kit::component::input::TextareaState;
@@ -54,9 +54,6 @@ fn unsent_notice(who: &str, mut unsent: Vec<String>, typed: String) -> Option<(S
     Some((format!("{who} closed before {count} went out"), unsent.join("\n\n")))
 }
 
-/// A diagram's card: a code block's `ink(0.035)` on the chat, made opaque for the diagram's own canvas.
-pub(crate) const DIAGRAM_BG: Token = Token::new(0xf1f1f1ff, 0x1c1c1cff);
-
 pub(crate) struct ChatState {
     pub(crate) input: Entity<TextareaState>,
     /// The text and attachments of each chat the input doesn't hold now.
@@ -75,8 +72,10 @@ pub(crate) struct ChatState {
 impl ChatState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = composer::input(window, cx);
-        let (composer, subs) = composer::ComposerState::new(&input, window, cx);
-        (Self { input, drafts: Default::default(), views: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams: cx.new(|_| Diagrams::standalone(DIAGRAM_BG)) }, subs)
+        let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
+        let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
+        subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
+        (Self { input, drafts: Default::default(), views: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams }, subs)
     }
 }
 
