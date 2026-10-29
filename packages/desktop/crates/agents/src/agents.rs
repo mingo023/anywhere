@@ -333,6 +333,7 @@ struct Frame {
     agent: Option<Summary>,
     item: Option<Item>,
     items: Vec<Item>,
+    max_seq: i64,
     request: Option<Permission>,
     request_id: String,
     host: Option<Host>,
@@ -386,6 +387,8 @@ pub enum Event {
     Agents(Vec<Summary>),
     Agent(Summary),
     Items(String, Vec<Item>),
+    /// The newest of a chat's items, which pocketd sends on each connect; `max_seq` is the newest seq it had then.
+    Page { agent: String, items: Vec<Item>, max_seq: i64 },
     Asked(Permission),
     Resolved(String),
     /// hello.ok arrived with the scopes pocketd granted this conn, the caps both sides speak and pocketd's build.
@@ -510,17 +513,14 @@ impl Agents {
                     None => self.list.push(a),
                 }
             }
-            Event::Items(id, items) => {
-                *self.revisions.entry(id.clone()).or_default() += 1;
-                let t = self.timelines.entry(id).or_default();
-                for item in items {
-                    // A streaming draft rewrites the newest item, so look from the end.
-                    match t.iter().rposition(|x| x.id == item.id) {
-                        Some(ix) => t[ix] = item,
-                        None => t.push(item),
-                    }
+            Event::Items(id, items) => self.upsert(id, items),
+            Event::Page { agent, items, max_seq } => {
+                // pocketd drops a link that fell behind, so what was held from before the page may have missed its updates.
+                let from = items.iter().map(|x| x.seq).min().unwrap_or(max_seq + 1);
+                if let Some(t) = self.timelines.get_mut(&agent) {
+                    t.retain(|x| x.seq >= from);
                 }
-                t.sort_by_key(|x| x.seq);
+                self.upsert(agent, items);
             }
             Event::Asked(p) => {
                 if !self.pending.iter().any(|x| x.request_id == p.request_id) {
@@ -552,6 +552,19 @@ impl Agents {
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
             Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
         }
+    }
+
+    fn upsert(&mut self, id: String, items: Vec<Item>) {
+        *self.revisions.entry(id.clone()).or_default() += 1;
+        let t = self.timelines.entry(id).or_default();
+        for item in items {
+            // A streaming draft rewrites the newest item, so look from the end.
+            match t.iter().rposition(|x| x.id == item.id) {
+                Some(ix) => t[ix] = item,
+                None => t.push(item),
+            }
+        }
+        t.sort_by_key(|x| x.seq);
     }
 
     /// Drops the items held for `a` once pocketd started its timeline over, so the old conversation doesn't stay above the new one.
@@ -1099,7 +1112,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
                 Event::Agent(a)
             }
             "agent.stream" => Event::Items(f.agent_id, f.item.into_iter().collect()),
-            "agent.timeline" => Event::Items(f.agent_id, f.items),
+            "agent.timeline" => Event::Page { agent: f.agent_id, items: f.items, max_seq: f.max_seq },
             "permission.request" => {
                 let Some(r) = f.request else { continue };
                 Event::Asked(r)
@@ -1261,6 +1274,19 @@ mod tests {
         a.apply(Event::Items("a".into(), vec![item("2", 2, "b!")]));
         let t: Vec<_> = a.timelines["a"].iter().map(|i| i.text.as_str()).collect();
         assert_eq!(t, vec!["a", "b!"]);
+    }
+
+    #[test]
+    fn a_page_drops_held_items_it_no_longer_covers_and_keeps_those_streamed_since() {
+        let mut a = Agents::default();
+        let item = |id: &str, seq, text: &str| Item { id: id.into(), seq, kind: "assistant".into(), text: text.into(), ..Default::default() };
+        let texts = |a: &Agents| a.timelines["a"].iter().map(|i| i.text.clone()).collect::<Vec<_>>();
+        a.apply(Event::Items("a".into(), vec![item("1", 1, "still running"), item("5", 5, "old")]));
+        a.apply(Event::Items("a".into(), vec![item("8", 8, "streamed")]));
+        a.apply(Event::Page { agent: "a".into(), items: vec![item("5", 5, "new"), item("6", 6, "more")], max_seq: 7 });
+        assert_eq!(texts(&a), ["new", "more", "streamed"], "an item older than the page went stale while the link was down");
+        a.apply(Event::Page { agent: "a".into(), items: Vec::new(), max_seq: 7 });
+        assert_eq!(texts(&a), ["streamed"], "an empty page keeps only what came after it");
     }
 
     #[test]
