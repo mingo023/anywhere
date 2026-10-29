@@ -1,10 +1,9 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::Path;
 use ui::{self, menu_row};
-use workspace::{Doc, Place};
+use workspace::Doc;
 
 impl Desktop {
     pub(super) fn more_menu(&mut self, cx: &mut Context<Self>) -> Div {
@@ -15,21 +14,7 @@ impl Desktop {
             Some(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
             Some(Doc::Commit(_)) | None => None,
         };
-        let Some(path) = path.filter(|_| self.screen == Screen::Sessions) else {
-            return menu
-                .child(menu_row("more-tab", "terminal", "New terminal tab", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.new_shell(Place::Pane(None), cx);
-                    this.close_overlay(window, cx);
-                })))
-                .when(!self.agents.observe_only(), |d| {
-                    d.child(menu_row("more-close", "x", "Close session", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.close_overlay(window, cx);
-                        if let Some(id) = this.session().map(str::to_string) {
-                            this.close_session(&id, cx);
-                        }
-                    })))
-                });
-        };
+        let Some(path) = path.filter(|_| self.screen == Screen::Sessions) else { return menu };
         let reveal = path.clone();
         menu.child(menu_row("more-open", "external", "Open in editor", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             cx.open_with_system(Path::new(&path));

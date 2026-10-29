@@ -425,16 +425,6 @@ impl Desktop {
         }
     }
 
-    /// Ends a session with its terminal.
-    pub fn close_session(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.agents.observe_only() {
-            return;
-        }
-        let Some(a) = self.agents.get(id) else { return };
-        let term = a.terminal_id.clone();
-        self.close_terminal(&term, cx);
-    }
-
     /// Closes a terminal and its tabs, asking first if it is busy.
     pub fn close_terminal(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.terminals.may_close(id, self.agents.observe_only()) && !self.ask_close(vec![id.to_string()], cx) {
@@ -459,6 +449,46 @@ impl Desktop {
             return;
         }
         self.workspace(&tree).close(pane, i);
+        for id in ids {
+            self.close_pane(&id, cx);
+        }
+        self.load_active(cx);
+        self.save_soon(cx);
+        cx.notify();
+    }
+
+    /// Closes top tab `i` with all its tabs, asking first as `close_tab` does: an unsaved file is shown and asked about, busy terminals are asked about together.
+    pub fn close_top(&mut self, i: usize, cx: &mut Context<Self>) {
+        let Some(tree) = self.place() else { return };
+        let Some(tabs) = self.workspace(&tree).tops().get(i).map(|t| t.panes().iter().flat_map(|p| p.tabs.clone()).collect::<Vec<_>>()) else { return };
+        let unsaved = tabs.iter().find_map(|t| match t {
+            Tab::Doc(Doc::File(path)) if self.preview.dirty(path) => Some(path.clone()),
+            _ => None,
+        });
+        if let Some(path) = unsaved {
+            let w = self.workspace(&tree);
+            w.switch(i);
+            if let Some((pane, j)) = w.tree.find(|t| matches!(t, Tab::Doc(Doc::File(p)) if *p == path)) {
+                w.tree.select(pane, j);
+            }
+            self.load_active(cx);
+            self.confirm = Some(Confirm::CloseFile(path));
+            self.overlay = Some(Overlay::Confirm);
+            cx.notify();
+            return;
+        }
+        let ids: Vec<String> = tabs
+            .into_iter()
+            .filter_map(|t| match t {
+                Tab::Term(id) => Some(id),
+                _ => None,
+            })
+            .collect();
+        let observe = self.agents.observe_only();
+        if !ids.iter().all(|id| self.terminals.may_close(id, observe)) || self.ask_close(ids.clone(), cx) {
+            return;
+        }
+        self.workspace(&tree).close_top(i);
         for id in ids {
             self.close_pane(&id, cx);
         }

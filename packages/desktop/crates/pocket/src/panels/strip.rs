@@ -18,6 +18,7 @@ const SLIDE: f32 = 0.035;
 
 /// What a tab drag carries. The held tab draws itself on the strip, so the drag has no preview.
 pub(super) struct DragTab;
+pub(super) struct DragTop;
 
 /// A tab held on the strip and the tabs sliding out of its way; once released, every tab sliding home.
 pub(crate) struct TabDrag {
@@ -28,10 +29,10 @@ pub(crate) struct TabDrag {
     /// Each tab's left edge and width as laid out, before any slide.
     slots: Vec<(f32, f32)>,
     /// How far each tab is drawn from its slot.
-    offsets: Vec<f32>,
+    pub(super) offsets: Vec<f32>,
     /// The last frame, while any tab is on its way.
     last_frame: Option<Instant>,
-    released: bool,
+    pub(super) released: bool,
     /// Held off its strip: the other tabs slide home and a release here moves nothing.
     pub(crate) away: bool,
 }
@@ -43,12 +44,12 @@ pub(super) fn slots(scroll: &ScrollHandle, n: usize) -> Vec<(f32, f32)> {
 }
 
 impl TabDrag {
-    fn new(from: usize, grab: f32, pointer: f32) -> Self {
+    pub(super) fn new(from: usize, grab: f32, pointer: f32) -> Self {
         Self { from, grab, pointer, slots: Vec::new(), offsets: Vec::new(), last_frame: None, released: false, away: false }
     }
 
     /// Takes where the strip laid its tabs out; false once it has gained or lost one.
-    fn lay(&mut self, slots: Vec<(f32, f32)>) -> bool {
+    pub(super) fn lay(&mut self, slots: Vec<(f32, f32)>) -> bool {
         if self.offsets.is_empty() {
             self.offsets = vec![0.; slots.len()];
         } else if slots.len() != self.offsets.len() {
@@ -86,12 +87,12 @@ impl TabDrag {
             .collect()
     }
 
-    fn held(&self) -> Option<usize> {
+    pub(super) fn held(&self) -> Option<usize> {
         (!self.released && !self.away).then_some(self.from)
     }
 
     /// Moves each tab toward its target as of `now`, the held one straight there; true while any is still on its way.
-    fn ease(&mut self, now: Instant, reduce_motion: bool) -> bool {
+    pub(super) fn ease(&mut self, now: Instant, reduce_motion: bool) -> bool {
         let dt = self.last_frame.map_or(0., |t| now.duration_since(t).as_secs_f32());
         let k = if reduce_motion { 1. } else { 1. - (-dt / SLIDE).exp() };
         let (targets, held) = (self.targets(), self.held());
@@ -110,7 +111,7 @@ impl TabDrag {
     }
 
     /// Lets the held tab go, once, and returns where it moves from and to; each tab then slides home from where it's drawn, in the new order.
-    fn release(&mut self) -> Option<(usize, usize)> {
+    pub(super) fn release(&mut self) -> Option<(usize, usize)> {
         if self.released {
             return None;
         }
@@ -129,48 +130,61 @@ impl TabDrag {
 }
 
 impl Desktop {
-    pub(super) fn tab_lead(&self, tab: &Tab, preview: bool, ink: Token) -> Div {
-        let row = div().flex().items_center().gap(px(7.));
-        let label = |text: String| div().max_w(px(150.)).truncate().child(text);
+    /// What a tab is called: a doc's file name, a page's title, an agent's conversation title else its name, a terminal's running command else its label.
+    pub(super) fn tab_text(&self, tab: &Tab) -> String {
+        match tab {
+            Tab::Web(id) => self.browsers.tabs.get(id).map(Browser::label).unwrap_or_default().to_string(),
+            Tab::Doc(Doc::File(p) | Doc::Diff(p)) => basename(p),
+            Tab::Doc(Doc::CommitFile { sha, path }) => format!("{} ({})", basename(path), git::short_sha(sha)),
+            Tab::Doc(Doc::PrFile { path, .. }) => format!("{} (PR)", basename(path)),
+            Tab::Doc(Doc::Commit(sha)) => git::short_sha(sha).to_string(),
+            Tab::Term(term) => match self.summary(term) {
+                Some(a) if !a.title.is_empty() => a.title.clone(),
+                Some(a) => self.agent_name(&a.provider),
+                None => self.terminals.sessions.get(term).and_then(|s| s.busy()).map_or_else(|| self.pane_label(term), str::to_string),
+            },
+        }
+    }
+
+    /// A tab's icon, dimmed unless `selected`, then its name and marks.
+    pub(super) fn tab_lead(&self, tab: &Tab, preview: bool, selected: bool) -> Div {
+        let ink = if selected { TEXT } else { TEXT_3 };
+        let row = div().flex().items_center().gap(px(6.));
+        let lead = |el: AnyElement| div().flex_none().flex().when(!selected, |d| d.opacity(0.55)).child(el);
+        let label = |text: String| div().flex_1().truncate().child(text);
         let term = match tab {
             Tab::Term(term) => term,
             Tab::Web(id) => {
-                let b = self.browsers.tabs.get(id);
-                let lead = match b {
+                let icon = match self.browsers.tabs.get(id) {
                     Some(b) if b.loading => spinner(format!("tab-loading:{id}"), 13., TEXT_3).into_any_element(),
                     _ => icon("globe", 13., TEXT_3).into_any_element(),
                 };
-                let text = b.map(Browser::label).unwrap_or_default();
-                return row.child(lead).child(label(text.to_string()));
+                return row.child(lead(icon)).child(label(self.tab_text(tab)));
             }
             Tab::Doc(doc) => {
-                let (path, text) = match doc {
-                    Doc::File(p) | Doc::Diff(p) => (p, basename(p)),
-                    Doc::CommitFile { sha, path } => (path, format!("{} ({})", basename(path), git::short_sha(sha))),
-                    Doc::PrFile { path, .. } => (path, format!("{} (PR)", basename(path))),
-                    Doc::Commit(sha) => return row.child(icon("diff-multiple", 14., ink)).child(label(git::short_sha(sha).to_string()).when(preview, |d| d.italic())),
+                let path = match doc {
+                    Doc::File(p) | Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } => p,
+                    Doc::Commit(_) => return row.child(lead(icon("diff-multiple", 14., ink).into_any_element())).child(label(self.tab_text(tab)).when(preview, |d| d.italic())),
                 };
+                let text = self.tab_text(tab);
                 let totals = match doc {
                     Doc::Diff(p) => self.repo().and_then(|r| r.files.iter().find(|f| f.path == *p)).map(|f| ui::meta_diff(f.added, f.removed, 11.)),
                     _ => None,
                 };
                 let unsaved = matches!(doc, Doc::File(p) if self.preview.dirty(p)).then(|| dot(6., TEXT_2));
-                return row.child(file_icon(path, false, false, 14.)).child(label(text).when(preview, |d| d.italic())).children(totals).children(unsaved);
+                return row.child(lead(file_icon(path, false, false, 14.).into_any_element())).child(label(text).when(preview, |d| d.italic())).children(totals).children(unsaved);
             }
         };
         if let Some(a) = self.summary(term) {
             let mark = ui::indicator(id(format!("tab-mark:{}", a.id)), Status::of(a).map(|s| state(s, 0, 0)));
-            return row.child(provider_icon(&a.provider, 13., ink)).child(label(self.agent_name(&a.provider))).children(mark);
+            return row.child(lead(provider_icon(&a.provider, 13., ink).into_any_element())).child(label(self.agent_name(&a.provider))).children(mark);
         }
-        let s = self.terminals.sessions.get(term);
-        let busy = s.and_then(|s| s.busy());
-        let mark = match s {
+        let mark = match self.terminals.sessions.get(term) {
             Some(s) if s.failed() => icon("x", 12., FAILED).into_any_element(),
-            _ if busy.is_some() => dot(6., ACCENT).into_any_element(),
+            Some(s) if s.busy().is_some() => dot(6., ACCENT).into_any_element(),
             _ => dot(6., TEXT_5).into_any_element(),
         };
-        let text = busy.map_or_else(|| self.pane_label(term), str::to_string);
-        row.child(icon("prompt", 13., TEXT_3)).child(label(text)).child(mark)
+        row.child(lead(icon("prompt", 13., TEXT_3).into_any_element())).child(label(self.tab_text(tab))).child(mark)
     }
 
     /// Moves tab `from` of `pane` to `to` in the same strip.
@@ -189,11 +203,16 @@ impl Desktop {
         match (d.release(), aim) {
             (Some((from, to)), _) => self.move_tab(pane, from, to, cx),
             (None, Some(Aim::To(to))) => self.move_tab_to(pane, from, to, window, cx),
+            (None, Some(Aim::Top(i))) => {
+                let Some(tree) = self.place() else { return };
+                self.workspace(&tree).detach_tab(pane, from, i);
+                self.show_focused(&tree, window, cx);
+            }
             _ => {}
         }
     }
 
-    fn new_tab_controls(&self, pane: PaneId, cx: &mut Context<Self>) -> Div {
+    pub(super) fn new_tab_controls(&self, pane: PaneId, cx: &mut Context<Self>) -> Div {
         let open = self.panels.menu == Some(pane);
         let plus = ui::control(div().id("new-tab"))
             .size(px(28.))
@@ -219,11 +238,10 @@ impl Desktop {
         div().relative().flex().flex_none().items_center().child(plus).children(menu)
     }
 
-    /// `pane`'s tabs in worktree `tree`, with its + menu.
+    /// `pane`'s tabs in worktree `tree`.
     pub(super) fn strip_tabs(&mut self, tree: &str, pane: &Pane<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let (p, active, tabs) = (pane.id, pane.active, &pane.tabs);
         let w = &self.workspaces[tree];
-        let focused = w.tree.focused == p;
         let preview = w.preview.clone();
         let observe = self.agents.observe_only();
         let reduce_motion = cx.reduce_motion();
@@ -264,18 +282,19 @@ impl Desktop {
                     Tab::Doc(_) | Tab::Web(_) => true,
                 };
                 let close = ui::control(div().id(("close-tab", i)))
+                    .absolute()
+                    .right(px(4.))
+                    .top(relative(0.5))
+                    .mt(px(-10.))
                     .size(px(20.))
-                    .mr(px(4.))
                     .flex()
-                    .flex_none()
                     .items_center()
                     .justify_center()
-                    .rounded(px(5.))
+                    .rounded(px(4.))
                     .cursor_pointer()
-                    .opacity(0.)
-                    .group_hover("term-tab", |s| s.opacity(1.))
+                    .when(!selected, |d| d.opacity(0.).group_hover("term-tab", |s| s.opacity(1.)))
                     .hover(|s| s.bg(FILL_3))
-                    .child(icon("x", 11., TEXT_4))
+                    .child(icon("x", 12., TEXT_3))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
                         this.close_tab(p, i, cx);
@@ -284,14 +303,21 @@ impl Desktop {
                     Tab::Doc(d) => Some(d.clone()),
                     Tab::Term(_) | Tab::Web(_) => None,
                 };
+                let menu_tab = tab.clone();
                 let tab = ui::control(div().id(("tab", i)))
-                    .h(px(28.))
-                    .pl(px(10.))
-                    .pr(px(6.))
+                    .h(px(30.))
+                    .flex_1()
+                    .min_w_0()
                     .flex()
                     .items_center()
+                    .gap(px(6.))
+                    .pl(px(8.))
+                    .pr(px(28.))
+                    .rounded(px(6.))
                     .cursor_pointer()
-                    .child(self.tab_lead(tab, doc.is_some() && doc == preview, if selected { TEXT } else { TEXT_2 }))
+                    .when(selected, |d| d.bg(FILL_3).text_color(TEXT))
+                    .when(!selected, |d| d.text_color(TEXT_3).hover(|s| s.bg(FILL_1).text_color(TEXT)))
+                    .child(self.tab_lead(tab, doc.is_some() && doc == preview, selected).flex_1().min_w_0())
                     .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                         this.select_tab(p, i, window, cx);
                         if ev.click_count() > 1
@@ -313,37 +339,30 @@ impl Desktop {
                             cx.new(|_| EmptyView)
                         }
                     })
-                    .when(tabs.len() > 1, |d| {
-                        let tab = tab.clone();
-                        d.on_mouse_down(
-                            MouseButton::Right,
-                            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                                this.close_menus();
-                                this.panels.actions = Some((p, tab.clone(), e.position));
-                                cx.notify();
-                            }),
-                        )
-                    });
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                            this.close_menus();
+                            this.panels.actions = Some((p, menu_tab.clone(), e.position));
+                            cx.notify();
+                        }),
+                    );
                 let visual = div()
                     .group("term-tab")
                     .relative()
                     .left(px(offsets.get(i).copied().unwrap_or(0.)))
-                    .h(px(28.))
+                    .size_full()
                     .flex()
-                    .flex_none()
                     .items_center()
-                    .rounded(px(7.))
-                    .text_size(px(12.5))
+                    .text_size(px(13.))
                     .whitespace_nowrap()
-                    .when(selected && focused, |d| d.bg(SURFACE).shadow(ui::row_shadow()).font_weight(FontWeight::SEMIBOLD).text_color(TEXT))
-                    .when(selected && !focused, |d| d.bg(FILL_2).font_weight(FontWeight::MEDIUM).text_color(TEXT))
-                    .when(!selected, |d| d.font_weight(FontWeight::MEDIUM).text_color(TEXT_2).hover(|s| s.bg(FILL_2)))
                     // Else the bar's drag_area moves the window, which takes the mouse before the tab's drag can start.
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _: &MouseDownEvent, _, cx| this.close_tab(p, i, cx)))
                     .child(tab)
                     .when(closable, |d| d.child(close));
                 // The slot holds the tab's place while it slides, so the strip can measure where tabs sit; deferred, the held tab draws over the rest.
-                div().flex_none().child(if lifted { deferred(visual).into_any_element() } else { visual.into_any_element() })
+                div().w(px(224.)).min_w(px(112.)).flex_shrink(1.).h_full().child(if lifted { deferred(visual).into_any_element() } else { visual.into_any_element() })
             })
             .collect();
         // As f32: Pixels orders -0 below 0, so a strip that can't scroll would show its right fade.
@@ -358,6 +377,7 @@ impl Desktop {
             .id("tab-strip")
             .track_scroll(&scroll)
             .overflow_x_scroll()
+            .h_full()
             .flex()
             .min_w_0()
             .items_center()
@@ -376,19 +396,16 @@ impl Desktop {
                 }
             }))
             .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _: &MouseUpEvent, window, cx| this.release_tab(window, cx)))
-            // The padding keeps the selected tab's shadow inside the clip, else only its corners show; the margin undoes the shift.
-            .p(px(3.))
-            .m(px(-3.))
             .children(items);
         div()
+            .relative()
             .flex()
             .flex_initial()
             .min_w_0()
-            .h(px(40.))
-            .items_center()
-            .gap(px(2.))
-            .child(div().relative().flex().min_w_0().child(strip).when(offset < 0., |d| d.child(fade(true))).when(offset > -max, |d| d.child(fade(false))))
-            .child(self.new_tab_controls(p, cx))
+            .h_full()
+            .child(strip)
+            .when(offset < 0., |d| d.child(fade(true)))
+            .when(offset > -max, |d| d.child(fade(false)))
             .children(self.tab_actions(tree, p, tabs, cx))
     }
 }

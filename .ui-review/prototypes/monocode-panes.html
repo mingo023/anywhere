@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket · Monocode panes, drag and drop</title>
+<style>
+:root{
+  --t:#ebebeb;--tb:#bcbcbc;--t2:#a1a1a1;--t3:#818181;--t4:#6c6c6c;--t5:#616161;
+  --win:#171717;--side:#1b1b1b;
+  --f1:rgba(235,235,235,.05);--f2:rgba(235,235,235,.08);--f3:rgba(235,235,235,.1);--f4:rgba(235,235,235,.13);
+  --hair:rgba(235,235,235,.07);--sep:rgba(235,235,235,.08);--sep2:rgba(235,235,235,.14);
+  --add:#3dd68c;--del:#e5484d;--wait:#ffb224;--blue:#4c9df3;--rust:#f0743e;
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  /* monocode: --motion-reorder-duration 160ms, --motion-ease-out */
+  --ease:cubic-bezier(.22,1,.36,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--t);background:#0b0b0c radial-gradient(1200px 700px at 20% 0%,#23262d,transparent 60%)}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+svg{display:block;flex:none}
+.fi{width:16px;height:14px;flex:none;display:inline-grid;place-items:center;font:700 9px/1 var(--sans);letter-spacing:-.03em}
+body.grabbing,body.grabbing *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
+
+#win{position:fixed;inset:14px;display:flex;border-radius:10px;overflow:hidden;background:var(--win);font-size:13px;
+  box-shadow:0 0 0 .5px rgba(255,255,255,.12),0 24px 70px rgba(0,0,0,.5);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:14px;display:flex;gap:8px}
+.lights i{width:12px;height:12px;border-radius:50%}
+#side{position:relative;width:228px;flex:none;background:var(--side);border-right:.5px solid var(--sep);display:flex;flex-direction:column;padding:40px 8px 10px}
+.search{height:30px;flex:none;border-radius:9px;background:var(--f2);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--t3)}
+.search kbd{margin-left:auto;font:12px var(--sans)}
+.shead{font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--t4);padding:18px 8px 6px;text-transform:uppercase}
+.frow{height:28px;flex:none;display:flex;align-items:center;gap:7px;padding:0 8px;border-radius:7px;color:var(--tb);white-space:nowrap}
+.frow:hover{background:var(--f2)}
+.frow .nm{flex:none}
+.frow .dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--t4);font-size:11.5px}
+#main{flex:1;min-width:0;display:flex;flex-direction:column}
+
+/* title bar: session tabs (TitleBar.tsx) */
+.tbar{height:40px;flex:none;display:flex;align-items:center;border-bottom:.5px solid var(--sep);padding:0 6px}
+.tstrip{position:relative;flex:1;display:flex;align-items:center;gap:2px;min-width:0;height:100%;overflow-x:auto;scrollbar-width:none;padding:0 4px}
+.tstrip::-webkit-scrollbar{display:none}
+.st{position:relative;width:224px;min-width:112px;height:30px;flex:0 1 auto;display:flex;align-items:center;gap:7px;padding:0 28px 0 8px;border-radius:6px;color:rgba(235,235,235,.5);transform:translate3d(0,0,0)}
+.st:hover{background:rgba(235,235,235,.05);color:var(--t)}
+.st.on{background:var(--f3);color:var(--t)}
+.st:not(.on) .ti{opacity:.55}
+.st .tx{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1.2}
+.st .hd{font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st .mt{font-size:11px;color:rgba(235,235,235,.45);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st.opening{animation:tabin .22s var(--ease)}
+.tplus{width:28px;height:28px;flex:none;margin-left:2px;border-radius:7px;display:grid;place-items:center;color:var(--t3)}
+.tplus:hover{background:var(--f3);color:var(--t)}
+.tmark{position:absolute;top:7px;bottom:7px;width:2px;margin-left:-1px;border-radius:1px;background:var(--blue);pointer-events:none;z-index:20}
+
+/* pane tree */
+.tree{flex:1;min-height:0;display:flex}
+.split{flex:1;display:flex;min-width:0;min-height:0}
+.split.col{flex-direction:column}
+.node{position:relative;display:flex;min-width:0;min-height:0}
+.sash{position:relative;flex:none;background:var(--sep);z-index:5}
+.split.row>.sash{width:1px}.split.col>.sash{height:1px}
+.sash::after{content:"";position:absolute;inset:0}
+.split.row>.sash::after{left:-4px;right:-4px;cursor:col-resize}
+.split.col>.sash::after{top:-4px;bottom:-4px;cursor:row-resize}
+.sash:hover,.sash.active{background:var(--sep2)}
+.pane{position:relative;flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;transition:opacity .15s var(--ease)}
+.pane.dragging{opacity:.4}
+.pin{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column}
+.pin[data-enter]{animation:pane-enter .26s var(--ease)}
+.pin[data-enter=right]{--ex:100%}.pin[data-enter=left]{--ex:-100%}.pin[data-enter=bottom]{--ey:100%}.pin[data-enter=top]{--ey:-100%}
+@keyframes pane-enter{from{transform:translate(var(--ex,0),var(--ey,0))}to{transform:none}}
+.hint{position:absolute;inset:0;z-index:40;pointer-events:none}
+.hint i,.hint b{position:absolute}
+.hint i{background:rgba(76,157,243,.15)}
+.hint b{background:var(--blue)}
+.hint[data-edge=left] i{inset:0 50% 0 0}.hint[data-edge=left] b{top:0;bottom:0;left:0;width:2px}
+.hint[data-edge=right] i{inset:0 0 0 50%}.hint[data-edge=right] b{top:0;bottom:0;right:0;width:2px}
+.hint[data-edge=top] i{inset:0 0 50% 0}.hint[data-edge=top] b{left:0;right:0;top:0;height:2px}
+.hint[data-edge=bottom] i{inset:50% 0 0 0}.hint[data-edge=bottom] b{left:0;right:0;bottom:0;height:2px}
+
+/* session pane header, only in a split (SessionPane.tsx) */
+.sh{height:36px;flex:none;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:.5px solid var(--sep);cursor:grab;touch-action:none}
+.sh>svg:first-child{color:rgba(235,235,235,.35)}
+.sh .fd{width:8px;height:8px;border-radius:50%;flex:none}
+.pane.focus .sh .fd{background:var(--blue)}
+.sh .ttl{flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.x1{width:20px;height:20px;flex:none;border-radius:4px;display:grid;place-items:center;color:rgba(235,235,235,.5)}
+.x1:hover{background:var(--f3);color:var(--t)}
+
+/* file tabs (SurfaceTabs.tsx) */
+.bm{height:36px;flex:none;display:flex;border-bottom:.5px solid var(--sep);min-width:0}
+.bm .row{display:flex;align-items:center;gap:2px;min-width:0;flex:1;overflow-x:auto;overscroll-behavior:none;padding:0 10px 0 6px;scrollbar-width:none}
+.bm .row::-webkit-scrollbar{display:none}
+.grip{width:20px;height:30px;flex:none;display:grid;place-items:center;border-radius:6px;color:rgba(235,235,235,.35);cursor:grab;touch-action:none}
+.grip:hover{background:rgba(235,235,235,.05);color:rgba(235,235,235,.7)}
+.tm{position:relative;height:100%;width:224px;min-width:112px;flex:0 1 auto;display:flex;align-items:center;touch-action:none;transform:translate3d(0,0,0)}
+.tm.opening{animation:tabin .22s var(--ease)}
+@keyframes tabin{from{max-width:0;opacity:0}to{max-width:224px;opacity:1}}
+.tm>.tb{height:30px;flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:0 28px 0 8px;border-radius:6px;font-size:13px;color:rgba(235,235,235,.5);white-space:nowrap}
+.tm>.tb:hover{background:rgba(235,235,235,.05);color:var(--t)}
+.tm.on>.tb{background:var(--f3);color:var(--t)}
+.tm:not(.on) .tb>:first-child{opacity:.55}
+.tm .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:1}
+.tm.pv .nm{font-style:italic}
+.tm>.x1,.st>.x1{position:absolute;right:4px;top:50%;margin-top:-10px;opacity:0}
+.tm.on>.x1,.tm:hover>.x1,.st:hover>.x1{opacity:1}
+[data-reordering] .x1{visibility:hidden}
+[data-dragging],[data-settling]{z-index:10}
+.fill{min-width:16px;flex:1;align-self:stretch}
+.fill[data-pane-drag]{cursor:grab}
+.mdfloat{position:absolute;top:8px;right:16px;z-index:20;display:flex;padding:2px;border-radius:6px;background:rgba(235,235,235,.1);box-shadow:inset 0 0 0 1px rgba(235,235,235,.1);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.mdfloat button{padding:2px 8px;border-radius:4px;font-size:11px;color:rgba(235,235,235,.45)}
+.mdfloat button:hover{color:rgba(235,235,235,.8)}
+.mdfloat button.on{background:rgba(235,235,235,.18);color:var(--t)}
+
+/* bodies */
+.body{position:relative;flex:1;min-height:0;overflow:auto}
+.chat{padding:18px 22px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;line-height:1.55;color:var(--tb)}
+.chat p{margin:0}
+.ub{align-self:flex-end;max-width:80%;background:var(--f3);color:var(--t);padding:9px 13px;border-radius:14px}
+.tool{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--t3)}
+.tool code{font:12px var(--mono);color:var(--t2);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(235,235,235,.25);text-underline-offset:3px}
+.tool code:hover{color:var(--t)}
+.empty{margin:auto;color:var(--t3);text-align:center}
+.composer{margin:0 14px 14px;height:44px;flex:none;border-radius:12px;background:var(--f2);box-shadow:0 0 0 .5px var(--hair);display:flex;align-items:center;padding:0 14px;color:var(--t4)}
+.mdv{padding:30px 40px 80px;max-width:760px;color:var(--tb);font-size:14px;line-height:1.65}
+.mdv h1{font-size:30px;line-height:1.1;letter-spacing:-.02em;color:var(--t);margin:0 0 18px;font-weight:700}
+.mdv h2{font-size:20px;line-height:1.25;letter-spacing:-.01em;color:var(--t);margin:30px 0 10px;font-weight:650}
+.mdv p,.mdv ul{margin:0 0 12px}
+.mdv pre{font:12.5px/1.6 var(--mono);background:var(--f1);border-radius:8px;padding:12px 14px;margin:0 0 12px;color:var(--t);white-space:pre-wrap}
+.mdv code{font:12.5px var(--mono);background:var(--f2);padding:1px 5px;border-radius:5px;color:var(--t)}
+.dia{border-radius:10px;background:var(--f1);box-shadow:0 0 0 .5px var(--hair);padding:16px;margin:6px 0 14px;overflow:hidden}
+.dia svg{width:100%;height:auto;font:12px var(--sans)}
+.code{font:12.5px/20px var(--mono);padding:10px 0 80px;color:#d4d4d4;white-space:pre}
+.code .l{display:flex}.code .no{width:52px;flex:none;text-align:right;padding-right:18px;color:var(--t5)}
+.k{color:#f97583}.s{color:#9ecbff}.c{color:#6a737d}.f{color:#b392f0}
+@media (prefers-reduced-motion: reduce){.pin[data-enter],.tm.opening,.st.opening{animation:none}.pane{transition:none}}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+const I = {
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  x:'<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  branch:'<circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="7.5" r="2"/><path d="M6 7.5v9M18 9.5c0 4.5-6 4.5-10.5 7.4"/>',
+  splitR:'<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M12 4.5v15"/>',
+  splitD:'<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M3.5 12h17"/>',
+  more:'<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+  sparkle:'<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 16v4M16.5 18h4"/>',
+  ext:'<path d="M14 4h6v6M20 4l-8.5 8.5M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+  copy:'<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V5.5a1.5 1.5 0 0 0-1.5-1.5H5.5A1.5 1.5 0 0 0 4 5.5V14a1.5 1.5 0 0 0 1.5 1.5h3"/>',
+  check:'<path d="M5 12.5l4.5 4.5L19 7"/>',
+  eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  code:'<path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>',
+  chev:'<path d="M7 10l5 5 5-5"/>',
+  search:'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  bolt:'<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
+  bell:'<path d="M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/>',
+  sidebar:'<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/>',
+  pin:'<path d="M9 4h6l-1 5.5 3 3H7l3-3zM12 12.5V20"/>',
+  file:'<path d="M14 3.5H7.5A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V7.5z"/><path d="M14 3.5v4h4"/>',
+  prompt:'<path d="M5 7l5 5-5 5M12.5 17H19"/>',
+  folder:'<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  spin:'<path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5"/>',
+};
+const ic = (n, s = 14, cls = '') => `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
+const claude = (s = 14) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg>`;
+const base = p => p.split('/').pop();
+const dir = p => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+const isMd = p => p.endsWith('.md');
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function fic(p, s = 14) {
+  if (p === 'README.md') return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="#4c9df3"/><path d="M12 11v6M12 7.6v.01" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+  if (isMd(p)) return `<span class="fi" style="color:var(--blue)">M↓</span>`;
+  if (p.endsWith('.rs')) return `<span class="fi" style="color:var(--rust)">RS</span>`;
+  return `<span style="color:var(--t3)">${ic('file', s)}</span>`;
+}
+
+const F = {
+  'README.md': {lang: 'Markdown', lines: 64, size: '2.1 KB'},
+  'docs/mermaid-test.md': {lang: 'Markdown', lines: 42, size: '1.2 KB', by: 'Claude', ago: '3m ago', a: 42, d: 0},
+  'docs/adr/0003-desktop-code-layout.md': {lang: 'Markdown', lines: 58, size: '6.8 KB'},
+  'packages/desktop/crates/pocket/src/panels/strip.rs': {lang: 'Rust', lines: 499, size: '18.4 KB', by: 'Claude', ago: '8m ago', a: 18, d: 6},
+  'packages/desktop/crates/pocket/src/explorer/preview/header.rs': {lang: 'Rust', lines: 112, size: '4.6 KB', by: 'Codex', ago: '21m ago', a: 9, d: 31},
+  'packages/desktop/Cargo.toml': {lang: 'TOML', lines: 58, size: '1.7 KB'},
+};
+const status = p => F[p].by ? ['var(--wait)', `<em>Modified</em> by ${F[p].by} · ${F[p].ago}`] : ['var(--t5)', '<em>Unchanged</em>'];
+const diffOf = p => F[p].by ? `<span class="md"><span class="a">+${F[p].a}</span><span class="d">−${F[p].d}</span></span>` : '';
+
+const fence = s => s.replace(/~~~/g, '```').split('\n');
+const SRC = {
+  'README.md': fence(String.raw`# Anywhere
+
+Run Claude Code and Codex on your Mac, and steer them from your phone or any other machine.
+
+## Build
+
+~~~sh
+cd packages/desktop
+cargo run --release -p pocket
+~~~
+
+## Layout
+
+Model crates hold logic, ` + '`pocket`' + String.raw` holds views.
+See docs/adr/0003-desktop-code-layout.md.`),
+  'docs/mermaid-test.md': fence(String.raw`# Mermaid test
+
+## Architecture
+
+How a prompt travels from the desktop to an agent and back.
+
+~~~mermaid
+flowchart LR
+  Desktop -->|socket| pocketd
+  pocketd -->|pty| Agent[Claude Code]
+  Agent -.->|timeline| pocketd
+~~~
+
+## Sequence
+
+~~~mermaid
+sequenceDiagram
+  You->>Desktop: Send prompt
+  Desktop->>pocketd: chat.send
+  pocketd-->>Desktop: timeline events
+~~~`),
+  'docs/adr/0003-desktop-code-layout.md': fence(String.raw`# Desktop code layout: model crates, feature modules, state per feature
+
+The desktop follows Zed's split. Model crates hold domain logic with no
+rendering and are unit-tested without GPUI; the pocket crate holds views.
+
+## Rules
+
+- A crate's lib is src/<crate>.rs; a module with children is foo.rs plus foo/.
+- Model crates never depend on ui, theme or pocket.
+- One file per component. Split by component, not by size.`),
+  'packages/desktop/crates/pocket/src/panels/strip.rs': String.raw`use super::drop::Aim;
+use crate::browser::Browser;
+use crate::desktop::Desktop;
+use crate::desktop::chrome::{id, state};
+use crate::status::Status;
+use crate::util::basename;
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
+use std::time::Instant;
+use theme::*;
+use ui::{self, dot};
+use workspace::tree::{Pane, PaneId, Target};
+use workspace::{Doc, Tab};
+
+pub(super) const GAP: f32 = 2.;
+/// How quickly a sliding tab closes on where it's going: about 90% of the way in 80ms.
+const SLIDE: f32 = 0.035;
+
+/// What a tab drag carries. The held tab draws itself on the strip, so the drag has no preview.
+pub(super) struct DragTab;
+
+/// A tab held on the strip and the tabs sliding out of its way.
+pub(crate) struct TabDrag {
+    pub(super) from: usize,
+    /// Where the pointer holds the tab, from its left edge.
+    pub(super) grab: f32,
+    pub(super) pointer: f32,
+    slots: Vec<(f32, f32)>,
+    offsets: Vec<f32>,
+    last_frame: Option<Instant>,
+    released: bool,
+    pub(crate) away: bool,
+}
+
+impl TabDrag {
+    fn new(from: usize, grab: f32, pointer: f32) -> Self {
+        Self { from, grab, pointer, slots: Vec::new(), offsets: Vec::new(), last_frame: None, released: false, away: false }
+    }
+}`.split('\n'),
+  'packages/desktop/crates/pocket/src/explorer/preview/header.rs': String.raw`use super::{language, size};
+use crate::desktop::Desktop;
+use crate::desktop::chrome::doc_bar;
+use crate::explorer::status_word;
+use gpui_kit::*;
+use theme::*;
+use ui::{self, Segment, Variant, dot};
+use workspace::tree::PaneId;
+
+/// path relative to root, or whole when it lies outside.
+pub fn relative(path: &str, root: &str) -> String {
+    path.strip_prefix(root).map(|r| r.trim_start_matches('/').to_string()).unwrap_or_else(|| path.to_string())
+}
+
+impl Desktop {
+    /// The bar over a file: its breadcrumbs, language, size and git status, and what can be done with it.
+    pub(super) fn file_header(&mut self, pane: PaneId, path: &str, cx: &mut Context<Self>) -> Div {
+        let root = self.explore_root().unwrap_or_default();
+        let rel = relative(path, &root);
+        let prompt = format!("About {rel}: ");
+        let file = self.preview.pane(pane);
+        let right = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(ui::button("ask-file", Variant::Ghost, Some("sparkle"), "Ask about this file"));
+        let (status_color, status_label) = status_word(self.file_status(path));
+        doc_bar(crumbs, meta, right)
+    }
+}`.split('\n'),
+  'packages/desktop/Cargo.toml': String.raw`[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.18"
+
+# Unoptimized tree-sitter is ~6x slower.
+[profile.dev.package."*"]
+opt-level = 2
+
+[workspace.dependencies]
+gpui = { git = "https://github.com/zed-industries/zed" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }`.split('\n'),
+};
+const box = (x, label) => `<rect x="${x}" y="14" width="120" height="44" rx="8" fill="rgba(235,235,235,.06)" stroke="rgba(235,235,235,.24)"/><text x="${x + 60}" y="40" text-anchor="middle" fill="#ebebeb">${label}</text>`;
+const PREV = {
+  'README.md': `<h1>Anywhere</h1><p>Run Claude Code and Codex on your Mac, and steer them from your phone or any other machine.</p><h2>Build</h2><pre>cd packages/desktop
+cargo run --release -p pocket</pre><h2>Layout</h2><p>Model crates hold logic, <code>pocket</code> holds views. See <code>docs/adr/0003-desktop-code-layout.md</code>.</p>`,
+  'docs/mermaid-test.md': `<h1>Mermaid test</h1><h2>Architecture</h2><p>How a prompt travels from the desktop to an agent and back.</p>
+<div class="dia"><svg viewBox="0 0 520 72"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a1a1a1"/></marker></defs>
+${box(10, 'Desktop')}${box(200, 'pocketd')}${box(390, 'Claude Code')}
+<path d="M132 30H198" stroke="#a1a1a1" marker-end="url(#ah)"/><text x="165" y="24" text-anchor="middle" fill="#818181" font-size="10.5">socket</text>
+<path d="M322 30H388" stroke="#a1a1a1" marker-end="url(#ah)"/><text x="355" y="24" text-anchor="middle" fill="#818181" font-size="10.5">pty</text>
+<path d="M388 46H322" stroke="#a1a1a1" stroke-dasharray="4 3" marker-end="url(#ah)"/><text x="355" y="62" text-anchor="middle" fill="#818181" font-size="10.5">timeline</text></svg></div>
+<h2>Sequence</h2>
+<div class="dia"><svg viewBox="0 0 520 170"><defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a1a1a1"/></marker></defs>
+${[[70, 'You'], [260, 'Desktop'], [450, 'pocketd']].map(([x, l]) => `<rect x="${x - 50}" y="6" width="100" height="30" rx="7" fill="rgba(235,235,235,.06)" stroke="rgba(235,235,235,.24)"/><text x="${x}" y="25" text-anchor="middle" fill="#ebebeb">${l}</text><path d="M${x} 36V166" stroke="rgba(235,235,235,.18)" stroke-dasharray="3 4"/>`).join('')}
+<path d="M70 72H258" stroke="#a1a1a1" marker-end="url(#ah2)"/><text x="165" y="66" text-anchor="middle" fill="#bcbcbc" font-size="11">Send prompt</text>
+<path d="M260 106H448" stroke="#a1a1a1" marker-end="url(#ah2)"/><text x="355" y="100" text-anchor="middle" fill="#bcbcbc" font-size="11">chat.send</text>
+<path d="M450 140H262" stroke="#a1a1a1" stroke-dasharray="4 3" marker-end="url(#ah2)"/><text x="355" y="134" text-anchor="middle" fill="#bcbcbc" font-size="11">timeline events</text></svg></div>`,
+  'docs/adr/0003-desktop-code-layout.md': `<h1>Desktop code layout: model crates, feature modules, state per feature</h1><p>The desktop follows Zed's split. Model crates hold domain logic with no rendering and are unit-tested without GPUI; the <code>pocket</code> crate holds views.</p><h2>Rules</h2><ul><li>A crate's lib is <code>src/&lt;crate&gt;.rs</code>; a module with children is <code>foo.rs</code> plus <code>foo/</code>.</li><li>Model crates never depend on <code>ui</code>, <code>theme</code> or <code>pocket</code>.</li><li>One file per component. Split by component, not by size.</li></ul>`,
+};
+function hl(line, p) {
+  if (isMd(p)) return /^#/.test(line) ? `<span class="f">${esc(line)}</span>` : /^```/.test(line) ? `<span class="c">${esc(line)}</span>` : esc(line);
+  const re = p.endsWith('.rs')
+    ? /(\/\/.*$)|("(?:[^"\\]|\\.)*")|\b(use|pub|fn|let|const|struct|impl|match|if|else|return|self|Self|mut|move|for|in|crate|super|mod|as|true|false|enum)\b/g
+    : /(#.*$)|("(?:[^"\\]|\\.)*")|^(\[[^\]]+\])/g;
+  let out = '', last = 0;
+  line.replace(re, (m, c, s, k, off) => {
+    out += esc(line.slice(last, off)) + `<span class="${c ? 'c' : s ? 's' : 'k'}">${esc(m)}</span>`;
+    last = off + m.length;
+    return m;
+  });
+  return out + esc(line.slice(last));
+}
+
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const REORDER_MS = reduced ? 0 : 160;
+const DRAG_THRESHOLD = 5;
+let seq = 100;
+const uid = p => p + ++seq;
+const leaf = id => ({type: 'leaf', id});
+const grip = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+const path = name => Object.keys(F).find(p => p.endsWith(name));
+
+const CHATS = {
+  header: {
+    ask: 'gọn header file pane lại như monocode, mở file thì split sang phải',
+    steps: [
+      ['p', 'Mình đọc lại hai chỗ đang vẽ header của pane.'],
+      ['read', 'explorer/preview/header.rs'], ['read', 'panels/strip.rs'],
+      ['p', 'File mở ra sẽ là tab preview (nghiêng) trong pane bên phải; mở file khác thì thay tab đó.'],
+      ['read', 'docs/mermaid-test.md'], ['read', 'Cargo.toml'],
+    ],
+  },
+  review: {
+    ask: 'review PR #145 giúp mình',
+    steps: [
+      ['p', 'PR #145 làm inline code dài lấp đầy từng dòng trước khi xuống dòng.'],
+      ['read', 'README.md'], ['read', 'panels/strip.rs'],
+      ['p', 'Ổn, chỉ một chỗ: span cuối dòng nên giữ khoảng trắng phía sau.'],
+    ],
+  },
+};
+const PANES = {
+  a1: {kind: 'agent', title: 'Gọn header file pane', chat: 'header'},
+  e1: {kind: 'editor', files: [{path: 'README.md'}, {path: 'docs/mermaid-test.md', preview: true}], active: 1},
+  a2: {kind: 'agent', title: 'Review PR #145', chat: 'review'},
+};
+const S = {
+  cur: 's1',
+  sessions: [
+    {id: 's1', tree: {type: 'split', id: 'x0', dir: 'row', children: [leaf('a1'), leaf('e1')], sizes: [.5, .5]}, focus: 'e1'},
+    {id: 's2', tree: leaf('a2'), focus: 'a2'},
+  ],
+  src: {}, entering: null, freshTab: null, freshFile: null,
+};
+const cur = () => S.sessions.find(s => s.id === S.cur);
+let suppressClickUntil = 0;
+
+/* ── pane tree (layout.ts) ── */
+const leaves = n => n.type === 'leaf' ? [n.id] : n.children.flatMap(leaves);
+function removeLeaf(n, id) {
+  if (n.type === 'leaf') return n.id === id ? null : n;
+  const children = [], sizes = [];
+  n.children.forEach((c, i) => {
+    const kept = removeLeaf(c, id);
+    if (kept) { children.push(kept); sizes.push(n.sizes[i]); }
+  });
+  if (!children.length) return null;
+  if (children.length === 1) return children[0];
+  const total = sizes.reduce((a, b) => a + b, 0);
+  return {...n, children, sizes: sizes.map(s => s / total)};
+}
+function insertAt(n, target, edge, node) {
+  const dir = edge === 'left' || edge === 'right' ? 'row' : 'col';
+  const before = edge === 'left' || edge === 'top';
+  if (n.type === 'leaf') {
+    return n.id === target ? {type: 'split', id: uid('x'), dir, children: before ? [node, n] : [n, node], sizes: [.5, .5]} : n;
+  }
+  const at = n.children.findIndex(c => c.type === 'leaf' && c.id === target);
+  if (at >= 0 && n.dir === dir) {
+    // A drop beside a sibling of the same direction joins that split and halves the target.
+    const children = n.children.slice(), sizes = n.sizes.slice(), half = sizes[at] / 2;
+    sizes[at] = half;
+    children.splice(before ? at : at + 1, 0, node);
+    sizes.splice(before ? at : at + 1, 0, half);
+    return {...n, children, sizes};
+  }
+  return {...n, children: n.children.map(c => insertAt(c, target, edge, node))};
+}
+function findSplit(n, id) {
+  if (n.type === 'leaf') return null;
+  if (n.id === id) return n;
+  for (const c of n.children) { const f = findSplit(c, id); if (f) return f; }
+  return null;
+}
+function edgeFromPoint(x, y, r) {
+  const nx = (x - r.left) / r.width - .5, ny = (y - r.top) / r.height - .5;
+  if (Math.abs(nx) > Math.abs(ny)) return nx < 0 ? 'left' : 'right';
+  return ny < 0 ? 'top' : 'bottom';
+}
+
+/* ── actions ── */
+function sessionTitle(s) {
+  const agent = leaves(s.tree).map(id => PANES[id]).find(p => p.kind === 'agent');
+  if (agent) return agent.title;
+  const ed = PANES[leaves(s.tree)[0]];
+  return base(ed.files[ed.active].path);
+}
+// TitleBar.tsx tabCopy: in a split, the focused file leads and the conversation follows.
+function tabCopy(s) {
+  const ids = leaves(s.tree), panes = ids.map(id => PANES[id]);
+  const agent = panes.find(p => p.kind === 'agent');
+  const conv = agent ? agent.title : '';
+  const fp = PANES[s.focus];
+  const focused = fp && fp.kind === 'editor' ? fp.files[fp.active] : null;
+  const ed = panes.find(p => p.kind === 'editor');
+  const file = focused || (ed && ed.files[ed.active]);
+  if (ids.length > 1) {
+    if (focused) return {head: base(focused.path), meta: conv || `${ids.length} panes`, italic: focused.preview};
+    if (conv) return {head: conv, meta: file ? base(file.path) : `${ids.length} panes`};
+    return {head: base(file.path), meta: `${ids.length} panes`};
+  }
+  if (agent) return {head: conv, meta: 'Claude Code'};
+  return {head: base(file.path), meta: dir(file.path) || 'anywhere', italic: file.preview};
+}
+function openFile(p, pin) {
+  const s = cur(), ids = leaves(s.tree);
+  const target = PANES[s.focus].kind === 'editor' ? s.focus : ids.find(id => PANES[id].kind === 'editor');
+  if (!target) {
+    // No editor yet: one splits off to the right of the focused pane, preview tab and all.
+    const id = uid('e');
+    PANES[id] = {kind: 'editor', files: [pin ? {path: p} : {path: p, preview: true}], active: 0};
+    s.tree = insertAt(s.tree, s.focus, 'right', leaf(id));
+    S.entering = {ids: [id], from: 'right'};
+    s.focus = id;
+    return;
+  }
+  const pane = PANES[target];
+  let i = pane.files.findIndex(f => f.path === p);
+  if (i >= 0) {
+    if (pin) delete pane.files[i].preview;
+  } else {
+    const pv = pin ? -1 : pane.files.findIndex(f => f.preview);
+    const f = pin ? {path: p} : {path: p, preview: true};
+    if (pv >= 0) { pane.files[pv] = f; i = pv; }
+    else { pane.files.push(f); i = pane.files.length - 1; S.freshFile = target + ':' + p; }
+  }
+  pane.active = i;
+  s.focus = target;
+}
+function dropPane(id) {
+  const s = cur();
+  s.tree = removeLeaf(s.tree, id);
+  delete PANES[id];
+  if (!s.tree) return closeSession(s.id);
+  if (!leaves(s.tree).includes(s.focus)) s.focus = leaves(s.tree)[0];
+}
+function closeFile(id, i) {
+  const pane = PANES[id];
+  pane.files.splice(i, 1);
+  if (!pane.files.length) return dropPane(id);
+  if (i < pane.active || pane.active >= pane.files.length) pane.active = Math.max(0, pane.active - 1);
+}
+function closeSession(id) {
+  const at = S.sessions.findIndex(s => s.id === id);
+  S.sessions.splice(at, 1);
+  if (!S.sessions.length) newSession();
+  if (S.cur === id) S.cur = S.sessions[Math.min(at, S.sessions.length - 1)].id;
+}
+function newSession() {
+  const a = uid('a');
+  PANES[a] = {kind: 'agent', title: 'New session', chat: null};
+  const s = {id: uid('s'), tree: leaf(a), focus: a};
+  S.sessions.push(s);
+  S.cur = s.id;
+  S.freshTab = s.id;
+}
+function movePane(from, to, edge) {
+  const s = cur();
+  s.tree = insertAt(removeLeaf(s.tree, from), to, edge, leaf(from));
+  s.focus = from;
+}
+// A pane dropped on the title strip leaves the split as a session of its own.
+function detachPane(from, {target, after}) {
+  const s = cur();
+  s.tree = removeLeaf(s.tree, from);
+  if (s.focus === from) s.focus = leaves(s.tree)[0];
+  const ns = {id: uid('s'), tree: leaf(from), focus: from};
+  const at = S.sessions.findIndex(x => x.id === target) + (after ? 1 : 0);
+  S.sessions.splice(at, 0, ns);
+  S.freshTab = ns.id;
+}
+// A file tab dropped on the title strip leaves with its file as a session of its own.
+function detachFile(paneId, i, t) {
+  const s = cur(), pane = PANES[paneId];
+  if (pane.files.length === 1) {
+    if (leaves(s.tree).length > 1) detachPane(paneId, t);
+    return;
+  }
+  const [f] = pane.files.splice(i, 1);
+  if (pane.active >= pane.files.length || i < pane.active) pane.active = Math.max(0, pane.active - 1);
+  const id = uid('e');
+  PANES[id] = {kind: 'editor', files: [f], active: 0};
+  const ns = {id: uid('s'), tree: leaf(id), focus: id};
+  S.sessions.splice(S.sessions.findIndex(x => x.id === t.target) + (t.after ? 1 : 0), 0, ns);
+  S.freshTab = ns.id;
+}
+// A session tab dropped on a pane joins this session beside that pane.
+function placeSession(sid, paneId, edge) {
+  const other = S.sessions.find(x => x.id === sid), s = cur();
+  s.tree = insertAt(s.tree, paneId, edge, other.tree);
+  S.sessions = S.sessions.filter(x => x.id !== sid);
+  S.entering = {ids: leaves(other.tree), from: edge};
+  s.focus = other.focus;
+}
+
+/* ── render ── */
+function sidebar() {
+  const rows = Object.keys(F).map(p => `<div class="frow" data-a="sideFile" data-path="${p}" title="${p}">${fic(p)}<span class="nm">${base(p)}</span><span class="dir">${dir(p)}</span></div>`).join('');
+  return `<aside id="side"><div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+<div class="search">${ic('search', 14)} Search<kbd>⌘K</kbd></div><div class="shead">anywhere</div>${rows}</aside>`;
+}
+function titleBar() {
+  const tabs = S.sessions.map(s => {
+    const c = tabCopy(s);
+    const agent = leaves(s.tree).some(id => PANES[id].kind === 'agent');
+    const icon = agent ? claude(14) : fic(PANES[leaves(s.tree)[0]].files[0].path);
+    const close = S.sessions.length > 1 ? `<button class="x1" data-no-drag data-a="closeSession" data-id="${s.id}" title="Close Tab">${ic('x', 12)}</button>` : '';
+    return `<div class="st ${s.id === S.cur ? 'on' : ''} ${S.freshTab === s.id ? 'opening' : ''}" data-title-tab="${s.id}" title="anywhere · ${sessionTitle(s)}"><span class="ti">${icon}</span><span class="tx"><span class="hd"${c.italic ? ' style="font-style:italic"' : ''}>${c.head}</span><span class="mt">${c.meta}</span></span>${close}</div>`;
+  }).join('');
+  return `<div class="tbar"><div class="tstrip" data-title-strip>${tabs}<button class="tplus" data-no-drag data-a="newSession" title="New session">${ic('plus', 15)}</button></div></div>`;
+}
+function chat(p) {
+  if (!p.chat) return `<div class="body chat"><div class="empty">What should we build?</div></div><div class="composer">Ask Claude to change something…</div>`;
+  const c = CHATS[p.chat];
+  const steps = c.steps.map(([k, v]) => k === 'p' ? `<p>${v}</p>` : `<div class="tool">${ic('file', 13)} Read <code data-a="mention" data-path="${path(v)}">${v}</code></div>`).join('');
+  return `<div class="body chat"><div class="ub">${c.ask}</div>${steps}</div><div class="composer">Ask Claude to change something…</div>`;
+}
+function editorBody(f) {
+  if (isMd(f.path) && !S.src[f.path]) return `<div class="body"><div class="mdv">${PREV[f.path]}</div></div>`;
+  return `<div class="body"><div class="code">${SRC[f.path].map((l, i) => `<div class="l"><span class="no">${i + 1}</span><span>${hl(l, f.path)}</span></div>`).join('')}</div></div>`;
+}
+function paneView(id, s) {
+  const p = PANES[id], split = s.tree.type === 'split';
+  const enter = S.entering && S.entering.ids.includes(id) ? ` data-enter="${S.entering.from}"` : '';
+  const cls = `pane ${s.focus === id ? 'focus' : ''}`;
+  if (p.kind === 'agent') {
+    const head = split ? `<div class="sh" data-pane-drag="${id}">${grip}<span class="fd"></span><span class="ttl">${p.title}</span><button class="x1" data-no-drag data-a="closePane" data-id="${id}" title="Close Pane (⌘W)">${ic('x', 12)}</button></div>` : '';
+    return `<section class="${cls}" data-pane-id="${id}"><div class="pin"${enter}>${head}${chat(p)}</div></section>`;
+  }
+  const f = p.files[p.active];
+  const tabs = p.files.map((t, i) => `<div class="tm ${i === p.active ? 'on' : ''} ${t.preview ? 'pv' : ''} ${S.freshFile === id + ':' + t.path ? 'opening' : ''}" data-tab="${id}" data-i="${i}" title="${t.path}"><div class="tb">${fic(t.path)}<span class="nm">${base(t.path)}</span></div><button class="x1" data-no-drag data-a="closeFile" data-id="${id}" data-i="${i}" title="Close ${base(t.path)}">${ic('x', 12)}</button></div>`).join('');
+  const handle = split ? `<div class="grip" data-pane-drag="${id}" title="Drag to reorder pane">${grip}</div>` : '';
+  const fill = `<div class="fill"${split ? ` data-pane-drag="${id}"` : ''}></div>`;
+  const md = isMd(f.path) ? `<div class="mdfloat"><button class="${S.src[f.path] ? '' : 'on'}" data-a="mode" data-path="${f.path}" data-src="0">Preview</button><button class="${S.src[f.path] ? 'on' : ''}" data-a="mode" data-path="${f.path}" data-src="1">Source</button></div>` : '';
+  return `<section class="${cls}" data-pane-id="${id}"><div class="pin"${enter}><div class="bm"><div class="row" data-strip="${id}">${handle}${tabs}${fill}</div></div><div class="body" style="display:flex;flex-direction:column;overflow:hidden">${md}${editorBody(f)}</div></div></section>`;
+}
+function nodeView(n, s) {
+  if (n.type === 'leaf') return paneView(n.id, s);
+  return `<div class="split ${n.dir}" data-split="${n.id}">${n.children.map((c, i) => `${i ? `<div class="sash" data-sash="${n.id}" data-i="${i - 1}"></div>` : ''}<div class="node" style="flex:${n.sizes[i]} 1 0">${nodeView(c, s)}</div>`).join('')}</div>`;
+}
+const stage = document.getElementById('stage');
+function paint() {
+  const s = cur();
+  stage.innerHTML = `<div id="win">${sidebar()}<div id="main">${titleBar()}<div class="tree">${nodeView(s.tree, s)}</div></div></div>`;
+  S.entering = null; S.freshTab = null; S.freshFile = null;
+  stage.querySelectorAll('.tm.on,.st.on').forEach(t => t.scrollIntoView({inline: 'nearest', block: 'nearest'}));
+}
+// Focus changes repaint only what shows focus, so the press that moved it still lands as a click.
+function paintFocus() {
+  const s = cur();
+  stage.querySelectorAll('[data-pane-id]').forEach(el => el.classList.toggle('focus', el.dataset.paneId === s.focus));
+  stage.querySelector('.tbar').outerHTML = titleBar();
+}
+
+/* ── drop targets (paneDrop.ts) ── */
+function paneFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y)?.closest('[data-pane-id]');
+  return el ? {el, id: el.dataset.paneId, edge: edgeFromPoint(x, y, el.getBoundingClientRect())} : null;
+}
+function titleDropFromPoint(x, y) {
+  const strip = document.elementFromPoint(x, y)?.closest('[data-title-strip]');
+  if (!strip) return null;
+  const tabs = [...strip.querySelectorAll('[data-title-tab]')];
+  const mid = el => { const r = el.getBoundingClientRect(); return (r.left + r.right) / 2; };
+  const t = tabs.reduce((a, b) => Math.abs(x - mid(b)) < Math.abs(x - mid(a)) ? b : a);
+  const r = t.getBoundingClientRect(), after = x >= mid(t);
+  return {strip, target: t.dataset.titleTab, after, x: (after ? r.right + 1 : r.left - 1) - strip.getBoundingClientRect().left + strip.scrollLeft};
+}
+const hint = Object.assign(document.createElement('div'), {className: 'hint', innerHTML: '<i></i><b></b>'});
+function showHint(over) { if (hint.parentElement !== over.el) over.el.append(hint); hint.dataset.edge = over.edge; }
+const clearHint = () => hint.remove();
+const mark = Object.assign(document.createElement('div'), {className: 'tmark'});
+function showMark(t) { if (mark.parentElement !== t.strip) t.strip.append(mark); mark.style.left = t.x + 'px'; }
+const clearMark = () => mark.remove();
+
+/* ── pane drag (PaneTree.tsx startPaneDrag) ── */
+function startPaneDrag(e, from) {
+  const sx = e.clientX, sy = e.clientY;
+  let active = false, x = sx, y = sy, target = null;
+  const src = () => stage.querySelector(`[data-pane-id="${from}"]`);
+  const move = ev => {
+    x = ev.clientX; y = ev.clientY;
+    if (!active) {
+      if (Math.hypot(x - sx, y - sy) < DRAG_THRESHOLD) return;
+      active = true;
+      document.body.classList.add('grabbing');
+      src().classList.add('dragging');
+    }
+    const t = titleDropFromPoint(x, y);
+    if (t) { clearHint(); showMark(t); target = {title: t}; return; }
+    clearMark();
+    const over = paneFromPoint(x, y);
+    if (!over || over.id === from) { clearHint(); target = null; return; }
+    showHint(over);
+    target = {pane: over};
+  };
+  const finish = commit => {
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', cancel);
+    removeEventListener('keydown', key);
+    document.body.classList.remove('grabbing');
+    src()?.classList.remove('dragging');
+    clearHint(); clearMark();
+    if (!active) return;
+    suppressClickUntil = performance.now() + 300;
+    if (!commit || !target) return;
+    if (target.title) detachPane(from, target.title);
+    else movePane(from, target.pane.id, target.pane.edge);
+    paint();
+  };
+  const up = () => finish(true), cancel = () => finish(false);
+  const key = ev => { if (ev.key === 'Escape') { ev.preventDefault(); finish(false); } };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+  addEventListener('pointercancel', cancel);
+  addEventListener('keydown', key);
+}
+
+/* ── tab reorder (useAnimatedReorder.ts) ── */
+const moveItem = (list, from, to) => { const l = list.slice(); l.splice(to, 0, l.splice(from, 1)[0]); return l; };
+function reorder(e, els, from, onCommit, external) {
+  if (els.length < 2 && !external) return;
+  const order0 = els.map((_, i) => i);
+  // Measure once: animated positions must not affect the drop calculation.
+  const rects = els.map(el => { const r = el.getBoundingClientRect(); return {start: r.left, size: r.width, end: r.right}; });
+  const handle = els[from], start = e.clientX, tr = `transform ${REORDER_MS}ms var(--ease)`;
+  let active = false, settling = false, dest = from, pos = start, frame = 0;
+  const tx = v => `translate3d(${v}px,0,0)`;
+  const preview = to => {
+    const order = moveItem(order0, from, to);
+    els.forEach((el, i) => { if (i !== from) el.style.transform = tx(rects[order.indexOf(i)].start - rects[i].start); });
+  };
+  const draw = (moveHandle = true) => {
+    frame = 0;
+    const off = Math.max(rects[0].start - rects[from].start, Math.min(pos - start, rects.at(-1).end - rects[from].end));
+    if (moveHandle) handle.style.transform = tx(off);
+    const center = rects[from].start + rects[from].size / 2 + off;
+    let next = from, best = Infinity;
+    rects.forEach((r, i) => { const d = Math.abs(center - r.start - r.size / 2); if (d < best) { best = d; next = i; } });
+    if (next !== dest) { dest = next; preview(next); }
+  };
+  const reset = () => {
+    removeEventListener('pointermove', onMove);
+    removeEventListener('pointerup', onUp);
+    removeEventListener('pointercancel', onCancel);
+    removeEventListener('keydown', onKey);
+    els.forEach(el => { el.style.removeProperty('transition'); el.style.removeProperty('transform'); delete el.dataset.reordering; delete el.dataset.settling; });
+    delete handle.dataset.dragging;
+    document.body.classList.remove('grabbing');
+    if (active) suppressClickUntil = performance.now() + 400;
+    external?.onEnd?.();
+  };
+  const stop = (commit, ev) => {
+    if (settling) return;
+    if (!active) return reset();
+    if (commit && ev && external?.onDrop(ev)) return reset();
+    settling = true;
+    cancelAnimationFrame(frame);
+    if (commit) draw(false);
+    handle.dataset.settling = '';
+    const to = commit ? dest : from;
+    preview(to);
+    handle.style.transition = tr;
+    handle.style.transform = tx(rects[to].start - rects[from].start);
+    setTimeout(() => { reset(); if (commit && to !== from) onCommit(moveItem(order0, from, to)); }, REORDER_MS);
+  };
+  function onMove(ev) {
+    if (settling) return;
+    pos = ev.clientX;
+    if (!active) {
+      if (Math.abs(pos - start) < DRAG_THRESHOLD && !(external && Math.abs(ev.clientY - e.clientY) >= DRAG_THRESHOLD)) return;
+      active = true;
+      document.body.classList.add('grabbing');
+      els.forEach(el => { el.style.transition = tr; el.dataset.reordering = ''; });
+      handle.style.transition = 'none';
+      handle.dataset.dragging = '';
+    }
+    if (external?.onMove(ev)) { cancelAnimationFrame(frame); frame = 0; dest = from; preview(from); return; }
+    if (!frame) frame = requestAnimationFrame(() => draw());
+  }
+  function onUp(ev) { onMove(ev); stop(true, ev); }
+  function onCancel() { stop(false); }
+  function onKey(ev) { if (ev.key === 'Escape') { ev.preventDefault(); stop(false); } }
+  addEventListener('pointermove', onMove);
+  addEventListener('pointerup', onUp);
+  addEventListener('pointercancel', onCancel);
+  addEventListener('keydown', onKey);
+}
+function startTabReorder(e, paneId, i) {
+  const els = [...stage.querySelectorAll(`[data-tab="${paneId}"]`)];
+  reorder(e, els, i, order => {
+    const p = PANES[paneId], active = p.files[p.active];
+    p.files = order.map(k => p.files[k]);
+    p.active = p.files.indexOf(active);
+    paint();
+  }, {
+    onMove: ev => {
+      const t = titleDropFromPoint(ev.clientX, ev.clientY);
+      if (t) showMark(t); else clearMark();
+      return !!t;
+    },
+    onDrop: ev => {
+      const t = titleDropFromPoint(ev.clientX, ev.clientY);
+      clearMark();
+      if (!t) return false;
+      detachFile(paneId, i, t);
+      paint();
+      return true;
+    },
+    onEnd: clearMark,
+  });
+}
+function startTitleReorder(e, sid) {
+  const els = [...stage.querySelectorAll('[data-title-tab]')];
+  const from = els.findIndex(el => el.dataset.titleTab === sid);
+  reorder(e, els, from, order => {
+    S.sessions = order.map(k => S.sessions[k]);
+    paint();
+  }, {
+    // Another session's tab dragged over a pane offers to split it there.
+    onMove: ev => {
+      if (sid === S.cur) return false;
+      const over = paneFromPoint(ev.clientX, ev.clientY);
+      if (over) showHint(over); else clearHint();
+      return !!over;
+    },
+    onDrop: ev => {
+      if (sid === S.cur) return false;
+      const over = paneFromPoint(ev.clientX, ev.clientY);
+      clearHint();
+      if (!over) return false;
+      placeSession(sid, over.id, over.edge);
+      paint();
+      return true;
+    },
+    onEnd: clearHint,
+  });
+}
+function startSash(e, sash) {
+  e.preventDefault();
+  const split = findSplit(cur().tree, sash.dataset.sash), i = +sash.dataset.i;
+  const box = sash.parentElement, kids = [...box.children].filter(c => c.classList.contains('node'));
+  const row = split.dir === 'row', r = box.getBoundingClientRect();
+  const total = row ? r.width : r.height, start = row ? e.clientX : e.clientY;
+  const a0 = split.sizes[i], b0 = split.sizes[i + 1];
+  sash.setPointerCapture(e.pointerId);
+  sash.classList.add('active');
+  const move = ev => {
+    const a = Math.min(Math.max(a0 + ((row ? ev.clientX : ev.clientY) - start) / total, .12), a0 + b0 - .12);
+    split.sizes[i] = a; split.sizes[i + 1] = a0 + b0 - a;
+    kids[i].style.flex = `${a} 1 0`; kids[i + 1].style.flex = `${a0 + b0 - a} 1 0`;
+  };
+  sash.addEventListener('pointermove', move);
+  sash.addEventListener('pointerup', () => { sash.removeEventListener('pointermove', move); sash.classList.remove('active'); }, {once: true});
+}
+
+/* ── input ── */
+let lastPress = {key: '', at: 0};
+const doublePress = key => { const now = performance.now(), d = lastPress.key === key && now - lastPress.at < 350; lastPress = {key, at: now}; return d; };
+stage.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const t = e.target, s = cur();
+  const paneEl = t.closest('[data-pane-id]');
+  const focusMoved = paneEl && s.focus !== paneEl.dataset.paneId;
+  if (focusMoved) s.focus = paneEl.dataset.paneId;
+  if (t.closest('[data-no-drag]')) { if (focusMoved) paintFocus(); return; }
+  const sash = t.closest('[data-sash]');
+  if (sash) return startSash(e, sash);
+  const tab = t.closest('[data-tab]');
+  if (tab) {
+    const id = tab.dataset.tab, i = +tab.dataset.i, p = PANES[id];
+    // Double-clicking a preview tab keeps it.
+    if (doublePress(id + ':' + p.files[i].path) && p.files[i].preview) delete p.files[i].preview;
+    p.active = i;
+    paint();
+    return startTabReorder(e, id, i);
+  }
+  const tt = t.closest('[data-title-tab]');
+  if (tt) return startTitleReorder(e, tt.dataset.titleTab);
+  if (focusMoved) paintFocus();
+  const pd = t.closest('[data-pane-drag]');
+  if (pd) { e.preventDefault(); startPaneDrag(e, pd.dataset.paneDrag); }
+});
+stage.addEventListener('click', e => {
+  if (performance.now() < suppressClickUntil) return;
+  const el = e.target.closest('[data-a],[data-title-tab]');
+  if (!el) return;
+  const d = el.dataset;
+  switch (d.a) {
+    case 'closeFile': closeFile(d.id, +d.i); break;
+    case 'closePane': dropPane(d.id); break;
+    case 'closeSession': closeSession(d.id); break;
+    case 'newSession': newSession(); break;
+    case 'mode': S.src[d.path] = d.src === '1'; break;
+    case 'mention': openFile(d.path, false); break;
+    case 'sideFile': openFile(d.path, doublePress('side:' + d.path)); break;
+    default: if (d.titleTab) S.cur = d.titleTab;
+  }
+  paint();
+});
+stage.addEventListener('auxclick', e => {
+  const tab = e.button === 1 && e.target.closest('[data-tab]');
+  if (!tab) return;
+  closeFile(tab.dataset.tab, +tab.dataset.i);
+  paint();
+});
+paint();
+</script>
+</body>
+</html>

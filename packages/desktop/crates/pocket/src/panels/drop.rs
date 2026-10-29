@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use workspace::tree::{Axis, Edge, MIN_H, MIN_W, PaneId, Rect, Target};
 
 /// A strip's height: the top of every pane, where a held tab joins the pane's tabs.
-pub(crate) const STRIP_H: f32 = 42.;
+pub(crate) const STRIP_H: f32 = 36.;
 
 /// Each strip's tabs as laid out, as (left, width) in the window.
 pub(crate) type Slots = HashMap<PaneId, Vec<(f32, f32)>>;
@@ -14,6 +14,8 @@ pub(crate) enum Aim {
     /// Back over the strip it came from, which places it itself.
     Home,
     To(Target),
+    /// Onto the top bar, to become the top tab at that index.
+    Top(usize),
 }
 
 /// Where a tab of pane `from`, which holds `tabs` tabs, drops at `(x, y)` with its middle at `mid`.
@@ -63,6 +65,34 @@ pub(crate) fn caret(slots: &[(f32, f32)], index: usize) -> Option<f32> {
     match slots.get(index) {
         Some(&(l, _)) => Some(l - GAP / 2.),
         None => slots.last().map(|&(l, w)| l + w + GAP / 2.),
+    }
+}
+
+/// Where a pane, held by `from` or none for a top tab, drops at `(x, y)`: the pane under it, at the edge the pointer leans to most from its centre.
+pub(crate) fn pane_aim(layout: &[(PaneId, Rect)], (x, y): (f32, f32), from: Option<PaneId>) -> Option<(PaneId, Edge)> {
+    let &(pane, r) = layout.iter().find(|(p, r)| Some(*p) != from && r.x <= x && x < r.x + r.w && r.y <= y && y < r.y + r.h)?;
+    let (nx, ny) = ((x - r.x) / r.w - 0.5, (y - r.y) / r.h - 0.5);
+    let edge = match nx.abs() > ny.abs() {
+        true if nx < 0. => Edge::Left,
+        true => Edge::Right,
+        false if ny < 0. => Edge::Top,
+        false => Edge::Bottom,
+    };
+    Some((pane, edge))
+}
+
+/// Where a drop at `x` lands among the top tabs at `slots`: past each whose middle it passed.
+pub(crate) fn top_index(slots: &[(f32, f32)], x: f32) -> usize {
+    slots.iter().filter(|(l, w)| l + w / 2. < x).count()
+}
+
+/// The half of `r` a pane dropped at `edge` takes.
+pub(crate) fn half(r: Rect, edge: Edge) -> Rect {
+    match edge {
+        Edge::Left => Rect { w: r.w / 2., ..r },
+        Edge::Right => Rect { x: r.x + r.w / 2., w: r.w / 2., ..r },
+        Edge::Top => Rect { h: r.h / 2., ..r },
+        Edge::Bottom => Rect { y: r.y + r.h / 2., h: r.h / 2., ..r },
     }
 }
 
@@ -133,14 +163,44 @@ mod tests {
     #[test]
     fn the_highlight_fills_the_half_a_split_takes_or_the_whole_body() {
         let r = Rect { x: 600., y: 0., w: 600., h: 442. };
-        assert_eq!(highlight(r, Some(Edge::Right)), Rect { x: 904., y: 46., w: 292., h: 392. });
-        assert_eq!(highlight(r, Some(Edge::Bottom)), Rect { x: 604., y: 246., w: 592., h: 192. });
-        assert_eq!(highlight(r, None), Rect { x: 604., y: 46., w: 592., h: 392. });
+        assert_eq!(highlight(r, Some(Edge::Right)), Rect { x: 904., y: 40., w: 292., h: 398. });
+        assert_eq!(highlight(r, Some(Edge::Bottom)), Rect { x: 604., y: 243., w: 592., h: 195. });
+        assert_eq!(highlight(r, None), Rect { x: 604., y: 40., w: 592., h: 398. });
     }
 
     #[test]
     fn the_caret_sits_in_the_gap_before_its_tab_or_after_the_last() {
         let slots = [(10., 100.), (112., 100.)];
         assert_eq!((caret(&slots, 0), caret(&slots, 1), caret(&slots, 2), caret(&[], 0)), (Some(9.), Some(111.), Some(213.), None));
+    }
+
+    #[test]
+    fn a_pane_drops_at_the_edge_its_pointer_leans_to_most() {
+        let (layout, _) = two();
+        assert_eq!(pane_aim(&layout, (650., 200.), Some(0)), Some((1, Edge::Left)));
+        assert_eq!(pane_aim(&layout, (1150., 200.), Some(0)), Some((1, Edge::Right)));
+        assert_eq!(pane_aim(&layout, (900., 20.), Some(0)), Some((1, Edge::Top)));
+        assert_eq!(pane_aim(&layout, (900., 390.), Some(0)), Some((1, Edge::Bottom)));
+    }
+
+    #[test]
+    fn a_pane_never_drops_on_itself_or_outside_every_pane() {
+        let (layout, _) = two();
+        assert_eq!(pane_aim(&layout, (300., 200.), Some(0)), None);
+        assert_eq!(pane_aim(&layout, (1300., 200.), Some(0)), None);
+        assert_eq!(pane_aim(&layout, (100., 200.), None), Some((0, Edge::Left)));
+    }
+
+    #[test]
+    fn on_the_bar_a_drop_lands_past_the_top_tabs_whose_middle_it_passed() {
+        let slots = [(10., 200.), (212., 200.)];
+        assert_eq!([0., 120., 330., 900.].map(|x| top_index(&slots, x)), [0, 1, 2, 2]);
+    }
+
+    #[test]
+    fn the_pane_highlight_takes_the_half_at_its_edge() {
+        let r = Rect { x: 0., y: 0., w: 600., h: 400. };
+        assert_eq!(half(r, Edge::Right), Rect { x: 300., y: 0., w: 300., h: 400. });
+        assert_eq!(half(r, Edge::Top), Rect { x: 0., y: 0., w: 600., h: 200. });
     }
 }

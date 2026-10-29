@@ -14,7 +14,7 @@ mod update;
 mod usage;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, drag_area, id, state};
+use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, Side, drag_area, id, state};
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rename::Rename;
 use crate::sidebar::filter::Filter;
@@ -449,7 +449,12 @@ impl Desktop {
         } else {
             ui::indicator(id(format!("aside-spin:{tree}")), state).or_else(|| self.pr_mark(tree))
         };
-        let trail = ui::row_trail(None, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
+        // The row's own click picks the tree; this only opens Changes on top of it.
+        let diff = self.repos.get(tree).filter(|r| !r.files.is_empty()).map(|r| {
+            let (added, removed) = r.totals();
+            ui::meta_diff(added, removed, 11.).id(id(format!("aside-diff:{tree}"))).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_side(Side::Changes, cx))).into_any_element()
+        });
+        let trail = ui::row_trail(diff, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
         let (target, path) = (p.to_string(), tree.clone());
         let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
