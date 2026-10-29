@@ -8,8 +8,11 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use theme::*;
+use hud::Act;
 use viewport::Viewport;
 
+mod hud;
+mod popup;
 mod viewport;
 
 const BUDGET: usize = 64 << 20;
@@ -17,8 +20,10 @@ const MAX_SIDE: f32 = 8192.;
 // Diagrams painted this recently are on screen, so eviction spares them.
 const IN_USE: Duration = Duration::from_millis(250);
 const FADE: Duration = Duration::from_millis(200);
-/// A card's tallest; a taller diagram pans.
-const MAX_HEIGHT: f32 = 480.;
+/// Between a card's edges and its diagram, fitted.
+const PAD: f32 = 16.;
+/// A card's tallest, unless 70% of the window is less; a taller diagram shrinks to fit.
+const MAX_HEIGHT: f32 = 720.;
 
 struct Merman {
     renderer: Renderer,
@@ -151,6 +156,8 @@ pub struct Diagrams {
     cards: HashMap<u64, (f32, f32)>,
     /// The card being dragged, by place, and where the pointer last was.
     drag: Option<(u64, Point<Pixels>)>,
+    /// The card under the pointer, by place, which shows its zoom buttons.
+    hovered: Option<u64>,
 }
 
 impl Diagrams {
@@ -170,19 +177,32 @@ impl Diagrams {
             views: HashMap::new(),
             cards: HashMap::new(),
             drag: None,
+            hovered: None,
         }
     }
 
-    /// The card at `place` back to showing the whole diagram.
-    pub(crate) fn fit(&mut self, place: u64, cx: &mut Context<Self>) {
-        if self.views.remove(&place).is_some() {
+    fn view(&self, place: u64) -> Viewport {
+        self.views.get(&place).copied().unwrap_or_default()
+    }
+
+    fn set_view(&mut self, place: u64, view: Viewport, cx: &mut Context<Self>) {
+        if view == self.view(place) {
+            return;
+        }
+        if view == Viewport::default() {
+            self.views.remove(&place);
+        } else {
+            self.views.insert(place, view);
+        }
+        cx.notify();
+    }
+
+    fn hover(&mut self, place: u64, hovered: bool, cx: &mut Context<Self>) {
+        let now = if hovered { Some(place) } else { self.hovered.filter(|p| *p != place) };
+        if now != self.hovered {
+            self.hovered = now;
             cx.notify();
         }
-    }
-
-    /// Whether the diagram under `key` was laid out and parsed.
-    pub(crate) fn ready(&self, key: u64) -> bool {
-        matches!(self.items.get(&key), Some(Diagram::Ready(_)))
     }
 
     fn relayout(&self, cx: &mut App) {
@@ -274,60 +294,27 @@ pub(crate) fn place(at: impl Hash) -> u64 {
 }
 
 /// Mermaid `source` drawn in the current scheme once laid out, in the card at `place`; its error and source if it doesn't parse.
-pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, cx: &mut App) -> Stateful<Div> {
+/// `heading`, the nearest above it, titles its window.
+pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
     let dark = theme::is_dark();
-    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).p(px(16.)).rounded(px(15.)).bg(diagrams.read(cx).canvas);
+    let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).bg(diagrams.read(cx).canvas);
     match diagrams.update(cx, |d, cx| d.get(key, source, dark, cx)) {
         Diagram::Ready(tree) => {
             let size = tree.size();
             let natural = (size.width(), size.height());
-            let d = diagrams.read(cx);
-            let image = d.images.get(&key).map(|(image, _)| image.clone());
-            // Fresh for twice the fade, so dropping the animation can't cut it short; cached images scrolled back into view don't fade.
-            let fresh = d.rastered.get(&key).is_some_and(|t| t.elapsed() < FADE * 2);
-            let view = d.views.get(&place).copied();
-            let shown = move |card: (f32, f32)| view.map_or_else(|| Viewport::fit(natural, card), |v| v.within(natural, card));
-            let image = image.zip(d.cards.get(&place).copied().map(shown));
-            let grabbing = d.drag.is_some_and(|(p, _)| p == place);
-            let diagrams = diagrams.clone();
-            let input = canvas(
-                |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-                move |bounds, hitbox, window, cx| {
-                    let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                    let shown = shown(card);
-                    diagrams.update(cx, |d, cx| {
-                        if d.cards.insert(place, card) != Some(card) {
-                            // The card's height follows its width, so the markdown around it lays out again.
-                            d.relayout(cx);
-                            cx.notify();
-                        }
-                        d.painted(key, &tree, shown.zoom, window, cx);
-                    });
-                    let (x, y) = shown.overflow(natural, card);
-                    if grabbing || x + y > 0.5 {
-                        window.set_cursor_style(if grabbing { CursorStyle::ClosedHand } else { CursorStyle::OpenHand }, &hitbox);
-                    }
-                    listen(&diagrams, place, natural, bounds, hitbox, window);
-                },
-            );
-            // Its natural size until wider than the card, then the card's width; never taller than MAX_HEIGHT. Its height
-            // follows its laid-out width once known, as the layout takes an aspect ratio from the width before `max_w` caps it.
-            let card = div().relative().overflow_hidden().w_full().max_w(px(natural.0)).max_h(px(MAX_HEIGHT));
-            let card = match d.cards.get(&place) {
-                Some((width, _)) => card.h(px(width * natural.1 / natural.0)),
-                None => card.aspect_ratio(natural.0 / natural.1),
+            let tallest = (f32::from(window.viewport_size().height) * 0.7).min(MAX_HEIGHT).min(natural.1 + 2. * PAD);
+            // The card spans the column, its height following its width by the diagram's shape; the width is known
+            // once painted, before which the layout's aspect ratio stands in. The 2 is the border.
+            let frame = frame.relative().w_full().overflow_hidden().border_1().border_color(SEPARATOR);
+            let frame = match diagrams.read(cx).cards.get(&place) {
+                Some((width, _)) => frame.h(px((width * natural.1 / natural.0).min(tallest) + 2.)),
+                None => frame.aspect_ratio(natural.0 / natural.1).max_h(px(tallest + 2.)),
             };
-            // Sized outright: an image left a side to fill takes its raster's pixels, twice the diagram on a 2x display.
-            frame.child(card.child(input.absolute().size_full()).children(image.map(|(image, v)| {
-                let image = img(ImageSource::Render(image)).absolute().left(px(-v.offset.0)).top(px(-v.offset.1)).w(px(natural.0 * v.zoom)).h(px(natural.1 * v.zoom));
-                match fresh {
-                    true => image.with_animation(("mermaid-in", place), Animation::new(FADE).with_easing(ease_out_quint()), |i, t| i.opacity(t)).into_any_element(),
-                    false => image.into_any_element(),
-                }
-            })))
+            frame.child(surface(diagrams, key, place, tree, PAD, Some((source.clone(), heading)), cx))
         }
-        Diagram::Pending => frame.text_size(px(12.)).text_color(TEXT_3).child("Rendering diagram…"),
+        Diagram::Pending => frame.p(px(PAD)).text_size(px(12.)).text_color(TEXT_3).child("Rendering diagram…"),
         Diagram::Failed(error) => frame
+            .p(px(PAD))
             .flex()
             .flex_col()
             .gap(px(6.))
@@ -337,20 +324,89 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
     }
 }
 
-/// Drag pans, pinch or ⌘-scroll zooms around the pointer, a sideways swipe pans one wider than its card, a double-click
-/// fits it again. A plain scroll goes on to the page.
-fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: Bounds<Pixels>, hitbox: Hitbox, window: &mut Window) {
+/// The diagram filling its parent, fitted `pad` inside its edges, with zoom buttons over it while the pointer is. With
+/// `window`, its source and heading, a button opens it in a window of its own.
+fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, pad: f32, window: Option<(SharedString, Option<SharedString>)>, cx: &mut App) -> Stateful<Div> {
+    let size = tree.size();
+    let natural = (size.width(), size.height());
+    let d = diagrams.read(cx);
+    let image = d.images.get(&key).map(|(image, _)| image.clone());
+    // Fresh for twice the fade, so dropping the animation can't cut it short; cached images scrolled back into view don't fade.
+    let fresh = d.rastered.get(&key).is_some_and(|t| t.elapsed() < FADE * 2);
+    let view = d.view(place);
+    let placed = d.cards.get(&place).map(|card| view.placed(natural, *card, pad));
+    let grabbing = d.drag.is_some_and(|(p, _)| p == place);
+    let hovered = grabbing || d.hovered == Some(place);
+    let canvas_color = d.canvas;
+    let input = {
+        let diagrams = diagrams.clone();
+        canvas(
+            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            move |bounds, hitbox, window, cx| {
+                let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+                diagrams.update(cx, |d, cx| {
+                    let was = d.cards.insert(place, card);
+                    if was != Some(card) {
+                        if let (Some(was), Some(view)) = (was, d.views.get_mut(&place)) {
+                            *view = view.resized(was, card);
+                        }
+                        // The card's height follows its width, so the markdown around it lays out again.
+                        d.relayout(cx);
+                        cx.notify();
+                    }
+                    let zoom = d.view(place).placed(natural, card, pad).zoom;
+                    d.painted(key, &tree, zoom, window, cx);
+                });
+                window.set_cursor_style(if grabbing { CursorStyle::ClosedHand } else { CursorStyle::OpenHand }, &hitbox);
+                listen(&diagrams, place, bounds, hitbox, window);
+            },
+        )
+    };
+    // Sized outright: an image left a side to fill takes its raster's pixels, twice the diagram on a 2x display.
+    let image = image.zip(placed).map(|(image, p)| {
+        let image = img(ImageSource::Render(image)).absolute().left(px(p.origin.0)).top(px(p.origin.1)).w(px(natural.0 * p.zoom)).h(px(natural.1 * p.zoom));
+        match fresh {
+            true => image.with_animation(("mermaid-in", place), Animation::new(FADE).with_easing(ease_out_quint()), |i, t| i.opacity(t)).into_any_element(),
+            false => image.into_any_element(),
+        }
+    });
+    let hud = hovered.then(|| {
+        let (d, fullscreen) = (diagrams.clone(), window.is_some());
+        hud::hud(place, view.level(), fullscreen, move |act, w, cx| match act {
+            Act::Zoom(k) => d.update(cx, |d, cx| {
+                let card = d.cards.get(&place).copied().unwrap_or_default();
+                let view = d.view(place).zoomed(k, (card.0 / 2., card.1 / 2.), card);
+                d.set_view(place, view, cx);
+            }),
+            Act::Fit => d.update(cx, |d, cx| d.set_view(place, Viewport::default(), cx)),
+            Act::Fullscreen => {
+                if let Some((source, heading)) = &window {
+                    popup::open(source.clone(), canvas_color, heading.clone(), w, cx);
+                }
+            }
+        })
+    });
+    let d = diagrams.clone();
+    div()
+        .id(("mermaid-surface", place))
+        .relative()
+        .size_full()
+        .overflow_hidden()
+        .on_hover(move |hovered, _, cx| d.update(cx, |d, cx| d.hover(place, *hovered, cx)))
+        .child(input.absolute().size_full())
+        .children(image)
+        .children(hud)
+}
+
+/// Drag pans, pinch or ⌘-scroll zooms around the pointer, a double-click zooms in or fits it again. A plain scroll,
+/// sideways too, goes on to the page.
+fn listen(diagrams: &Entity<Diagrams>, place: u64, bounds: Bounds<Pixels>, hitbox: Hitbox, window: &mut Window) {
     let card = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     let at = move |p: Point<Pixels>| (f32::from(p.x - bounds.origin.x), f32::from(p.y - bounds.origin.y));
-    let current = move |d: &Diagrams| d.views.get(&place).map_or_else(|| Viewport::fit(natural, card), |v| v.within(natural, card));
-    // A gesture that moves nothing keeps the card fitted, so it refits as the card resizes.
     let change = move |diagrams: &Entity<Diagrams>, cx: &mut App, f: &dyn Fn(Viewport) -> Viewport| {
         diagrams.update(cx, |d, cx| {
-            let (was, now) = (current(d), f(current(d)));
-            if now != was {
-                d.views.insert(place, now);
-                cx.notify();
-            }
+            let view = f(d.view(place));
+            d.set_view(place, view, cx);
         })
     };
     let (d, hit) = (diagrams.clone(), hitbox.clone());
@@ -358,14 +414,15 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: 
         if phase != DispatchPhase::Bubble || e.button != MouseButton::Left || !hit.is_hovered(window) {
             return;
         }
-        d.update(cx, |d, cx| {
-            if e.click_count == 2 {
-                d.views.remove(&place);
-            } else {
+        if e.click_count == 2 {
+            let point = at(e.position);
+            change(&d, cx, &|v| v.double_clicked(point, card));
+        } else {
+            d.update(cx, |d, cx| {
                 d.drag = Some((place, e.position));
-            }
-            cx.notify();
-        });
+                cx.notify();
+            });
+        }
         // Not a text selection starting.
         cx.stop_propagation();
     });
@@ -381,7 +438,7 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: 
         }
         let by = (f32::from(e.position.x - last.x), f32::from(e.position.y - last.y));
         d.update(cx, |d, _| d.drag = Some((dragged, e.position)));
-        change(&d, cx, &|v| v.panned(by, natural, card));
+        change(&d, cx, &|v| v.panned(by));
     });
     let d = diagrams.clone();
     window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
@@ -394,29 +451,43 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, natural: (f32, f32), bounds: 
     });
     let (d, hit) = (diagrams.clone(), hitbox.clone());
     window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
-        if phase != DispatchPhase::Bubble || !hit.is_hovered(window) {
+        if phase != DispatchPhase::Bubble || !hit.is_hovered(window) || !(e.modifiers.platform || e.modifiers.control) {
             return;
         }
-        let delta = e.delta.pixel_delta(px(20.));
-        let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
-        if e.modifiers.platform {
-            let point = at(e.position);
-            change(&d, cx, &|v| v.zoomed((dy / 200.).exp(), point, natural, card));
-        } else if dx.abs() > dy.abs() && current(d.read(cx)).overflow(natural, card).0 > 0. {
-            change(&d, cx, &|v| v.panned((dx, 0.), natural, card));
-        } else {
-            return;
-        }
+        let (point, dy) = (at(e.position), f32::from(e.delta.pixel_delta(px(20.)).y));
+        change(&d, cx, &|v| v.zoomed((dy * 0.01).exp(), point, card));
         cx.stop_propagation();
     });
     let d = diagrams.clone();
     window.on_mouse_event(move |e: &PinchEvent, phase, window, cx| {
         if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
             let point = at(e.position);
-            change(&d, cx, &|v| v.zoomed(1. + e.delta, point, natural, card));
+            change(&d, cx, &|v| v.zoomed(1. + e.delta, point, card));
             cx.stop_propagation();
         }
     });
+}
+
+/// The last ATX heading's text in `markdown`, skipping fenced code.
+pub(crate) fn heading(markdown: &str) -> Option<&str> {
+    let mut fence: Option<&str> = None;
+    let mut last = None;
+    for line in markdown.lines().map(str::trim_start) {
+        let marker = ["```", "~~~"].into_iter().find(|m| line.starts_with(m));
+        match (fence, marker) {
+            (None, Some(m)) => fence = Some(m),
+            (Some(open), Some(m)) if open == m => fence = None,
+            (None, None) => {
+                let text = line.trim_start_matches('#');
+                let level = line.len() - text.len();
+                if (1..=6).contains(&level) && (text.is_empty() || text.starts_with([' ', '\t'])) {
+                    last = Some(text.trim().trim_end_matches('#').trim_end()).filter(|t| !t.is_empty());
+                }
+            }
+            _ => {}
+        }
+    }
+    last
 }
 
 struct Fence {
@@ -424,6 +495,7 @@ struct Fence {
     keys: [u64; 2],
     place: u64,
     source: SharedString,
+    heading: Option<SharedString>,
 }
 
 /// Renders `mermaid` code fences in a markdown `TextView` as diagrams.
@@ -444,19 +516,20 @@ impl MarkdownPlugin for Mermaid {
             return None;
         }
         let at = code.position.as_ref().map(|p| p.start.offset);
-        let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into() };
+        let heading = at.and_then(|at| cx.source().get(..at)).and_then(heading).map(|h| SharedString::from(h.to_string()));
+        let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into(), heading };
         Some(MarkdownNode::new("mermaid", fence).text(code.value.clone()).markdown(cx.node_source(node).unwrap_or(&code.value).to_string()))
     }
 
-    fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let Fence { keys, place, source } = node.data::<Fence>().unwrap();
-        diagram(&self.0, keys[theme::is_dark() as usize], *place, source, cx)
+    fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Fence { keys, place, source, heading } = node.data::<Fence>().unwrap();
+        diagram(&self.0, keys[theme::is_dark() as usize], *place, source, heading.clone(), window, cx)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BUDGET, IN_USE, evict, hex, rasterize, svg, tree};
+    use super::{BUDGET, IN_USE, evict, heading, hex, rasterize, svg, tree};
     use gpui_kit::RenderImage;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -529,6 +602,15 @@ mod tests {
         ]);
         assert_eq!(evict(&mut images, BUDGET).len(), 1);
         assert!(!images.contains_key(&1) && images.contains_key(&2));
+    }
+
+    #[test]
+    fn finds_the_last_heading_above_a_diagram() {
+        assert_eq!(heading("# Doc\n\nText\n\n## Architecture ##\n\nMore\n"), Some("Architecture"));
+        assert_eq!(heading("Text\n#hashtag\n"), None);
+        assert_eq!(heading("## Flow\n```sh\n# a comment\n```\n"), Some("Flow"));
+        assert_eq!(heading("   ### Indented\n"), Some("Indented"));
+        assert_eq!(heading("####### Seven\n"), None);
     }
 
     #[test]
