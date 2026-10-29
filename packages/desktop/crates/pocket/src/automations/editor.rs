@@ -1,23 +1,51 @@
 use super::Menu;
-use super::form::{PROVIDERS, TEMPLATES, Values};
+use super::form::{TEMPLATES, Values};
 use super::logic::{DEFAULT_EVERY, DEFAULT_TIME, Tab};
-use super::parts::{card, crumbs, details, pill, section, segmented};
+use super::parts::{crumbs, pill, section};
+use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame};
+use crate::composer::Composer;
+use crate::composer::launch::access_row;
 use crate::desktop::Desktop;
+use crate::modals::new_session::picker::{menu_input, pick_head};
+use crate::modals::new_session::{default_first, listed_branches};
+use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, now_ms};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use store::prefs::automations::ACCESSES;
+use store::LaunchPick;
 use theme::*;
 use ui::{self, Variant};
 
+/// Where each run starts: a new worktree of the project, or its checkout as it stands.
+const CHECKOUTS: [(bool, &str, &str, &str); 2] = [
+    (true, WORKTREE_ICON, "Worktree", "Each run gets its own branch and copy of the files"),
+    (false, LOCAL_ICON, "Local", "Runs in the project's checkout: files and branch are shared"),
+];
+
+/// Local branches with their last commit's unix seconds, as `git::dated_branches` lists them.
+type Branches = Vec<(String, Option<i64>)>;
+
 pub struct Form {
     pub(super) title: Entity<InputState>,
-    pub(super) prompt: Entity<TextareaState>,
     pub(super) time: Entity<InputState>,
     pub(super) every: Entity<InputState>,
-    /// The choices; its texts only count as of the last `load`, see `values`.
+    /// The instructions, with the agent, model and access chips a session's prompt box has.
+    pub(crate) composer: Composer,
+    pub(super) branch_search: Entity<InputState>,
+    /// A folder's local branches, its default first, as last read.
+    pub(super) branches: Option<(String, Branches)>,
+    /// The choices; its texts and chips only count as of the last `load`, see `values`.
     pub(super) v: Values,
     pub(crate) open: bool,
+}
+
+fn slot(d: &mut Desktop) -> &mut Composer {
+    &mut d.automations.form.composer
+}
+
+/// The key the composer remembers its pick under.
+fn project_key(folder: &str) -> Option<String> {
+    Some(folder.to_string()).filter(|f| !f.is_empty())
 }
 
 impl Form {
@@ -26,32 +54,50 @@ impl Form {
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Tell the agent what to do when this automation runs…").auto_grow(5, 14));
         let time = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_TIME));
         let every = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_EVERY));
-        let subs = vec![
-            cx.subscribe(&title, |_, _, _: &InputEvent, cx| cx.notify()),
-            cx.subscribe(&prompt, |_, _, _: &InputEvent, cx| cx.notify()),
-            cx.subscribe(&time, |_, _, _: &InputEvent, cx| cx.notify()),
-            cx.subscribe(&every, |_, _, _: &InputEvent, cx| cx.notify()),
-        ];
-        (Self { title, prompt, time, every, v: Values::new(String::new()), open: false }, subs)
+        let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
+        let branch_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
+        let mut subs: Vec<_> = [&title, &time, &every, &models, &branch_search].into_iter().map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())).collect();
+        subs.push(cx.subscribe(&prompt, |_, _, _: &InputEvent, cx| cx.notify()));
+        let composer = Composer::new(prompt, models, slot, |d| d.automations.menu = None, |_, _| {});
+        (Self { title, time, every, composer, branch_search, branches: None, v: Values::new(String::new()), open: false }, subs)
     }
 
-    /// The choices with the texts as they stand in the inputs.
+    /// The choices with the texts and chips as they stand.
     pub fn values(&self, cx: &App) -> Values {
-        Values {
+        let mut v = Values {
             title: self.title.read(cx).value().to_string(),
-            prompt: self.prompt.read(cx).value().to_string(),
+            prompt: self.composer.prompt.read(cx).value().to_string(),
             time: self.time.read(cx).value().to_string(),
             every: self.every.read(cx).value().to_string(),
             ..self.v.clone()
-        }
+        };
+        v.set_pick(&self.pick());
+        v
     }
 
-    fn load(&self, window: &mut Window, cx: &mut Context<Desktop>) {
+    /// The agent, model, effort and access the chips show: picked there, else as loaded.
+    fn pick(&self) -> LaunchPick {
+        self.composer.draft.pick(project_key(&self.v.folder).as_deref(), || self.v.pick())
+    }
+
+    /// The folder's branches once read, its default first.
+    fn branches(&self) -> &[(String, Option<i64>)] {
+        self.branches.as_ref().filter(|(folder, _)| *folder == self.v.folder).map_or(&[], |(_, b)| b.as_slice())
+    }
+
+    /// The branch each new worktree starts from: the one picked, else the folder's default.
+    fn base_label(&self) -> Option<String> {
+        Some(self.v.base.clone()).filter(|b| !b.is_empty()).or_else(|| self.branches().first().map(|(b, _)| b.clone()))
+    }
+
+    fn load(&mut self, window: &mut Window, cx: &mut Context<Desktop>) {
         let v = self.v.clone();
-        self.title.update(cx, |s, cx| s.set_value(v.title, window, cx));
-        self.prompt.update(cx, |s, cx| s.set_value(v.prompt, window, cx));
-        self.time.update(cx, |s, cx| s.set_value(v.time, window, cx));
-        self.every.update(cx, |s, cx| s.set_value(v.every, window, cx));
+        self.title.update(cx, |s, cx| s.set_value(v.title.clone(), window, cx));
+        self.composer.prompt.update(cx, |s, cx| s.set_value(v.prompt.clone(), window, cx));
+        self.time.update(cx, |s, cx| s.set_value(v.time.clone(), window, cx));
+        self.every.update(cx, |s, cx| s.set_value(v.every.clone(), window, cx));
+        self.composer.draft.clear();
+        self.composer.draft.choose(project_key(&v.folder), v.pick());
     }
 }
 
@@ -66,13 +112,54 @@ impl Desktop {
         f.open = true;
         f.load(window, cx);
         f.title.update(cx, |s, cx| s.focus(window, cx));
+        let folder = f.v.folder.clone();
         self.automations.tab = Tab::Automations;
         self.screen = crate::desktop::chrome::Screen::Automations;
+        self.load_branches(folder, cx);
+        cx.notify();
+    }
+
+    /// Reads `folder`'s local branches off the UI thread, for the branch menu while the editor is still on it.
+    fn load_branches(&mut self, folder: String, cx: &mut Context<Self>) {
+        if folder.is_empty() {
+            return;
+        }
+        let (runner, dir) = (hosts::runner_for(&folder), folder.clone());
+        let task = cx.background_executor().spawn(async move {
+            let current = git::read(&runner, &dir, false).map(|r| r.branch).unwrap_or_default();
+            let mut branches = git::dated_branches(&runner, &dir);
+            default_first(&mut branches, "", &current);
+            branches
+        });
+        cx.spawn(async move |this, cx| {
+            let branches = task.await;
+            this.update(cx, |d, cx| {
+                if d.automations.form.v.folder == folder {
+                    d.automations.form.branches = Some((folder, branches));
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Moves the draft to `folder`, keeping what its chips picked; its branch is the new folder's default.
+    fn set_folder(&mut self, folder: String, cx: &mut Context<Self>) {
+        let f = &mut self.automations.form;
+        let pick = f.pick();
+        (f.v.folder, f.v.base) = (folder.clone(), String::new());
+        f.composer.draft.choose(project_key(&folder), pick);
+        self.close_menus();
+        self.load_branches(folder, cx);
         cx.notify();
     }
 
     fn save_automation(&mut self, cx: &mut Context<Self>) {
-        let Ok(draft) = self.automations.form.values(cx).draft() else { return };
+        let v = self.automations.form.values(cx);
+        let (own, efforts) = (self.store.agents.provider(v.provider), self.agents.provider_info(v.provider).efforts.clone());
+        let v = v.settled(self.store.agents.access(), &own.model, &own.effort, &efforts);
+        let Ok(draft) = v.draft() else { return };
         self.outbox.local.automation_save(draft);
         self.automations.form.open = false;
         cx.notify();
@@ -111,7 +198,6 @@ impl Desktop {
             );
         let bar = self.detail_bar(crumbs("Automations", crumb), right, cx);
 
-        let project = self.repo_name(&v.folder);
         let f = &self.automations.form;
         // The input's line box is a fixed 1.25rem, so a larger size clips descenders.
         let title = div().font_weight(FontWeight::BOLD).child(Input::new(&f.title).appearance(false).p_0().text_size(px(20.)));
@@ -130,7 +216,7 @@ impl Desktop {
                 this.automations.form.v.enabled = !enabled;
                 cx.notify();
             }));
-        let meta = div().flex().items_center().gap(px(12.)).child(status).child(div().w(px(0.5)).h(px(16.)).bg(SEPARATOR)).child(self.project_pill(&v.folder, &project, cx));
+        let meta = div().flex().items_center().child(status);
         let templates = (!editing && v.prompt.trim().is_empty()).then(|| {
             div().flex().flex_wrap().gap(px(8.)).children(TEMPLATES.iter().enumerate().map(|(i, t)| {
                 div()
@@ -159,124 +245,134 @@ impl Desktop {
             }))
         });
         let trigger = self.trigger_card(&v, cx);
-        let runs = self.runs_card(&v, cx);
-        let instructions = self.instructions_card(&v, cx);
+        let instructions = div().flex().flex_col().gap(px(10.)).child(self.instructions_box(&v, cx)).child(self.runs_in(&v, cx));
         let body = [title.into_any_element(), meta.into_any_element()]
             .into_iter()
             .chain(templates.map(IntoElement::into_any_element))
-            .chain([section("Trigger", trigger).into_any_element(), section("Runs", runs).into_any_element(), section("Instructions", instructions).into_any_element()]);
+            .chain([section("Trigger", trigger).into_any_element(), section("Instructions", instructions).into_any_element()]);
         div().flex_1().min_w_0().flex().flex_col().child(bar).child(self.detail_body("editor-body", 24., body))
     }
 
-    fn project_pill(&self, folder: &str, name: &str, cx: &mut Context<Self>) -> Div {
+    /// The instructions in a session's prompt box: access on the left, agent and model on the right.
+    fn instructions_box(&self, v: &Values, cx: &mut Context<Self>) -> Div {
+        let c = &self.automations.form.composer;
+        let (project, pick) = (project_key(&v.folder), v.pick());
+        let textarea = Textarea::new(&c.prompt).appearance(false).text_size(px(INPUT_TEXT_SIZE)).line_height(px(INPUT_LINE_HEIGHT));
+        let bar = div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .pt(px(4.))
+            .px(px(7.))
+            .pb(px(7.))
+            .child(self.access_chip(c, &pick, project.clone(), cx))
+            .child(div().flex_1())
+            .child(self.model_pill(c, &pick, project, cx));
+        let prompt = c.prompt.clone();
+        frame(!v.prompt.trim().is_empty())
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| prompt.update(cx, |s, cx| s.focus(window, cx)))
+            .child(div().pt(px(5.)).px(px(5.)).child(textarea))
+            .child(bar)
+    }
+
+    /// Under the prompt box, as under a session's: the project, then where each run starts.
+    fn runs_in(&self, v: &Values, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .text_size(px(13.))
+            .child(self.project_chip(&v.folder, cx))
+            .child(div().px(px(4.)).text_color(TEXT_4).child("·"))
+            .child(self.checkout_chip(v.new_worktree, cx))
+            .children(v.new_worktree.then(|| self.branch_chip(cx)))
+    }
+
+    fn project_chip(&self, folder: &str, cx: &mut Context<Self>) -> Div {
         let open = self.automations.menu == Some(Menu::Project);
-        let button = self.menu_toggle(
-            div()
-                .id("editor-project")
-                .h(px(28.))
-                .px(px(9.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(8.))
-                .cursor_pointer()
-                .text_size(px(14.))
-                .font_weight(FontWeight(650.))
-                .hover(|s| s.bg(FILL_2))
-                .child(ui::swatch(self.repo_color(folder), 14., 4.))
-                .child(if name.is_empty() { "Pick a project".to_string() } else { name.to_string() })
-                .child(icon("chevron-down", 12., TEXT_3)),
-            Menu::Project,
-            cx,
-        );
+        let name = if folder.is_empty() { "Pick a project".to_string() } else { self.repo_name(folder) };
+        let chip = ui::menu_chip("editor-project", open)
+            .children((!folder.is_empty()).then(|| self.repo_tile_for(folder, 16.)))
+            .child(div().font_weight(FontWeight::MEDIUM).child(name))
+            .child(icon("chevron-down", 12., TEXT_4));
         let rows: Vec<_> = self.folder_choices(folder).into_iter().enumerate().map(|(i, p)| {
-            let on = p == folder;
-            let target = p.clone();
-            ui::menu_row(("editor-project-row", i), "folder", &self.repo_name(&p), None).child(div().w(px(14.)).when(on, |d| d.child(icon("check", 14., TEXT))).into_any_element()).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.automations.form.v.folder = target.clone();
+            let chosen = p == folder;
+            ui::menu_pick(("editor-project-row", i), self.repo_tile_for(&p, 14.), &self.repo_name(&p), chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_folder(p.clone(), cx)))
+        }).collect();
+        let none = rows.is_empty().then(|| div().h(px(30.)).px(px(8.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("Add a project from the sidebar"));
+        let menu = open.then(|| ui::dropdown(36., ui::menu_in("editor-project-in", self.popup("editor-project-menu", 260., cx).gap(px(2.)).children(rows).children(none))));
+        div().relative().child(self.menu_toggle(chip, Menu::Project, cx)).children(menu)
+    }
+
+    fn checkout_chip(&self, worktree: bool, cx: &mut Context<Self>) -> Div {
+        let open = self.automations.menu == Some(Menu::Checkout);
+        let (_, glyph, label, _) = CHECKOUTS[!worktree as usize];
+        let chip = ui::menu_chip("editor-checkout", open).child(icon(glyph, 14., TEXT_3)).child(div().font_weight(FontWeight::MEDIUM).child(label)).child(icon("chevron-down", 12., TEXT_4));
+        let rows: Vec<_> = CHECKOUTS.iter().enumerate().map(|(i, &(on, glyph, label, hint))| {
+            access_row(("editor-checkout-row", i), on == worktree, Some(glyph), label, hint, TEXT).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.automations.form.v.new_worktree = on;
                 this.close_menus();
                 cx.notify();
             }))
         }).collect();
-        let none = rows.is_empty().then(|| div().h(px(30.)).px(px(8.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("Add a project from the sidebar"));
-        div().relative().child(button).when(open, |d| d.child(ui::dropdown(32., ui::menu_in("editor-project-in", self.popup("editor-project-menu", 240., cx).children(rows).children(none)))))
+        let menu = open.then(|| ui::dropdown(36., ui::menu_in("editor-checkout-in", self.popup("editor-checkout-menu", 300., cx).gap(px(2.)).children(rows))));
+        div().relative().child(self.menu_toggle(chip, Menu::Checkout, cx)).children(menu)
     }
 
-    /// How each run starts; an automation saved without a mode shows none chosen and keeps the agent's own settings.
-    fn runs_card(&self, v: &Values, cx: &mut Context<Self>) -> Div {
-        let access = ACCESSES.iter().position(|a| *a == v.access).unwrap_or(usize::MAX);
-        let mode = segmented("editor-access", &["Ask", "Edits", "Auto"], access, false, |this, i, cx| {
-            this.automations.form.v.access = ACCESSES[i].into();
-            cx.notify();
-        }, cx);
-        let on = v.new_worktree;
-        let worktree = div()
-            .id("editor-worktree")
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .cursor_pointer()
-            .text_color(TEXT_2)
-            .child(ui::toggle("switch", on))
-            .child("Each run gets its own worktree and branch")
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.automations.form.v.new_worktree = !on;
-                cx.notify();
-            }));
-        details(vec![("Permission mode", div().flex().child(mode).into_any_element()), ("New worktree", worktree.into_any_element())])
-    }
-
-    fn instructions_card(&self, v: &Values, cx: &mut Context<Self>) -> Div {
+    /// The branch each run's new worktree starts from; the menu lists the folder's local branches, as a session's base.
+    fn branch_chip(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.automations.form;
-        let open = self.automations.menu == Some(Menu::Provider);
-        let provider = v.provider;
-        let button = self.menu_toggle(
-            div()
-                .id("editor-provider")
-                .h(px(28.))
-                .px(px(10.))
-                .pl(px(9.))
-                .flex()
-                .items_center()
-                .gap(px(7.))
-                .rounded(px(8.))
-                .bg(FILL_3)
-                .cursor_pointer()
-                .text_size(px(13.))
-                .font_weight(FontWeight(550.))
-                .child(provider_icon(provider, 14., TEXT))
-                .child(self.agent_name(provider))
-                .child(icon("chevron-down", 12., TEXT_3)),
-            Menu::Provider,
-            cx,
-        );
-        let enabled = self.store.agents.enabled();
-        let rows: Vec<_> = PROVIDERS.iter().filter(|p| enabled.contains(p) || **p == provider).enumerate().map(|(i, p)| {
-            let p = *p;
-            ui::menu_row(("editor-provider-row", i), provider_glyph(p), &self.agent_name(p), None)
-                .child(div().w(px(14.)).when(p == provider, |d| d.child(icon("check", 14., TEXT))))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.automations.form.v.provider = p;
-                    this.close_menus();
-                    cx.notify();
-                }))
-        }).collect();
-        let menu = ui::menu_in("editor-provider-in", self.popup("editor-provider-menu", 200., cx).children(rows));
-        // Opens upward: the card sits at the foot of the page.
-        let up = div().absolute().top(px(-4.)).left_0().child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1));
-        card()
-            .p(px(12.))
-            .flex()
-            .flex_col()
-            .gap(px(12.))
-            .child(div().min_h(px(120.)).mx(px(-10.)).mt(px(-5.)).text_size(px(15.)).line_height(px(23.25)).child(Textarea::new(&f.prompt).appearance(false).text_size(px(15.))))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(div().relative().child(button).when(open, |d| d.child(up)))
-                    .child(div().text_size(px(12.)).text_color(TEXT_3).child("Skills, @file references and built-in commands work here.")),
-            )
+        let open = self.automations.menu == Some(Menu::Branch);
+        let label = f.base_label();
+        let search_input = f.branch_search.clone();
+        let chip = ui::menu_chip("editor-branch", open)
+            .child(icon("branch", 14., TEXT_3))
+            .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label.clone().unwrap_or_else(|| "Default branch".into())))
+            .child(icon("chevron-down", 12., TEXT_4))
+            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                this.toggle_menu(Menu::Branch, cx);
+                if this.automations.menu == Some(Menu::Branch) {
+                    search_input.update(cx, |s, cx| {
+                        s.set_value("", window, cx);
+                        s.focus(window, cx);
+                    });
+                }
+            }));
+        let menu = open.then(|| {
+            let search = f.branch_search.read(cx).value().to_string();
+            let now = now_ms();
+            let branches = f.branches();
+            let mut rows = Vec::new();
+            let mut head = None;
+            for (n, (local, name)) in listed_branches(branches, &[], &search).into_iter().enumerate() {
+                let title = match (search.trim().is_empty(), local) {
+                    (true, Some(0)) => "Default",
+                    (true, _) => "Recent",
+                    (false, _) => "Local",
+                };
+                if head != Some(title) {
+                    rows.push(pick_head(title).into_any_element());
+                    head = Some(title);
+                }
+                let meta = local.and_then(|i| branches[i].1).map(|s| ago_long(s * 1000, now));
+                let branch = name.to_string();
+                let row = ui::pick_row(("editor-branch-row", n), label.as_deref() == Some(name), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(branch.clone()), meta)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.automations.form.v.base = branch.clone();
+                        this.close_menus();
+                        cx.notify();
+                    }));
+                rows.push(row.into_any_element());
+            }
+            let empty = rows.is_empty().then(|| {
+                let why = if f.branches.as_ref().is_some_and(|(folder, _)| *folder == f.v.folder) { "No branches found" } else { "Reading branches…" };
+                div().h(px(36.)).px(px(10.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child(why)
+            });
+            let note = label.as_ref().map(|b| div().px(px(12.)).py(px(8.)).border_t(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child(format!("Each run starts a new branch off {b}.")));
+            let list = div().id("editor-branch-list").max_h(px(316.)).overflow_y_scroll().p(px(5.)).flex().flex_col().children(empty).children(rows);
+            ui::dropdown(36., ui::menu_in("editor-branch-in", self.popup("editor-branch-menu", 340., cx).p_0().overflow_hidden().child(menu_input("search", &f.branch_search)).child(list).children(note)))
+        });
+        div().relative().child(chip).children(menu)
     }
 }

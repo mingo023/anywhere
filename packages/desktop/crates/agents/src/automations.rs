@@ -33,6 +33,14 @@ pub struct Automation {
     /// Each run starts in a fresh worktree of `folder`.
     #[serde(default)]
     pub new_worktree: bool,
+    /// The branch a new worktree starts from; empty is the project's default.
+    #[serde(default)]
+    pub base: String,
+    /// What each run starts with; empty leaves it to the agent.
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
     /// Unix ms; 0 while disabled.
     #[serde(default)]
     pub next_run_at: i64,
@@ -104,6 +112,12 @@ pub struct AutomationDraft {
     pub access: String,
     #[serde(rename = "newWorktree", skip_serializing_if = "std::ops::Not::not")]
     pub new_worktree: bool,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub base: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub model: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub effort: String,
 }
 
 impl AutomationDraft {
@@ -127,6 +141,9 @@ impl AutomationDraft {
         }
         if !ACCESSES.contains(&self.access.as_str()) {
             return Some("Pick a permission mode");
+        }
+        if self.base.starts_with('-') {
+            return Some("Pick another branch");
         }
         match &self.schedule {
             Schedule::Days { days, time } => {
@@ -196,6 +213,9 @@ mod tests {
             enabled: true,
             access: String::new(),
             new_worktree: false,
+            base: String::new(),
+            model: String::new(),
+            effort: String::new(),
         }
     }
 
@@ -311,6 +331,7 @@ mod tests {
         assert!(with(|d| d.provider = "gemini".into()));
         assert!(with(|d| d.folder.clear()));
         assert!(with(|d| d.access = "plan".into()));
+        assert!(with(|d| d.base = "--upload-pack=x".into()));
         assert!(with(|d| d.schedule = Schedule::Days { days: vec![], time: "09:00".into() }));
         assert!(with(|d| d.schedule = Schedule::Days { days: vec![7], time: "09:00".into() }));
         assert!(with(|d| d.schedule = Schedule::Days { days: vec![1, 1], time: "09:00".into() }));
@@ -340,5 +361,16 @@ mod tests {
         assert_eq!((v["access"].as_str(), v["newWorktree"].as_bool()), (Some("edits"), Some(true)));
         let v = serde_json::to_value(draft()).unwrap();
         assert!(v.get("access").is_none() && v.get("newWorktree").is_none());
+    }
+
+    #[test]
+    fn a_draft_sends_its_base_model_and_effort_only_once_set() {
+        let d = AutomationDraft { new_worktree: true, base: "develop".into(), model: "opus".into(), effort: "high".into(), ..draft() };
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!((v["base"].as_str(), v["model"].as_str(), v["effort"].as_str()), (Some("develop"), Some("opus"), Some("high")));
+        let v = serde_json::to_value(draft()).unwrap();
+        assert!(v.get("base").is_none() && v.get("model").is_none() && v.get("effort").is_none());
+        let au: Automation = serde_json::from_str(r#"{"id":"a","name":"n","prompt":"p","provider":"claude","folder":"/f","schedule":{"kind":"interval","everyMin":60},"enabled":true,"base":"develop","model":"opus","effort":"high"}"#).unwrap();
+        assert_eq!((au.base.as_str(), au.model.as_str(), au.effort.as_str()), ("develop", "opus", "high"));
     }
 }

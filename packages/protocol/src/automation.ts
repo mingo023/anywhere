@@ -17,6 +17,9 @@ export const AutomationDraft = Schema.Struct({
   enabled: Schema.Boolean,
   access: Schema.optional(Access),
   newWorktree: Schema.optional(Schema.Boolean),
+  base: Schema.optional(Schema.String),
+  model: Schema.optional(Schema.String),
+  effort: Schema.optional(Schema.String),
 });
 
 export const Automation = Schema.Struct({
@@ -29,6 +32,9 @@ export const Automation = Schema.Struct({
   enabled: Schema.Boolean,
   access: Schema.optional(Access),
   newWorktree: Schema.optional(Schema.Boolean),
+  base: Schema.optional(Schema.String),
+  model: Schema.optional(Schema.String),
+  effort: Schema.optional(Schema.String),
   nextRunAt: Schema.optional(Schema.Number),
 });
 export type Automation = typeof Automation.Type;

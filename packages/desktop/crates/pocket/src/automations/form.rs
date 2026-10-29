@@ -1,5 +1,6 @@
 use super::logic::{fallback_name, when_label};
 use agents::automations::{Automation, AutomationDraft, Schedule, valid_every, valid_time};
+use store::LaunchPick;
 use store::prefs::Automations as Defaults;
 
 pub const PROVIDERS: [&str; agents::providers::COUNT] = agents::providers::IDS;
@@ -28,6 +29,11 @@ pub struct Values {
     /// Empty, as on automations saved before it, leaves it to the agent's own settings.
     pub access: String,
     pub new_worktree: bool,
+    /// The branch a new worktree starts from; empty is the project's default.
+    pub base: String,
+    /// Empty is Settings' for the agent, as a session's "Default"; `settled` fills it in.
+    pub model: String,
+    pub effort: String,
 }
 
 impl Values {
@@ -40,7 +46,7 @@ impl Values {
         let mut days = [false; 7];
         d.days.iter().filter(|&&d| d < 7).for_each(|&d| days[d as usize] = true);
         let provider = PROVIDERS.into_iter().find(|p| *p == d.agent).unwrap_or(PROVIDERS[0]);
-        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree }
+        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree, base: String::new(), model: String::new(), effort: String::new() }
     }
 
     pub fn add_schedule(&mut self, d: &Defaults) {
@@ -50,7 +56,7 @@ impl Values {
 
     pub fn of(a: &Automation) -> Self {
         let provider = PROVIDERS.into_iter().find(|p| *p == a.provider).unwrap_or(PROVIDERS[0]);
-        let base = Self { id: Some(a.id.clone()), title: a.name.clone(), prompt: a.prompt.clone(), provider, folder: a.folder.clone(), scheduled: true, enabled: a.enabled, access: a.access.clone(), new_worktree: a.new_worktree, ..Self::new(String::new()) };
+        let base = Self { id: Some(a.id.clone()), title: a.name.clone(), prompt: a.prompt.clone(), provider, folder: a.folder.clone(), scheduled: true, enabled: a.enabled, access: a.access.clone(), new_worktree: a.new_worktree, base: a.base.clone(), model: a.model.clone(), effort: a.effort.clone(), ..Self::new(String::new()) };
         match &a.schedule {
             Schedule::Days { days, time } => {
                 let mut on = [false; 7];
@@ -95,8 +101,27 @@ impl Values {
         let schedule = self.schedule().ok_or("Add a trigger")?;
         let title = self.title.trim();
         let name = if title.is_empty() { fallback_name(prompt) } else { title.to_string() };
-        let draft = AutomationDraft { id: self.id.clone(), name, prompt: prompt.into(), provider: self.provider.into(), folder: self.folder.clone(), schedule, enabled: self.enabled, access: self.access.clone(), new_worktree: self.new_worktree };
+        let draft = AutomationDraft { id: self.id.clone(), name, prompt: prompt.into(), provider: self.provider.into(), folder: self.folder.clone(), schedule, enabled: self.enabled, access: self.access.clone(), new_worktree: self.new_worktree, base: if self.new_worktree { self.base.clone() } else { String::new() }, model: self.model.clone(), effort: self.effort.clone() };
         draft.problem().map_or(Ok(draft), Err)
+    }
+
+    /// The agent, model, effort and access as the composer's chips show them.
+    pub fn pick(&self) -> LaunchPick {
+        // Saved without one, a run used the agent's own settings: shown as that, not as Settings' default.
+        let access = if self.id.is_some() && self.access.is_empty() { "settings".into() } else { self.access.clone() };
+        LaunchPick { provider: self.provider.into(), model: self.model.clone(), effort: self.effort.clone(), access, account: String::new() }
+    }
+
+    pub fn set_pick(&mut self, pick: &LaunchPick) {
+        self.provider = PROVIDERS.into_iter().find(|p| *p == pick.provider).unwrap_or(self.provider);
+        (self.model, self.effort, self.access) = (pick.model.clone(), pick.effort.clone(), pick.access.clone());
+    }
+
+    /// The choices left on "Default" as Settings has them, as a session takes them when it starts.
+    pub fn settled(self, access: &str, model: &str, effort: &str, efforts: &[String]) -> Self {
+        let or = |picked: String, app: &str| if picked.is_empty() { app.to_string() } else { picked };
+        let effort = if self.effort.is_empty() && efforts.iter().any(|e| e == effort) { effort.to_string() } else { self.effort.clone() };
+        Self { access: or(self.access.clone(), access), model: or(self.model.clone(), model), effort, ..self }
     }
 
     /// Set under the trigger once its field has text that can't be right; an empty field is the header's to point out.
@@ -188,7 +213,7 @@ mod tests {
     }
 
     fn automation(schedule: Schedule) -> Automation {
-        Automation { id: "a1".into(), name: "Review".into(), prompt: "Look".into(), provider: "codex".into(), folder: "/code/app".into(), schedule, enabled: false, access: String::new(), new_worktree: false, next_run_at: 0 }
+        Automation { id: "a1".into(), name: "Review".into(), prompt: "Look".into(), provider: "codex".into(), folder: "/code/app".into(), schedule, enabled: false, access: String::new(), new_worktree: false, base: String::new(), model: String::new(), effort: String::new(), next_run_at: 0 }
     }
 
     #[test]
@@ -214,6 +239,9 @@ mod tests {
                 enabled: true,
                 access: "edits".into(),
                 new_worktree: true,
+                base: String::new(),
+                model: String::new(),
+                effort: String::new(),
             }
         );
         assert_eq!(Values { title: " Mine ".into(), ..ready() }.draft().unwrap().name, "Mine");
@@ -317,5 +345,41 @@ mod tests {
             v.fill(t);
             assert!(v.draft().is_ok(), "{}", t.title);
         }
+    }
+
+    #[test]
+    fn the_chips_show_the_saved_choices_and_one_saved_without_access_on_the_agents_settings() {
+        let set = Automation { access: "auto".into(), model: "opus".into(), effort: "high".into(), ..automation(Schedule::Interval { every_min: 60 }) };
+        let p = Values::of(&set).pick();
+        assert_eq!((p.provider.as_str(), p.model.as_str(), p.effort.as_str(), p.access.as_str()), ("codex", "opus", "high", "auto"));
+        assert_eq!(Values::of(&automation(Schedule::Interval { every_min: 60 })).pick().access, "settings");
+        assert_eq!(Values::new("/f".into()).pick().access, "edits");
+    }
+
+    #[test]
+    fn a_pick_from_the_chips_sets_the_agent_model_effort_and_access() {
+        let mut v = ready();
+        v.set_pick(&LaunchPick { provider: "codex".into(), model: "gpt-5.5".into(), effort: String::new(), access: "auto".into(), account: "x".into() });
+        let d = v.draft().unwrap();
+        assert_eq!((d.provider.as_str(), d.model.as_str(), d.effort.as_str(), d.access.as_str()), ("codex", "gpt-5.5", "", "auto"));
+        v.set_pick(&LaunchPick { provider: "gemini".into(), ..LaunchPick::default() });
+        assert_eq!(v.provider, "codex");
+    }
+
+    #[test]
+    fn choices_left_on_default_save_as_settings_has_them() {
+        let efforts = ["low".to_string(), "high".to_string()];
+        let v = Values { access: String::new(), ..ready() }.settled("auto", "opus", "high", &efforts);
+        assert_eq!((v.access.as_str(), v.model.as_str(), v.effort.as_str()), ("auto", "opus", "high"));
+        let v = Values { model: "haiku".into(), effort: "low".into(), ..ready() }.settled("auto", "opus", "high", &efforts);
+        assert_eq!((v.access.as_str(), v.model.as_str(), v.effort.as_str()), ("edits", "haiku", "low"));
+        assert_eq!(ready().settled("ask", "", "max", &efforts).effort, "");
+    }
+
+    #[test]
+    fn the_base_goes_only_with_a_new_worktree() {
+        let v = Values { base: "develop".into(), ..ready() };
+        assert_eq!(v.draft().unwrap().base, "develop");
+        assert_eq!(Values { new_worktree: false, ..v }.draft().unwrap().base, "");
     }
 }

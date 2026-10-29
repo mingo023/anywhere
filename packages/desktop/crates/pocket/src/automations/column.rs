@@ -1,15 +1,11 @@
-use super::logic::{Filter, Tab, counts_text, visible};
-use super::parts::segmented;
+use super::logic::{Entry, Tab};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{HEADER, Layout, column, drag_area, empty, past_lights};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use std::ops::Range;
 use theme::*;
 use ui::{self, Variant, icon_button_sized};
-
-const FILTERS: [Filter; 3] = [Filter::All, Filter::Active, Filter::Paused];
 
 impl Desktop {
     pub(crate) fn automations_column(&mut self, cx: &mut Context<Self>) -> Div {
@@ -22,7 +18,6 @@ impl Desktop {
         column()
             .child(drag_area(self.automations_header(cx)).h(px(HEADER)).flex_none().border_b(px(0.5)).border_color(SEPARATOR))
             .child(self.automations_tabs(cx))
-            .children((tab == Tab::Automations).then(|| self.filter_bar(cx)))
             .children((tab == Tab::Automations).then(|| self.needs_banner(cx)).flatten())
             .children(draft)
             .child(body)
@@ -65,19 +60,6 @@ impl Desktop {
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_tab(tab, cx)))
         });
         div().h(px(46.)).p(px(8.)).flex().flex_none().gap(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).children(tabs)
-    }
-
-    fn filter_bar(&self, cx: &mut Context<Self>) -> Div {
-        let at = FILTERS.iter().position(|f| *f == self.automations.filter).unwrap_or(0);
-        div()
-            .h(px(44.))
-            .px(px(12.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(8.))
-            .child(div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(TEXT_3).child(counts_text(&self.agents.automations.items)))
-            .child(segmented("automations-filter", &["All", "Active", "Paused"], at, false, |this, i, cx| this.set_filter(FILTERS[i], cx), cx))
     }
 
     /// The newest run waiting on the user.
@@ -144,20 +126,44 @@ impl Desktop {
         if a.items.is_empty() {
             return body.child(empty("No automations yet."));
         }
-        let shown = visible(&a.items, self.automations.filter);
-        if shown.is_empty() {
-            return body.child(empty("Nothing here."));
-        }
-        let list = uniform_list(
-            "automations",
-            shown.len(),
-            cx.processor(move |this, range: Range<usize>, _, cx| range.map(|i| this.automation_row(shown[i], cx)).collect::<Vec<_>>()),
+        let list = list(
+            self.automations.list.clone(),
+            cx.processor(|this, ix, _, cx| match this.automations.entries.get(ix).copied() {
+                Some(Entry::Head { active, count, open }) => this.group_head(active, count, open, cx),
+                Some(Entry::Item(i)) => this.automation_row(i, cx),
+                None => Empty.into_any_element(),
+            }),
         )
-        .track_scroll(&self.automations.list)
         .size_full()
         .px(px(8.))
-        .pt(px(8.))
         .pb(px(12.));
         body.relative().child(list).vertical_scrollbar(&self.automations.list)
+    }
+
+    /// "Active 3" over its group; a press folds or unfolds it.
+    fn group_head(&self, active: bool, count: usize, open: bool, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .w_full()
+            .pt(px(6.))
+            .child(
+                div()
+                    .id(("automations-group", active as usize))
+                    .h(px(28.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(TEXT_3)
+                    .hover(|s| s.bg(FILL_2))
+                    .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
+                    .child(if active { "Active" } else { "Paused" })
+                    .child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT_4).child(count.to_string()))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.fold_group(active, cx))),
+            )
+            .into_any_element()
     }
 }

@@ -16,24 +16,27 @@ use crate::desktop::chrome::Screen;
 use crate::util::now_ms;
 use agents::automations::{Automation, Run};
 use gpui_kit::*;
-use logic::{Filter, Row, Tab, after_escape, keep_only, opening_selection, reachable, reselect, run_rows};
+use logic::{Entry, Folds, Row, Tab, after_escape, entries, keep_only, opening_selection, reachable, reselect, run_rows};
 
 /// The popups the Automations screen opens, one at a time.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Menu {
     Add,
     Project,
-    Provider,
+    Checkout,
+    Branch,
     More,
 }
 
 pub struct AutomationsState {
     pub(crate) tab: Tab,
-    pub(crate) filter: Filter,
+    pub(crate) folds: Folds,
+    /// The Automations list's rows, as of the latest snapshot.
+    pub(crate) entries: Vec<Entry>,
     pub(crate) only: Option<String>,
     pub(crate) selected: Option<String>,
     pub(crate) selected_run: Option<String>,
-    pub(crate) list: UniformListScrollHandle,
+    pub(crate) list: ListState,
     pub(crate) runs_list: ListState,
     pub(crate) rows: Vec<Row>,
     pub(crate) form: editor::Form,
@@ -45,11 +48,12 @@ impl AutomationsState {
         let (form, subs) = editor::Form::new(window, cx);
         let state = Self {
             tab: Tab::default(),
-            filter: Filter::default(),
+            folds: Folds::default(),
+            entries: Vec::new(),
             only: None,
             selected: None,
             selected_run: None,
-            list: UniformListScrollHandle::new(),
+            list: ListState::new(0, ListAlignment::Top, px(400.)),
             runs_list: ListState::new(0, ListAlignment::Top, px(400.)),
             rows: Vec::new(),
             form,
@@ -59,8 +63,19 @@ impl AutomationsState {
     }
 
     pub(crate) fn reset(&mut self) {
-        (self.tab, self.filter, self.only, self.selected, self.selected_run, self.menu) = (Tab::default(), Filter::default(), None, None, None, None);
+        (self.tab, self.folds, self.only, self.selected, self.selected_run, self.menu) = (Tab::default(), Folds::default(), None, None, None, None);
         self.form.open = false;
+    }
+
+    fn regroup(&mut self, items: &[Automation]) {
+        let entries = entries(items, self.folds);
+        // A heading and a row differ in height, so the list measures afresh whenever a row changes kind.
+        if entries != self.entries {
+            let top = self.list.logical_scroll_top();
+            self.list.reset(entries.len());
+            self.list.scroll_to(top);
+        }
+        self.entries = entries;
     }
 
     fn relist(&mut self, items: &[Automation], runs: &[Run]) {
@@ -92,6 +107,7 @@ impl Desktop {
         let a = &self.agents.automations;
         self.automations.selected = reselect(self.automations.selected.as_deref(), &a.items);
         self.automations.only = keep_only(self.automations.only.take(), &a.items);
+        self.automations.regroup(&a.items);
         self.automations.relist(&a.items, &a.runs);
     }
 
@@ -102,8 +118,9 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(super) fn set_filter(&mut self, filter: Filter, cx: &mut Context<Self>) {
-        self.automations.filter = filter;
+    pub(super) fn fold_group(&mut self, active: bool, cx: &mut Context<Self>) {
+        self.automations.folds.toggle(active);
+        self.automations.regroup(&self.agents.automations.items);
         cx.notify();
     }
 
@@ -130,6 +147,7 @@ impl Desktop {
     pub(super) fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
         let was = self.automations.menu;
         self.close_menus();
+        self.automations.form.composer.draft.menu = None;
         self.automations.menu = (was != Some(menu)).then_some(menu);
         cx.notify();
     }
