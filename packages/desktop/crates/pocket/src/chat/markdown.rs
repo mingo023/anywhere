@@ -240,7 +240,7 @@ pub(super) fn code_block(id: impl Into<ElementId>, lang: &str, code: &str, style
 }
 
 /// `code` refenced at column 0 with a fence longer than any backtick run inside it, so it parses back whole.
-fn fenced(lang: &str, code: &str) -> String {
+pub(crate) fn fenced(lang: &str, code: &str) -> String {
     let longest = code.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let ticks = "`".repeat(longest.max(2) + 1);
     format!("{ticks}{lang}\n{code}\n{ticks}")

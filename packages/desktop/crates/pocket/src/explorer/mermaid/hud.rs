@@ -9,6 +9,7 @@ use theme::*;
 pub(super) enum Act {
     Zoom(f32),
     Fit,
+    Source,
     Fullscreen,
 }
 
@@ -18,8 +19,8 @@ const BUTTON: f32 = 24.;
 /// markdown-preview's glass pill, opaque enough to read over the diagram.
 const PILL: Token = Token::new(0xf5f5f5e6, 0x1c1c1ce6);
 
-/// The zoom out, `level` and zoom in pill, then fit and, when `fullscreen`, the button opening the diagram's window.
-pub(super) fn hud(place: u64, level: String, fullscreen: bool, on: impl Fn(Act, &mut Window, &mut App) + 'static) -> Div {
+/// The zoom out, `level` and zoom in pill, then fit and, in a `card`, the buttons showing its source and opening its window.
+pub(super) fn hud(place: u64, level: String, card: bool, on: impl Fn(Act, &mut Window, &mut App) + 'static) -> Div {
     let on = Rc::new(on);
     let button = |name: &str, width: f32, act: Act| {
         let on = on.clone();
@@ -39,7 +40,11 @@ pub(super) fn hud(place: u64, level: String, fullscreen: bool, on: impl Fn(Act, 
     let pill = |buttons: Vec<Stateful<Div>>| div().h(px(32.)).p(px(4.)).flex().items_center().gap(px(2.)).rounded(px(16.)).bg(PILL).shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x0000001f), 2., 8.)]).children(buttons);
     let level = button("level", 44., Act::Fit).text_size(px(11.)).text_color(TEXT).child(level);
     let zoom = vec![glyph("minus", Act::Zoom(1. / super::viewport::STEP)), level, glyph("plus", Act::Zoom(super::viewport::STEP))];
-    let actions = [Some(glyph("fit", Act::Fit)), fullscreen.then(|| glyph("fullscreen", Act::Fullscreen))].into_iter().flatten().collect();
+    let mut actions = vec![glyph("fit", Act::Fit)];
+    if card {
+        actions.insert(0, glyph("code", Act::Source));
+        actions.push(glyph("fullscreen", Act::Fullscreen));
+    }
     div()
         .absolute()
         .top(px(INSET))

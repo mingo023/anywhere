@@ -1,3 +1,4 @@
+use gpui_kit::base::text::{TextView, TextViewStyle};
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextViewState, markdown_ast as mdast};
 use gpui_kit::*;
 use resvg::usvg::{Options, Tree};
@@ -104,6 +105,8 @@ pub struct Diagrams {
     drag: Option<(u64, Point<Pixels>)>,
     /// The card under the pointer, by place, which shows its zoom buttons.
     hovered: Option<u64>,
+    /// Cards showing their source instead, by place.
+    sources: HashSet<u64>,
 }
 
 impl Diagrams {
@@ -124,6 +127,7 @@ impl Diagrams {
             cards: HashMap::new(),
             drag: None,
             hovered: None,
+            sources: HashSet::new(),
         }
     }
 
@@ -154,6 +158,16 @@ impl Diagrams {
             self.hovered = now;
             cx.notify();
         }
+    }
+
+    fn toggle_source(&mut self, place: u64, cx: &mut Context<Self>) {
+        if !self.sources.remove(&place) {
+            self.sources.insert(place);
+        }
+        // The card's buttons go with it; the pointer brings them back.
+        self.hovered = None;
+        self.relayout(cx);
+        cx.notify();
     }
 
     fn relayout(&self, cx: &mut App) {
@@ -253,6 +267,9 @@ struct Fullscreen {
 /// Mermaid `source` drawn in the current scheme once laid out, in the card at `place`; its error and source if it doesn't parse.
 /// `heading` finds the nearest heading above it, asked only while its buttons show.
 pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: impl FnOnce() -> Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
+    if diagrams.read(cx).sources.contains(&place) {
+        return div().id(SharedString::from(format!("mermaid-{place}"))).child(source_block(diagrams, place, source, cx));
+    }
     let dark = theme::is_dark();
     let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).border(px(0.5)).border_color(SEPARATOR).bg(diagrams.read(cx).canvas);
     match diagrams.update(cx, |d, cx| d.get(key, source, dark, cx)) {
@@ -264,7 +281,7 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
             // once painted, before which the layout's aspect ratio stands in. The 1 is the border.
             let frame = frame.relative().w_full().overflow_hidden();
             let frame = match diagrams.read(cx).cards.get(&place) {
-                Some((width, _)) => frame.h(px((width * natural.1 / natural.0).min(tallest) + 1.)),
+                Some((width, _)) => frame.h(px(card_height(*width, natural, tallest) + 1.)),
                 None => frame.aspect_ratio(natural.0 / natural.1).max_h(px(tallest + 1.)),
             };
             let heading = diagrams.read(cx).shows_hud(place).then(heading).flatten();
@@ -280,6 +297,47 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
             .child(div().text_color(FAILED).child(error))
             .child(div().font_family(MONO).text_color(TEXT_2).child(source.clone())),
     }
+}
+
+/// A card `width` wide fitting a `natural`-sized diagram [`PAD`] inside it by width, up to `tallest`.
+fn card_height(width: f32, natural: (f32, f32), tallest: f32) -> f32 {
+    ((width - 2. * PAD).max(0.) * natural.1 / natural.0 + 2. * PAD).min(tallest)
+}
+
+/// `source` as a code block framed as its card, with wrap, copy and a button back to the diagram.
+fn source_block(diagrams: &Entity<Diagrams>, place: u64, source: &str, cx: &App) -> TextView {
+    let style = TextViewStyle::default()
+        .with_foreground(TEXT.into())
+        .with_muted_foreground(TEXT_2.into())
+        .with_code_background(diagrams.read(cx).canvas.into())
+        .with_code_border(SEPARATOR.into())
+        .with_code_block(StyleRefinement::default().rounded(px(15.)).border(px(0.5)))
+        .with_code_font(MONO)
+        .with_dark(theme::is_dark());
+    let d = diagrams.clone();
+    TextView::markdown(("mermaid-source", place), crate::chat::markdown::fenced("mermaid", source))
+        .style(style)
+        .code_block_actions(move |_, _, _| {
+            let d = d.clone();
+            div()
+                .id(("mermaid-diagram", place))
+                .flex_none()
+                .size(px(28.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .cursor_pointer()
+                .hover(|s| s.bg(Hsla::from(TEXT).opacity(0.1)))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, _, cx| d.update(cx, |d, cx| d.toggle_source(place, cx)))
+                .child(icon("flow", 16., TEXT_2))
+        })
+        .selectable(true)
+        .scrollable(false)
+        .w_full()
+        .text_size(px(12.5))
+        .text_color(TEXT)
 }
 
 /// The diagram filling its parent, fitted `pad` inside its edges, with zoom buttons over it while the pointer is, and
@@ -337,6 +395,7 @@ fn surface(diagrams: &Entity<Diagrams>, key: u64, place: u64, tree: Arc<Tree>, p
                 d.set_view(place, view, cx);
             }),
             Act::Fit => d.update(cx, |d, cx| d.set_view(place, Viewport::default(), cx)),
+            Act::Source => d.update(cx, |d, cx| d.toggle_source(place, cx)),
             Act::Fullscreen => {
                 if let Some(f) = &fullscreen {
                     popup::open(f.source.clone(), canvas_color, f.heading.clone(), window, cx);
@@ -492,12 +551,21 @@ impl MarkdownPlugin for Mermaid {
 
 #[cfg(test)]
 mod tests {
-    use super::{BUDGET, IN_USE, evict, heading, rasterize, svg, tree};
+    use super::{BUDGET, IN_USE, PAD, Viewport, card_height, evict, heading, rasterize, svg, tree};
     use gpui_kit::RenderImage;
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Instant;
     use theme::{MD_CODE_BG, Token};
+
+    #[test]
+    fn a_wide_diagram_fits_its_card_by_width() {
+        let natural = (1150., 60.);
+        let card = (720., card_height(720., natural, 500.));
+        let zoom = Viewport::default().placed(natural, card, PAD).zoom;
+        assert!((zoom - (720. - 2. * PAD) / 1150.).abs() < 1e-4, "{zoom}");
+        assert_eq!(card_height(720., (100., 2000.), 500.), 500.);
+    }
 
     fn image(w: u32, h: u32) -> Arc<RenderImage> {
         let buffer = image::ImageBuffer::from_raw(w, h, vec![0; (w * h * 4) as usize]).unwrap();
