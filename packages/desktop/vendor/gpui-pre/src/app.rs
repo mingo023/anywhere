@@ -1195,16 +1195,16 @@ impl App {
         &mut self,
         callback: impl FnOnce(&mut App) -> R,
     ) -> (R, FxHashSet<EntityId>) {
-        let accessed_entities_start = self.entities.accessed_entities.get_mut().clone();
+        // Everything the callback reads, including what the frame read before it: a cached view that reads its
+        // parent's entity must redraw when that entity is notified.
+        let before = std::mem::take(self.entities.accessed_entities.get_mut());
         let result = callback(self);
-        let entities_accessed_in_callback = self
-            .entities
+        let accessed = std::mem::replace(self.entities.accessed_entities.get_mut(), before);
+        self.entities
             .accessed_entities
             .get_mut()
-            .difference(&accessed_entities_start)
-            .copied()
-            .collect::<FxHashSet<EntityId>>();
-        (result, entities_accessed_in_callback)
+            .extend(accessed.iter().copied());
+        (result, accessed)
     }
 
     pub(crate) fn record_entities_accessed(

@@ -12,7 +12,7 @@ const MIN: f32 = 280.;
 const MAX: f32 = 600.;
 /// The design's width, until the user drags the edge.
 const OPEN: f32 = 334.;
-const RAIL_WIDTH: f32 = 44.;
+pub(crate) const RAIL_WIDTH: f32 = 44.;
 
 /// The payload of a drag on the panel's edge; its own type, so the left column's resize doesn't follow it.
 struct PanelEdge;
@@ -49,6 +49,11 @@ impl Desktop {
         cx.notify();
     }
 
+    /// How wide the right-hand panel is: none while collapsed.
+    pub(crate) fn workspace_panel_width(&self) -> f32 {
+        if self.sidebar.panel_open { self.width(Column::Sessions, OPEN) } else { 0. }
+    }
+
     /// The right-hand panel, empty while collapsed; a drag that collapses it can still bring it back.
     pub(crate) fn workspace_panel(&mut self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.panel_open;
@@ -59,7 +64,7 @@ impl Desktop {
                 cx.new(|_| EmptyView)
             })
         });
-        let width = self.width(Column::Sessions, OPEN);
+        let width = self.workspace_panel_width();
         let body = open.then(|| self.workspace_column(cx).w(px(width)).border_l(px(0.5)).border_color(SEPARATOR));
         div()
             .relative()

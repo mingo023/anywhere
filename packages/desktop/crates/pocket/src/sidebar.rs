@@ -179,6 +179,11 @@ impl Desktop {
         })
     }
 
+    /// How wide the expanded sidebar is.
+    pub(crate) fn aside_width(&self) -> f32 {
+        self.width(Column::Projects, 272.)
+    }
+
     /// The expanded sidebar: projects with their worktrees.
     pub(crate) fn aside(&self, cx: &mut Context<Self>) -> Div {
         let unseen = crate::inbox::count(&self.agents);
@@ -212,7 +217,7 @@ impl Desktop {
             .mt(px(6.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
         let aside = ui::side(div())
-            .w(px(self.width(Column::Projects, 272.)))
+            .w(px(self.aside_width()))
             .flex_none()
             .h_full()
             .px(px(8.))

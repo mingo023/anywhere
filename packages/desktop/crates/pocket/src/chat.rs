@@ -30,6 +30,7 @@ mod working;
 use crate::composer::Draft;
 use crate::explorer::mermaid::{Diagrams, Resized};
 use crate::desktop::Desktop;
+use crate::region::{self, Region};
 use agents::Summary;
 use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
@@ -60,6 +61,8 @@ pub(crate) struct ChatState {
     drafts: drafts::Drafts<(String, Draft)>,
     /// Each agent's transcript view, by agent id.
     pub(crate) views: HashMap<String, transcript::View>,
+    /// Each agent's transcript drawn as its own region, by agent id, with the terminal it draws: its scroll redraws only it.
+    transcripts: HashMap<String, (String, Entity<Region>)>,
     pub(crate) composer: composer::ComposerState,
     pub(crate) files: Option<locate::Choice>,
     /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
@@ -75,7 +78,7 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams }, subs)
     }
 }
 
@@ -121,6 +124,7 @@ impl Desktop {
             self.chats.composer.draft.clear();
             self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         }
+        self.chats.transcripts.remove(agent);
         let unsent = self.chats.views.remove(agent).map(|mut v| v.session.outgoing.drain()).unwrap_or_default();
         if let Some((message, text)) = unsent_notice(who, unsent, typed) {
             self.error = Some(message.clone());
@@ -134,7 +138,17 @@ impl Desktop {
         if let Some(agent) = agent.as_ref().filter(|_| self.terminal.focused.as_deref() == Some(terminal)) {
             self.chat_take_input(agent, window, cx);
         }
-        let transcript = self.transcript(terminal, window, cx);
+        let transcript = match &agent {
+            Some(agent) => {
+                if self.chats.transcripts.get(agent).is_none_or(|(t, _)| t != terminal) {
+                    let t = terminal.to_string();
+                    let region = Region::new(cx, move |d, window, cx| d.transcript(&t, window, cx).into_any_element());
+                    self.chats.transcripts.insert(agent.clone(), (terminal.to_string(), region));
+                }
+                region::cached(&self.chats.transcripts[agent].1, StyleRefinement::default().flex_1().min_h_0())
+            }
+            None => self.transcript(terminal, window, cx).into_any_element(),
+        };
         let composer = self.chat_composer(terminal, window, cx);
         let composer = match &agent {
             Some(agent) => self.arriving(agent, crate::creating::DOCK, composer, window, cx),

@@ -16,7 +16,7 @@ use crate::browser::Browsers;
 use crate::chat::ChatState;
 use crate::creating::Creates;
 use crate::desktop::alerts::Alerts;
-use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
+use crate::desktop::chrome::{Confirm, Layout, Overlay, RAIL, RowMenu, Screen, Side};
 use crate::desktop::dock::Badge;
 use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
@@ -37,10 +37,12 @@ use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, clone_project, new_session};
 use crate::notch::Notch;
 use crate::palette::PaletteState;
+use crate::region::{self, Regions};
 use crate::panels::Panels;
 use crate::removal::Removals;
 use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
+use crate::sidebar::panel::RAIL_WIDTH;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use crate::terminals::link::Hint;
@@ -102,6 +104,7 @@ pub struct Desktop {
     pub(crate) root: FocusHandle,
     pub(crate) palette: PaletteState,
     pub(crate) sidebar: SidebarState,
+    pub(crate) regions: Regions,
     pub(crate) settings: SettingsState,
     pub(crate) fleet: Fleet,
     pub(crate) host_agents: HostAgents,
@@ -132,6 +135,7 @@ impl Desktop {
         let (chips, chips_subs) = Chips::new(window, cx);
         let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (chats, chats_subs) = ChatState::new(window, cx);
+        let regions = Regions::new(cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
@@ -200,6 +204,7 @@ impl Desktop {
             diff,
             chat,
             chats,
+            regions,
             changes,
             prs: PullRequests::default(),
             gh_accounts: GhAccounts::default(),
@@ -565,13 +570,13 @@ impl Render for Desktop {
         let settings = self.screen == Screen::Settings;
         let lead = match self.layout {
             _ if settings => None,
-            Layout::Sidebars => Some(self.aside(cx)),
-            Layout::Compact => Some(self.nav(cx)),
+            Layout::Sidebars => Some(region::cached(&self.regions.aside, region::column(self.aside_width()))),
+            Layout::Compact => Some(region::cached(&self.regions.nav, region::column(RAIL))),
             Layout::Focus => None,
         };
         let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx)) };
         let page = if settings { self.settings_page(cx) } else { self.main_view(window, cx) };
-        let workspace = (self.screen == Screen::Sessions && self.layout != Layout::Focus).then(|| [self.workspace_panel(cx), self.workspace_rail(cx)]);
+        let workspace = (self.screen == Screen::Sessions && self.layout != Layout::Focus).then(|| [region::cached(&self.regions.panel, region::column(self.workspace_panel_width())), region::cached(&self.regions.rail, region::column(RAIL_WIDTH))]);
         let overlay = self.overlay_view(window, cx);
         div()
             .relative()

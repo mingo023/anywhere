@@ -472,12 +472,15 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
                                 .spawn(cx, async move |cx| {
                                     cx.background_executor().timer(wait).await;
                                     delayed_frame_pending.set(false);
-                                    cx.update(move |_, cx| cx.notify(view)).ok();
+                                    cx.update(move |window, _| window.redraw_view(view)).ok();
                                 })
                                 .detach();
                         }
                     }
-                    _ => window.request_animation_frame(),
+                    _ => {
+                        let view = window.current_view();
+                        window.on_next_frame(move |window, _| window.redraw_view(view));
+                    }
                 }
             }
 

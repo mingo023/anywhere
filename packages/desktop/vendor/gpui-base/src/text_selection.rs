@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::Range,
     rc::Rc,
     sync::atomic::{AtomicU64, Ordering},
@@ -7,7 +7,7 @@ use std::{
 
 use gpui::{
     App, AppContext as _, Bounds, Context, Element, ElementId, Entity, EntityId, EventEmitter,
-    Global, GlobalElementId, Half, Hitbox, HitboxBehavior, Hsla, InputEvent as _,
+    Global, GlobalElementId, Half, Hitbox, HitboxBehavior, HitboxId, Hsla, InputEvent as _,
     InspectorElementId, IntoElement, LayoutId, LongPressEvent, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, SharedString,
     Style, Subscription, TextLayout, TouchDragEvent, TouchPhase, WeakEntity, Window, point, px,
@@ -1188,6 +1188,21 @@ impl WindowSelectionState {
         self.publish_snapshots(cx);
         self.frame_generation = self.frame_generation.wrapping_add(1);
         handlers
+    }
+
+    /// Counts a participant whose hitbox the frame drew as registered in it: inside a cached view the frame reused,
+    /// it drew without prepainting, so without registering.
+    fn keep_drawn(&mut self, drawn: impl Iterator<Item = HitboxId>) {
+        let generation = self.frame_generation;
+        if self.participants.values().all(|p| p.generation == generation) {
+            return;
+        }
+        let drawn: HashSet<HitboxId> = drawn.collect();
+        for p in self.participants.values_mut() {
+            if drawn.contains(&p.registration.hitbox.id) {
+                p.generation = generation;
+            }
+        }
     }
 
     fn schedule_finish_frame(&mut self) -> bool {
@@ -2602,6 +2617,7 @@ fn paint_text_selection(state: &Entity<WindowSelectionState>, window: &mut Windo
             let Some(state) = state.upgrade() else {
                 return;
             };
+            state.update(cx, |state, _| state.keep_drawn(window.drawn_hitboxes()));
             let handlers = state.update(cx, |state, cx| state.finish_frame(cx));
             dispatch_clear_handlers(handlers, cx);
             // Direct participant scrolling produces no wheel event. Refresh
