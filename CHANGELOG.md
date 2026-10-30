@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.21
+
+- A markdown preview shows the images it links beside it (#157): (b2a8dedf)
+- A streaming chat reply no longer stutters on its inline code (#155): (9a8752c9)
+- Send, Add to chat and Mention in Chat reach an agent its chat drives (#156): (95c433da)
+- The pane top bar no longer shows a context ring (#154): (95512f1d)
+
 ## 0.1.20
 
 - Chat scroll keeps up with the finger and no longer jumps (#153): (25b21b3f)
