@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.20
+
+- Chat scroll keeps up with the finger and no longer jumps (#153): (25b21b3f)
+- Panes get a top bar of tabs, slim heads and drag-to-move (#152): (25455d67)
+- Automations group into Active and Paused, and set up runs from a session-style composer (#151): (af8c72f9)
+- Mermaid diagrams zoom around the pointer below 100% too (#150): (bc0e846a)
+
 ## 0.1.19
 
 - Mermaid diagrams zoom from a corner HUD and open in their own window, as markdown-preview's (#146): (834ece84)
