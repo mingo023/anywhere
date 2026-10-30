@@ -1813,6 +1813,9 @@ impl Window {
                     {
                         // Don't lose a pending forced render to throttling.
                         deferred_force_render |= force_render;
+                        crate::hitch::note(|| {
+                            format!("frame held back {min_interval:?} (active={} thermal={thermal_state:?})", active.get())
+                        });
                         // Deferred by throttling: ask demand-driven platforms to retry.
                         handle
                             .update(&mut cx, |_, window, _| {
@@ -1856,9 +1859,20 @@ impl Window {
                                     // atlas tile references after a GPU device recovery.
                                     window.refresh();
                                 }
+                                let start = Instant::now();
                                 let arena_clear_needed = window.draw(cx);
+                                let drawn = Instant::now();
                                 window.present();
                                 arena_clear_needed.clear(cx);
+                                crate::hitch::frame_drawn(start.elapsed(), || {
+                                    format!(
+                                        "present={} size={:?} scale={} active={} thermal={thermal_state:?}",
+                                        crate::hitch::ms(drawn.elapsed()),
+                                        window.viewport_size,
+                                        window.scale_factor,
+                                        window.active.get(),
+                                    )
+                                });
                             })
                             .log_err();
                     })
@@ -3628,11 +3642,13 @@ impl Window {
         // fill the window when their size is `auto`.
         let scale_factor = self.scale_factor();
         let mut root_element = self.root.as_ref().unwrap().clone().into_any_element();
+        let start = Instant::now();
         let root_layout_id = root_element.request_layout(self, cx);
         self.layout_engine
             .as_mut()
             .unwrap()
             .stretch_auto_size_to_fill(root_layout_id, root_size, scale_factor);
+        let laid_out = Instant::now();
         root_element.prepaint_as_root(Point::default(), root_size.into(), self, cx);
 
         #[cfg(any(feature = "inspector", debug_assertions))]
@@ -3667,7 +3683,18 @@ impl Window {
 
         // Now actually paint the elements.
         self.invalidator.set_phase(DrawPhase::Paint);
+        let prepainted = Instant::now();
         root_element.paint(self, cx);
+        crate::hitch::note(|| {
+            format!(
+                "draw layout={} prepaint={} paint={} dirty-views={} notified={}",
+                crate::hitch::ms(laid_out - start),
+                crate::hitch::ms(prepainted - laid_out),
+                crate::hitch::ms(prepainted.elapsed()),
+                self.dirty_views.len(),
+                self.notified_entities.len(),
+            )
+        });
 
         #[cfg(any(feature = "inspector", debug_assertions))]
         self.paint_inspector(inspector_element, cx);
