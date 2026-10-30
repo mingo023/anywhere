@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.22
+
+- The app logs what led to a chat scroll hitch (#158): (5bd4ea9c)
+
 ## 0.1.21
 
 - A markdown preview shows the images it links beside it (#157): (b2a8dedf)
