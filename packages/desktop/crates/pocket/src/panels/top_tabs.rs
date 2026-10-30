@@ -1,7 +1,6 @@
 use super::strip::{DragTop, GAP, TabDrag, slots};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::drag_area;
-use crate::terminal_view::context;
 use crate::util::tilde;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -27,7 +26,7 @@ pub(crate) fn copy(t: &Tree<Tab>) -> (Option<&Tab>, Option<&Tab>) {
 }
 
 impl Desktop {
-    /// The bar over worktree `tree`'s panes: its top tabs, a + for a new agent in a new one, and the focused agent's context ring. It moves the window.
+    /// The bar over worktree `tree`'s panes: its top tabs and a + for a new agent in a new one. It moves the window.
     pub(super) fn top_bar(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let (pad, toggle) = self.bar_start(6., cx);
         let at = self.workspaces[tree].at;
@@ -95,10 +94,6 @@ impl Desktop {
             .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _: &MouseUpEvent, window, cx| this.release_top(window, cx)))
             .children(tabs)
             .child(plus);
-        let ring = match self.workspaces[tree].tree.focused().active() {
-            Some(Tab::Term(t)) => self.summary(t).and_then(|a| a.context()).map(|(used, window)| context::ring(used, window, agents::level(used, window, self.store.sidebar.warn_at, self.store.sidebar.critical_at))),
-            _ => None,
-        };
         drag_area(div())
             .h(px(40.))
             .flex_none()
@@ -111,7 +106,6 @@ impl Desktop {
             .border_color(SEPARATOR)
             .children(toggle)
             .child(strip)
-            .children(ring.map(|r| div().ml_auto().pl(px(8.)).flex().flex_none().items_center().child(r)))
     }
 
     /// Top tab `i` of worktree `tree`, holding the panes of `t`.
