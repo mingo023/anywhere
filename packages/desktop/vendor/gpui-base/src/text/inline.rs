@@ -100,6 +100,17 @@ pub(super) fn combine_highlights(
     combined
 }
 
+/// Appends one inline child's marks to the combined highlights of the
+/// children before it. Its marks all lie past theirs, so only its own need
+/// cutting: combining with everything so far re-sorted it all once per child,
+/// quadratic in a paragraph's marks, which a reply streaming in paid every frame.
+pub(super) fn push_highlights(
+    highlights: &mut Vec<(Range<usize>, InlineHighlight)>,
+    node: Vec<(Range<usize>, InlineHighlight)>,
+) {
+    highlights.extend(combine_highlights(node, []));
+}
+
 /// Layers a streamed fade-in over `highlights`: text inside each fade range
 /// loses that share of its color, and a highlight background fades with it so
 /// an inline code chip does not appear before its text.
@@ -1488,7 +1499,9 @@ pub(super) mod test_fonts {
 
 #[cfg(test)]
 mod tests {
-    use super::{InlineHighlight, combine_highlights, point_in_text_selection, text_runs};
+    use super::{
+        InlineHighlight, combine_highlights, point_in_text_selection, push_highlights, text_runs,
+    };
     use gpui::{FontWeight, HighlightStyle, SharedString, TextStyle, point, px};
 
     fn mono(style: HighlightStyle) -> InlineHighlight {
@@ -1514,6 +1527,29 @@ mod tests {
             .map(|run| (run.len, run.font.family.as_ref()))
             .collect::<Vec<_>>();
         assert_eq!(families, vec![(4, "Body"), (4, "Mono"), (4, "Body")]);
+    }
+
+    #[test]
+    fn pushing_each_childs_marks_matches_combining_them_all() {
+        let bold = InlineHighlight::from(HighlightStyle {
+            font_weight: Some(FontWeight::BOLD),
+            ..Default::default()
+        });
+        let children = [
+            vec![
+                (0..10, bold.clone()),
+                (6..10, mono(HighlightStyle::default())),
+            ],
+            vec![],
+            vec![(10..14, mono(HighlightStyle::default())), (12..20, bold)],
+        ];
+        let mut pushed = vec![];
+        let mut combined = vec![];
+        for marks in children {
+            push_highlights(&mut pushed, marks.clone());
+            combined = combine_highlights(combined, marks);
+        }
+        assert_eq!(pushed, combined);
     }
 
     #[test]

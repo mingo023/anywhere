@@ -96,6 +96,7 @@ gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # It also selects a table in reading order, cell by cell, where a drag inside one cell selected the cells beside it; drop once upstream does.
 # It also wraps a long inline code span only once a line is full, where padding counted per word or glyph broke it every few characters; drop once upstream does.
 # It also keeps selectable text inside a reused cached view, where the frame dropped it, clearing its selection and refreshing the window; drop once upstream does.
+# It also builds a paragraph's highlights in one pass over its inline children, where combining them per child was quadratic in its marks and a streaming reply paid it every frame; drop once upstream does.
 gpui-base = { path = "vendor/gpui-base" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.
