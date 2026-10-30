@@ -217,6 +217,7 @@ impl Desktop {
             .mt(px(6.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
         let aside = ui::side(div())
+            .bg(NAV)
             .w(px(self.aside_width()))
             .flex_none()
             .h_full()
