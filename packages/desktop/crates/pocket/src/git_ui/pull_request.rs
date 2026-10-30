@@ -3,6 +3,7 @@ mod comments;
 mod composer;
 mod notice;
 
+use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::changes::push;
 use crate::git_ui::diff::At;
@@ -607,7 +608,7 @@ impl Desktop {
         }
     }
 
-    /// Pastes `prompt` into the agent this worktree's chat goes to and sends it.
+    /// Sends `prompt` to the agent this worktree's chat goes to.
     fn send_to_agent(&mut self, prompt: &str, cx: &mut Context<Self>) -> bool {
         if self.agents.observe_only() {
             return false;
@@ -618,17 +619,22 @@ impl Desktop {
             return false;
         };
         let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return false };
-        if !self.terminals.sessions.term(&terminal).is_some_and(|t| t.mode(2004)) {
-            self.error = Some("This agent can't take pasted text right now.".into());
-            cx.notify();
-            return false;
+        match self.route(&terminal) {
+            Route::Chat => self.chat_command(&target, chat::Command::Send(prompt.to_string()), cx),
+            Route::Paste => {
+                self.send_input(&terminal, &term::paste_bytes(prompt, true), cx);
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(crate::add_to_chat::SEND_AFTER).await;
+                    this.update(cx, |d, cx| d.send_input(&terminal, b"\r", cx))
+                })
+                .detach();
+            }
+            Route::Blocked => {
+                self.error = Some("This agent can't take pasted text right now.".into());
+                cx.notify();
+                return false;
+            }
         }
-        self.send_input(&terminal, &term::paste_bytes(prompt, true), cx);
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(crate::add_to_chat::SEND_AFTER).await;
-            this.update(cx, |d, cx| d.send_input(&terminal, b"\r", cx))
-        })
-        .detach();
         self.notify_pr(format!("Sent to {}", theme::provider_name(&provider)), None, cx);
         true
     }

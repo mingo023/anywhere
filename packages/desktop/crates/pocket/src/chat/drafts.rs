@@ -44,6 +44,11 @@ impl<T: Default> Drafts<T> {
     pub(crate) fn parked(&self, agent: &str) -> Option<&T> {
         self.parked.get(agent)
     }
+
+    /// The draft of a chat that hasn't the input, to edit; an empty one if it had none.
+    pub(crate) fn parked_mut(&mut self, agent: &str) -> &mut T {
+        self.parked.entry(agent.to_string()).or_default()
+    }
 }
 
 #[cfg(test)]
@@ -71,6 +76,16 @@ mod tests {
         assert_eq!(input, "for a", "the chat holding the input keeps it as is");
         to(&mut drafts, &mut input, "b");
         assert_eq!(input, "for b");
+    }
+
+    #[test]
+    fn text_added_to_a_chat_without_the_input_is_there_when_it_takes_it() {
+        let (mut drafts, mut input) = (Drafts::default(), String::new());
+        to(&mut drafts, &mut input, "a");
+        drafts.parked_mut("b").push_str("@src/a.rs ");
+        assert_eq!(input, "", "the chat holding the input doesn't get it");
+        to(&mut drafts, &mut input, "b");
+        assert_eq!(input, "@src/a.rs ");
     }
 
     #[test]
