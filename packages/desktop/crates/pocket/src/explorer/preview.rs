@@ -454,7 +454,7 @@ impl Desktop {
             )))
         });
         let body = match self.preview.body(pane) {
-            Body::Markdown => offers_chat(pane, markdown_pane(views), cx).into_any_element(),
+            Body::Markdown => offers_chat(pane, markdown_pane(views, &path), cx).into_any_element(),
             Body::Code => offers_chat(pane, code_pane(&views.code, marks.clone(), self.store.files.font_size as f32), cx).into_any_element(),
             Body::Image(bytes) => frame()
                 .p(px(24.))

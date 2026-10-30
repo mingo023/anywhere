@@ -3,6 +3,7 @@ use futures::Stream as _;
 use std::time::Instant;
 use std::{
     ops::RangeInclusive,
+    path::Path,
     pin::Pin,
     sync::{Arc, Mutex},
     task::Poll,
@@ -111,6 +112,7 @@ pub struct TextViewState {
     pub(super) table_actions: Option<std::sync::Arc<TableActionsFn>>,
     pub(super) link_click_handler: Option<std::sync::Arc<LinkClickHandlerFn>>,
     pub(super) markdown_extensions: Arc<MarkdownExtensions>,
+    pub(super) image_base: Option<Arc<Path>>,
 
     pub(super) is_selecting: bool,
     /// Logical ranges retained across an explicitly requested resource reflow.
@@ -228,6 +230,7 @@ impl TextViewState {
             table_actions: None,
             link_click_handler: None,
             markdown_extensions: Arc::default(),
+            image_base: None,
             is_selecting: false,
             preserve_inline_selection: false,
             selection_cell: None,
@@ -781,6 +784,7 @@ impl Render for TextViewState {
             footnotes: Vec::new(),
             in_heading: false,
             stream_fade,
+            image_base: self.image_base.clone(),
         };
 
         v_flex()

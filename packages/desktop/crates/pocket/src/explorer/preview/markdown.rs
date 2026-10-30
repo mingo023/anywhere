@@ -5,6 +5,7 @@ use gpui_kit::base::text::{CodeBlock, CodeBlockHighlighterFn, MarkdownExtensions
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
 use gpui_kit::*;
+use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use theme::*;
 
@@ -51,10 +52,23 @@ fn markdown_style() -> TextViewStyle {
         .with_dark(is_dark())
 }
 
+/// The directory a markdown file's relative images load from; none for a file on a host, which `img` can't read.
+fn image_base(path: &str) -> Option<&Path> {
+    if hosts::split(path).0.is_some() {
+        return None;
+    }
+    Path::new(path).parent()
+}
+
 /// A markdown file rendered like pluk-inc/markdown-preview, with its mermaid fences drawn as diagrams.
-pub(super) fn markdown_pane(views: &Views) -> Div {
+pub(super) fn markdown_pane(views: &Views, path: &str) -> Div {
+    let text = TextView::new(&views.md);
+    let text = match image_base(path) {
+        Some(dir) => text.image_base(dir),
+        None => text,
+    };
     frame().bg(MD_PAGE).child(
-        TextView::new(&views.md)
+        text
             .markdown_extensions(MarkdownExtensions::default().frontmatter())
             .plugin(Frontmatter)
             .plugin(Mermaid(views.diagrams.clone()))
@@ -68,4 +82,16 @@ pub(super) fn markdown_pane(views: &Views) -> Div {
             .line_height(relative(1.5))
             .text_color(MD_TEXT),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::image_base;
+    use std::path::Path;
+
+    #[test]
+    fn images_load_beside_a_local_markdown_file_but_not_one_on_a_host() {
+        assert_eq!(image_base("/r/docs/README.md"), Some(Path::new("/r/docs")));
+        assert_eq!(image_base("//mac-mini/r/docs/README.md"), None);
+    }
 }
