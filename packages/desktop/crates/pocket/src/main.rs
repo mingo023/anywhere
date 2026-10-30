@@ -58,8 +58,10 @@ fn main() {
     if channel::is_release() && store.general.open_at_login {
         std::thread::spawn(|| daemon::service::open_at_login(true));
     }
+    let hitch_log = home.join("logs/chat-scroll.log");
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
+        gpui_kit::gpui::hitch::enable(hitch_log, format!("version={} arch={}", channel::version(), std::env::consts::ARCH));
         let capturing = capture.is_some();
         // Captures stay light (capture.rs forces it per screen).
         let forced = settings::forced(store.appearance.mode).filter(|_| !capturing);

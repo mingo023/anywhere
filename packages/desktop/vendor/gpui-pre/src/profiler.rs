@@ -669,6 +669,7 @@ impl Drop for ThreadTimings {
 pub fn update_running_task(spawned: SpawnTime, location: &'static std::panic::Location<'_>) {
     #[cfg(feature = "profiler")]
     journal::begin_foreground_turn();
+    crate::hitch::task_started(location);
     THREAD_TIMINGS.with(|timings| {
         timings.lock().update_running_task(spawned, location);
     });
@@ -676,6 +677,7 @@ pub fn update_running_task(spawned: SpawnTime, location: &'static std::panic::Lo
 
 #[doc(hidden)]
 pub fn save_task_timing() {
+    crate::hitch::task_ended();
     let yielded_at = YieldTime(Instant::now());
     #[cfg(feature = "profiler")]
     {

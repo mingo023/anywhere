@@ -34,6 +34,8 @@ mod keymap;
 mod path_builder;
 mod platform;
 pub mod prelude;
+/// A log of scroll hitches.
+pub mod hitch;
 /// Profiling utilities for task, frame, and thread performance tracking.
 pub mod profiler;
 #[cfg(any(

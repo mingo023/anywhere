@@ -1005,6 +1005,10 @@ impl StateInner {
             })
     }
 
+    fn describe_top(&self, top: &ListOffset) -> String {
+        format!("#{}+{:.1}={:.1}", top.item_ix, top.offset_in_item.0, self.scroll_top(top).0)
+    }
+
     fn scroll_top(&self, logical_scroll_top: &ListOffset) -> Pixels {
         let (start, ..) = self.items.find::<ListItemSummary, _>(
             (),
@@ -1065,6 +1069,12 @@ impl StateInner {
         window: &mut Window,
         cx: &mut App,
     ) -> LayoutItemsResponse {
+        let start = std::time::Instant::now();
+        let top_before = self.logical_scroll_top();
+        let mut drawn = 0;
+        let mut unmeasured = 0;
+        let mut slowest = (0, std::time::Duration::ZERO);
+        let mut corrections = String::new();
         let old_items = self.items.clone();
         let mut measured_items = VecDeque::new();
         let mut item_layouts = VecDeque::new();
@@ -1118,8 +1128,14 @@ impl StateInner {
             // If we're within the visible area or the height wasn't cached, render and measure the item's element
             if visible_height < available_height || size.is_none() {
                 let item_index = scroll_top.item_ix + ix;
+                let item_start = std::time::Instant::now();
                 let mut element = render_item(item_index, window, cx);
                 let element_size = element.layout_as_root(available_item_space, window, cx);
+                drawn += 1;
+                unmeasured += size.is_none() as usize;
+                if item_start.elapsed() > slowest.1 {
+                    slowest = (item_index, item_start.elapsed());
+                }
                 size = Some(element_size);
 
                 // If there's a pending scroll adjustment for the scroll-top
@@ -1130,6 +1146,7 @@ impl StateInner {
                             PendingScroll::Absolute { item_ix, offset }
                                 if item_ix == scroll_top.item_ix =>
                             {
+                                corrections += " pending-absolute";
                                 scroll_top.offset_in_item = offset.min(element_size.height);
                                 self.logical_scroll_top = Some(scroll_top);
                             }
@@ -1137,6 +1154,7 @@ impl StateInner {
                                 if pending_scroll.item_ix == scroll_top.item_ix =>
                             {
                                 anchor = None;
+                                corrections += " pending-proportional";
                                 // Ensuring proportional scroll position is
                                 // maintained after re-measuring.
                                 scroll_top.offset_in_item =
@@ -1151,6 +1169,9 @@ impl StateInner {
                 if anchor.is_some_and(|anchor| item_index < anchor)
                     && let Some(cached) = item.size_hint()
                 {
+                    if element_size.height != cached.height {
+                        corrections += &format!(" anchor#{item_index}{:+.1}", (element_size.height - cached.height).0);
+                    }
                     scroll_top.offset_in_item =
                         (scroll_top.offset_in_item + element_size.height - cached.height).max(px(0.));
                     self.logical_scroll_top = Some(scroll_top);
@@ -1184,6 +1205,7 @@ impl StateInner {
         // If the rendered items do not fill the visible region, then adjust
         // the scroll top upward.
         if rendered_height - scroll_top.offset_in_item < available_height {
+            corrections += " filled-from-bottom";
             while rendered_height < available_height {
                 cursor.prev();
                 if let Some(item) = cursor.item() {
@@ -1296,6 +1318,19 @@ impl StateInner {
                 cursor.next();
             }
         }
+
+        crate::hitch::note(|| {
+            format!(
+                "list of {} laid out {drawn} rows ({unmeasured} unmeasured, slowest #{} {}) in {} top {} -> {} of {:.1}{corrections}",
+                self.items.summary().count,
+                slowest.0,
+                crate::hitch::ms(slowest.1),
+                crate::hitch::ms(start.elapsed()),
+                self.describe_top(&top_before),
+                self.describe_top(&scroll_top),
+                self.items.summary().height.0,
+            )
+        });
 
         LayoutItemsResponse {
             max_item_width,
@@ -1665,6 +1700,8 @@ impl Element for List {
         let mut accumulated_scroll_delta = Point::<Pixels>::default();
         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
             if phase == DispatchPhase::Bubble && hitbox_id.should_handle_scroll(window) {
+                crate::hitch::wheel();
+                let start = std::time::Instant::now();
                 // Each event scrolls from the painted top, so it must carry every delta since that paint: a zero
                 // one (a finger lifting) or an opposite one (a reversal) dropping the rest snaps the list back.
                 accumulated_scroll_delta += event.delta.pixel_delta(px(20.));
@@ -1675,7 +1712,18 @@ impl Element for List {
                     current_view,
                     window,
                     cx,
-                )
+                );
+                let state = list_state.0.borrow();
+                crate::hitch::note(|| {
+                    format!(
+                        "wheel {:?} {:?} since-paint={:.1} top={} handled={}",
+                        event.delta,
+                        event.touch_phase,
+                        accumulated_scroll_delta.y.0,
+                        state.describe_top(&state.logical_scroll_top()),
+                        crate::hitch::ms(start.elapsed()),
+                    )
+                });
             }
         });
 

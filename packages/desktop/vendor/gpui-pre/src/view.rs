@@ -363,6 +363,7 @@ impl<V: View> Element for ViewElement<V> {
             // Stateful path.
             prepaint_view(
                 entity_id,
+                type_name::<V>(),
                 global_id,
                 bounds,
                 element,
@@ -461,6 +462,7 @@ fn request_layout_component(
 #[inline(never)]
 fn prepaint_view(
     entity_id: EntityId,
+    name: &'static str,
     global_id: Option<&GlobalElementId>,
     bounds: Bounds<Pixels>,
     element: &mut Option<AnyElement>,
@@ -480,6 +482,22 @@ fn prepaint_view(
             |element_state, window| {
                 let content_mask = window.content_mask();
                 let text_style = window.text_style();
+
+                let why = match &element_state {
+                    None => "new",
+                    Some(_) if window.refreshing => "refresh",
+                    Some(_) if window.dirty_views.contains(&entity_id) => "notified",
+                    Some(state) if state.cache_key.bounds != bounds => "resized",
+                    Some(state)
+                        if state
+                            .accessed_entities
+                            .iter()
+                            .any(|entity| window.notified_entities.contains(entity)) =>
+                    {
+                        "read-notified"
+                    }
+                    Some(_) => "mask-or-style",
+                };
 
                 if let Some(mut element_state) = element_state
                     && element_state.cache_key.bounds == bounds
@@ -502,6 +520,7 @@ fn prepaint_view(
                     return (None, element_state);
                 }
 
+                let start = std::time::Instant::now();
                 let refreshing = mem::replace(&mut window.refreshing, true);
                 let prepaint_start = window.prepaint_index();
                 let (element, accessed_entities) = cx.detect_accessed_entities(|cx| {
@@ -510,6 +529,17 @@ fn prepaint_view(
                     element.prepaint_at(bounds.origin, window, cx);
                     element
                 });
+                let took = start.elapsed();
+                if took >= std::time::Duration::from_millis(1) {
+                    crate::hitch::note(|| {
+                        format!(
+                            "view {name} {entity_id:?} {}x{} redrew ({why}) {}",
+                            bounds.size.width.0.round(),
+                            bounds.size.height.0.round(),
+                            crate::hitch::ms(took)
+                        )
+                    });
+                }
 
                 let prepaint_end = window.prepaint_index();
                 window.refreshing = refreshing;
