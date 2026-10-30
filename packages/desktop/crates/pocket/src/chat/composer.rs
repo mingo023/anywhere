@@ -20,7 +20,7 @@ use crate::status::Status;
 use crate::util::now_ms;
 use agents::{Decision, Summary};
 use chat::{Action, Ask, Command, Kind, Local, Session};
-use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::input::{InputEvent, RopeExt as _, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
@@ -426,6 +426,22 @@ impl Desktop {
         self.chats.drafts.parked(agent).map_or((String::new(), &[][..]), |(text, draft)| (text.clone(), &draft.images))
     }
 
+    /// Adds `text` to the end of `agent`'s draft, in the input when its chat holds it.
+    pub(crate) fn chat_add_text(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.chats.drafts.owner() != Some(agent) {
+            let (draft, _) = self.chats.drafts.parked_mut(agent);
+            *draft = added(draft, text);
+            return;
+        }
+        let value = added(&self.chats.input.read(cx).value(), text);
+        self.chats.input.update(cx, |s, cx| {
+            s.set_value(value.clone(), window, cx);
+            let end = s.text().offset_to_position(value.len());
+            s.set_cursor_position(end, window, cx);
+        });
+        cx.notify();
+    }
+
     /// `set_value` emits no change, so the composer redraws here.
     pub(crate) fn set_chat_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.chats.input.update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
@@ -601,13 +617,25 @@ impl Desktop {
     }
 }
 
+/// `draft` with `text` after it, a space between unless the draft ends in one or is empty.
+fn added(draft: &str, text: &str) -> String {
+    if draft.is_empty() || draft.ends_with(char::is_whitespace) { format!("{draft}{text}") } else { format!("{draft} {text}") }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Mode, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, typed_text, working};
+    use super::{Mode, added, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, typed_text, working};
     use gpui_kit::{Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
     use chat::{Action, Ask, Block, End, Message, Question, Session, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
+
+    #[test]
+    fn added_text_follows_the_draft_after_a_space() {
+        assert_eq!(added("", "@a.rs "), "@a.rs ");
+        assert_eq!(added("look at", "@a.rs "), "look at @a.rs ");
+        assert_eq!(added("look at ", "@a.rs "), "look at @a.rs ");
+    }
 
     fn ask(questions: Vec<Question>) -> Ask {
         Ask { request_id: "r".into(), tool: ToolKind::Shell { command: "ls".into(), description: String::new() }, tool_name: "Bash".into(), questions }

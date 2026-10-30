@@ -42,6 +42,25 @@ pub(crate) fn can_chat(started_for_chat: bool, summary: Option<&Summary>) -> boo
     summary.is_some_and(|a| started_for_chat || a.chat_only)
 }
 
+/// How text reaches an agent.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Route {
+    /// Through its chat, which drives an agent whose terminal shows it, with or without a TUI to type into.
+    Chat,
+    /// Pasted into its TUI.
+    Paste,
+    /// A TUI without bracketed paste would take each newline as Return.
+    Blocked,
+}
+
+fn route(chat_shown: bool, bracketed: bool) -> Route {
+    match (chat_shown, bracketed) {
+        (true, _) => Route::Chat,
+        (false, true) => Route::Paste,
+        (false, false) => Route::Blocked,
+    }
+}
+
 /// The toast for a closed chat's unsent sends and draft, and the text it copies; none when nothing was left.
 fn unsent_notice(who: &str, mut unsent: Vec<String>, typed: String) -> Option<(String, String)> {
     if !typed.trim().is_empty() {
@@ -86,6 +105,11 @@ impl Desktop {
     /// Whether `terminal`'s pane shows its agent's chat, which it does only while its agent runs.
     pub(crate) fn chat_shown(&self, terminal: &str) -> bool {
         can_chat(self.store.chats.contains(terminal), self.summary(terminal))
+    }
+
+    /// How text reaches the agent in `terminal`.
+    pub(crate) fn route(&mut self, terminal: &str) -> Route {
+        route(self.chat_shown(terminal), self.terminals.sessions.term(terminal).is_some_and(|t| t.mode(2004)))
     }
 
     /// Focuses the terminal pane, and its chat's input when the chat shows: keys then go to the input.
@@ -161,7 +185,15 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Summary, can_chat, unsent_notice};
+    use super::{Route, Summary, can_chat, route, unsent_notice};
+
+    #[test]
+    fn text_goes_through_the_chat_of_an_agent_its_chat_drives_even_without_bracketed_paste() {
+        assert_eq!(route(true, false), Route::Chat);
+        assert_eq!(route(true, true), Route::Chat);
+        assert_eq!(route(false, true), Route::Paste);
+        assert_eq!(route(false, false), Route::Blocked, "pasted unbracketed, the text's first newline would send it");
+    }
 
     #[test]
     fn chat_shows_only_for_terminals_that_run_an_agent() {

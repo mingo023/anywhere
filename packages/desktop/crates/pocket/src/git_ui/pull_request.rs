@@ -3,6 +3,7 @@ mod comments;
 mod composer;
 mod notice;
 
+use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::changes::push;
 use crate::git_ui::diff::At;
@@ -618,7 +619,7 @@ impl Desktop {
             return false;
         };
         let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return false };
-        match route(self.chat_shown(&terminal), self.terminals.sessions.term(&terminal).is_some_and(|t| t.mode(2004))) {
+        match self.route(&terminal) {
             Route::Chat => self.chat_command(&target, chat::Command::Send(prompt.to_string()), cx),
             Route::Paste => {
                 self.send_input(&terminal, &term::paste_bytes(prompt, true), cx);
@@ -762,40 +763,13 @@ impl Desktop {
     }
 }
 
-/// How a prompt reaches an agent.
-#[derive(Debug, PartialEq)]
-enum Route {
-    /// Through its chat, which drives an agent whose terminal shows it, with or without a TUI to type into.
-    Chat,
-    /// Pasted into its TUI and entered.
-    Paste,
-    /// A TUI without bracketed paste would send the prompt at its first newline.
-    Blocked,
-}
-
-fn route(chat_shown: bool, bracketed: bool) -> Route {
-    match (chat_shown, bracketed) {
-        (true, _) => Route::Chat,
-        (false, true) => Route::Paste,
-        (false, false) => Route::Blocked,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Route, Ship, Track, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, review_lines, route, ship, tally, to_fix, verdict};
+    use super::{Ship, Track, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, review_lines, ship, tally, to_fix, verdict};
     use crate::git_ui::pull_requests::PrItem;
     use git::github::{Check, Checks, Comment, Gate, Mergeable, Outcome, Pr, PrState, Review, Thread};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
     use git::{Commit, FileStat, Repo};
-
-    #[test]
-    fn a_prompt_goes_through_the_chat_of_an_agent_its_chat_drives_even_without_bracketed_paste() {
-        assert_eq!(route(true, false), Route::Chat);
-        assert_eq!(route(true, true), Route::Chat);
-        assert_eq!(route(false, true), Route::Paste);
-        assert_eq!(route(false, false), Route::Blocked, "pasted unbracketed, the prompt's first newline would send it");
-    }
 
     fn repo(files: usize, ahead: usize, unpushed: Option<usize>) -> Repo {
         let file = |i: usize| FileStat { path: format!("{i}.rs"), added: 1, removed: 0, staged: false, unstaged: true, status: 'M' };

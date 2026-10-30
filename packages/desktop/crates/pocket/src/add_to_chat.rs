@@ -6,6 +6,7 @@ mod toast;
 pub(crate) use selection::offers_chat;
 
 use crate::actions::AddToChat;
+use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{At, DiffView, ordered, span};
 use crate::sidebar::in_tree;
@@ -136,17 +137,13 @@ fn section_of(source: &str, selected: &str) -> Option<String> {
     None
 }
 
-/// The quote pasted, then the question typed after it, with no return so nothing sends.
-/// None without bracketed paste, where the quote's newlines would send it.
-pub fn input_bytes(payload: &str, question: &str, bracketed: bool) -> Option<Vec<u8>> {
-    if !bracketed {
-        return None;
-    }
+/// The quote pasted into a TUI with bracketed paste, then the question typed after it, with no return so nothing sends.
+pub fn input_bytes(payload: &str, question: &str) -> Vec<u8> {
     let mut out = term::paste_bytes(payload, true);
     out.push(b' ');
     let question: String = question.split_whitespace().collect::<Vec<_>>().join(" ").chars().filter(|c| !c.is_control()).collect();
     out.extend(question.bytes());
-    Some(out)
+    out
 }
 
 #[derive(Debug, PartialEq)]
@@ -262,11 +259,12 @@ impl Desktop {
         }
         let (Some(quote), Some(target)) = (self.chat_quote(), self.chat_target(&self.chat_choices())) else { return };
         let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return };
-        let Some(bracketed) = self.terminals.sessions.term(&terminal).map(|t| t.mode(2004)) else { return };
-        let question = self.chat.input.read(cx).value();
-        match input_bytes(&quote.payload(), &question, bracketed) {
-            Some(bytes) => {
-                self.send_input(&terminal, &bytes, cx);
+        let question = self.chat.input.read(cx).value().to_string();
+        match self.route(&terminal) {
+            Route::Chat if self.store.agents.send_now => self.chat_command(&target, chat::Command::Send(quote.prompt(&question)), cx),
+            Route::Chat => self.chat_add_text(&target, &quote.prompt(&question), window, cx),
+            Route::Paste => {
+                self.send_input(&terminal, &input_bytes(&quote.payload(), &question), cx);
                 if self.store.agents.send_now {
                     cx.spawn(async move |this, cx| {
                         cx.background_executor().timer(SEND_AFTER).await;
@@ -274,15 +272,15 @@ impl Desktop {
                     })
                     .detach();
                 }
-                self.cancel_chat(window, cx);
-                self.flash_added(provider, cx);
             }
-            None => {
+            Route::Blocked => {
                 self.chat.added = None;
                 self.error = Some("This agent can't take pasted text right now.".into());
-                cx.notify();
+                return cx.notify();
             }
         }
+        self.cancel_chat(window, cx);
+        self.flash_added(provider, cx);
     }
 
     fn flash_added(&mut self, provider: String, cx: &mut Context<Self>) {
@@ -351,17 +349,12 @@ mod tests {
 
     #[test]
     fn input_pastes_the_quote_then_types_the_question_without_a_return() {
-        assert_eq!(input_bytes("a\nb", "why\n this?", true).unwrap(), b"\x1b[200~a\nb\x1b[201~ why this?");
+        assert_eq!(input_bytes("a\nb", "why\n this?"), b"\x1b[200~a\nb\x1b[201~ why this?");
     }
 
     #[test]
     fn input_strips_control_characters_from_the_question() {
-        assert_eq!(input_bytes("a", "x\x1b[2Jy\r", true).unwrap(), b"\x1b[200~a\x1b[201~ x[2Jy");
-    }
-
-    #[test]
-    fn input_is_refused_where_newlines_would_send_the_quote() {
-        assert_eq!(input_bytes("a\nb", "why?", false), None);
+        assert_eq!(input_bytes("a", "x\x1b[2Jy\r"), b"\x1b[200~a\x1b[201~ x[2Jy");
     }
 
     fn card(id: &str, status: Status, kind: Kind) -> Card {

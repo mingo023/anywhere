@@ -3,6 +3,7 @@ use super::toast::Notice;
 use super::ExplorerState;
 use crate::actions::{TreeMenuArrow, TreeMenuChoose, TreeMenuItem};
 use crate::add_to_chat::Choice;
+use crate::chat::Route;
 use crate::desktop::Desktop;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -368,7 +369,7 @@ impl Desktop {
             Pick::Item(item) => item,
             Pick::Chat(i) => {
                 let (Some(chat), Some((path, folder))) = (self.chat_choices().into_iter().nth(i), target) else { return };
-                self.mention(&chat.id, &path, folder, cx);
+                self.mention(&chat.id, &path, folder, window, cx);
                 self.explorer.close_menu();
                 return cx.notify();
             }
@@ -377,7 +378,7 @@ impl Desktop {
             (Item::Mention, Some((path, folder))) => {
                 let reach = self.reach();
                 match &reach.plan {
-                    Plan::To(id) => self.mention(id, &path, folder, cx),
+                    Plan::To(id) => self.mention(id, &path, folder, window, cx),
                     Plan::Ask => {
                         if let Some(menu) = self.explorer.menu.as_mut() {
                             menu.open_chats(&reach);
@@ -402,10 +403,15 @@ impl Desktop {
         cx.notify();
     }
 
-    fn mention(&mut self, id: &str, path: &Path, folder: bool, cx: &mut Context<Self>) {
+    fn mention(&mut self, id: &str, path: &Path, folder: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some((terminal, provider, cwd)) = self.agents.get(id).map(|a| (a.terminal_id.clone(), a.provider.clone(), a.cwd.clone())) else { return };
-        let Some(bracketed) = self.terminals.sessions.term(&terminal).map(|t| t.mode(2004)) else { return };
-        self.send_input(&terminal, &term::paste_bytes(&mention_text(path, folder, Path::new(&cwd)), bracketed), cx);
+        let text = mention_text(path, folder, Path::new(&cwd));
+        if self.route(&terminal) == Route::Chat {
+            self.chat_add_text(id, &text, window, cx);
+        } else {
+            let Some(bracketed) = self.terminals.sessions.term(&terminal).map(|t| t.mode(2004)) else { return };
+            self.send_input(&terminal, &term::paste_bytes(&text, bracketed), cx);
+        }
         // The focused chat shows the mention landing in its input; any other gets a toast.
         if self.session() != Some(id) {
             let title = self.chat_choices().into_iter().find(|c| c.id == id).map(|c| c.title).unwrap_or_default();
