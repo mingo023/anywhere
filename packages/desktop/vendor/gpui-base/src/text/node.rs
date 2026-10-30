@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ops::Range,
+    path::Path,
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
@@ -33,7 +34,10 @@ use crate::{
     theme::ActiveTheme as _,
 };
 
-use super::{SelectionFormat, TextViewStyle, utils::data_url_image};
+use super::{
+    SelectionFormat, TextViewStyle,
+    utils::{data_url_image, local_image_path},
+};
 
 const TASK_CHECK_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M4.4 8.4 L7 11 L11.6 5.4" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
 
@@ -567,16 +571,19 @@ impl ImageNode {
             .to_string()
     }
 
-    /// The [`ImageSource`] to render, without granting implicit filesystem
-    /// access.
+    /// The [`ImageSource`] to render.
     ///
     /// A `data:` URL carries its image inline, so it is decoded here rather
     /// than handed to GPUI's resource loader, which only fetches over HTTP.
-    /// Every other document-provided value remains URI-backed, including
-    /// `file://` and scheme-less strings.
-    pub(super) fn source(&self) -> ImageSource {
-        match self.embedded.get_or_init(|| data_url_image(&self.url)) {
-            Some(image) => ImageSource::Image(image.clone()),
+    /// A relative or `file:` URL loads from disk only when the view was given
+    /// an `image_base`; otherwise, like every other value, it stays
+    /// URI-backed, so a document gets no filesystem access by default.
+    pub(super) fn source(&self, image_base: Option<&Path>) -> ImageSource {
+        if let Some(image) = self.embedded.get_or_init(|| data_url_image(&self.url)) {
+            return ImageSource::Image(image.clone());
+        }
+        match image_base.and_then(|base| local_image_path(&self.url, base)) {
+            Some(path) => path.into(),
             None => self.url.clone().into(),
         }
     }
@@ -1889,6 +1896,8 @@ pub(crate) struct NodeContext {
     pub(crate) in_heading: bool,
     /// This frame's streamed fade-in, when any text is still fading.
     pub(crate) stream_fade: Option<Arc<StreamFadeFrame>>,
+    /// The directory relative image URLs resolve against; see [`ImageNode::source`].
+    pub(crate) image_base: Option<Arc<Path>>,
 }
 
 impl NodeContext {
@@ -2091,7 +2100,7 @@ impl Paragraph {
                 }
                 let link_click_handler = node_cx.link_click_handler.clone();
                 child_nodes.push(
-                    img(image.source())
+                    img(image.source(node_cx.image_base.as_deref()))
                         .id(ix)
                         .object_fit(ObjectFit::Contain)
                         .max_w(relative(1.))
@@ -2288,7 +2297,7 @@ impl Paragraph {
                 }
 
                 items.push(InlineFlowItem::Image {
-                    source: image.source(),
+                    source: image.source(node_cx.image_base.as_deref()),
                     link: image.link.clone(),
                     title: image.title(),
                     width: image.width,
@@ -4045,7 +4054,7 @@ mod tests {
         // scheme-less strings, so the document never gets implicit
         // filesystem access through `Resource::Embedded`.
         fn assert_uri(url: &str) {
-            match image_node(url).source() {
+            match image_node(url).source(None) {
                 ImageSource::Resource(Resource::Uri(uri)) => assert_eq!(uri.as_ref(), url),
                 _ => panic!("expected Uri for {url:?}"),
             }
@@ -4064,15 +4073,46 @@ mod tests {
         // A `data:` image is decoded once and the same decoded image is
         // handed to every render.
         let node = image_node("data:image/png;base64,iVBORw0KGgo=");
-        let ImageSource::Image(first) = node.source() else {
+        let ImageSource::Image(first) = node.source(None) else {
             panic!("expected an embedded image");
         };
         assert_eq!(first.format(), ImageFormat::Png);
         assert_eq!(first.bytes(), b"\x89PNG\r\n\x1a\n");
-        let ImageSource::Image(second) = node.source() else {
+        let ImageSource::Image(second) = node.source(None) else {
             panic!("expected an embedded image");
         };
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_image_node_source_with_image_base() {
+        use gpui::{ImageSource, Resource};
+        use std::path::PathBuf;
+
+        fn source(url: &str) -> ImageSource {
+            ImageNode {
+                url: url.into(),
+                ..Default::default()
+            }
+            .source(Some(std::path::Path::new("/repo/docs")))
+        }
+
+        match source("./img/a.png") {
+            ImageSource::Resource(Resource::Path(path)) => {
+                assert_eq!(path.to_path_buf(), PathBuf::from("/repo/docs/img/a.png"))
+            }
+            _ => panic!("expected a path for a relative URL"),
+        }
+        match source("https://example.com/logo.png") {
+            ImageSource::Resource(Resource::Uri(uri)) => {
+                assert_eq!(uri.as_ref(), "https://example.com/logo.png")
+            }
+            _ => panic!("expected Uri for a remote URL"),
+        }
+        assert!(matches!(
+            source("data:image/png;base64,iVBORw0KGgo="),
+            ImageSource::Image(_)
+        ));
     }
 
     fn image_paragraph(alt: &str, url: &str) -> Paragraph {

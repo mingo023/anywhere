@@ -1,4 +1,4 @@
-use std::{ops::Range, sync::Arc};
+use std::{ops::Range, path::Path, sync::Arc};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -132,6 +132,7 @@ pub struct TextView {
     link_click_handler: Option<Arc<LinkClickHandlerFn>>,
     markdown_extensions: Arc<MarkdownExtensions>,
     motion: Option<TextViewMotion>,
+    image_base: Option<Arc<Path>>,
 }
 
 /// A plugin that can configure a [`TextView`].
@@ -177,6 +178,7 @@ impl TextView {
             link_click_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
+            image_base: None,
         }
     }
 
@@ -199,6 +201,7 @@ impl TextView {
             link_click_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
+            image_base: None,
         }
     }
 
@@ -221,6 +224,7 @@ impl TextView {
             link_click_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
+            image_base: None,
         }
     }
 
@@ -344,6 +348,13 @@ impl TextView {
         F: Fn(&SharedString, &ClickEvent, &mut Window, &mut App) + Send + Sync + 'static,
     {
         self.link_click_handler = Some(Arc::new(handler));
+        self
+    }
+
+    /// Load images with a relative or `file:` URL from disk, resolving
+    /// relative ones against `dir`, the document's directory.
+    pub fn image_base(mut self, dir: impl Into<Arc<Path>>) -> Self {
+        self.image_base = Some(dir.into());
         self
     }
 
@@ -588,6 +599,7 @@ impl Element for TextView {
             state.code_block_highlighter = code_block_highlighter;
             state.table_actions = self.table_actions.clone();
             state.link_click_handler = self.link_click_handler.clone();
+            state.image_base = self.image_base.clone();
             state.set_markdown_extensions(self.markdown_extensions.clone(), cx);
             if let Some(motion) = &self.motion {
                 state.set_motion(motion.clone());

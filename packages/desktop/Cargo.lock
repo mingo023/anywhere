@@ -2440,6 +2440,7 @@ dependencies = [
  "smol",
  "tracing",
  "unicode-segmentation",
+ "url",
  "web-time",
  "windows 0.58.0",
 ]

@@ -136,6 +136,9 @@ version = "0.1.41"
 [dependencies.unicode-segmentation]
 version = "1.12.0"
 
+[dependencies.url]
+version = "2"
+
 [dependencies.web-time]
 version = "1"
 
