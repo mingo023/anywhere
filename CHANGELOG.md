@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.23
+
+- The hitch log tells slow drawing from display pacing, and who asked for each redraw (#160): (ecd356f7)
+
 ## 0.1.22
 
 - The app logs what led to a chat scroll hitch (#158): (5bd4ea9c)
