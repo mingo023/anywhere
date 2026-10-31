@@ -1864,10 +1864,9 @@ impl Window {
                                 let drawn = Instant::now();
                                 window.present();
                                 arena_clear_needed.clear(cx);
-                                crate::hitch::frame_drawn(start.elapsed(), || {
+                                crate::hitch::frame_drawn(drawn - start, drawn.elapsed(), || {
                                     format!(
-                                        "present={} size={:?} scale={} active={} thermal={thermal_state:?}",
-                                        crate::hitch::ms(drawn.elapsed()),
+                                        "size={:?} scale={} active={} thermal={thermal_state:?}",
                                         window.viewport_size,
                                         window.scale_factor,
                                         window.active.get(),
@@ -2342,7 +2341,9 @@ impl Window {
     }
 
     /// Mark the window as dirty, scheduling it to be redrawn on the next frame.
+    #[track_caller]
     pub fn refresh(&mut self) {
+        crate::hitch::notified(std::panic::Location::caller());
         if self.invalidator.not_drawing() {
             self.refreshing = true;
             self.invalidator.set_dirty(true);
@@ -2706,7 +2707,9 @@ impl Window {
     /// which automatically respects [`App::reduce_motion`]. When using this
     /// method directly for decorative motion, check [`App::reduce_motion`]
     /// and skip the frame request when it is set.
+    #[track_caller]
     pub fn request_animation_frame(&self) {
+        crate::hitch::notified(std::panic::Location::caller());
         let entity = self.current_view();
         self.on_next_frame(move |_, cx| cx.notify(entity));
     }

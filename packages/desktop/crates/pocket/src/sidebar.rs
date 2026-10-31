@@ -186,7 +186,9 @@ impl Desktop {
 
     /// The expanded sidebar: projects with their worktrees.
     pub(crate) fn aside(&self, cx: &mut Context<Self>) -> Div {
+        let t0 = Instant::now(); // [DEBUG-sidebar]
         let unseen = crate::inbox::count(&self.agents);
+        let t_inbox = t0.elapsed(); // [DEBUG-sidebar]
         let top = drag_area(div())
             .h(px(42.))
             .flex()
@@ -211,8 +213,13 @@ impl Desktop {
         let automations = ui::nav_row("aside-automations", "bolt", "Automations", self.screen == Screen::Automations)
             .mb(px(2.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)));
+        let t1 = Instant::now(); // [DEBUG-sidebar]
         let header = self.projects_header(cx);
-        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(1.)).children(self.sections(cx));
+        let t_header = t1.elapsed(); // [DEBUG-sidebar]
+        let t2 = Instant::now(); // [DEBUG-sidebar]
+        let sections = self.sections(cx);
+        let (t_sections, n_sections) = (t2.elapsed(), sections.len()); // [DEBUG-sidebar]
+        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(1.)).children(sections);
         let settings = ui::nav_row("aside-settings", "settings", "Settings", false)
             .mt(px(6.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
@@ -231,7 +238,9 @@ impl Desktop {
             .child(body)
             .children(self.update_card(cx))
             .child(settings);
-        self.resizable(aside, Column::Projects, cx)
+        let aside = self.resizable(aside, Column::Projects, cx);
+        gpui_kit::gpui::hitch::debug_note(|| format!("[DEBUG-sidebar] aside built in {:.1}ms: inbox={:.1}ms header={:.1}ms sections={:.1}ms ({n_sections})", t0.elapsed().as_secs_f64() * 1e3, t_inbox.as_secs_f64() * 1e3, t_header.as_secs_f64() * 1e3, t_sections.as_secs_f64() * 1e3)); // [DEBUG-sidebar]
+        aside
     }
 
     fn tree_cards(&self, project: &str, tree: &str) -> Vec<Card> {

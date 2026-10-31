@@ -523,9 +523,13 @@ fn prepaint_view(
                 let start = std::time::Instant::now();
                 let refreshing = mem::replace(&mut window.refreshing, true);
                 let prepaint_start = window.prepaint_index();
+                let mut rendered = start;
+                let mut laid_out = start;
                 let (element, accessed_entities) = cx.detect_accessed_entities(|cx| {
                     let mut element = render(window, cx);
+                    rendered = std::time::Instant::now();
                     element.layout_as_root(Size::<AvailableSpace>::from(bounds.size), window, cx);
+                    laid_out = std::time::Instant::now();
                     element.prepaint_at(bounds.origin, window, cx);
                     element
                 });
@@ -533,10 +537,13 @@ fn prepaint_view(
                 if took >= std::time::Duration::from_millis(1) {
                     crate::hitch::note(|| {
                         format!(
-                            "view {name} {entity_id:?} {}x{} redrew ({why}) {}",
+                            "view {name} {entity_id:?} {}x{} redrew ({why}) {} render={} layout={} prepaint={}",
                             bounds.size.width.0.round(),
                             bounds.size.height.0.round(),
-                            crate::hitch::ms(took)
+                            crate::hitch::ms(took),
+                            crate::hitch::ms(rendered - start),
+                            crate::hitch::ms(laid_out - rendered),
+                            crate::hitch::ms(took - (laid_out - start)),
                         )
                     });
                 }
