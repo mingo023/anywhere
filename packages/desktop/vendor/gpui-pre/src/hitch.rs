@@ -1,8 +1,8 @@
 //! A log of scroll hitches, for lag that shows only now and then on someone else's machine.
 //!
-//! What a frame does (its phases, the views it redrew, the list rows it laid out, the tasks run before it) is kept
-//! in memory for [`KEPT`]. A frame that comes late or draws slowly while a wheel scroll is under way writes what's
-//! kept to the log file, so a smooth scroll writes nothing. Only the main thread records; elsewhere every call is a
+//! What a frame does (its phases, the views it redrew and who notified them, the list rows it laid out, the tasks run
+//! before it) is kept in memory for [`KEPT`]. A frame that comes late or draws slowly while a wheel scroll is under
+//! way writes what's kept to the log file, so a smooth scroll writes nothing. Only the main thread records; elsewhere every call is a
 //! no-op.
 
 use std::cell::RefCell;
@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
+use std::mem;
 use std::panic::Location;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
@@ -18,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const KEPT: Duration = Duration::from_secs(2);
 /// A wheel event this recent means a scroll is under way: momentum events keep coming while a fling glides.
 const SCROLLING: Duration = Duration::from_millis(300);
-/// One frame at 120Hz.
+/// One frame at 120Hz, of drawing alone: waiting on the display to present is pacing, not slowness.
 const SLOW_FRAME: Duration = Duration::from_micros(8_333);
 /// Three frames at 120Hz between a wheel event and the frame that shows it.
 const LATE_FRAME: Duration = Duration::from_millis(25);
@@ -34,6 +35,9 @@ struct State {
     /// The first wheel event no frame has shown yet.
     unshown_wheel: Option<Instant>,
     task: Option<(Instant, &'static Location<'static>)>,
+    last_frame: Option<Instant>,
+    /// Where the notifies and refreshes since the last frame came from, with how many each.
+    notifies: Vec<(&'static Location<'static>, u32)>,
 }
 
 thread_local! {
@@ -49,7 +53,15 @@ pub fn enable(path: PathBuf, header: String) {
         .ok();
     out.send(format!("=== {} {header}\n", unix_now())).ok();
     STATE.with_borrow_mut(|state| {
-        *state = Some(State { kept: VecDeque::new(), out, last_wheel: None, unshown_wheel: None, task: None })
+        *state = Some(State {
+            kept: VecDeque::new(),
+            out,
+            last_wheel: None,
+            unshown_wheel: None,
+            task: None,
+            last_frame: None,
+            notifies: Vec::new(),
+        })
     });
 }
 
@@ -100,6 +112,16 @@ pub(crate) fn wheel() {
     });
 }
 
+pub(crate) fn notified(location: &'static Location<'static>) {
+    STATE.with_borrow_mut(|state| {
+        let Some(state) = state else { return };
+        match state.notifies.iter_mut().find(|(at, _)| *at == location) {
+            Some((_, count)) => *count += 1,
+            None => state.notifies.push((location, 1)),
+        }
+    });
+}
+
 pub(crate) fn task_started(location: &'static Location<'static>) {
     STATE.with_borrow_mut(|state| {
         if let Some(state) = state {
@@ -120,22 +142,31 @@ pub(crate) fn task_ended() {
     }
 }
 
-/// Records a drawn frame, and writes what's kept if it came late or slow during a scroll.
-pub(crate) fn frame_drawn(took: Duration, context: impl FnOnce() -> String) {
+/// Records a frame that took `drew` to draw and `presented` to present, and writes what's kept if it came late or
+/// drew slowly during a scroll. `gap` since the previous frame shows the display's pace: 8.3ms at 120Hz, 16.7ms at 60Hz.
+pub(crate) fn frame_drawn(drew: Duration, presented: Duration, context: impl FnOnce() -> String) {
     let late = STATE.with_borrow_mut(|state| {
         let state = state.as_mut()?;
-        let waited = state.unshown_wheel.take().map(|at| at.elapsed());
-        let scrolling = state.last_wheel.is_some_and(|at| at.elapsed() < SCROLLING);
-        Some((waited, scrolling))
+        let now = Instant::now();
+        let waited = state.unshown_wheel.take().map(|at| now - at);
+        let scrolling = state.last_wheel.is_some_and(|at| now - at < SCROLLING);
+        let gap = state.last_frame.replace(now).map(|at| now - at);
+        Some((waited, scrolling, gap, mem::take(&mut state.notifies)))
     });
-    let Some((waited, scrolling)) = late else { return };
+    let Some((waited, scrolling, gap, notifies)) = late else { return };
     note(|| {
         let waited = waited.map(|w| format!(" wheel-waited={}", ms(w))).unwrap_or_default();
-        format!("frame {}{waited} {}", ms(took), context())
+        let gap = gap.map(|g| format!(" gap={}", ms(g))).unwrap_or_default();
+        let mut by = String::new();
+        for (at, count) in &notifies {
+            write!(by, " {}:{}x{count}", at.file().rsplit('/').next().unwrap_or_default(), at.line()).ok();
+        }
+        let by = if by.is_empty() { by } else { format!(" notified-by{by}") };
+        format!("frame drew={} present={}{gap}{waited} {}{by}", ms(drew), ms(presented), context())
     });
     let reason = match waited {
         Some(waited) if waited > LATE_FRAME => format!("wheel event waited {} for a frame", ms(waited)),
-        _ if scrolling && took > SLOW_FRAME => format!("frame took {} while scrolling", ms(took)),
+        _ if scrolling && drew > SLOW_FRAME => format!("frame drew for {} while scrolling", ms(drew)),
         _ => return,
     };
     write_kept(&reason);
@@ -155,4 +186,10 @@ fn write_kept(reason: &str) {
 
 pub(crate) fn ms(d: Duration) -> String {
     format!("{:.1}ms", d.as_secs_f64() * 1000.)
+}
+
+// [DEBUG-sidebar] temporary: lets pocket time parts of the sidebar into this log.
+#[doc(hidden)]
+pub fn debug_note(line: impl FnOnce() -> String) {
+    note(line)
 }
