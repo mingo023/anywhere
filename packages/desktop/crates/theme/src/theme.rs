@@ -194,15 +194,17 @@ fn on(fill: u32) -> u32 {
     if contrast::ratio(white, fill) >= contrast::ratio(ink, fill) { white } else { ink }
 }
 
-pub const WINDOW: Token = Token::new(0xf4f4f5ff, 0x171717d9);
+pub const WINDOW: Token = Token::new(0xf4f4f5ff, 0x121212d9);
 /// The window colour where nothing shows through: floated panels and images.
-pub const WINDOW_SOLID: Token = Token::new(0xf4f4f5ff, 0x171717ff);
+pub const WINDOW_SOLID: Token = Token::new(0xf4f4f5ff, 0x121212ff);
 pub const SURFACE: Token = Token::new(0xffffffff, 0xebebeb1a);
 pub const SURFACE_SUNKEN: Token = Token::new(0xfafafaff, 0x00000000);
 pub const PAGE: Token = Token::new(0xf7f7f7ff, 0x00000000);
 /// A recessed block inside a page: tables, code blocks.
 pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
 pub const SIDE: Token = Token::new(0xfafafbb3, 0x00000000);
+/// The left sidebar, and the rail it folds to; opaque in dark so it reads darker than the glass beside it.
+pub const NAV: Token = Token::new(0xfafafbb3, 0x0e0e0eff);
 /// Opaque because GPUI has no backdrop blur.
 pub const POPOVER: Token = Token::new(0xffffffff, 0x232323ff);
 pub const GLASS: Token = Token::new(0xffffff9e, 0x2a2a2acc);
@@ -210,7 +212,7 @@ pub const HIGHLIGHT: Token = Token::new(0xfffffff2, 0xffffff0f);
 /// Near-clear in dark: a wide black blur on a dark window reads as a smudge, so the ring alone lifts the surface.
 pub const SHADOW: Token = Token::new(0x00000024, 0x0000000a);
 /// The ring that cuts a badge out of whatever it overlaps.
-pub const CUTOUT: Token = Token::new(0xffffffff, 0x171717ff);
+pub const CUTOUT: Token = Token::new(0xffffffff, 0x121212ff);
 
 pub const FILL_1: Token = Token::new(0x11111308, 0xebebeb0d);
 pub const FILL_2: Token = Token::new(0x1111130b, 0xebebeb14);
@@ -817,8 +819,8 @@ mod tests {
     #[test]
     fn dark_is_glass_over_the_desktop_and_light_is_opaque() {
         assert_eq!(WINDOW.pick(false) & 0xff, 0xff);
-        assert_eq!(WINDOW.pick(true), 0x171717d9);
-        assert_eq!(WINDOW_SOLID.pick(true), 0x171717ff);
+        assert_eq!(WINDOW.pick(true), 0x121212d9);
+        assert_eq!(WINDOW_SOLID.pick(true), 0x121212ff);
     }
 
     #[test]
