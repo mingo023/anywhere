@@ -14,6 +14,7 @@ use suggest::Prompt;
 use crate::composer::model_menu::Side;
 use crate::composer::{Attachment, Draft, Menu};
 use crate::desktop::Desktop;
+use crate::renames;
 use crate::desktop::chrome::id;
 use crate::explorer::toast::Notice;
 use crate::status::Status;
@@ -512,7 +513,7 @@ impl Desktop {
                 .items_center()
                 .gap(px(6.))
                 .child(icon("worktree", 13., TEXT_3))
-                .child(div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(self.renames.branch("composer-branch", &t.path, &t.branch, TEXT_2, reduce_motion)))
+                .child(div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(renames::branch_label(&self.renames, "composer-branch", &t.path, &t.branch, TEXT_2, reduce_motion)))
         });
         div()
             .min_w_0()
