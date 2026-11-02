@@ -56,7 +56,7 @@ fn classify(path: &str, len: u64) -> Option<Preview> {
     image.then_some(Preview::Image(None))
 }
 
-fn image_format(path: &str) -> Option<ImageFormat> {
+pub(crate) fn image_format(path: &str) -> Option<ImageFormat> {
     let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
     Some(match ext.as_str() {
         "png" => ImageFormat::Png,

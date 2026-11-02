@@ -62,8 +62,19 @@ fn output_within(run: &Runner, cwd: &str, args: &[&str], timeout: Duration) -> s
 }
 
 fn git(run: &Runner, cwd: &str, args: &[&str]) -> Option<String> {
+    git_bytes(run, cwd, args).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+fn git_bytes(run: &Runner, cwd: &str, args: &[&str]) -> Option<Vec<u8>> {
     let out = output(run, cwd, args).ok()?;
-    out.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    out.success().then_some(out.stdout)
+}
+
+/// A file's bytes before and after a change; empty on a side where it doesn't exist.
+pub type Blobs = (Vec<u8>, Vec<u8>);
+
+fn lossy((old, new): Blobs) -> (String, String) {
+    (String::from_utf8_lossy(&old).into_owned(), String::from_utf8_lossy(&new).into_owned())
 }
 
 /// `git` for a command whose failure the user reads.
@@ -343,10 +354,10 @@ pub fn pr_context(run: &Runner, cwd: &str, base: &str) -> String {
 }
 
 /// `path` where the branch left `base`, and at HEAD: what a PR shows for it.
-pub fn texts_between(run: &Runner, cwd: &str, base: &str, path: &str) -> (String, String) {
-    let at = |rev: &str| git(run, cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
+pub fn blobs_between(run: &Runner, cwd: &str, base: &str, path: &str) -> Blobs {
+    let at = |rev: &str| git_bytes(run, cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
     let fork = git(run, cwd, &["merge-base", base, "HEAD"]).map(|s| s.trim().to_string()).unwrap_or_default();
-    (if fork.is_empty() { String::new() } else { at(&fork) }, at("HEAD"))
+    (if fork.is_empty() { Vec::new() } else { at(&fork) }, at("HEAD"))
 }
 
 pub fn user_initials(run: &Runner, cwd: &str) -> String {
@@ -375,10 +386,14 @@ impl Default for Options {
 
 /// The file at HEAD (empty when untracked) and in the working tree (empty when deleted); `path` is relative to `cwd` or absolute.
 pub fn texts(run: &Runner, cwd: &str, path: &str) -> (String, String) {
+    lossy(blobs(run, cwd, path))
+}
+
+pub fn blobs(run: &Runner, cwd: &str, path: &str) -> Blobs {
     let full = Path::new(cwd).join(path);
     let rel = full.strip_prefix(cwd).unwrap_or(&full).to_string_lossy().into_owned();
-    let old = git(run, cwd, &["show", &format!("HEAD:./{rel}")]).unwrap_or_default();
-    let new = run.read(&full.to_string_lossy(), MAX_READ).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+    let old = git_bytes(run, cwd, &["show", &format!("HEAD:./{rel}")]).unwrap_or_default();
+    let new = run.read(&full.to_string_lossy(), MAX_READ).unwrap_or_default();
     (old, new)
 }
 
@@ -681,19 +696,23 @@ pub fn commit_files(run: &Runner, cwd: &str, sha: &str, parent: Option<&str>) ->
 
 /// `file` before and after commit `sha`.
 pub fn commit_texts(run: &Runner, cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile) -> (String, String) {
-    let show = |rev: &str, path: &str| git(run, cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
+    lossy(commit_blobs(run, cwd, sha, parent, file))
+}
+
+fn commit_blobs(run: &Runner, cwd: &str, sha: &str, parent: Option<&str>, file: &CommitFile) -> Blobs {
+    let show = |rev: &str, path: &str| git_bytes(run, cwd, &["show", &format!("{rev}:{path}")]).unwrap_or_default();
     let old = match parent {
         Some(p) if file.status != 'A' => show(p, file.old_path.as_deref().unwrap_or(&file.path)),
-        _ => String::new(),
+        _ => Vec::new(),
     };
-    let new = if file.status == 'D' { String::new() } else { show(sha, &file.path) };
+    let new = if file.status == 'D' { Vec::new() } else { show(sha, &file.path) };
     (old, new)
 }
 
 /// The file at `path` before and after commit `sha`, following a rename back to the old name.
-pub fn texts_at(run: &Runner, cwd: &str, sha: &str, path: &str) -> (String, String) {
+pub fn blobs_at(run: &Runner, cwd: &str, sha: &str, path: &str) -> Blobs {
     let parent = first_parent(run, cwd, sha);
-    commit_files(run, cwd, sha, parent.as_deref()).into_iter().find(|f| f.path == path).map(|f| commit_texts(run, cwd, sha, parent.as_deref(), &f)).unwrap_or_default()
+    commit_files(run, cwd, sha, parent.as_deref()).into_iter().find(|f| f.path == path).map(|f| commit_blobs(run, cwd, sha, parent.as_deref(), &f)).unwrap_or_default()
 }
 
 pub fn short_sha(sha: &str) -> &str {
@@ -924,8 +943,8 @@ mod tests {
     fn a_pr_shows_a_file_from_where_the_branch_left_its_base_to_head() {
         let (dir, base) = branched("between");
         let r = dir.join("repo");
-        assert_eq!(texts_between(&Runner::Local, r.to_str().unwrap(), &base, "a"), ("a\n".into(), "capped\n".into()));
-        assert_eq!(texts_between(&Runner::Local, r.to_str().unwrap(), &base, "missing"), (String::new(), String::new()));
+        assert_eq!(blobs_between(&Runner::Local, r.to_str().unwrap(), &base, "a"), (b"a\n".to_vec(), b"capped\n".to_vec()));
+        assert_eq!(blobs_between(&Runner::Local, r.to_str().unwrap(), &base, "missing"), (Vec::new(), Vec::new()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1107,6 +1126,7 @@ mod tests {
         assert_eq!(texts(&Runner::Local, d, "b.rs"), (String::new(), "fresh\n".into()));
         std::fs::write(dir.join("src/a.rs"), b"\x89PNG\0\xff").unwrap();
         assert!(file_diff(&Runner::Local, d, "src/a.rs").is_empty());
+        assert_eq!(blobs(&Runner::Local, d, "src/a.rs"), (b"old\n".to_vec(), b"\x89PNG\0\xff".to_vec()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1354,8 +1374,8 @@ mod tests {
         assert_eq!(parent, Some(sha(r, "HEAD^")));
         let file = |path: &str, old: Option<&str>, status| CommitFile { path: path.into(), old_path: old.map(str::to_string), status };
         assert_eq!(commit_files(&Runner::Local, r, &head, parent.as_deref()), vec![file("b", Some("a"), 'R'), file("gone", None, 'D'), file("new", None, 'A')]);
-        assert_eq!(texts_at(&Runner::Local, r, &head, "b"), ("one\ntwo\nthree\nfour\nfive\n".into(), "one\ntwo\nthree\nfour\nfive\nsix\n".into()));
-        assert_eq!(texts_at(&Runner::Local, r, &head, "gone"), ("x\n".into(), String::new()));
+        assert_eq!(blobs_at(&Runner::Local, r, &head, "b"), (b"one\ntwo\nthree\nfour\nfive\n".to_vec(), b"one\ntwo\nthree\nfour\nfive\nsix\n".to_vec()));
+        assert_eq!(blobs_at(&Runner::Local, r, &head, "gone"), (b"x\n".to_vec(), Vec::new()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1367,7 +1387,7 @@ mod tests {
         let root = sha(r, "HEAD");
         assert_eq!(first_parent(&Runner::Local, r, &root), None);
         assert_eq!(commit_files(&Runner::Local, r, &root, None), vec![CommitFile { path: "a".into(), old_path: None, status: 'A' }]);
-        assert_eq!(texts_at(&Runner::Local, r, &root, "a"), (String::new(), "a\n".into()));
+        assert_eq!(blobs_at(&Runner::Local, r, &root, "a"), (Vec::new(), b"a\n".to_vec()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

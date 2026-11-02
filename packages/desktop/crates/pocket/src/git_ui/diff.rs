@@ -4,17 +4,18 @@ pub(crate) use row::{code, hunk};
 use git::github::Thread;
 use git::{self, Kind, Line};
 use theme::*;
-use ui::{self, Segment, Variant, checkbox, dot};
+use ui::{self, Segment};
 use crate::add_to_chat::{Body, Quote};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Side, doc_bar, empty};
-use crate::explorer::status_word;
+use crate::explorer::preview::image_format;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::util::{ago_long, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Range, RangeInclusive};
+use std::sync::Arc;
 use workspace::Doc;
 use workspace::tree::PaneId;
 
@@ -35,6 +36,8 @@ const MAX_COLORED: usize = 512 * 1024;
 const MAX_WORD_LINES: usize = 5;
 
 type Sides = (Vec<Spans>, Vec<Spans>);
+/// An image before and after; `None` on a side where it doesn't exist.
+type Images = (Option<Arc<Image>>, Option<Arc<Image>>);
 
 /// What a diff compares: the working tree with HEAD, a commit with its parent, or HEAD with where it left a base branch.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -54,6 +57,7 @@ pub struct DiffLoad {
     source: (String, String),
     colors: Option<(Sides, Vec<Spans>)>,
     dark: bool,
+    images: Option<Images>,
 }
 
 /// Reads and diffs `path` as `at` compares it, colouring it only when the lines differ from `shown`. Run off the UI thread.
@@ -61,17 +65,23 @@ pub fn read_diff(cwd: &str, path: String, at: At, open: HashSet<usize>, options:
     let dark = theme::is_dark();
     let runner = hosts::runner_for(cwd);
     let (old, new) = match &at {
-        At::Working => git::texts(&runner, cwd, &path),
-        At::Commit(sha) => git::texts_at(&runner, cwd, sha, &path),
-        At::Base(base) => git::texts_between(&runner, cwd, base, &path),
+        At::Working => git::blobs(&runner, cwd, &path),
+        At::Commit(sha) => git::blobs_at(&runner, cwd, sha, &path),
+        At::Base(base) => git::blobs_between(&runner, cwd, base, &path),
     };
+    if let Some(format) = image_format(&path) {
+        let image = |bytes: Vec<u8>| (!bytes.is_empty()).then(|| Arc::new(Image::from_bytes(format, bytes)));
+        let images = Some((image(old), image(new)));
+        return DiffLoad { path, at, open, options, lines: Vec::new(), source: Default::default(), colors: None, dark, images };
+    }
+    let (old, new) = (String::from_utf8_lossy(&old).into_owned(), String::from_utf8_lossy(&new).into_owned());
     let lines = git::diff_texts(&old, &new, &open, options);
     let colors = (lines != shown).then(|| {
         let syntax = syntax(&path, &old, &new);
         let hl = highlights(&lines, &syntax.0, &syntax.1);
         (syntax, hl)
     });
-    DiffLoad { path, at, open, options, lines, source: (old, new), colors, dark }
+    DiffLoad { path, at, open, options, lines, source: (old, new), colors, dark, images: None }
 }
 
 /// How the diff settings read the diff.
@@ -312,6 +322,7 @@ pub struct DiffView {
     pub(crate) syntax: (Vec<Spans>, Vec<Spans>),
     pub(crate) pick: Pick,
     pub(crate) pins: Vec<Pin>,
+    pub(crate) images: Option<Images>,
 }
 
 impl Default for DiffView {
@@ -328,6 +339,7 @@ impl Default for DiffView {
             syntax: Default::default(),
             pick: Pick::default(),
             pins: Vec::new(),
+            images: None,
         }
     }
 }
@@ -372,7 +384,6 @@ pub struct DiffState {
     pub(crate) options: git::Options,
     /// The pane whose pick the composer is about; `MAIN` is 0, so it's the default.
     pub(crate) drafting: PaneId,
-    pub(crate) viewed: HashSet<String>,
     /// The thread to scroll to once a pane lays it out.
     pub(crate) reveal: Option<String>,
 }
@@ -404,12 +415,16 @@ impl DiffState {
         }
         v.source = load.source;
         let recolored = load.colors.map(|(syntax, hl)| (v.syntax, v.hl) = (syntax, hl)).is_some();
+        let reimaged = v.images != load.images;
+        if reimaged {
+            v.images = load.images;
+        }
         let changed = v.set_lines(load.lines);
         if changed {
             v.layout(true, self.split);
         }
         self.reveal_thread();
-        changed | recolored
+        changed | recolored | reimaged
     }
 
     /// Pins `threads` to the PR diffs on show, keeping their scroll position, then scrolls to the thread asked for.
@@ -443,6 +458,7 @@ impl DiffState {
         v.pick.range = None;
         v.open.clear();
         v.pins.clear();
+        v.images = None;
         if v.set_lines(Vec::new()) {
             v.layout(true, self.split);
         }
@@ -493,19 +509,44 @@ impl DiffState {
     }
 }
 
+/// An image changed: each side that exists, labelled Before and After when both do.
+fn image_sides((old, new): Images) -> Div {
+    let both = old.is_some() && new.is_some();
+    let side = |label: &'static str, image: Arc<Image>| {
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .when(both, |d| d.child(div().text_size(px(11.5)).text_color(TEXT_3).child(label)))
+            .child(div().flex_1().min_h_0().flex().items_center().justify_center().child(img(image).max_w_full().max_h_full().object_fit(ObjectFit::Contain)))
+    };
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .gap(px(24.))
+        .p(px(24.))
+        .bg(SURFACE_SUNKEN)
+        .border_t(px(0.5))
+        .border_color(SEPARATOR)
+        .children(old.map(|i| side("Before", i)))
+        .children(new.map(|i| side("After", i)))
+}
+
 impl Desktop {
     pub fn diff_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
         let Some((path, at)) = self.diff.view(pane).and_then(|v| Some((v.file.clone()?, v.at.clone()))) else {
             return empty("No changes.");
         };
         let file = self.repo().and_then(|r| r.files.iter().find(|f| f.path == path)).cloned().filter(|_| at == At::Working);
-        let viewed = self.diff.viewed.contains(&path);
-        let toggle = path.clone();
+        let image = image_format(&path).is_some();
         let right = div()
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(div().id("diff-mode").child(ui::segmented(
+            .when(!image, |d| d.child(div().id("diff-mode").child(ui::segmented(
                 vec![Segment { icon: None, value: false, label: "Unified".into(), badge: None }, Segment { icon: None, value: true, label: "Split".into(), badge: None }],
                 self.diff.split,
                 true,
@@ -517,30 +558,11 @@ impl Desktop {
                     cx.notify();
                 },
                 cx,
-            )))
-            .when(at == At::Working, |d| {
-                d.child(ui::button("viewed", Variant::Glass, None, div().flex().items_center().gap(px(7.)).child(checkbox(viewed)).child("Viewed")).on_click(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        if !this.diff.viewed.remove(&toggle) {
-                            this.diff.viewed.insert(toggle.clone());
-                        }
-                        cx.notify();
-                    },
-                )))
-            })
+            ))))
             .child(ui::icon_group([
                 ui::group_button("diff-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx))),
             ]));
-        let status = match &at {
-            At::Working => Some(file.as_ref().map(|f| f.status)),
-            At::Commit(sha) => self.graph.file(sha, &path).map(|f| Some(f.status)),
-            At::Base(_) => None,
-        };
         let mut meta = Vec::new();
-        if let Some(status) = status {
-            let (color, state) = status_word(status);
-            meta.push(ui::meta_item().child(dot(7., color)).child(ui::meta_value(state)).into_any_element());
-        }
         if let At::Commit(sha) = &at {
             meta.push(ui::meta_item().child(ui::meta_value(git::short_sha(sha).to_string())).into_any_element());
             if let Some(c) = self.graph.commit(sha) {
@@ -577,7 +599,11 @@ impl Desktop {
     }
 
     pub fn diff_box(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
-        let Some(state) = self.diff.view(pane).map(|v| v.list.clone()) else { return div().flex_1() };
+        let Some(v) = self.diff.view(pane) else { return div().flex_1() };
+        if let Some(images) = v.images.clone() {
+            return image_sides(images);
+        }
+        let state = v.list.clone();
         let rows = list(state, cx.processor(move |this, ix, _, cx| this.diff_row(pane, ix, cx))).pb(px(8.));
         code_text(div(), self.store.appearance.code_size())
             .flex_1()
@@ -692,8 +718,9 @@ mod tests {
     use crate::add_to_chat::{Body, Quote};
     use crate::desktop::MAIN;
     use git::parse;
-    use gpui_kit::HighlightStyle;
+    use gpui_kit::{HighlightStyle, Image, ImageFormat};
     use std::collections::HashSet;
+    use std::sync::Arc;
     use theme::{DIFF_ADD_WORD, DIFF_DEL_WORD, SYN_FN, SYN_KEYWORD, SYN_STRING, Token};
     use workspace::tree::PaneId;
 
@@ -947,7 +974,7 @@ mod tests {
     }
 
     fn load(path: &str, text: &str) -> DiffLoad {
-        DiffLoad { path: path.into(), at: At::Working, open: HashSet::new(), options: git::Options::default(), lines: parse(text), source: Default::default(), colors: None, dark: false }
+        DiffLoad { path: path.into(), at: At::Working, open: HashSet::new(), options: git::Options::default(), lines: parse(text), source: Default::default(), colors: None, dark: false, images: None }
     }
 
     fn showing(panes: &[(PaneId, &str)]) -> DiffState {
@@ -988,6 +1015,18 @@ mod tests {
         assert_eq!(state.view(MAIN).unwrap().pick, Pick::default());
         assert!(!state.view(MAIN).unwrap().rows.contains(&Row::Composer));
         assert_eq!(state.drafting, OTHER);
+    }
+
+    #[test]
+    fn an_image_shows_until_another_file_is_picked() {
+        let mut state = showing(&[(MAIN, "a.rs")]);
+        state.select(MAIN, "logo.png".into(), At::Working);
+        let png = Some(Arc::new(Image::from_bytes(ImageFormat::Png, b"\x89PNG".to_vec())));
+        assert!(state.apply(MAIN, DiffLoad { images: Some((None, png.clone())), ..load("logo.png", "") }));
+        assert!(!state.apply(MAIN, DiffLoad { images: Some((None, png.clone())), ..load("logo.png", "") }), "the same image again changes nothing");
+        assert_eq!(state.view(MAIN).unwrap().images, Some((None, png)));
+        state.select(MAIN, "a.rs".into(), At::Working);
+        assert_eq!(state.view(MAIN).unwrap().images, None);
     }
 
     #[test]
