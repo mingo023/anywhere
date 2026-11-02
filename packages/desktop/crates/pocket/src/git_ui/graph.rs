@@ -218,10 +218,6 @@ impl GraphState {
         self.commits.iter().find(|c| c.sha == sha)
     }
 
-    pub fn file(&self, sha: &str, path: &str) -> Option<&CommitFile> {
-        self.files.get(sha)?.iter().find(|f| f.path == path)
-    }
-
     pub fn file_doc(&self, i: usize, j: usize) -> Option<Doc> {
         let sha = &self.commits.get(i)?.sha;
         Some(Doc::CommitFile { sha: sha.clone(), path: self.files.get(sha)?.get(j)?.path.clone() })

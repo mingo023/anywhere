@@ -46,15 +46,6 @@ pub fn folder_status(files: &[FileStat], root: &str, dir: &str) -> Option<char> 
     Some(if inside.all(|s| s == first) { first } else { 'M' })
 }
 
-pub fn status_word(status: Option<char>) -> (Token, &'static str) {
-    match status {
-        Some('A') => (SUCCESS, "Added"),
-        Some('D') => (FAILED, "Deleted"),
-        Some(_) => (WAITING, "Modified"),
-        None => (TEXT_5, "Unchanged"),
-    }
-}
-
 pub struct ExplorerState {
     pub(crate) tree: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
     pub(crate) menu: Option<menu::TreeMenu>,
