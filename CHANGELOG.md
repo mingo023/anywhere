@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.24
+
+- Chat scroll stops redrawing the whole window every frame (gpui-kit 0.8.1) (#162): (bf14bc58)
+- Branch search leads with the exact match, and picking a branch waits for Enter (#163): (409f08a6)
+- Mermaid diagrams draw emoji instead of placeholder boxes (#161): (ec04e86f)
+- The sidebar is darker than the chat beside it (#159): (175228be)
+
 ## 0.1.23
 
 - The hitch log tells slow drawing from display pacing, and who asked for each redraw (#160): (ecd356f7)
