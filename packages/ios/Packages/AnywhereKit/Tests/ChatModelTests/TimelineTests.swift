@@ -253,3 +253,10 @@ func aPermissionMapsToAnAskWithItsTool() throws {
     let p = try JSONDecoder().decode(PermissionRequest.self, from: data)
     #expect(ask(p) == Ask(requestId: "r1", tool: .shell(command: "rm x"), toolName: "Bash", questions: []))
 }
+
+@Test("a share_file call becomes a shared file")
+func aShareFileCallBecomesASharedFile() {
+    let detail = #"{"kind": "other", "name": "\#(SharedFile.tool)", "input": {"path": "out/chart.png", "caption": "Q3 revenue"}}"#
+    let t = fold(items("[\(toolJSON("sh", SharedFile.tool, detail, "ok"))]"))
+    #expect(onlyTool(t).kind == .shared(path: "out/chart.png", caption: "Q3 revenue"))
+}

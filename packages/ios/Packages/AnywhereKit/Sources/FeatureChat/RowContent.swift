@@ -28,6 +28,7 @@ enum RowContent: Hashable, Sendable {
     case tasks([Todo])
     case text(TextContent)
     case question(String)
+    case shared(SharedContent)
     case compacted(auto: Bool)
     case end(EndContent)
     case live(LiveContent)
@@ -39,6 +40,14 @@ struct PromptContent: Hashable, Sendable {
     var text: String
     var images: [String]
     var at: Int
+}
+
+struct SharedContent: Hashable, Sendable {
+    var name: String
+    var detail: String
+    var failed: Bool
+    /// The kept copy a tap opens; nil while it's on its way, if it failed, or for a file the preview can't show.
+    var opens: String?
 }
 
 struct PhaseContent: Hashable, Sendable {
@@ -203,6 +212,10 @@ struct RowBuilder {
         case .question(let turn, let block):
             guard let call = t.turns[turn].blocks[block].call else { return .hidden }
             return .question(questionValue(call))
+        case .shared(let turn, let block):
+            guard let call = t.turns[turn].blocks[block].call, case .shared(let path, _) = call.kind else { return .hidden }
+            let opens = SharedFile.kept(call).flatMap { SharedFile.previews(path) ? $0 : nil }
+            return .shared(SharedContent(name: SharedFile.name(path), detail: SharedFile.detail(call), failed: call.status == .failed, opens: opens))
         case .compacted(let turn, let block):
             guard case .compacted(_, let auto) = t.turns[turn].blocks[block] else { return .hidden }
             return .compacted(auto: auto)

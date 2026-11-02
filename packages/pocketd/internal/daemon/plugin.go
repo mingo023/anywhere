@@ -41,6 +41,10 @@ func (d *Daemon) WritePlugin() error {
 	files := map[string]any{
 		".claude-plugin/plugin.json": map[string]string{"name": "anywhere", "version": "1.0.0", "description": "Shows Claude sessions in Anywhere."},
 		"hooks/hooks.json":           map[string]any{"hooks": hooks},
+		// share_file, which shows the user a file in the chat.
+		".mcp.json": map[string]any{"mcpServers": map[string]any{
+			"anywhere": map[string]any{"command": d.Exe, "args": []string{"mcp", filepath.Join(d.Home, "attachments")}},
+		}},
 	}
 	for name, v := range files {
 		path := filepath.Join(dir, name)

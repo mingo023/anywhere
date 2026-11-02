@@ -55,6 +55,12 @@ func aQuestionEndsThePhaseAndStandsAlone() {
     #expect(Array(rows(t, pending: 0, sending: false)[2..<5]) == [.phase(turn: 0, blocks: 0..<1), .question(turn: 0, block: 1), .phase(turn: 0, blocks: 2..<3)])
 }
 
+@Test("a shared file ends the phase and stands alone")
+func aSharedFileEndsThePhaseAndStandsAlone() {
+    let t = one([shell(), call(.shared(path: "chart.png", caption: ""), .ok), shell()])
+    #expect(Array(rows(t, pending: 0, sending: false)[2..<5]) == [.phase(turn: 0, blocks: 0..<1), .shared(turn: 0, block: 1), .phase(turn: 0, blocks: 2..<3)])
+}
+
 @Test("a turn the agent begins itself heads its own reply")
 func aTurnTheAgentBeginsItselfHeadsItsOwnReply() {
     let t = Transcript(turns: [

@@ -11,9 +11,10 @@ import (
 
 	"pocketd/internal/config"
 	"pocketd/internal/lock"
+	"pocketd/internal/share"
 )
 
-const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | pipe <cmd> [args...] | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535> | config set phone.terminals <on|off> | config set push.relay <url> | push status [--json]"
+const usage = "usage: pocketd serve [--home dir] | run <cmd> [args...] | attach <id> | hook | mcp <dir> | pipe <cmd> [args...] | pair [--host h:p | --json [--name n]] | owner list|revoke <id> | devices [--json | rename <id> <name> | revoke <id>] | status [--json] | upgrade | stats [--since 7d] [--json] | daemon install | daemon uninstall [--force] | service install|uninstall|status [--json] [--label <name>] | --version | version --json | worktree list|create|remove | config set phone.maxAccess <ask|edits|auto> | config set restore.resumeAgents <true|false> | config set listen <auto|loopback> | config set port <1024-65535> | config set phone.terminals <on|off> | config set push.relay <url> | push status [--json]"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -56,6 +57,8 @@ func main() {
 		err = configSet(sock, os.Args[3], os.Args[4], os.Stdout)
 	case os.Args[1] == "hook":
 		err = hook(sock)
+	case os.Args[1] == "mcp" && len(os.Args) == 3:
+		err = share.Serve(os.Stdin, os.Stdout, os.Args[2])
 	case os.Args[1] == "attach" && len(os.Args) == 3:
 		code, err = run(sock, os.Args[2], "", nil)
 	case os.Args[1] == "pair" && slices.Contains(os.Args[2:], "--json"):

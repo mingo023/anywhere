@@ -23,14 +23,17 @@ public struct ChatView: View {
     public var body: some View {
         if let store {
             let mac = host.hello?.serverId ?? host.id
-            ChatScreen(store: store, machine: host.name) { link in
+            ChatScreen(store: store, machine: host.name, openFile: { link in
                 switch link {
                 case .web: break
                 case .file(let path, _):
                     guard let cwd = store.summary?.cwd else { return }
                     open(.file(mac: mac, tree: cwd, path: path))
                 }
-            }
+            }, openShared: { kept in
+                let place = SharedFile.place(kept)
+                open(.file(mac: mac, tree: place.tree, path: place.path))
+            })
             .toolbar {
                 if let cwd = store.summary?.cwd {
                     ToolbarItemGroup(placement: .primaryAction) {
@@ -52,6 +55,8 @@ struct ChatScreen: View {
     let machine: String
     /// A file link; web links open in the browser.
     let openFile: (MarkdownLink) -> Void
+    /// The kept copy of a file the agent shared.
+    var openShared: (String) -> Void = { _ in }
     /// Off for gallery scenes, which have no Mac to tell.
     var live = true
     @State private var mapOpen = false
@@ -61,7 +66,7 @@ struct ChatScreen: View {
     var body: some View {
         let _ = BodyCount.hit("ChatScreen")
         VStack(spacing: 0) {
-            TranscriptView(store: store, showing: $showing, openLink: openLink)
+            TranscriptView(store: store, showing: $showing, openLink: openLink, openShared: openShared)
             ComposerView(store: store, machine: machine, show: { showing = $0 }, mapOpen: $mapOpen, openLink: openLink)
         }
         .screenBackground()

@@ -13,6 +13,8 @@ struct RowActions {
     /// Scrolls to the phase holding a call, opens it and flashes it.
     var showCall: (_ id: String) -> Void = { _ in }
     var openLink: (MarkdownLink) -> Void = { _ in }
+    /// Opens the kept copy of a file the agent shared.
+    var openShared: (_ kept: String) -> Void = { _ in }
     /// Where a streaming message's reveal is, read by the text it lets out alone.
     var reveal: (_ message: String) -> Reveal? = { _ in nil }
 }
@@ -58,6 +60,7 @@ struct RowView: View, Equatable {
         case .tasks(let todos): TasksCard(todos: todos)
         case .text(let t): TextRow(text: t, reveal: actions.reveal, onLink: actions.openLink)
         case .question(let value): QuestionMarker(value: value)
+        case .shared(let s): SharedCard(shared: s) { if let kept = s.opens { actions.openShared(kept) } }
         case .compacted(let auto): CompactedRow(auto: auto)
         case .end(let end): EndRow(end: end, actions: actions)
         case .live(let live): LiveRow(live: live, provider: provider)

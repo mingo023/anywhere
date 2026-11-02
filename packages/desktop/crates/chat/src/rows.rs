@@ -19,6 +19,8 @@ pub enum Row {
     Text { turn: usize, block: usize, range: Range<usize> },
     /// An AskUserQuestion call: a marker that ends the phase before it.
     Question { turn: usize, block: usize },
+    /// A file the agent shared: a card that, like a question, ends the phase before it.
+    Shared { turn: usize, block: usize },
     Compacted { turn: usize, block: usize },
     End { turn: usize },
     /// What the agent is doing, under the reply it's at work on (`turn` holds its fold). Rebuilt with the trailer.
@@ -39,7 +41,7 @@ impl Row {
             Row::Fold { turn: ix } => format!("{}#fold", turn(*ix)),
             Row::Phase { turn: ix, blocks } => format!("{}#p{}", turn(*ix), blocks.start),
             Row::Text { turn: ix, block, range } => format!("{}#{block}.{}", turn(*ix), range.start),
-            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } => {
+            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Shared { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } => {
                 format!("{}#{block}", turn(*ix))
             }
             Row::End { turn: ix } => format!("{}#end", turn(*ix)),
@@ -59,6 +61,7 @@ impl Row {
             | Row::Tasks { turn, .. }
             | Row::Text { turn, .. }
             | Row::Question { turn, .. }
+            | Row::Shared { turn, .. }
             | Row::Compacted { turn, .. }
             | Row::End { turn } => Some(*turn),
             Row::Live { .. } | Row::Working | Row::Pending(_) => None,
@@ -128,6 +131,7 @@ fn plain(rows: &mut Vec<Row>, turn: usize, b: usize, block: &Block) {
     match block {
         Block::Text(m) | Block::Plan(m) => rows.extend(markdown_blocks(&m.text).into_iter().map(|range| Row::Text { turn, block: b, range })),
         Block::Tool(c) if matches!(c.kind, ToolKind::Question(_)) => rows.push(Row::Question { turn, block: b }),
+        Block::Tool(c) if matches!(c.kind, ToolKind::Shared { .. }) => rows.push(Row::Shared { turn, block: b }),
         Block::Compacted { .. } => rows.push(Row::Compacted { turn, block: b }),
         Block::Notice { .. } => rows.push(Row::Note { turn, block: b }),
         _ => {}
@@ -140,11 +144,11 @@ fn flush(rows: &mut Vec<Row>, turn: usize, phase: &mut Option<usize>, end: usize
     }
 }
 
-/// A step of a phase: thinking, a tool call or a sub-agent, but not a question, which stands apart.
+/// A step of a phase: thinking, a tool call or a sub-agent, but not a question or a shared file, which stand apart.
 pub fn is_work(b: &Block) -> bool {
     match b {
         Block::Thinking(_) => true,
-        Block::Tool(c) => !matches!(c.kind, ToolKind::Question(_)),
+        Block::Tool(c) => !matches!(c.kind, ToolKind::Question(_) | ToolKind::Shared { .. }),
         _ => false,
     }
 }
@@ -318,7 +322,7 @@ pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
         (_, Row::Phase { .. } | Row::Working) => 0.,
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
-        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. }) => 8.,
+        (_, Row::Question { .. } | Row::Shared { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. }) => 8.,
         _ => 6.,
     }
 }
@@ -550,6 +554,13 @@ mod tests {
         let q = call(ToolKind::Question(vec![]), ToolStatus::Ok);
         let t = one(vec![shell(), q, shell()]);
         assert_eq!(rows(&t, 0, false)[2..5], [Row::Phase { turn: 0, blocks: 0..1 }, Row::Question { turn: 0, block: 1 }, Row::Phase { turn: 0, blocks: 2..3 }]);
+    }
+
+    #[test]
+    fn a_shared_file_ends_the_phase_and_stands_alone() {
+        let shared = call(ToolKind::Shared { path: "chart.png".into(), caption: String::new() }, ToolStatus::Ok);
+        let t = one(vec![shell(), shared, shell()]);
+        assert_eq!(rows(&t, 0, false)[2..5], [Row::Phase { turn: 0, blocks: 0..1 }, Row::Shared { turn: 0, block: 1 }, Row::Phase { turn: 0, blocks: 2..3 }]);
     }
 
     fn todos(text: &str) -> Block {

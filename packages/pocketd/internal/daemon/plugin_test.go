@@ -135,3 +135,21 @@ func TestATerminalOpenedInALocalNamesItInItsEnvAndInfo(t *testing.T) {
 		t.Fatalf("locals %q %q", in.Info().Local, out.Info().Local)
 	}
 }
+
+func TestWritePluginServesShareFile(t *testing.T) {
+	d := newDaemon(t)
+	if err := d.WritePlugin(); err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		McpServers map[string]struct {
+			Command string
+			Args    []string
+		} `json:"mcpServers"`
+	}
+	readJSON(t, filepath.Join(d.Plugin, ".mcp.json"), &file)
+	s, ok := file.McpServers["anywhere"]
+	if len(file.McpServers) != 1 || !ok || s.Command != d.Exe || !slices.Equal(s.Args, []string{"mcp", filepath.Join(d.Home, "attachments")}) {
+		t.Fatalf("mcpServers = %+v", file.McpServers)
+	}
+}

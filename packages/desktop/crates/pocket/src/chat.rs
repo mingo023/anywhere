@@ -16,6 +16,7 @@ mod question;
 mod question_marker;
 mod reveal;
 mod selectable;
+mod shared_card;
 mod shimmer;
 mod sticky;
 mod sub_agent;

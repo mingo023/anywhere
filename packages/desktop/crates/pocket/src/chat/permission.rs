@@ -20,6 +20,7 @@ pub(super) fn subject<'a>(tool: &'a ToolKind, tool_name: &'a str) -> (&'static s
         ToolKind::Search { query } => ("search", "Search", query),
         ToolKind::Fetch { url } => ("globe", "Fetch", url),
         ToolKind::Agent(a) => ("bot", "Start agent", &a.description),
+        ToolKind::Shared { path, .. } => ("file", "Share", path),
         ToolKind::Question(_) | ToolKind::Other { .. } => ("blocks", "Use", tool_name),
     }
 }
