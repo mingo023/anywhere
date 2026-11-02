@@ -209,7 +209,7 @@ impl Desktop {
                         this.project_settings(&crate::actions::ProjectSettings, window, cx);
                     }))
                 } else {
-                    ui::menu_row("aside-menu-keep", "check", "Keep in Pocket", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    ui::menu_row("aside-menu-keep", "check", "Keep in Anywhere", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.row_menu = None;
                         this.keep_project(&target, cx);
                     }))
@@ -237,7 +237,7 @@ impl Desktop {
                 }
                 rows.extend([
                     ui::menu_divider().into_any_element(),
-                    ui::danger_row("aside-menu-remove", "x", if kept { "Remove from Pocket" } else { "Remove" })
+                    ui::danger_row("aside-menu-remove", "x", if kept { "Remove from Anywhere" } else { "Remove" })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.row_menu = None;
                             this.ask_remove_project(p.clone(), cx);
