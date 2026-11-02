@@ -29,7 +29,7 @@ block2 = "0.6"
 cc = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 futures = "0.3"
-gpui-kit = { version = "0.8.1", features = [
+gpui-kit = { version = "0.9.0", features = [
     "tree-sitter-bash",
     "tree-sitter-css",
     "tree-sitter-go",
@@ -68,7 +68,7 @@ tungstenite = "0.26"
 uds_windows = "1.2"
 wry = { version = "0.57", default-features = false, features = ["devtools"] }
 
-# gpui-pre 0.3.10 with `List` keeping item heights as hints on a width change instead of re-measuring every item; drop once upstream does.
+# gpui-pre 0.3.11 with `List` keeping item heights as hints on a width change instead of re-measuring every item; drop once upstream does.
 # It also gives `img` its picture's ratio only when a side is auto, so a portrait picture stays inside a sized box; drop once upstream does.
 # It also adds `Window::set_zoom`, drawing the whole window larger as a browser zooms; upstream has no equivalent.
 # It also adds `ListState::height_from`, so the chat can size the room under a sent prompt; upstream has no equivalent.
@@ -82,10 +82,10 @@ wry = { version = "0.57", default-features = false, features = ["devtools"] }
 # It also adds `KeyBinding::load_for_os`, so a keymap built from strings needn't have an `App`; upstream has no equivalent.
 [patch.crates-io]
 gpui-pre = { path = "vendor/gpui-pre" }
-# gpui-pre-macos 0.3.10 giving prompts the app icon explicitly, since macOS 26 sheet alerts drop the default one; drop once upstream does.
+# gpui-pre-macos 0.3.11 giving prompts the app icon explicitly, since macOS 26 sheet alerts drop the default one; drop once upstream does.
 # It also asks for the Badge permission, without which macOS hides the Dock badge; upstream has no equivalent.
 gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
-# gpui-base 0.8.1 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass; drop once upstream does.
+# gpui-base 0.9.0 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass; drop once upstream does.
 # It also renders markdown like pluk-inc/markdown-preview: its block spacing, code blocks, lists, tables, GitHub alerts and footnotes; upstream has no equivalent.
 # It also keeps the scrollbar of a table too wide to fit showing, so it reads as scrollable; upstream has no equivalent.
 # It also types the paths of files dropped on an editable input, with `on_drop_paths` to take some first and `drop_paths` for a box around it; upstream has no equivalent.
