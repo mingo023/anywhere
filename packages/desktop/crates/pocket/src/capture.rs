@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 224] = [
+const STEPS: [(&str, Step); 225] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -372,7 +372,8 @@ const STEPS: [(&str, Step); 224] = [
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
-    ("tab-menu", |d, _, _| d.panels.menu = Some(d.focused_pane())),
+    ("tab-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Pane(Some(d.focused_pane())))),
+    ("top-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Top)),
     ("term-menu", |d, _, _| d.terminal.menu = d.terminal.focused.clone().map(|p| (p, point(px(520.), px(300.))))),
     ("browser", |d, window, cx| d.open_browser(None, window, cx)),
     ("file", |d, _, cx| {

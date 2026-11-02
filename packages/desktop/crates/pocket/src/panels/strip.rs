@@ -10,7 +10,7 @@ use std::time::Instant;
 use theme::*;
 use ui::{self, dot};
 use workspace::tree::{Pane, PaneId, Target};
-use workspace::{Doc, Tab};
+use workspace::{Doc, Place, Tab};
 
 pub(super) const GAP: f32 = 2.;
 /// How quickly a sliding tab closes on where it's going: about 90% of the way in 80ms.
@@ -212,11 +212,11 @@ impl Desktop {
         }
     }
 
-    pub(super) fn new_tab_controls(&self, pane: PaneId, cx: &mut Context<Self>) -> Div {
-        let open = self.panels.menu == Some(pane);
+    /// A + whose menu opens a new tab at `place`.
+    pub(super) fn new_tab_controls(&self, place: Place, ink: Token, cx: &mut Context<Self>) -> Div {
+        let open = self.panels.menu == Some(place);
         let plus = ui::control(div().id("new-tab"))
             .size(px(28.))
-            .ml(px(2.))
             .flex()
             .flex_none()
             .items_center()
@@ -225,16 +225,16 @@ impl Desktop {
             .cursor_pointer()
             .when(open, |d| d.bg(FILL_3))
             .hover(|s| s.bg(FILL_3))
-            .child(icon("plus", 15., TEXT_2))
+            .child(icon("plus", 15., ink))
             // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
             .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                this.panels.menu = if open { None } else { Some(pane) };
+                this.panels.menu = if open { None } else { Some(place) };
                 this.panels.actions = None;
                 this.row_menu = None;
                 cx.notify();
             }));
-        let menu = open.then(|| ui::dropdown(29., ui::menu_in("tab-menu-in", self.tab_menu_view(pane, cx))));
+        let menu = open.then(|| ui::dropdown(29., ui::menu_in("tab-menu-in", self.tab_menu_view(place, cx))));
         div().relative().flex().flex_none().items_center().child(plus).children(menu)
     }
 

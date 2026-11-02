@@ -26,7 +26,7 @@ pub(crate) fn copy(t: &Tree<Tab>) -> (Option<&Tab>, Option<&Tab>) {
 }
 
 impl Desktop {
-    /// The bar over worktree `tree`'s panes: its top tabs and a + for a new agent in a new one. It moves the window.
+    /// The bar over worktree `tree`'s panes: its top tabs and a + whose menu opens a new one. It moves the window.
     pub(super) fn top_bar(&mut self, tree: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let (pad, toggle) = self.bar_start(6., cx);
         let at = self.workspaces[tree].at;
@@ -61,20 +61,7 @@ impl Desktop {
                 div().w(px(224.)).min_w(px(112.)).flex_shrink(1.).child(if held == Some(i) { deferred(tab).into_any_element() } else { tab.into_any_element() })
             })
             .collect();
-        let plus = ui::control(div().id("new-top"))
-            .size(px(28.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(7.))
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_3))
-            .child(icon("plus", 15., TEXT_3))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                let provider = this.store.agents.default_agent().to_string();
-                this.new_agent_tab(&provider, workspace::Place::Top, cx);
-            }));
+        let plus = self.new_tab_controls(workspace::Place::Top, TEXT_3, cx);
         let strip = div()
             .id("top-strip")
             .track_scroll(&self.panels.top_scroll)

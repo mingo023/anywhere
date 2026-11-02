@@ -32,8 +32,8 @@ pub(crate) struct Strip {
 #[derive(Default)]
 pub(crate) struct Panels {
     strips: HashMap<PaneId, Strip>,
-    /// The pane whose + menu is open.
-    pub(crate) menu: Option<PaneId>,
+    /// Where the open + menu's new tabs go: its pane, or a new top tab.
+    pub(crate) menu: Option<Place>,
     /// The tab whose right-click menu is open, its pane, and where the click was.
     pub(crate) actions: Option<(PaneId, Tab, Point<Pixels>)>,
     /// The tab held on a strip, and the strip's pane.
@@ -118,7 +118,7 @@ impl Desktop {
         let drawn: Vec<PaneId> = w.tree.drawn().iter().map(|p| p.id).collect();
         self.terminal.focused = focused;
         self.panels.strips.retain(|p, _| live.contains(p));
-        if self.panels.menu.is_some_and(|p| !live.contains(&p)) {
+        if matches!(self.panels.menu, Some(Place::Pane(Some(p))) if !live.contains(&p)) {
             self.panels.menu = None;
         }
         // Only the held tab's strip ends a hold, so one whose strip isn't drawn would never end.
@@ -275,7 +275,7 @@ impl Desktop {
             .when(split, |d| d.child(self.pane_handle(grip, p, cx)))
             .child(self.strip_tabs(tree, pane, window, cx))
             .child(filler)
-            .child(self.new_tab_controls(p, cx))
+            .child(self.new_tab_controls(Place::Pane(Some(p)), TEXT_2, cx).ml(px(2.)))
     }
 
     /// A lone terminal's head in a split: a grip, a dot while focused, its title and ×.
