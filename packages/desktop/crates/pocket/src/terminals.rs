@@ -241,9 +241,21 @@ impl Desktop {
                     None => self.restore_layouts(),
                     Some(h) => self.restore_host_layouts(h),
                 }
-                for (id, c) in self.terminals.arrived() {
-                    let local = self.terminals.sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
-                    self.adopt(id, local.unwrap_or(c.tree), c.place, window, cx);
+                let arrived: Vec<_> = self
+                    .terminals
+                    .arrived()
+                    .into_iter()
+                    .map(|(id, c)| {
+                        let local = self.terminals.sessions.get(&id).map(|s| s.info.local.clone()).filter(|l| !l.is_empty());
+                        (id, local.unwrap_or(c.tree), c.place)
+                    })
+                    .collect();
+                // Already listed, so adopting syncs them into the top-left pane unless each has its tab first.
+                for (id, tree, place) in &arrived {
+                    self.workspaces.entry(tree.clone()).or_default().open_term(id.clone(), *place);
+                }
+                for (id, tree, place) in arrived {
+                    self.adopt(id, tree, place, window, cx);
                 }
                 if self.project.is_none() {
                     self.project = self.projects().into_iter().next();

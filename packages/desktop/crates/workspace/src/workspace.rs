@@ -21,7 +21,7 @@ pub enum Tab {
     Web(u64),
 }
 
-/// Where a new terminal opens: in a pane, the terminal pane nearest the focus when none is given or it is gone, in a new pane at an edge of one, or in a new top tab.
+/// Where a new tab opens: in a pane, a fallback pane its kind picks when none is given or it is gone, in a new pane at an edge of one, or in a new top tab.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Place {
     Pane(Option<PaneId>),
@@ -94,12 +94,16 @@ impl Workspace {
         if let Some((pane, i)) = self.show_term(&id) {
             return self.tree.select(pane, i);
         }
-        let tab = Tab::Term(id);
+        self.show_at(Tab::Term(id), place, self.term_pane());
+    }
+
+    /// Shows `tab` at `place`, in pane `fallback` when `place` names no pane that's still there.
+    fn show_at(&mut self, tab: Tab, place: Place, fallback: PaneId) {
         match place {
             Place::Top => self.open_top(tab),
             Place::Split(pane, edge) if self.tree.pane(pane).is_some() => _ = self.tree.split(pane, edge, tab),
             Place::Pane(Some(pane)) if self.tree.pane(pane).is_some() => self.show(pane, tab),
-            _ => self.show(self.term_pane(), tab),
+            _ => self.show(fallback, tab),
         }
     }
 
@@ -160,9 +164,9 @@ impl Workspace {
         }
     }
 
-    /// Gives page `id` a tab in the focused pane and shows it.
-    pub fn open_web(&mut self, id: u64) {
-        self.show(self.tree.focused, Tab::Web(id));
+    /// Opens web tab `id` at `place`, in the focused pane when it names none.
+    pub fn open_web(&mut self, id: u64, place: Place) {
+        self.show_at(Tab::Web(id), place, self.tree.focused);
     }
 
     pub fn doc_tab(&self, doc: &Doc) -> Option<(PaneId, usize)> {
@@ -598,8 +602,24 @@ mod tests {
     fn a_web_tab_opens_shown_in_the_focused_pane() {
         let mut w = with(&["a"]);
         let (d, _) = w.open_doc(file("x"), true, None);
-        w.open_web(7);
+        w.open_web(7, Place::Pane(None));
         assert_eq!((w.tree.focused, shown(&w)), (d, Some(&Tab::Web(7))));
+    }
+
+    #[test]
+    fn a_web_tab_asked_for_in_a_pane_opens_there_not_in_the_focused_one() {
+        let mut w = with(&["a"]);
+        w.open_doc(file("x"), true, None);
+        w.open_web(7, Place::Pane(Some(0)));
+        assert_eq!(tabs(&w), vec![vec![term("a"), Tab::Web(7)], vec![Tab::Doc(file("x"))]]);
+    }
+
+    #[test]
+    fn a_web_tab_opened_from_the_top_bar_gets_its_own_top_tab() {
+        let mut w = with(&["a"]);
+        w.open_web(7, Place::Top);
+        assert_eq!(bar(&w), vec![vec![vec![term("a")]], vec![vec![Tab::Web(7)]]]);
+        assert_eq!((w.at, shown(&w)), (1, Some(&Tab::Web(7))));
     }
 
     #[test]

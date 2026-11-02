@@ -3,7 +3,6 @@ use agents::Summary;
 use gpui_kit::*;
 use theme::*;
 use workspace::Place;
-use workspace::tree::PaneId;
 
 /// The last model seen for `provider`, as a short label.
 pub fn model_hint(list: &[Summary], provider: &str) -> Option<String> {
@@ -16,7 +15,7 @@ impl Desktop {
         model_hint(&self.agents.list, provider)
     }
 
-    pub(crate) fn tab_menu_view(&self, pane: PaneId, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(crate) fn tab_menu_view(&self, place: Place, cx: &mut Context<Self>) -> Stateful<Div> {
         let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
         let item = |id: ElementId, lead: AnyElement, label: String, hint: Option<String>, keys: Option<&str>| {
             div()
@@ -39,7 +38,7 @@ impl Desktop {
             item(format!("tab-menu-{provider}").into(), provider_icon(provider, 14., TEXT).into_any_element(), self.agent_name(provider), self.model_hint(provider), None)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.panels.menu = None;
-                    this.new_agent_tab(provider, Place::Pane(Some(pane)), cx);
+                    this.new_agent_tab(provider, place, cx);
                 }))
         };
         ui::pop(div().id("tab-menu"))
@@ -64,18 +63,21 @@ impl Desktop {
                 item("tab-menu-shell".into(), icon("prompt", 14., TEXT_2).into_any_element(), "New shell".into(), None, Some("⌘T"))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.panels.menu = None;
-                        this.new_shell(Place::Pane(Some(pane)), cx);
+                        this.new_shell(place, cx);
                     })),
             )
             .child(
                 item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B"))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx))),
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.close_menus();
+                        this.open_browser_at(place, None, window, cx);
+                    })),
             )
             .child(
                 item("tab-menu-chat".into(), icon("comment", 14., TEXT_2).into_any_element(), "New chat".into(), None, None)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.panels.menu = None;
-                        this.new_chat_tab(Place::Pane(Some(pane)), cx);
+                        this.new_chat_tab(place, cx);
                     })),
             )
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))

@@ -10,7 +10,7 @@ use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use workspace::Tab;
+use workspace::{Place, Tab};
 use workspace::tree::PaneId;
 
 pub(crate) const CONTEXT: &str = "Browser";
@@ -182,11 +182,16 @@ impl Desktop {
 
     /// Opens a browser tab in the worktree on screen, at `url` or with the address bar focused.
     pub(crate) fn open_browser(&mut self, url: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_browser_at(Place::Pane(None), url, window, cx);
+    }
+
+    /// `open_browser`, its tab at `place`.
+    pub(crate) fn open_browser_at(&mut self, place: Place, url: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tree) = self.place() else { return };
         let dev_url = self.project.as_ref().and_then(|p| self.store.repos.get(p)).map(|r| r.dev_url.as_str()).unwrap_or_default();
         let url = url.or_else(|| self.store.browser.home_page(dev_url).map(|u| web::resolve(&u, self.store.browser.search_url())));
         let id = self.browsers.open();
-        self.workspace(&tree).open_web(id);
+        self.workspace(&tree).open_web(id, place);
         (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         match url {
             Some(url) => self.browse(id, url, window, cx),
