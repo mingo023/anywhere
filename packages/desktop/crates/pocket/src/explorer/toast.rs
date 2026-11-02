@@ -28,7 +28,7 @@ pub struct Trashed {
 
 /// Whether a key press is ⌘Z meant for the tree; a focused text field, terminal or page, by the key contexts it sets, takes it as its own.
 pub fn is_undo(key: &Keystroke, contexts: impl FnOnce() -> Vec<KeyContext>) -> bool {
-    key.key == "z" && key.modifiers == Modifiers::secondary_key() && !contexts().iter().any(|c| c.contains("Input") || c.contains(keys::CONTEXT) || c.contains(crate::browser::CONTEXT))
+    key.key == "z" && Keystroke::parse_with_os("secondary-z", keys::OS).is_ok_and(|z| z.modifiers == key.modifiers) && !contexts().iter().any(|c| c.contains("Input") || c.contains(keys::CONTEXT) || c.contains(crate::browser::CONTEXT))
 }
 
 /// `path` cut to its last 33 characters behind "…" when longer than 34, so the toast keeps its file name.
@@ -198,11 +198,11 @@ mod tests {
     #[test]
     fn only_a_bare_cmd_z_outside_a_text_field_terminal_or_page_undoes_a_trash() {
         let at = |names: &[&str]| names.iter().map(|n| KeyContext::parse(n).unwrap()).collect::<Vec<_>>();
-        let cmd_z = Keystroke::parse("secondary-z").unwrap();
+        let cmd_z = Keystroke::parse_with_os("secondary-z", keys::OS).unwrap();
         assert!(is_undo(&cmd_z, || at(&["Desktop"])));
         assert!(!is_undo(&cmd_z, || at(&["Desktop", "Input"])));
         assert!(!is_undo(&cmd_z, || at(&["Desktop", crate::browser::CONTEXT])));
-        assert!(!is_undo(&Keystroke::parse("secondary-shift-z").unwrap(), || at(&["Desktop"])));
+        assert!(!is_undo(&Keystroke::parse_with_os("secondary-shift-z", keys::OS).unwrap(), || at(&["Desktop"])));
     }
 
     #[test]

@@ -169,15 +169,31 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// [`InputBaseState::previous_search_match`], read the count and the
     /// current index from [`InputBaseState::search_session`], and end the
     /// search with [`InputBaseState::close_search`].
+    ///
+    /// A changed query or case mode starts at the current viewport. Setting
+    /// the same query and case mode again retains the current occurrence.
     pub fn set_search_query(
         &mut self,
         query: impl Into<String>,
         case_insensitive: bool,
         cx: &mut Context<Self>,
     ) {
+        let query = query.into();
+        let query_changed = query != self.search_session.query
+            || case_insensitive != self.search_session.case_insensitive;
+        self.search_session.anchor_offset = if query_changed {
+            self.last_layout
+                .as_ref()
+                .map(|layout| layout.visible_range_offset.start)
+        } else {
+            None
+        };
         self.search_session.activate();
         self.search_session.update_query(query, case_insensitive);
         self.search_session.matcher.update(&self.text);
+        if query_changed && let Some(anchor) = self.search_session.anchor_offset {
+            self.search_session.matcher.update_cursor_by_offset(anchor);
+        }
         cx.notify();
     }
 
@@ -189,6 +205,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     }
 
     pub fn next_search_match(&mut self, cx: &mut Context<Self>) -> Option<Range<usize>> {
+        self.sync_search_matcher();
         let range = self.search_session.matcher.next()?;
         // Match order does not describe viewport direction after a manual
         // scroll. Always allow search navigation to reveal the active match.
@@ -197,6 +214,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     }
 
     pub fn previous_search_match(&mut self, cx: &mut Context<Self>) -> Option<Range<usize>> {
+        self.sync_search_matcher();
         let range = self.search_session.matcher.next_back()?;
         // Match order does not describe viewport direction after a manual
         // scroll. Always allow search navigation to reveal the active match.
@@ -215,6 +233,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         if !self.is_replaceable() {
             return false;
         }
+        self.sync_search_matcher();
         let matcher = &mut self.search_session.matcher;
         let Some(range) = matcher
             .matched_ranges()
@@ -247,6 +266,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         if !self.is_replaceable() {
             return 0;
         }
+        self.sync_search_matcher();
         let ranges = self.search_session.matcher.matched_ranges();
         if ranges.is_empty() {
             return 0;
@@ -262,7 +282,18 @@ impl<M: InputModeKind> InputBaseState<M> {
         count
     }
 
+    /// Keep the matches in step with an edit. A closed search skips the scan:
+    /// it copies and searches the whole document, and nothing reads the
+    /// matches until the search is resumed or navigated, which sync first.
     pub(super) fn update_search(&mut self, _cx: &mut gpui::App) {
+        if !self.search_session.is_active() {
+            return;
+        }
+        self.sync_search_matcher();
+    }
+
+    /// Recompute the matches if the text changed since the last scan.
+    fn sync_search_matcher(&mut self) {
         self.search_session.matcher.update(&self.text);
     }
 

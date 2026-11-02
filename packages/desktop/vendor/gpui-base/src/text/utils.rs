@@ -7,6 +7,13 @@ use data_url::DataUrl;
 use gpui::{Image, ImageFormat};
 use url::Url;
 
+/// Returns an ordered-list item's ordinal, defaulting omitted starts to one.
+pub(super) fn ordered_list_ordinal(start: Option<u32>, ix: usize) -> u32 {
+    start
+        .unwrap_or(1)
+        .saturating_add(u32::try_from(ix).unwrap_or(u32::MAX))
+}
+
 /// Decodes a `data:` URL whose mime type names an image format GPUI can
 /// decode. Anything else (another scheme, a non-image body, malformed
 /// base64) yields `None`, and the caller keeps the URL URI-backed so GPUI's

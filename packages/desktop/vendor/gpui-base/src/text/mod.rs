@@ -1,4 +1,6 @@
 mod document;
+pub mod editor_host;
+mod editor_seam;
 mod format;
 mod inline;
 mod inline_element;
@@ -8,6 +10,7 @@ mod inline_object;
 mod inline_virtual_tests;
 mod markdown_ext;
 mod node;
+mod range_highlight;
 pub(crate) mod selection;
 mod selection_adapter;
 mod selection_cell;
@@ -21,12 +24,14 @@ use gpui::{App, ElementId, IntoElement, RenderOnce, SharedString, Window};
 pub use inline_element::*;
 pub use markdown_ext::*;
 pub use node::{CodeBlock, TableData};
+pub use range_highlight::{RangeHighlight, RangeHighlightError, RenderedText};
 pub use state::*;
 pub use stream_fade::TextViewMotion;
 pub use style::*;
 pub use text_view::*;
 
 pub(crate) fn init(cx: &mut App) {
+    inline::init(cx);
     state::init(cx);
 }
 

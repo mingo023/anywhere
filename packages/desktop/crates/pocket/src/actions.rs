@@ -46,15 +46,16 @@ pub fn native(keys: &str, context: Option<&str>) -> String {
 
 /// ⌘ becomes Ctrl, with Shift in a terminal, whose Ctrl keys are the shell's. Mac's own ⌃ becomes Alt, so ⌘1 and ⌃1 stay apart, except ⌃Tab, which is Ctrl-Tab everywhere.
 fn off_mac(keys: &str, context: Option<&str>) -> String {
-    let k = Keystroke::parse(keys).unwrap();
+    let k = Keystroke::parse_with_os(keys, keys::OS).unwrap();
     let m = k.modifiers;
     let tab = k.key == "tab";
     let modifiers = Modifiers { control: m.platform || (m.control && tab), alt: m.alt || (m.control && !tab), shift: m.shift || (m.platform && context == Some(keys::CONTEXT)), platform: false, ..m };
-    Keystroke { modifiers, ..k }.unparse()
+    Keystroke { modifiers, ..k }.unparse(keys::OS)
 }
 
 fn bind<A: Action>(keys: &str, action: A, context: Option<&str>) -> KeyBinding {
-    KeyBinding::new(&native(keys, context), action, context)
+    let predicate = context.map(|c| Rc::new(KeyBindingContextPredicate::parse(c).unwrap()));
+    KeyBinding::load_for_os(&native(keys, context), Box::new(action), predicate, keys::OS).unwrap()
 }
 
 pub fn bindings() -> Vec<KeyBinding> {
@@ -146,7 +147,7 @@ pub fn keymap(custom: &BTreeMap<String, String>) -> Vec<KeyBinding> {
         .filter_map(|b| match custom.get(&binding_id(&b)) {
             None => Some(b),
             Some(keys) if keys.is_empty() => None,
-            Some(keys) => Some(KeyBinding::load(keys, b.action().boxed_clone(), b.predicate(), false, None, &DummyKeyboardMapper).unwrap_or(b)),
+            Some(keys) => Some(KeyBinding::load_for_os(keys, b.action().boxed_clone(), b.predicate(), keys::OS).unwrap_or(b)),
         })
         .collect();
     if !cfg!(target_os = "macos") {
@@ -157,7 +158,7 @@ pub fn keymap(custom: &BTreeMap<String, String>) -> Vec<KeyBinding> {
 
 /// A terminal hands Ctrl and a letter to the shell (`keys::bindings`), so there a shortcut on them answers to Ctrl-Shift and the letter, when nothing else has those.
 fn terminal_aliases(bindings: &[KeyBinding]) -> Vec<KeyBinding> {
-    let on = |b: &KeyBinding, keys: &str| b.keystrokes().iter().map(|k| k.inner().unparse()).eq([keys.to_string()]);
+    let on = |b: &KeyBinding, keys: &str| b.keystrokes().iter().map(|k| k.inner().unparse(keys::OS)).eq([keys.to_string()]);
     let reaches_terminal = |b: &KeyBinding| b.predicate().is_none_or(|p| p.to_string() == keys::CONTEXT);
     bindings
         .iter()
@@ -167,7 +168,7 @@ fn terminal_aliases(bindings: &[KeyBinding]) -> Vec<KeyBinding> {
             let ctrl_letter = k.modifiers == Modifiers::control() && k.key.len() == 1 && k.key.chars().all(|c| c.is_ascii_lowercase());
             let alias = format!("ctrl-shift-{}", k.key);
             let free = !bindings.iter().any(|o| reaches_terminal(o) && on(o, &alias));
-            (b.predicate().is_none() && ctrl_letter && free).then(|| KeyBinding::load(&alias, b.action().boxed_clone(), KeyBindingContextPredicate::parse(keys::CONTEXT).ok().map(Rc::new), false, None, &DummyKeyboardMapper).unwrap())
+            (b.predicate().is_none() && ctrl_letter && free).then(|| KeyBinding::load_for_os(&alias, b.action().boxed_clone(), KeyBindingContextPredicate::parse(keys::CONTEXT).ok().map(Rc::new), keys::OS).unwrap())
         })
         .collect()
 }
@@ -190,14 +191,15 @@ mod tests {
     use super::{CopySelection, NewTab, SplitDown, SplitRight, binding_id, bindings, keymap, native, off_mac, terminal_aliases};
     use std::collections::BTreeMap;
     use crate::inbox;
-    use gpui_kit::{KeyBinding, KeyContext, Keymap, Keystroke, actions};
+    use gpui_kit::{KeyBinding, KeyBindingContextPredicate, KeyContext, Keymap, Keystroke, actions};
+    use std::rc::Rc;
     use std::collections::HashSet;
 
     #[test]
     fn no_two_bindings_share_a_keystroke_and_context() {
         let mut seen = HashSet::new();
         for b in keymap(&BTreeMap::new()).into_iter().chain(keys::bindings()) {
-            let keys: Vec<String> = b.keystrokes().iter().map(|k| k.unparse()).collect();
+            let keys: Vec<String> = b.keystrokes().iter().map(|k| k.unparse(keys::OS)).collect();
             let context = b.predicate().map(|p| p.to_string());
             assert!(seen.insert((keys.clone(), context.clone())), "{keys:?} in {context:?} is bound twice");
         }
@@ -207,8 +209,8 @@ mod tests {
 
     /// The actions bound to `keys`, as macOS writes them, outside any context.
     fn bound(keys: &str) -> Vec<&'static str> {
-        let want = vec![Keystroke::parse(&native(keys, None)).unwrap().unparse()];
-        bindings().iter().filter(|b| b.predicate().is_none() && b.keystrokes().iter().map(|k| k.unparse()).collect::<Vec<_>>() == want).map(|b| b.action().name()).collect()
+        let want = vec![Keystroke::parse_with_os(&native(keys, None), keys::OS).unwrap().unparse(keys::OS)];
+        bindings().iter().filter(|b| b.predicate().is_none() && b.keystrokes().iter().map(|k| k.unparse(keys::OS)).collect::<Vec<_>>() == want).map(|b| b.action().name()).collect()
     }
 
     #[test]
@@ -228,11 +230,11 @@ mod tests {
     #[test]
     fn cmd_enter_opens_a_session_only_from_the_inbox() {
         let mut keymap = Keymap::default();
-        keymap.add_bindings([KeyBinding::new("secondary-enter", Submit, Some("Input"))]);
+        keymap.add_bindings([KeyBinding::load_for_os("secondary-enter", Box::new(Submit), KeyBindingContextPredicate::parse("Input").ok().map(Rc::new), keys::OS).unwrap()]);
         keymap.add_bindings(bindings());
         let action = |stack: &[&str]| {
             let stack: Vec<KeyContext> = stack.iter().map(|c| KeyContext::parse(c).unwrap()).collect();
-            keymap.bindings_for_input(&[Keystroke::parse("secondary-enter").unwrap()], &stack).0.first().map(|b| b.action().name())
+            keymap.bindings_for_input(&[Keystroke::parse_with_os("secondary-enter", keys::OS).unwrap()], &stack).0.first().map(|b| b.action().name())
         };
         assert_eq!(action(&["Root", inbox::CONTEXT, "Input"]), Some("test::Submit"));
         assert_eq!(action(&["Root", inbox::CONTEXT]), Some("desktop::OpenSession"));
@@ -251,8 +253,8 @@ mod tests {
     #[test]
     fn a_changed_shortcut_moves_to_its_new_keys_and_an_emptied_one_is_gone() {
         let custom = BTreeMap::from([("desktop::OpenPalette".to_string(), "cmd-shift-p".to_string()), ("desktop::Reload in Browser".to_string(), String::new())]);
-        let keys = |id: &str| keymap(&custom).iter().filter(|b| binding_id(b) == id).map(|b| b.keystrokes()[0].inner().unparse()).collect::<Vec<_>>();
-        let unparsed = |k: &str| Keystroke::parse(k).unwrap().unparse();
+        let keys = |id: &str| keymap(&custom).iter().filter(|b| binding_id(b) == id).map(|b| b.keystrokes()[0].inner().unparse(keys::OS)).collect::<Vec<_>>();
+        let unparsed = |k: &str| Keystroke::parse_with_os(k, keys::OS).unwrap().unparse(keys::OS);
         assert_eq!(keys("desktop::OpenPalette"), [unparsed("cmd-shift-p")]);
         assert!(keys("desktop::Reload in Browser").is_empty());
         assert_eq!(keys("desktop::GoToFile"), [unparsed(&native("cmd-p", None))]);
@@ -268,7 +270,7 @@ mod tests {
     #[test]
     fn a_ctrl_letter_shortcut_answers_to_ctrl_shift_in_a_terminal_unless_those_keys_are_taken() {
         let bindings = [KeyBinding::new("ctrl-t", NewTab, None), KeyBinding::new("ctrl-d", SplitRight, None), KeyBinding::new("ctrl-shift-d", SplitDown, None), KeyBinding::new("ctrl-c", CopySelection, Some(keys::CONTEXT))];
-        let aliases: Vec<_> = terminal_aliases(&bindings).iter().map(|b| (b.keystrokes()[0].inner().unparse(), b.action().name(), b.predicate().map(|p| p.to_string()))).collect();
+        let aliases: Vec<_> = terminal_aliases(&bindings).iter().map(|b| (b.keystrokes()[0].inner().unparse(keys::OS), b.action().name(), b.predicate().map(|p| p.to_string()))).collect();
         assert_eq!(aliases, [("ctrl-shift-t".to_string(), "desktop::NewTab", Some(keys::CONTEXT.to_string()))]);
     }
 }

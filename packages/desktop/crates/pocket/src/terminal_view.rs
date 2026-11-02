@@ -191,7 +191,7 @@ impl Desktop {
         let observe_only = self.agents.observe_only();
         let over = at.is_some_and(|at| {
             let Some(t) = self.terminals.sessions.term(pane) else { return false };
-            if !click_opens_link(mods.secondary(), mods.shift, t.mouse_tracking() && !observe_only, &self.store.terminal) {
+            if !click_opens_link(mods.secondary(cx), mods.shift, t.mouse_tracking() && !observe_only, &self.store.terminal) {
                 return false;
             }
             let (f, cells) = t.frame();
@@ -317,7 +317,7 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn wheel(&mut self, pane: &str, e: &ScrollWheelEvent, at: Pointer, line: f32, cx: &mut Context<Self>) {
+    pub(crate) fn wheel(&mut self, pane: &str, e: &ScrollEvent, at: Pointer, line: f32, cx: &mut Context<Self>) {
         let rows = self.terminal.wheel.rows(pane, e.delta, e.touch_phase, line);
         let Some(t) = self.terminals.sessions.term(pane).filter(|_| rows != 0) else { return };
         match scroll::route(rows, e.modifiers.shift, t.mouse_tracking(), t.alt_screen(), t.mode(1007)) {

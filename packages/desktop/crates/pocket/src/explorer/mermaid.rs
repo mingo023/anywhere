@@ -436,7 +436,7 @@ fn listen(diagrams: &Entity<Diagrams>, place: u64, bounds: Bounds<Pixels>, hitbo
         }
     });
     let (d, hit) = (diagrams.clone(), hitbox.clone());
-    window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
+    window.on_mouse_event(move |e: &ScrollEvent, phase, window, cx| {
         if phase != DispatchPhase::Bubble || !hit.is_hovered(window) || !(e.modifiers.platform || e.modifiers.control) {
             return;
         }
