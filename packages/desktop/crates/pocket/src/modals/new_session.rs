@@ -201,6 +201,15 @@ impl Draft {
         (self.source, self.picker) = (Source::Branch(branch), None);
     }
 
+    /// Whether a branch menu row is what the session will start from.
+    fn is_picked(&self, local_ix: Option<usize>, name: &str) -> bool {
+        match &self.source {
+            Source::New => local_ix == Some(self.base),
+            Source::Branch(branch) => branch == name,
+            Source::Pr(_) => false,
+        }
+    }
+
     fn ready(&self, name: &str) -> bool {
         let place = match (self.in_worktree(), &self.source) {
             (false, _) => self.repo.is_some(),
@@ -298,14 +307,20 @@ const RECENT: usize = 20;
 /// The most rows a branch search lists.
 const FOUND: usize = 50;
 
-/// The branch menu's rows: the recent local branches, or every local then origin branch holding `search`. Each carries its index among the local branches, or none when only origin has it.
+/// The branch menu's rows: the recent local branches, or every branch holding `search`: the one it names, then local before origin, those starting with it first. Each carries its index among the local branches, or none when only origin has it.
 pub(crate) fn listed_branches<'a>(branches: &'a [(String, Option<i64>)], remote: &'a [String], search: &str) -> Vec<(Option<usize>, &'a str)> {
     let search = search.trim().to_lowercase();
     let local = branches.iter().enumerate().map(|(i, (b, _))| (Some(i), b.as_str()));
     if search.is_empty() {
         return local.take(RECENT).collect();
     }
-    local.chain(remote.iter().map(|b| (None, b.as_str()))).filter(|(_, b)| b.to_lowercase().contains(&search)).take(FOUND).collect()
+    let mut found: Vec<_> = local.chain(remote.iter().map(|b| (None, b.as_str()))).filter(|(_, b)| b.to_lowercase().contains(&search)).collect();
+    found.sort_by_cached_key(|(i, b)| {
+        let b = b.to_lowercase();
+        (b != search, i.is_none(), !b.starts_with(&search))
+    });
+    found.truncate(FOUND);
+    found
 }
 
 /// The number in "123", "#123" or a pull request URL.
@@ -507,9 +522,10 @@ impl Desktop {
         self.new_form.draft.ready(&self.new_form.draft.name())
     }
 
-    fn open_branch(&mut self, branch: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_form.draft.open_branch(branch);
-        self.start_session(window, cx);
+    /// The menu held the focus; Enter in the prompt is what starts the session.
+    fn focus_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_form.composer.prompt.update(cx, |s, cx| s.focus(window, cx));
+        cx.notify();
     }
 
     /// A new worktree's page leaves at once for its progress; a session's waits for pocketd.
@@ -972,6 +988,29 @@ mod tests {
         let remote = vec!["fix/logout".to_string()];
         assert_eq!(listed_branches(&local, &remote, " ").len(), 20);
         assert_eq!(listed_branches(&local, &remote, "FIX/LOG"), [(Some(25), "fix/login"), (None, "fix/logout")]);
+    }
+
+    #[test]
+    fn a_search_leads_with_the_exact_branch_then_those_starting_with_it() {
+        let local: Vec<(String, Option<i64>)> = ["fix/develop-send", "Develop-tools", "fix/old", "develop"].map(|b| (b.to_string(), None)).to_vec();
+        let remote = vec!["ci/develop".to_string(), "develop-next".to_string()];
+        assert_eq!(listed_branches(&local, &remote, "develop"), [(Some(3), "develop"), (Some(1), "Develop-tools"), (Some(0), "fix/develop-send"), (None, "develop-next"), (None, "ci/develop")]);
+    }
+
+    #[test]
+    fn a_branch_only_origin_has_leads_when_the_search_names_it_exactly() {
+        let local: Vec<(String, Option<i64>)> = (0..60).map(|i| (format!("fix/develop-{i}"), None)).collect();
+        let remote = vec!["develop".to_string()];
+        let found = listed_branches(&local, &remote, "develop");
+        assert_eq!((found[0], found.len()), ((None, "develop"), 50));
+    }
+
+    #[test]
+    fn the_branch_menu_marks_the_base_or_the_branch_to_open() {
+        let mut draft = Draft { branches: vec![("main".into(), None), ("dev".into(), None)], base: 1, ..Draft::default() };
+        assert!(draft.is_picked(Some(1), "dev") && !draft.is_picked(Some(0), "main"));
+        draft.open_branch("fix/login".into());
+        assert!(draft.is_picked(None, "fix/login") && !draft.is_picked(Some(1), "dev"));
     }
 
     #[test]

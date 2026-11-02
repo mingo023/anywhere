@@ -91,7 +91,7 @@ impl Desktop {
         picker_menu("checkout-menu", 300., rows, cx).gap(px(2.))
     }
 
-    /// Picking a local branch makes it the base; Open starts a worktree on it at once, the only use of a branch only origin has.
+    /// Picking a local branch makes it the base; Open makes it the branch to start a worktree on, the only use of a branch only origin has.
     fn branch_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
         let opens = self.agents.opens();
@@ -137,19 +137,20 @@ impl Desktop {
                 .child("Open worktree")
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
-                    this.open_branch(branch.clone(), window, cx);
+                    this.new_form.draft.open_branch(branch.clone());
+                    this.focus_prompt(window, cx);
                 }))
             });
-            let row = ui::pick_row(("branch", n), f.source == Source::New && local_ix == Some(f.base), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
+            let row = ui::pick_row(("branch", n), f.is_picked(local_ix, name), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
                 .group(BRANCH_ROW)
                 .relative()
                 .children(open)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| match local_ix {
-                    Some(i) => {
-                        this.new_form.draft.pick_base(i);
-                        cx.notify();
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    match local_ix {
+                        Some(i) => this.new_form.draft.pick_base(i),
+                        None => this.new_form.draft.open_branch(branch.clone()),
                     }
-                    None => this.open_branch(branch.clone(), window, cx),
+                    this.focus_prompt(window, cx);
                 }));
             rows.push(row.into_any_element());
         }
