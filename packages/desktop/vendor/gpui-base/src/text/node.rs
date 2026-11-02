@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     ops::Range,
     path::Path,
-    sync::{Arc, Mutex, OnceLock, Weak},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
@@ -1698,6 +1698,7 @@ impl std::fmt::Debug for ParagraphRenderCache {
 struct ParagraphRender {
     style: Arc<TextViewStyle>,
     mono_font: SharedString,
+    background: Hsla,
     text: SharedString,
     highlights: Vec<(Range<usize>, InlineHighlight)>,
     /// Links as written, before reference resolution.
@@ -1735,10 +1736,12 @@ impl Paragraph {
         Vec<(Range<usize>, LinkMark)>,
     ) {
         let mono_font = code_font(node_cx, cx);
+        let background = cx.theme().tokens.colors.background;
         if let Ok(cache) = self.render_cache.0.lock()
             && let Some(cached) = cache.as_ref()
             && (Arc::ptr_eq(&cached.style, &node_cx.style) || *cached.style == *node_cx.style)
             && cached.mono_font == mono_font
+            && cached.background == background
         {
             return (
                 cached.text.clone(),
@@ -1772,6 +1775,7 @@ impl Paragraph {
             *cache = Some(Arc::new(ParagraphRender {
                 style: node_cx.style.clone(),
                 mono_font,
+                background,
                 text: text.clone(),
                 highlights: highlights.clone(),
                 links: links.clone(),
@@ -2127,8 +2131,15 @@ impl std::fmt::Debug for TableColumnWidthsCache {
     }
 }
 
+fn text_system_id(window: &Window) -> usize {
+    std::rc::Rc::as_ptr(window.text_system()) as usize
+}
+
 struct TableColumnWidths {
-    text_system: Weak<gpui::WindowTextSystem>,
+    /// Identity of the window text system the widths were measured with.
+    /// `WindowTextSystem` is `Rc`-shared and the cache must stay `Send`, so
+    /// only its address is kept.
+    text_system: usize,
     /// The styles the header row and the body rows render with.
     text_styles: TableTextStyles,
     rem_size: Pixels,
@@ -2970,6 +2981,27 @@ impl PartialEq for NodeContext {
     }
 }
 
+/// The text color with more contrast against a highlight composited over the
+/// theme background (WCAG relative luminance).
+fn mark_text_color(highlight: Hsla, background: Hsla) -> Hsla {
+    fn channel(value: f32) -> f32 {
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    let rgb = background.to_rgb().blend(highlight.to_rgb());
+    let luminance = 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b);
+    // Contrast with black is (L + 0.05) / 0.05 and with white 1.05 / (L + 0.05);
+    // they are equal where (L + 0.05)^2 = 0.0525.
+    if (luminance + 0.05) * (luminance + 0.05) > 0.0525 {
+        gpui::black()
+    } else {
+        gpui::white()
+    }
+}
+
 /// The highlight a text mark renders with. The link decoration is applied by
 /// the caller, which also has to record the link range.
 fn mark_highlight(mark: &TextMark, node_cx: &NodeContext, cx: &App) -> InlineHighlight {
@@ -3026,6 +3058,14 @@ fn mark_highlight(mark: &TextMark, node_cx: &NodeContext, cx: &App) -> InlineHig
     }
     if let Some(color) = mark.highlight {
         highlight.background_color = Some(color);
+        // Set the text color with the background, as the HTML standard's
+        // `mark { background: yellow; color: black }` does, so a light
+        // highlight stays readable in a dark theme.
+        // A transparent mark leaves the underlying surface unchanged. Keep
+        // its inherited foreground, including on custom-colored surfaces.
+        if color.a > 0.0 {
+            highlight.color = Some(mark_text_color(color, cx.theme().tokens.colors.background));
+        }
     }
     match mark.footnote {
         Some(FootnoteMark::Reference) => highlight.color = Some(node_cx.style.link()),
@@ -3735,10 +3775,7 @@ fn measure_table_columns(
                     && cached.rem_size == rem_size
                     && cached.mono_family == mono_family
                     && cached.inline_code == inline_code
-                    && cached
-                        .text_system
-                        .upgrade()
-                        .is_some_and(|system| Arc::ptr_eq(&system, window.text_system()))
+                    && cached.text_system == text_system_id(window)
             })
             .cloned()
     });
@@ -3746,7 +3783,7 @@ fn measure_table_columns(
         let (widths, custom_cells) =
             measure_table_text_columns(table, col_count, &text_styles, node_cx, window, cx);
         let measured = Arc::new(TableColumnWidths {
-            text_system: Arc::downgrade(window.text_system()),
+            text_system: text_system_id(window),
             text_styles: text_styles.clone(),
             rem_size,
             mono_family,
@@ -4750,6 +4787,74 @@ mod tests {
         }
         assert_eq!(paragraph.selected_text(), "文 x² Eng");
         assert_eq!(paragraph.selected_source(), "文 **$x^2$** Eng");
+    }
+
+    #[test]
+    fn mark_sets_a_readable_text_color_with_its_background() {
+        use gpui::{Empty, TestApp};
+        let mut app = TestApp::new();
+        let mut window = app.open_window(|_, _| Empty);
+        window.update(|_, _, cx| {
+            cx.set_global(crate::Theme::default());
+            let node_cx = NodeContext::default();
+
+            // The default `<mark>` yellow needs dark text, whatever the theme's
+            // text color is (light in a dark theme).
+            let yellow: Hsla = gpui::rgb(0xfef08a).into();
+            let style = mark_highlight(&TextMark::default().highlight(yellow), &node_cx, cx).style;
+            assert_eq!(style.background_color, Some(yellow));
+            assert_eq!(style.color, Some(gpui::black()));
+
+            // A dark custom highlight gets light text instead.
+            let navy: Hsla = gpui::rgb(0x1e3a8a).into();
+            let style = mark_highlight(&TextMark::default().highlight(navy), &node_cx, cx).style;
+            assert_eq!(style.color, Some(gpui::white()));
+
+            // A translucent mark is composited with the theme surface before
+            // choosing the text color. Fully transparent marks keep inherited ink.
+            let translucent_black: Hsla = gpui::rgba(0x00000080).into();
+            let translucent_white: Hsla = gpui::rgba(0xffffff4d).into();
+            assert_eq!(
+                mark_text_color(translucent_black, gpui::white()),
+                gpui::black()
+            );
+            assert_eq!(
+                mark_text_color(translucent_white, gpui::black()),
+                gpui::white()
+            );
+            let transparent: Hsla = gpui::rgba(0x00000000).into();
+            let style =
+                mark_highlight(&TextMark::default().highlight(transparent), &node_cx, cx).style;
+            assert_eq!(style.color, None);
+
+            // Text that is not marked keeps the inherited color.
+            let style = mark_highlight(&TextMark::default().bold(), &node_cx, cx).style;
+            assert_eq!(style.color, None);
+        });
+    }
+
+    #[test]
+    fn translucent_mark_cache_tracks_theme_background() {
+        use gpui::{Empty, TestApp};
+        let mut app = TestApp::new();
+        let mut window = app.open_window(|_, _| Empty);
+        window.update(|_, _, cx| {
+            cx.set_global(crate::Theme::default());
+            let paragraph = Paragraph {
+                children: vec![InlineNode::new("mark").marks(vec![(
+                    0..4,
+                    TextMark::default().highlight(gpui::rgba(0x00000033).into()),
+                )])],
+                ..Default::default()
+            };
+            let context = NodeContext::default();
+            crate::Theme::global_mut(cx).tokens.colors.background = gpui::white();
+            let (_, light, _) = paragraph.plain_render(&context, cx);
+            assert_eq!(light[0].1.style.color, Some(gpui::black()));
+            crate::Theme::global_mut(cx).tokens.colors.background = gpui::black();
+            let (_, dark, _) = paragraph.plain_render(&context, cx);
+            assert_eq!(dark[0].1.style.color, Some(gpui::white()));
+        });
     }
 
     #[test]
