@@ -75,7 +75,7 @@ pub const ALL: [Builtin; 2] = [
         resume_args: "resume",
         fork_args: "fork {sessionId}",
         status_via: "reads Codex session events",
-        unattached: "This codex runs without the app-server, so Pocket can't see its status.",
+        unattached: "This codex runs without the app-server, so Anywhere can't see its status.",
         pastes_code: false,
         oneshot: Oneshot { args: &["exec", "-s", "read-only", "--skip-git-repo-check", "--color", "never"], model_flag: "-m", model: "" },
     },

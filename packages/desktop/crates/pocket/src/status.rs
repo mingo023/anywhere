@@ -290,7 +290,7 @@ mod tests {
     fn banners_a_live_agent_that_is_not_attached() {
         let blind = |provider: &str, status: &str| Summary { provider: provider.into(), attached: false, ..agent("t", status) };
         assert_eq!(banner(&blind("claude", "idle")), Some("Claude skips hooks in folders it doesn't trust. Trust this folder in Claude to see status."));
-        assert_eq!(banner(&blind("codex", "working")), Some("This codex runs without the app-server, so Pocket can't see its status."));
+        assert_eq!(banner(&blind("codex", "working")), Some("This codex runs without the app-server, so Anywhere can't see its status."));
         assert_eq!(banner(&Summary { provider: "claude".into(), ..agent("t", "idle") }), None);
     }
 

@@ -500,7 +500,7 @@ impl Desktop {
 
     fn link_page(&self, cx: &mut Context<Self>) -> Div {
         let link = &self.terminals.link;
-        let starting = if link.stale().is_some() { "Updating Anywhere's background service…" } else { "Starting Pocket's terminal service…" };
+        let starting = if link.stale().is_some() { "Updating Anywhere's background service…" } else { "Starting Anywhere's terminal service…" };
         let body = div().flex_1().flex().flex_col().items_center().justify_center().gap(px(6.)).text_size(px(14.)).text_color(TEXT_3);
         let body = match link.hint(Instant::now()) {
             None => body.child(starting),
