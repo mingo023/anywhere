@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::inbox;
+use crate::renames::Feed;
 use crate::status::{self, Alert, Status};
 use crate::terminals::link;
 use agents::{Agents, Decision, Event, Host, Permission, Summary};
@@ -207,7 +208,16 @@ impl Desktop {
         }
         let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
         let listed = matches!(ev, Event::Agents(_) | Event::Agent(_)).then(|| self.agents.list.clone());
+        let named = Feed::of(&ev).map(|feed| (feed, feed.read(&self.agents)));
+        if connected {
+            self.renames.connected(host);
+        }
         self.agents.apply_from(host, ev);
+        if let Some((feed, before)) = named {
+            let trees = &self.worktrees;
+            let unnamed = |path: &str| trees.values().flatten().find(|w| w.path == path).map(crate::sidebar::tree_place);
+            self.renames.named(feed, host, &before, &feed.read(&self.agents), unnamed, Instant::now());
+        }
         for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
             self.chat_closed(&agent, &who, window, cx);
         }

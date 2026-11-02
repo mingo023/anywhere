@@ -3,6 +3,9 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::PathBuf;
 
+mod scramble;
+pub use scramble::{scramble, scramble_duration};
+
 pub fn shadow(color: impl Into<Hsla>, y: f32, blur: f32) -> BoxShadow {
     BoxShadow { color: color.into(), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(0.), inset: false }
 }

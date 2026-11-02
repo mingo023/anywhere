@@ -40,6 +40,7 @@ use crate::palette::PaletteState;
 use crate::region::{self, Regions};
 use crate::panels::Panels;
 use crate::removal::Removals;
+use crate::renames::Renames;
 use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
 use crate::sidebar::panel::RAIL_WIDTH;
@@ -72,6 +73,7 @@ pub struct Desktop {
     pub(crate) terminals: Terminals,
     pub(crate) creates: Creates,
     pub(crate) removals: Removals,
+    pub(crate) renames: Renames,
     pub(crate) agents: Agents,
     pub(crate) store: Store,
     pub(crate) project: Option<String>,
@@ -193,6 +195,7 @@ impl Desktop {
             terminals,
             creates: Creates::default(),
             removals: Removals::default(),
+            renames: Renames::default(),
             agents: Agents::default(),
             project: store.projects.first().cloned(),
             store,
