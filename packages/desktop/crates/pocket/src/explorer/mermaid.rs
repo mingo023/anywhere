@@ -29,6 +29,12 @@ static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
     let mut options = Options::default();
     let db = Arc::make_mut(&mut options.fontdb);
     db.load_system_fonts();
+    // macOS's LastResort maps every character to a placeholder box. usvg falls back to the first face that maps a
+    // missing character and, when that face maps the whole label, draws it all in that face.
+    let last_resort: Vec<_> = db.faces().filter(|f| f.families.iter().any(|(name, _)| name == ".LastResort")).map(|f| f.id).collect();
+    for id in last_resort {
+        db.remove_face(id);
+    }
     for font in theme::FONTS {
         db.load_font_data(font.to_vec());
     }
@@ -578,6 +584,14 @@ mod tests {
         let canvas = Token::new(0xf4f4f5ff, 0x262626ff);
         let t = tree("flowchart LR\n  A --> B\n", canvas, false).unwrap();
         assert_eq!(rasterize(&t, 1.).unwrap().as_bytes(0).unwrap()[..4], [0xf5, 0xf4, 0xf4, 0xff]);
+    }
+
+    #[test]
+    fn draws_emoji_in_colour_rather_than_as_placeholder_boxes() {
+        let t = tree("flowchart LR\n  A[Done ❌]\n", MD_CODE_BG, true).unwrap();
+        let image = rasterize(&t, 2.).unwrap();
+        let red = image.as_bytes(0).unwrap().as_chunks::<4>().0.iter().any(|&[b, g, r, _]| r > 200 && g < 80 && b < 80);
+        assert!(red);
     }
 
     #[test]
