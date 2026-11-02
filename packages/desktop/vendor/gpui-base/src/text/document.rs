@@ -3,11 +3,16 @@ use gpui::{
     Window, div, prelude::FluentBuilder as _, px,
 };
 
-use std::{ops::RangeInclusive, sync::Arc};
+use std::{
+    ops::{Range, RangeInclusive},
+    sync::Arc,
+};
 
 use crate::text::{
     SelectionFormat,
-    node::{BlockNode, NodeContext, margin_top},
+    node::{
+        BlockNode, NodeContext, SelectionStyles, SourceRangeSelection, body_font_size, margin_top,
+    },
 };
 
 /// The parsed document AST.
@@ -20,6 +25,18 @@ pub(crate) struct ParsedDocument {
 #[derive(Default, Clone, Copy)]
 pub(crate) struct NodeRenderOptions {
     pub(crate) ix: usize,
+}
+
+/// Whether the block at `ix` is the first in its flow that shows anything.
+/// Link definitions and other blocks that render nothing are skipped, so a
+/// document opening with `[ref]: url` still starts flush.
+pub(crate) fn flow_position<B: std::borrow::Borrow<BlockNode>>(blocks: &[B], ix: usize) -> bool {
+    !blocks[..ix].iter().map(B::borrow).any(|block| {
+        !matches!(
+            block,
+            BlockNode::Definition { .. } | BlockNode::Break { .. } | BlockNode::Unknown
+        )
+    })
 }
 
 impl ParsedDocument {
@@ -38,16 +55,13 @@ impl ParsedDocument {
     /// top-level blocks are joined with a blank line so the result re-renders
     /// with the same block structure.
     ///
-    /// A block only learns its selection when it is painted, so in a scrollable
-    /// (virtualized) view every block the user scrolled past reports nothing.
-    /// The selection is one continuous range, so blocks it spans that came up
-    /// empty are inside it and are emitted whole rather than dropped. `blocks`
-    /// bounds that span; it comes from the selection endpoints, which hold on to
-    /// their block index even after it scrolls out of view (the painted blocks
-    /// alone cannot bound the span, because the press that starts a drag leaves
-    /// an empty selection that never reaches paint). Without it, fall back to
-    /// the painted blocks. (Source mode is only used by non-scrollable views,
-    /// where `blocks` is `None` and every block paints.)
+    /// Paint and synchronous Copy project the current gesture onto retained
+    /// native layouts. In a scrollable (virtualized) view some covered blocks
+    /// have never been laid out and report nothing. The selection is continuous,
+    /// so its interior blocks are emitted whole rather than dropped. `blocks`
+    /// bounds that span; it comes from the selection endpoints, which hold on
+    /// to their block index even after scrolling out of view. Without it, fall
+    /// back to the blocks with projected selections.
     ///
     /// A standalone image (a paragraph that is only an image) has no selectable
     /// text run, so it never carries a selection of its own. It is therefore
@@ -77,6 +91,20 @@ impl ParsedDocument {
         let (first, last) = match blocks {
             Some(blocks) => (*blocks.start().min(&last_ix), *blocks.end().min(&last_ix)),
             None => (painted_first, painted_last),
+        };
+
+        // A selection within one style copies as the text it renders; one
+        // that is only partly painted cannot tell, and keeps its source.
+        let format = match format {
+            SelectionFormat::SourceAcrossStyles
+                if first == last
+                    && painted[first]
+                    && self.blocks[first].selection_styles() != SelectionStyles::Mixed =>
+            {
+                SelectionFormat::Plain
+            }
+            SelectionFormat::SourceAcrossStyles => SelectionFormat::Source,
+            format => format,
         };
 
         if format == SelectionFormat::Plain {
@@ -137,6 +165,14 @@ impl ParsedDocument {
         }
 
         block.selected_text(SelectionFormat::Source)
+    }
+
+    pub(super) fn selected_source_range(&self) -> Option<Range<usize>> {
+        let mut selected = SourceRangeSelection::Unselected;
+        for block in self.blocks.iter() {
+            selected.merge(block.selected_source_range());
+        }
+        selected.into_range()
     }
 
     /// Synchronously clear the selection stored in every inline state.
@@ -206,21 +242,47 @@ fn render_page_block(
     cx: &mut App,
 ) -> AnyElement {
     let block = &blocks[ix];
+    let place = PagePlace {
+        ix,
+        first: ix == 0,
+        last: ix + 1 == blocks.len(),
+        blank_lines: block
+            .span()
+            .map_or(0, |span| blank_lines_before(source, span.start)),
+    };
+    render_in_page(block, place, node_cx, window, cx)
+}
+
+/// Where a top-level block stands in the page.
+pub(crate) struct PagePlace {
+    pub(crate) ix: usize,
+    pub(crate) first: bool,
+    pub(crate) last: bool,
+    /// The blank lines written above it.
+    pub(crate) blank_lines: usize,
+}
+
+/// `block` in the content column, below the space its `place` leaves above it.
+pub(crate) fn render_in_page(
+    block: &BlockNode,
+    place: PagePlace,
+    node_cx: &NodeContext,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
     let style = &node_cx.style;
     let rem_size = window.rem_size();
     let margin = margin_top(
         block,
         style,
-        window.text_style().font_size.to_pixels(rem_size),
+        body_font_size(node_cx, window),
         style.paragraph_gap().to_pixels(rem_size),
     );
     let space = space_above(
         margin,
-        ix == 0,
+        place.first,
         matches!(block, BlockNode::Heading { .. }),
-        block
-            .span()
-            .map_or(0, |span| blank_lines_before(source, span.start)),
+        place.blank_lines,
         window.line_height(),
     );
     let padding = style.content_padding();
@@ -228,23 +290,19 @@ fn render_page_block(
         .w_full()
         .pl(padding.left)
         .pr(padding.right)
-        .pt(if ix == 0 { space + padding.top } else { space })
-        .when(ix + 1 == blocks.len(), |this| this.pb(padding.bottom))
+        .pt(if place.first {
+            space + padding.top
+        } else {
+            space
+        })
+        .when(place.last, |this| this.pb(padding.bottom))
         .child(
             div()
                 .w_full()
                 .when_some(style.content_max_width(), |this, width| {
                     this.max_w(width).mx_auto()
                 })
-                .child(block.render_block(
-                    NodeRenderOptions {
-                        ix,
-                        ..Default::default()
-                    },
-                    node_cx,
-                    window,
-                    cx,
-                )),
+                .child(block.render_block(NodeRenderOptions { ix: place.ix }, node_cx, window, cx)),
         )
         .into_any_element()
 }
@@ -285,6 +343,19 @@ fn blank_lines_before(source: &str, start: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::format::markdown;
+
+    #[test]
+    fn flow_position_skips_blocks_that_render_nothing() {
+        // The definition renders nothing, so the heading still opens the flow.
+        let document = markdown::parse(
+            "[ref]: https://example.com\n\n# Title\n\ntext",
+            &mut NodeContext::default(),
+        )
+        .unwrap();
+        assert!(flow_position(&document.blocks, 1));
+        assert!(!flow_position(&document.blocks, 2));
+    }
 
     #[test]
     fn blank_lines_are_counted_back_to_the_previous_text() {

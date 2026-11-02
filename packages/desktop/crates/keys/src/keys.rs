@@ -1,14 +1,28 @@
-use gpui_kit::{KeyBinding, Keystroke, NoAction};
+use gpui_kit::{KeyBinding, KeyBindingContextPredicate, Keystroke, NoAction, OperatingSystem};
+use std::rc::Rc;
 use term::{Mods, Term};
 
 pub const CONTEXT: &str = "Terminal";
 
+/// The OS this build presses keys on, for parsing keys without an `App`.
+pub const OS: OperatingSystem = if cfg!(target_os = "macos") {
+    OperatingSystem::Mac
+} else if cfg!(target_os = "windows") {
+    OperatingSystem::Windows
+} else {
+    OperatingSystem::Linux
+};
+
+const CTRL_LETTERS: [&str; 26] = [
+    "ctrl-a", "ctrl-b", "ctrl-c", "ctrl-d", "ctrl-e", "ctrl-f", "ctrl-g", "ctrl-h", "ctrl-i", "ctrl-j", "ctrl-k", "ctrl-l", "ctrl-m", "ctrl-n", "ctrl-o", "ctrl-p", "ctrl-q", "ctrl-r", "ctrl-s", "ctrl-t", "ctrl-u", "ctrl-v", "ctrl-w", "ctrl-x", "ctrl-y", "ctrl-z",
+];
+
 /// gpui-component's Root binds tab and shift-tab to focus cycling, and Pocket binds cmd-enter to open the inbox's session; in the terminal they belong to the CLI.
 /// Off macOS so do Ctrl and a letter, which Pocket's shortcuts use in place of ⌘.
 pub fn bindings() -> Vec<KeyBinding> {
-    let mut out = vec![KeyBinding::new("tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("secondary-enter", NoAction {}, Some(CONTEXT))];
+    let mut out = vec![KeyBinding::new("tab", NoAction {}, Some(CONTEXT)), KeyBinding::new("shift-tab", NoAction {}, Some(CONTEXT)), KeyBinding::load_for_os("secondary-enter", Box::new(NoAction {}), KeyBindingContextPredicate::parse(CONTEXT).ok().map(Rc::new), OS).unwrap()];
     if !cfg!(target_os = "macos") {
-        out.extend(('a'..='z').map(|c| KeyBinding::new(&format!("ctrl-{c}"), NoAction {}, Some(CONTEXT))));
+        out.extend(CTRL_LETTERS.map(|keys| KeyBinding::new(keys, NoAction {}, Some(CONTEXT))));
     }
     out
 }
@@ -53,7 +67,7 @@ mod tests {
     use super::*;
     use gpui_kit::{KeyContext, Keymap, actions};
 
-    fn bytes(s: &str) -> Option<Vec<u8>> {
+    fn bytes(s: &'static str) -> Option<Vec<u8>> {
         key_bytes(&Keystroke::parse(s).unwrap(), &mut Term::new(80, 24))
     }
 
@@ -187,10 +201,10 @@ mod tests {
     #[test]
     fn cmd_enter_reaches_the_terminal_past_open_session() {
         let mut keymap = Keymap::default();
-        keymap.add_bindings([KeyBinding::new("secondary-enter", OpenSession, Some("Inbox"))]);
+        keymap.add_bindings([KeyBinding::load_for_os("secondary-enter", Box::new(OpenSession), KeyBindingContextPredicate::parse("Inbox").ok().map(Rc::new), OS).unwrap()]);
         keymap.add_bindings(bindings());
         let stack = [KeyContext::parse("Root").unwrap(), KeyContext::parse("Inbox").unwrap(), KeyContext::parse(CONTEXT).unwrap()];
-        assert!(keymap.bindings_for_input(&[Keystroke::parse("secondary-enter").unwrap()], &stack).0.is_empty());
+        assert!(keymap.bindings_for_input(&[Keystroke::parse_with_os("secondary-enter", OS).unwrap()], &stack).0.is_empty());
     }
 
     #[cfg(not(target_os = "macos"))]

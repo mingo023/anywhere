@@ -778,7 +778,7 @@ const STEPS: [(&str, Step); 224] = [
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…").
 const INPUT_STEPS: [(&str, Step); 11] = [
     ("key", |_, window, cx| {
-        let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse(&k).ok()) else { return };
+        let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
     }),
     ("type", |_, window, cx| {
@@ -786,7 +786,7 @@ const INPUT_STEPS: [(&str, Step); 11] = [
         window.defer(cx, move |window, cx| {
             for c in text.chars() {
                 let key = if c == ' ' { "space".to_string() } else { c.to_string() };
-                if let Ok(k) = Keystroke::parse(&key) {
+                if let Ok(k) = Keystroke::parse_with_os(&key, keys::OS) {
                     window.dispatch_keystroke(k, cx);
                 }
             }
@@ -1070,7 +1070,7 @@ fn swipe(d: &mut Desktop, row: fn(&Desktop) -> Option<usize>, dx: f32, window: &
     window.defer(cx, move |window, cx| {
         window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }), cx);
         let delta = ScrollDelta::Pixels(point(px(dx), px(0.)));
-        window.dispatch_event(PlatformInput::ScrollWheel(ScrollWheelEvent { position: at, delta, ..Default::default() }), cx);
+        window.dispatch_event(PlatformInput::Scroll(ScrollEvent { position: at, delta, ..Default::default() }), cx);
     });
 }
 

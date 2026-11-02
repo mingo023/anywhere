@@ -1,28 +1,29 @@
-use gpui::{
-    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, Point, Window, point,
-};
+use gpui::{Bounds, Pixels, Point, point};
 
-use crate::GlobalState;
+use crate::global_state::confine_to_cell;
 
-/// A table cell that the selection reads on its own: while it paints, the
-/// view's selection endpoints are pinned to it (see [`clamp_to_cell`]), so a
-/// drag inside one cell doesn't select the cells beside it.
-pub(super) struct SelectionCell {
-    child: AnyElement,
-}
-
-pub(super) fn selection_cell(child: impl IntoElement) -> SelectionCell {
-    SelectionCell {
-        child: child.into_any_element(),
-    }
+/// [`confine_to_cell`], and for a drag that didn't start in a cell, its ends
+/// pinned to the cell painting now (see [`clamp_to_cell`]): a drag into the
+/// table from above selects in reading order, not the band on screen.
+pub(super) fn select_in_cell(
+    anchor_cell: Option<(Point<Pixels>, Bounds<Pixels>)>,
+    painting: Option<Bounds<Pixels>>,
+    anchor: Point<Pixels>,
+    cursor: Point<Pixels>,
+) -> Option<(Point<Pixels>, Point<Pixels>)> {
+    let in_anchor_cell = anchor_cell.is_some_and(|(cell_anchor, _)| cell_anchor == anchor);
+    let (anchor, cursor) = confine_to_cell(anchor_cell, painting, anchor, cursor)?;
+    Some(match painting {
+        Some(cell) if !in_anchor_cell => (clamp_to_cell(anchor, cell), clamp_to_cell(cursor, cell)),
+        _ => (anchor, cursor),
+    })
 }
 
 /// Moves a selection endpoint into `cell` in reading order: one in an earlier
 /// row, or left of the cell in its row, goes to the cell's start; one in a
 /// later row, or right of it, to its end. Cells stretch to their row's height,
 /// so the cell's top and bottom are the row's.
-pub(super) fn clamp_to_cell(p: Point<Pixels>, cell: Bounds<Pixels>) -> Point<Pixels> {
+fn clamp_to_cell(p: Point<Pixels>, cell: Bounds<Pixels>) -> Point<Pixels> {
     let start = cell.origin;
     let end = point(cell.right(), cell.bottom());
     if p.y < cell.top() || (p.y < cell.bottom() && p.x < cell.left()) {
@@ -31,68 +32,6 @@ pub(super) fn clamp_to_cell(p: Point<Pixels>, cell: Bounds<Pixels>) -> Point<Pix
         end
     } else {
         p
-    }
-}
-
-impl IntoElement for SelectionCell {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
-impl Element for SelectionCell {
-    type RequestLayoutState = ();
-    type PrepaintState = ();
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, ()) {
-        (self.child.request_layout(window, cx), ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        self.child.prepaint(window, cx);
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _: &mut (),
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let Some(view) = GlobalState::global(cx).text_view_state().cloned() else {
-            self.child.paint(window, cx);
-            return;
-        };
-        let outer = view.update(cx, |state, _| state.selection_cell.replace(bounds));
-        self.child.paint(window, cx);
-        view.update(cx, |state, _| state.selection_cell = outer);
     }
 }
 
@@ -110,14 +49,11 @@ mod tests {
         char_at: Point<Pixels>,
         anchor: Point<Pixels>,
         cursor: Point<Pixels>,
+        anchor_cell: Option<Bounds<Pixels>>,
         cell: Bounds<Pixels>,
     ) -> bool {
-        point_in_text_selection(
-            char_at,
-            px(10.),
-            clamp_to_cell(anchor, cell),
-            clamp_to_cell(cursor, cell),
-            px(24.),
+        select_in_cell(anchor_cell.map(|c| (anchor, c)), Some(cell), anchor, cursor).is_some_and(
+            |(start, end)| point_in_text_selection(char_at, px(10.), start, end, px(24.)),
         )
     }
 
@@ -127,24 +63,16 @@ mod tests {
         let right = cell(200., 0., 400., 80.);
         let (anchor, cursor) = (point(px(12.), px(20.)), point(px(100.), px(44.)));
 
-        assert!(selects(point(px(50.), px(8.)), anchor, cursor, left));
+        assert!(selects(
+            point(px(50.), px(8.)),
+            anchor,
+            cursor,
+            Some(left),
+            left
+        ));
         for char_at in [point(px(212.), px(8.)), point(px(212.), px(32.))] {
-            assert!(!selects(char_at, anchor, cursor, right));
+            assert!(!selects(char_at, anchor, cursor, Some(left), right));
         }
-    }
-
-    #[test]
-    fn a_drag_from_one_cell_into_the_next_selects_in_reading_order() {
-        let left = cell(0., 0., 200., 80.);
-        let right = cell(200., 0., 400., 80.);
-        let (anchor, cursor) = (point(px(100.), px(20.)), point(px(300.), px(20.)));
-
-        // The left cell from the anchor to its end, the right from its start to the cursor.
-        assert!(!selects(point(px(12.), px(8.)), anchor, cursor, left));
-        assert!(selects(point(px(12.), px(32.)), anchor, cursor, left));
-        assert!(selects(point(px(212.), px(8.)), anchor, cursor, right));
-        assert!(!selects(point(px(350.), px(8.)), anchor, cursor, right));
-        assert!(!selects(point(px(212.), px(32.)), anchor, cursor, right));
     }
 
     #[test]
@@ -155,8 +83,26 @@ mod tests {
         let cursor_cell = cell(0., 80., 200., 80.);
         let right_of_cursor = cell(200., 80., 400., 80.);
 
-        assert!(selects(point(px(350.), px(32.)), above, cursor, earlier_row));
-        assert!(selects(point(px(50.), px(88.)), above, cursor, cursor_cell));
-        assert!(!selects(point(px(212.), px(88.)), above, cursor, right_of_cursor));
+        assert!(selects(
+            point(px(350.), px(32.)),
+            above,
+            cursor,
+            None,
+            earlier_row
+        ));
+        assert!(selects(
+            point(px(50.), px(88.)),
+            above,
+            cursor,
+            None,
+            cursor_cell
+        ));
+        assert!(!selects(
+            point(px(212.), px(88.)),
+            above,
+            cursor,
+            None,
+            right_of_cursor
+        ));
     }
 }

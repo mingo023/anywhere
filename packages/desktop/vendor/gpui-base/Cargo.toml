@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "gpui-base"
-version = "0.6.6"
+version = "0.8.1"
 build = false
 exclude = ["examples/"]
 publish = true
@@ -36,11 +36,17 @@ repository = "https://github.com/longbridge/gpui-kit"
 resolver = "2"
 
 [features]
+decimal = ["dep:rust_decimal"]
+gpui-fast = ["dep:gpui-fast"]
 inspector = [
     "gpui_macros/inspector",
     "gpui/inspector",
+    "gpui-fast?/inspector",
 ]
-test-support = ["gpui/test-support"]
+test-support = [
+    "gpui/test-support",
+    "gpui-fast?/test-support",
+]
 
 [lib]
 name = "gpui_base"
@@ -50,6 +56,10 @@ doctest = false
 [[test]]
 name = "element_ext"
 path = "tests/element_ext.rs"
+
+[[test]]
+name = "text_host"
+path = "tests/text_host.rs"
 
 [[bench]]
 name = "motion"
@@ -77,11 +87,17 @@ version = "0.3"
 version = "0.3"
 
 [dependencies.gpui]
-version = "=0.3.6"
+version = "=0.3.10"
 package = "gpui-pre"
 
+[dependencies.gpui-fast]
+version = "0.1.12"
+features = ["windows-manifest-provided-by-host"]
+optional = true
+package = "gpui-fast"
+
 [dependencies.gpui_macros]
-version = "=0.3.6"
+version = "=0.3.10"
 package = "gpui-pre-macros"
 
 [dependencies.html5ever]
@@ -90,6 +106,9 @@ version = "0.27"
 [dependencies.instant]
 version = "0.1"
 features = ["wasm-bindgen"]
+
+[dependencies.itertools]
+version = "0.13.0"
 
 [dependencies.lsp-types]
 version = "0.97.0"
@@ -102,6 +121,9 @@ features = ["serde"]
 [dependencies.markup5ever_rcdom]
 version = "0.3.0"
 
+[dependencies.num-traits]
+version = "0.2"
+
 [dependencies.regex]
 version = "1"
 
@@ -112,6 +134,10 @@ features = [
     "metric_lines_lf",
     "metric_utf16",
 ]
+
+[dependencies.rust_decimal]
+version = "1.37.0"
+optional = true
 
 [dependencies.schemars]
 version = "1"
@@ -127,11 +153,14 @@ version = "1"
 version = "1"
 
 [dependencies.sum-tree]
-version = "=0.3.6"
+version = "=0.3.10"
 package = "gpui-pre-sum-tree"
 
 [dependencies.tracing]
 version = "0.1.41"
+
+[dependencies.unicode-linebreak]
+version = "0.1.5"
 
 [dependencies.unicode-segmentation]
 version = "1.12.0"
@@ -143,18 +172,38 @@ version = "2"
 version = "1"
 
 [dev-dependencies.criterion]
-version = "0.5"
+version = "0.8"
 
 [dev-dependencies.gpui]
-version = "=0.3.6"
+version = "=0.3.10"
 features = [
     "test-support",
     "bench-support",
 ]
 package = "gpui-pre"
 
+[dev-dependencies.gpui-fast]
+version = "0.1.12"
+features = [
+    "windows-manifest-provided-by-host",
+    "test-support",
+    "bench-support",
+]
+package = "gpui-fast"
+
+[dev-dependencies.gpui-fast-platform]
+version = "0.1.12"
+features = [
+    "font-kit",
+    "x11",
+    "wayland",
+    "runtime_shaders",
+    "bench-support",
+]
+package = "gpui-fast-platform"
+
 [dev-dependencies.gpui_platform]
-version = "=0.3.6"
+version = "=0.3.10"
 features = [
     "font-kit",
     "x11",
@@ -168,7 +217,7 @@ package = "gpui-pre-platform"
 version = "2"
 
 [dev-dependencies.reqwest_client]
-version = "=0.3.6"
+version = "=0.3.10"
 package = "gpui-pre-reqwest-client"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies.smol]

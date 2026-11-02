@@ -484,6 +484,11 @@ impl DockArea {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A panel this area does not own (e.g. dropped from a nested dock) has
+        // no backing entity here; inserting it would strand a ghost tab.
+        if self.panel(panel).is_none() {
+            return;
+        }
         let Some(destination) = self.placement_of_node(target_node(&target)) else {
             return;
         };
@@ -576,6 +581,24 @@ impl DockArea {
         self.commit(result, window, cx);
     }
 
+    /// Replace the slot sizes of the split at `node` in place.
+    pub fn set_split_sizes(
+        &mut self,
+        node: NodeId,
+        sizes: Vec<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(placement) = self.placement_of_node(node) else {
+            return;
+        };
+        let Some(tree) = self.tree_mut(placement) else {
+            return;
+        };
+        let result = tree.set_sizes(node, sizes.into_iter().map(Some).collect());
+        self.commit(result, window, cx);
+    }
+
     /// Put `panel` in a new tab group beside `node`.
     pub fn split_at(
         &mut self,
@@ -600,11 +623,89 @@ impl DockArea {
         let Some(region) = self.placement_of_panel(panel) else {
             return;
         };
+        let focused = window.focused(cx);
+        let had_focus = self
+            .panel(panel)
+            .is_some_and(|view| view.focus_handle(cx).contains_focused(window, cx));
+        // Prefer the same group, then the groups following it in layout order,
+        // then preceding groups from nearest to farthest. Preserve this order
+        // before normalization removes an emptied group or collapses its split.
+        let mut candidates = Vec::new();
+        if had_focus && let Some(tree) = self.layout(region) {
+            tree.root().walk(&mut |node| {
+                if matches!(node.kind(), PaneRef::Tabs { .. }) {
+                    candidates.push(node.id());
+                }
+            });
+            if let Some(ix) = tree
+                .find_panel_node(panel)
+                .and_then(|node| candidates.iter().position(|candidate| *candidate == node))
+            {
+                candidates = candidates[ix..]
+                    .iter()
+                    .chain(candidates[..ix].iter().rev())
+                    .copied()
+                    .collect();
+            }
+        }
         let Some(tree) = self.tree_mut(region) else {
             return;
         };
         let result = tree.remove_panel(panel);
         self.commit(result, window, cx);
+
+        // on_removed may deliberately focus another control (or clear focus).
+        // Automatic handoff is only the fallback when the callback left it alone.
+        if !had_focus || window.focused(cx) != focused {
+            return;
+        }
+        let next = candidates
+            .into_iter()
+            .find_map(|node| self.focus_target_in_group(node, cx))
+            .or_else(|| {
+                [
+                    DockPlacement::Center,
+                    DockPlacement::Left,
+                    DockPlacement::Right,
+                    DockPlacement::Bottom,
+                ]
+                .into_iter()
+                .filter(|placement| *placement != region)
+                .filter(|placement| {
+                    *placement == DockPlacement::Center
+                        || self
+                            .docks
+                            .get(placement)
+                            .is_some_and(|pane| pane.dock.is_open())
+                })
+                .find_map(|placement| {
+                    self.layout(placement)
+                        .and_then(|tree| self.focus_target_in_node(tree.root(), cx))
+                })
+            });
+        if let Some(next) = next {
+            next.focus_handle(cx).focus(window, cx);
+        }
+    }
+
+    fn focus_target_in_group(&self, node: NodeId, cx: &App) -> Option<Arc<dyn PanelView>> {
+        if self.zoomed.is_some_and(|zoom| zoom != Zoomed::Group(node)) {
+            return None;
+        }
+        let group = self.groups.get(&node)?.entity.read(cx);
+        if group.is_collapsed() {
+            return None;
+        }
+        group.active_panel(cx)
+    }
+
+    fn focus_target_in_node(&self, node: &PaneNode, cx: &App) -> Option<Arc<dyn PanelView>> {
+        match node.kind() {
+            PaneRef::Tabs { .. } => self.focus_target_in_group(node.id(), cx),
+            PaneRef::Split { children, .. } => children
+                .iter()
+                .find_map(|child| self.focus_target_in_node(child, cx)),
+        }
     }
 }
 
@@ -1195,10 +1296,16 @@ impl DockArea {
 
     /// Resize one dock from a pointer position, clamped so neither this dock
     /// nor the one opposite is squeezed below its minimum.
+    ///
+    /// A collapsible bottom dock is the exception: it follows the pointer
+    /// below the minimum down to its closed strip, so closing it by drag is
+    /// one continuous motion. That size is only shown, and
+    /// [`Self::end_dock_resize`] settles it on release.
     fn resize_dock(
         &mut self,
         placement: DockPlacement,
         pointer: Point<Pixels>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let opposite = match placement {
@@ -1209,12 +1316,54 @@ impl DockArea {
         let sizing = DockSizing::new(placement)
             .with_area_bounds(self.bounds)
             .with_opposite_dock_size(opposite.unwrap_or(px(0.)));
-        let size = sizing.clamp(sizing.size_from_pointer(pointer));
+        let size = sizing
+            .size_from_pointer(pointer)
+            .min(sizing.clamp(Pixels::MAX));
 
-        if let Some(pane) = self.docks.get_mut(&placement) {
+        let Some(pane) = self.docks.get_mut(&placement) else {
+            return;
+        };
+        let was_open = pane.dock.is_open();
+        if placement == DockPlacement::Bottom && pane.dock.is_collapsible() && size < PANEL_MIN_SIZE
+        {
+            pane.dock.set_open(size > CLOSED_BOTTOM_STRIP);
+            pane.dock.set_live_size(Some(size.max(CLOSED_BOTTOM_STRIP)));
+        } else {
+            pane.dock.set_open(true);
+            pane.dock.set_live_size(None);
             pane.dock.set_size(size);
-            cx.notify();
         }
+        if pane.dock.is_open() != was_open {
+            self.reconcile(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Settle a drag that ended below the minimum: nearer the closed strip it
+    /// closes, nearer the minimum it opens at the minimum.
+    fn end_dock_resize(
+        &mut self,
+        placement: DockPlacement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(pane) = self.docks.get_mut(&placement) else {
+            return;
+        };
+        let Some(size) = pane.dock.live_size() else {
+            return;
+        };
+        pane.dock.set_live_size(None);
+
+        let open = size >= (CLOSED_BOTTOM_STRIP + PANEL_MIN_SIZE) / 2.;
+        if open {
+            pane.dock.set_size(PANEL_MIN_SIZE);
+        }
+        if pane.dock.is_open() != open {
+            pane.dock.set_open(open);
+            self.reconcile(window, cx);
+        }
+        cx.notify();
     }
 }
 
@@ -1358,7 +1507,7 @@ impl DockArea {
 
         DockContext {
             placement,
-            size: dock.size(),
+            size: dock.live_size().unwrap_or(dock.size()),
             open: dock.is_open(),
             collapsible: dock.is_collapsible(),
             on_toggle: {
@@ -1367,8 +1516,16 @@ impl DockArea {
                     _ = area.update(cx, |area, cx| area.toggle_dock(placement, window, cx));
                 })
             },
-            on_resize: Rc::new(move |pointer, _, cx| {
-                _ = area.update(cx, |area, cx| area.resize_dock(placement, pointer, cx));
+            on_resize: {
+                let area = area.clone();
+                Rc::new(move |pointer, window, cx| {
+                    _ = area.update(cx, |area, cx| {
+                        area.resize_dock(placement, pointer, window, cx)
+                    });
+                })
+            },
+            on_resize_end: Rc::new(move |window, cx| {
+                _ = area.update(cx, |area, cx| area.end_dock_resize(placement, window, cx));
             }),
         }
     }
@@ -1668,6 +1825,7 @@ pub struct DockContext {
     collapsible: bool,
     on_toggle: DockToggleHandler,
     on_resize: DockResizeHandler,
+    on_resize_end: DockToggleHandler,
 }
 
 impl DockContext {
@@ -1697,6 +1855,12 @@ impl DockContext {
     /// against the area bounds and the opposite dock.
     pub fn resize_to(&self, pointer: Point<Pixels>, window: &mut Window, cx: &mut App) {
         (self.on_resize)(pointer, window, cx);
+    }
+
+    /// End a resize started with [`Self::resize_to`]. A bottom dock dragged
+    /// below its minimum snaps shut or to the minimum, whichever is nearer.
+    pub fn end_resize(&self, window: &mut Window, cx: &mut App) {
+        (self.on_resize_end)(window, cx);
     }
 }
 
@@ -2371,6 +2535,63 @@ mod tests {
         );
     }
 
+    #[gpui::test]
+    fn set_split_sizes_restores_a_share_and_reports_it(cx: &mut TestAppContext) {
+        let (area, cx) = setup(cx);
+        cx.update(|window, cx| {
+            let alpha = TestPanel::new("Alpha", cx);
+            let beta = TestPanel::new("Beta", cx);
+            area.update(cx, |area, cx| {
+                area.set_center(
+                    DockLayout::h_split()
+                        .child(DockLayout::tabs().panel(alpha), Some(px(300.)))
+                        .child(DockLayout::tabs().panel(beta), Some(px(300.))),
+                    window,
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+
+        let root = cx.read(|cx| {
+            area.read(cx)
+                .layout(DockPlacement::Center)
+                .unwrap()
+                .root()
+                .id()
+        });
+        let events = Rc::new(Cell::new(0));
+        let observed = events.clone();
+        let _subscription = cx.update(|window, cx| {
+            window.subscribe(&area, cx, move |_, event: &DockEvent, _, _| {
+                if matches!(event, DockEvent::LayoutChanged) {
+                    observed.set(observed.get() + 1);
+                }
+            })
+        });
+
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.set_split_sizes(root, vec![px(100.), px(300.)], window, cx);
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(events.get(), 1);
+        let measured = cx.read(|cx| area.read(cx).splits[&root].entity.read(cx).sizes().clone());
+        let share = measured[0].as_f32() / (measured[0].as_f32() + measured[1].as_f32());
+        assert!((share - 0.25).abs() < 0.01, "measured {measured:?}");
+
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.set_split_sizes(root, vec![px(10.)], window, cx);
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(events.get(), 1);
+        let after = cx.read(|cx| area.read(cx).splits[&root].entity.read(cx).sizes().clone());
+        assert_eq!(after, measured);
+    }
+
     /// A drop that splits carries no size — `TabGroup` builds
     /// `InsertTarget::Split { size: None }` — so the split has to decide one,
     /// and sharing the container equally is the decision. Passing the `None`
@@ -2413,6 +2634,24 @@ mod tests {
         assert!(
             (left - right).abs() <= (left + right) * 0.02,
             "the two halves must be within 2% of each other, got {left} and {right}"
+        );
+    }
+
+    /// Moving a panel this area does not own is a no-op, not a ghost insert.
+    #[gpui::test]
+    fn a_move_of_an_unowned_panel_is_ignored(cx: &mut TestAppContext) {
+        let log = Log::default();
+        let (area, _panels, cx) = one_group(&log, &["Alpha", "Beta"], None, cx);
+        let group = child_node(&area, 0, cx);
+        let before = cx.read(|cx| area.read(cx).dump(cx));
+
+        // A PanelId from nowhere, as if dropped from another DockArea.
+        move_panel_into(&area, PanelId::from_u64(9_999_999), group, None, true, cx);
+
+        let after = cx.read(|cx| area.read(cx).dump(cx));
+        assert_eq!(
+            before, after,
+            "an unowned panel move must not touch the tree"
         );
     }
 

@@ -130,7 +130,7 @@ fn glyphs_on(k: &Keystroke, mac: bool) -> String {
 
 /// Keys as `Store.keys` holds them ("cmd-shift-j"), in glyphs.
 fn shown(keys: &str) -> String {
-    keys.split_whitespace().map(|k| Keystroke::parse(k).map_or_else(|_| k.to_string(), |k| glyphs(&k))).collect::<Vec<_>>().join("  ")
+    keys.split_whitespace().map(|k| Keystroke::parse_with_os(k, keys::OS).map_or_else(|_| k.to_string(), |k| glyphs(&k))).collect::<Vec<_>>().join("  ")
 }
 
 #[derive(Debug)]
@@ -164,7 +164,7 @@ fn shortcut_rows(bindings: &[KeyBinding]) -> Vec<Shortcut> {
     let mut rows: Vec<Shortcut> = Vec::new();
     for b in bindings {
         let (Some(place), Some((label, topic))) = (place(b), label(b.action().name())) else { continue };
-        let keys = b.keystrokes().iter().map(|k| k.inner().unparse()).collect::<Vec<_>>().join(" ");
+        let keys = b.keystrokes().iter().map(|k| k.inner().unparse(keys::OS)).collect::<Vec<_>>().join(" ");
         match rows.iter_mut().find(|r| r.label == label && r.place == place) {
             Some(r) => r.keys.push(keys),
             None => rows.push(Shortcut { id: actions::binding_id(b), label, topic, place, keys: vec![keys] }),
@@ -305,7 +305,7 @@ impl Desktop {
         if k.key == "escape" {
             self.settings.keyboard.stop();
         } else if takes(k) {
-            let keys = k.unparse();
+            let keys = k.unparse(keys::OS);
             let Some(row) = SHORTCUTS.iter().find(|r| r.id == id) else { return false };
             if clash(&SHORTCUTS, &self.store.keys, row, &keys).is_some() {
                 self.settings.keyboard.recording = Some((id, Some(keys)));
@@ -513,13 +513,13 @@ mod tests {
 
     #[test]
     fn shortcuts_print_as_macos_glyphs() {
-        let g = |k: &str| glyphs_on(&Keystroke::parse(k).unwrap(), true);
+        let g = |k: &str| glyphs_on(&Keystroke::parse_with_os(k, keys::OS).unwrap(), true);
         assert_eq!([g("cmd-shift-j"), g("cmd-alt-left"), g("ctrl-shift-tab"), g("cmd-,")], ["⇧ ⌘ J", "⌥ ⌘ ←", "⌃ ⇧ ⇥", "⌘ ,"]);
     }
 
     #[test]
     fn shortcuts_off_macos_print_their_modifiers_by_name() {
-        let g = |k: &str| glyphs_on(&Keystroke::parse(k).unwrap(), false);
+        let g = |k: &str| glyphs_on(&Keystroke::parse_with_os(k, keys::OS).unwrap(), false);
         assert_eq!([g("ctrl-shift-j"), g("ctrl-alt-left"), g("ctrl-shift-tab"), g("ctrl-enter")], ["Ctrl Shift J", "Ctrl Alt ←", "Ctrl Shift Tab", "Ctrl Enter"]);
     }
 
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn only_keys_with_a_modifier_or_a_function_key_become_shortcuts() {
-        let t = |k: &str| takes(&Keystroke::parse(k).unwrap());
+        let t = |k: &str| takes(&Keystroke::parse_with_os(k, keys::OS).unwrap());
         assert_eq!([t("cmd-k"), t("ctrl-1"), t("alt-x"), t("f5"), t("k"), t("shift-k"), t("f")], [true, true, true, true, false, false, false]);
     }
 }
