@@ -74,7 +74,7 @@ impl Desktop {
         let me = if self.initials.is_empty() { "ME".to_string() } else { self.initials.clone() };
         // The divider starts under the header so it doesn't cut through the traffic lights, which overhang the rail.
         let divider = div().absolute().top(px(HEADER)).bottom_0().right_0().w(px(0.5)).bg(SEPARATOR);
-        drag_area(div().bg(SIDE))
+        drag_area(div().bg(NAV))
             .relative()
             .w(px(RAIL))
             .flex_none()
