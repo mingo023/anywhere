@@ -24,6 +24,7 @@ mod palette;
 mod panels;
 mod region;
 mod removal;
+mod renames;
 mod settings;
 mod sidebar;
 mod status;

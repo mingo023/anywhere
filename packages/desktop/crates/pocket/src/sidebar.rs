@@ -21,6 +21,7 @@ use crate::sidebar::filter::Filter;
 use crate::sidebar::fold::{Closing, Fold};
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
+use crate::renames::Slot;
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
@@ -80,7 +81,7 @@ fn setting_up(setups: &HashMap<String, String>, tree: &str) -> bool {
 }
 
 /// A tree's branch; a detached one names its folder.
-fn tree_place(w: &git::Worktree) -> String {
+pub(crate) fn tree_place(w: &git::Worktree) -> String {
     if w.branch.is_empty() || w.branch == "detached" { basename(&w.path) } else { w.branch.clone() }
 }
 
@@ -98,11 +99,19 @@ fn sweep_base(state: Option<ui::State>, selected: bool, reduce_motion: bool) -> 
     (state == Some(ui::State::Working) && !reduce_motion).then_some(if selected { TEXT } else { TEXT_BODY })
 }
 
-/// A tree row's label, sweeping from `sweeps` while its tree works.
-fn tree_name(tree: &str, label: String, sweeps: Option<Token>) -> AnyElement {
-    match sweeps {
-        Some(base) => ui::sweep(id(format!("aside-sweep:{tree}")), label.into(), base).into_any_element(),
-        None => label.into_any_element(),
+impl Desktop {
+    /// A tree row's label: decoding out of the one it replaced while a rename is fresh, else sweeping while its tree works.
+    fn tree_name(&self, tree: &str, label: String, state: Option<ui::State>, selected: bool, reduce_motion: bool) -> AnyElement {
+        let now = Instant::now();
+        // An unnamed tree shows its branch, so a branch rename renames it too.
+        let renamed = [Slot::Name, Slot::Branch].into_iter().find_map(|slot| self.renames.from(tree, slot, &label, now)).filter(|_| !reduce_motion);
+        if let Some(from) = renamed {
+            return ui::scramble(id(format!("aside-rename:{tree}:{label}")), from.to_string().into(), label.into(), if selected { TEXT } else { TEXT_BODY }).into_any_element();
+        }
+        match sweep_base(state, selected, reduce_motion) {
+            Some(base) => ui::sweep(id(format!("aside-sweep:{tree}")), label.into(), base).into_any_element(),
+            None => label.into_any_element(),
+        }
     }
 }
 
@@ -272,7 +281,7 @@ impl Desktop {
         };
         let label = match self.sidebar.rename.as_ref().filter(|r| r.tree == key) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-            None => done_name(self.scrolling(key, name.clone(), tree_name(key, name.clone(), sweep_base(state, selected, cx.reduce_motion())), cx), state),
+            None => done_name(self.scrolling(key, name.clone(), self.tree_name(key, name.clone(), state, selected, cx.reduce_motion()), cx), state),
         };
         let label = with_sub(label, sub.clone(), self.sidebar.renaming(key));
         let trail = (pins || renames).then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
@@ -473,7 +482,7 @@ impl Desktop {
         let (target, path) = (p.to_string(), tree.clone());
         let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
-            None => done_name(self.scrolling(tree, title.clone(), tree_name(tree, title.clone(), sweep_base(state, selected, cx.reduce_motion())), cx), state),
+            None => done_name(self.scrolling(tree, title.clone(), self.tree_name(tree, title.clone(), state, selected, cx.reduce_motion()), cx), state),
         };
         let pinned = sub.is_some();
         let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.renaming(tree)), selected, mark)

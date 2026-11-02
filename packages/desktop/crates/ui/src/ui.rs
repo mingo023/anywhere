@@ -597,6 +597,91 @@ pub fn sweep(id: impl Into<ElementId>, text: SharedString, base: Token) -> Anima
     })
 }
 
+/// How long noise takes to spread one letter further across the old name, in ms.
+const SCRAMBLE_WAVE: f32 = 10.;
+/// When the new name's first letter locks in, in ms.
+const SCRAMBLE_HOLD: f32 = 180.;
+/// How far apart letters lock in, in ms, at most; the first `SCRAMBLE_SPAN` letters share `SCRAMBLE_LOCKS` ms, the rest land with the last of them.
+const SCRAMBLE_STEP: f32 = 30.;
+const SCRAMBLE_LOCKS: f32 = 560.;
+/// About what a sidebar row shows of a name; letters past it are cut off anyway.
+const SCRAMBLE_SPAN: usize = 32;
+/// How long a locked letter takes to fade from its flash to the label's colour, in ms.
+const SCRAMBLE_FLASH: f32 = 240.;
+/// How often the noise reshuffles, in ms; every frame would read as flicker.
+const NOISE_EVERY: f32 = 50.;
+const NOISE: &[u8] = b"abcdeghknopqsuvxyz0123456789";
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Letter {
+    Old,
+    Noise,
+    /// How far through its flash, 0 to 1.
+    Locked(f32),
+}
+
+fn lock_at(i: usize, n: usize) -> f32 {
+    let span = n.clamp(1, SCRAMBLE_SPAN);
+    SCRAMBLE_HOLD + i.min(span - 1) as f32 * SCRAMBLE_STEP.min(SCRAMBLE_LOCKS / span as f32)
+}
+
+/// How long `to` takes to decode.
+pub fn scramble_duration(to: &str) -> std::time::Duration {
+    let n = to.chars().count().max(1);
+    std::time::Duration::from_secs_f32((lock_at(n - 1, n) + SCRAMBLE_FLASH) / 1000.)
+}
+
+fn noise(i: usize, step: usize) -> char {
+    let h = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (step as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+    NOISE[((h ^ (h >> 31)) % NOISE.len() as u64) as usize] as char
+}
+
+/// What a label reads `ms` into decoding `to` out of `from`: noise spreads over the old name from its start, then the new one locks in left to right.
+fn scrambled(from: &str, to: &str, ms: f32) -> Vec<(char, Letter)> {
+    let (from, to): (Vec<char>, Vec<char>) = (from.chars().collect(), to.chars().collect());
+    let step = (ms / NOISE_EVERY) as usize;
+    (0..from.len().max(to.len()))
+        .filter_map(|i| {
+            if ms < (i + 1) as f32 * SCRAMBLE_WAVE {
+                return from.get(i).map(|&c| (c, Letter::Old));
+            }
+            let c = *to.get(i)?;
+            let lock = lock_at(i, to.len());
+            Some(match c {
+                _ if ms >= lock => (c, Letter::Locked(((ms - lock) / SCRAMBLE_FLASH).min(1.))),
+                // Separators hold still, so the new name's shape shows before its letters.
+                '-' | ' ' | '/' => (c, Letter::Noise),
+                _ => (noise(i, step), Letter::Noise),
+            })
+        })
+        .collect()
+}
+
+/// `to` in `base`, decoding out of `from`, as a name an agent just gave: the old name scrambles into noise, then the new one locks in left to right, each letter flashing as it lands.
+pub fn scramble(id: impl Into<ElementId>, from: SharedString, to: SharedString, base: Token) -> AnimationElement<Div> {
+    let (base, peak, dim): (Hsla, Hsla, Hsla) = (base.into(), SHIMMER.into(), TEXT_4.into());
+    let length = scramble_duration(&to);
+    let ms = length.as_secs_f32() * 1000.;
+    // Uncapped, an animation redraws the whole window every vsync.
+    div().with_animation(id, Animation::new(length).with_max_fps(30.), move |d, t| {
+        let letters = scrambled(&from, &to, t * ms);
+        let mut at = 0;
+        let runs: Vec<_> = letters
+            .iter()
+            .map(|&(c, letter)| {
+                let color = match letter {
+                    Letter::Old => base,
+                    Letter::Noise => dim,
+                    Letter::Locked(f) => base.blend(Hsla { a: 1. - f, ..peak }),
+                };
+                at += c.len_utf8();
+                (at - c.len_utf8()..at, HighlightStyle { color: Some(color), ..Default::default() })
+            })
+            .collect();
+        d.child(StyledText::new(letters.iter().map(|(c, _)| c).collect::<String>()).with_highlights(runs))
+    })
+}
+
 /// How fast a cut-off label scrolls, in px a second.
 const MARQUEE_SPEED: f32 = 30.;
 /// How long a scrolling label rests at its start, then at its end, in seconds.
@@ -1306,7 +1391,7 @@ pub fn failure(message: String, detail: String) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, Mark, State, Tone, count_text, lit, marquee_cycle, marquee_offset, named_keys, tone, word};
+    use super::{Glyph, Letter, MARQUEE_REST, MARQUEE_SPEED, Mark, State, Tone, count_text, lit, marquee_cycle, marquee_offset, named_keys, scramble_duration, scrambled, tone, word};
     use theme::{ACCENT, ACCENT_TINT, WORKING};
 
     #[test]
@@ -1318,6 +1403,33 @@ mod tests {
     #[test]
     fn mac_key_glyphs_read_as_named_keys_off_macos() {
         assert_eq!([named_keys("⌘⇧B"), named_keys("⌘ ↵"), named_keys("⌃3"), named_keys("⌘1–9"), named_keys("⌘-click"), named_keys("esc")], ["Ctrl+Shift+B", "Ctrl Enter", "Alt+3", "Ctrl+1–9", "Ctrl-click", "esc"]);
+    }
+
+    fn read(letters: &[(char, Letter)]) -> String {
+        letters.iter().map(|(c, _)| c).collect()
+    }
+
+    #[test]
+    fn a_scrambled_name_starts_as_the_old_one_and_settles_as_the_new_one() {
+        let end = scramble_duration("fix-login-redirect").as_secs_f32() * 1000.;
+        assert_eq!(read(&scrambled("calm-otter", "fix-login-redirect", 0.)), "calm-otter");
+        let settled = scrambled("calm-otter", "fix-login-redirect", end);
+        assert_eq!(read(&settled), "fix-login-redirect");
+        assert!(settled.iter().all(|&(_, l)| l == Letter::Locked(1.)));
+    }
+
+    #[test]
+    fn a_scrambling_name_keeps_its_separators_while_its_letters_are_noise() {
+        let mid = scrambled("calm-otter", "fix-login", 150.);
+        assert_eq!(mid.len(), 9);
+        assert_eq!(mid[3], ('-', Letter::Noise));
+        assert!(mid.iter().all(|&(_, l)| l == Letter::Noise));
+    }
+
+    #[test]
+    fn a_long_name_decodes_no_slower_than_what_a_row_shows_of_it() {
+        assert_eq!(scramble_duration(&"a".repeat(150)), scramble_duration(&"a".repeat(32)));
+        assert!(scramble_duration(&"a".repeat(150)).as_millis() <= 1000);
     }
 
     const STATUSES: [State; 4] = [State::NeedsYou, State::Working, State::Done(0, 0), State::Failed];

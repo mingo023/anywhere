@@ -497,14 +497,14 @@ impl Desktop {
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
-        let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking);
+        let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
         let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(goal).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 
     /// The agent's branch and `account`, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
-    fn composer_footer(&self, agent: &Summary, account: Option<Div>, hint: Option<&'static str>, said: Option<&str>, asking: bool) -> Div {
+    fn composer_footer(&self, agent: &Summary, account: Option<Div>, hint: Option<&'static str>, said: Option<&str>, asking: bool, reduce_motion: bool) -> Div {
         let branch = self.worktree_of(&agent.cwd).filter(|t| !t.branch.is_empty()).map(|t| {
             div()
                 .min_w_0()
@@ -512,7 +512,7 @@ impl Desktop {
                 .items_center()
                 .gap(px(6.))
                 .child(icon("worktree", 13., TEXT_3))
-                .child(div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(t.branch.clone()))
+                .child(div().min_w_0().truncate().font_family(code_font()).text_size(px(11.5)).text_color(TEXT_2).child(self.renames.branch("composer-branch", &t.path, &t.branch, TEXT_2, reduce_motion)))
         });
         div()
             .min_w_0()

@@ -48,7 +48,10 @@ impl Desktop {
                     .gap(px(4.))
                     .text_color(TEXT_3)
                     .child(icon("branch", 12., TEXT_3))
-                    .child(div().truncate().font_family(MONO).text_size(px(12.)).child(repo.branch.clone())),
+                    .child(div().truncate().font_family(MONO).text_size(px(12.)).child(match self.cwd() {
+                        Some(tree) => self.renames.branch("changes-branch", &tree, &repo.branch, TEXT_3, cx.reduce_motion()),
+                        None => repo.branch.clone().into_any_element(),
+                    })),
             )
             .children(pr)
             .child(view)

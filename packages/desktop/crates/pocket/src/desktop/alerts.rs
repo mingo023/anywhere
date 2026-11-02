@@ -207,7 +207,16 @@ impl Desktop {
         }
         let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
         let listed = matches!(ev, Event::Agents(_) | Event::Agent(_)).then(|| self.agents.list.clone());
+        let named = matches!(ev, Event::Names(_)).then(|| self.agents.names.clone());
+        if connected {
+            self.renames.connected(host);
+        }
         self.agents.apply_from(host, ev);
+        if let Some(before) = named {
+            let trees = &self.worktrees;
+            let place = |path: &str| trees.values().flatten().find(|w| w.path == path).map(crate::sidebar::tree_place);
+            self.renames.names(host, &before, &self.agents.names, place, Instant::now());
+        }
         for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
             self.chat_closed(&agent, &who, window, cx);
         }

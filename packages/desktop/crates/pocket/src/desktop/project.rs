@@ -11,6 +11,7 @@ use git::Repo;
 use gpui_kit::*;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use theme::*;
 use ui::State;
 use workspace::Workspace;
@@ -218,6 +219,7 @@ impl Desktop {
                     d.forget_tree(t, cx);
                 }
                 let worktrees = project::refreshed(worktrees, &d.worktrees, &unread);
+                d.renames.branches(d.worktrees.values().flatten(), worktrees.values().flatten(), Instant::now());
                 let repos_changed = merge_repos(&mut d.repos, repos);
                 let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
                 (d.explorer.tree, d.initials, d.worktrees) = (tree, initials, worktrees);
