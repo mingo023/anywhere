@@ -165,6 +165,7 @@ impl Desktop {
             // Unfocused, GPUI dispatches keys from the window's root node, above this view's action handlers.
             cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
         ];
+        _subs.push(Self::confirm_on_enter(cx));
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);

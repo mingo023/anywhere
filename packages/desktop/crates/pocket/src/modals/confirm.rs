@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::Confirm;
+use crate::desktop::chrome::{Confirm, Overlay};
 use crate::removal::Removal;
 use crate::status::{self, Status};
 use crate::terminals::close::Busy;
@@ -151,7 +151,31 @@ impl ConfirmText {
     }
 }
 
+/// Whether a key press takes the sheet's action. Only a delete the user just asked for does: a sheet that arrives on its own, like a failed teardown, could catch an Enter meant for something else.
+fn enter_confirms(key: &Keystroke, confirm: &Confirm) -> bool {
+    key.key == "enter" && !key.modifiers.modified() && matches!(confirm, Confirm::DeleteWorktree { .. } | Confirm::DeleteLocal(_) | Confirm::DeleteAutomation(_))
+}
+
 impl Desktop {
+    /// Ahead of the keymap: a text field behind the sheet keeps focus, and its Enter would send its draft as well.
+    pub(crate) fn confirm_on_enter(cx: &mut Context<Self>) -> Subscription {
+        let desktop = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |ev, window, cx| {
+            if desktop.update(cx, |d, cx| d.take_enter(&ev.keystroke, window, cx)).unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        })
+    }
+
+    fn take_enter(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let open = self.confirm.as_ref().filter(|_| self.overlay == Some(Overlay::Confirm));
+        if !open.is_some_and(|c| enter_confirms(key, c)) {
+            return false;
+        }
+        self.confirmed(window, cx);
+        true
+    }
+
     pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
         let text = match &self.confirm {
             Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
@@ -275,11 +299,26 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Busy, ConfirmText, FileStat, Takes};
+    use super::{Busy, Confirm, ConfirmText, FileStat, Takes, enter_confirms};
     use crate::removal::Removal;
+    use gpui_kit::Keystroke;
 
     fn text(title: &str, action: &'static str, facts: &[&str], dirty: usize) -> ConfirmText {
         ConfirmText { title: title.into(), action, facts: facts.iter().map(|f| f.to_string()).collect(), dirty, lost: 0, danger: true }
+    }
+
+    #[test]
+    fn enter_takes_only_a_delete_the_user_just_asked_for() {
+        let enter = Keystroke::parse("enter").unwrap();
+        let delete = Confirm::DeleteLocal("l".into());
+        assert!(enter_confirms(&enter, &delete));
+        assert!(enter_confirms(&enter, &Confirm::DeleteAutomation("a".into())));
+        assert!(!enter_confirms(&Keystroke::parse("cmd-enter").unwrap(), &delete));
+        assert!(!enter_confirms(&Keystroke::parse("space").unwrap(), &delete));
+        let removal = Removal { project: "/p".into(), tree: "/t".into(), branch: None, delete_branch: false, teardown: true };
+        assert!(enter_confirms(&enter, &Confirm::DeleteWorktree { removal: removal.clone(), dirty: 0, lost: 0 }));
+        let teardown = Confirm::TeardownFailed { removal, tail: String::new() };
+        assert!(!enter_confirms(&enter, &teardown), "a sheet that arrives on its own");
     }
 
     #[test]
