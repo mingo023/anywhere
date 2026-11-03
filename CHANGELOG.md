@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.27
+
+- Working sessions show a 3×3 gradient spinner instead of orange dots (#180): (3f7b4947)
+- Vue, Svelte, Astro, SCSS and a dozen more languages are coloured (#179): (8e1543e3)
+
 ## 0.1.26
 
 - Finished forks stop showing as running in the background tray (#178): (a716e0ea)
