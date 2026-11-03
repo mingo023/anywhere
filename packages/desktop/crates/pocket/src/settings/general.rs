@@ -18,6 +18,14 @@ fn update_status(update: &Update, available: bool) -> (Option<Token>, String) {
     }
 }
 
+fn cli_status(available: bool, installed: bool) -> &'static str {
+    match (available, installed) {
+        (false, _) => "Comes with release builds on macOS",
+        (true, false) => "Adds anywhere to your PATH, and a skill for Claude and Codex",
+        (true, true) => "anywhere is on your PATH",
+    }
+}
+
 const CHECK_HOURS: [u32; 4] = [1, 6, 24, 168];
 const LAUNCH_LAYOUTS: [Option<Layout>; 4] = [None, Some(Layout::Sidebars), Some(Layout::Compact), Some(Layout::Focus)];
 const CONFIRM: [ConfirmQuit; 3] = [ConfirmQuit::Never, ConfirmQuit::Always, ConfirmQuit::Working];
@@ -56,6 +64,7 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::switch("restore-layouts", "Startup & background", "Restore tabs and splits", |s| s.general.restore_layouts, |s, on| s.general.restore_layouts = on)
         .hint("Reopens the last window layout instead of a fresh window"),
     Setting::custom("service", "Startup & background", "Background service", |d, _, cx| d.service_row(cx)).hint("Restart the service that hosts every terminal and agent").advanced(),
+    Setting::custom("cli", "Startup & background", "Command line tool", |d, _, cx| d.cli_row(cx)).hint("Lets scripts and agents outside Anywhere run its sessions"),
     Setting::choice("launch-layout", "Launch layout", "Layout at launch", &["Last used", "Sidebars", "Compact", "Focus"], Look::Segmented, |s| index(&LAUNCH_LAYOUTS, s.general.launch_layout, 0), |s, i| {
         s.general.launch_layout = LAUNCH_LAYOUTS[i]
     })
@@ -123,6 +132,28 @@ impl Desktop {
         row(title, None, div().when_some(restart, |d, c| d.child(c)))
     }
 
+    fn cli_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let available = cfg!(target_os = "macos") && channel::is_release();
+        let installed = self.settings.host.cli;
+        let title = div().flex().flex_col().gap(px(1.)).child("Command line tool").child(div().text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(cli_status(available, installed)));
+        let install = (available && !installed).then(|| action("settings-install-cli", "Install").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.install_cli(cx))));
+        row(title, None, div().when_some(install, |d, c| d.child(c)))
+    }
+
+    fn install_cli(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async { daemon::cli::install() }).await;
+            this.update(cx, |d, cx| {
+                match result {
+                    Ok(()) => d.settings.host.cli = true,
+                    Err(e) => d.error = Some(format!("Couldn't install the command line tool: {e}")),
+                }
+                cx.notify();
+            })
+        })
+        .detach();
+    }
+
     fn update_row(&mut self, cx: &mut Context<Self>) -> Div {
         let (dot, status) = update_status(&self.updates.update, self.updates.available());
         let title = div()
@@ -160,7 +191,7 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::super::catalog::Control;
-    use super::{ROWS, update_status};
+    use super::{ROWS, cli_status, update_status};
     use crate::updates::Update;
 
     #[test]
@@ -194,5 +225,12 @@ mod tests {
     #[test]
     fn a_dev_build_says_updates_come_with_release_builds() {
         assert_eq!(update_status(&Update::Idle, false).1, "Updates come with release builds");
+    }
+
+    #[test]
+    fn the_command_line_row_says_where_it_stands() {
+        assert_eq!(cli_status(false, false), "Comes with release builds on macOS");
+        assert_eq!(cli_status(true, false), "Adds anywhere to your PATH, and a skill for Claude and Codex");
+        assert_eq!(cli_status(true, true), "anywhere is on your PATH");
     }
 }

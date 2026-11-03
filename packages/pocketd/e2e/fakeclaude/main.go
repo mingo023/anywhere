@@ -8,6 +8,7 @@
 //	<text>      reply "echo: <text>"
 //	run <cmd>   ask the PermissionRequest hook, then run a Bash tool with its answer
 //	desk <cmd>  ask the hook, but answer on the "desktop" before it replies
+//	hang        stay in the turn until killed
 //
 // With --input-format it speaks stream-json, as for Pocket's chat; see chat.go.
 package main
@@ -191,6 +192,8 @@ func main() {
 			runTool(s, id, strings.TrimPrefix(line, "run "), false)
 		case strings.HasPrefix(line, "desk "):
 			runTool(s, id, strings.TrimPrefix(line, "desk "), true)
+		case line == "hang":
+			time.Sleep(time.Hour)
 		default:
 			fmt.Println("echo: " + line)
 			s.write(assistant(map[string]any{"type": "text", "text": "echo: " + line}))
