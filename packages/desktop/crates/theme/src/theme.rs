@@ -536,6 +536,44 @@ pub fn dot_spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) 
         })
 }
 
+/// The gradient spinner's rows, cool blue at the top through amber to pink, and the opacity a dot rests at between pulses.
+const GRADIENT_ROWS: [u32; 3] = [0xb6d3ef, 0xedb185, 0xf888a0];
+const GRADIENT_DIM: f32 = 0.1;
+
+/// A dot's opacity `t` through its own pulse: full at the start, down to dim by 45%, resting, back to full over the last 8%.
+fn gradient_opacity(t: f32) -> f32 {
+    let t = t.rem_euclid(1.);
+    if t < 0.45 {
+        1. + (GRADIENT_DIM - 1.) * t / 0.45
+    } else if t < 0.92 {
+        GRADIENT_DIM
+    } else {
+        GRADIENT_DIM + (1. - GRADIENT_DIM) * (t - 0.92) / 0.08
+    }
+}
+
+/// How far ahead in its pulse the dot at `row`, `col` of the 3×3 grid runs, as a fraction of a period.
+fn gradient_lead(row: usize, col: usize) -> f32 {
+    (2. - row as f32 + (col as f32 - 1.).abs()) / 4.
+}
+
+/// A `size`-px 3×3 grid of dots tinted by row, a pulse of light passing over them; Zeron's working indicator (MIT).
+pub fn gradient_spinner(id: impl Into<ElementId>, size: f32) -> impl IntoElement {
+    let dot = size / 4.;
+    div()
+        .size(px(size))
+        .flex_none()
+        .flex()
+        .flex_col()
+        .gap(px(dot / 2.))
+        // Uncapped, a repeating animation redraws the whole window every vsync; 20fps shares frames with the chat's shimmer.
+        .with_animation(id, Animation::new(std::time::Duration::from_millis(750)).repeat_synced().with_max_fps(20.), move |d, t| {
+            d.children(GRADIENT_ROWS.iter().enumerate().map(|(row, &tint)| {
+                div().flex().gap(px(dot / 2.)).children((0..3).map(move |col| div().size(px(dot)).rounded_full().bg(Hsla::from(rgb(tint)).opacity(gradient_opacity(t + gradient_lead(row, col))))))
+            }))
+        })
+}
+
 pub const FONTS: [&[u8]; 9] = [
     include_bytes!("../assets/fonts/Geist-Regular.ttf"),
     include_bytes!("../assets/fonts/Geist-Medium.ttf"),
@@ -638,7 +676,7 @@ mod tests {
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
-        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, WORKING, accent_rgba,
+        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, WORKING, accent_rgba, gradient_lead, gradient_opacity,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, SpringState, rgba};
@@ -840,5 +878,21 @@ mod tests {
         let (_, damping_ratio) = SPRING.canonical();
         let settle = SPRING.settle_time(SpringState::default(), 1., 0.01);
         assert!(damping_ratio >= 1. && settle <= std::time::Duration::from_millis(250), "{damping_ratio} {settle:?}");
+    }
+
+    #[test]
+    fn a_gradient_spinner_dot_flares_then_rests_dim_until_its_next_pulse() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        assert!(near(gradient_opacity(0.), 1.));
+        assert!(near(gradient_opacity(0.45), 0.1));
+        assert!(near(gradient_opacity(0.7), 0.1));
+        assert!(near(gradient_opacity(0.96), 0.55));
+        assert!(near(gradient_opacity(1.), 1.));
+    }
+
+    #[test]
+    fn gradient_spinner_dots_run_ahead_by_their_distance_from_the_bottom_centre() {
+        let leads: Vec<Vec<f32>> = (0..3).map(|row| (0..3).map(|col| gradient_lead(row, col)).collect()).collect();
+        assert_eq!(leads, [[0.75, 0.5, 0.75], [0.5, 0.25, 0.5], [0.25, 0., 0.25]]);
     }
 }

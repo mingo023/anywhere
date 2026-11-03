@@ -35,7 +35,7 @@ pub fn glyph(status: RunStatus, size: f32, id: impl Into<ElementId>) -> AnyEleme
             let halo = (size >= 14.).then(|| ui::ring(WAITING_BG, 2.5));
             div().size(px(size)).flex_none().flex().items_center().justify_center().child(ui::dot(dot, color).shadow(halo.into_iter().collect::<Vec<_>>())).into_any_element()
         }
-        RunStatus::Running | RunStatus::Pending => dot_spinner(id, size, color).into_any_element(),
+        RunStatus::Running | RunStatus::Pending => gradient_spinner(id, size).into_any_element(),
         RunStatus::Succeeded => icon("check", size, color).into_any_element(),
         RunStatus::Failed => icon("x-bold", size, color).into_any_element(),
         RunStatus::Skipped | RunStatus::Unknown => icon("run-skipped", size, color).into_any_element(),
