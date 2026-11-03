@@ -29,6 +29,9 @@ use std::collections::HashMap;
 use theme::*;
 use workspace::Place;
 
+/// [DEBUG-focus] Where `log_focus_miss` appends.
+pub(crate) static FOCUS_LOG: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
 pub(crate) const PLACEHOLDER: &str = "Ask, build, / for commands, @ for files";
 const BUSY_PLACEHOLDER: &str = "Send a follow-up into this turn…";
 const STOPPING_PLACEHOLDER: &str = "Queue a follow-up…";
@@ -318,6 +321,66 @@ impl Desktop {
         self.chat_focus_input(&agent, window, cx);
         self.chats.input.update(cx, |s, cx| s.replace_text_in_range(None, &text, window, cx));
         true
+    }
+
+    /// [DEBUG-focus] Logs text typed while a chat is focused that neither its input nor `type_into_chat` takes.
+    pub(crate) fn log_focus_miss(&self, key: &Keystroke, window: &Window, cx: &App) {
+        let (Some(_), Some(t), Some(path)) = (typed_text(key), self.focused_chat(), FOCUS_LOG.get()) else { return };
+        if self.chats.input.read(cx).focus_handle(cx).is_focused(window) {
+            return;
+        }
+        let mode = self.chat_mode(&t);
+        if self.root.is_focused(window) && self.panes_on_screen() && mode == Mode::Prompt {
+            return;
+        }
+        let c = &self.chats.composer;
+        let named = [
+            ("root", self.root.clone()),
+            ("terminal", self.terminal.focus.clone()),
+            ("ask", c.ask_focus.clone()),
+            ("answer", c.answer.read(cx).focus_handle(cx)),
+            ("map", self.chats.map.focus.clone()),
+            ("browser", self.browsers.focus.clone()),
+            ("inbox", self.inbox.focus.clone()),
+            ("sidebar-filter", self.sidebar.filter.input.read(cx).focus_handle(cx)),
+        ];
+        let focus = match window.focused(cx) {
+            None => "none",
+            Some(f) => named.iter().find(|(_, h)| *h == f).map_or("other", |(n, _)| n),
+        };
+        let menus = [
+            ("panels.menu", self.panels.menu.is_some()),
+            ("panels.actions", self.panels.actions.is_some()),
+            ("row_menu", self.row_menu.is_some()),
+            ("changes.commit_menu", self.changes.commit_menu),
+            ("changes.menu", self.changes.menu),
+            ("pr.ship_menu", self.pr.ship_menu),
+            ("pr.merge_menu", self.pr.merge_menu),
+            ("sidebar.picker", self.sidebar.picker.open),
+            ("sidebar.add_menu", self.sidebar.add_menu),
+            ("sidebar.organize", self.sidebar.organize.menu),
+            ("automations.menu", self.automations.menu.is_some()),
+            ("explorer.menu", self.explorer.menu.is_some()),
+            ("terminal.menu", self.terminal.menu.is_some()),
+            ("accounts.menu", self.accounts.menu.is_some()),
+            ("clone_form.group_menu", self.clone_form.group_menu),
+            ("chats.files", self.chats.files.is_some()),
+        ];
+        let open: Vec<&str> = menus.iter().filter(|(_, on)| *on).map(|(n, _)| *n).collect();
+        let line = format!(
+            "{} key={:?} focus={focus} active={} screen={:?} tree={} create={} overlay={} menus={open:?} mode={mode:?} replying={}\n",
+            now_ms(),
+            key.key,
+            window.is_window_active(),
+            self.screen,
+            self.session_tree().is_some(),
+            self.shown_create().is_some(),
+            self.overlay.is_some(),
+            c.replying.is_some(),
+        );
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = std::io::Write::write_all(&mut f, line.as_bytes());
+        }
     }
 
     /// Sends the draft unless the agent can't take it now; Enter never stops.
