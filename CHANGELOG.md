@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.26
+
+- Finished forks stop showing as running in the background tray (#178): (a716e0ea)
+- Scripts and agents outside Anywhere run its sessions with `anywhere` (#176): (110917ba)
+
 ## 0.1.25
 
 - A worktree's new name and branch decode in when the agent renames them (#171): (0d7dfd9a)
