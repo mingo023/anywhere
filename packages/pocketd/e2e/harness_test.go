@@ -45,6 +45,9 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "build pocketd-next: %v\n%s", err, out)
 		os.Exit(1)
 	}
+	if err := os.Symlink(filepath.Join(dir, "pocketd"), filepath.Join(dir, "anywhere")); err != nil {
+		panic(err)
+	}
 	binDir = dir
 	code := m.Run()
 	os.RemoveAll(dir)

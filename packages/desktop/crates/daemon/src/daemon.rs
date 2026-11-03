@@ -12,6 +12,7 @@ pub use uds_windows::UnixStream;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+pub mod cli;
 pub mod service;
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]

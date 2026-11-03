@@ -23,6 +23,7 @@ import (
 	"pocketd/internal/automation"
 	"pocketd/internal/awake"
 	"pocketd/internal/broker"
+	"pocketd/internal/cliskill"
 	"pocketd/internal/config"
 	"pocketd/internal/daemon"
 	"pocketd/internal/devices"
@@ -90,6 +91,11 @@ func serve(sock, handed string) error {
 		}
 	}
 	evs.Emit(events.Event{Kind: "start", Version: versionString(), PID: os.Getpid(), Service: &launchd})
+	if user, err := os.UserHomeDir(); err == nil {
+		if err := cliskill.Refresh(user); err != nil {
+			log.Printf("skill: %v", err)
+		}
+	}
 	defer func() {
 		reason := "error"
 		if ctx.Err() != nil {

@@ -13,6 +13,8 @@ pub(crate) struct Host {
     pub status: Option<daemon::Status>,
     /// None until pocketd lists them.
     pub devices: Option<Vec<Device>>,
+    /// Whether the `anywhere` command points at this app, read when Settings opens.
+    pub cli: bool,
     pub time: Entity<InputState>,
     pub port: Entity<InputState>,
     pub renaming: Option<Rename>,
@@ -43,7 +45,7 @@ impl Host {
                 }
             }),
         ];
-        (Self { status: None, devices: None, time, port, renaming: None }, subs)
+        (Self { status: None, devices: None, cli: false, time, port, renaming: None }, subs)
     }
 }
 
@@ -143,8 +145,9 @@ impl Desktop {
             return;
         }
         cx.spawn(async |this, cx| {
-            let (status, devices) = cx.background_executor().spawn(async { (daemon::request(&json!({"op": "status"})), daemon::request(&json!({"op": "devices"}))) }).await;
+            let (status, devices, cli) = cx.background_executor().spawn(async { (daemon::request(&json!({"op": "status"})), daemon::request(&json!({"op": "devices"})), daemon::cli::installed()) }).await;
             this.update(cx, |d, cx| {
+                d.settings.host.cli = cli;
                 if let Ok(reply) = status {
                     if let Some(config) = reply.status.as_ref().and_then(|s| s.config.as_ref())
                         && mirror(&mut d.store, config)

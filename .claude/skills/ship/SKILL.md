@@ -1,7 +1,6 @@
 ---
 name: ship
 description: Commit the current changes on a branch and open a PR to main with the right `type:` label, without asking questions. Only runs when invoked as /ship.
-disable-model-invocation: true
 ---
 
 # Ship
