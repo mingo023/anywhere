@@ -417,7 +417,10 @@ func projects(c *client) ([]proto.Project, error) {
 		return nil, err
 	}
 	var l proto.ProjectList
-	return l.Projects, json.Unmarshal(raw, &l)
+	if err := json.Unmarshal(raw, &l); err != nil {
+		return nil, err
+	}
+	return l.Projects, nil
 }
 
 func projectListCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
@@ -750,6 +753,13 @@ func TestAnywhereOpensANewWorktreeWhenAsked(t *testing.T) {
 	}
 }
 
+func TestAnEmptyWorktreeNameIsAUsageError(t *testing.T) {
+	h := Start(t, launchReady(""))
+	if out, errOut, code := h.anywhere("session", "create", "--new-worktree="); code != 2 {
+		t.Fatalf("exited %d: %s %s", code, out, errOut)
+	}
+}
+
 func TestAProcessInsideATerminalIsToldItCanOnlyRead(t *testing.T) {
 	h := Start(t, launchReady(""))
 	id := h.Spawn("/bin/sh", "-c", filepath.Join(binDir, "anywhere")+" session close nope; sleep 30")
@@ -759,7 +769,7 @@ func TestAProcessInsideATerminalIsToldItCanOnlyRead(t *testing.T) {
 
 **Step 2: Run them to verify they fail**
 
-Run: `cd packages/pocketd && env -u POCKETD_SOCK go test -count=1 -run 'Anywhere|InsideATerminalIsTold' ./e2e`
+Run: `cd packages/pocketd && env -u POCKETD_SOCK go test -count=1 -run 'Anywhere|AnEmpty|InsideATerminalIsTold' ./e2e`
 Expected: FAIL. `create exited 2`, since the verb doesn't exist yet.
 
 **Step 3: Track who has been in a turn.** In `anywhere_client.go`, add a field to `client`:
@@ -828,6 +838,15 @@ func sessionCreateCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
 	if pos, err := positional(flags, args); err != nil || len(pos) != 0 || n.worktree != "" && n.newWorktree != "" {
 		return errUsage
 	}
+	unnamed := false
+	flags.Visit(func(f *flag.Flag) {
+		if (f.Name == "worktree" || f.Name == "new-worktree") && f.Value.String() == "" {
+			unnamed = true
+		}
+	})
+	if unnamed {
+		return errUsage
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -857,13 +876,11 @@ func sessionCreateCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
 	if err := json.Unmarshal(raw, &created); err != nil {
 		return err
 	}
-	if n.prompt != "" {
-		if err := c.awaitTurn(created.AgentID); err != nil {
-			return err
-		}
+	// The session exists whether or not its turn starts, so the caller gets its id either way.
+	if _, err := fmt.Fprintln(w, created.AgentID); err != nil || n.prompt == "" {
+		return err
 	}
-	_, err = fmt.Fprintln(w, created.AgentID)
-	return err
+	return c.awaitTurn(created.AgentID)
 }
 
 // awaitTurn returns once id has been seen in a turn, so a wait right after
@@ -936,7 +953,7 @@ func sessionCloseCmd(flags *flag.FlagSet, args []string) error {
 
 **Step 5: Run the tests to verify they pass**
 
-Run: `cd packages/pocketd && env -u POCKETD_SOCK go test -count=1 -run 'Anywhere|InsideATerminalIsTold' ./e2e`
+Run: `cd packages/pocketd && env -u POCKETD_SOCK go test -count=1 -run 'Anywhere|AnEmpty|InsideATerminalIsTold' ./e2e`
 Expected: PASS.
 
 ---
