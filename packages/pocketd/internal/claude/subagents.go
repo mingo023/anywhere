@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +22,8 @@ func MapSubagent(raw []byte, parent string) []timeline.Event {
 	if json.Unmarshal(raw, &l) != nil {
 		return nil
 	}
-	events := l.events()
+	// A fork's transcript opens by replaying the call that spawned it and its result; only the parent's transcript runs that call.
+	events := slices.DeleteFunc(l.events(), func(e timeline.Event) bool { return e.ToolUseID == parent })
 	for i := range events {
 		events[i].ParentToolUseID = parent
 	}
@@ -57,7 +59,7 @@ func TailSubagents(ctx context.Context, path string, kick <-chan struct{}, spawn
 					parents[name] = parent
 				}
 			}
-			// Forks and skills run as sub-agents too, but without a tool call to nest under.
+			// Skills, and forks older Claude didn't tie to their call, run as sub-agents too, but without a tool call to nest under.
 			if tailing[name] || parent == "" || !spawned(parent) {
 				continue
 			}
