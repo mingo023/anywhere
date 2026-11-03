@@ -15,6 +15,8 @@ pub struct General {
     #[serde(deserialize_with = "crate::lenient")]
     pub launch_layout: Option<Layout>,
     pub panel_open: bool,
+    /// Closing the window quits, where it would leave Anywhere running in the background.
+    pub close_quits: bool,
     #[serde(deserialize_with = "crate::lenient")]
     pub confirm_quit: ConfirmQuit,
     pub battery_saver: bool,
@@ -37,6 +39,7 @@ impl Default for General {
             restore_layouts: true,
             launch_layout: None,
             panel_open: false,
+            close_quits: false,
             confirm_quit: ConfirmQuit::Always,
             battery_saver: false,
             git_secs: 2,
