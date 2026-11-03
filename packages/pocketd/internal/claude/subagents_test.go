@@ -89,3 +89,28 @@ func TestASubagentsAnswerCountsTheContextItWasGiven(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestAForkThatReplaysTheCallThatSpawnedItStillEndsThatCall(t *testing.T) {
+	tl := timeline.New()
+	apply := func(events []timeline.Event) {
+		for _, e := range events {
+			tl.Apply(e, 1)
+		}
+	}
+	apply([]timeline.Event{{Kind: "tool_start", ToolUseID: "toolu_spawn", Name: "Agent"}})
+	apply(MapSubagent([]byte(`{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"tool_use","id":"toolu_spawn","name":"Agent","input":{"subagent_type":"fork"}}]}}`), "toolu_spawn"))
+	apply(MapSubagent([]byte(`{"type":"user","isSidechain":true,"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_spawn","content":"Fork started — that fork is you."},{"type":"text","text":"Handle PR 4"}]}}`), "toolu_spawn"))
+	apply([]timeline.Event{{Kind: "tool_background", ToolUseID: "toolu_spawn", TaskID: "a1"}})
+	apply([]timeline.Event{{Kind: "tool_end", TaskID: "a1", OK: true}})
+
+	items, _ := tl.PageWithSubagents(0, 100)
+	var calls []string
+	for _, it := range items {
+		if it.Call != nil {
+			calls = append(calls, it.Call.Status)
+		}
+	}
+	if !reflect.DeepEqual(calls, []string{"ok"}) {
+		t.Fatalf("calls %v", calls)
+	}
+}
