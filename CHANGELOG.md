@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.25
+
+- A worktree's new name and branch decode in when the agent renames them (#171): (0d7dfd9a)
+- A changed image shows as a picture in its diff (#169): (e9770efa)
+- Chat stops freezing when macOS is slow to hand back a frame (gpui-kit 0.9.0) (#170): (995328a1)
+- The top bar's + offers a shell, browser, chat or agent again (#168): (d47402a3)
+- Enter confirms a delete sheet (#165): (1b0710b2)
+- The desktop app says Anywhere instead of Pocket in its labels (#164): (c9ad6892)
+
 ## 0.1.24
 
 - Chat scroll stops redrawing the whole window every frame (gpui-kit 0.8.1) (#162): (bf14bc58)
