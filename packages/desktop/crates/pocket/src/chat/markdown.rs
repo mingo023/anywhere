@@ -123,11 +123,7 @@ fn kept(styles: &Styles, code: &str) -> Styles {
 
 /// Runs off the UI thread: tree-sitter parsing a long block takes milliseconds.
 pub(super) fn highlight(lang: &str, code: &str, dark: bool) -> Styles {
-    let lang = match lang.to_lowercase().as_str() {
-        "sh" | "shell" | "zsh" | "console" => "bash".to_string(),
-        lang => lang.to_string(),
-    };
-    let mut hl = SyntaxHighlighter::new(&lang);
+    let mut hl = SyntaxHighlighter::new(crate::syntax::grammar(&lang.to_lowercase()));
     hl.update(None, &Rope::from(code), None);
     Arc::new(hl.styles(&(0..code.len()), &*markdown_highlight_theme(dark)))
 }
@@ -287,7 +283,7 @@ pub(crate) fn fenced(lang: &str, code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Highlights, Target, closed, fence, fenced, path_in, target};
+    use super::{Highlights, Target, closed, fence, fenced, highlight, path_in, target};
     use gpui_kit::HighlightStyle;
     use std::sync::Arc;
 
@@ -339,6 +335,14 @@ mod tests {
         assert_eq!(target("src/a.rs:42:7", "/r"), Target::File("/r/src/a.rs".into()));
         assert_eq!(target("a.rs#L42", "/r"), Target::File("/r/a.rs".into()));
         assert_eq!(target("file:///etc/hosts", "/r"), Target::File("/etc/hosts".into()));
+    }
+
+    #[test]
+    fn a_fence_named_by_an_alias_or_in_capitals_is_coloured_and_an_unknown_one_stays_plain() {
+        crate::syntax::init();
+        let coloured = |lang: &str, code: &str| highlight(lang, code, false).iter().any(|(_, s)| s.color.is_some());
+        assert!(coloured("rb", "def f; end") && coloured("console", "echo \"hi\"") && coloured("Vue", "<template><div /></template>"));
+        assert!(!coloured("brainfuck", "+[-]"));
     }
 
     #[test]

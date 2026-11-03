@@ -30,16 +30,27 @@ cc = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 futures = "0.3"
 gpui-kit = { version = "0.9.0", features = [
+    "tree-sitter-astro",
     "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
     "tree-sitter-css",
+    "tree-sitter-diff",
     "tree-sitter-go",
+    "tree-sitter-graphql",
     "tree-sitter-html",
     "tree-sitter-java",
     "tree-sitter-javascript",
     "tree-sitter-kotlin",
+    "tree-sitter-make",
     "tree-sitter-markdown",
+    "tree-sitter-php",
+    "tree-sitter-proto",
     "tree-sitter-python",
+    "tree-sitter-ruby",
     "tree-sitter-rust",
+    "tree-sitter-sql",
+    "tree-sitter-svelte",
     "tree-sitter-swift",
     "tree-sitter-toml",
     "tree-sitter-tsx",
@@ -61,8 +72,13 @@ resvg = "0.46"
 rquickjs = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tree-sitter = "0.26"
+tree-sitter-dockerfile-updated = "0.2.0"
 tree-sitter-javascript = "0.23.1"
+# Zed's SCSS extension's grammar, at the commit it pins; not on crates.io.
+tree-sitter-scss = { git = "https://github.com/simeonoff/tree-sitter-scss", rev = "3f918284a73a54b53e4f326b0aa8c74ccbf4ee4d" }
 tree-sitter-swift = "0.7.3"
+tree-sitter-vue-next = "0.1.0"
 ttf-parser = "0.25"
 tungstenite = "0.26"
 uds_windows = "1.2"

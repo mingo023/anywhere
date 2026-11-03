@@ -412,6 +412,11 @@ mod tests {
     }
 
     #[test]
+    fn a_code_quote_of_a_framework_file_fences_it_in_the_name_the_chat_colours() {
+        assert_eq!(Quote::code("src/App.vue", "<template />", 0..12).unwrap().payload(), "src/App.vue:1\n```vue\n<template />\n```");
+    }
+
+    #[test]
     fn a_code_quote_of_an_unknown_language_has_a_bare_fence() {
         assert_eq!(Quote::code("notes.txt", "hi", 0..2).unwrap().payload(), "notes.txt:1\n```\nhi\n```");
     }
