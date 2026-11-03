@@ -303,7 +303,7 @@ pub fn tone(state: State) -> Option<Tone> {
 pub fn glyph(id: impl Into<ElementId>, t: Tone) -> AnyElement {
     match t.glyph {
         Glyph::Halo => div().size(px(13.)).flex().flex_none().items_center().justify_center().rounded(px(6.5)).bg(t.bg).child(dot(7., t.mark)).into_any_element(),
-        Glyph::Spinner => dot_spinner(id, 11., t.mark).into_any_element(),
+        Glyph::Spinner => gradient_spinner(id, 11.).into_any_element(),
         Glyph::Cross => icon("x-bold", 11., t.mark).into_any_element(),
     }
 }
@@ -434,7 +434,7 @@ fn corner_badges(state: Option<State>) -> Vec<Div> {
             .justify_center()
             .rounded(px(6.))
             .bg(CUTOUT)
-            .child(dot_spinner("tile-spinner", 10., WORKING))
+            .child(gradient_spinner("tile-spinner", 10.))
     });
     alert.into_iter().chain(working).collect()
 }
