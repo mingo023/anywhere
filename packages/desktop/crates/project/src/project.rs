@@ -33,9 +33,10 @@ pub fn project_of<'a>(cwd: &str, projects: &'a [String], worktrees: &Worktrees) 
     projects.iter().filter_map(|p| Some((reach(p)?, p))).max_by_key(|(n, _)| *n).map(|(_, p)| p)
 }
 
-/// The listed worktree holding `cwd` most closely.
-pub fn worktree_of<'a>(cwd: &str, worktrees: &'a Worktrees, tracked: impl Fn(&str) -> bool) -> Option<&'a Worktree> {
-    worktrees.values().flatten().filter(|w| under(cwd, &w.path) && (w.main || tracked(&w.path))).max_by_key(|w| w.path.len())
+/// The listed worktree holding `cwd` most closely. `tracked` takes the project and the worktree.
+pub fn worktree_of<'a>(cwd: &str, worktrees: &'a Worktrees, tracked: impl Fn(&str, &str) -> bool) -> Option<&'a Worktree> {
+    let trees = worktrees.iter().flat_map(|(p, trees)| trees.iter().map(move |w| (p, w)));
+    trees.filter(|(p, w)| under(cwd, &w.path) && (w.main || tracked(p, &w.path))).map(|(_, w)| w).max_by_key(|w| w.path.len())
 }
 
 /// The worktrees a project lists: its main one and those `tracked`.
@@ -78,7 +79,7 @@ pub fn refreshed(mut listed: Worktrees, old: &Worktrees, unread: &[String]) -> W
 
 /// The worktree a folder belongs to: the listed worktree holding it, else the project it is in.
 /// `projects` runs only when no worktree holds `cwd`, as listing them walks every terminal.
-pub fn tree_of(cwd: &str, worktrees: &Worktrees, tracked: impl Fn(&str) -> bool, projects: impl FnOnce() -> Vec<String>) -> Option<String> {
+pub fn tree_of(cwd: &str, worktrees: &Worktrees, tracked: impl Fn(&str, &str) -> bool, projects: impl FnOnce() -> Vec<String>) -> Option<String> {
     worktree_of(cwd, worktrees, tracked).map(|w| w.path.clone()).or_else(|| project_of(cwd, &projects(), worktrees).cloned())
 }
 
@@ -166,7 +167,7 @@ mod tests {
     #[test]
     fn a_folder_belongs_to_the_innermost_worktree_holding_it() {
         let worktrees = trees("/a/foo", &["/a/foo", "/a/foo/.worktrees/fix"]);
-        let path = |cwd| worktree_of(cwd, &worktrees, |_| true).map(|w| w.path.as_str());
+        let path = |cwd| worktree_of(cwd, &worktrees, |_, _| true).map(|w| w.path.as_str());
         assert_eq!(path("/a/foo/.worktrees/fix/src"), Some("/a/foo/.worktrees/fix"));
         assert_eq!(path("/a/foo/src"), Some("/a/foo"));
         assert_eq!(path("/a/foobar"), None);
@@ -176,17 +177,17 @@ mod tests {
     fn a_folders_tree_is_its_worktree_else_its_project() {
         let worktrees = trees("/a/foo", &["/a/foo", "/w/fix"]);
         let projects = || list(&["/a/foo", "/b"]);
-        assert_eq!(tree_of("/w/fix/src", &worktrees, |_| true, projects), Some("/w/fix".to_string()));
-        assert_eq!(tree_of("/b/src", &worktrees, |_| true, projects), Some("/b".to_string()));
-        assert_eq!(tree_of("/c", &worktrees, |_| true, projects), None);
+        assert_eq!(tree_of("/w/fix/src", &worktrees, |_, _| true, projects), Some("/w/fix".to_string()));
+        assert_eq!(tree_of("/b/src", &worktrees, |_, _| true, projects), Some("/b".to_string()));
+        assert_eq!(tree_of("/c", &worktrees, |_, _| true, projects), None);
     }
 
     #[test]
     fn a_folder_in_an_untracked_worktree_belongs_to_its_projects_main_tree() {
         let worktrees = trees("/a/foo", &["/a/foo", "/w/fix", "/a/foo/.worktrees/spike"]);
         let projects = || list(&["/a/foo"]);
-        assert_eq!(tree_of("/w/fix/src", &worktrees, |_| false, projects), Some("/a/foo".to_string()));
-        assert_eq!(tree_of("/a/foo/.worktrees/spike", &worktrees, |_| false, projects), Some("/a/foo".to_string()));
+        assert_eq!(tree_of("/w/fix/src", &worktrees, |_, _| false, projects), Some("/a/foo".to_string()));
+        assert_eq!(tree_of("/a/foo/.worktrees/spike", &worktrees, |_, _| false, projects), Some("/a/foo".to_string()));
     }
 
     #[test]

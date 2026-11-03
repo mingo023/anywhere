@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,7 +24,7 @@ import (
 const anywhereUsage = `usage: anywhere project list [--json]
        anywhere session list [--json]
        anywhere session read [--limit 200] [--json] <id>
-       anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree <name>] [--provider claude|codex] [--access settings|ask|edits|auto|full] [--prompt <text>]
+       anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider claude|codex] [--access settings|ask|edits|auto|full] [--prompt <text>]
        anywhere session prompt <id> <text|->
        anywhere session close <id>
        anywhere session wait [--timeout 30m] <id>`
@@ -223,7 +224,32 @@ func sessionReadCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
 	return err
 }
 
-type newSession struct{ project, worktree, newWorktree, provider, access, prompt string }
+type newSession struct {
+	project, worktree, base, provider, access, prompt string
+	newWorktree                                       freshWorktree
+}
+
+// freshWorktree is --new-worktree, whose name is optional: without one, the Worktree
+// gets a placeholder and pocketd names its branch from the prompt, as for the desktop's.
+type freshWorktree struct {
+	wanted bool
+	name   string
+}
+
+func (f *freshWorktree) String() string   { return f.name }
+func (f *freshWorktree) IsBoolFlag() bool { return true }
+
+// Set gets "true" from a bare --new-worktree, and the name from --new-worktree=<name>.
+func (f *freshWorktree) Set(s string) error {
+	if s == "" {
+		return errUsage
+	}
+	f.wanted = true
+	if s != "true" {
+		f.name = s
+	}
+	return nil
+}
 
 func inside(dir, root string) bool {
 	return dir == root || strings.HasPrefix(dir, root+string(filepath.Separator))
@@ -274,9 +300,13 @@ func launchSpec(list []proto.Project, cwd string, n newSession) (proto.LaunchSpe
 	if err != nil {
 		return proto.LaunchSpec{}, err
 	}
-	spec := proto.LaunchSpec{Project: p.Path, Provider: n.provider, Access: n.access, Prompt: n.prompt}
-	if n.newWorktree != "" {
-		spec.Checkout.New = &proto.NewWorktree{Name: n.newWorktree}
+	spec := proto.LaunchSpec{Project: p.Path, Provider: n.provider, Access: n.access, Prompt: n.prompt, Chat: true}
+	if f := n.newWorktree; f.wanted {
+		name := f.name
+		if name == "" {
+			name = fmt.Sprintf("cli-%08x", rand.Uint32())
+		}
+		spec.Checkout.New = &proto.NewWorktree{Name: name, Base: n.base, AutoName: f.name == "" && n.prompt != ""}
 		return spec, nil
 	}
 	w, err := pickWorktree(p, n.worktree)
@@ -287,25 +317,39 @@ func launchSpec(list []proto.Project, cwd string, n newSession) (proto.LaunchSpe
 	return spec, nil
 }
 
-func sessionCreateCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
+func parseCreate(flags *flag.FlagSet, args []string) (newSession, error) {
 	var n newSession
 	flags.StringVar(&n.project, "project", "", "")
 	flags.StringVar(&n.worktree, "worktree", "", "")
-	flags.StringVar(&n.newWorktree, "new-worktree", "", "")
+	flags.Var(&n.newWorktree, "new-worktree", "")
+	flags.StringVar(&n.base, "base", "", "")
 	flags.StringVar(&n.provider, "provider", "claude", "")
 	flags.StringVar(&n.access, "access", "settings", "")
 	flags.StringVar(&n.prompt, "prompt", "", "")
-	if pos, err := positional(flags, args); err != nil || len(pos) != 0 || n.worktree != "" && n.newWorktree != "" {
-		return errUsage
+	pos, err := positional(flags, args)
+	if err != nil {
+		return n, errUsage
 	}
-	unnamed := false
+	// flag leaves the name of `--new-worktree fix-login` to the positionals, since the name is optional.
+	if f := &n.newWorktree; f.wanted && f.name == "" && len(pos) == 1 && pos[0] != "" {
+		f.name, pos = pos[0], nil
+	}
+	blank := false
 	flags.Visit(func(f *flag.Flag) {
-		if (f.Name == "worktree" || f.Name == "new-worktree") && f.Value.String() == "" {
-			unnamed = true
+		if (f.Name == "worktree" || f.Name == "base") && f.Value.String() == "" {
+			blank = true
 		}
 	})
-	if unnamed {
-		return errUsage
+	if len(pos) != 0 || blank || n.worktree != "" && n.newWorktree.wanted || n.base != "" && !n.newWorktree.wanted {
+		return n, errUsage
+	}
+	return n, nil
+}
+
+func sessionCreateCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
+	n, err := parseCreate(flags, args)
+	if err != nil {
+		return err
 	}
 	cwd, err := os.Getwd()
 	if err != nil {

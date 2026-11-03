@@ -54,9 +54,75 @@ func TestLaunchSpecTakesAProjectByNameAndAWorktreeByName(t *testing.T) {
 }
 
 func TestLaunchSpecAsksForANewWorktreeByName(t *testing.T) {
-	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: "calm-otter"})
-	if err != nil || spec.Project != "/code/web" || spec.Checkout.New == nil || spec.Checkout.New.Name != "calm-otter" || spec.Checkout.Worktree != "" {
+	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true, name: "calm-otter"}})
+	if err != nil || spec.Project != "/code/web" || spec.Checkout.New == nil || spec.Checkout.New.Name != "calm-otter" || spec.Checkout.New.AutoName || spec.Checkout.Worktree != "" {
 		t.Fatalf("spec = %+v, err = %v", spec, err)
+	}
+}
+
+func TestLaunchSpecHasPocketdNameAnUnnamedNewWorktreeFromThePrompt(t *testing.T) {
+	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true}, prompt: "fix the login"})
+	if n := spec.Checkout.New; err != nil || n == nil || !n.AutoName || !strings.HasPrefix(n.Name, "cli-") {
+		t.Fatalf("spec = %+v, err = %v", spec, err)
+	}
+}
+
+func TestLaunchSpecKeepsTheNameOfAnUnnamedNewWorktreeWithoutAPrompt(t *testing.T) {
+	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true}})
+	if n := spec.Checkout.New; err != nil || n == nil || n.AutoName || !strings.HasPrefix(n.Name, "cli-") {
+		t.Fatalf("spec = %+v, err = %v", spec, err)
+	}
+}
+
+func TestLaunchSpecStartsANewWorktreeFromTheBaseGiven(t *testing.T) {
+	spec, err := launchSpec(twoProjects, "/code/web", newSession{newWorktree: freshWorktree{wanted: true}, base: "dev"})
+	if err != nil || spec.Checkout.New == nil || spec.Checkout.New.Base != "dev" {
+		t.Fatalf("spec = %+v, err = %v", spec, err)
+	}
+}
+
+func TestLaunchSpecStartsAChat(t *testing.T) {
+	spec, err := launchSpec(twoProjects, "/code/web", newSession{})
+	if err != nil || !spec.Chat {
+		t.Fatalf("spec = %+v, err = %v", spec, err)
+	}
+}
+
+func parseCreateArgs(args ...string) (newSession, error) {
+	flags := flag.NewFlagSet("t", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	return parseCreate(flags, args)
+}
+
+func TestANewWorktreeTakesTheNameAfterIt(t *testing.T) {
+	n, err := parseCreateArgs("--new-worktree", "fix-login", "--prompt", "hi")
+	if err != nil || n.newWorktree != (freshWorktree{wanted: true, name: "fix-login"}) || n.prompt != "hi" {
+		t.Fatalf("n = %+v, err = %v", n, err)
+	}
+}
+
+func TestANewWorktreeNeedsNoName(t *testing.T) {
+	for _, args := range [][]string{{"--new-worktree", "--prompt", "hi"}, {"--prompt", "hi", "--new-worktree"}} {
+		if n, err := parseCreateArgs(args...); err != nil || n.newWorktree != (freshWorktree{wanted: true}) || n.prompt != "hi" {
+			t.Errorf("%v: n = %+v, err = %v", args, n, err)
+		}
+	}
+}
+
+func TestCreateRefusesFlagsThatDontFit(t *testing.T) {
+	for _, args := range [][]string{
+		{"--base", "dev"},
+		{"--worktree", "calm-otter", "--base", "dev"},
+		{"--worktree", "calm-otter", "--new-worktree"},
+		{"--worktree", ""},
+		{"--new-worktree", ""},
+		{"--new-worktree="},
+		{"--new-worktree", "--base", ""},
+		{"stray"},
+	} {
+		if _, err := parseCreateArgs(args...); !errors.Is(err, errUsage) {
+			t.Errorf("%v: err = %v", args, err)
+		}
 	}
 }
 
