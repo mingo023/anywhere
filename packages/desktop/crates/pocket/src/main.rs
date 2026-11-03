@@ -60,6 +60,7 @@ fn main() {
         std::thread::spawn(|| daemon::service::open_at_login(true));
     }
     let hitch_log = home.join("logs/chat-scroll.log");
+    let _ = crate::chat::composer::FOCUS_LOG.set(home.join("logs/focus.log")); // [DEBUG-focus]
     gpui_kit::application().with_assets(theme::Assets).run(move |cx| {
         gpui_kit::init(cx);
         gpui_kit::gpui::hitch::enable(hitch_log, format!("version={} arch={}", channel::version(), std::env::consts::ARCH));

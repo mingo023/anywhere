@@ -595,6 +595,7 @@ impl Render for Desktop {
             .when(self.explorer.menu.is_some(), |d| d.key_context(crate::explorer::menu::CONTEXT))
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                this.log_focus_miss(&ev.keystroke, window, cx); // [DEBUG-focus]
                 this.hide_chips(cx);
                 if crate::explorer::toast::is_undo(&ev.keystroke, || window.context_stack()) && this.undo_trash(cx) {
                     return cx.stop_propagation();

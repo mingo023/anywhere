@@ -105,7 +105,7 @@ impl Nav {
 
 pub(crate) struct AgentMap {
     pub(crate) nav: Nav,
-    focus: FocusHandle,
+    pub(super) focus: FocusHandle, // [DEBUG-focus]
 }
 
 impl AgentMap {
