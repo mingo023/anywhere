@@ -20,6 +20,7 @@ import (
 //	run <cmd>    ask can_use_tool, then run a Bash tool with its answer
 //	ask <q>      ask AskUserQuestion through can_use_tool, then reply the answers
 //	slow <text>  reply after 3s, unless interrupted
+//	hang         stay in the turn until interrupted
 //	bg <cmd>     run a Bash tool in the background, then go on as slow
 //	agent <d>    start a sub-agent in the background, then go on as slow
 //	/compact     compact
@@ -155,6 +156,10 @@ func (c *chatter) turn(text string) {
 		failed = c.slow(model, "done")
 	case strings.HasPrefix(text, "slow "):
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
+	case text == "hang":
+		<-c.stop
+		c.s.write(user("[Request interrupted by user]"))
+		failed = true
 	default:
 		c.reply(model, text)
 	}

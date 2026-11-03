@@ -49,17 +49,21 @@ impl Desktop {
         project::project_of(cwd, projects, &self.worktrees)
     }
 
+    fn lists(&self, repo: &str, tree: &str) -> bool {
+        self.store.lists(repo, tree, || self.host_agents.home_of(repo))
+    }
+
     pub fn worktree_of(&self, cwd: &str) -> Option<&git::Worktree> {
-        project::worktree_of(cwd, &self.worktrees, |t| self.store.lists(t))
+        project::worktree_of(cwd, &self.worktrees, |p, t| self.lists(p, t))
     }
 
     /// The worktrees `p` lists; `None` until git has listed them.
     pub fn listed_trees(&self, p: &str) -> Option<Vec<git::Worktree>> {
-        self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.lists(t)))
+        self.worktrees.get(p).map(|w| project::listed(w, |t| self.lists(p, t)))
     }
 
     pub(crate) fn untracked_trees(&self, p: &str) -> Vec<git::Worktree> {
-        self.worktrees.get(p).map(|w| project::untracked(w, |t| self.store.lists(t))).unwrap_or_default()
+        self.worktrees.get(p).map(|w| project::untracked(w, |t| self.lists(p, t))).unwrap_or_default()
     }
 
     pub(crate) fn import_worktrees(&mut self, p: &str, cx: &mut Context<Self>) {
@@ -72,7 +76,7 @@ impl Desktop {
     }
 
     pub fn tree_of(&self, cwd: &str) -> Option<String> {
-        project::tree_of(cwd, &self.worktrees, |t| self.store.lists(t), || self.projects())
+        project::tree_of(cwd, &self.worktrees, |p, t| self.lists(p, t), || self.projects())
     }
 
     pub fn cards(&self, project: &str) -> Vec<Card> {

@@ -116,6 +116,40 @@ func TestAnywhereOpensANewWorktreeWhenAsked(t *testing.T) {
 	}
 }
 
+// listed is what `anywhere session list --json` says of session id, if it lists it.
+func (h *Harness) listed(id string) (proto.AgentSummary, bool) {
+	h.t.Helper()
+	out, _, _ := h.anywhere("session", "list", "--json")
+	var agents []proto.AgentSummary
+	json.Unmarshal([]byte(out), &agents)
+	for _, a := range agents {
+		if a.ID == id {
+			return a, true
+		}
+	}
+	return proto.AgentSummary{}, false
+}
+
+func TestAnywhereNamesAnUnnamedNewWorktreeFromThePrompt(t *testing.T) {
+	h := Start(t, launchReady(""))
+	id, errOut, code := h.anywhere("session", "create", "--access", "ask", "--new-worktree", "--prompt", "hello")
+	if code != 0 {
+		t.Fatalf("exited %d: %s %s", code, id, errOut)
+	}
+	h.eventually("the session and its branch named from the prompt", func() bool {
+		a, ok := h.listed(id)
+		return ok && a.Title == "Say hello" && a.Branch == "say-hello" && strings.Contains(a.Cwd, "/cli-")
+	})
+}
+
+func TestAnywhereStartsAChat(t *testing.T) {
+	h := Start(t, launchReady(""))
+	id := h.session("hello")
+	if a, ok := h.listed(id); !ok || !a.ChatOnly {
+		t.Fatalf("got %+v", a)
+	}
+}
+
 func TestAProcessInsideATerminalIsToldItCanOnlyRead(t *testing.T) {
 	h := Start(t, launchReady(""))
 	id := h.Spawn("/bin/sh", "-c", filepath.Join(binDir, "anywhere")+" session close nope; sleep 30")

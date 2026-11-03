@@ -438,9 +438,11 @@ impl Store {
         self.tracked.contains(tree)
     }
 
-    /// Whether the sidebar lists `tree`: one the app made or imported, or any while it lists those made elsewhere.
-    pub fn lists(&self, tree: &str) -> bool {
-        self.sidebar.external_worktrees || self.is_tracked(tree)
+    /// Whether the sidebar lists `tree`, a worktree of `repo`: one the app made or imported, one in `repo`'s worktrees folder,
+    /// which pocketd made for a phone or the `anywhere` CLI, or any while it lists those made elsewhere. `home` is `worktrees_dir`'s.
+    pub fn lists(&self, repo: &str, tree: &str, home: impl FnOnce() -> String) -> bool {
+        let in_dir = || tree.strip_prefix(&self.worktrees_dir(repo, &home())).is_some_and(|rest| rest.starts_with('/'));
+        self.sidebar.external_worktrees || self.is_tracked(tree) || in_dir()
     }
 
     /// The folder `repo`'s new worktrees go in: a folder named for it under the root.
@@ -886,9 +888,27 @@ mod tests {
     fn worktrees_made_elsewhere_are_listed_only_when_asked() {
         let mut s = Store::default();
         s.track("/w/mine");
-        assert_eq!([s.lists("/w/mine"), s.lists("/w/theirs")], [true, false]);
+        let home = || "/h".to_string();
+        assert_eq!([s.lists("/w", "/w/mine", home), s.lists("/w", "/w/theirs", home)], [true, false]);
         s.sidebar.external_worktrees = true;
-        assert!(s.lists("/w/theirs"));
+        assert!(s.lists("/w", "/w/theirs", home));
+    }
+
+    #[test]
+    fn worktrees_in_the_projects_worktrees_folder_are_listed_as_made_by_anywhere_for_a_phone_or_the_cli() {
+        let mut s = Store::default();
+        let home = || "/h".to_string();
+        let listed = |s: &Store, tree| s.lists("/code/app", tree, home);
+        assert!(listed(&s, "/h/.anywhere/worktrees/app/cli-1a2b"));
+        assert!(!listed(&s, "/h/.anywhere/worktrees/web/cli-1a2b") && !listed(&s, "/h/.anywhere/worktrees/app-old/spike"));
+        s.worktree.root = "/wt/".into();
+        assert_eq!([listed(&s, "/wt/app/cli-1a2b"), listed(&s, "/h/.anywhere/worktrees/app/cli-1a2b")], [true, false]);
+    }
+
+    #[test]
+    fn a_hosts_project_lists_the_worktrees_in_its_folder_on_the_host() {
+        let s = Store::default();
+        assert!(s.lists("//devbox/u/app", "//devbox/home/me/.anywhere/worktrees/app/cli-1a2b", || "/home/me".to_string()));
     }
 
     #[test]

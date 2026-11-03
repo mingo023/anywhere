@@ -12,19 +12,19 @@ description: Run and follow Claude Code and Codex sessions in Anywhere, the user
 ```sh
 anywhere project list [--json]
 anywhere session list [--json]
-anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree <name>] [--provider claude|codex] [--access settings|ask|edits|auto|full] [--prompt <text>]
+anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider claude|codex] [--access settings|ask|edits|auto|full] [--prompt <text>]
 anywhere session prompt <id> <text|->
 anywhere session wait [--timeout 30m] <id>
 anywhere session read [--limit 200] [--json] <id>
 anywhere session close <id>
 ```
 
-`create` prints the session's id. Without `--project` it takes the project holding the current folder. Without a worktree flag it runs in the project's main worktree, the same folder the user works in. `prompt <id> -` reads the text from stdin.
+`create` prints the session's id. Without `--project` it takes the project holding the current folder. Without a worktree flag it runs in the project's main worktree, the same folder the user works in. `--new-worktree` makes a worktree from the default branch (`main`), or from `--base`; without a name, Anywhere names it from the prompt, as the app does. `prompt <id> -` reads the text from stdin.
 
 ## Hand over a task
 
 ```sh
-id=$(anywhere session create --new-worktree fix-login --prompt "Fix the login redirect")
+id=$(anywhere session create --new-worktree --prompt "Fix the login redirect")
 anywhere session wait "$id"
 anywhere session read "$id"
 ```
