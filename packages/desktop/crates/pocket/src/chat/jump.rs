@@ -27,8 +27,9 @@ impl Glide {
 }
 
 /// Once offered, the pill stays until the end is within 2px; one 320px threshold dropped it halfway through a scroll down.
-pub(super) fn jump_visibility(was_shown: bool, distance: f32) -> bool {
-    distance > if was_shown { 2. } else { 320. }
+/// While the agent works it isn't offered: a reply streaming in moves the end away from whoever scrolled up to read.
+pub(super) fn jump_visibility(was_shown: bool, distance: f32, busy: bool) -> bool {
+    !busy && distance > if was_shown { 2. } else { 320. }
 }
 
 /// "↓ Scroll to bottom", floating just above the composer.
@@ -64,10 +65,17 @@ mod tests {
 
     #[test]
     fn the_jump_pill_shows_past_320px_and_hides_at_two() {
-        assert!(!jump_visibility(false, 320.));
-        assert!(jump_visibility(false, 321.));
-        assert!(jump_visibility(true, 100.));
-        assert!(!jump_visibility(true, 2.));
+        assert!(!jump_visibility(false, 320., false));
+        assert!(jump_visibility(false, 321., false));
+        assert!(jump_visibility(true, 100., false));
+        assert!(!jump_visibility(true, 2., false));
+    }
+
+    #[test]
+    fn the_jump_pill_waits_for_the_agent_to_finish() {
+        assert!(!jump_visibility(false, 1000., true));
+        assert!(!jump_visibility(true, 1000., true));
+        assert!(jump_visibility(false, 1000., false));
     }
 
     #[test]
