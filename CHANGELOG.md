@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.29
+
+- A prompt's selection holds while dragging over several lines (#185): (55e80be2)
+
 ## 0.1.28
 
 - Closing the window keeps Anywhere running in the background (#181): (e4bbb0d7)
