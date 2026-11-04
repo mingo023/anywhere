@@ -2,7 +2,7 @@
 # libghostty's C API has no stable version yet, so the commit is pinned.
 # Usage: build-ghostty.sh [linux-arm64|linux-amd64|windows-arm64|windows-amd64]; no target builds the macOS lib.
 set -eu
-REV=4ae9f1a2de5484de3d6a13fe03676b8853b9c41c
+REV=c7f68a7f48c6a5b357689eb8c2328bc2dab5d8ed
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="$ROOT/third_party/ghostty"
 TARGET="${1:-}"
