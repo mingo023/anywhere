@@ -87,14 +87,18 @@ func (p *phone) next() frame {
 func (p *phone) until(want string) []byte {
 	p.t.Helper()
 	var out []byte
-	for !bytes.Contains(out, []byte(want)) {
+	for {
 		f := p.next()
 		if f.msg != nil {
 			continue
 		}
+		// Rescanning all of out per frame made a 32 MiB read quadratic, slow enough to overflow attachQueue.
+		from := max(0, len(out)-len(want)+1)
 		out = append(out, f.payload...)
+		if bytes.Contains(out[from:], []byte(want)) {
+			return out
+		}
 	}
-	return out
 }
 
 func (p *phone) input(id, text string) {
