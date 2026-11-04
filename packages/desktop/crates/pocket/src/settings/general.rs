@@ -71,6 +71,10 @@ pub(super) const ROWS: &[Setting] = &[
     .hint("Focus hides both sidebars so the terminal fills the window"),
     Setting::choice("panel-at-launch", "Launch layout", "Right panel at launch", &["Open", "Closed"], Look::Segmented, |s| usize::from(!s.general.panel_open), |s, i| s.general.panel_open = i == 0)
         .hint("Sessions, Explorer and Changes"),
+    Setting::choice("close-window", "Quitting & sleep", "When the window closes", &["Stay in the background", "Quit Anywhere"], Look::Dropdown, |s| usize::from(s.general.close_quits), |s, i| {
+        s.general.close_quits = i == 1
+    })
+    .hint("In the background the Dock badge and notifications stay; ⌘Q quits"),
     Setting::choice("confirm-quit", "Quitting & sleep", "Confirm before quitting", &["Never", "Always", "While agents are working"], Look::Dropdown, |s| index(&CONFIRM, s.general.confirm_quit, 1), |s, i| {
         s.general.confirm_quit = CONFIRM[i]
     })

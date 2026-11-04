@@ -137,7 +137,7 @@ fn main() {
                     for tick in 0u64.. {
                         poll.send(json!({"op": "list"}));
                         let refresh = |d: &mut Desktop, cx: &mut Context<Desktop>| {
-                            if tick % d.store.general.git_every() == 0 && d.git_done == d.git_run {
+                            if tick % d.store.general.git_every() == 0 && d.git_done == d.git_run && !desktop::close::hidden() {
                                 d.refresh_git(cx);
                             }
                             if tick % accounts::CHECK_EVERY == 0 {
@@ -158,7 +158,7 @@ fn main() {
                         let _ = this.update(cx, |d, cx| d.answer_banner(&r.tag, &action, cx));
                     }
                     None => {
-                        cx.activate(true);
+                        desktop::close::show(cx);
                         let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
                     }
                 });

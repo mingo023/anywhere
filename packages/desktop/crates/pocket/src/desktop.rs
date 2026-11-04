@@ -1,5 +1,6 @@
 pub(crate) mod alerts;
 pub(crate) mod chrome;
+pub(crate) mod close;
 pub(crate) mod geometry;
 pub(crate) mod dock;
 pub(crate) mod jump;
@@ -154,11 +155,13 @@ impl Desktop {
         crate::desktop::chrome::apply_zoom(store.appearance.zoom_factor(), window);
         let this = cx.weak_entity();
         // The window stays open either way: quitting closes it.
-        window.on_window_should_close(cx, move |window, cx| this.update(cx, |d, cx| d.quit(&crate::actions::Quit, window, cx)).is_err());
+        window.on_window_should_close(cx, move |window, cx| this.update(cx, |d, cx| d.close_window(window, cx)).is_err());
         let mut _subs = vec![
             // The setting changes in System Settings, so the window coming back is when it may have.
-            cx.observe_window_activation(window, |this, _, cx| {
+            cx.observe_window_activation(window, |this, window, cx| {
                 follow_reduce_motion(this.store.appearance.reduce_motion, cx);
+                // Render tells alerts which panes are seen, but a hidden window renders no frame.
+                this.sync_view(window, cx);
                 if this.screen == Screen::Settings {
                     this.load_banner_permission(cx);
                 }

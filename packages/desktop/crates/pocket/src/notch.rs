@@ -211,7 +211,7 @@ impl Desktop {
                 cx.dismiss_system_notification(&agent);
             }
             Said::Open(agent) => {
-                cx.activate(true);
+                crate::desktop::close::show(cx);
                 self.focus_agent(&agent, window, cx);
             }
         }

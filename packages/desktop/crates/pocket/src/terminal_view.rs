@@ -7,7 +7,7 @@ pub(crate) mod pane;
 pub(crate) mod scroll;
 pub(crate) mod surface;
 
-use crate::actions::{CloseTab, CopySelection, NewTab, Paste, SelectAll};
+use crate::actions::{CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use gpui_kit::*;
@@ -385,16 +385,6 @@ impl Desktop {
     pub fn new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
         self.panels.menu = None;
         self.open_tab(Place::Pane(None), cx);
-    }
-
-    pub fn close_active_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
-        if self.overlay.is_some() {
-            return;
-        }
-        let Some(tree) = self.session_tree() else { return };
-        let p = self.workspace(&tree).tree.focused();
-        let (pane, i) = (p.id, p.active);
-        self.close_tab(pane, i, cx);
     }
 
     pub(crate) fn on_term_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
