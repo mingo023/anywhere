@@ -435,7 +435,8 @@ impl Desktop {
             return div().flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("Send a message to start.");
         }
         view.hold_pin(!cx.reduce_motion(), window);
-        view.jump = view.glide.is_none() && jump::jump_visibility(view.jump, view.distance());
+        let busy = chat::busy(&view.session.transcript, &view.session.outgoing, super::composer::working(&agent));
+        view.jump = view.glide.is_none() && jump::jump_visibility(view.jump, view.distance(), busy);
         let spacer = view.pin.as_ref().map_or(0., |p| p.spacer);
         let rows = {
             let id = id.clone();
