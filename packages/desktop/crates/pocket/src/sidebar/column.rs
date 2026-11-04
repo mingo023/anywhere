@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn binary_changes_alone_still_mark_the_worktree() {
-        let repo = Repo { files: vec![FileStat { path: "a.rs".into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M' }], ..Default::default() };
+        let repo = Repo { files: vec![FileStat { path: "a.rs".into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None }], ..Default::default() };
         assert!(has_changes(Some(&repo)));
     }
 }

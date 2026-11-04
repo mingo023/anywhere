@@ -332,7 +332,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     fn stat(path: &str, status: char) -> FileStat {
-        FileStat { path: path.into(), added: 0, removed: 0, staged: false, unstaged: true, status }
+        FileStat { path: path.into(), added: 0, removed: 0, staged: false, unstaged: true, status, old_path: None }
     }
 
     #[test]

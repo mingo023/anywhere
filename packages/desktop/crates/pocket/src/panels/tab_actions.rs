@@ -59,7 +59,7 @@ impl Desktop {
         .collect();
         let file = match tab {
             Tab::Doc(Doc::File(p)) => Some(p.clone()),
-            Tab::Doc(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
+            Tab::Doc(Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. }) => self.cwd().map(|cwd| format!("{cwd}/{p}")),
             _ => None,
         };
         let mut files = Vec::new();

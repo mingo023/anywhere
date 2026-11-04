@@ -595,8 +595,9 @@ impl Desktop {
 
     /// Pins the threads of the PR on screen to the PR diffs.
     pub(crate) fn pin_threads(&mut self) {
-        let threads = self.cwd().and_then(|tree| self.prs.get(&tree)).map_or(&[][..], |pr| pr.threads.as_slice());
-        self.diff.pin(threads);
+        let pr = self.cwd().and_then(|tree| self.prs.get(&tree));
+        let base = pr.map(|pr| format!("{}/{}", self.store.git.remote, pr.base));
+        self.diff.pin(pr.map_or(&[][..], |pr| pr.threads.as_slice()), base.as_deref());
     }
 
     /// Pins the threads again and reads the PR diffs again, for what was pushed or said since.
@@ -772,7 +773,7 @@ mod tests {
     use git::{Commit, FileStat, Repo};
 
     fn repo(files: usize, ahead: usize, unpushed: Option<usize>) -> Repo {
-        let file = |i: usize| FileStat { path: format!("{i}.rs"), added: 1, removed: 0, staged: false, unstaged: true, status: 'M' };
+        let file = |i: usize| FileStat { path: format!("{i}.rs"), added: 1, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None };
         Repo { branch: "fix".into(), base: Some("origin/main".into()), ahead, unpushed, files: (0..files).map(file).collect(), ..Repo::default() }
     }
 

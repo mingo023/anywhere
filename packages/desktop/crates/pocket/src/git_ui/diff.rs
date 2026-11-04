@@ -39,13 +39,36 @@ type Sides = (Vec<Spans>, Vec<Spans>);
 /// An image before and after; `None` on a side where it doesn't exist.
 type Images = (Option<Arc<Image>>, Option<Arc<Image>>);
 
-/// What a diff compares: the working tree with HEAD, a commit with its parent, or HEAD with where it left a base branch.
+/// What a diff compares: the working tree with HEAD, a commit with its parent, HEAD with where it left a base branch, or the worktree with another ref as the Changes panel's Compare does.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum At {
     #[default]
     Working,
     Commit(String),
     Base(String),
+    Compare(git::compare::Range),
+}
+
+impl At {
+    /// Whether the review threads of a PR into `pr_base` belong on this diff: its lines are the PR's, from where the branch left that base to HEAD.
+    fn pins_threads(&self, pr_base: Option<&str>) -> bool {
+        match self {
+            At::Base(_) => true,
+            At::Compare(r) => !r.direct && !r.working && pr_base == Some(r.against.as_str()),
+            At::Working | At::Commit(_) => false,
+        }
+    }
+}
+
+/// The file a diff tab shows and how it compares it; `None` for a tab that isn't a diff.
+pub fn diff_of(doc: &Doc) -> Option<(&str, At)> {
+    match doc {
+        Doc::Diff(path) => Some((path, At::Working)),
+        Doc::CommitFile { sha, path } => Some((path, At::Commit(sha.clone()))),
+        Doc::PrFile { base, path } => Some((path, At::Base(base.clone()))),
+        Doc::CompareFile { against, direct, working, path } => Some((path, At::Compare(git::compare::Range { against: against.clone(), direct: *direct, working: *working }))),
+        Doc::File(_) | Doc::Commit(_) => None,
+    }
 }
 
 pub struct DiffLoad {
@@ -68,6 +91,7 @@ pub fn read_diff(cwd: &str, path: String, at: At, open: HashSet<usize>, options:
         At::Working => git::blobs(&runner, cwd, &path),
         At::Commit(sha) => git::blobs_at(&runner, cwd, sha, &path),
         At::Base(base) => git::blobs_between(&runner, cwd, base, &path),
+        At::Compare(range) => git::compare::blobs(&runner, cwd, range, &path),
     };
     if let Some(format) = image_format(&path) {
         let image = |bytes: Vec<u8>| (!bytes.is_empty()).then(|| Arc::new(Image::from_bytes(format, bytes)));
@@ -354,6 +378,11 @@ impl DiffView {
         self.file.as_deref().filter(|_| self.at == At::Working)
     }
 
+    /// The file shown when its new side is this worktree's, so its diff follows git refreshes and its lines quote into a chat.
+    pub fn followed_file(&self) -> Option<&str> {
+        self.file.as_deref().filter(|_| matches!(self.at, At::Working | At::Compare(_)))
+    }
+
     fn set_lines(&mut self, lines: Vec<Line>) -> bool {
         if lines == self.lines {
             return false;
@@ -404,7 +433,7 @@ impl DiffState {
 
     pub fn draft_quote(&self) -> Option<Quote> {
         let v = self.draft().filter(|v| v.pick.composing)?;
-        v.pick.quote(&v.lines, v.working_file()?)
+        v.pick.quote(&v.lines, v.followed_file()?)
     }
 
     /// Shows `load` in `pane` unless another file, fold state, diff option or appearance was picked while it ran.
@@ -427,9 +456,9 @@ impl DiffState {
         changed | recolored | reimaged
     }
 
-    /// Pins `threads` to the PR diffs on show, keeping their scroll position, then scrolls to the thread asked for.
-    pub fn pin(&mut self, threads: &[Thread]) {
-        for v in self.panes.values_mut().filter(|v| matches!(v.at, At::Base(_))) {
+    /// Pins `threads`, of a PR into `pr_base`, to the PR diffs on show, keeping their scroll position, then scrolls to the thread asked for.
+    pub fn pin(&mut self, threads: &[Thread], pr_base: Option<&str>) {
+        for v in self.panes.values_mut().filter(|v| v.at.pins_threads(pr_base)) {
             let pins = v.file.as_deref().map(|f| pins(f, threads)).unwrap_or_default();
             if pins != v.pins {
                 v.pins = pins;
@@ -569,8 +598,8 @@ impl Desktop {
                 meta.push(ui::meta_item().child(div().max_w(px(320.)).truncate().child(c.subject.clone())).into_any_element());
             }
         }
-        if let At::Base(base) = &at {
-            meta.push(ui::meta_item().child("against").child(ui::meta_value(base.clone())).into_any_element());
+        if let At::Base(against) | At::Compare(git::compare::Range { against, .. }) = &at {
+            meta.push(ui::meta_item().child("against").child(ui::meta_value(against.clone())).into_any_element());
         }
         if let Some(f) = &file {
             meta.push(ui::meta_item().child(ui::meta_diff(f.added, f.removed, 11.5)).into_any_element());
@@ -587,6 +616,7 @@ impl Desktop {
             At::Working => "Changes".to_string(),
             At::Commit(sha) => git::short_sha(sha).to_string(),
             At::Base(_) => "Pull request".to_string(),
+            At::Compare(_) => "Compare".to_string(),
         };
         let crumbs = std::iter::once(first).chain(dir).chain([name]).collect();
         div()
@@ -910,7 +940,7 @@ mod tests {
         let mut state = DiffState::default();
         state.select(MAIN, "a.rs".into(), base.clone());
         state.reveal = Some("on-d".into());
-        state.pin(&[Thread { id: "on-d".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }]);
+        state.pin(&[Thread { id: "on-d".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }], Some("origin/main"));
         assert_eq!(state.reveal.as_deref(), Some("on-d"));
         assert!(state.apply(MAIN, DiffLoad { at: base, ..load("a.rs", DIFF) }));
         assert_eq!(state.reveal, None);
@@ -921,8 +951,37 @@ mod tests {
     #[test]
     fn threads_pin_only_to_diffs_of_the_pr() {
         let mut state = showing(&[(MAIN, "a.rs")]);
-        state.pin(&[Thread { id: "t".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }]);
+        state.pin(&[Thread { id: "t".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() }], Some("origin/main"));
         assert!(state.view(MAIN).unwrap().pins.is_empty());
+    }
+
+    fn compare(direct: bool, working: bool) -> At {
+        compare_with("origin/main", direct, working)
+    }
+
+    fn compare_with(against: &str, direct: bool, working: bool) -> At {
+        At::Compare(git::compare::Range { against: against.into(), direct, working })
+    }
+
+    #[test]
+    fn threads_pin_to_a_compare_only_when_it_diffs_as_the_pr_does_against_its_base() {
+        let thread = Thread { id: "t".into(), path: "a.rs".into(), line: Some(3), ..Thread::default() };
+        for (at, pinned) in [(compare(false, false), true), (compare(true, false), false), (compare(false, true), false), (compare_with("origin/dev", false, false), false)] {
+            let mut state = DiffState::default();
+            state.select(MAIN, "a.rs".into(), at.clone());
+            state.apply(MAIN, DiffLoad { at: at.clone(), ..load("a.rs", DIFF) });
+            state.pin(std::slice::from_ref(&thread), Some("origin/main"));
+            assert_eq!(!state.view(MAIN).unwrap().pins.is_empty(), pinned, "{at:?}");
+        }
+    }
+
+    #[test]
+    fn a_compare_diff_quotes_its_pick_into_a_chat() {
+        let mut state = DiffState::default();
+        state.select(MAIN, "a.rs".into(), compare(true, true));
+        state.apply(MAIN, DiffLoad { at: compare(true, true), ..load("a.rs", DIFF) });
+        state.panes.get_mut(&MAIN).unwrap().pick = Pick { range: Some((3, 3)), dragging: false, composing: true };
+        assert_eq!(state.draft_quote().map(|q| q.path), Some("a.rs".to_string()));
     }
 
     #[test]

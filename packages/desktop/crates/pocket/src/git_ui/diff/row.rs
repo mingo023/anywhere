@@ -1,4 +1,4 @@
-use super::{At, NUM, ROW, Row, SIGN};
+use super::{NUM, ROW, Row, SIGN};
 use crate::desktop::Desktop;
 use crate::syntax::Spans;
 use git::{Kind, Line};
@@ -103,7 +103,7 @@ impl Desktop {
             return self.fold(pane, id, i, cx);
         }
         let row = code(&v.lines[i], v.hl.get(i), numbers, v.pick.picked(&v.lines, i)).id((id, i));
-        if v.at != At::Working {
+        if v.followed_file().is_none() {
             return row;
         }
         let last = v.pick.last() == Some(i);

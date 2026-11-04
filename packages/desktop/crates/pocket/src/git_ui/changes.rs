@@ -1,15 +1,19 @@
 pub(crate) mod commit_box;
 mod header;
 mod rows;
+mod scope;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, empty};
-use git::FileStat;
+use crate::git_ui::compare::Target;
+use git::compare::Comparison;
+use git::{Commit, FileStat};
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Range;
+use theme::TEXT_3;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum CommitKind {
@@ -59,10 +63,14 @@ fn commit_ready(files: &[FileStat], message: &str, busy: bool, commit_all: bool)
     !files.is_empty() && !message.trim().is_empty() && !busy && (commit_all || files.iter().any(|f| f.staged))
 }
 
+/// A foldable group of rows: Uncommitted's staged and unstaged files, or a Compare's commits on each side and its files.
 #[derive(Clone, Copy, PartialEq)]
 enum Section {
     Staged,
     Changes,
+    Ahead,
+    Behind,
+    Compared,
 }
 
 impl Section {
@@ -70,6 +78,9 @@ impl Section {
         match self {
             Section::Staged => "staged",
             Section::Changes => "changes",
+            Section::Ahead => "ahead",
+            Section::Behind => "behind",
+            Section::Compared => "compared",
         }
     }
 }
@@ -80,8 +91,11 @@ enum Item {
 }
 
 enum Row {
+    /// A section's header, with the paths or commits under it.
     Header(Section, Vec<String>),
     Item(Section, Item),
+    Commit(Commit),
+    Note(String),
 }
 
 /// The folder every file in `files` continues into below `base`, if they share one.
@@ -121,22 +135,53 @@ fn change_rows(files: &[FileStat], as_tree: bool, folded: &HashSet<String>) -> V
     let mut rows = Vec::new();
     for s in [Section::Staged, Section::Changes] {
         let files: Vec<&FileStat> = files.iter().filter(|f| if s == Section::Staged { f.staged } else { f.unstaged }).collect();
-        if files.is_empty() {
-            continue;
-        }
-        rows.push(Row::Header(s, files.iter().map(|f| f.path.clone()).collect()));
-        if folded.contains(s.key()) {
-            continue;
-        }
-        let mut items = Vec::new();
-        if as_tree {
-            tree(&files, "", 0, s, folded, &mut items);
-        } else {
-            items.extend(files.iter().map(|&f| Item::File { file: f.clone(), depth: 0 }));
-        }
-        rows.extend(items.into_iter().map(|item| Row::Item(s, item)));
+        push_files(&mut rows, s, &files, as_tree, folded);
     }
     rows
+}
+
+/// A Compare's rows: the commits only HEAD has, then those only the ref has, then the files, or a note that none differ from `against`.
+fn compare_rows(c: &Comparison, against: &str, as_tree: bool, folded: &HashSet<String>) -> Vec<Row> {
+    let mut rows = Vec::new();
+    for (s, commits) in [(Section::Ahead, &c.ahead), (Section::Behind, &c.behind)] {
+        if commits.is_empty() {
+            continue;
+        }
+        rows.push(Row::Header(s, commits.iter().map(|c| c.sha.clone()).collect()));
+        if !folded.contains(s.key()) {
+            rows.extend(commits.iter().cloned().map(Row::Commit));
+        }
+    }
+    if c.files.is_empty() {
+        rows.push(Row::Note(format!("No differences with {against}.")));
+    }
+    push_files(&mut rows, Section::Compared, &c.files.iter().collect::<Vec<_>>(), as_tree, folded);
+    rows
+}
+
+/// What a file renamed from `old` shows besides its name: the old name, or the whole old path when it moved folders.
+fn renamed_from<'a>(old: &'a str, path: &str) -> &'a str {
+    let (old_dir, old_name) = old.rsplit_once('/').unwrap_or(("", old));
+    let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+    if old_dir == dir { old_name } else { old }
+}
+
+/// `files` under `s`'s header, as a tree or flat, unless folded.
+fn push_files(rows: &mut Vec<Row>, s: Section, files: &[&FileStat], as_tree: bool, folded: &HashSet<String>) {
+    if files.is_empty() {
+        return;
+    }
+    rows.push(Row::Header(s, files.iter().map(|f| f.path.clone()).collect()));
+    if folded.contains(s.key()) {
+        return;
+    }
+    let mut items = Vec::new();
+    if as_tree {
+        tree(files, "", 0, s, folded, &mut items);
+    } else {
+        items.extend(files.iter().map(|&f| Item::File { file: f.clone(), depth: 0 }));
+    }
+    rows.extend(items.into_iter().map(|item| Row::Item(s, item)));
 }
 
 fn flip_staged(files: &mut [FileStat], paths: &[String], staged: bool) {
@@ -195,7 +240,51 @@ impl Desktop {
         if let Some(comments) = self.pr.track.comments.then(|| self.pr_comments(cx)).flatten() {
             return panel.child(comments);
         }
-        let rows = change_rows(&repo.files, self.store.diff.tree, &self.changes.folded);
+        let cwd = self.cwd().unwrap_or_default();
+        let scope = self.scope(&cwd);
+        let target = scope.compare.then(|| self.scope_target(&cwd, &scope));
+        let range = target.as_ref().and_then(|t| t.range(&scope));
+        let changes = if let Some(target) = &target {
+            self.compare_list(&cwd, target, range.as_ref(), cx)
+        } else if repo.files.is_empty() {
+            div().flex_1().child(empty("No changes."))
+        } else {
+            self.rows_list(change_rows(&repo.files, self.store.diff.tree, &self.changes.folded), cx)
+        };
+        let notice = self.compare.view.notice(&cwd).filter(|_| scope.compare).map(|n| div().px(px(16.)).pb(px(6.)).text_size(px(12.)).text_color(TEXT_3).child(n.to_string()));
+        panel
+            .child(self.changes_header(&repo, cx))
+            .child(self.scope_bar(&scope, range.as_ref(), cx))
+            .children(notice)
+            .children((!scope.compare).then(|| self.commit_box(&repo, cx)))
+            .children(self.pr_composer(&repo, cx))
+            .children(self.pr_card(cx))
+            .child(self.with_graph(changes, cx))
+    }
+
+    /// A Compare's commits and files, once read; reading it here when the worktree or range changed since and no read is under way.
+    fn compare_list(&mut self, cwd: &str, target: &Target, range: Option<&git::compare::Range>, cx: &mut Context<Self>) -> Div {
+        let Some(range) = range else {
+            let says = if *target == Target::NoBase { "No base to compare with." } else { "Comparing…" };
+            return div().flex_1().child(empty(says));
+        };
+        let Some(shown) = self.compare.view.get(cwd, range) else {
+            if self.compare.view.pending.as_ref() != Some(&(cwd.to_string(), range.clone())) {
+                self.load_compare(cx);
+            }
+            return div().flex_1().child(empty("Comparing…"));
+        };
+        match &shown.comparison {
+            None => div().flex_1().child(empty(format!("Can't find {}.", range.against))),
+            Some(c) if c.files.is_empty() && c.ahead.is_empty() && c.behind.is_empty() => div().flex_1().child(empty(format!("No differences with {}.", range.against))),
+            Some(c) => {
+                let rows = compare_rows(c, &range.against, self.store.diff.tree, &self.changes.folded);
+                self.rows_list(rows, cx)
+            }
+        }
+    }
+
+    fn rows_list(&self, rows: Vec<Row>, cx: &mut Context<Self>) -> Div {
         let list = uniform_list(
             "changes",
             rows.len(),
@@ -205,6 +294,8 @@ impl Desktop {
                     .map(|row| match row {
                         Row::Header(s, paths) => this.section(*s, paths, cx).into_any_element(),
                         Row::Item(s, item) => this.tree_item(*s, item, cx),
+                        Row::Commit(c) => this.compared_commit(c, cx).into_any_element(),
+                        Row::Note(n) => div().h(px(28.)).w_full().px(px(8.)).flex().items_center().text_size(px(12.)).text_color(TEXT_3).child(n.clone()).into_any_element(),
                     })
                     .collect::<Vec<_>>()
             }),
@@ -214,14 +305,7 @@ impl Desktop {
         .px(px(8.))
         .pt(px(6.))
         .pb(px(8.));
-        let list = div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes.scroll);
-        let changes = if repo.files.is_empty() { div().flex_1().child(empty("No changes.")) } else { list };
-        panel
-            .child(self.changes_header(&repo, cx))
-            .child(self.commit_box(&repo, cx))
-            .children(self.pr_composer(&repo, cx))
-            .children(self.pr_card(cx))
-            .child(self.with_graph(changes, cx))
+        div().relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.changes.scroll)
     }
 
     /// Flips the rows at once: `git add -A` and `git reset` leave each path wholly staged or wholly unstaged.
@@ -385,28 +469,70 @@ pub(crate) fn push(cwd: &str, argv: &[String]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommitKind, CommitStep, Item, Row, Section, change_rows, commit_label, commit_ready, commit_step, flip_staged, toggle_fold, tree};
-    use git::FileStat;
+    use super::{CommitKind, CommitStep, Item, Row, Section, change_rows, commit_label, commit_ready, commit_step, compare_rows, flip_staged, renamed_from, toggle_fold, tree};
+    use git::compare::Comparison;
+    use git::{Commit, FileStat};
     use std::collections::HashSet;
 
     fn file(path: &str) -> FileStat {
-        FileStat { path: path.into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M' }
+        FileStat { path: path.into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None }
     }
 
     fn staged(path: &str) -> FileStat {
         FileStat { staged: true, unstaged: false, ..file(path) }
     }
 
+    fn folds(folded: &[&str]) -> HashSet<String> {
+        folded.iter().map(|k| k.to_string()).collect()
+    }
+
     fn rows(files: &[FileStat], tree: bool, folded: &[&str]) -> Vec<String> {
-        let folded: HashSet<String> = folded.iter().map(|k| k.to_string()).collect();
-        change_rows(files, tree, &folded)
-            .into_iter()
+        texts(change_rows(files, tree, &folds(folded)))
+    }
+
+    fn texts(rows: Vec<Row>) -> Vec<String> {
+        rows.into_iter()
             .map(|row| match row {
                 Row::Header(s, paths) => format!("{}: {}", s.key(), paths.join(" ")),
                 Row::Item(s, Item::Dir { label, depth, .. }) => format!("{}{}:{label}/", "  ".repeat(depth + 1), s.key()),
                 Row::Item(s, Item::File { file, depth }) => format!("{}{}:{}", "  ".repeat(depth + 1), s.key(), file.path),
+                Row::Commit(c) => format!("  commit:{}", c.subject),
+                Row::Note(n) => n,
             })
             .collect()
+    }
+
+    fn commit(subject: &str) -> Commit {
+        Commit { sha: subject.into(), subject: subject.into() }
+    }
+
+    #[test]
+    fn a_compare_lists_commits_then_those_only_the_ref_has_then_the_file_tree() {
+        let c = Comparison { files: vec![file("src/a.rs"), file("b.rs")], ahead: vec![commit("mine")], behind: vec![commit("theirs")], counts: (1, 1) };
+        assert_eq!(
+            texts(compare_rows(&c, "main", true, &folds(&[]))),
+            ["ahead: mine", "  commit:mine", "behind: theirs", "  commit:theirs", "compared: src/a.rs b.rs", "  compared:src/", "    compared:src/a.rs", "  compared:b.rs"]
+        );
+    }
+
+    #[test]
+    fn a_folded_compare_section_keeps_its_header_and_an_empty_one_is_left_out() {
+        let c = Comparison { files: vec![file("a.rs")], ahead: vec![commit("mine")], ..Comparison::default() };
+        assert_eq!(texts(compare_rows(&c, "main", false, &folds(&["ahead", "compared"]))), ["ahead: mine", "compared: a.rs"]);
+    }
+
+    #[test]
+    fn a_compare_with_commits_but_no_file_changed_lists_the_commits_and_says_nothing_differs() {
+        let c = Comparison { ahead: vec![commit("revert")], ..Comparison::default() };
+        assert_eq!(texts(compare_rows(&c, "main", false, &folds(&[]))), ["ahead: revert", "  commit:revert", "No differences with main."]);
+    }
+
+    #[test]
+    fn a_renamed_file_shows_its_old_name_or_its_old_path_when_it_moved_folders() {
+        assert_eq!(renamed_from("src/old.rs", "src/new.rs"), "old.rs");
+        assert_eq!(renamed_from("old.rs", "new.rs"), "old.rs");
+        assert_eq!(renamed_from("lib/a.rs", "src/a.rs"), "lib/a.rs");
+        assert_eq!(renamed_from("a.rs", "src/a.rs"), "a.rs");
     }
 
     #[test]

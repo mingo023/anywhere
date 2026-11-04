@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use workspace::Workspace;
 
 pub mod prefs;
+pub mod scope;
 pub mod sections;
 
 /// Under the home of the machine holding the project; pocketd makes the same folder.
@@ -342,6 +343,9 @@ pub struct Store {
     /// Each worktree's panels, keyed by the worktree's path.
     #[serde(deserialize_with = "readable_layouts")]
     pub layouts: BTreeMap<String, Workspace>,
+    /// Each worktree's Changes scope, keyed by the worktree's path.
+    #[serde(deserialize_with = "lenient")]
+    pub scopes: BTreeMap<String, scope::Scope>,
     /// The app version that last launched, so a relaunch on another one says what's new.
     pub seen_version: Option<String>,
     /// Settings sections showing their advanced rows, by id.
@@ -529,6 +533,16 @@ fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_worktrees_compare_scope_is_remembered() {
+        let mut store = Store::default();
+        let scope = scope::Scope { compare: true, against: scope::Against::Worktree("/w/other".into()), direct: true, working: false };
+        store.scopes.insert("/w/fix".into(), scope.clone());
+        let back: Store = serde_json::from_slice(&serde_json::to_vec(&store).unwrap()).unwrap();
+        assert_eq!(back.scopes["/w/fix"], scope);
+        assert!(serde_json::from_str::<Store>("{\"scopes\": 3}").unwrap().scopes.is_empty(), "an unreadable scope list reads as none");
+    }
 
     #[test]
     fn the_last_agent_keeps_its_model_and_effort() {

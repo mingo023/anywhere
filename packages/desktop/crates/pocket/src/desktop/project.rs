@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, state};
+use crate::desktop::chrome::{Confirm, Overlay, Side, state};
 use crate::explorer::{self, preview};
 use crate::fs::fs_for;
 use crate::git_ui::diff;
@@ -185,7 +185,7 @@ impl Desktop {
         let root = self.cwd();
         let known: BTreeSet<String> = self.store.tracked.iter().cloned().chain(self.worktrees.values().flatten().filter(|w| !w.main).map(|w| w.path.clone())).collect();
         let (untracked, options) = (self.store.git.untracked, self.diff.options);
-        let diffs: Vec<_> = self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.working_file()?.to_string(), v.open.clone(), v.lines.clone()))).collect();
+        let diffs: Vec<_> = self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
         dirs.extend(self.explore_root().map(PathBuf::from));
         self.git_run += 1;
@@ -195,7 +195,7 @@ impl Desktop {
                 let r = git::read(&hosts::runner_for(&c), &c, untracked);
                 (c, r)
             }).collect();
-            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, open, shown)| (p, diff::read_diff(&cwd, path, diff::At::Working, open, options, &shown))).collect()).unwrap_or_default();
+            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, at, open, shown)| (p, diff::read_diff(&cwd, path, at, open, options, &shown))).collect()).unwrap_or_default();
             let initials = repos.first().map(|(c, _)| git::user_initials(&hosts::runner_for(c), c)).unwrap_or_default();
             let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
                 let listing = util::list_dir(&d, &shown);
@@ -229,6 +229,9 @@ impl Desktop {
                 (d.explorer.tree, d.initials, d.worktrees) = (tree, initials, worktrees);
                 d.poll_prs(cx);
                 d.detect_gh_account(cx);
+                if d.side == Side::Changes && d.sidebar.panel_open {
+                    d.load_compare(cx);
+                }
                 for (pane, file) in files {
                     changed |= d.preview.apply(pane, file);
                 }

@@ -144,7 +144,7 @@ Enablers (no surface): 14-13 split the Desktop god-struct (L). 14-24 rebase on m
 |---|---|---|---|---|---|---|
 | Latest-turn diff (temp-index write-tree at UserPromptSubmit) | ✓ [R06 idea 06-1] | n/r | – HEAD vs working tree only [R06 §13] | 06-1 | M | H |
 | Batched review comments into the next prompt: header, `path:line (L/R): body`, quoted `> ±text` | ✓ [R06 §5] | Superset lines → agent [R15 §F16] | partial: sent at once, one line each [R06 §13] | 01-6, 06-2, 13-3 | S | H |
-| Branch-changes scope + ref picker | ✓ [R06 §13] | n/r | – [R06 §13] | 06-3 | M | M |
+| Branch-changes scope + ref picker | ✓ [R06 §13] | n/r | ✓ Compare scope, worktrees as targets too (#173) | 06-3 | M | M |
 | Multi-file continuous diff, sticky headers | ✓ [R06 §13] | n/r | – one file per view [R06 §13] | 06-4 | L | M |
 | Live refresh: fs-watch, pushed updates instead of polling | ✓ [R06 §13] | n/r | – git polled 2 s, list 1 s [R06 §13; R14 idea 14-14] | 06-5, 14-14 | M | M |
 | Snapshot caps + notices | ✓ [R06 idea 06-6] | n/r | n/r | 06-6 | S | L |

@@ -137,6 +137,7 @@ impl Desktop {
             Tab::Doc(Doc::File(p) | Doc::Diff(p)) => basename(p),
             Tab::Doc(Doc::CommitFile { sha, path }) => format!("{} ({})", basename(path), git::short_sha(sha)),
             Tab::Doc(Doc::PrFile { path, .. }) => format!("{} (PR)", basename(path)),
+            Tab::Doc(Doc::CompareFile { against, path, .. }) => format!("{} (vs {against})", basename(path)),
             Tab::Doc(Doc::Commit(sha)) => git::short_sha(sha).to_string(),
             Tab::Term(term) => match self.summary(term) {
                 Some(a) if !a.title.is_empty() => a.title.clone(),
@@ -163,7 +164,7 @@ impl Desktop {
             }
             Tab::Doc(doc) => {
                 let path = match doc {
-                    Doc::File(p) | Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } => p,
+                    Doc::File(p) | Doc::Diff(p) | Doc::CommitFile { path: p, .. } | Doc::PrFile { path: p, .. } | Doc::CompareFile { path: p, .. } => p,
                     Doc::Commit(_) => return row.child(lead(icon("diff-multiple", 14., ink).into_any_element())).child(label(self.tab_text(tab)).when(preview, |d| d.italic())),
                 };
                 let text = self.tab_text(tab);
