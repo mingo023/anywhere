@@ -50,7 +50,7 @@ impl Element for Selectable {
     fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, handle: &mut TextSelectionHandle, window: &mut Window, cx: &mut App) -> Hitbox {
         self.child.prepaint(window, cx);
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-        handle.register(TextSelectionRegistration::new(hitbox.clone(), bounds).with_text_bounds(vec![bounds]), window, cx);
+        handle.register(TextSelectionRegistration::new(hitbox.clone(), bounds).with_text_bounds(vec![bounds]).with_rendered_element(handle, window, cx), window, cx);
         hitbox
     }
 
