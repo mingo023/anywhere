@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.28
+
+- Closing the window keeps Anywhere running in the background (#181): (e4bbb0d7)
+- Typing after clicking a chat reply goes to the composer (#182): (55f01bbc)
+- CLI worktree sessions start and show like ones made in the app (#183): (87b39a18)
+
 ## 0.1.27
 
 - Working sessions show a 3×3 gradient spinner instead of orange dots (#180): (3f7b4947)
