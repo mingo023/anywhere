@@ -97,6 +97,11 @@ fn typed_text(key: &Keystroke) -> Option<String> {
     key.key_char.clone().filter(|c| !c.is_empty() && !c.chars().any(char::is_control))
 }
 
+/// Whether a `TextView` holds focus, as after a click on a reply's markdown.
+fn text_view_focused(contexts: &[KeyContext]) -> bool {
+    contexts.last().is_some_and(|c| c.contains("TextView"))
+}
+
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
     let drop = attachments::drop_images(cx.weak_entity());
@@ -313,7 +318,7 @@ impl Desktop {
     /// Text typed while nothing holds the keys goes to the focused pane's chat, as in Discord. Returns whether it did.
     pub(crate) fn type_into_chat(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(text) = typed_text(key) else { return false };
-        if !self.root.is_focused(window) || !self.panes_on_screen() {
+        if !self.keys_free(window) || !self.panes_on_screen() {
             return false;
         }
         let Some(t) = self.focused_chat().filter(|t| self.chat_mode(t) == Mode::Prompt) else { return false };
@@ -323,6 +328,11 @@ impl Desktop {
         true
     }
 
+    /// Whether nothing that takes typing holds the keys.
+    fn keys_free(&self, window: &Window) -> bool {
+        self.root.is_focused(window) || text_view_focused(&window.context_stack())
+    }
+
     /// [DEBUG-focus] Logs text typed while a chat is focused that neither its input nor `type_into_chat` takes.
     pub(crate) fn log_focus_miss(&self, key: &Keystroke, window: &Window, cx: &App) {
         let (Some(_), Some(t), Some(path)) = (typed_text(key), self.focused_chat(), FOCUS_LOG.get()) else { return };
@@ -330,7 +340,7 @@ impl Desktop {
             return;
         }
         let mode = self.chat_mode(&t);
-        if self.root.is_focused(window) && self.panes_on_screen() && mode == Mode::Prompt {
+        if self.keys_free(window) && self.panes_on_screen() && mode == Mode::Prompt {
             return;
         }
         let c = &self.chats.composer;
@@ -688,8 +698,8 @@ fn added(draft: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, added, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, typed_text, working};
-    use gpui_kit::{Keystroke, Modifiers};
+    use super::{Mode, added, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, text_view_focused, typed_text, working};
+    use gpui_kit::{KeyContext, Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
     use chat::{Action, Ask, Block, End, Message, Question, Session, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
@@ -818,5 +828,14 @@ mod tests {
         assert_eq!(key("enter", Some("\n"), Modifiers::default()), None);
         assert_eq!(key("tab", Some("\t"), Modifiers::default()), None);
         assert_eq!(key("escape", None, Modifiers::default()), None);
+    }
+
+    #[test]
+    fn a_focused_reply_leaves_typing_free_but_an_input_holds_it() {
+        let stack = |names: &[&str]| names.iter().map(|n| KeyContext::parse(n).unwrap()).collect::<Vec<_>>();
+        assert!(text_view_focused(&stack(&["Desktop", "TextView"])));
+        assert!(!text_view_focused(&stack(&["Desktop", "Input mode=editor"])));
+        assert!(!text_view_focused(&stack(&["TextView", "Terminal"])));
+        assert!(!text_view_focused(&[]));
     }
 }
