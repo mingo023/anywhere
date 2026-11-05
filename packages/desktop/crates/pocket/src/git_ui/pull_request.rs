@@ -310,6 +310,7 @@ pub(crate) struct PullRequest {
     pub(crate) error: Option<String>,
     pub(crate) ship_menu: bool,
     pub(crate) merge_menu: bool,
+    pub(crate) create_menu: bool,
     /// The thread the reply box is under.
     pub(crate) replying: Option<String>,
     pub(crate) notice: Option<Notice>,
@@ -348,6 +349,7 @@ impl PullRequest {
             error: None,
             ship_menu: false,
             merge_menu: false,
+            create_menu: false,
             replying: None,
             notice: None,
             track: Track::default(),
@@ -512,7 +514,7 @@ impl Desktop {
             return;
         }
         self.pr.busy = Some(busy);
-        self.pr.merge_menu = false;
+        (self.pr.merge_menu, self.pr.create_menu) = (false, false);
         let gh = self.gh_in(&dir);
         let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
         cx.spawn(async move |this, cx| {

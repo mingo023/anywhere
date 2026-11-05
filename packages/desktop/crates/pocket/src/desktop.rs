@@ -446,7 +446,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -454,7 +454,7 @@ impl Desktop {
         let open = self.menu_open();
         (self.panels.menu, self.panels.actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, false, false);
         self.compare.menu = false;
-        (self.pr.ship_menu, self.pr.merge_menu) = (false, false);
+        (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;
         self.sidebar.add_menu = false;
