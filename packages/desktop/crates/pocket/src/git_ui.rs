@@ -1,5 +1,6 @@
 pub(crate) mod commit;
 pub(crate) mod changes;
+pub(crate) mod compare;
 pub(crate) mod diff;
 pub(crate) mod gh_accounts;
 pub(crate) mod graph;

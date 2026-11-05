@@ -27,6 +27,7 @@ use crate::explorer::preview::PreviewState;
 use crate::fleet::Fleet;
 use crate::host_agents::HostAgents;
 use crate::git_ui::changes::ChangesState;
+use crate::git_ui::compare::CompareState;
 use crate::git_ui::commit::Commits;
 use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
@@ -89,6 +90,7 @@ pub struct Desktop {
     pub(crate) chat: ChatComposer,
     pub(crate) chats: ChatState,
     pub(crate) changes: ChangesState,
+    pub(crate) compare: CompareState,
     pub(crate) prs: PullRequests,
     pub(crate) gh_accounts: GhAccounts,
     pub(crate) pr: PullRequest,
@@ -140,6 +142,7 @@ impl Desktop {
         let (chats, chats_subs) = ChatState::new(window, cx);
         let regions = Regions::new(cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
+        let (compare, compare_subs) = CompareState::new(window, cx);
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
@@ -179,6 +182,7 @@ impl Desktop {
         _subs.extend(chat_subs);
         _subs.extend(chats_subs);
         _subs.extend(changes_subs);
+        _subs.extend(compare_subs);
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
@@ -213,6 +217,7 @@ impl Desktop {
             chats,
             regions,
             changes,
+            compare,
             prs: PullRequests::default(),
             gh_accounts: GhAccounts::default(),
             pr,
@@ -404,6 +409,11 @@ impl Desktop {
                 self.pin_threads();
                 self.load_diff(pane, cx);
             }
+            Doc::CompareFile { against, path } => {
+                self.diff.select(pane, path, At::Compare(against));
+                self.pin_threads();
+                self.load_diff(pane, cx);
+            }
             Doc::Commit(sha) => self.show_commit(pane, sha, cx),
         }
         cx.notify();
@@ -416,6 +426,7 @@ impl Desktop {
             Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, &At::Working)),
             Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, &At::Commit(sha.clone()))),
             Doc::PrFile { base, path } => diff.is_some_and(|v| v.shows(path, &At::Base(base.clone()))),
+            Doc::CompareFile { against, path } => diff.is_some_and(|v| v.shows(path, &At::Compare(against.clone()))),
             Doc::Commit(sha) => self.commit.get(pane).is_some_and(|c| c.sha.as_ref() == Some(sha)),
         }
     }
@@ -437,13 +448,14 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some()
     }
 
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self) -> bool {
         let open = self.menu_open();
         (self.panels.menu, self.panels.actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, false, false);
+        self.compare.menu = false;
         (self.pr.ship_menu, self.pr.merge_menu) = (false, false);
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;

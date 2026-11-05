@@ -4,6 +4,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::time::Duration;
 
+pub mod compare;
 pub mod github;
 pub mod graph;
 mod runner;
@@ -17,8 +18,10 @@ pub struct FileStat {
     pub removed: usize,
     pub staged: bool,
     pub unstaged: bool,
-    /// Git's status letter: M, A or D.
+    /// Git's status letter: M, A or D, and R for a Compare's renames.
     pub status: char,
+    /// The path it had before a rename.
+    pub old_path: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,8 +45,12 @@ pub struct Repo {
 
 impl Repo {
     pub fn totals(&self) -> (usize, usize) {
-        self.files.iter().fold((0, 0), |(a, r), f| (a + f.added, r + f.removed))
+        totals(&self.files)
     }
+}
+
+pub fn totals(files: &[FileStat]) -> (usize, usize) {
+    files.iter().fold((0, 0), |(a, r), f| (a + f.added, r + f.removed))
 }
 
 /// How long a git command may take on a host.
@@ -112,14 +119,14 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
         .into_iter()
         .map(|(path, added, removed)| {
             let status = statuses.iter().find(|(p, _)| *p == path).map_or('M', |(_, s)| *s);
-            FileStat { staged: staged.contains(&path), unstaged: unstaged.contains(&path), path, added, removed, status }
+            FileStat { staged: staged.contains(&path), unstaged: unstaged.contains(&path), path, added, removed, status, old_path: None }
         })
         .collect();
     let new = if untracked { lines(git(run, cwd, &["ls-files", "--others", "--exclude-standard"])) } else { Vec::new() };
     for path in new {
         let full = Path::new(cwd).join(&path);
         let added = run.read(&full.to_string_lossy(), MAX_READ).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
-        files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A' });
+        files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A', old_path: None });
     }
     let upstream = || git(run, cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string());
     let base = if branch == "main" || branch == "master" {
@@ -232,8 +239,13 @@ pub fn branches(run: &Runner, cwd: &str) -> Vec<String> {
 /// Branches on origin that have no local twin, most recently committed first.
 pub fn remote_branches(run: &Runner, cwd: &str) -> Vec<String> {
     let local: HashSet<String> = branches(run, cwd).into_iter().collect();
+    origin_branches(run, cwd).into_iter().filter(|b| !local.contains(b)).collect()
+}
+
+/// Branches on origin, without `origin/`, most recently committed first.
+pub fn origin_branches(run: &Runner, cwd: &str) -> Vec<String> {
     let remote = lines(git(run, cwd, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:lstrip=3)", "refs/remotes/origin"]));
-    remote.into_iter().filter(|b| b != "HEAD" && !local.contains(b)).collect()
+    remote.into_iter().filter(|b| b != "HEAD").collect()
 }
 
 pub fn remotes(run: &Runner, cwd: &str) -> usize {
@@ -677,7 +689,11 @@ pub fn commit_files(run: &Runner, cwd: &str, sha: &str, parent: Option<&str>) ->
         Some(p) => args.extend([p, sha]),
         None => args.extend(["--root", sha]),
     }
-    let out = git(run, cwd, &args).unwrap_or_default();
+    changed_files(&git(run, cwd, &args).unwrap_or_default())
+}
+
+/// The files `--name-status -z` lists; `old_path` is set for renames and copies.
+fn changed_files(out: &str) -> Vec<CommitFile> {
     let mut tokens = out.split('\0').filter(|t| !t.is_empty());
     let mut files = Vec::new();
     while let Some(status) = tokens.next().and_then(|s| s.chars().next()) {
@@ -768,7 +784,7 @@ mod tests {
         if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_string()) }
     }
 
-    fn scratch_repo(tag: &str) -> std::path::PathBuf {
+    pub(crate) fn scratch_repo(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("pocket-git-{tag}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         let repo = dir.join("repo");
@@ -909,7 +925,7 @@ mod tests {
         child.wait().unwrap().success()
     }
 
-    fn committer(repo: &Path) {
+    pub(crate) fn committer(repo: &Path) {
         for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false")] {
             assert!(Command::new("git").arg("-C").arg(repo).args(["config", k, v]).status().unwrap().success());
         }
@@ -1253,7 +1269,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    fn sh(repo: &Path, args: &[&str]) {
+    pub(crate) fn sh(repo: &Path, args: &[&str]) {
         assert!(Command::new("git").arg("-C").arg(repo).args(args).output().unwrap().status.success(), "git {args:?}");
     }
 
@@ -1392,7 +1408,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_branches_leave_out_head_and_branches_already_local() {
+    fn origin_branches_leave_out_head_and_remote_branches_those_already_local() {
         let dir = scratch_repo("remote-branches");
         let repo = dir.join("repo");
         let r = repo.to_str().unwrap();
@@ -1402,6 +1418,7 @@ mod tests {
         }
         sh(&repo, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
         assert_eq!(remote_branches(&Runner::Local, r), ["feat/x"]);
+        assert_eq!(origin_branches(&Runner::Local, r), ["feat/x", "main"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

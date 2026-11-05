@@ -259,6 +259,7 @@ impl Desktop {
         self.repos.remove(tree);
         self.prs.forget(tree);
         self.store.layouts.remove(tree);
+        self.store.scopes.remove(tree);
         self.store.untrack(tree);
         self.store.sections.unpin_tree(tree);
         self.save_soon(cx);

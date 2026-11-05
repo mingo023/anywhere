@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 225] = [
+const STEPS: [(&str, Step); 230] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -360,6 +360,21 @@ const STEPS: [(&str, Step); 225] = [
     ("changes", |d, _, cx| {
         d.open_changes(None, false, cx);
         d.refresh_graph(cx);
+    }),
+    ("branch-tree", |d, _, cx| {
+        let Some(p) = d.project.clone() else { return };
+        if let Some(w) = d.listed_trees(&p).and_then(|ts| ts.into_iter().find(|w| !w.main)) {
+            d.select_tree(p, Some(w.path), cx);
+            d.refresh_git(cx);
+        }
+    }),
+    ("compare", |d, _, cx| d.change_scope(|s| s.compare = true, cx)),
+    ("compare-menu", |d, window, cx| d.toggle_compare_menu(window, cx)),
+    ("compare-file", |d, _, cx| {
+        let first = d.compare.view.shown.as_ref().and_then(|s| s.files.as_ref()?.first()).map(|f| f.path.clone());
+        if let Some(path) = first {
+            d.open_compare_file(path, false, cx);
+        }
     }),
     ("graph-expand", |d, _, cx| d.toggle_commit(0, cx)),
     ("graph-file", |d, _, cx| {
@@ -725,6 +740,7 @@ const STEPS: [(&str, Step); 225] = [
         let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
         d.pr.track.send(&tree, &pr, &[], &failed, false);
     }),
+    ("pr-side", |d, _, cx| d.show_pr_side(cx)),
     ("pr-comments", |d, _, _| d.pr.track.comments = true),
     ("pr-fold", |d, _, _| d.pr.track.folded = true),
     ("pr-diff", |d, _, cx| {

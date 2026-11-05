@@ -1,4 +1,4 @@
-use super::{Item, Section, toggle_fold};
+use super::{Item, Section, renamed_from, toggle_fold};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::At;
 use git::FileStat;
@@ -59,6 +59,12 @@ impl Desktop {
                     })),
                 ]
             }
+            Section::Compared => Vec::new(),
+        };
+        let label = match s {
+            Section::Staged => "Staged Changes",
+            Section::Changes => "Changes",
+            Section::Compared => "Files",
         };
         div()
             .id(key)
@@ -83,7 +89,7 @@ impl Desktop {
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(TEXT_3)
-                    .child(if s == Section::Staged { "Staged Changes" } else { "Changes" }),
+                    .child(label),
             )
             .child(div().flex().gap(px(2.)).opacity(0.).group_hover(SECTION_GROUP, |st| st.opacity(1.)).children(actions))
             .child(count_pill(count))
@@ -114,10 +120,16 @@ impl Desktop {
         }
     }
 
-    /// In the tree a file sits under its folder, so only its name shows, indented past the folders' chevrons.
+    /// In the tree a file sits under its folder, so only its name shows, indented past the folders' chevrons. A Compare's file shows its counts and, renamed, the name it had.
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &At::Working));
+        let compared = s == Section::Compared;
+        let at = if compared { self.compare.view.against().map(|a| At::Compare(a.to_string())) } else { Some(At::Working) };
+        let selected = at.is_some_and(|at| self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &at)));
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
+        let label = match &f.old_path {
+            Some(old) => format!("{} → {name}", renamed_from(old, &f.path)),
+            None => name.to_string(),
+        };
         let id = |kind: &str| ElementId::Name(format!("{kind}:{}:{}", s.key(), f.path).into());
         let path = f.path.clone();
         let actions = match s {
@@ -138,7 +150,9 @@ impl Desktop {
                     })),
                 ]
             }
+            Section::Compared => Vec::new(),
         };
+        let counts = compared.then(|| ui::meta_diff(f.added, f.removed, 11.));
         let open = f.path.clone();
         row(id("file"), depth)
             .group(ROW_GROUP)
@@ -163,11 +177,12 @@ impl Desktop {
                             .text_size(px(13.5))
                             .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight(450.) })
                             .when(f.status == 'D', |d| d.line_through())
-                            .child(name.to_string()),
+                            .child(label),
                     )
                     .when(!in_tree && !dir.is_empty(), |d| d.child(div().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_4).child(dir.to_string()))),
             )
             .child(div().flex().flex_none().gap(px(2.)).opacity(0.).group_hover(ROW_GROUP, |st| st.opacity(1.)).children(actions))
+            .children(counts)
             .child(
                 div()
                     .w(px(14.))
@@ -180,6 +195,13 @@ impl Desktop {
                     .text_color(ui::git_color(f.status))
                     .child(f.status.to_string()),
             )
-            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_changes(Some(open.clone()), ev.click_count() > 1, cx)))
+            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+                let pin = ev.click_count() > 1;
+                if compared {
+                    this.open_compare_file(open.clone(), pin, cx);
+                } else {
+                    this.open_changes(Some(open.clone()), pin, cx);
+                }
+            }))
     }
 }

@@ -2,6 +2,7 @@ mod card;
 mod comments;
 mod composer;
 mod notice;
+mod side;
 
 use crate::chat::Route;
 use crate::desktop::Desktop;
@@ -129,6 +130,11 @@ pub(crate) fn fixing_text(agent: &str, items: usize) -> String {
 
 pub(crate) fn resolving_text(agent: &str) -> String {
     format!("{agent} is resolving the conflict")
+}
+
+/// Whether the open PR holds something for someone to fix: a conflict, a failed check, asked-for changes or an unresolved thread, draft or not.
+pub(crate) fn pr_wants_you(pr: &Pr) -> bool {
+    pr.state == PrState::Open && (pr.mergeable == Mergeable::Conflicting || pr.checks.failed > 0 || pr.review == Review::ChangesRequested || pr.unresolved().next().is_some())
 }
 
 /// Where the PR stands in one line, in its colour: all a folded card says.
@@ -368,6 +374,7 @@ impl Desktop {
     pub(crate) fn open_pr_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus();
         let (Some(tree), Some(repo)) = (self.cwd(), self.repo().cloned()) else { return };
+        self.show_pr_side(cx);
         self.pr.composing = Some(tree);
         self.pr.error = None;
         if self.store.git.ai {
@@ -586,17 +593,23 @@ impl Desktop {
         let Some(t) = pr.threads.iter().find(|t| t.id == id) else { return };
         if t.outdated || t.line.is_none() {
             self.pr.track.comments = true;
-            return cx.notify();
+            return self.show_pr_side(cx);
         }
-        let doc = Doc::PrFile { base: format!("{}/{}", self.store.git.remote, pr.base), path: t.path.clone() };
+        let doc = Doc::PrFile { base: self.pr_base(pr), path: t.path.clone() };
         self.diff.reveal = Some(id.to_string());
         self.open_doc(doc, false, cx);
     }
 
+    /// The remote branch `pr` merges into, as its diffs read it.
+    fn pr_base(&self, pr: &Pr) -> String {
+        format!("{}/{}", self.store.git.remote, pr.base)
+    }
+
     /// Pins the threads of the PR on screen to the PR diffs.
     pub(crate) fn pin_threads(&mut self) {
-        let threads = self.cwd().and_then(|tree| self.prs.get(&tree)).map_or(&[][..], |pr| pr.threads.as_slice());
-        self.diff.pin(threads);
+        let pr = self.cwd().and_then(|tree| self.prs.get(&tree));
+        let base = pr.map(|pr| self.pr_base(pr));
+        self.diff.pin(pr.map_or(&[][..], |pr| pr.threads.as_slice()), base.as_deref());
     }
 
     /// Pins the threads again and reads the PR diffs again, for what was pushed or said since.
@@ -765,14 +778,14 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ship, Track, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, review_lines, ship, tally, to_fix, verdict};
+    use super::{Ship, Track, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, review_lines, ship, tally, to_fix, verdict};
     use crate::git_ui::pull_requests::PrItem;
     use git::github::{Check, Checks, Comment, Gate, Mergeable, Outcome, Pr, PrState, Review, Thread};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
     use git::{Commit, FileStat, Repo};
 
     fn repo(files: usize, ahead: usize, unpushed: Option<usize>) -> Repo {
-        let file = |i: usize| FileStat { path: format!("{i}.rs"), added: 1, removed: 0, staged: false, unstaged: true, status: 'M' };
+        let file = |i: usize| FileStat { path: format!("{i}.rs"), added: 1, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None };
         Repo { branch: "fix".into(), base: Some("origin/main".into()), ahead, unpushed, files: (0..files).map(file).collect(), ..Repo::default() }
     }
 
@@ -812,6 +825,18 @@ mod tests {
 
     fn pr() -> Pr {
         Pr { number: 12, url: "https://github.com/acme/app/pull/12".into(), head: "aaa".into(), base: "main".into(), ..Pr::default() }
+    }
+
+    #[test]
+    fn a_pr_wants_you_for_a_conflict_a_failed_check_asked_changes_or_an_open_thread_while_it_is_open() {
+        assert!(!pr_wants_you(&pr()));
+        assert!(pr_wants_you(&Pr { mergeable: Mergeable::Conflicting, ..pr() }));
+        assert!(pr_wants_you(&Pr { checks: Checks { failed: 1, ..Checks::default() }, ..pr() }));
+        assert!(pr_wants_you(&Pr { review: Review::ChangesRequested, ..pr() }));
+        assert!(pr_wants_you(&Pr { threads: vec![thread("T1")], ..pr() }));
+        assert!(!pr_wants_you(&Pr { threads: vec![thread("T1")], state: PrState::Merged, ..pr() }));
+        assert!(pr_wants_you(&Pr { draft: true, checks: Checks { failed: 1, ..Checks::default() }, ..pr() }), "a draft's failure still wants you");
+        assert!(pr_wants_you(&Pr { review: Review::ChangesRequested, checks: Checks { pending: 1, ..Checks::default() }, ..pr() }), "asked-for changes while checks run");
     }
 
     fn thread(id: &str) -> Thread {

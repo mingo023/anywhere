@@ -340,7 +340,7 @@ impl Desktop {
             Some(Tab::Term(id)) if self.chat_shown(&id) => self.chat_view(&id, window, cx),
             Some(Tab::Term(id)) => self.term_body(&id, focused, cx),
             Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
-            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. }))) if self.loaded(p, &doc) => self.diff_view(p, cx),
+            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => self.diff_view(p, cx),
             Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc) => self.commit_view(p, cx),
             Some(Tab::Web(id)) => self.browser_view(p, id, window, cx),
             Some(Tab::Doc(_)) => div().flex_1(),

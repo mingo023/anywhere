@@ -8,7 +8,7 @@ pub(crate) use selection::offers_chat;
 use crate::actions::AddToChat;
 use crate::chat::Route;
 use crate::desktop::Desktop;
-use crate::git_ui::diff::{At, DiffView, ordered, span};
+use crate::git_ui::diff::{DiffView, ordered, span};
 use crate::sidebar::in_tree;
 use crate::status::{Card, Kind, Status};
 use crate::syntax::language_for;
@@ -227,8 +227,8 @@ impl Desktop {
     pub(crate) fn add_to_chat(&mut self, _: &AddToChat, window: &mut Window, cx: &mut Context<Self>) {
         let pane = self.focused_pane();
         match self.pane_tab(pane) {
-            Some(Tab::Doc(Doc::Diff(_))) => {
-                let quotable = |v: &&DiffView| v.at == At::Working && v.pick.range.is_some_and(|r| span(&v.lines, ordered(r)).is_some());
+            Some(Tab::Doc(Doc::Diff(_) | Doc::CompareFile { .. })) => {
+                let quotable = |v: &&DiffView| v.followed_file().is_some() && v.pick.range.is_some_and(|r| span(&v.lines, ordered(r)).is_some());
                 if let Some(i) = self.diff.view(pane).filter(quotable).and_then(|v| v.pick.last()) {
                     self.open_composer(pane, i, window, cx);
                 }

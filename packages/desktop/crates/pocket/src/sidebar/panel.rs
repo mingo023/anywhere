@@ -1,7 +1,9 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area};
+use crate::git_ui::pull_request::pr_wants_you;
+use crate::git_ui::pull_requests::glyph;
 use crate::sidebar::column::changes_badge;
-use crate::sidebar::rail::rail_button;
+use crate::sidebar::rail::{rail_button, rail_slot};
 use crate::status::Status;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -31,6 +33,9 @@ impl Desktop {
     pub(crate) fn pick_side(&mut self, side: Side, cx: &mut Context<Self>) {
         (self.side, self.sidebar.panel_open) = rail_pick(self.side, self.sidebar.panel_open, side);
         self.refresh_graph(cx);
+        if self.side == Side::Changes && self.sidebar.panel_open {
+            self.load_compare(cx);
+        }
         cx.notify();
     }
 
@@ -83,10 +88,18 @@ impl Desktop {
         let open = self.sidebar.panel_open;
         let waiting = self.sessions_matching("").iter().any(|c| c.status == Status::NeedsYou);
         let changed = self.repo().map_or(0, |r| r.files.len());
-        let sides = [(Side::Sessions, "sessions"), (Side::Explorer, "explorer"), (Side::Changes, "branch")].into_iter().enumerate().map(|(i, (side, name))| {
-            rail_button(("panel-side", i), name, open && self.side == side)
+        let pr = self.shown_pr().map(|(_, pr)| pr);
+        let sides = [(Side::Sessions, "sessions"), (Side::Explorer, "explorer"), (Side::Changes, "branch"), (Side::PullRequest, "github")];
+        let sides = sides.into_iter().enumerate().map(|(i, (side, name))| {
+            let active = open && self.side == side;
+            let button = match pr.map(|pr| glyph(pr).1).filter(|_| side == Side::PullRequest) {
+                Some(color) => rail_slot(("panel-side", i), active).child(icon(name, 17., color)),
+                None => rail_button(("panel-side", i), name, active),
+            };
+            button
                 .when(side == Side::Sessions && waiting, |d| d.child(ui::dot(6., WAITING_DOT).absolute().top(px(5.)).right(px(5.))))
                 .when(side == Side::Changes && changed > 0, |d| d.child(changes_badge(changed)))
+                .when(side == Side::PullRequest && pr.is_some_and(pr_wants_you), |d| d.child(ui::dot(6., FAILED).absolute().top(px(5.)).right(px(5.))))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_side(side, cx)))
         });
         drag_area(div().bg(SIDE))

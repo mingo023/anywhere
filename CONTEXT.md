@@ -48,6 +48,10 @@ _Avoid_: hooked, bound, connected
 The Claude session or Codex thread an agent is currently on. `/clear` or `/resume` switches the agent to another conversation; the agent stays the same.
 _Avoid_: session id, transcript
 
+**Compare**:
+The Changes panel's other scope, beside Uncommitted: the files a worktree changed against a branch it is compared **against**: its base (the branch it was created from) or another local or remote branch. It diffs from where the worktree left that branch to HEAD, as a pull request shows the branch. It is read-only, and each worktree remembers its own. A ref that goes away sends it back to the base.
+_Avoid_: branch diff, branch scope
+
 ### Status
 
 **Status**:

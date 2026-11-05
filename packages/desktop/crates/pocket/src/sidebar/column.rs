@@ -38,6 +38,7 @@ impl Desktop {
             Side::Sessions => self.session_list(cx).into_any_element(),
             Side::Explorer => self.explorer(cx).into_any_element(),
             Side::Changes => self.changes_list(cx).into_any_element(),
+            Side::PullRequest => self.pr_side(cx).into_any_element(),
         };
         div()
             .bg(SIDE)
@@ -77,7 +78,7 @@ mod tests {
 
     #[test]
     fn binary_changes_alone_still_mark_the_worktree() {
-        let repo = Repo { files: vec![FileStat { path: "a.rs".into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M' }], ..Default::default() };
+        let repo = Repo { files: vec![FileStat { path: "a.rs".into(), added: 0, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None }], ..Default::default() };
         assert!(has_changes(Some(&repo)));
     }
 }

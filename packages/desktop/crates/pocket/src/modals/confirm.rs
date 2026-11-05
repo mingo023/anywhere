@@ -394,7 +394,7 @@ mod tests {
     }
 
     fn file(path: &str, status: char, staged: bool) -> FileStat {
-        FileStat { path: path.into(), added: 1, removed: 0, staged, unstaged: !staged, status }
+        FileStat { path: path.into(), added: 1, removed: 0, staged, unstaged: !staged, status, old_path: None }
     }
 
     #[test]

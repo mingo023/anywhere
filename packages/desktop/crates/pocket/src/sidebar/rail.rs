@@ -6,7 +6,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
-fn rail_slot(id: impl Into<ElementId>, active: bool) -> Stateful<Div> {
+pub(super) fn rail_slot(id: impl Into<ElementId>, active: bool) -> Stateful<Div> {
     ui::control(div().id(id))
         .relative()
         .size(px(32.))
