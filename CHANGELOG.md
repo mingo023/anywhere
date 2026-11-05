@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.30
+
+- Composer gets model, effort and access chips, and skill pills (#189): (39ff9a8e)
+- Changes can compare a worktree with a branch, and pull requests get their own pill (#187): (d194ab16)
+- Chat offers Scroll to bottom only once the agent is done (#186): (8f4c59f9)
+
 ## 0.1.29
 
 - A prompt's selection holds while dragging over several lines (#185): (55e80be2)
