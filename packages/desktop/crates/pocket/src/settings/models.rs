@@ -54,6 +54,20 @@ pub(crate) fn effort_label(effort: &str) -> String {
     }
 }
 
+/// What an effort level is for, under its name in the effort menu.
+pub(crate) fn effort_hint(effort: &str) -> &'static str {
+    match effort {
+        "" => "What the agent's settings say",
+        "minimal" => "Least reasoning, fastest replies",
+        "low" => "Quick changes and small tasks",
+        "medium" => "Balance speed and depth",
+        "high" => "More time for complex reasoning",
+        "xhigh" => "Deeper reasoning for hard problems",
+        "max" => "Most reasoning, slowest replies",
+        _ => "",
+    }
+}
+
 fn capitalised(word: &str) -> String {
     let mut c = word.chars();
     c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()

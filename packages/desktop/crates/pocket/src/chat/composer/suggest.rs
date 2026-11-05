@@ -181,6 +181,34 @@ fn starts_draft(text: &str, at: usize) -> bool {
     text[..at].trim().is_empty()
 }
 
+/// The command whose name the whitespace just typed before `cursor` ends: where its `/` is, and its name.
+fn ended_command(text: &str, cursor: usize) -> Option<(usize, &str)> {
+    let end = text.get(..cursor)?.strip_suffix(char::is_whitespace)?.len();
+    word(text, end, '/').filter(|(_, name)| !name.is_empty())
+}
+
+/// The commands the list offers for `query` at `at`: a new session's only those sent as prompts, as nothing runs yet;
+/// past the draft's start those and `/mcp`, as another command runs only from the start.
+fn offered(p: Prompt, provider: &str, listed: &[agents::Command], text: &str, at: usize, query: &str) -> Vec<Slash> {
+    let mut rows = chat::menu(chat::for_provider(provider), listed, query);
+    if p == Prompt::Launch {
+        rows.retain(|r| r.kind == Kind::Send);
+    } else if !starts_draft(text, at) {
+        rows.retain(|r| matches!(r.kind, Kind::Send | Kind::Local(Local::Mcp)));
+    }
+    rows
+}
+
+/// Where the command a space just ended goes as a pill, and its name: one the list would offer there, outside code and
+/// not one already; `/mcp` gives way to a tag instead.
+fn typed_pill<'a>(p: Prompt, provider: &str, listed: &[agents::Command], text: &'a str, cursor: usize, pills: &[Range<usize>]) -> Option<(Range<usize>, &'a str)> {
+    let (at, name) = ended_command(text, cursor)?;
+    let range = at..at + 1 + name.len();
+    let free = chat::marks_outside_code(text).0.commands.contains(&range) && !pills.contains(&range);
+    let known = offered(p, provider, listed, text, at, name).iter().any(|c| c.name == name && c.kind != Kind::Local(Local::Mcp));
+    (free && known).then_some((range, name))
+}
+
 /// The draft with command `name` and `arg`, and where the cursor goes: after the name, ready for the argument.
 fn named(name: &str, arg: &str) -> (String, usize) {
     (format!("/{name} {arg}"), name.len() + 2)
@@ -342,6 +370,22 @@ impl Desktop {
         self.suggest(p, cx);
     }
 
+    /// A command or skill the list offers, typed out and ended with a space, turns into a pill as picking it does.
+    pub(crate) fn pill_typed_command(&mut self, p: Prompt, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(t) = self.suggest_target(p) else { return };
+        let input = self.suggest_input(p).clone();
+        let (text, cursor) = (input.read(cx).value().to_string(), input.read(cx).cursor());
+        let pills: Vec<Range<usize>> = input.read(cx).tokens().iter().map(|s| s.range()).collect();
+        let listed = self.suggest_state(p).commands.get(&t.key).map_or(&[][..], Vec::as_slice);
+        let Some((range, name)) = typed_pill(p, &t.provider, listed, &text, cursor, &pills) else { return };
+        input.update(cx, |s, cx| {
+            if s.replace_range_with_token(range, crate::composer::pills::command_token(name), window, cx).is_ok() {
+                let at = s.text().offset_to_position(cursor);
+                s.set_cursor_position(at, window, cx);
+            }
+        });
+    }
+
     /// Works the list out again for the draft as it stands. A new session lists only the commands sent as prompts, as
     /// nothing runs yet; a `/` past the draft's start lists those and `/mcp`, as another command runs only from the
     /// start.
@@ -353,13 +397,7 @@ impl Desktop {
         let rows = t.as_ref().and_then(|t| {
             if let Some((at, query)) = word(&text, cursor, '/') {
                 let listed = s.commands.get(&t.key).map_or(&[][..], Vec::as_slice);
-                let mut rows = chat::menu(chat::for_provider(&t.provider), listed, query);
-                if p == Prompt::Launch {
-                    rows.retain(|r| r.kind == Kind::Send);
-                } else if !starts_draft(&text, at) {
-                    rows.retain(|r| matches!(r.kind, Kind::Send | Kind::Local(Local::Mcp)));
-                }
-                return Some(Rows::Commands { at, query: query.into(), rows });
+                return Some(Rows::Commands { at, query: query.into(), rows: offered(p, &t.provider, listed, &text, at, query) });
             }
             let (at, query) = word(&text, cursor, '@')?;
             if let Some(query) = query.strip_prefix(mcp_word()).filter(|_| p == Prompt::Chat && offers_mcp(&t.provider)) {
@@ -381,7 +419,7 @@ impl Desktop {
 
     /// Sets the draft as if typed, so the list follows it.
     pub(crate) fn type_text(&mut self, p: Prompt, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.put_text(p, text.into(), None, window, cx);
+        self.put_text(p, text.into(), None, None, window, cx);
         self.draft_changed(p, cx);
     }
 
@@ -442,12 +480,12 @@ impl Desktop {
                 let cursor = self.suggest_input(p).read(cx).cursor();
                 if c.kind == Kind::Local(Local::Mcp) {
                     let text = format!("{}{}{}", &list.text[..at], chat::mcp::TAG, &list.text[cursor..]);
-                    self.put_text(p, text, Some(at + chat::mcp::TAG.len()), window, cx);
+                    self.put_text(p, text, Some(at + chat::mcp::TAG.len()), None, window, cx);
                     self.draft_changed(p, cx);
                     return true;
                 }
                 let (text, cursor) = replaced(&list.text, at, cursor, &format!("/{}", c.name));
-                self.put_text(p, text, Some(cursor), window, cx);
+                self.put_text(p, text, Some(cursor), Some((at, c.name.as_str())), window, cx);
             }
             Rows::Commands { rows, .. } => {
                 let Some(c) = rows.get(ix) else { return true };
@@ -461,7 +499,7 @@ impl Desktop {
                     }
                     _ => {
                         let (text, cursor) = named(&c.name, arg);
-                        self.put_text(p, text, Some(cursor), window, cx);
+                        self.put_text(p, text, Some(cursor), Some((0, c.name.as_str())), window, cx);
                     }
                 }
             }
@@ -469,12 +507,12 @@ impl Desktop {
                 let Some(path) = paths.get(ix) else { return true };
                 let cursor = self.suggest_input(p).read(cx).cursor();
                 let (text, cursor) = replaced(&list.text, at, cursor, &format!("@{path}"));
-                self.put_text(p, text, Some(cursor), window, cx);
+                self.put_text(p, text, Some(cursor), None, window, cx);
             }
             Rows::Servers { at, servers, .. } => {
                 let cursor = self.suggest_input(p).read(cx).cursor();
                 let (text, cursor) = replaced(&list.text, at, cursor, &format!("{}{}", chat::mcp::TAG, listed(&servers)[ix].name));
-                self.put_text(p, text, Some(cursor), window, cx);
+                self.put_text(p, text, Some(cursor), None, window, cx);
             }
         }
         true
@@ -506,10 +544,12 @@ impl Desktop {
         .detach();
     }
 
-    fn put_text(&mut self, p: Prompt, text: String, cursor: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
+    /// Sets the draft to `text`, the command named at `pill`'s offset as a pill; the pills it held stay where the text does.
+    fn put_text(&mut self, p: Prompt, text: String, cursor: Option<usize>, pill: Option<(usize, &str)>, window: &mut Window, cx: &mut Context<Self>) {
         let cursor = cursor.unwrap_or(text.len());
         self.suggest_input(p).clone().update(cx, |s, cx| {
-            s.set_value(text, window, cx);
+            let content = crate::composer::pills::kept_pills(&s.content(), text, pill.map(|(at, name)| (at, crate::composer::pills::command_token(name))));
+            s.set_value(content, window, cx);
             let at = s.text().offset_to_position(cursor);
             s.set_cursor_position(at, window, cx);
         });
@@ -606,7 +646,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHOWN, Suggest, launch_key, named, rank, replaced, starts_draft, window, word};
+    use super::{Prompt, SHOWN, Suggest, ended_command, launch_key, named, rank, replaced, starts_draft, typed_pill, window, word};
     use agents::{McpAction, McpServer, McpStatus};
     use std::collections::HashSet;
 
@@ -630,6 +670,32 @@ mod tests {
         assert_eq!(name, "mo");
         assert_eq!(named("model", arg), ("/model haiku".to_string(), "/model ".len()));
         assert_eq!(named("compact", ""), ("/compact ".to_string(), "/compact ".len()));
+    }
+
+    #[test]
+    fn a_space_after_a_typed_command_ends_it() {
+        assert_eq!(ended_command("/goal ", 6), Some((0, "goal")));
+        assert_eq!(ended_command("try /review\n", 12), Some((4, "review")));
+        assert_eq!(ended_command("/goal", 5), None, "still being typed");
+        assert_eq!(ended_command("a/b ", 4), None, "not a word of its own");
+        assert_eq!(ended_command("/ ", 2), None);
+    }
+
+    fn pilled(p: Prompt, text: &str) -> Option<&str> {
+        typed_pill(p, "claude", &[], text, text.len(), &[]).map(|(_, name)| name)
+    }
+
+    #[test]
+    fn a_typed_command_turns_into_a_pill_only_where_the_list_offers_it() {
+        assert_eq!(pilled(Prompt::Chat, "/model "), Some("model"));
+        assert_eq!(pilled(Prompt::Chat, "fix /goal "), Some("goal"));
+        assert_eq!(pilled(Prompt::Chat, "fix /model "), None, "runs only from the start");
+        assert_eq!(pilled(Prompt::Launch, "/model "), None, "nothing runs before the session starts");
+        assert_eq!(pilled(Prompt::Chat, "/mcp "), None, "a tag, not a pill");
+        assert_eq!(pilled(Prompt::Chat, "/nope "), None);
+        assert_eq!(typed_pill(Prompt::Chat, "claude", &[], "`a /goal `", 9, &[]), None, "inside code");
+        let pill = 0..5;
+        assert_eq!(typed_pill(Prompt::Chat, "claude", &[], "/goal ", 6, std::slice::from_ref(&pill)), None, "already a pill");
     }
 
     #[test]

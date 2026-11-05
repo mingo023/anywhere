@@ -1,12 +1,12 @@
 use crate::desktop::Desktop;
-use crate::settings::models::{model_label, model_options};
+use crate::settings::models::{effort_hint, effort_label, model_label, model_options};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::rc::Rc;
 use store::prefs::agents::ACCESSES;
 use theme::*;
 
-/// Sets a composer's model or access to the value picked.
+/// Sets a composer's model, effort or access to the value picked.
 pub(crate) type Pick = Rc<dyn Fn(&mut Desktop, String, &mut Context<Desktop>)>;
 
 /// Each of `ACCESSES` as (label, hint); sized by it, so a new access won't build without its text.
@@ -74,6 +74,21 @@ pub(crate) fn access_rows(id: &'static str, choices: Vec<(String, String, String
             let pick = pick.clone();
             access_row((id, i), value == picked, None, &label, &hint, access_color(&value))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| pick(this, value.clone(), cx)))
+                .into_any_element()
+        })
+        .collect()
+}
+
+/// The effort menu's rows, each level over what it's for; "" is the agent's own.
+pub(crate) fn effort_rows(id: &'static str, levels: Vec<String>, picked: &str, pick: Pick, cx: &mut Context<Desktop>) -> Vec<AnyElement> {
+    levels
+        .into_iter()
+        .enumerate()
+        .map(|(i, level)| {
+            let pick = pick.clone();
+            let label = if level.is_empty() { "Default".to_string() } else { effort_label(&level) };
+            access_row((id, i), level == picked, None, &label, effort_hint(&level), TEXT)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| pick(this, level.clone(), cx)))
                 .into_any_element()
         })
         .collect()

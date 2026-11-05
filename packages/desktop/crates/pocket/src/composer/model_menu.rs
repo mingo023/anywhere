@@ -4,7 +4,7 @@ use crate::modals::new_session::picker::menu_input;
 use crate::settings::models::{effort_label, model_label};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use gpui_kit::component::input::InputState;
+use std::rc::Rc;
 use store::LaunchPick;
 use store::prefs::agents::Provider;
 use theme::*;
@@ -12,13 +12,6 @@ use theme::*;
 pub(crate) const ROW: f32 = 34.;
 pub(crate) const GAP: f32 = 2.;
 pub(crate) const PAD: f32 = 5.;
-
-/// The menu beside the pill's, opened by pointing at one of its rows.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(crate) enum Side {
-    Model,
-    Effort,
-}
 
 /// The pill's model and effort: the ones picked, else Settings'; with neither, the agent's name stands for its own default.
 fn pill_label(agent: &str, pick: &LaunchPick, app: &Provider, efforts: &[String], names: &[(String, String)]) -> (String, Option<String>) {
@@ -63,91 +56,53 @@ pub(crate) fn check(on: bool) -> Div {
 }
 
 impl Desktop {
-    /// The agent, model and effort a session starts with, in one pill.
+    /// The agent and model a session starts with; its menu lists each agent's models.
     pub(crate) fn model_pill(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Model));
-        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &self.agents.provider_info(&pick.provider).efforts, self.catalog_models());
-        let pill = super::pill()
-            .child(provider_icon(&pick.provider, 16., TEXT_2))
-            .child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model))
-            .children(effort.map(|e| div().whitespace_nowrap().text_color(TEXT_3).child(e)));
-        let chip = super::picker(pill, "composer-model", open)
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.load_models(cx);
-                this.toggle_composer(slot, Menu::Model, cx);
-            }));
-        let menu = open.then(|| self.model_menu(c, pick, project, cx));
+        let (slot, open, search) = (c.slot, c.draft.menu == Some(Menu::Model), c.search.clone());
+        let (model, _) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &self.agents.provider_info(&pick.provider).efforts, self.catalog_models());
+        let pill = super::pill().child(provider_icon(&pick.provider, 16., TEXT_2)).child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model));
+        let chip = super::picker(pill, "composer-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+            cx.stop_propagation();
+            this.load_models(cx);
+            this.toggle_composer(slot, Menu::Model, cx);
+            if slot(this).draft.menu == Some(Menu::Model) {
+                search.update(cx, |s, cx| {
+                    s.set_value("", window, cx);
+                    s.focus(window, cx);
+                });
+            }
+        }));
+        let menu = open.then(|| {
+            let menu = div()
+                .id("composer-model-menu")
+                // Menus hang over the page; without this a click on one also lands on what it covers.
+                .occlude()
+                .child(self.model_side(c, pick, project, cx))
+                .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                    slot(this).draft.menu = None;
+                    cx.notify();
+                }));
+            ui::dropdown(36., ui::menu_in("composer-model-menu-in", menu))
+        });
         div().relative().child(chip).children(menu)
     }
 
-    /// Two rows, Model and Effort, each opening its own menu beside them.
-    fn model_menu(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let (slot, side) = (c.slot, c.draft.side);
+    /// The effort a session starts with, once its agent offers levels.
+    pub(crate) fn effort_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Option<Div> {
         let levels = &self.agents.provider_info(&pick.provider).efforts;
-        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), levels, self.catalog_models());
-        let open_side = |to: Side, search: Entity<InputState>| {
-            move |this: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>| {
-                let draft = &mut slot(this).draft;
-                if draft.side == Some(to) {
-                    return;
-                }
-                (draft.side, draft.viewing) = (Some(to), None);
-                if to == Side::Model {
-                    search.update(cx, |s, cx| {
-                        s.set_value("", window, cx);
-                        s.focus(window, cx);
-                    });
-                }
-                cx.notify();
-            }
-        };
-
-        let model_open = open_side(Side::Model, c.search.clone());
-        let model_click = model_open.clone();
-        let model_row = row("composer-side-model", side == Some(Side::Model))
-            .child(div().flex_1().font_weight(FontWeight::MEDIUM).child("Model"))
-            .child(provider_icon(&pick.provider, 13., TEXT_2))
-            .child(div().min_w_0().truncate().text_color(TEXT_2).child(model))
-            .child(icon("chevron-right", 12., TEXT_4))
-            .on_hover(cx.listener(move |this, hovered: &bool, window, cx| if *hovered { model_open(this, window, cx) }))
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| model_click(this, window, cx)));
-        let effort_row = if levels.is_empty() {
-            row("composer-side-effort", false).cursor_default().child(div().flex_1().font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child("Effort")).child(div().text_color(TEXT_4).child(format!("Set by {}", self.agent_name(&pick.provider))))
-        } else {
-            let effort_open = open_side(Side::Effort, c.search.clone());
-            let effort_click = effort_open.clone();
-            row("composer-side-effort", side == Some(Side::Effort))
-                .child(div().flex_1().font_weight(FontWeight::MEDIUM).child("Effort"))
-                .child(div().text_color(TEXT_2).child(effort.unwrap_or_else(|| "Default".into())))
-                .child(icon("chevron-right", 12., TEXT_4))
-                .on_hover(cx.listener(move |this, hovered: &bool, window, cx| if *hovered { effort_open(this, window, cx) }))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| effort_click(this, window, cx)))
-        };
-        let main = ui::pop(div()).w(px(250.)).flex_none().p(px(PAD)).child(rows("composer-sides", vec![model_row, effort_row]));
-
-        let side_menu = side.map(|s| {
-            let body = match s {
-                Side::Model => self.model_side(c, pick, project.clone(), cx).into_any_element(),
-                Side::Effort => self.effort_side(c, pick, project.clone(), cx).into_any_element(),
-            };
-            div().mt(px(s as usize as f32 * (ROW + GAP))).child(body)
+        if levels.is_empty() {
+            return None;
+        }
+        let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Effort));
+        let (_, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), levels, self.catalog_models());
+        let chip = launch::chip("composer-effort", open, "bulb", effort.unwrap_or_else(|| "Default".into()), TEXT, move |this, cx| this.toggle_composer(slot, Menu::Effort, cx), cx);
+        let menu = open.then(|| {
+            let current = pick.clone();
+            let choose: launch::Pick = Rc::new(move |this, effort, cx| this.choose_launch(slot, project.clone(), LaunchPick { effort, ..current.clone() }, cx));
+            let levels = std::iter::once(String::new()).chain(levels.iter().cloned()).collect();
+            super::menu("composer-effort-menu", "Effort", 260., launch::effort_rows("composer-effort-row", levels, &pick.effort, choose, cx), slot, cx)
         });
-
-        let menus = div()
-            .id("composer-model-menu")
-            .flex()
-            .items_start()
-            .gap(px(6.))
-            // Menus hang over the page; without this a click on one also lands on what it covers.
-            .occlude()
-            .child(main)
-            .children(side_menu)
-            .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                slot(this).draft.menu = None;
-                cx.notify();
-            }));
-        ui::dropdown(36., ui::menu_in("composer-model-menu-in", menus))
+        Some(div().relative().child(chip).children(menu))
     }
 
     /// The agents as a rail of icons; pointing at one lists its models, and only picking one of those switches agent.
@@ -197,7 +152,7 @@ impl Desktop {
             .max_h(px(300.))
             .overflow_y_scroll()
             .p(px(PAD))
-            .child(div().px(px(10.)).pt(px(4.)).pb(px(6.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(self.agent_name(viewed)))
+            .child(super::menu_title(self.agent_name(viewed)))
             .child(rows("composer-models", list_rows))
             .when(empty, |d| d.child(div().px(px(10.)).py(px(8.)).text_size(px(13.)).text_color(TEXT_3).child("No models match")));
 
@@ -207,24 +162,6 @@ impl Desktop {
             .overflow_hidden()
             .child(div().p(px(6.)).flex().flex_col().gap(px(4.)).border_r(px(0.5)).border_color(SEPARATOR).children(rail))
             .child(div().flex_1().min_w_0().flex().flex_col().child(menu_input("search", &c.search)).child(list))
-    }
-
-    fn effort_side(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let slot = c.slot;
-        let levels: Vec<String> = std::iter::once(String::new()).chain(self.agents.provider_info(&pick.provider).efforts.iter().cloned()).collect();
-        let chosen = levels.iter().position(|l| *l == pick.effort).unwrap_or(0);
-        let list_rows = levels
-            .iter()
-            .enumerate()
-            .map(|(i, level)| {
-                let (project, pick) = (project.clone(), LaunchPick { effort: level.clone(), ..pick.clone() });
-                row(("composer-effort-row", i), chosen == i)
-                    .child(div().flex_1().font_weight(FontWeight::MEDIUM).child(if level.is_empty() { "Default".into() } else { effort_label(level) }))
-                    .child(check(chosen == i))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.choose_launch(slot, project.clone(), pick.clone(), cx)))
-            })
-            .collect();
-        ui::pop(div()).w(px(200.)).p(px(PAD)).child(rows("composer-efforts", list_rows))
     }
 }
 

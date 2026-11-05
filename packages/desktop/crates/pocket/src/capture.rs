@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 230] = [
+const STEPS: [(&str, Step); 229] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -178,6 +178,12 @@ const STEPS: [(&str, Step); 230] = [
     }),
     ("chat-code-swipe", |d, window, cx| swipe(d, last_code, -160., window, cx)),
     ("chat-typed", |d, window, cx| d.set_chat_text("Refactor the parser", window, cx)),
+    ("chat-pills", |d, window, cx| {
+        let text = "Use /apple-design on `composer.rs`, then:\n```rust\nfn quiet() {}\n```";
+        let content = gpui_kit::component::input::InputContent::new(text).with_token(4..17, crate::composer::pills::command_token("apple-design")).expect("the pill's text");
+        d.chats.input.update(cx, |s, cx| s.set_value(content, window, cx));
+        cx.notify();
+    }),
     ("chat-model-open", |d, _, cx| {
         d.chats.composer.draft.toggle(Menu::Model);
         cx.notify();
@@ -192,12 +198,8 @@ const STEPS: [(&str, Step); 230] = [
         d.chats.composer.draft.toggle(Menu::Access);
         cx.notify();
     }),
-    ("chat-model-effort", |d, _, cx| {
-        d.chats.composer.draft.side = Some(crate::composer::model_menu::Side::Effort);
-        cx.notify();
-    }),
-    ("chat-model-models", |d, _, cx| {
-        d.chats.composer.draft.side = Some(crate::composer::model_menu::Side::Model);
+    ("chat-effort-open", |d, _, cx| {
+        d.chats.composer.draft.toggle(Menu::Effort);
         cx.notify();
     }),
     ("chat-slash", |d, window, cx| d.type_text(Prompt::Chat, "/", window, cx)),
@@ -578,8 +580,7 @@ const STEPS: [(&str, Step); 230] = [
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("form-model", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Model, cx)),
-    ("form-model-list", |d, _, _| crate::modals::new_session::slot(d).draft.side = Some(crate::composer::model_menu::Side::Model)),
-    ("form-effort-list", |d, _, _| crate::modals::new_session::slot(d).draft.side = Some(crate::composer::model_menu::Side::Effort)),
+    ("form-effort", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Effort, cx)),
     ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),

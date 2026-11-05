@@ -44,6 +44,75 @@ fn take(chars: &mut Peekable<CharIndices>, from: usize, part: impl Fn(char) -> b
     end
 }
 
+/// A prompt's code, as byte ranges.
+#[derive(Debug, PartialEq)]
+pub enum Code {
+    /// A span between single backticks on one line, its backticks included.
+    Inline(Range<usize>),
+    /// A fenced block: its opening fence with the language, and its closing fence.
+    Block { open: Range<usize>, close: Range<usize> },
+}
+
+impl Code {
+    /// Where the code starts and ends, its backticks included.
+    pub fn range(&self) -> Range<usize> {
+        match self {
+            Code::Inline(r) => r.clone(),
+            Code::Block { open, close, .. } => open.start..close.end,
+        }
+    }
+}
+
+/// Each closed code span and fenced block in `text`. Nothing after an unclosed fence is code yet, as it may still be
+/// the block being typed.
+pub fn code(text: &str) -> Vec<Code> {
+    const FENCE: &str = "```";
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(open) = text[from..].find(FENCE).map(|i| from + i) {
+        found.extend(inline_code(text, from..open));
+        let after = open + FENCE.len();
+        let Some(close) = text[after..].find(FENCE).map(|i| after + i) else { return found };
+        let language = text[after..close].find('\n').map(|n| after + n).filter(|&end| text[after..end].chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '+' | '-')));
+        found.push(Code::Block { open: open..language.unwrap_or(after), close: close..close + FENCE.len() });
+        from = close + FENCE.len();
+    }
+    found.extend(inline_code(text, from..text.len()));
+    found
+}
+
+/// The spans in `within` between single backticks on one line; a backtick right after another opens none.
+fn inline_code(text: &str, within: Range<usize>) -> Vec<Code> {
+    let mut found = Vec::new();
+    let mut from = within.start;
+    while let Some(start) = text[from..within.end].find('`').map(|i| from + i) {
+        let body = start + 1;
+        if text[..start].ends_with('`') {
+            from = body;
+            continue;
+        }
+        match text[body..within.end].find(['`', '\n']).map(|i| body + i) {
+            Some(end) if end > body && text[end..].starts_with('`') => {
+                found.push(Code::Inline(start..end + 1));
+                from = end + 1;
+            }
+            Some(end) => from = end.max(body),
+            None => break,
+        }
+    }
+    found
+}
+
+/// `text`'s marks outside its code, which reads as typed, and its code.
+pub fn marks_outside_code(text: &str) -> (Marks, Vec<Code>) {
+    let code = code(text);
+    let mut marks = marks(text);
+    let outside = |r: &Range<usize>| !code.iter().map(Code::range).any(|c| c.start < r.end && r.start < c.end);
+    marks.commands.retain(outside);
+    marks.mentions.retain(outside);
+    (marks, code)
+}
+
 /// What a mention shows: its file's name, or a folder's name and `/`.
 pub fn mention_name(path: &str) -> &str {
     let trimmed = path.strip_suffix('/').unwrap_or(path);
@@ -99,6 +168,47 @@ mod tests {
     #[test]
     fn emails_and_a_lone_at_stay_plain() {
         assert_eq!(marked("mail dev@pocket.app or a/b @ alone").1, Vec::<&str>::new());
+    }
+
+    fn coded(text: &str) -> Vec<&str> {
+        code(text).into_iter().map(|c| &text[c.range()]).collect()
+    }
+
+    #[test]
+    fn a_span_between_backticks_on_one_line_is_code() {
+        assert_eq!(coded("Check `composer.rs` and `a b`"), ["`composer.rs`", "`a b`"]);
+        for plain in ["`open", "a `` b", "`a\nb`", "``a``"] {
+            assert_eq!(coded(plain), Vec::<&str>::new(), "{plain:?}");
+        }
+    }
+
+    #[test]
+    fn a_fenced_block_has_its_fence_and_language_then_its_close() {
+        let text = "See\n```rust\nfn a() {}\n```\nthen `b`";
+        let found = code(text);
+        let Code::Block { open, close } = &found[0] else { panic!("{found:?}") };
+        assert_eq!((&text[open.clone()], &text[close.clone()]), ("```rust", "```"));
+        assert_eq!(&text[found[1].range()], "`b`");
+    }
+
+    #[test]
+    fn a_fence_with_code_on_its_line_has_no_language() {
+        let text = "```let a = 1;```";
+        let Code::Block { open, .. } = &code(text)[0] else { panic!() };
+        assert_eq!(&text[open.clone()], "```");
+    }
+
+    #[test]
+    fn marks_inside_code_read_as_typed() {
+        let text = "`@a.rs /x` and /review @b.rs";
+        let (marks, code) = marks_outside_code(text);
+        let read = |ranges: Vec<std::ops::Range<usize>>| ranges.into_iter().map(|r| &text[r]).collect::<Vec<_>>();
+        assert_eq!((read(marks.commands), read(marks.mentions), code.len()), (vec!["/review"], vec!["@b.rs"], 1));
+    }
+
+    #[test]
+    fn nothing_after_an_unclosed_fence_is_code_yet() {
+        assert_eq!(coded("`a` then ```rust\nfn `b`"), ["`a`"]);
     }
 
     #[test]
