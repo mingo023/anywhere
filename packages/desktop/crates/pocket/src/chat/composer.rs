@@ -11,7 +11,7 @@ pub(crate) mod suggest;
 
 use super::question::Wizard;
 use suggest::Prompt;
-use crate::composer::model_menu::Side;
+use crate::composer::model_menu::{GAP, PAD};
 use crate::composer::{Attachment, Draft, Menu};
 use crate::desktop::Desktop;
 use crate::renames;
@@ -41,6 +41,8 @@ pub(crate) const INPUT_TEXT_SIZE: f32 = 14.5;
 pub(crate) const INPUT_LINE_HEIGHT: f32 = 22.;
 /// The rows that fit 260px; past them the input scrolls.
 pub(crate) const MAX_ROWS: usize = (260. / INPUT_LINE_HEIGHT) as usize;
+/// The rows the input keeps room for while empty, so the prompt leads the box.
+pub(crate) const MIN_ROWS: usize = 2;
 
 /// What stands under the transcript.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -105,7 +107,7 @@ fn text_view_focused(contexts: &[KeyContext]) -> bool {
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
     let drop = attachments::drop_images(cx.weak_entity());
-    cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true).on_drop_paths(drop).decorate(super::mention::decorations))
+    cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(MIN_ROWS, MAX_ROWS).submit_on_enter(true).on_drop_paths(drop).decorate(super::mention::decorations))
 }
 
 /// The chat composer's state besides its input (`ChatState::input`), shared by every chat pane.
@@ -134,7 +136,10 @@ impl ComposerState {
         let subs = vec![
             cx.subscribe_in(input, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, secondary } => this.chat_enter(*secondary, window, cx),
-                InputEvent::Change => this.draft_changed(Prompt::Chat, cx),
+                InputEvent::Change => {
+                    this.pill_typed_command(Prompt::Chat, window, cx);
+                    this.draft_changed(Prompt::Chat, cx);
+                }
                 _ => {}
             }),
             cx.subscribe_in(&answer, window, |this, _, ev: &InputEvent, window, cx| match ev {
@@ -159,17 +164,26 @@ impl ComposerState {
     }
 }
 
-/// Paints each mention's icon over its `@` in `input`, read after the input painted this frame so it sits where the text does.
-pub(crate) fn mention_icons(input: Entity<TextareaState>) -> impl IntoElement {
+/// A code span's rounded shade, inset from the line it sits on; none for a span wrapped onto another line.
+fn code_shade(span: Bounds<Pixels>) -> Option<PaintQuad> {
+    let one_line = span.size.width > px(0.) && span.size.height <= px(INPUT_LINE_HEIGHT);
+    one_line.then(|| quad(Bounds::new(span.origin + point(px(0.), px(2.)), size(span.size.width, span.size.height - px(4.))), px(5.), Hsla::from(FILL_3), px(1.), HAIRLINE, BorderStyle::Solid))
+}
+
+/// Paints over `input` once it painted this frame, so each sits where the text does: a rounded shade over each code
+/// span, translucent so its text reads through, and each mention's icon over its `@`.
+pub(crate) fn marks_overlay(input: Entity<TextareaState>) -> impl IntoElement {
     canvas(
         |_, _, _| (),
         move |_, _, window, cx| {
             let input = input.read(cx);
             let text = input.value();
-            let slots: Vec<(Bounds<Pixels>, String)> =
-                chat::marks(&text).mentions.into_iter().filter_map(|r| Some((input.range_to_bounds(&(r.start..r.start + 1))?, text[r.start + 1..r.end].to_string()))).collect();
+            let (marks, code) = chat::marks_outside_code(&text);
+            let shades: Vec<PaintQuad> = code.iter().filter_map(|c| if let chat::Code::Inline(r) = c { input.range_to_bounds(r).and_then(code_shade) } else { None }).collect();
+            let slots: Vec<(Bounds<Pixels>, String)> = marks.mentions.into_iter().filter_map(|r| Some((input.range_to_bounds(&(r.start..r.start + 1))?, text[r.start + 1..r.end].to_string()))).collect();
             let visible = input.input_bounds();
             window.with_content_mask(Some(ContentMask { bounds: visible }), |window| {
+                shades.into_iter().for_each(|q| window.paint_quad(q));
                 super::mention::paint_icons(slots.iter().map(|(slot, path)| (*slot, path.as_str())), 13., window, cx)
             });
         },
@@ -211,6 +225,31 @@ fn hand_focus(from: Vec<FocusHandle>, to: FocusHandle) -> impl IntoElement {
         |_, _, _, _| {},
     )
     .absolute()
+}
+
+fn close_menu(this: &mut Desktop, cx: &mut Context<Desktop>) {
+    this.chats.composer.draft.menu = None;
+    cx.notify();
+}
+
+/// A chip's menu of `rows` under `title`, opening upward from the chip's left edge as the composer sits at the bottom;
+/// a press outside closes it.
+fn chip_menu(id: &'static str, title: &'static str, width: f32, rows: impl IntoIterator<Item = impl IntoElement>, cx: &mut Context<Desktop>) -> Div {
+    let menu = ui::pop(div().id(id))
+        .w(px(width))
+        .max_h(px(360.))
+        .overflow_y_scroll()
+        .p(px(PAD))
+        .flex()
+        .flex_col()
+        .gap(px(GAP))
+        // Menus hang over the transcript; without this a click on one also lands on what it covers.
+        .occlude()
+        .child(crate::composer::menu_title(title))
+        .children(rows)
+        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| close_menu(this, cx)));
+    let menu = ui::menu_in(SharedString::from(format!("{id}-in")), menu);
+    div().absolute().top(px(-6.)).left_0().child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
 }
 
 fn fade_in<E: Styled + IntoElement + 'static>(id: ElementId, e: E) -> AnimationElement<E> {
@@ -448,9 +487,7 @@ impl Desktop {
         match (local, arg) {
             (Local::Model | Local::Effort, "") => {
                 self.load_models(cx);
-                let draft = &mut self.chats.composer.draft;
-                draft.menu = Some(Menu::Model);
-                draft.side = Some(if local == Local::Model { Side::Model } else { Side::Effort });
+                self.chats.composer.draft.menu = Some(if local == Local::Model { Menu::Model } else { Menu::Effort });
             }
             (Local::Model, model) => self.outbox.settings(agent, model, ""),
             (Local::Effort, effort) => self.outbox.settings(agent, "", effort),
@@ -509,8 +546,9 @@ impl Desktop {
         }
         let value = added(&self.chats.input.read(cx).value(), text);
         self.chats.input.update(cx, |s, cx| {
-            s.set_value(value.clone(), window, cx);
-            let end = s.text().offset_to_position(value.len());
+            let end = value.len();
+            s.set_value(crate::composer::pills::kept_pills(&s.content(), value, None), window, cx);
+            let end = s.text().offset_to_position(end);
             s.set_cursor_position(end, window, cx);
         });
         cx.notify();
@@ -631,10 +669,10 @@ impl Desktop {
         } else if !held {
             // Another chat's draft is in the input; this one's shows until a press here takes the input.
             let shown = if typed.is_empty() { (self.chats.composer.placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };
-            div().px(px(10.)).py(px(8.)).line_height(px(INPUT_LINE_HEIGHT)).text_color(shown.1).child(shown.0).into_any_element()
+            div().px(px(10.)).py(px(8.)).min_h(px(MIN_ROWS as f32 * INPUT_LINE_HEIGHT + 16.)).line_height(px(INPUT_LINE_HEIGHT)).text_color(shown.1).child(shown.0).into_any_element()
         } else {
             let (desktop, input) = (cx.entity().downgrade(), self.chats.input.clone());
-            let textarea = Textarea::new(&self.chats.input)
+            let textarea = crate::composer::pills::with_pills(Textarea::new(&self.chats.input), &self.chats.input)
                 .appearance(false)
                 .text_size(px(INPUT_TEXT_SIZE))
                 .line_height(px(INPUT_LINE_HEIGHT))
@@ -642,23 +680,17 @@ impl Desktop {
                     let unsaved = |d: &mut Desktop, (title, detail): (String, String)| d.error = Some(format!("{title}: {detail}"));
                     crate::composer::paste(&desktop, &input, |d| &mut d.chats.composer.draft, unsaved, item, window, cx)
                 });
-            div().child(textarea).child(mention_icons(self.chats.input.clone())).into_any_element()
+            div().child(textarea).child(marks_overlay(self.chats.input.clone())).into_any_element()
         };
         let (t, a) = (terminal.to_string(), agent.id.clone());
-        // The textarea pads itself 8 × 10; with these and the border its text sits at the design's 14 × 16 and the box starts 44 tall.
-        let text = div().pt(px(5.)).px(px(5.)).child(input);
-        let bar = div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .pt(px(4.))
-            .px(px(7.))
-            .pb(px(7.))
-            .children(attach)
+        let text = crate::composer::prompt_text().child(input);
+        let bar = crate::composer::prompt_bar()
+            .child(self.chat_model_pill(agent, view_only, cx))
+            .children(self.chat_effort_pill(agent, view_only, cx))
             .children(self.chat_access_pill(agent, view_only, cx))
             .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
             .child(div().flex_1())
-            .child(self.chat_model_pill(agent, view_only, cx))
+            .children(attach)
             .children(ghost)
             .children(send);
         let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();

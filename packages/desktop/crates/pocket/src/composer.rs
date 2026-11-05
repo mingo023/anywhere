@@ -1,9 +1,10 @@
 pub(crate) mod launch;
 pub(crate) mod model_menu;
+pub(crate) mod pills;
 
 use crate::chat::composer::attachments::attach_button;
 use crate::chat::composer::suggest::Suggest;
-use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, mention_icons};
+use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, marks_overlay};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -42,6 +43,7 @@ impl Composer {
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Menu {
     Model,
+    Effort,
     Access,
     /// The chat's account popover on its usage, slid `back` to from its accounts.
     Usage { back: bool },
@@ -55,9 +57,7 @@ pub(crate) struct Draft {
     /// The agent picked here, and the Project it was picked for; another Project starts with its own.
     chosen: Option<(Option<String>, LaunchPick)>,
     pub(crate) menu: Option<Menu>,
-    /// The model menu's side menu, opened by pointing at its row.
-    pub(crate) side: Option<model_menu::Side>,
-    /// The agent whose models the side menu lists, once one is pointed at.
+    /// The agent whose models the model menu lists, once one is pointed at.
     viewing: Option<&'static str>,
     pub(crate) images: Vec<Attachment>,
 }
@@ -81,7 +81,7 @@ impl Draft {
     /// Whether `menu` is open now.
     pub(crate) fn toggle(&mut self, menu: Menu) -> bool {
         self.menu = (self.menu != Some(menu)).then_some(menu);
-        (self.side, self.viewing) = (None, None);
+        self.viewing = None;
         self.menu.is_some()
     }
 
@@ -252,8 +252,8 @@ pub(crate) fn drop_images(desktop: WeakEntity<Desktop>, slot: Slot) -> impl Fn(&
 }
 
 impl Desktop {
-    /// The box around `textarea`, as the chat's; `pills` lead the attachments above it, `trailing` comes before the
-    /// model and `send`.
+    /// The box around `textarea`, as the chat's; `pills` lead the attachments above it, `trailing` comes before attach
+    /// and `send`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, typing: bool, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, send: Stateful<Div>, cx: &mut Context<Self>) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
@@ -282,7 +282,7 @@ impl Desktop {
                 div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(img(a.image.clone()).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover)).child(remove)
             }))
         });
-        let textarea = textarea
+        let textarea = pills::with_pills(textarea, &c.prompt)
             .appearance(false)
             .text_size(px(INPUT_TEXT_SIZE))
             .line_height(px(INPUT_LINE_HEIGHT))
@@ -290,18 +290,13 @@ impl Desktop {
                 let prompt = c.prompt.clone();
                 move |item, window, cx| paste(&desktop, &prompt, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx)
             });
-        let bar = div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .pt(px(4.))
-            .px(px(7.))
-            .pb(px(7.))
-            .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
-            .child(self.access_chip(c, &pick, project.clone(), cx))
+        let bar = prompt_bar()
+            .child(self.model_pill(c, &pick, project.clone(), cx))
+            .children(self.effort_chip(c, &pick, project.clone(), cx))
+            .child(self.access_chip(c, &pick, project, cx))
             .child(div().flex_1())
             .children(trailing)
-            .child(self.model_pill(c, &pick, project, cx))
+            .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
             .child(send);
         let prompt = c.prompt.clone();
         frame(typing)
@@ -310,7 +305,7 @@ impl Desktop {
             .on_drop(move |paths: &ExternalPaths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)))
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))
             .children(attached)
-            .child(div().pt(px(5.)).px(px(5.)).child(textarea).child(mention_icons(c.prompt.clone())))
+            .child(prompt_text().child(textarea).child(marks_overlay(c.prompt.clone())))
             .child(bar)
     }
 
@@ -335,10 +330,25 @@ impl Desktop {
         let menu = open.then(|| {
             let current = pick.clone();
             let choose: Pick = Rc::new(move |this, access, cx| this.choose_launch(slot, project.clone(), LaunchPick { access, ..current.clone() }, cx));
-            menu("composer-access-menu", 300., launch::access_rows("composer-access-row", launch::access_choices(app), &pick.access, choose, cx), slot, cx)
+            menu("composer-access-menu", "Access", 300., launch::access_rows("composer-access-row", launch::access_choices(app), &pick.access, choose, cx), slot, cx)
         });
         div().relative().child(chip).children(menu)
     }
+}
+
+/// Where the prompt box's text sits; the textarea pads itself 8 × 10, so its text starts 20 in.
+pub(crate) fn prompt_text() -> Div {
+    div().pt(px(11.)).px(px(9.))
+}
+
+/// The prompt box's bottom row: its settings, then what attaches and sends.
+pub(crate) fn prompt_bar() -> Div {
+    div().flex().items_center().gap(px(4.)).pt(px(4.)).px(px(11.)).pb(px(11.))
+}
+
+/// A menu's name over its rows.
+pub(crate) fn menu_title(title: impl Into<SharedString>) -> Div {
+    div().px(px(10.)).pt(px(4.)).pb(px(6.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(title.into())
 }
 
 /// A setting in the prompt box's bar, as model or access.
@@ -352,7 +362,7 @@ pub(crate) fn picker(pill: Div, id: impl Into<ElementId>, open: bool) -> Statefu
 }
 
 /// A chip's menu, closed by a press outside it.
-fn menu(id: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mut Context<Desktop>) -> Div {
     let menu = ui::pop(div().id(id))
         .w(px(width))
         .max_h(px(360.))
@@ -363,6 +373,7 @@ fn menu(id: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mu
         .gap(px(2.))
         // Menus hang over the page; without this a click on one also lands on what it covers.
         .occlude()
+        .child(menu_title(title))
         .children(rows)
         .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             slot(this).draft.menu = None;
@@ -417,14 +428,15 @@ mod tests {
     }
 
     #[test]
-    fn reopening_the_model_menu_closes_its_side_menu_and_points_at_the_picked_agent() {
+    fn reopening_the_model_menu_points_at_the_picked_agent() {
         let mut draft = Draft::default();
         draft.toggle(Menu::Model);
-        (draft.side, draft.viewing) = (Some(super::model_menu::Side::Model), Some("codex"));
+        draft.viewing = Some("codex");
         draft.toggle(Menu::Model);
         draft.toggle(Menu::Model);
-        assert_eq!((draft.side, draft.viewing), (None, None));
+        assert_eq!(draft.viewing, None);
     }
+
 
     #[test]
     fn an_image_paste_is_saved_to_a_private_file_and_text_pastes_as_itself() {

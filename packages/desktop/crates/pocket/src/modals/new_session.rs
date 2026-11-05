@@ -5,7 +5,7 @@ use agents::{Agents, CreateReply, Event};
 use chat::Action;
 use crate::chat::composer::send_button::send_button;
 use crate::chat::composer::suggest::Prompt;
-use crate::chat::composer::{MAX_ROWS, PLACEHOLDER};
+use crate::chat::composer::{MAX_ROWS, MIN_ROWS, PLACEHOLDER};
 use crate::chat::mention;
 use crate::composer::{self, Composer};
 use crate::creating::Create;
@@ -409,7 +409,7 @@ impl NewForm {
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let dropped = composer::drop_images(cx.entity().downgrade(), slot);
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true).on_drop_paths(dropped).decorate(mention::decorations));
+        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(MIN_ROWS, MAX_ROWS).submit_on_enter(true).on_drop_paths(dropped).decorate(mention::decorations));
         let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let composer = Composer::new(prompt.clone(), models.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
@@ -418,7 +418,10 @@ impl NewForm {
             cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| {
                 match ev {
                     InputEvent::PressEnter { shift: false, .. } => this.start_session(window, cx),
-                    InputEvent::Change => this.draft_changed(Prompt::Launch, cx),
+                    InputEvent::Change => {
+                        this.pill_typed_command(Prompt::Launch, window, cx);
+                        this.draft_changed(Prompt::Launch, cx);
+                    }
                     _ => {}
                 }
             }),

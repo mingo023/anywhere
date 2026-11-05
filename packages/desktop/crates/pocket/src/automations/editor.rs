@@ -253,7 +253,7 @@ impl Desktop {
         div().flex_1().min_w_0().flex().flex_col().child(bar).child(self.detail_body("editor-body", 24., body))
     }
 
-    /// The instructions in a session's prompt box: access on the left, agent and model on the right.
+    /// The instructions in a session's prompt box: access on the left, agent, model and effort on the right.
     fn instructions_box(&self, v: &Values, cx: &mut Context<Self>) -> Div {
         let c = &self.automations.form.composer;
         let (project, pick) = (project_key(&v.folder), v.pick());
@@ -267,7 +267,8 @@ impl Desktop {
             .pb(px(7.))
             .child(self.access_chip(c, &pick, project.clone(), cx))
             .child(div().flex_1())
-            .child(self.model_pill(c, &pick, project, cx));
+            .child(self.model_pill(c, &pick, project.clone(), cx))
+            .children(self.effort_chip(c, &pick, project, cx));
         let prompt = c.prompt.clone();
         frame(!v.prompt.trim().is_empty())
             .on_mouse_down(MouseButton::Left, move |_, window, cx| prompt.update(cx, |s, cx| s.focus(window, cx)))
