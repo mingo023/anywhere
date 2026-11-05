@@ -122,8 +122,11 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
             FileStat { staged: staged.contains(&path), unstaged: unstaged.contains(&path), path, added, removed, status, old_path: None }
         })
         .collect();
-    if untracked {
-        files.extend(untracked_files(run, cwd));
+    let new = if untracked { lines(git(run, cwd, &["ls-files", "--others", "--exclude-standard"])) } else { Vec::new() };
+    for path in new {
+        let full = Path::new(cwd).join(&path);
+        let added = run.read(&full.to_string_lossy(), MAX_READ).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
+        files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A', old_path: None });
     }
     let upstream = || git(run, cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string());
     let base = if branch == "main" || branch == "master" {
@@ -148,18 +151,6 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
     };
     let unpushed = git(run, cwd, &["rev-list", "--count", "@{u}..HEAD"]).and_then(|n| n.trim().parse().ok());
     Some(Repo { branch, base, ahead, behind, unpushed, files, commits, remotes: remote_names(run, cwd) })
-}
-
-/// Files git doesn't track, each counted as added in full.
-fn untracked_files(run: &Runner, cwd: &str) -> Vec<FileStat> {
-    let new = lines(git(run, cwd, &["ls-files", "--others", "--exclude-standard"]));
-    new.into_iter()
-        .map(|path| {
-            let full = Path::new(cwd).join(&path);
-            let added = run.read(&full.to_string_lossy(), MAX_READ).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
-            FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A', old_path: None }
-        })
-        .collect()
 }
 
 /// What `branch` was created from per its reflog, else origin's default branch, else main or master; origin's copy beats a local one, which may be stale.

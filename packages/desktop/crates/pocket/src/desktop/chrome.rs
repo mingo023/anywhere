@@ -25,6 +25,7 @@ pub enum Side {
     Sessions,
     Explorer,
     Changes,
+    PullRequest,
 }
 
 pub use store::Layout;

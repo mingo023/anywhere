@@ -29,7 +29,7 @@ use crate::host_agents::HostAgents;
 use crate::git_ui::changes::ChangesState;
 use crate::git_ui::compare::CompareState;
 use crate::git_ui::commit::Commits;
-use crate::git_ui::diff::{At, DiffState, diff_of};
+use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
 use crate::git_ui::graph::GraphState;
 use crate::git_ui::pull_request::PullRequest;
@@ -396,17 +396,25 @@ impl Desktop {
                 self.preview.open(pane, path, self.store.files.markdown_source);
                 self.load_file(pane, cx);
             }
-            Doc::Commit(sha) => self.show_commit(pane, sha, cx),
-            doc => {
-                if let Some((path, at)) = diff_of(&doc) {
-                    let of_pr = matches!(at, At::Base(_) | At::Compare(_));
-                    self.diff.select(pane, path.to_string(), at);
-                    if of_pr {
-                        self.pin_threads();
-                    }
-                    self.load_diff(pane, cx);
-                }
+            Doc::Diff(path) => {
+                self.diff.select(pane, path, At::Working);
+                self.load_diff(pane, cx);
             }
+            Doc::CommitFile { sha, path } => {
+                self.diff.select(pane, path, At::Commit(sha));
+                self.load_diff(pane, cx);
+            }
+            Doc::PrFile { base, path } => {
+                self.diff.select(pane, path, At::Base(base));
+                self.pin_threads();
+                self.load_diff(pane, cx);
+            }
+            Doc::CompareFile { against, path } => {
+                self.diff.select(pane, path, At::Compare(against));
+                self.pin_threads();
+                self.load_diff(pane, cx);
+            }
+            Doc::Commit(sha) => self.show_commit(pane, sha, cx),
         }
         cx.notify();
     }
@@ -415,8 +423,11 @@ impl Desktop {
         let diff = self.diff.view(pane);
         match doc {
             Doc::File(p) => self.preview.file(pane) == Some(p.as_str()),
+            Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, &At::Working)),
+            Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, &At::Commit(sha.clone()))),
+            Doc::PrFile { base, path } => diff.is_some_and(|v| v.shows(path, &At::Base(base.clone()))),
+            Doc::CompareFile { against, path } => diff.is_some_and(|v| v.shows(path, &At::Compare(against.clone()))),
             Doc::Commit(sha) => self.commit.get(pane).is_some_and(|c| c.sha.as_ref() == Some(sha)),
-            doc => diff_of(doc).is_some_and(|(path, at)| diff.is_some_and(|v| v.shows(path, &at))),
         }
     }
 

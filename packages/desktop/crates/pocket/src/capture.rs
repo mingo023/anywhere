@@ -25,7 +25,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 231] = [
+const STEPS: [(&str, Step); 230] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -370,10 +370,8 @@ const STEPS: [(&str, Step); 231] = [
     }),
     ("compare", |d, _, cx| d.change_scope(|s| s.compare = true, cx)),
     ("compare-menu", |d, window, cx| d.toggle_compare_menu(window, cx)),
-    ("compare-direct", |d, _, cx| d.change_scope(|s| s.direct = !s.direct, cx)),
-    ("compare-working", |d, _, cx| d.change_scope(|s| s.working = !s.working, cx)),
     ("compare-file", |d, _, cx| {
-        let first = d.compare.view.shown.as_ref().and_then(|s| s.comparison.as_ref()?.files.first()).map(|f| f.path.clone());
+        let first = d.compare.view.shown.as_ref().and_then(|s| s.files.as_ref()?.first()).map(|f| f.path.clone());
         if let Some(path) = first {
             d.open_compare_file(path, false, cx);
         }
@@ -742,6 +740,7 @@ const STEPS: [(&str, Step); 231] = [
         let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
         d.pr.track.send(&tree, &pr, &[], &failed, false);
     }),
+    ("pr-side", |d, _, cx| d.show_pr_side(cx)),
     ("pr-comments", |d, _, _| d.pr.track.comments = true),
     ("pr-fold", |d, _, _| d.pr.track.folded = true),
     ("pr-diff", |d, _, cx| {

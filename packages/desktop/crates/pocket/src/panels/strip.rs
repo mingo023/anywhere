@@ -137,7 +137,7 @@ impl Desktop {
             Tab::Doc(Doc::File(p) | Doc::Diff(p)) => basename(p),
             Tab::Doc(Doc::CommitFile { sha, path }) => format!("{} ({})", basename(path), git::short_sha(sha)),
             Tab::Doc(Doc::PrFile { path, .. }) => format!("{} (PR)", basename(path)),
-            Tab::Doc(Doc::CompareFile { against, path, .. }) => format!("{} (vs {against})", basename(path)),
+            Tab::Doc(Doc::CompareFile { against, path }) => format!("{} (vs {against})", basename(path)),
             Tab::Doc(Doc::Commit(sha)) => git::short_sha(sha).to_string(),
             Tab::Term(term) => match self.summary(term) {
                 Some(a) if !a.title.is_empty() => a.title.clone(),

@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn a_worktrees_compare_scope_is_remembered() {
         let mut store = Store::default();
-        let scope = scope::Scope { compare: true, against: scope::Against::Worktree("/w/other".into()), direct: true, working: false };
+        let scope = scope::Scope { compare: true, against: scope::Against::Ref("origin/dev".into()) };
         store.scopes.insert("/w/fix".into(), scope.clone());
         let back: Store = serde_json::from_slice(&serde_json::to_vec(&store).unwrap()).unwrap();
         assert_eq!(back.scopes["/w/fix"], scope);

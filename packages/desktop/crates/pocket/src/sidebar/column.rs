@@ -38,6 +38,7 @@ impl Desktop {
             Side::Sessions => self.session_list(cx).into_any_element(),
             Side::Explorer => self.explorer(cx).into_any_element(),
             Side::Changes => self.changes_list(cx).into_any_element(),
+            Side::PullRequest => self.pr_side(cx).into_any_element(),
         };
         div()
             .bg(SIDE)

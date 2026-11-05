@@ -19,6 +19,7 @@
 
 ## Decisions (answered for the issue's open questions)
 
+- **Narrowed after trying it:** Compare picks only branches (the base, local and remote) and lists only the files changed since the worktree left that branch (`<branch>...HEAD`). Worktrees, typed tags and SHAs, the commit lists, ahead/behind counts and the Direct and Include uncommitted toggles were dropped; the tasks below still describe them.
 - **Include uncommitted** is off by default: Compare starts as the PR shows the branch; Uncommitted already shows the rest.
 - **Worktree against worktree** compares the other worktree's branch (its HEAD), not its working tree: stable while that agent works. Worktrees on no branch (detached) aren't offered.
 - **Tags and SHAs** are typed into the menu's search; it offers "Compare with `<typed>`". A ref that names no commit falls back to the base with a notice.

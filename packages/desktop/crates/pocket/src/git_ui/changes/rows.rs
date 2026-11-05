@@ -1,8 +1,7 @@
 use super::{Item, Section, renamed_from, toggle_fold};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::At;
-use git::{Commit, FileStat};
-use workspace::Doc;
+use git::FileStat;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -60,14 +59,12 @@ impl Desktop {
                     })),
                 ]
             }
-            Section::Ahead | Section::Behind | Section::Compared => Vec::new(),
+            Section::Compared => Vec::new(),
         };
         let label = match s {
-            Section::Staged => "Staged Changes".to_string(),
-            Section::Changes => "Changes".to_string(),
-            Section::Ahead => "Commits".to_string(),
-            Section::Behind => format!("Only in {}", self.compare.view.range().map_or("", |r| r.against.as_str())),
-            Section::Compared => "Files".to_string(),
+            Section::Staged => "Staged Changes",
+            Section::Changes => "Changes",
+            Section::Compared => "Files",
         };
         div()
             .id(key)
@@ -123,23 +120,10 @@ impl Desktop {
         }
     }
 
-    /// A commit a Compare lists; clicking it opens the commit.
-    pub(super) fn compared_commit(&self, c: &Commit, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.commit.get(self.focused_pane()).is_some_and(|v| v.sha.as_deref() == Some(c.sha.as_str()));
-        let sha = c.sha.clone();
-        row(ElementId::Name(format!("commit:{sha}").into()), 0)
-            .when(selected, |d| d.bg(FILL_3))
-            .when(!selected, |d| d.hover(|st| st.bg(FILL_1)))
-            .child(icon("diff-multiple", 14., TEXT_3))
-            .child(div().flex_none().font_family(MONO).text_size(px(12.)).text_color(TEXT_3).child(git::short_sha(&c.sha).to_string()))
-            .child(div().flex_1().min_w_0().truncate().text_size(px(13.5)).font_weight(FontWeight(450.)).child(c.subject.clone()))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_doc(Doc::Commit(sha.clone()), ev.click_count() > 1, cx)))
-    }
-
     /// In the tree a file sits under its folder, so only its name shows, indented past the folders' chevrons. A Compare's file shows its counts and, renamed, the name it had.
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let compared = s == Section::Compared;
-        let at = if compared { self.compare.view.range().cloned().map(At::Compare) } else { Some(At::Working) };
+        let at = if compared { self.compare.view.against().map(|a| At::Compare(a.to_string())) } else { Some(At::Working) };
         let selected = at.is_some_and(|at| self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &at)));
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
         let label = match &f.old_path {
@@ -166,7 +150,7 @@ impl Desktop {
                     })),
                 ]
             }
-            Section::Ahead | Section::Behind | Section::Compared => Vec::new(),
+            Section::Compared => Vec::new(),
         };
         let counts = compared.then(|| ui::meta_diff(f.added, f.removed, 11.));
         let open = f.path.clone();
