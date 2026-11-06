@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.31
+
+- Model picker lists each agent's own models and efforts in one pill (#193): (dba2123b)
+- iOS release signs the archive with one stored Development certificate (#192): (7aeb82ae)
+- Chat shows its goal as a pill in the composer that opens it (#191): (73c9998f)
+- Dark menus and popovers are frosted glass (#190): (9a3753e6)
+
 ## 0.1.30
 
 - Composer gets model, effort and access chips, and skill pills (#189): (39ff9a8e)
