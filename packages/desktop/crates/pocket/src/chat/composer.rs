@@ -11,7 +11,6 @@ pub(crate) mod suggest;
 
 use super::question::Wizard;
 use suggest::Prompt;
-use crate::composer::model_menu::{GAP, PAD};
 use crate::composer::{Attachment, Draft, Menu};
 use crate::desktop::Desktop;
 use crate::renames;
@@ -235,18 +234,16 @@ fn close_menu(this: &mut Desktop, cx: &mut Context<Desktop>) {
 /// A chip's menu of `rows` under `title`, opening upward from the chip's left edge as the composer sits at the bottom;
 /// a press outside closes it.
 fn chip_menu(id: &'static str, title: &'static str, width: f32, rows: impl IntoIterator<Item = impl IntoElement>, cx: &mut Context<Desktop>) -> Div {
-    let menu = ui::pop(div().id(id))
-        .w(px(width))
-        .max_h(px(360.))
-        .overflow_y_scroll()
-        .p(px(PAD))
-        .flex()
-        .flex_col()
-        .gap(px(GAP))
+    hang(id, crate::composer::menu_list(id, title, width, rows), cx)
+}
+
+/// `menu` opening upward from the chip's left edge; a press outside it closes it.
+fn hang(id: &'static str, menu: impl IntoElement, cx: &mut Context<Desktop>) -> Div {
+    let menu = div()
+        .id(SharedString::from(format!("{id}-out")))
         // Menus hang over the transcript; without this a click on one also lands on what it covers.
         .occlude()
-        .child(crate::composer::menu_title(title))
-        .children(rows)
+        .child(menu)
         .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| close_menu(this, cx)));
     let menu = ui::menu_in(SharedString::from(format!("{id}-in")), menu);
     div().absolute().top(px(-6.)).left_0().child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
@@ -686,7 +683,6 @@ impl Desktop {
         let text = crate::composer::prompt_text().child(input);
         let bar = crate::composer::prompt_bar()
             .child(self.chat_model_pill(agent, view_only, cx))
-            .children(self.chat_effort_pill(agent, view_only, cx))
             .children(self.chat_access_pill(agent, view_only, cx))
             .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
             .child(div().flex_1())
