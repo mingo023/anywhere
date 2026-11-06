@@ -734,11 +734,11 @@ impl Desktop {
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
                     Some((lang, code)) => {
-                        let (styles, start) = view.code.get(&id, &code, is_dark());
+                        let (colours, start) = view.code.get(&id, &code, is_dark());
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
-                        let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), styles));
+                        let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), colours));
                         let block = match reveal {
                             Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,

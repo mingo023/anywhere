@@ -1,4 +1,4 @@
-use gpui_kit::base::text::{InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, TextViewMotion, TextViewState, TextViewStyle, markdown_ast};
+use gpui_kit::base::text::{CodeBlockHighlighterFn, InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, TextViewMotion, TextViewState, TextViewStyle, markdown_ast};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -10,6 +10,21 @@ use std::sync::Arc;
 use theme::*;
 
 pub(super) type Styles = Arc<Vec<(Range<usize>, HighlightStyle)>>;
+
+/// A code block's colours and the highlighter that hands them over, made once per run: a code block takes a new
+/// highlighter `Arc` as a reflow, which keeps its old selection over a drag.
+#[derive(Clone)]
+pub(super) struct Colours {
+    styles: Styles,
+    highlighter: Arc<CodeBlockHighlighterFn>,
+}
+
+impl Colours {
+    fn new(styles: Styles) -> Self {
+        let held = styles.clone();
+        Self { styles, highlighter: Arc::new(move |_| held.to_vec()) }
+    }
+}
 
 /// How far a list item's text sits from its marker's edge.
 pub(super) const LIST_INDENT: f32 = 14. * 1.9;
@@ -89,15 +104,15 @@ fn held(docs: &mut HashMap<String, Entity<TextViewState>>, key: &str, text: &str
 
 /// Code-block highlights by row id, for the code length and appearance they were computed for.
 #[derive(Default)]
-pub(super) struct Highlights(HashMap<String, ((usize, bool), Option<Styles>)>);
+pub(super) struct Highlights(HashMap<String, ((usize, bool), Option<Colours>)>);
 
 impl Highlights {
-    /// The styles for a row's `code` in a light or dark appearance; true when it needs a new run.
+    /// The colours for a row's `code` in a light or dark appearance; true when it needs a new run.
     /// Code that changed length (a block still streaming) keeps the old run's colours until its own run lands.
-    pub(super) fn get(&mut self, row: &str, code: &str, dark: bool) -> (Option<Styles>, bool) {
+    pub(super) fn get(&mut self, row: &str, code: &str, dark: bool) -> (Option<Colours>, bool) {
         let old = match self.0.get(row) {
-            Some((of, styles)) if *of == (code.len(), dark) => return (styles.clone(), false),
-            Some(((_, was_dark), Some(styles))) if *was_dark == dark => Some(kept(styles, code)),
+            Some((of, colours)) if *of == (code.len(), dark) => return (colours.clone(), false),
+            Some(((_, was_dark), Some(colours))) if *was_dark == dark => Some(Colours::new(kept(&colours.styles, code))),
             _ => None,
         };
         self.0.insert(row.to_string(), ((code.len(), dark), old.clone()));
@@ -106,7 +121,7 @@ impl Highlights {
 
     pub(super) fn set(&mut self, row: &str, len: usize, dark: bool, styles: Styles) {
         if let Some(entry) = self.0.get_mut(row).filter(|(of, _)| *of == (len, dark)) {
-            entry.1 = Some(styles);
+            entry.1 = Some(Colours::new(styles));
         }
     }
 
@@ -262,11 +277,11 @@ pub(super) fn block(view: TextView, open: Open) -> TextView {
         .text_color(TEXT_BODY)
 }
 
-/// A fenced code block, selectable: language, wrap and copy over code that scrolls sideways, coloured once `styles` land.
-pub(super) fn code_block(doc: &Entity<TextViewState>, styles: Option<Styles>) -> TextView {
+/// A fenced code block, selectable: language, wrap and copy over code that scrolls sideways, coloured once `colours` land.
+pub(super) fn code_block(doc: &Entity<TextViewState>, colours: Option<Colours>) -> TextView {
     TextView::new(doc)
         .style(style())
-        .code_block_highlighter(move |_| styles.iter().flat_map(|s| s.iter().cloned()).collect())
+        .when_some(colours, |view, colours| view.shared_code_block_highlighter(colours.highlighter))
         .selectable(true)
         .scrollable(false)
         .w_full()
@@ -283,9 +298,13 @@ pub(crate) fn fenced(lang: &str, code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Highlights, Target, closed, fence, fenced, highlight, path_in, target};
+    use super::{Colours, Highlights, Styles, Target, closed, fence, fenced, highlight, path_in, target};
     use gpui_kit::HighlightStyle;
     use std::sync::Arc;
+
+    fn styles((colours, start): (Option<Colours>, bool)) -> (Option<Styles>, bool) {
+        (colours.map(|c| c.styles), start)
+    }
 
     #[test]
     fn a_fenced_block_reads_its_language_and_code() {
@@ -350,10 +369,10 @@ mod tests {
         let mut h = Highlights::default();
         assert!(h.get("r", "a();", false).1);
         h.set("r", 4, false, Arc::new(vec![]));
-        assert_eq!(h.get("r", "a();", false), (Some(Arc::new(vec![])), false));
-        assert_eq!(h.get("r", "a();", true), (None, true));
+        assert_eq!(styles(h.get("r", "a();", false)), (Some(Arc::new(vec![])), false));
+        assert_eq!(styles(h.get("r", "a();", true)), (None, true));
         h.set("r", 4, false, Arc::new(vec![]));
-        assert_eq!(h.get("r", "a();", true), (None, false), "a light run landing late doesn't fill the dark slot");
+        assert_eq!(styles(h.get("r", "a();", true)), (None, false), "a light run landing late doesn't fill the dark slot");
     }
 
     #[test]
@@ -362,12 +381,23 @@ mod tests {
         let mut h = Highlights::default();
         h.get("r", "let a", false);
         h.set("r", 5, false, Arc::new(vec![(0..3, style)]));
-        assert_eq!(h.get("r", "let a = 1;", false), (Some(Arc::new(vec![(0..3, style)])), true));
-        assert_eq!(h.get("r", "let a = 1;", false), (Some(Arc::new(vec![(0..3, style)])), false), "asked once per length");
+        assert_eq!(styles(h.get("r", "let a = 1;", false)), (Some(Arc::new(vec![(0..3, style)])), true));
+        assert_eq!(styles(h.get("r", "let a = 1;", false)), (Some(Arc::new(vec![(0..3, style)])), false), "asked once per length");
         h.set("r", 5, false, Arc::new(vec![]));
-        assert_eq!(h.get("r", "let a = 1;", false).0, Some(Arc::new(vec![(0..3, style)])), "a stale run doesn't replace them");
+        assert_eq!(styles(h.get("r", "let a = 1;", false)).0, Some(Arc::new(vec![(0..3, style)])), "a stale run doesn't replace them");
         h.set("r", 10, false, Arc::new(vec![(0..3, style), (8..9, style)]));
-        assert_eq!(h.get("r", "let a = 1;", false), (Some(Arc::new(vec![(0..3, style), (8..9, style)])), false));
+        assert_eq!(styles(h.get("r", "let a = 1;", false)), (Some(Arc::new(vec![(0..3, style), (8..9, style)])), false));
+    }
+
+    #[test]
+    fn a_code_block_keeps_its_highlighter_until_a_new_run_lands() {
+        let mut h = Highlights::default();
+        h.get("r", "a();", false);
+        h.set("r", 4, false, Arc::new(vec![]));
+        let first = h.get("r", "a();", false).0.unwrap().highlighter;
+        assert!(Arc::ptr_eq(&first, &h.get("r", "a();", false).0.unwrap().highlighter));
+        h.set("r", 4, false, Arc::new(vec![]));
+        assert!(!Arc::ptr_eq(&first, &h.get("r", "a();", false).0.unwrap().highlighter));
     }
 
     #[test]
@@ -376,6 +406,6 @@ mod tests {
         let mut h = Highlights::default();
         h.get("r", "aé b ``", false);
         h.set("r", 8, false, Arc::new(vec![(0..2, style), (4..6, style), (7..8, style)]));
-        assert_eq!(h.get("r", "aé b", false).0, Some(Arc::new(vec![(4..5, style)])));
+        assert_eq!(styles(h.get("r", "aé b", false)).0, Some(Arc::new(vec![(4..5, style)])));
     }
 }
