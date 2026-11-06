@@ -82,6 +82,8 @@ pub struct Outgoing {
     after_stop: bool,
     /// When the user pressed Send now, until what waited shows.
     sent_now: Option<i64>,
+    /// pocketd says the agent is compacting, which its transcript shows only once done.
+    compacting: bool,
 }
 
 impl Outgoing {
@@ -119,7 +121,7 @@ impl Outgoing {
     /// the agent is idle with nothing on its way, and not paused, lets the oldest queued send go: one per turn, in order.
     /// `working` is pocketd's status, which decides only where the transcript can't; see `busy`.
     pub fn settle(&mut self, t: &Transcript, working: bool, now_ms: i64) {
-        let idle = !on_turn(t, working);
+        let idle = !self.compacting && !on_turn(t, working);
         if idle && self.working {
             self.idle_since = now_ms;
         }
@@ -306,6 +308,14 @@ impl Outgoing {
         self.stopping.is_some()
     }
 
+    pub fn set_compacting(&mut self, compacting: bool) {
+        self.compacting = compacting;
+    }
+
+    pub fn compacting(&self) -> bool {
+        self.compacting
+    }
+
     /// The agent's timeline moved, so a command sent before it shows what it did, if anything.
     pub fn moved(&mut self) {
         self.command = None;
@@ -324,10 +334,11 @@ impl Outgoing {
 /// Whether the agent is on a turn as the chat sees it: a send steers into it and Stop shows, and the queue holds.
 /// A send on its way counts, as the agent takes it as a turn. `working` is pocketd's status: the transcript shows a stop
 /// at once where status trails it by up to a poll, so status decides only where the transcript can't, while it has no
-/// turn (not fetched yet, or dropped as pocketd restarted). A command just sent counts until it shows its end; see `settle`.
+/// turn (not fetched yet, or dropped as pocketd restarted), or while the agent compacts. A command just sent counts until
+/// it shows its end; see `settle`.
 /// Sub-agents left in the background don't: the agent takes a send as a new turn. The background tray stops them instead.
 pub fn busy(t: &Transcript, out: &Outgoing, working: bool) -> bool {
-    out.sends.iter().any(|p| in_flight(p.delivery)) || out.command.is_some() || on_turn(t, working)
+    out.sends.iter().any(|p| in_flight(p.delivery)) || out.command.is_some() || out.compacting || on_turn(t, working)
 }
 
 fn in_flight(d: Delivery) -> bool {
@@ -1013,6 +1024,20 @@ mod tests {
         assert!(released(&mut o).is_empty(), "the working status was the last turn's, not the compaction's");
         o.settle(&ended, true, 2_500);
         o.settle(&ended, false, 9_000);
+        assert_eq!(released(&mut o), ["next"]);
+    }
+
+    #[test]
+    fn a_compaction_the_transcript_cant_show_reads_as_work_and_holds_the_queue() {
+        let mut o = Outgoing::default();
+        let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
+        o.set_compacting(true);
+        o.push("next".into(), true, 0);
+        o.settle(&ended, true, 90_000);
+        assert!(busy(&ended, &o, true));
+        assert!(released(&mut o).is_empty());
+        o.set_compacting(false);
+        o.settle(&ended, false, 91_000);
         assert_eq!(released(&mut o), ["next"]);
     }
 
