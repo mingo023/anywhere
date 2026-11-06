@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.32
+
+- PR card shows its own merge while another worktree's composer is open (#197): (a667db73)
+- Pull request panel gets a centered empty state and a Create PR split button (#196): (ada78123)
+- Chat code blocks select text again (#195): (ed10644b)
+- Chat shows Compacting… and Stop while the agent compacts (#194): (61aa48ce)
+
 ## 0.1.31
 
 - Model picker lists each agent's own models and efforts in one pill (#193): (dba2123b)
