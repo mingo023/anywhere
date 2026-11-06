@@ -402,6 +402,7 @@ impl Desktop {
             ("changes.menu", self.changes.menu),
             ("pr.ship_menu", self.pr.ship_menu),
             ("pr.merge_menu", self.pr.merge_menu),
+            ("pr.create_menu", self.pr.create_menu),
             ("sidebar.picker", self.sidebar.picker.open),
             ("sidebar.add_menu", self.sidebar.add_menu),
             ("sidebar.organize", self.sidebar.organize.menu),

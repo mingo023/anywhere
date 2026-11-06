@@ -1,8 +1,11 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Side, empty};
 use crate::git_ui::pull_requests::PrItem;
+use super::commits;
 use git::Repo;
+use git::github::base_branch;
 use gpui_kit::*;
+use theme::*;
 use ui::Variant;
 
 impl Desktop {
@@ -33,8 +36,37 @@ impl Desktop {
             Some(PrItem::Create) => {
                 let create = ui::button("pr-side-create", Variant::Primary, Some("pull-request"), "Create pull request")
                     .h(px(30.))
+                    .mt(px(10.))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx)));
-                div().flex().flex_col().items_start().child(empty("No pull request yet.")).child(div().px(px(16.)).child(create)).into_any_element()
+                let badge = div().size(px(40.)).mb(px(8.)).flex().items_center().justify_center().rounded_full().bg(FILL_2).child(icon("pull-request", 18., TEXT_2));
+                let base = repo.base.as_deref().map(base_branch).unwrap_or_default();
+                let branches = div()
+                    .max_w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .font_family(MONO)
+                    .text_size(px(11.5))
+                    .text_color(TEXT_3)
+                    .whitespace_nowrap()
+                    .child(div().min_w_0().truncate().child(repo.branch.clone()))
+                    .child(icon("arrow-right", 10., TEXT_4))
+                    .child(div().flex_none().child(base.to_string()));
+                div()
+                    .flex_1()
+                    .px(px(16.))
+                    .pb(px(40.))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(4.))
+                    .child(badge)
+                    .child(div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("No pull request yet"))
+                    .child(branches)
+                    .child(div().text_size(px(12.)).text_color(TEXT_3).child(format!("{} ahead", commits(repo.ahead))))
+                    .child(create)
+                    .into_any_element()
             }
             Some(PrItem::Hint(hint)) => empty(hint.to_string()).into_any_element(),
             Some(PrItem::Open(_)) | None => empty("No pull request.").into_any_element(),

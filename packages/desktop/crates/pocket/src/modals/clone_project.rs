@@ -263,7 +263,7 @@ impl Desktop {
             .child(choose);
         let field = |label: &str, body: Div| div().flex().flex_col().gap(px(6.)).child(ui::field_label(label.to_string())).child(body);
         let label = if f.busy { "Cloning…" } else { "Clone" };
-        let cancel = ui::large(ui::button("clone-cancel", Variant::Ghost, None, "Cancel").text_color(TEXT)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let cancel = ui::large(ui::button("clone-cancel", Variant::Secondary, None, "Cancel")).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let submit = ui::large(ui::button("clone-submit", Variant::Primary, None, label))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_clone(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());

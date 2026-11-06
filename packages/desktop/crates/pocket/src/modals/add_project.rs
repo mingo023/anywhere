@@ -555,7 +555,7 @@ impl Desktop {
         };
         let ready = self.repo_ready(cx) && unsaved;
         let label = if editing.is_some() { "Save" } else { "Add project" };
-        let cancel = ui::large(ui::button("repo-cancel", Variant::Ghost, None, "Cancel").text_color(TEXT))
+        let cancel = ui::large(ui::button("repo-cancel", Variant::Secondary, None, "Cancel"))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let submit = ui::large(ui::button("repo-submit", Variant::Primary, None, label))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_repo(window, cx))))

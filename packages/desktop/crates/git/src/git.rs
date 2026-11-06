@@ -372,12 +372,6 @@ pub fn blobs_between(run: &Runner, cwd: &str, base: &str, path: &str) -> Blobs {
     (if fork.is_empty() { Vec::new() } else { at(&fork) }, at("HEAD"))
 }
 
-pub fn user_initials(run: &Runner, cwd: &str) -> String {
-    let name = git(run, cwd, &["config", "user.name"]).unwrap_or_default();
-    let initials: String = name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
-    if initials.is_empty() { "ME".into() } else { initials.to_uppercase() }
-}
-
 pub fn file_diff(run: &Runner, cwd: &str, path: &str) -> Vec<Line> {
     let (old, new) = texts(run, cwd, path);
     diff_texts(&old, &new, &HashSet::new(), Options::default())

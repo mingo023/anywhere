@@ -196,7 +196,6 @@ impl Desktop {
                 (c, r)
             }).collect();
             let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, at, open, shown)| (p, diff::read_diff(&cwd, path, at, open, options, &shown))).collect()).unwrap_or_default();
-            let initials = repos.first().map(|(c, _)| git::user_initials(&hosts::runner_for(c), c)).unwrap_or_default();
             let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
                 let listing = util::list_dir(&d, &shown);
                 (d, listing)
@@ -208,10 +207,10 @@ impl Desktop {
             }).collect();
             let files: Vec<_> = files.into_iter().map(|(p, f, changed)| (p, preview::load(&f, changed))).collect();
             let gone = project::vanished(known, &worktrees, |t| fs_for(t).exists(Path::new(t)));
-            (repos, diffs, initials, tree, worktrees, unread, files, gone)
+            (repos, diffs, tree, worktrees, unread, files, gone)
         });
         cx.spawn(async move |this, cx| {
-            let (repos, diffs, initials, tree, worktrees, unread, files, gone) = task.await;
+            let (repos, diffs, tree, worktrees, unread, files, gone) = task.await;
             this.update(cx, |d, cx| {
                 if run != d.git_run {
                     return;
@@ -225,8 +224,8 @@ impl Desktop {
                 let worktrees = project::refreshed(worktrees, &d.worktrees, &unread);
                 d.renames.relisted(d.worktrees.values().flatten(), worktrees.values().flatten(), Instant::now());
                 let repos_changed = merge_repos(&mut d.repos, repos);
-                let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || initials != d.initials || worktrees != d.worktrees;
-                (d.explorer.tree, d.initials, d.worktrees) = (tree, initials, worktrees);
+                let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || worktrees != d.worktrees;
+                (d.explorer.tree, d.worktrees) = (tree, worktrees);
                 d.poll_prs(cx);
                 d.detect_gh_account(cx);
                 if d.side == Side::Changes && d.sidebar.panel_open {

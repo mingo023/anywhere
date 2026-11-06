@@ -52,7 +52,7 @@ impl Desktop {
             .child(ui::button_kbd("⌘↵"))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_to_input(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
-        let cancel = ui::button("chat-cancel", Variant::Ghost, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_chat(window, cx)));
+        let cancel = ui::button("chat-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_chat(window, cx)));
         let foot = div()
             .px(px(12.))
             .pt(px(10.))

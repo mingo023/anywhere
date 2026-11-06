@@ -71,7 +71,6 @@ impl Desktop {
             let fill = if level == Level::Low { provider_color(p) } else { context::glyph(level) };
             div().w(px(24.)).h(px(3.)).flex().rounded(px(2.)).bg(SEPARATOR_STRONG).child(div().w(relative(left as f32 / 100.)).rounded(px(2.)).bg(fill))
         });
-        let me = if self.initials.is_empty() { "ME".to_string() } else { self.initials.clone() };
         // The divider starts under the header so it doesn't cut through the traffic lights, which overhang the rail.
         let divider = div().absolute().top(px(HEADER)).bottom_0().right_0().w(px(0.5)).bg(SEPARATOR);
         drag_area(div().bg(NAV))
@@ -99,8 +98,7 @@ impl Desktop {
                     .items_center()
                     .gap(px(8.))
                     .child(settings)
-                    .child(div().py(px(4.)).flex().flex_col().items_center().gap(px(3.)).children(bars))
-                    .child(ui::avatar(&me, 30.).text_size(px(10.5))),
+                    .child(div().py(px(4.)).flex().flex_col().items_center().gap(px(3.)).children(bars)),
             )
     }
 }
