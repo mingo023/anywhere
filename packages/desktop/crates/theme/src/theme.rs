@@ -205,8 +205,12 @@ pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
 pub const SIDE: Token = Token::new(0xfafafbb3, 0x00000000);
 /// The left sidebar, and the rail it folds to; opaque in dark so it reads darker than the glass beside it.
 pub const NAV: Token = Token::new(0xfafafbb3, 0x0e0e0eff);
-/// Opaque because GPUI has no backdrop blur.
+/// Opaque, for floating surfaces with no blur behind them.
 pub const POPOVER: Token = Token::new(0xffffffff, 0x232323ff);
+/// Dark menus and popovers where the renderer blurs: a faint tint over the blur.
+pub const POPOVER_GLASS: Token = Token::fixed(0xebebeb05);
+/// How far `POPOVER_GLASS` blurs what's behind it.
+pub const POPOVER_BLUR: f32 = 24.;
 pub const GLASS: Token = Token::new(0xffffff9e, 0x2a2a2acc);
 pub const HIGHLIGHT: Token = Token::new(0xfffffff2, 0xffffff0f);
 /// Near-clear in dark: a wide black blur on a dark window reads as a smudge, so the ring alone lifts the surface.

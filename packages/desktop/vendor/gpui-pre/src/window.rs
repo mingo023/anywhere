@@ -5015,6 +5015,24 @@ impl Window {
         }
     }
 
+    /// Blurs what the scene has drawn behind `bounds` so far, clipped to its rounded corners.
+    /// Paint it before the element's background, which then tints the blur.
+    ///
+    /// This method should only be called as part of the paint phase of element drawing.
+    pub fn paint_backdrop(&mut self, bounds: Bounds<Pixels>, corner_radii: Corners<Pixels>, blur_radius: Pixels) {
+        self.invalidator.debug_assert_paint();
+        let scale = self.scale_factor();
+        let backdrop = crate::Backdrop {
+            order: 0,
+            bounds: self.snap_bounds(bounds),
+            content_mask: self.snapped_content_mask(),
+            corner_radii: corner_radii.scale(scale),
+            blur_radius: blur_radius.scale(scale),
+            opacity: self.element_opacity(),
+        };
+        self.next_frame.scene.insert_backdrop(backdrop);
+    }
+
     /// Paint one or more quads into the scene for the next frame at the current stacking context.
     /// Quads are colored rectangular regions with an optional background, border, and corner radius.
     /// see [`fill`], [`outline`], and [`quad`] to construct this type.
