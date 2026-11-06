@@ -1,5 +1,4 @@
 use crate::desktop::Desktop;
-use crate::settings::models::{effort_hint, effort_label, model_label, model_options};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::rc::Rc;
@@ -30,12 +29,6 @@ pub(crate) fn access_color(access: &str) -> Token {
 /// The access a launch starts with: the one picked, else `app`'s from Settings.
 pub(crate) fn access_shown(picked: &str, app: &str) -> &'static str {
     access_text(if picked.is_empty() { app } else { picked }).0
-}
-
-/// The model menu's (value, label): Settings' first as "", then `provider`'s.
-pub(crate) fn model_choices(provider: &str, codex: &[(String, String)], picked: &str, app: &str) -> Vec<(String, String)> {
-    let none = if app.is_empty() { "Default".to_string() } else { format!("Default · {}", model_label(app)) };
-    model_options(provider, codex, picked, &none)
 }
 
 /// The access menu's (value, label, hint): Settings' first as "", then each of `ACCESSES`.
@@ -79,21 +72,6 @@ pub(crate) fn access_rows(id: &'static str, choices: Vec<(String, String, String
         .collect()
 }
 
-/// The effort menu's rows, each level over what it's for; "" is the agent's own.
-pub(crate) fn effort_rows(id: &'static str, levels: Vec<String>, picked: &str, pick: Pick, cx: &mut Context<Desktop>) -> Vec<AnyElement> {
-    levels
-        .into_iter()
-        .enumerate()
-        .map(|(i, level)| {
-            let pick = pick.clone();
-            let label = if level.is_empty() { "Default".to_string() } else { effort_label(&level) };
-            access_row((id, i), level == picked, None, &label, effort_hint(&level), TEXT)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| pick(this, level.clone(), cx)))
-                .into_any_element()
-        })
-        .collect()
-}
-
 /// A choice titled `label` over its `hint`, after an optional `lead` glyph.
 pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, lead: Option<&str>, label: &str, hint: &str, color: Token) -> Stateful<Div> {
     div()
@@ -124,7 +102,7 @@ pub(crate) fn access_row(id: impl Into<ElementId>, selected: bool, lead: Option<
 
 #[cfg(test)]
 mod tests {
-    use super::{access_choices, access_shown, model_choices, switch_choices};
+    use super::{access_choices, access_shown, switch_choices};
 
     #[test]
     fn a_chip_names_the_pick_else_what_settings_start_with() {
@@ -132,9 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn each_menu_leads_with_settings_own_choice() {
-        assert_eq!(model_choices("claude", &[], "", "opus")[0], (String::new(), "Default · Opus".to_string()));
-        assert_eq!(model_choices("claude", &[], "", "")[0].1, "Default");
+    fn the_access_menu_leads_with_settings_own_choice() {
         let access: Vec<_> = access_choices("ask").into_iter().map(|(v, l, _)| (v, l)).collect();
         assert_eq!(access[0], (String::new(), "Default · Ask".to_string()));
         assert_eq!(access[1..].iter().map(|(v, _)| v.as_str()).collect::<Vec<_>>(), ["settings", "ask", "edits", "auto", "full"]);

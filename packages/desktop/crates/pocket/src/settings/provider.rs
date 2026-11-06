@@ -1,4 +1,4 @@
-use ::agents::providers::{self, Models};
+use ::agents::providers;
 use super::agents::status_source;
 use super::catalog::Setting;
 use super::dropdown::dropdown;
@@ -25,15 +25,7 @@ pub(super) const PAGES: [&[Setting]; providers::COUNT] = [&rows::<0>(), &rows::<
 /// Each provider's label and model row ids.
 const ROW_IDS: [(&str, &str); providers::COUNT] = [("claude-label", "claude-model"), ("codex-label", "codex-model")];
 
-/// A provider without efforts has no Effort row.
 const fn rows<const P: usize>() -> [Setting; 9] {
-    let effort = if !providers::ALL[P].efforts.is_empty() {
-        Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx)).resets(|s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort), |s, _| {
-            s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear()
-        })
-    } else {
-        Setting::custom("effort", DEFAULTS, "Effort", |_, _, _| div())
-    };
     [
         Setting::custom("enabled", ENABLED, "Enabled", |d, _, cx| d.enabled_row(P, cx))
             .resets(|s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(), |s, _| s.agents.set_enabled(LaunchPick::PROVIDERS[P], true)),
@@ -43,8 +35,9 @@ const fn rows<const P: usize>() -> [Setting; 9] {
         .hint("Replaces the built-in name everywhere in the app"),
         Setting::custom("model", DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
             .resets(|s| model_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).model), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear())
-            .hint("The list comes from the CLI; Agent default uses its own setting"),
-        effort.under(|_| !providers::ALL[P].efforts.is_empty()),
+            .hint("The list comes from the CLI"),
+        Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx))
+            .resets(|s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear()),
         Setting::custom("command", LAUNCH, "Command", |d, s, _| d.launch_row(P, Launch::Command, s))
             .resets(|s| command_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).command), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).command.clear())
             .effect(|d, cx| d.send_launch(P, Launch::Command, cx))
@@ -202,8 +195,8 @@ impl Desktop {
                         field.update(cx, |field, cx| field.set_value(f.text(&d.store.agents, p), window, cx));
                     }
                 }
-                if providers::ALL[i].models == Models::Catalog && f == Launch::Command {
-                    d.forget_models();
+                if f == Launch::Command {
+                    d.forget_models(p);
                 }
                 d.load_host(cx);
             })
@@ -218,7 +211,7 @@ impl Desktop {
         let (key, text) = (f.key(p), f.text(&self.store.agents, p));
         self.set_host(key, text, cx);
         if f == Launch::Command {
-            self.forget_models();
+            self.forget_models(p);
         }
     }
 
@@ -255,7 +248,7 @@ impl Desktop {
     fn model_row(&mut self, i: usize, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let p = LaunchPick::PROVIDERS[i];
         let model = self.store.agents.provider(p).model;
-        let options = model_options(p, self.catalog_models(), &model, "Agent default");
+        let options = model_options(p, self.models_of(p), &model);
         let id = ROW_IDS[i].1;
         let trigger = action(id, "").child(model_label_of(&options, &model)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let menu = dropdown(id, trigger, options, &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
@@ -264,9 +257,13 @@ impl Desktop {
 
     fn effort_row(&mut self, i: usize, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let p = LaunchPick::PROVIDERS[i];
+        let levels = self.launch_efforts(p, "");
+        if levels.is_empty() {
+            return div();
+        }
         let effort = self.store.agents.provider(p).effort;
         let trigger = action("claude-effort", "").child(effort_label(&effort)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown("claude-effort", trigger, effort_options(&self.agents.provider_info(p).efforts, "Agent default"), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
+        let menu = dropdown("claude-effort", trigger, effort_options(&levels, "Agent default"), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
         row(setting.label, setting.hint, menu)
     }
 
@@ -348,6 +345,6 @@ mod tests {
         assert_eq!(reset(PAGES[0], &mut store).len(), 6);
         assert!(changed(PAGES[0], &store).is_empty());
         assert_eq!(store.agents.provider("codex").model, "opus");
-        assert_eq!(changed(PAGES[1], &store).len(), 4);
+        assert_eq!(changed(PAGES[1], &store).len(), 5);
     }
 }

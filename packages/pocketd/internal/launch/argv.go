@@ -16,6 +16,8 @@ var model = regexp.MustCompile(`^[A-Za-z0-9._:\[\]][A-Za-z0-9._:\[\]-]{0,63}$`)
 
 const badModel = "Model names use letters, digits and . _ : [ ] -, and don't start with -"
 
+const badEffort = "An effort is one word"
+
 // cli is how pocketd runs one provider's command; clis has one per providers ID.
 type cli interface {
 	// switchEffort refuses an effort a running agent can't switch to.
@@ -47,7 +49,7 @@ func ValidSwitch(provider, name, effort string) error {
 		}
 	}
 	if effort != "" && !model.MatchString(effort) {
-		return errors.New("An effort is one word")
+		return errors.New(badEffort)
 	}
 	return nil
 }

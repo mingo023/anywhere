@@ -8,6 +8,7 @@ import (
 	"pocketd/internal/config"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
+	"pocketd/internal/state"
 )
 
 func argvOf(s proto.LaunchSpec, name string) ([]string, *Failure) {
@@ -117,10 +118,21 @@ func TestABadModelOrEffortIsAnInvalidSpec(t *testing.T) {
 	for _, s := range []proto.LaunchSpec{
 		{Provider: "claude", Access: "ask", Model: "opus; rm -rf"},
 		{Provider: "claude", Access: "ask", Effort: "extreme"},
-		{Provider: "codex", Access: "ask", Effort: "high"},
+		{Provider: "codex", Access: "ask", Effort: `high" -c x="y`},
 	} {
 		if _, f := argvOf(s, ""); f == nil || f.Code != "invalid_spec" {
 			t.Errorf("%+v: got %+v", s, f)
+		}
+	}
+}
+
+func TestCodexStartsOnTheEffortPicked(t *testing.T) {
+	for _, chat := range []bool{false, true} {
+		s := spec("codex", "ask", false)
+		s.Effort, s.Chat = "ultra", chat
+		argv, f := argvOf(s, "")
+		if f != nil || !strings.Contains(strings.Join(argv, " "), `-c model_reasoning_effort="ultra"`) || state.Parse("codex", argv).Effort != "ultra" {
+			t.Errorf("chat=%v: got %q, %v", chat, argv, f)
 		}
 	}
 }

@@ -157,7 +157,7 @@ impl Desktop {
 
     fn save_automation(&mut self, cx: &mut Context<Self>) {
         let v = self.automations.form.values(cx);
-        let (own, efforts) = (self.store.agents.provider(v.provider), self.agents.provider_info(v.provider).efforts.clone());
+        let (own, efforts) = (self.store.agents.provider(v.provider), self.launch_efforts(v.provider, &v.model));
         let v = v.settled(self.store.agents.access(), &own.model, &own.effort, &efforts);
         let Ok(draft) = v.draft() else { return };
         self.outbox.local.automation_save(draft);
@@ -267,8 +267,7 @@ impl Desktop {
             .pb(px(7.))
             .child(self.access_chip(c, &pick, project.clone(), cx))
             .child(div().flex_1())
-            .child(self.model_pill(c, &pick, project.clone(), cx))
-            .children(self.effort_chip(c, &pick, project, cx));
+            .child(self.model_pill(c, &pick, project, cx));
         let prompt = c.prompt.clone();
         frame(!v.prompt.trim().is_empty())
             .on_mouse_down(MouseButton::Left, move |_, window, cx| prompt.update(cx, |s, cx| s.focus(window, cx)))

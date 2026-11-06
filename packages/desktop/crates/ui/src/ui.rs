@@ -553,7 +553,8 @@ pub fn busy(id: impl Into<ElementId>, label: &'static str) -> Div {
 }
 
 /// A sidebar row's right end: its status mark, swapped for its buttons while the row is hovered or its menu is open.
-/// Only then do the buttons take their width, so the label runs to the row's end otherwise.
+/// Only then do the buttons take their width, so the label runs to the row's end otherwise; while `open`, the mark
+/// gives up its width too, so a wide one, as a diff's counts, doesn't leave a gap before the buttons.
 pub fn row_trail(mark: Option<AnyElement>, buttons: Vec<AnyElement>, open: bool) -> Div {
     let width = px(buttons.len() as f32 * 24. - 2.);
     div()
@@ -564,7 +565,7 @@ pub fn row_trail(mark: Option<AnyElement>, buttons: Vec<AnyElement>, open: bool)
         .flex_none()
         .items_center()
         .justify_end()
-        .children(mark.map(|m| div().flex().items_center().map(|d| if open { d.opacity(0.) } else { d.group_hover(ROW_GROUP, |s| s.opacity(0.)) }).child(m)))
+        .children(mark.filter(|_| !open).map(|m| div().flex().items_center().group_hover(ROW_GROUP, |s| s.opacity(0.)).child(m)))
         .child(
             div()
                 .absolute()

@@ -81,10 +81,10 @@ fn command(id: &'static str, text: &'static str, cx: &mut Context<Desktop>) -> S
 }
 
 impl Desktop {
-    /// The commit agent's models: Claude Code's aliases, or what Codex lists.
+    /// The commit agent's models, as its CLI lists them.
     fn ai_model_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let model = self.store.git.model.clone();
-        let options = model_options(&self.store.git.agent, self.catalog_models(), &model, "Agent default");
+        let options = model_options(&self.store.git.agent, self.models_of(&self.store.git.agent), &model);
         let shown = options.iter().find(|(v, _)| *v == model).map_or_else(|| model_label(&model), |(_, l)| l.clone());
         let trigger = action(setting.id, "").child(shown).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let title = div().flex().items_center().gap(px(10.)).child(div().w(px(16.)).text_color(TEXT_4).child("↳")).child(setting.label);
