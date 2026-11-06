@@ -21,7 +21,8 @@ impl Desktop {
     /// The PR about to open for the worktree on screen: its title and description, who wrote them, and Draft.
     pub(crate) fn pr_composer(&self, repo: &Repo, cx: &mut Context<Self>) -> Option<Div> {
         let base = repo.base.as_deref().filter(|_| self.pr.composing == self.cwd())?;
-        let (draft, busy, writing) = (self.store.git.draft, self.pr.busy, self.pr.writing);
+        let busy = self.pr.busy.as_ref().filter(|(t, _)| self.pr.composing.as_ref() == Some(t)).map(|(_, text)| *text);
+        let (draft, writing) = (self.store.git.draft, self.pr.writing);
         let agent = provider_name(&self.store.git.agent);
         let top = div()
             .flex()
