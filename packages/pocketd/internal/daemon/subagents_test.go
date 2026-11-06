@@ -39,6 +39,8 @@ func TestASubagentSessionPagesEachSubagentUnderItsAgentCall(t *testing.T) {
 		}
 		return items[len(items)-1]
 	}
+	// A sub-agent file read before the session's last Agent call would take its seq.
+	eventually(t, "both Agent calls", func() bool { c := last().Call; return c != nil && c.ToolUseID == "toolu_count" })
 	os.MkdirAll(filepath.Join(dir, "s1", "subagents"), 0o700)
 	for _, sub := range []struct{ name, parent, last string }{
 		{"agent-a1157000000000001", "toolu_list", "README.md and src/"},
