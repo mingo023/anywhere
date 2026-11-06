@@ -80,6 +80,11 @@ impl PullRequests {
         self.by_tree.get(tree)?.1.as_ref()
     }
 
+    /// Every worktree's PR, with its worktree.
+    pub(crate) fn all(&self) -> impl Iterator<Item = (&str, &Pr)> {
+        self.by_tree.iter().filter_map(|(tree, (_, pr))| Some((tree.as_str(), pr.as_ref()?)))
+    }
+
     /// Create is offered only once `gh` has answered for `tree` with no PR, and `branch` isn't `base`.
     pub(crate) fn item(&self, tree: &str, branch: &str, base: Option<&str>) -> Option<PrItem<'_>> {
         if let Some(pr) = self.get(tree) {

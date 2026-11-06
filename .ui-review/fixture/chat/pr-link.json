@@ -1,0 +1,22 @@
+[
+ {
+  "id": "u1",
+  "kind": "user",
+  "text": "Fix the stale terminal reveal, then open a PR."
+ },
+ {
+  "id": "a1",
+  "kind": "assistant",
+  "text": "Done. The preview now waits for the session to restore before it reads, so the first frame is current. It builds on [the restore handoff](https://github.com/acme/app/pull/97).\n\nI opened the PR: https://github.com/acme/app/pull/128"
+ },
+ {
+  "id": "r1",
+  "kind": "result",
+  "ok": true,
+  "durationMs": 64000,
+  "usage": {
+   "inputTokens": 12000,
+   "outputTokens": 900
+  }
+ }
+]

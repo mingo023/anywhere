@@ -4,6 +4,8 @@ mod composer;
 mod notice;
 mod side;
 
+pub(crate) use card::{glyph_slot, review_icon, row, small};
+
 use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::changes::push;
@@ -68,6 +70,11 @@ pub(crate) fn place(t: &Thread) -> String {
     t.line.map_or_else(|| t.path.clone(), |l| format!("{}:{l}", t.path))
 }
 
+/// The first line of what opened thread `t`.
+pub(crate) fn opening(t: &Thread) -> String {
+    t.comments.first().map(|c| c.body.lines().next().unwrap_or_default().to_string()).unwrap_or_default()
+}
+
 /// What an agent is asked to fix on PR `pr`: each failed check with its log, each review thread with the code it's on.
 pub(crate) fn fix_prompt(pr: &Pr, checks: &[&Check], threads: &[&Thread]) -> String {
     let checks = checks.iter().map(|c| format!("The check \"{}\" failed. Its log: {}", c.name, c.url));
@@ -95,7 +102,7 @@ pub(crate) fn to_fix<'a>(pr: &'a Pr, sent: Option<&Sent>) -> (Vec<&'a Check>, Ve
     (checks, threads)
 }
 
-fn plural(n: usize, one: &str) -> String {
+pub(crate) fn plural(n: usize, one: &str) -> String {
     if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
 }
 
