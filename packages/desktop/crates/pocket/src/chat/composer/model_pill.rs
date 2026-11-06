@@ -1,6 +1,6 @@
 use super::{close_menu, hang};
 use crate::composer::{self, Menu, launch};
-use crate::composer::model_menu::{beside_list, check, effort_rows, model_effort_pill, model_value, row, rows_offset, pill_menu_row, pill_menu};
+use crate::composer::model_menu::{OpenBeside, beside_list, check, effort_rows, model_effort_pill, model_value, pill_menu, row, rows_offset};
 use crate::desktop::Desktop;
 use crate::settings::models::{effort_label, listed_models};
 use agents::{ListedModel, Summary};
@@ -14,9 +14,11 @@ pub(super) fn label(agent: &Summary, levels: &[String], default: Option<&str>) -
     (agents::model_label(agent), effort.map(effort_label))
 }
 
-/// Whether the agent runs `model`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus".
+/// Whether the agent runs `model`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus". Until the CLI
+/// says what a fallback alias stands for, the alias in the id is the best guess.
 fn runs(agent: &Summary, model: &ListedModel) -> bool {
-    agent.model.as_deref().is_some_and(|m| m == model.value || m == model.resolved)
+    let unresolved = model.resolved == model.value && agents::providers::known(&agent.provider).models.fallback.contains(&model.value.as_str());
+    agent.model.as_deref().is_some_and(|m| m == model.value || m == model.resolved || unresolved && m.split('-').any(|w| w == model.value))
 }
 
 /// Opens `list` beside the model pill's menu.
@@ -48,21 +50,16 @@ impl Desktop {
         }));
         let menu = open.then(|| {
             let word = agents::providers::known(&agent.provider).effort_word;
-            let effort_row = (!levels.is_empty()).then(|| {
-                pill_menu_row("chat-effort", word, effort.unwrap_or_else(|| "Default".into()), menu == Some(Menu::Effort))
-                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| if *hovered { open_beside(this, Menu::Effort, cx) }))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| open_beside(this, Menu::Effort, cx)))
-            });
-            let model_row = pill_menu_row("chat-model-row", "Model", model_value(&agent.provider, name), menu == Some(Menu::Model))
-                .on_hover(cx.listener(|this, hovered: &bool, _, cx| if *hovered { open_beside(this, Menu::Model, cx) }))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| open_beside(this, Menu::Model, cx)));
+            let effort_row = (!levels.is_empty()).then(|| (word, effort.unwrap_or_else(|| "Default".into())));
+            let open_list: OpenBeside = Rc::new(|this, list, _, cx| open_beside(this, list, cx));
+            let rows = pill_menu(["chat-effort", "chat-model-row"], effort_row, model_value(&agent.provider, name), menu, open_list, cx);
             // The menu opens upward, so a list lines up with its row's bottom: the effort row has the Model row under it.
             let beside = match menu {
                 Some(Menu::Model) => Some(div().child(self.chat_model_menu(agent, cx))),
                 Some(Menu::Effort) if !levels.is_empty() => Some(div().mb(rows_offset(1)).child(self.chat_effort_menu(agent, &levels, default, cx))),
                 _ => None,
             };
-            hang("chat-model-menu", div().flex().items_end().gap(px(4.)).child(pill_menu(effort_row, model_row)).children(beside), cx)
+            hang("chat-model-menu", div().flex().items_end().gap(px(4.)).child(rows).children(beside), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
@@ -123,6 +120,8 @@ mod tests {
         let listed = |value: &str, resolved: &str| ListedModel { value: value.into(), name: String::new(), resolved: resolved.into(), ..ListedModel::default() };
         assert!(runs(&agent("claude", "claude-opus-5-5"), &listed("opus", "claude-opus-5-5")));
         assert!(runs(&agent("claude", "opus"), &listed("opus", "claude-opus-5-5")));
+        assert!(!runs(&agent("claude", "claude-opus-4-6"), &listed("opus", "claude-opus-5-5")));
+        assert!(runs(&agent("claude", "claude-opus-5-5"), &listed("opus", "opus")), "a fallback alias, before the CLI resolves it");
         assert!(!runs(&agent("claude", "claude-opus-5-5"), &listed("claude-opus-5", "claude-opus-5")));
         assert!(runs(&agent("codex", "gpt-6-sol"), &listed("gpt-6-sol", "gpt-6-sol")));
         assert!(!runs(&agent("codex", "gpt-6-sol"), &listed("sol", "sol")));

@@ -35,9 +35,11 @@ func codexChat(access, model, effort string) []string {
 	return append(argv, effortConfig(effort)...)
 }
 
-// effortConfig sets codex's reasoning effort, the same in its TUI and app-server.
+// effortConfig sets codex's reasoning effort, the same in its TUI and
+// app-server. One that isn't a word, as from a hand-edited state file, is
+// left out rather than written into codex's config.
 func effortConfig(effort string) []string {
-	if effort == "" {
+	if !model.MatchString(effort) {
 		return nil
 	}
 	return []string{"-c", `model_reasoning_effort="` + effort + `"`}
@@ -92,7 +94,7 @@ func (codex) resume(t state.Terminal, l state.Launch, argv []string) []string {
 	if l.Model != "" {
 		argv = append(argv, "-m", l.Model)
 	}
-	return argv
+	return append(argv, effortConfig(l.Effort)...)
 }
 
 func (codex) untrusted([]string, string) *Failure { return nil }

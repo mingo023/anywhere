@@ -32,7 +32,7 @@ func TestResumeBringsBackTheSavedAccessPlanModelAndEffort(t *testing.T) {
 		{saved("claude", state.Launch{Access: "edits", Plan: true, Model: "opus", Effort: "high"}), "claude --resume c-1 --permission-mode plan --model opus --effort high"},
 		{saved("codex", state.Launch{Access: "settings", Model: "gpt-5.5"}), "codex resume c-1 -m gpt-5.5"},
 		{saved("codex", state.Launch{Access: "ask"}), "codex resume c-1 -s read-only -a on-request"},
-		{saved("codex", state.Launch{Access: "edits", Model: "gpt-5.5", Effort: "high"}), "codex resume c-1 -s workspace-write -a on-request -m gpt-5.5"},
+		{saved("codex", state.Launch{Access: "edits", Model: "gpt-5.5", Effort: "high"}), `codex resume c-1 -s workspace-write -a on-request -m gpt-5.5 -c model_reasoning_effort="high"`},
 		{saved("codex", state.Launch{Access: "auto"}), "codex resume c-1 --approve-for-me"},
 		{state.Terminal{Provider: "claude", ConversationID: "c-1"}, "claude --resume c-1 --permission-mode default"},
 	} {
@@ -72,8 +72,8 @@ func TestAMoveToAnotherAccountKeepsFullAccess(t *testing.T) {
 	}
 }
 
-func TestCodexResumeNeverCarriesConfigFlags(t *testing.T) {
-	argv, _ := resumeOf(saved("codex", state.Launch{Access: "edits", Model: "m", Effort: "high"}))
+func TestCodexResumeCarriesNoEffortThatIsntAWord(t *testing.T) {
+	argv, _ := resumeOf(saved("codex", state.Launch{Access: "edits", Model: "m", Effort: `high" sandbox_mode="danger-full-access`}))
 	if slices.Contains(argv, "-c") || slices.Contains(argv, "--config") {
 		t.Fatalf("argv = %q", argv)
 	}
@@ -108,7 +108,7 @@ func TestParseReadsBackTheResumeArgv(t *testing.T) {
 			t.Errorf("claude %+v reads back as %+v", l, got)
 		}
 	}
-	for _, l := range []state.Launch{{Access: "ask"}, {Access: "edits", Model: "gpt-5.5"}, {Access: "auto"}} {
+	for _, l := range []state.Launch{{Access: "ask"}, {Access: "edits", Model: "gpt-5.5", Effort: "high"}, {Access: "auto"}} {
 		argv, _ := resumeOf(saved("codex", l))
 		if got := state.Parse("codex", argv); got != l {
 			t.Errorf("codex %+v reads back as %+v", l, got)

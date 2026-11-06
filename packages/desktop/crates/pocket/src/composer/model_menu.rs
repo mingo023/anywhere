@@ -40,7 +40,7 @@ pub(crate) fn model_effort_pill(provider: &str, model: String, effort: Option<St
 }
 
 /// A row of the model pill's menu: what it sets, its value, and the list it opens.
-pub(crate) fn pill_menu_row(id: &'static str, label: &'static str, value: impl IntoElement, open: bool) -> Stateful<Div> {
+fn pill_menu_row(id: &'static str, label: &'static str, value: impl IntoElement, open: bool) -> Stateful<Div> {
     row(id, open)
         .child(div().flex_none().font_weight(FontWeight::MEDIUM).child(label))
         .child(div().flex_1().min_w_0().flex().justify_end().text_color(TEXT_3).child(value))
@@ -52,8 +52,24 @@ pub(crate) fn model_value(provider: &str, name: String) -> Div {
     div().min_w_0().flex().items_center().gap(px(6.)).child(provider_icon(provider, 14., TEXT_3)).child(div().truncate().child(name))
 }
 
-/// The model pill's menu: the effort row, if the model has efforts, over the Model row.
-pub(crate) fn pill_menu(effort: Option<Stateful<Div>>, model: Stateful<Div>) -> Div {
+/// Opens a list beside the model pill's menu.
+pub(crate) type OpenBeside = Rc<dyn Fn(&mut Desktop, Menu, &mut Window, &mut Context<Desktop>)>;
+
+/// The model pill's menu: the effort row, as (what the agent calls it, its value), if the model has efforts, over the
+/// Model row showing `model`; pointing at a row or clicking it opens its list with `open`. `ids` are the two rows'.
+pub(crate) fn pill_menu(ids: [&'static str; 2], effort: Option<(&'static str, String)>, model: Div, menu: Option<Menu>, open: OpenBeside, cx: &Context<Desktop>) -> Div {
+    let row = |id: &'static str, label: &'static str, value: AnyElement, list: Menu| {
+        let (hover, click) = (open.clone(), open.clone());
+        pill_menu_row(id, label, value, menu == Some(list))
+            .on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
+                if *hovered {
+                    hover(this, list, window, cx)
+                }
+            }))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| click(this, list, window, cx)))
+    };
+    let effort = effort.map(|(word, value)| row(ids[0], word, value.into_any_element(), Menu::Effort));
+    let model = row(ids[1], "Model", model.into_any_element(), Menu::Model);
     ui::pop(div()).w(px(240.)).p(px(PAD)).flex().flex_col().gap(px(GAP)).children(effort).child(model)
 }
 
@@ -132,15 +148,10 @@ impl Desktop {
         }));
         let menu = open.then(|| {
             let word = agents::providers::known(&pick.provider).effort_word;
-            let effort_row = (!levels.is_empty()).then(|| {
-                pill_menu_row("composer-effort", word, effort.unwrap_or_else(|| "Default".into()), menu == Some(Menu::Effort))
-                    .on_hover(cx.listener(move |this, hovered: &bool, window, cx| if *hovered { this.open_beside(slot, Menu::Effort, window, cx) }))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_beside(slot, Menu::Effort, window, cx)))
-            });
+            let effort_row = (!levels.is_empty()).then(|| (word, effort.unwrap_or_else(|| "Default".into())));
             let model_index = effort_row.is_some() as usize;
-            let model_row = pill_menu_row("composer-model-row", "Model", model_value(&pick.provider, model), menu == Some(Menu::Model))
-                .on_hover(cx.listener(move |this, hovered: &bool, window, cx| if *hovered { this.open_beside(slot, Menu::Model, window, cx) }))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_beside(slot, Menu::Model, window, cx)));
+            let open_list: OpenBeside = Rc::new(move |this, list, window, cx| this.open_beside(slot, list, window, cx));
+            let rows = pill_menu(["composer-effort", "composer-model-row"], effort_row, model_value(&pick.provider, model), menu, open_list, cx);
             let beside = match menu {
                 Some(Menu::Model) => Some(div().mt(rows_offset(model_index)).child(self.model_side(c, pick, project.clone(), cx))),
                 Some(Menu::Effort) if !levels.is_empty() => {
@@ -158,7 +169,7 @@ impl Desktop {
                 .flex()
                 .items_start()
                 .gap(px(4.))
-                .child(pill_menu(effort_row, model_row))
+                .child(rows)
                 .children(beside)
                 .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                     slot(this).draft.menu = None;
