@@ -96,11 +96,15 @@ wry = { version = "0.57", default-features = false, features = ["devtools"] }
 # It also keeps the rows a `List` showed still when ones scrolled into above them turn out a different height than cached; drop once upstream does.
 # It also logs what the frames around a scroll hitch did (`hitch.rs`), as pocket writes to `logs/chat-scroll.log`; upstream has no equivalent.
 # It also adds `KeyBinding::load_for_os`, so a keymap built from strings needn't have an `App`; upstream has no equivalent.
+# It also adds `backdrop_blur`, kept in `Scene::backdrops` apart from the primitives so other renderers ignore it; upstream has no equivalent.
 [patch.crates-io]
 gpui-pre = { path = "vendor/gpui-pre" }
 # gpui-pre-macos 0.3.11 giving prompts the app icon explicitly, since macOS 26 sheet alerts drop the default one; drop once upstream does.
 # It also asks for the Badge permission, without which macOS hides the Dock badge; upstream has no equivalent.
 gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
+# gpui-pre-apple 0.3.11 blurring what lies behind a `backdrop_blur` element, for frosted popovers; upstream has no equivalent.
+# Reading the drawable back makes every layer `framebufferOnly = false`, where only debug test builds were.
+gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 # gpui-base 0.9.0 clipping editor text to the right of the gutter instead of hiding it under an opaque gutter, so the editor can be glass; drop once upstream does.
 # It also renders markdown like pluk-inc/markdown-preview: its block spacing, code blocks, lists, tables, GitHub alerts and footnotes; upstream has no equivalent.
 # It also keeps the scrollbar of a table too wide to fit showing, so it reads as scrollable; upstream has no equivalent.

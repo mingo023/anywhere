@@ -216,7 +216,7 @@ fn card(
         .when(!open, |d| d.h(px(HEIGHT)).items_center().rounded(px(HEIGHT / 2.)))
         .pl(px(INSET))
         .pr(px(if long { INSET } else { PAD_END }))
-        // Opaque, as GPUI has no backdrop blur; the transcript isn't painted around it.
+        // Opaque: the transcript isn't painted around it.
         .bg(POPOVER)
         .shadow(vec![
             ui::ring(hairline(0.11), 0.5),

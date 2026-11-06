@@ -301,6 +301,10 @@ pub struct Style {
     /// The opacity of this element
     pub opacity: Option<f32>,
 
+    /// How far what is behind this element blurs, like CSS `backdrop-filter: blur()`.
+    /// Only the Metal renderer blurs; others draw the background alone.
+    pub backdrop_blur: Option<Pixels>,
+
     /// The grid columns of this element
     /// Roughly equivalent to the Tailwind `grid-cols-<number>`
     pub grid_cols: Option<GridTemplate>,
@@ -710,6 +714,10 @@ impl Style {
 
         window.paint_drop_shadows(bounds, corner_radii, &self.box_shadow);
 
+        if let Some(blur_radius) = self.backdrop_blur.filter(|radius| *radius > Pixels::ZERO) {
+            window.paint_backdrop(bounds, corner_radii, blur_radius);
+        }
+
         let background_color = self.background.as_ref().and_then(Fill::color);
         if background_color.is_some_and(|color| !color.is_transparent()) {
             let mut border_color = match background_color {
@@ -809,6 +817,7 @@ impl Default for Style {
             text: TextStyleRefinement::default(),
             mouse_cursor: None,
             opacity: None,
+            backdrop_blur: None,
             grid_rows: None,
             grid_cols: None,
             grid_location: None,

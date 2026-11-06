@@ -50,6 +50,8 @@ pub struct Scene {
     pub subpixel_sprites: Vec<SubpixelSprite>,
     pub polychrome_sprites: Vec<PolychromeSprite>,
     pub surfaces: Vec<PaintSurface>,
+    /// Kept apart from the primitives, so renderers without backdrop blur draw the scene as before.
+    pub backdrops: Vec<Backdrop>,
 }
 
 #[expect(missing_docs)]
@@ -66,6 +68,7 @@ impl Scene {
         self.subpixel_sprites.clear();
         self.polychrome_sprites.clear();
         self.surfaces.clear();
+        self.backdrops.clear();
     }
 
     pub fn len(&self) -> usize {
@@ -138,10 +141,26 @@ impl Scene {
             .push(PaintOperation::Primitive(primitive));
     }
 
+    /// Takes an order like a primitive, so what overlaps it later draws over the blur.
+    pub fn insert_backdrop(&mut self, mut backdrop: Backdrop) {
+        let clipped_bounds = backdrop.bounds.intersect(&backdrop.content_mask.bounds);
+        if clipped_bounds.is_empty() {
+            return;
+        }
+        backdrop.order = self
+            .layer_stack
+            .last()
+            .copied()
+            .unwrap_or_else(|| self.primitive_bounds.insert(clipped_bounds));
+        self.backdrops.push(backdrop);
+        self.paint_operations.push(PaintOperation::Backdrop(backdrop));
+    }
+
     pub fn replay(&mut self, range: Range<usize>, prev_scene: &Scene) {
         for operation in &prev_scene.paint_operations[range] {
             match operation {
                 PaintOperation::Primitive(primitive) => self.insert_primitive(primitive.clone()),
+                PaintOperation::Backdrop(backdrop) => self.insert_backdrop(*backdrop),
                 PaintOperation::StartLayer(bounds) => self.push_layer(*bounds),
                 PaintOperation::EndLayer => self.pop_layer(),
             }
@@ -160,6 +179,7 @@ impl Scene {
         self.polychrome_sprites
             .sort_by_key(|sprite| (sprite.order, sprite.tile.texture_id.index));
         self.surfaces.sort_by_key(|surface| surface.order);
+        self.backdrops.sort_by_key(|backdrop| backdrop.order);
     }
 
     #[cfg_attr(
@@ -213,6 +233,7 @@ pub(crate) enum PrimitiveKind {
 
 pub(crate) enum PaintOperation {
     Primitive(Primitive),
+    Backdrop(Backdrop),
     StartLayer(Bounds<ScaledPixels>),
     EndLayer,
 }
@@ -547,6 +568,18 @@ impl From<Quad> for Primitive {
     fn from(quad: Quad) -> Self {
         Primitive::Quad(quad)
     }
+}
+
+/// Blurs what is drawn behind `bounds` before anything later in the scene draws over it.
+#[derive(Debug, Copy, Clone)]
+#[expect(missing_docs)]
+pub struct Backdrop {
+    pub order: DrawOrder,
+    pub bounds: Bounds<ScaledPixels>,
+    pub content_mask: ContentMask<ScaledPixels>,
+    pub corner_radii: Corners<ScaledPixels>,
+    pub blur_radius: ScaledPixels,
+    pub opacity: f32,
 }
 
 #[derive(Debug, Copy, Clone)]

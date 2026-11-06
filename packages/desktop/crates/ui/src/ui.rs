@@ -44,7 +44,9 @@ pub fn side<E: Styled>(e: E) -> E {
 
 /// Floating menus and sheets.
 pub fn pop<E: Styled>(e: E) -> E {
-    e.bg(POPOVER).rounded(px(R_POPOVER)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(SHADOW, 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
+    // Only the Metal renderer blurs; elsewhere the faint glass tint would leave the menu see-through.
+    let e = if is_dark() && cfg!(target_os = "macos") { e.bg(POPOVER_GLASS).backdrop_blur(px(POPOVER_BLUR)) } else { e.bg(POPOVER) };
+    e.rounded(px(R_POPOVER)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(SHADOW, 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
 }
 
 pub fn menu_in<E: Styled + IntoElement + 'static>(id: impl Into<ElementId>, menu: E) -> AnimationElement<E> {
