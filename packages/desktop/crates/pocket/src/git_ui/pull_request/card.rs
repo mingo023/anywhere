@@ -1,4 +1,4 @@
-use super::{CheckRows, card_busy, check_rows, fix_summary, gate_text, place, resolving_text, review_lines, tally, to_fix};
+use super::{CheckRows, card_busy, check_rows, fix_summary, gate_text, opening, place, resolving_text, review_lines, tally, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
 use git::github::{Check, Gate, Method, Outcome, Pr, PrState, Review, ThreadState};
@@ -46,7 +46,7 @@ pub(crate) fn review_icon(r: Review) -> AnyElement {
     }
 }
 
-pub(super) fn row() -> Div {
+pub(crate) fn row() -> Div {
     div().min_h(px(26.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_2)
 }
 
@@ -56,7 +56,7 @@ fn fact(label: &'static str, value: Div) -> Div {
     div().flex().items_start().gap(px(8.)).child(label).child(value.flex_1().min_w_0())
 }
 
-fn glyph_slot(glyph: impl IntoElement) -> Div {
+pub(crate) fn glyph_slot(glyph: impl IntoElement) -> Div {
     div().size(px(13.)).flex_none().flex().items_center().justify_center().child(glyph)
 }
 
@@ -221,7 +221,7 @@ impl Desktop {
         let comments = pr.unresolved().take(COMMENTS_SHOWN).enumerate().map(|(i, t)| {
             let state = t.state(self.pr.track.thread_sent(tree, pr, &t.id));
             let first = t.comments.first();
-            let body = first.map(|c| c.body.lines().next().unwrap_or_default().to_string()).unwrap_or_default();
+            let body = opening(t);
             let (id, open) = (t.id.clone(), t.id.clone());
             let send = (can_send && state == ThreadState::Open).then(|| {
                 small(("pr-comment-send", i), Variant::Secondary, "Send").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

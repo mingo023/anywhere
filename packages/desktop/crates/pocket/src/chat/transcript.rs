@@ -616,7 +616,13 @@ impl Desktop {
             let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
         };
-        let (here, fix_agent, can_send, desktop) = (self.cwd(), self.fix_agent(), !self.agents.observe_only(), cx.weak_entity());
+        // Only for a message linking a PR: `fix_agent` walks every agent, and this runs per row each frame.
+        let links_pr = self.chats.views.get(agent).and_then(|v| match v.session.rows.get(ix) {
+            Some(Row::Text { turn, block, .. }) => message(&v.session.transcript, *turn, *block),
+            _ => None,
+        });
+        let fix_to = links_pr.is_some_and(|m| m.text.contains("/pull/")).then(|| pr_link::FixTo { tree: self.cwd(), agent: self.fix_agent(), can_send: !self.agents.observe_only() });
+        let desktop = cx.weak_entity();
         let diagrams = self.chats.diagrams.clone();
         let Some(view) = self.chats.views.get_mut(agent) else { return div().into_any_element() };
         // Field by field, so the code highlights stay free to borrow mutably.
@@ -749,7 +755,7 @@ impl Desktop {
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
                     None => {
-                        let peeks = pr_link::peeks(text, &self.prs, &self.pr, here.as_deref(), fix_agent, can_send);
+                        let peeks = fix_to.as_ref().map(|to| pr_link::peeks(text, &self.prs, &self.pr, to)).unwrap_or_default();
                         let doc = view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx);
                         div().child(markdown::block(TextView::new(&doc), open.clone()).plugin(pr_link::PrLinks { peeks, open: open.clone(), desktop: desktop.clone() }))
                     }
