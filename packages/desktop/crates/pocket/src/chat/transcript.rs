@@ -181,6 +181,7 @@ impl View {
     fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item]) -> Vec<(u64, String)> {
         let before: HashMap<String, usize> = latest_texts(&self.session.transcript).map(|m| (m.id.clone(), m.text.len())).collect();
         let tail = self.session.live_tail().map(|f| self.session.transcript.turns[f].id.clone());
+        self.session.outgoing.set_compacting(agent.compacting);
         if let Some((changed, range, count)) = self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms()) {
             if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
                 self.settled = Some((format!("{turn}#fold"), Instant::now()));
@@ -786,6 +787,7 @@ impl Desktop {
                 None => div(),
             },
             Row::Live { turn } => fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms()))),
+            Row::Working if s.outgoing.compacting() => working::compacting(),
             Row::Working => working::sending(),
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
                 Some((_, p)) => {
