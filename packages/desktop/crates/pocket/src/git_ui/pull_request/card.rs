@@ -1,4 +1,4 @@
-use super::{CheckRows, check_rows, fix_summary, gate_text, place, resolving_text, review_lines, tally, to_fix};
+use super::{CheckRows, card_busy, check_rows, fix_summary, gate_text, place, resolving_text, review_lines, tally, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
 use git::github::{Check, Gate, Method, Outcome, Pr, PrState, Review, ThreadState};
@@ -81,7 +81,7 @@ impl Desktop {
         let can_send = !self.agents.observe_only();
         let fixing = self.pr.track.fixing(&tree, pr);
         let fixing = fixing.as_ref();
-        let busy = self.pr.busy.filter(|_| self.pr.composing.is_none());
+        let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), &tree);
         let (color, said) = self.pr_verdict(&tree, pr);
         let open = pr.state == PrState::Open;
         let merged = pr.state == PrState::Merged && self.deletable(&tree);
