@@ -250,6 +250,10 @@ pub const FAILED_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff);
 pub const SUCCESS: Token = Token::new(0x2b9a66ff, 0x30a46cff);
 pub const SUCCESS_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff);
 pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
+/// An active goal's blue, whatever the accent.
+pub const GOAL_TEXT: Token = Token::new(0x0b5fb5ff, 0x70b8ffff);
+pub const GOAL_BG: Token = Token::fixed(0x3e8ef724);
+pub const GOAL_BG_STRONG: Token = Token::fixed(0x3e8ef73d);
 pub const WORKING: Token = Token::new(0xcc4e00ff, 0xf76b15ff);
 pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
 
@@ -675,19 +679,20 @@ mod tests {
     use super::contrast::{over, ratio};
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
-        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
+        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
         ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, WORKING, accent_rgba, gradient_lead, gradient_opacity,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, SpringState, rgba};
 
-    const TEXT_ROLES: [(&str, Token); 11] = [
+    const TEXT_ROLES: [(&str, Token); 12] = [
         ("TEXT", TEXT),
         ("TEXT_BODY", TEXT_BODY),
         ("TEXT_2", TEXT_2),
         ("WAITING_TEXT", WAITING_TEXT),
         ("SUCCESS_TEXT", SUCCESS_TEXT),
         ("FAILED_TEXT", FAILED_TEXT),
+        ("GOAL_TEXT", GOAL_TEXT),
         ("ACCENT", ACCENT),
         ("ACCENT_LINK", ACCENT_LINK),
         ("DIFF_ADD_TEXT", DIFF_ADD_TEXT),

@@ -49,6 +49,8 @@ pub(crate) enum Menu {
     Usage { back: bool },
     /// The chat's account popover on the accounts to switch to.
     Switch,
+    /// The chat's goal, opened from its pill.
+    Goal,
 }
 
 /// A composer's choices besides its words.

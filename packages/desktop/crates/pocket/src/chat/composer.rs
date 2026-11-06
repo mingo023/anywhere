@@ -598,7 +598,6 @@ impl Desktop {
         let paused = view.is_some_and(|v| v.session.outgoing.paused(&v.session.transcript));
         let tray = (mode == Mode::Prompt).then(|| self.queue_tray(&agent.id, pending, paused, cx)).flatten();
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
-        let goal = (mode == Mode::Prompt).then(|| self.goal_strip(agent, cx)).flatten();
         let interrupt = self.chat_caps(&agent.provider).interrupt;
         let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
         let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx))).flatten();
@@ -611,7 +610,7 @@ impl Desktop {
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
-        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(goal).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
+        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 
@@ -685,6 +684,7 @@ impl Desktop {
         let (t, a) = (terminal.to_string(), agent.id.clone());
         let text = crate::composer::prompt_text().child(input);
         let bar = crate::composer::prompt_bar()
+            .children(self.chat_goal_pill(agent, view_only, cx))
             .child(self.chat_model_pill(agent, view_only, cx))
             .children(self.chat_effort_pill(agent, view_only, cx))
             .children(self.chat_access_pill(agent, view_only, cx))
