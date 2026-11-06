@@ -10,7 +10,7 @@ use ui::Variant;
 const CHECKS_SHOWN: usize = 6;
 const COMMENTS_SHOWN: usize = 3;
 
-pub(super) fn small(id: impl Into<ElementId>, v: Variant, label: impl Into<SharedString>) -> Stateful<Div> {
+pub(crate) fn small(id: impl Into<ElementId>, v: Variant, label: impl Into<SharedString>) -> Stateful<Div> {
     ui::button(id, v, None, label.into()).h(px(24.)).px(px(9.)).gap(px(5.)).rounded(px(7.)).text_size(px(12.))
 }
 
@@ -37,7 +37,7 @@ pub(super) fn who(login: &str) -> String {
     login.chars().filter(|c| c.is_alphanumeric()).take(2).collect::<String>().to_uppercase()
 }
 
-pub(super) fn review_icon(r: Review) -> AnyElement {
+pub(crate) fn review_icon(r: Review) -> AnyElement {
     match r {
         Review::Approved => icon("check", 13., SUCCESS).into_any_element(),
         Review::ChangesRequested => icon("warning", 13., FAILED).into_any_element(),

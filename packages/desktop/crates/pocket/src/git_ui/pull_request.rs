@@ -4,6 +4,8 @@ mod composer;
 mod notice;
 mod side;
 
+pub(crate) use card::{review_icon, small};
+
 use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::changes::push;

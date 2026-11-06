@@ -5,7 +5,7 @@ use super::markdown::{self, Docs, Highlights};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
-use super::{end_row, meta, phase, question_marker, sticky, sub_agent, todos, user_bubble};
+use super::{end_row, meta, phase, pr_link, question_marker, sticky, sub_agent, todos, user_bubble};
 use crate::creating;
 use crate::desktop::Desktop;
 use crate::explorer::mermaid;
@@ -616,6 +616,7 @@ impl Desktop {
             let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
         };
+        let (here, fix_agent, can_send, desktop) = (self.cwd(), self.fix_agent(), !self.agents.observe_only(), cx.weak_entity());
         let diagrams = self.chats.diagrams.clone();
         let Some(view) = self.chats.views.get_mut(agent) else { return div().into_any_element() };
         // Field by field, so the code highlights stay free to borrow mutably.
@@ -747,7 +748,11 @@ impl Desktop {
                         // An indented fence belongs to the list item above it.
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
-                    None => div().child(markdown::block(TextView::new(&view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx)), open.clone())),
+                    None => {
+                        let peeks = pr_link::peeks(text, &self.prs, &self.pr, here.as_deref(), fix_agent, can_send);
+                        let doc = view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx);
+                        div().child(markdown::block(TextView::new(&doc), open.clone()).plugin(pr_link::PrLinks { peeks, open: open.clone(), desktop: desktop.clone() }))
+                    }
                 };
                 let plan = range.start == 0 && !text.trim_start().starts_with('#') && matches!(t.turns.get(*turn).and_then(|t| t.blocks.get(*block)), Some(Block::Plan(_)));
                 div().flex().flex_col().gap(px(8.)).children(plan.then(todos::plan_header)).child(body)
