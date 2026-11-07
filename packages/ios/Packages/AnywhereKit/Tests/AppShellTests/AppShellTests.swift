@@ -61,8 +61,20 @@ struct NavigatorTests {
         nav.tree = .worktree(mac: "studio", path: "/p/wt")
         #expect(nav.held == nil)
         nav.open(link, macs: [online, offline])
+        nav.select(mac: "d1")
+        #expect(nav.held == nil)
+        nav.open(link, macs: [online, offline])
         nav.dropHeld()
         #expect(nav.held == nil)
+    }
+
+    @Test("a held link stays when the selection falls to another Mac on its own")
+    func heldKeptOnFallback() {
+        let nav = Navigator()
+        nav.open(.mac("later"), macs: [])
+        nav.keepSelection([online])
+        #expect(nav.macId == "d1")
+        #expect(nav.held == .mac("later"))
     }
 
     @Test("a chat opened from inside the app is pushed over the current screen and keeps the tree")

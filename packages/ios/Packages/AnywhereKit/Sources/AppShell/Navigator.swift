@@ -111,9 +111,14 @@ public final class Navigator {
 
     public func dropHeld() { held = nil }
 
-    /// Selects a Mac. Routes belong to one Mac, so switching clears the Mac's stacks.
+    /// Selects a Mac. Routes belong to one Mac, so switching clears the Mac's stacks, and drops a held link as any move does.
     public func select(mac id: String) {
         guard id != macId else { return }
+        held = nil
+        switchMac(to: id)
+    }
+
+    private func switchMac(to id: String) {
         macId = id
         sessionsPath = []
         terminalsPath = []
@@ -124,8 +129,9 @@ public final class Navigator {
     /// Keeps the selection on a Mac that exists: the first one when none is selected or the selected one was forgotten.
     public func keepSelection(_ macs: [MacRef]) {
         if let macId, macs.contains(where: { $0.id == macId }) { return }
+        // Not the user moving, so a held link stays.
         if let first = macs.first {
-            select(mac: first.id)
+            switchMac(to: first.id)
         } else {
             macId = nil
             sessionsPath = []
