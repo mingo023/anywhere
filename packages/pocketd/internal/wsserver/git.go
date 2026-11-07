@@ -23,6 +23,7 @@ type GitService interface {
 	Discard(tree string, paths []string) error
 	CreateCommit(tree, message string, amend, all bool) (string, error)
 	Push(tree, remote string, lease, mayForce bool) error
+	PushesToUpstream(tree, remote string) bool
 	Pull(tree string) error
 	Watch(trees []string, changed func(tree, rev string)) (stop func())
 	Top(tree string) error
@@ -87,7 +88,7 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 		git := c.s.Registry.Load().Git
 		st.ID = m.ID
 		st.CommitAll = new(git.CommitsAll())
-		st.ForceWithLease = git.ForceWithLease
+		st.ForceWithLease = git.ForceWithLease && g.PushesToUpstream(m.Tree, git.PushRemote())
 		c.send(st)
 	case "git.diff":
 		d, err := g.Diff(m.Tree, m.Path, *m.At, gitview.DiffOptions{Context: m.Context, IgnoreWhitespace: m.IgnoreWhitespace, MaxLines: m.MaxLines})

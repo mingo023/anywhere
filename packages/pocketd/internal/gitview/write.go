@@ -132,6 +132,14 @@ func PushArgs(remote string, lease bool) []string {
 	return args
 }
 
+// pushRemote is remote when the repository has one by that name, else "" for where git picks.
+func (s *Service) pushRemote(tree, remote string) string {
+	if remotes, err := s.text(tree, "remote"); err != nil || !slices.Contains(strings.Split(remotes, "\n"), remote) {
+		return ""
+	}
+	return remote
+}
+
 // Push sends the branch to remote, or where git picks when the repository has
 // no remote by that name, as the desktop's push_argv. Without lease, a remote
 // holding commits the branch lacks is said in words, advising a force push
@@ -139,9 +147,7 @@ func PushArgs(remote string, lease bool) []string {
 // commits not yet fetched.
 func (s *Service) Push(tree, remote string, lease, mayForce bool) error {
 	return s.write(tree, func() error {
-		if remotes, err := s.text(tree, "remote"); err != nil || !slices.Contains(strings.Split(remotes, "\n"), remote) {
-			remote = ""
-		}
+		remote = s.pushRemote(tree, remote)
 		_, err := s.git(tree, nil, writeTimeout, PushArgs(remote, lease))
 		if f, ok := errors.AsType[*Failed](err); ok && !lease {
 			ahead := cmp.Or(remote, "The remote") + " has commits this branch doesn't. "
@@ -157,6 +163,18 @@ func (s *Service) Push(tree, remote string, lease, mayForce bool) error {
 		}
 		return err
 	})
+}
+
+// PushesToUpstream is whether Push to remote goes to the branch's upstream, so
+// the upstream's unpushed and unpulled are what that push sends and replaces.
+func (s *Service) PushesToUpstream(tree, remote string) bool {
+	var args []string
+	if remote = s.pushRemote(tree, remote); remote != "" {
+		args = []string{"-c", "remote.pushDefault=" + remote}
+	}
+	out, err := s.text(tree, append(args, "rev-parse", "--symbolic-full-name", "@{push}", "@{upstream}")...)
+	push, upstream, _ := strings.Cut(out, "\n")
+	return err == nil && push == upstream
 }
 
 // Pull fast-forwards to the upstream and refuses anything else.

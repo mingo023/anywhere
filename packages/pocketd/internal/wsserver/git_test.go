@@ -243,6 +243,15 @@ func TestAPhoneForcePushesARewrittenBranchOnlyWhenTheDesktopLetsIt(t *testing.T)
 	if m := p.reply("p2"); m["code"] != proto.CodeGitFailed || m["message"] != "origin has commits this branch doesn't. Pull, or force push." {
 		t.Fatalf("forced without the phone asking: %v", m)
 	}
+	gitIn(t, repo, "init", "-q", "--bare", "-b", "main", filepath.Join(dir, "fork.git"))
+	gitIn(t, repo, "remote", "add", "fork", filepath.Join(dir, "fork.git"))
+	gitIn(t, repo, "push", "-q", "fork", "main")
+	settings(map[string]any{"force_with_lease": true, "remote": "fork"})
+	p.send(`{"type":"git.status","id":"s3","tree":` + q(repo) + `}`)
+	if m := p.reply("s3"); m["forceWithLease"] != nil || m["unpulled"] != 1.0 {
+		t.Fatalf("a confirm counted on origin for a push to fork: %v", m)
+	}
+	settings(map[string]any{"force_with_lease": true})
 	p.send(`{"type":"git.push","id":"l2","tree":` + q(repo) + `,"lease":true}`)
 	if m := p.reply("l2"); m["type"] != "ack" {
 		t.Fatalf("%v", m)

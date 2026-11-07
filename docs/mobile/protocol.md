@@ -138,8 +138,9 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
    // ahead/behind count against base; unpushed/unpulled against the upstream (Push N, Pull N), omitted before the first push.
    // unstaged counts files with unstaged edits: a file staged and edited again counts in staged and unstaged.
    // commitAll = desktop.json's git.commit_all (default true): with nothing staged, the phone's Commit sends all:true.
-   // forceWithLease = desktop.json's git.force_with_lease, sent only when on. With it, a Push while unpulled > 0 (the
-   //   upstream isn't an ancestor of HEAD) would replace unpulled commits: the phone confirms, then sends git.push lease:true.
+   // forceWithLease = desktop.json's git.force_with_lease, sent only when on and git.push goes to the upstream. With it, a
+   //   Push while unpulled > 0 (the upstream isn't an ancestor of HEAD) would replace unpulled commits: the phone
+   //   confirms, then sends git.push lease:true.
    //   An older phone ignores it and never sends a lease, so it needs no cap.
 
 → {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops; ≤32 trees

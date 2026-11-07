@@ -213,6 +213,25 @@ func TestARewrittenBranchPushesWithLeaseButNeverOverCommitsNotYetFetched(t *test
 	}
 }
 
+func TestAPushGoesToTheUpstreamOnlyWhenItsRemoteIsTheUpstreams(t *testing.T) {
+	repo := scratch(t)
+	bare(t, repo)
+	s := service()
+	if s.PushesToUpstream(repo, "origin") {
+		t.Fatal("no upstream yet")
+	}
+	s.Push(repo, "origin", false, false)
+	if !s.PushesToUpstream(repo, "origin") || !s.PushesToUpstream(repo, "fork") {
+		t.Fatal("origin's upstream, and no fork remote")
+	}
+	sh(t, repo, "init", "-q", "--bare", "-b", "main", filepath.Join(filepath.Dir(repo), "fork.git"))
+	sh(t, repo, "remote", "add", "fork", filepath.Join(filepath.Dir(repo), "fork.git"))
+	sh(t, repo, "push", "-q", "fork", "main")
+	if s.PushesToUpstream(repo, "fork") {
+		t.Fatal("fork while the upstream is on origin")
+	}
+}
+
 func TestPullOnlyFastForwards(t *testing.T) {
 	repo := scratch(t)
 	remote := bare(t, repo)

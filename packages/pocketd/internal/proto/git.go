@@ -139,8 +139,8 @@ type GitStatus struct {
 	Unpulled *int   `json:"unpulled,omitempty"`
 	// CommitAll is the desktop's setting: with nothing staged, a commit takes every change.
 	CommitAll *bool `json:"commitAll,omitempty"`
-	// ForceWithLease is the desktop's setting: a push may replace what HEAD
-	// rewrote on the remote, once the phone has asked.
+	// ForceWithLease is the desktop's setting, while a push goes to the
+	// upstream: it may replace what HEAD rewrote there, once the phone has asked.
 	ForceWithLease bool        `json:"forceWithLease,omitempty"`
 	Totals         GitTotals   `json:"totals"`
 	Files          []GitFile   `json:"files"`

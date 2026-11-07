@@ -385,7 +385,7 @@ public struct GitHead: Hashable, Sendable {
     public var unpulled: Int?
     /// The desktop's setting: with nothing staged, a commit takes every change.
     public var commitAll: Bool
-    /// The desktop's `git.force_with_lease`.
+    /// The desktop's `git.force_with_lease`, while Push goes to the upstream.
     public var forceWithLease: Bool
     public var totals: GitTotals
     public var commits: [CommitRef]
