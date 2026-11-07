@@ -46,6 +46,20 @@ struct DesignSystemTests {
         #expect(Set(colours).count == Status.allCases.count)
     }
 
+    @Test("an offline Mac's strip says when its data is from, or that the link is reconnecting")
+    func staleStrip() {
+        let utc = TimeZone(identifier: "UTC")!
+        #expect(StaleStrip.text(mac: "Studio", asOf: 1_762_512_120_000, timeZone: utc) == "Studio is offline · as of 10:42")
+        #expect(StaleStrip.text(mac: "Studio", asOf: nil) == "Studio is offline · reconnecting…")
+    }
+
+    @Test("a toast stays 2.4 seconds unless it waits on work in flight")
+    func toastLasts() {
+        #expect(Toast("Copied path").lasts == .milliseconds(2400))
+        #expect(Toast("Deleting calm-otter…", lasts: nil).lasts == nil)
+        #expect(Toast("Copied").id != Toast("Copied").id)
+    }
+
     @Test("the shimmer band sweeps from before the leading edge to past the trailing one")
     func shimmer() {
         let phases = stride(from: 0.0, to: 1.6, by: 0.05).map { Shimmer.phase(at: Date(timeIntervalSinceReferenceDate: $0)) }

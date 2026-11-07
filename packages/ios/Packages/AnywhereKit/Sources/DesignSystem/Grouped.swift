@@ -14,17 +14,22 @@ extension View {
     }
 }
 
-/// What a screen shows before its feature is built, or while it has nothing yet.
+/// What a screen shows before its feature is built, or while it has nothing yet; with an action, such as Try Again
+/// on a screen whose first load failed.
 @MainActor
 public struct Placeholder: View {
     let title: String
     let systemImage: String
     let detail: String?
+    let actionTitle: String
+    let action: (() -> Void)?
 
-    public init(_ title: String, systemImage: String, detail: String? = nil) {
+    public init(_ title: String, systemImage: String, detail: String? = nil, actionTitle: String = "Try Again", action: (() -> Void)? = nil) {
         self.title = title
         self.systemImage = systemImage
         self.detail = detail
+        self.actionTitle = actionTitle
+        self.action = action
     }
 
     public var body: some View {
@@ -33,6 +38,9 @@ public struct Placeholder: View {
             Text(title).font(Typography.headline).foregroundStyle(Palette.text.color)
             if let detail {
                 Text(detail).font(Typography.subheadline).foregroundStyle(Palette.text3.color).multilineTextAlignment(.center)
+            }
+            if let action {
+                Button(actionTitle, action: action).buttonStyle(.bordered).controlSize(.large).padding(.top, Space.xs)
             }
         }
         .padding(Space.xxl)
