@@ -6,42 +6,6 @@ import Stores
 import SwiftUI
 import Wire
 
-/// The files Next and Previous File step through.
-enum DiffFiles: Hashable {
-    /// A fixed list, as a commit's.
-    case list([String])
-    /// A section of the tree's changes, read as they load, pages included.
-    case changes(ChangeSection)
-    /// A compare's files, read as they load.
-    case compare(against: String)
-
-    /// The file `by` steps from `path`; nil past either end.
-    static func step(from path: String, by: Int, in siblings: [String]) -> String? {
-        guard let i = siblings.firstIndex(of: path), siblings.indices.contains(i + by) else { return nil }
-        return siblings[i + by]
-    }
-
-    /// The file to show once `path` leaves the list: the next, else the one before.
-    static func after(removing path: String, in siblings: [String]) -> String? {
-        step(from: path, by: 1, in: siblings) ?? step(from: path, by: -1, in: siblings)
-    }
-}
-
-/// Which of a diff's changes the bar has stepped to, as an index into them.
-enum ChangeStep {
-    /// The change `by` steps from `current`; from none, Next takes the first and Previous the last. Nil past either end.
-    static func step(from current: Int?, by: Int, count: Int) -> Int? {
-        let next = (current ?? (by > 0 ? -1 : count)) + by
-        return (0..<count).contains(next) ? next : nil
-    }
-
-    /// The change kept once a reloaded diff has `count` of them: the same one, else the last.
-    static func kept(_ current: Int?, count: Int) -> Int? {
-        guard let current, count > 0 else { return nil }
-        return min(current, count - 1)
-    }
-}
-
 /// One file's diff with its header, next and previous file, side by side on a wide screen, and a bar to step through
 /// its changes and stage or discard it. A working or staged diff follows the tree, so it updates while an agent writes.
 @MainActor
