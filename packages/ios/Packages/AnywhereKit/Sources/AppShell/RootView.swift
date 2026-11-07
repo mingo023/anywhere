@@ -61,6 +61,9 @@ public struct RootView: View {
             navigator.keepSelection(macs)
             navigator.release(macs)
         }
+        .onChange(of: app.lastPaired) { _, id in
+            if let id { navigator.select(mac: id) }
+        }
         .onChange(of: navigator.saved) { _, _ in savedNavigation = navigator.encoded() }
         .onChange(of: scenePhase) { _, phase in
             for host in app.hosts { host.scene(active: phase == .active) }
