@@ -26,7 +26,7 @@ public final class FilesStore: HostStore {
     /// Preview keys, least recently opened first.
     @ObservationIgnored private var recent: [String] = []
     /// The Mac's name, as errors say it; its hostname once it has said hello.
-    @ObservationIgnored public var mac = FilesStore.unnamed
+    @ObservationIgnored public var macName = ErrorText.unnamedMac
 
     /// What every tree hides.
     public var filter = FileFilter() {
@@ -37,15 +37,12 @@ public final class FilesStore: HostStore {
     /// What waits for a chat's draft, oldest first.
     public private(set) var additions: [ChatAddition] = []
 
-    /// The Mac before it says its name.
-    public nonisolated static let unnamed = "the Mac"
-
     /// How many previews stay cached; images can be 20 MB each.
     static let previewsKept = 8
 
-    public init(connection: DaemonConnection? = nil, mac: String = FilesStore.unnamed) {
+    public init(connection: DaemonConnection? = nil, macName: String = ErrorText.unnamedMac) {
         self.connection = connection
-        self.mac = mac
+        self.macName = macName
     }
 
     // MARK: Tree
@@ -140,7 +137,7 @@ public final class FilesStore: HostStore {
 
     /// A debounced search for the go-to-file sheet.
     public func makeSearch(tree: String) -> FileSearch {
-        FileSearch(tree: tree, mac: mac) { [weak self] query in
+        FileSearch(tree: tree, mac: macName) { [weak self] query in
             guard let self else { return [] }
             return try await self.search(tree: tree, query: query)
         }
@@ -217,7 +214,7 @@ public final class FilesStore: HostStore {
     }
 
     public func connected(_ hello: HelloOk) {
-        mac = hello.hostname
+        macName = hello.hostname
         for model in trees.values where model.hasFailures || !model.waiting.isEmpty { open(model) }
         for preview in previews.values where preview.lastReadFailed { load(preview) }
     }
@@ -234,7 +231,7 @@ public final class FilesStore: HostStore {
     private static func key(_ tree: String, _ path: String) -> String { tree + "\u{0}" + path }
 
     /// What a failed request says to the reader, naming the Mac; nil for one that was cancelled.
-    public func describe(_ error: any Error) -> String? { Self.describe(error, mac: mac) }
+    public func describe(_ error: any Error) -> String? { Self.describe(error, mac: macName) }
 
     public nonisolated static func describe(_ error: any Error, mac: String) -> String? {
         switch error {
@@ -395,7 +392,7 @@ public final class FileSearch {
 
     /// `query` and `results` start the sheet where a previous one left off. `mac` names the Mac in errors.
     public init(
-        tree: String, query: String = "", results: [String] = [], delay: Duration = .milliseconds(120), mac: String = FilesStore.unnamed,
+        tree: String, query: String = "", results: [String] = [], delay: Duration = .milliseconds(120), mac: String = ErrorText.unnamedMac,
         fetch: @escaping @MainActor (String) async throws -> [String]
     ) {
         self.tree = tree

@@ -135,7 +135,7 @@ struct GitHubStoreTests {
         await s.merge(Sample.tree, method: .squash)
         let t = s.pullRequest(Sample.tree)
         #expect(t.pr?.state == "OPEN" && t.busy == nil)
-        #expect(t.error == "Not connected to the Mac")
+        #expect(t.error == "Not connected to your Mac")
     }
 
     @Test("acting on a PR edits it as gh will report it next")

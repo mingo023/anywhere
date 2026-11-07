@@ -474,6 +474,6 @@ public final class WorkspaceStore: HostStore {
     /// A server's own error, with its detail; else what `ErrorText` says, naming the Mac. Nil when cancelled.
     func failure(_ error: any Error) -> ServerError? {
         if case DaemonError.server(let e) = error { return e }
-        return ErrorText.describe(error, mac: hello?.hostname ?? "your Mac").map { ServerError(message: $0) }
+        return ErrorText.describe(error, mac: hello?.hostname ?? ErrorText.unnamedMac).map { ServerError(message: $0) }
     }
 }

@@ -237,7 +237,7 @@ struct FilesStoreTests {
         await #expect(throws: DaemonError.offline) { try await store.search(tree: "/t", query: "a") }
         await #expect(throws: AttachmentError.unsupportedType) { try await store.upload(Data([1]), name: "notes.txt") }
         #expect(store.describe(DaemonError.server(ServerError(message: "That path is outside the project", code: .outsideTree))) == "That path is outside the project")
-        store.mac = "Studio"
+        store.macName = "Studio"
         #expect(store.describe(DaemonError.timedOut) == "Studio didn't answer in time")
         #expect(store.describe(AttachmentError.empty) == "That image is empty")
         #expect(store.describe(DaemonError.cancelled) == nil)

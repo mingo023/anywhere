@@ -54,7 +54,7 @@ struct CreatePullRequestSheet: View {
                 Section {
                     Toggle("Draft", isOn: $draft)
                     NavigationLink {
-                        BasePicker(branches: branches, mac: store.mac, selection: $base)
+                        BasePicker(branches: branches, mac: store.macName, selection: $base)
                     } label: {
                         LabeledContent("Base", value: base ?? "The repository's default")
                     }

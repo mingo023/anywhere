@@ -78,7 +78,7 @@ public final class ChatStore: HostStore {
     @ObservationIgnored var ticker: Task<Void, Never>?
     @ObservationIgnored var requestsMade = 0
     @ObservationIgnored var searching: Task<Void, Never>?
-    @ObservationIgnored var mac = "your Mac"
+    @ObservationIgnored var macName = ErrorText.unnamedMac
     @ObservationIgnored var armedQueue = false
     /// When the last send went, which Stop ignores for a moment after.
     @ObservationIgnored var sentAt: Int?
@@ -206,13 +206,13 @@ public final class ChatStore: HostStore {
         self.requests = requests
         caps = hello?.caps ?? []
         scopes = hello?.scopes ?? []
-        if let hello { mac = hello.hostname }
+        if let hello { macName = hello.hostname }
         refreshWizard()
     }
 
     /// Whether the Mac named `mac` is online, as the screen sees its host before this store hears of a change.
     public func follow(online: Bool, mac: String) {
-        self.mac = mac
+        macName = mac
         if online != self.online { self.online = online }
         if online, notice != nil { notice = nil }
     }
@@ -220,7 +220,7 @@ public final class ChatStore: HostStore {
     public func connected(_ hello: HelloOk) {
         caps = hello.caps ?? []
         scopes = hello.scopes ?? []
-        mac = hello.hostname
+        macName = hello.hostname
         online = true
         notice = nil
         requests = []
@@ -857,7 +857,7 @@ public final class ChatStore: HostStore {
     }
 
     func failed(_ id: String, _ error: any Error) {
-        let reason = FilesStore.describe(error, mac: mac)
+        let reason = FilesStore.describe(error, mac: macName)
         mark(id) {
             $0.failed = true
             $0.reason = reason
@@ -933,14 +933,14 @@ public final class ChatStore: HostStore {
     ) {
         // Even offline the answer comes later, as a caller keys a send by what this returns before it fails.
         guard let connection else {
-            Task { @MainActor [mac] in failed(ErrorText.describe(DaemonError.offline, mac: mac)) }
+            Task { @MainActor [macName] in failed(ErrorText.describe(DaemonError.offline, mac: macName)) }
             return
         }
-        Task { @MainActor [mac] in
+        Task { @MainActor [macName] in
             do {
                 done(try await connection.request(message))
             } catch {
-                failed(ErrorText.describe(error, mac: mac))
+                failed(ErrorText.describe(error, mac: macName))
             }
         }
     }

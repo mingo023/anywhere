@@ -20,11 +20,11 @@ public final class GitStore: HostStore {
     @ObservationIgnored private var commits: [String: CommitDetail] = [:]
     @ObservationIgnored private var compares: [CompareKey: TreeCompare] = [:]
     /// The Mac's name, as errors say it; its hostname once it has said hello.
-    @ObservationIgnored public private(set) var mac: String
+    @ObservationIgnored public private(set) var macName: String
 
-    public init(connection: DaemonConnection? = nil, mac: String = FilesStore.unnamed) {
+    public init(connection: DaemonConnection? = nil, macName: String = ErrorText.unnamedMac) {
         self.connection = connection
-        self.mac = mac
+        self.macName = macName
     }
 
     // MARK: HostStore
@@ -38,7 +38,7 @@ public final class GitStore: HostStore {
     }
 
     public func connected(_ hello: HelloOk) {
-        mac = hello.hostname
+        macName = hello.hostname
         sentWatch = []
         syncWatch()
         for tree in watchSet { Task { await refresh(tree) } }
@@ -369,7 +369,7 @@ public final class GitStore: HostStore {
         }
     }
 
-    private func describe(_ error: any Error) -> String? { ErrorText.describe(error, mac: mac) }
+    private func describe(_ error: any Error) -> String? { ErrorText.describe(error, mac: macName) }
 }
 
 /// A tree's branch line: everything of a status but its files.

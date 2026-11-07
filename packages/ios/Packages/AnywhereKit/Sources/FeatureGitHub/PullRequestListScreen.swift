@@ -9,7 +9,7 @@ import Wire
 struct PullRequestListScreen: View {
     let store: GitHubStore
     let mac: String
-    var macName = "your Mac"
+    var macName = ErrorText.unnamedMac
     let project: String
     var load = true
 

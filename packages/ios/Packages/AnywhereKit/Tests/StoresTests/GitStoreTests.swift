@@ -224,7 +224,7 @@ struct GitStoreTests {
 
     @Test("a write with no link names the Mac it couldn't reach")
     func namesTheMac() async {
-        let store = GitStore(mac: "Studio")
+        let store = GitStore(macName: "Studio")
         #expect(await store.pull("/t") == false)
         #expect(store.changes("/t").error == "Not connected to Studio")
     }

@@ -54,9 +54,9 @@ public final class HostModel: Identifiable {
         sessions = SessionsStore(connection: connection)
         workspace = WorkspaceStore(connection: connection)
         terminals = TerminalStore(connection: connection)
-        git = GitStore(connection: connection, mac: credentials.macName)
-        github = GitHubStore(connection: connection, mac: credentials.macName)
-        files = FilesStore(connection: connection, mac: credentials.macName)
+        git = GitStore(connection: connection, macName: credentials.macName)
+        github = GitHubStore(connection: connection, macName: credentials.macName)
+        files = FilesStore(connection: connection, macName: credentials.macName)
         push = PushStore(connection: connection)
         workspace.onStart = { [weak self] creation in
             guard let self else { return }

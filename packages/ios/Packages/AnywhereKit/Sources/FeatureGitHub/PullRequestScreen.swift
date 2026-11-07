@@ -6,7 +6,7 @@ import Wire
 /// The Mac a PR screen is on: its id for routes, its name for copy, and whether it is offline now.
 struct PrMac: Hashable {
     var id = ""
-    var name = "your Mac"
+    var name = ErrorText.unnamedMac
     var offline = false
 }
 

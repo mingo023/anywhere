@@ -70,11 +70,11 @@ public final class GitHubStore: HostStore {
     /// How long a notice with Undo stays, as the desktop's.
     @ObservationIgnored var noticeFor: Duration = .seconds(4)
     /// The Mac's name, as errors say it; its hostname once it has said hello.
-    @ObservationIgnored public private(set) var mac: String
+    @ObservationIgnored public private(set) var macName: String
 
-    public init(connection: DaemonConnection? = nil, mac: String = FilesStore.unnamed) {
+    public init(connection: DaemonConnection? = nil, macName: String = ErrorText.unnamedMac) {
         self.connection = connection
-        self.mac = mac
+        self.macName = macName
     }
 
     /// The PR of a tree, made on first ask.
@@ -110,7 +110,7 @@ public final class GitHubStore: HostStore {
     }
 
     public func connected(_ hello: HelloOk) {
-        mac = hello.hostname
+        macName = hello.hostname
         guard hello.has(Caps.gh) else { return }
         Task { await checkStatus() }
         for tree in trees.keys { Task { await refresh(tree) } }
@@ -279,7 +279,7 @@ public final class GitHubStore: HostStore {
 
     /// What a failed request says on screen: all gh or git said, as the desktop shows it, else why it never got there,
     /// naming the Mac. Nil when cancelled.
-    public func describe(_ error: any Error) -> String? { Self.describe(error, mac: mac) }
+    public func describe(_ error: any Error) -> String? { Self.describe(error, mac: macName) }
 
     public nonisolated static func describe(_ error: any Error, mac: String) -> String? {
         if case DaemonError.server(let e) = error { return e.detail ?? e.message }
