@@ -100,6 +100,24 @@ struct HomeListTests {
         #expect(build(sessions, query: "nothing").sections.isEmpty)
     }
 
+    @Test("search lists the sessions whose title matches, newest first, with their project and tree")
+    func matches() {
+        let sessions = [session("1", otter, created: 1), session("12", anywhere, created: 5), session("3", "/Users/mingo/dev/website", created: 3)]
+        #expect(build(sessions, query: "session 1").matches == [
+            .init(id: "12", project: "anywhere", tree: "Local"), .init(id: "1", project: "anywhere", tree: "Phone terminal"),
+        ])
+        #expect(build(sessions).matches.isEmpty)
+        #expect(build(sessions, query: "anywhere").matches.isEmpty, "a project's name isn't a session's title")
+    }
+
+    @Test("a tree being deleted leaves the list, its sessions with it")
+    func hiding() {
+        let built = HomeList.build(projects: Sample.projects, names: Sample.worktreeNames, locals: Sample.locals, localOfTerminal: [:],
+                                   sessions: [session("1", otter, status: .done)], hiding: [otter, "review"])
+        #expect(built.sections[0].trees.map(\.label) == ["fix/login"])
+        #expect(built.sections[0].rollUp == nil)
+    }
+
     @Test("the list for 50 projects of 10 worktrees and 200 sessions builds in a few milliseconds")
     func scale() {
         let (projects, agents) = Sample.workspace(projects: 50, worktrees: 10, agents: 200)

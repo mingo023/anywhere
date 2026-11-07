@@ -4,16 +4,18 @@ import Stores
 import SwiftUI
 import Wire
 
-/// What a sheet over the session lists makes.
+/// What a sheet over the session lists makes, or the steps of a session being started.
 enum Making: Identifiable, Hashable {
-    case session(project: String?, place: NewSessionDraft.Place?)
+    case session(project: String?, place: NewSessionDraft.Place?, prompt: String = "")
     case worktree(project: String)
+    case progress(requestId: String)
 
     var id: Self { self }
 }
 
-/// One Mac's workspaces: what is active now, then each project with its worktrees and Locals, as the desktop's
-/// sidebar groups them; a workspace opens onto its sessions. `only` narrows it to one project.
+/// One Mac's sessions: Up next and Working, then each project with its worktrees and Locals, as the desktop's sidebar
+/// groups them; a worktree or Local opens onto its sessions. While searching, matching sessions lead. `only` narrows it
+/// to one project.
 @MainActor
 struct HomeView: View {
     let host: HostModel
@@ -22,8 +24,7 @@ struct HomeView: View {
     @State private var query = ""
     @AppStorage("sessions.sort") private var sort = Sidebar.SessionSort.newest
     @AppStorage("sessions.projectSort") private var projectSort = HomeList.ProjectSort.manual
-    /// Projects opened or closed against their default, which is open while one of their sessions is active.
-    @State private var toggled: Set<String> = []
+    @AppStorage("sessions.folds") private var folds = Folds()
     @State private var action: RowAction?
     @State private var making: Making?
     @State private var automations = false
@@ -31,34 +32,37 @@ struct HomeView: View {
     var body: some View {
         let built = host.homeList(query: query, sort: sort, projectSort: projectSort)
         let sections = only.map { p in built.sections.filter { $0.id == p } } ?? built.sections
-        let active = query.isEmpty && only == nil ? Workspaces.active(host.sessions.recent.compactMap { host.sessions.session($0)?.listing.card }) : []
+        let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
+        let onlyName = only.flatMap { host.workspace.project($0)?.name }
         let projectOf = Dictionary(sections.flatMap { s in s.trees.flatMap { $0.sessions.map { ($0, s.name) } } }, uniquingKeysWith: { a, _ in a })
         let now = Int(Date().timeIntervalSince1970 * 1000)
         List {
-            Section {
-                if only == nil {
+            if only == nil && !searching {
+                Section {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("Workspaces").font(Typography.largeTitle).foregroundStyle(Palette.text.color)
+                        Text("Sessions").font(Typography.largeTitle).foregroundStyle(Palette.text.color)
                         Spacer(minLength: Space.s)
                         Text("\(built.sections.count) projects · \(host.sessions.sessions.count) sessions")
                             .font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
                     }
                 }
-                SearchField(text: $query, prompt: "Search workspaces and sessions")
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: 0, trailing: Space.xs))
+                .listRowSeparator(.hidden)
+                UpNextSections(host: host, mac: mac, projectOf: projectOf, action: $action)
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: Space.s, trailing: Space.xs))
-            .listRowSeparator(.hidden)
-            if !active.isEmpty {
+            if searching && !built.matches.isEmpty {
                 Section {
-                    ForEach(active, id: \.self) { activeRow($0, project: projectOf[$0], now: now) }
+                    ForEach(built.matches.filter { onlyName == nil || $0.project == onlyName }) { match in
+                        sessionRow(match.id, place: "\(match.project) · \(match.tree)")
+                    }
                 } header: {
-                    HStack(spacing: Space.s) { Text("Active now"); Text("\(active.count)").foregroundStyle(Palette.text4.color) }.sectionTitle()
+                    Text("Sessions").sectionTitle()
                 }
             }
             if !sections.isEmpty {
                 Section {
-                    ForEach(sections) { projectRows($0, now: now) }
+                    ForEach(sections) { projectRows($0, now: now, open: searching || only != nil || folds.isOpen($0.id, lively: $0.rollUp != nil)) }
                 } header: {
                     HStack {
                         Text("Projects")
@@ -70,7 +74,12 @@ struct HomeView: View {
             }
             if only == nil && !built.elsewhere.isEmpty {
                 Section {
-                    ForEach(built.elsewhere, id: \.self) { sessionRow($0) }
+                    ForEach(built.elsewhere, id: \.self) { id in
+                        if let session = host.sessions.session(id) {
+                            PushRow(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
+                                .modifier(SessionActions(host: host, session: session, action: $action))
+                        }
+                    }
                 } header: {
                     Text("Other folders").sectionTitle()
                 }
@@ -81,8 +90,9 @@ struct HomeView: View {
         #else
             .listStyle(.inset)
         #endif
-        .overlay { empty(sections) }
-        .navigationTitle(only.flatMap { host.workspace.project($0)?.name } ?? "Workspaces")
+        .overlay { empty(sections, matches: built.matches, searching: searching) }
+        .modifier(HomeSearch(text: $query, prompt: "Search sessions, worktrees and projects"))
+        .navigationTitle(only.flatMap { host.workspace.project($0)?.name } ?? "Sessions")
         #if os(iOS)
             .navigationBarTitleDisplayMode(only == nil ? .inline : .large)
         #endif
@@ -91,6 +101,11 @@ struct HomeView: View {
             try? await host.sessions.refresh()
             try? await host.workspace.refreshProjects()
         }
+        .task(id: pullRequestProjects(sections, searching: searching)) {
+            guard host.hello?.has(Caps.gh) == true else { return }
+            for project in pullRequestProjects(sections, searching: searching) { try? await host.github.refreshList(project) }
+        }
+        .stale(host)
         .sheet(item: $making) { making in MakingSheet(host: host, mac: mac, making: making) }
         .navigationDestination(isPresented: $automations) { AutomationsView(host: host, mac: mac) }
         .rowActions(host, $action)
@@ -118,10 +133,19 @@ struct HomeView: View {
                 Label("More", systemImage: "ellipsis")
             }
         }
-        ToolbarItem(placement: .primaryAction) {
-            Button { making = .session(project: only, place: nil) } label: { Label("New Session", systemImage: "square.and.pencil") }
-                .disabled(host.workspace.projects.isEmpty)
-        }
+        #if os(iOS)
+            ToolbarItemGroup(placement: .bottomBar) {
+                Spacer()
+                newSession
+            }
+        #else
+            ToolbarItem(placement: .primaryAction) { newSession }
+        #endif
+    }
+
+    private var newSession: some View {
+        Button { making = .session(project: only, place: nil) } label: { Label("New Session", systemImage: "square.and.pencil") }
+            .disabled(host.workspace.projects.isEmpty)
     }
 
     private var projectSortMenu: some View {
@@ -132,25 +156,26 @@ struct HomeView: View {
                 Text("Recent first").tag(HomeList.ProjectSort.recent)
             }
         } label: {
-            Text(projectSort == .recent ? "Recent first" : projectSort == .name ? "By name" : "As on the Mac")
+            Text(projectSort == .recent ? "Recent first" : projectSort == .name ? "By name" : "As on the Mac").hitTarget()
         }
     }
 
     @ViewBuilder
-    private func empty(_ sections: [HomeList.Section]) -> some View {
+    private func empty(_ sections: [HomeList.Section], matches: [HomeList.Match], searching: Bool) -> some View {
         if !host.workspace.loaded && host.workspace.projects.isEmpty {
-            ProgressView()
-        } else if sections.isEmpty && !query.isEmpty {
+            FirstLoad(host: host)
+        } else if sections.isEmpty && matches.isEmpty && searching {
             ContentUnavailableView.search(text: query)
         } else if host.workspace.projects.isEmpty && host.sessions.sessions.isEmpty {
             ContentUnavailableView("No projects yet", systemImage: "folder", description: Text("Add a project on your Mac to start sessions here."))
         }
     }
 
-    private func isOpen(_ section: HomeList.Section) -> Bool {
-        if !query.isEmpty || only != nil { return true }
-        let busy = section.rollUp.map { $0.status == .working || $0.status == .needsYou } ?? false
-        return busy != toggled.contains(section.id)
+    /// The open projects with worktrees, whose pull requests badge their rows.
+    private func pullRequestProjects(_ sections: [HomeList.Section], searching: Bool) -> [String] {
+        sections.filter { s in
+            s.trees.contains { $0.kind == .worktree } && (searching || only != nil || folds.isOpen(s.id, lively: s.rollUp != nil))
+        }.map(\.id)
     }
 
     private func latest(_ ids: [String]) -> Int {
@@ -158,32 +183,46 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func projectRows(_ section: HomeList.Section, now: Int) -> some View {
-        let open = isOpen(section)
+    private func projectRows(_ section: HomeList.Section, now: Int, open: Bool) -> some View {
+        let lively = section.rollUp != nil
+        let statuses = section.trees.flatMap(\.sessions).compactMap { host.sessions.session($0)?.status }
         Button {
             Haptics.tap()
-            withAnimation(.snappy(duration: 0.25)) {
-                if toggled.contains(section.id) { toggled.remove(section.id) } else { toggled.insert(section.id) }
-            }
+            withAnimation(.snappy(duration: 0.25)) { folds.toggle(section.id, lively: lively) }
         } label: {
-            ProjectRow(section: section, line: Workspaces.line(workspaces: section.trees.count, latest: latest(section.trees.flatMap(\.sessions)), now: now),
-                       open: open)
+            ProjectRow(section: section,
+                       line: Workspaces.line(worktrees: section.trees.filter { $0.kind == .worktree }.count, locals: section.trees.filter { $0.kind != .worktree }.count,
+                                             latest: latest(section.trees.flatMap(\.sessions)), now: now),
+                       open: open, breakdown: Workspaces.breakdown(statuses))
         }
         .buttonStyle(.plain)
         .contextMenu { ProjectMenu(section: section, canManage: host.workspace.canManage, making: $making, action: $action) }
+        ForEach(creations(section.id), id: \.id) { creation in
+            CreationRow(creation: creation.value, retry: { host.workspace.runKept(creation.id) }, dismiss: { host.workspace.forget(creation: creation.id) })
+                .onTapGesture { making = .progress(requestId: creation.id) }
+                .listRowInsets(WorkspaceRow.insets)
+        }
         if open {
+            let pulls = host.github.lists[section.id] ?? []
             ForEach(section.trees) { tree in
                 PushRow(value: TreeRow.route(tree, mac: mac)) {
-                    WorkspaceRow(tree: tree, ago: TimeText.ago(ms: latest(tree.sessions), now: now))
+                    WorkspaceRow(tree: tree, ago: TimeText.ago(ms: latest(tree.sessions), now: now), pr: pulls.first { $0.tree == tree.id })
                 }
                 .listRowInsets(WorkspaceRow.insets)
                 .listRowSeparator(.hidden, edges: .top)
-                .contextMenu { TreeMenu(tree: tree, project: section.id, canManage: host.workspace.canManage, making: $making, action: $action) }
+                .modifier(TreeActions(tree: tree, project: section.id, canManage: host.workspace.canManage, making: $making, action: $action))
+            }
+            if !pulls.isEmpty {
+                PushRow(value: Route.pullRequests(mac: mac, project: section.id)) {
+                    NewWorkspaceRow(title: pulls.count == 1 ? "1 pull request" : "\(pulls.count) pull requests", systemImage: "arrow.triangle.pull", last: false)
+                }
+                .listRowInsets(WorkspaceRow.insets)
+                .listRowSeparator(.hidden, edges: .top)
             }
             Button {
                 making = host.workspace.canManage ? .worktree(project: section.id) : .session(project: section.id, place: nil)
             } label: {
-                NewWorkspaceRow(title: host.workspace.canManage ? "New workspace" : "New session")
+                NewWorkspaceRow(title: host.workspace.canManage ? "New worktree" : "New session")
             }
             .buttonStyle(.plain)
             .listRowInsets(WorkspaceRow.insets)
@@ -191,19 +230,15 @@ struct HomeView: View {
         }
     }
 
-    private func activeRow(_ id: String, project: String?, now: Int) -> some View {
-        Group {
-            if let session = host.sessions.session(id) {
-                PushRow(value: Route.chat(mac: mac, agentId: id)) { ActiveRow(session: session, project: project) }
-                    .modifier(SessionActions(host: host, session: session, action: $action))
-            }
-        }
+    /// The sessions of a project being started, oldest request first.
+    private func creations(_ project: String) -> [(id: String, value: Creation)] {
+        host.workspace.creations.filter { $0.value.project == project && !$0.value.done }.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 
     @ViewBuilder
-    private func sessionRow(_ id: String) -> some View {
+    private func sessionRow(_ id: String, place: String) -> some View {
         if let session = host.sessions.session(id) {
-            PushRow(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
+            PushRow(value: Route.chat(mac: mac, agentId: id)) { ActiveRow(session: session, place: place) }
                 .modifier(SessionActions(host: host, session: session, action: $action))
         }
     }
@@ -224,8 +259,8 @@ struct TreeRow: View {
                 }
             }
             Spacer(minLength: Space.s)
-            if let roll = tree.rollUp, let label = roll.status.label {
-                Pill(roll.count > 1 ? "\(roll.count) \(label.lowercased())" : label, tone: SessionText.tone(roll.status))
+            if let roll = tree.rollUp, let label = Workspaces.label(roll.status, count: roll.count) {
+                Pill(label, tone: SessionText.tone(roll.status))
             }
         }
     }
@@ -253,15 +288,17 @@ struct TreeMenu: View {
     @Binding var action: RowAction?
 
     var body: some View {
-        Button {
-            making = .session(project: project, place: tree.kind == .local ? .local(tree.id) : .tree(tree.id))
-        } label: { Label("New Session Here", systemImage: "square.and.pencil") }
+        Button { making = .session(project: project, place: Self.place(tree)) } label: { Label("New Session Here", systemImage: "square.and.pencil") }
         if canManage {
             Button { action = .rename(tree) } label: { Label("Rename", systemImage: "pencil") }
             if tree.kind != .own {
                 Button(role: .destructive) { action = .delete(tree) } label: { Label("Delete", systemImage: "trash") }
             }
         }
+    }
+
+    static func place(_ tree: HomeList.Tree) -> NewSessionDraft.Place {
+        tree.kind == .local ? .local(tree.id) : .tree(tree.id)
     }
 }
 
@@ -308,7 +345,7 @@ struct PushRow<Content: View>: View {
     }
 }
 
-/// A new session, or a new worktree, over the list it was asked from.
+/// A new session or worktree, or a session's steps, over the list it was asked from.
 @MainActor
 struct MakingSheet: View {
     let host: HostModel
@@ -318,23 +355,29 @@ struct MakingSheet: View {
     var body: some View {
         NavigationStack {
             switch making {
-            case .session(let project, let place):
-                NewSessionView(host: host, mac: mac, project: project, place: place)
+            case .session(let project, let place, let prompt):
+                NewSessionView(host: host, mac: mac, project: project, place: place, prompt: prompt)
             case .worktree(let project):
                 NewWorktreeView(host: host, project: project)
+            case .progress(let requestId):
+                LaunchProgress(host: host, mac: mac, requestId: requestId)
+                    .navigationTitle("New Session")
+                #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                #endif
             }
         }
     }
 }
 
 extension HostModel {
-    /// The home list from what the stores hold now.
+    /// The home list from what the stores hold now, without the trees being deleted.
     func homeList(query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: HomeList.ProjectSort = .manual, open: String? = nil)
         -> HomeList.Built
     {
         let w = workspace
         let listed = sessions.recent.compactMap { sessions.session($0)?.listing }
         return HomeList.build(projects: w.projects, names: w.names, locals: w.locals, localOfTerminal: w.localOfTerminal, sessions: listed,
-                              terminalCwds: w.terminalCwds, open: open, query: query, sort: sort, projectSort: projectSort)
+                              terminalCwds: w.terminalCwds, open: open, query: query, sort: sort, projectSort: projectSort, hiding: w.hidden)
     }
 }

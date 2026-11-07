@@ -23,8 +23,10 @@ public struct SessionsView: View {
             TreeView(host: host, mac: mac, key: path)
         case .local(_, let id):
             TreeView(host: host, mac: mac, key: id)
-        case .newSession(_, let project, _, _):
-            NewSessionView(host: host, mac: mac, project: project, place: nil)
+        case .newSession(_, let project, let place, let prompt):
+            // A sheet's content, with its own stack: the shell presents this route over the screen that asked.
+            MakingSheet(host: host, mac: mac, making: .session(project: project, place: place.map { Places.place(key: $0, locals: host.workspace.locals) },
+                                                               prompt: prompt ?? ""))
         case .automations:
             AutomationsView(host: host, mac: mac)
         default:

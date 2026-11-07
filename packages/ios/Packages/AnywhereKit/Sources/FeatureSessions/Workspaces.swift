@@ -1,7 +1,7 @@
 import Domain
 import Stores
 
-/// What the Workspaces home says about projects and sessions, over plain data.
+/// What the Sessions home says about projects and sessions, over plain data.
 enum Workspaces {
     /// "GM" for glow-me; a one-word name gives its first two letters.
     static func initials(_ name: String) -> String {
@@ -10,31 +10,29 @@ enum Workspaces {
         return letters.isEmpty ? "?" : letters.uppercased()
     }
 
-    /// "1 running": a roll-up's count and what those sessions are doing.
+    /// "1 needs you": a roll-up's count and the status those sessions have.
     static func label(_ status: Status, count: Int) -> String? {
-        let doing: String
-        switch status {
-        case .working: doing = "running"
-        case .needsYou: doing = "waiting"
-        case .failed: doing = "failed"
-        case .done: doing = "done"
-        case .idle: return nil
-        }
-        return "\(count) \(doing)"
+        status.label.map { "\(count) \($0.lowercased())" }
     }
 
-    /// The sessions to look at now: those waiting on you, then those running, each newest first.
-    static func active(_ cards: [Sidebar.Card]) -> [String] {
-        func rank(_ s: Status) -> Int? { s == .needsYou ? 0 : s == .working ? 1 : nil }
-        return cards.filter { rank($0.status) != nil }
-            .sorted { a, b in rank(a.status)! != rank(b.status)! ? rank(a.status)! < rank(b.status)! : a.updatedAt > b.updatedAt }
-            .map(\.id)
+    /// "1 failed, 2 done": how many sessions have each status, for VoiceOver.
+    static func breakdown(_ statuses: [Status]) -> String {
+        Sidebar.breakdown(statuses).compactMap { label($0.status, count: $0.count) }.joined(separator: ", ")
     }
 
-    /// "2 workspaces · now"; without a session to date it, the count alone.
-    static func line(workspaces: Int, latest: Int, now: Int) -> String {
-        let count = "\(workspaces) workspace\(workspaces == 1 ? "" : "s")"
+    /// The sessions working now, the last to move first.
+    static func working(_ cards: [Sidebar.Card]) -> [String] {
+        cards.filter { $0.status == .working }.sorted { $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id < $1.id }.map(\.id)
+    }
+
+    /// "2 worktrees · 1 Local · now"; without a session to date it, the counts alone.
+    static func line(worktrees: Int, locals: Int, latest: Int, now: Int) -> String {
+        var parts: [String] = []
+        if worktrees > 0 { parts.append("\(worktrees) worktree\(worktrees == 1 ? "" : "s")") }
+        if locals > 0 { parts.append("\(locals) Local\(locals == 1 ? "" : "s")") }
+        if parts.isEmpty { parts.append("No worktrees") }
         let ago = TimeText.ago(ms: latest, now: now)
-        return ago.isEmpty ? count : "\(count) · \(ago)"
+        if !ago.isEmpty { parts.append(ago) }
+        return parts.joined(separator: " · ")
     }
 }
