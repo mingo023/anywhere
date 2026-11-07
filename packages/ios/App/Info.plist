@@ -36,7 +36,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Anywhere scans the pairing code your Mac shows.</string>
+	<string>Anywhere scans the pairing code your Mac shows, and takes photos you attach in chat.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Anywhere connects to your Mac to show and drive its agents.</string>
 	<key>NSSupportsLiveActivities</key>
