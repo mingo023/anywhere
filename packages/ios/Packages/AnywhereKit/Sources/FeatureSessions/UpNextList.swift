@@ -1,36 +1,20 @@
-import DesignSystem
 import Domain
 import Stores
 import SwiftUI
 
-/// A Mac's Up next and Working sessions on their own, for a column beside the project tree (the iPad's content column).
+/// A Mac's sessions for the column beside the project tree (the iPad's content column): Up next, Working and other
+/// folders, with search, New Session and Automations, but not the projects the sidebar holds.
 @MainActor
 public struct UpNextList: View {
     let host: HostModel
-    @State private var action: RowAction?
+    let open: ((Route) -> Void)?
 
-    public init(host: HostModel) {
+    public init(host: HostModel, open: ((Route) -> Void)? = nil) {
         self.host = host
+        self.open = open
     }
 
     public var body: some View {
-        let built = host.homeList()
-        let projectOf = Dictionary(built.sections.flatMap { s in s.trees.flatMap { $0.sessions.map { ($0, s.name) } } }, uniquingKeysWith: { a, _ in a })
-        List {
-            UpNextSections(host: host, mac: host.mac, projectOf: projectOf, action: $action)
-        }
-        #if os(iOS)
-            .listStyle(.insetGrouped)
-        #else
-            .listStyle(.inset)
-        #endif
-        .overlay {
-            if host.sessions.upNext.isEmpty && !host.sessions.sessions.values.contains(where: { $0.status == .working }) {
-                ContentUnavailableView("Nothing needs you", systemImage: "checkmark.circle", description: Text("Sessions that need you, fail or finish show here."))
-            }
-        }
-        .navigationTitle("Sessions")
-        .stale(host)
-        .rowActions(host, $action)
+        HomeView(host: host, mac: host.mac, open: open, projects: false)
     }
 }

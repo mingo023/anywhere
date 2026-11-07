@@ -15,7 +15,7 @@ enum Making: Identifiable, Hashable {
 
 /// One Mac's sessions: Up next and Working, then each project with its worktrees and Locals, as the desktop's sidebar
 /// groups them; a worktree or Local opens onto its sessions. While searching, matching sessions lead. `only` narrows it
-/// to one project.
+/// to one project; without `projects` they're left out, for a column beside a sidebar that holds them.
 @MainActor
 struct HomeView: View {
     let host: HostModel
@@ -23,20 +23,20 @@ struct HomeView: View {
     var only: String?
     /// Pushes a route from where a link can't, as a menu.
     var open: ((Route) -> Void)?
+    var projects = true
     @State private var query = ""
     @AppStorage("sessions.sort") private var sort = Sidebar.SessionSort.newest
     @AppStorage("sessions.projectSort") private var projectSort = HomeList.ProjectSort.manual
     @AppStorage("sessions.folds") private var folds = Folds()
     @State private var action: RowAction?
     @State private var making: Making?
-    @State private var automations = false
 
     var body: some View {
         let built = host.homeList(query: query, sort: sort, projectSort: projectSort)
-        let sections = only.map { p in built.sections.filter { $0.id == p } } ?? built.sections
+        let sections = projects ? only.map { p in built.sections.filter { $0.id == p } } ?? built.sections : []
         let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
         let onlyName = only.flatMap { host.workspace.project($0)?.name }
-        let projectOf = Dictionary(sections.flatMap { s in s.trees.flatMap { $0.sessions.map { ($0, s.name) } } }, uniquingKeysWith: { a, _ in a })
+        let projectOf = Dictionary((projects ? sections : built.sections).flatMap { s in s.trees.flatMap { $0.sessions.map { ($0, s.name) } } }, uniquingKeysWith: { a, _ in a })
         let now = Int(Date().timeIntervalSince1970 * 1000)
         List {
             if only == nil && !searching {
@@ -92,7 +92,7 @@ struct HomeView: View {
         #else
             .listStyle(.inset)
         #endif
-        .overlay { empty(sections, matches: built.matches, searching: searching) }
+        .overlay { empty(sections, built: built, searching: searching) }
         .modifier(HomeSearch(text: $query, prompt: "Search sessions, worktrees and projects"))
         .navigationTitle(only.flatMap { host.workspace.project($0)?.name } ?? "Sessions")
         #if os(iOS)
@@ -109,7 +109,6 @@ struct HomeView: View {
         }
         .stale(host)
         .sheet(item: $making) { making in MakingSheet(host: host, mac: mac, making: making) }
-        .navigationDestination(isPresented: $automations) { AutomationsView(host: host, mac: mac) }
         .rowActions(host, $action)
     }
 
@@ -127,9 +126,9 @@ struct HomeView: View {
                     Text("Recent activity").tag(Sidebar.SessionSort.activity)
                     Text("Name").tag(Sidebar.SessionSort.name)
                 }
-                if only == nil && host.workspace.automations != nil {
+                if only == nil, let open, host.workspace.automations != nil {
                     // A link inside a Menu doesn't push onto the stack.
-                    Button { automations = true } label: { Label("Automations", systemImage: "clock.arrow.circlepath") }
+                    Button { open(.automations(mac: mac)) } label: { Label("Automations", systemImage: "clock.arrow.circlepath") }
                 }
             } label: {
                 Label("More", systemImage: "ellipsis")
@@ -163,13 +162,17 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func empty(_ sections: [HomeList.Section], matches: [HomeList.Match], searching: Bool) -> some View {
+    private func empty(_ sections: [HomeList.Section], built: HomeList.Built, searching: Bool) -> some View {
         if !host.workspace.loaded && host.workspace.projects.isEmpty {
             FirstLoad(host: host)
-        } else if sections.isEmpty && matches.isEmpty && searching {
+        } else if sections.isEmpty && built.matches.isEmpty && searching {
             ContentUnavailableView.search(text: query)
         } else if host.workspace.projects.isEmpty && host.sessions.sessions.isEmpty {
             ContentUnavailableView("No projects yet", systemImage: "folder", description: Text("Add a project on your Mac to start sessions here."))
+        } else if !projects && !searching && built.elsewhere.isEmpty && host.sessions.upNext.isEmpty
+            && !host.sessions.sessions.values.contains(where: { $0.status == .working })
+        {
+            ContentUnavailableView("Nothing needs you", systemImage: "checkmark.circle", description: Text("Sessions that need you, fail or finish show here."))
         }
     }
 
