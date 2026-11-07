@@ -243,6 +243,21 @@ struct LinePickTests {
         #expect(pick.lines == 1...4)
     }
 
+    @Test("a dragged handle stays on the row it was taken from while the pick follows the finger, and settles once let go")
+    func handleDrag() {
+        let rows = CodeRows(lineCount: 10)
+        var pick: LinePick? = LinePick(2)
+        _ = pick?.drag(to: 4)
+        var drag = HandleDrag()
+        #expect(drag.rows(pick!, in: rows) == (2, 4))
+        drag.move(.bottom, by: 3, pick: &pick, rows: rows)
+        #expect(pick?.lines == 2...7 && drag.rows(pick!, in: rows) == (2, 4))
+        drag.move(.bottom, by: 20, pick: &pick, rows: rows)
+        #expect(pick?.lines == 2...9)
+        drag.end()
+        #expect(drag.rows(pick!, in: rows) == (2, 9))
+    }
+
     @Test("picked code quotes as its path, lines and a block fenced in the file's language")
     func code() throws {
         let quote = try #require(CodeQuote.code(["a", "b", "c", "d"], pick: 1...2, language: "rust"))

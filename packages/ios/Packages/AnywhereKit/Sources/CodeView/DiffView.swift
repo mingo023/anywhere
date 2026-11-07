@@ -16,7 +16,7 @@ public struct DiffView: View {
     let onAsk: ((CodeQuote) -> Void)?
     @State private var shown: Shown?
     @State private var pick: LinePick?
-    @State private var handle: (edge: LinePick.Edge, from: Int)?
+    @State private var handle = HandleDrag()
     @State private var mark: Mark?
     @State private var shownTarget: Int?
     @State private var scrollX: CGFloat = 0
@@ -100,7 +100,7 @@ public struct DiffView: View {
                             lines: document.lines, pairs: document.pairs, digits: document.gutterDigits, rows: DrawnRows.range(b, count: rows.count),
                             layout: sideBySide ? nil : rows, gutter: gutter, wrap: wraps, sideBySide: sideBySide, column: column, minWidth: width,
                             scrollX: scrollX, rowHeight: rowHeight, spans: shown.spans, dark: scheme == .dark, picked: picked,
-                            handles: sideBySide ? nil : pick.map { handleRows($0, rows: rows) }, mark: mark,
+                            handles: sideBySide ? nil : pick.map { handle.rows($0, in: rows) }, mark: mark,
                             actions: actions(document.lines, rows: rows))
                     }
                 }
@@ -135,26 +135,8 @@ public struct DiffView: View {
                 Haptics.tap()
             },
             dragged: { i in _ = pick?.drag(to: i) { LinePick.sameHunk(lines, $0, $1) } },
-            handleMoved: { edge, by in moveHandle(edge, by: by, lines: lines, rows: rows) },
-            handleEnded: { handle = nil })
-    }
-
-    private func handleRows(_ pick: LinePick, rows: CodeRows) -> (top: Int, bottom: Int) {
-        let top = handle.map { $0.edge == .top ? $0.from : rows.first(of: pick.anchor) } ?? rows.first(of: pick.lines.lowerBound)
-        let bottom = handle.map { $0.edge == .bottom ? $0.from : rows.rows(of: pick.anchor).upperBound - 1 }
-            ?? rows.rows(of: pick.lines.upperBound).upperBound - 1
-        return (top, bottom)
-    }
-
-    private func moveHandle(_ edge: LinePick.Edge, by: Int, lines: [UnifiedLine], rows: CodeRows) {
-        guard let picked = pick?.lines else { return }
-        let from = handle?.from ?? (edge == .top ? rows.first(of: picked.lowerBound) : rows.rows(of: picked.upperBound).upperBound - 1)
-        if handle == nil {
-            handle = (edge, from)
-            pick?.grab(edge)
-        }
-        let row = (from + by).clamped(to: 0...max(rows.count - 1, 0))
-        _ = pick?.drag(to: rows[row].line) { LinePick.sameHunk(lines, $0, $1) }
+            handleMoved: { edge, by in handle.move(edge, by: by, pick: &pick, rows: rows) { LinePick.sameHunk(lines, $0, $1) } },
+            handleEnded: { handle.end() })
     }
 
     private func columns(_ gutter: CodeStyle.Gutter, width: CGFloat) -> Int {
@@ -307,15 +289,8 @@ struct DiffBlock: View {
             Color.clear.frame(width: 1, height: rowHeight).offset(y: y(mark.row)).id(Mark.id)
         }
         if let handles {
-            let x = Space.xs + CGFloat(CodeStyle.diffCodeStart(gutter, digits: digits)) * DrawnText.advance(size) - 22
-            if rows.contains(handles.top) {
-                PickHandle(edge: .top, rowHeight: rowHeight, moved: { actions.handleMoved(.top, $0) }, ended: actions.handleEnded)
-                    .offset(x: x, y: y(handles.top) - 22)
-            }
-            if rows.contains(handles.bottom) {
-                PickHandle(edge: .bottom, rowHeight: rowHeight, moved: { actions.handleMoved(.bottom, $0) }, ended: actions.handleEnded)
-                    .offset(x: x, y: y(handles.bottom) + rowHeight - 22)
-            }
+            let x = Space.xs + CGFloat(CodeStyle.diffCodeStart(gutter, digits: digits)) * DrawnText.advance(size)
+            PickHandles(handles: handles, range: rows, x: x, rowHeight: rowHeight, moved: actions.handleMoved, ended: actions.handleEnded)
         }
     }
 

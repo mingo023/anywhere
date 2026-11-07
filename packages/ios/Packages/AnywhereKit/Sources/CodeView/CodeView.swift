@@ -22,7 +22,7 @@ public struct CodeTextView: View {
     @State private var query = ""
     @State private var find: CodeFind?
     @State private var pick: LinePick?
-    @State private var handle: (edge: LinePick.Edge, from: Int)?
+    @State private var handle = HandleDrag()
     @State private var mark: Mark?
     @State private var flash: Int?
     @State private var shownLine: Int?
@@ -127,7 +127,7 @@ public struct CodeTextView: View {
         return CodeBlock(
             lines: loaded.lines, rows: rows, range: range, digits: lineNumbers ? loaded.lines.digits : nil, minWidth: width,
             wrap: wrap, scrollX: scrollX, rowHeight: rowHeight, size: size, spans: loaded.spans, dark: scheme == .dark, find: find,
-            picked: picked, handles: pick.map { handleRows($0, rows: rows) }, flash: flash.map { rows.rows(of: $0) }, mark: mark,
+            picked: picked, handles: pick.map { handle.rows($0, in: rows) }, flash: flash.map { rows.rows(of: $0) }, mark: mark,
             tapped: { tap(rows[$0]) },
             pressed: { row in
                 guard !rows[row].more else { return }
@@ -135,28 +135,8 @@ public struct CodeTextView: View {
                 Haptics.tap()
             },
             dragged: { row in _ = pick?.drag(to: rows[row].line) },
-            handleMoved: { edge, by in moveHandle(edge, by: by, rows: rows) },
-            handleEnded: { handle = nil })
-    }
-
-    /// The rows the pick's handles sit on: the top one's first row, the bottom one's last. A handle being dragged
-    /// stays on the row it started from and follows the finger by offset; the other stays on the anchor.
-    private func handleRows(_ pick: LinePick, rows: CodeRows) -> (top: Int, bottom: Int) {
-        let top = handle.map { $0.edge == .top ? $0.from : rows.first(of: pick.anchor) } ?? rows.first(of: pick.lines.lowerBound)
-        let bottom = handle.map { $0.edge == .bottom ? $0.from : rows.rows(of: pick.anchor).upperBound - 1 }
-            ?? rows.rows(of: pick.lines.upperBound).upperBound - 1
-        return (top, bottom)
-    }
-
-    private func moveHandle(_ edge: LinePick.Edge, by: Int, rows: CodeRows) {
-        guard let picked = pick?.lines else { return }
-        let from = handle?.from ?? (edge == .top ? rows.first(of: picked.lowerBound) : rows.rows(of: picked.upperBound).upperBound - 1)
-        if handle == nil {
-            handle = (edge, from)
-            pick?.grab(edge)
-        }
-        let row = (from + by).clamped(to: 0...max(rows.count - 1, 0))
-        _ = pick?.drag(to: rows[row].line)
+            handleMoved: { edge, by in handle.move(edge, by: by, pick: &pick, rows: rows) },
+            handleEnded: { handle.end() })
     }
 
     private func tap(_ row: CodeRows.Row) {
@@ -331,15 +311,8 @@ private struct CodeBlock: View {
             Color.clear.frame(width: 1, height: rowHeight).offset(x: mark.x, y: y(mark.row)).id(Mark.id)
         }
         if let handles {
-            let x = Space.m + CGFloat(CodeStyle.codeStart(digits: digits)) * DrawnText.advance(size) - 22
-            if range.contains(handles.top) {
-                PickHandle(edge: .top, rowHeight: rowHeight, moved: { handleMoved(.top, $0) }, ended: handleEnded)
-                    .offset(x: x, y: y(handles.top) - 22)
-            }
-            if range.contains(handles.bottom) {
-                PickHandle(edge: .bottom, rowHeight: rowHeight, moved: { handleMoved(.bottom, $0) }, ended: handleEnded)
-                    .offset(x: x, y: y(handles.bottom) + rowHeight - 22)
-            }
+            let x = Space.m + CGFloat(CodeStyle.codeStart(digits: digits)) * DrawnText.advance(size)
+            PickHandles(handles: handles, range: range, x: x, rowHeight: rowHeight, moved: handleMoved, ended: handleEnded)
         }
     }
 
