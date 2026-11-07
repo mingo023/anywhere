@@ -7,7 +7,7 @@ export type Access = typeof Access.Type;
 export const ProviderId = Schema.Literal("claude", "codex");
 export type ProviderId = typeof ProviderId.Type;
 
-export const PhoneAccess = Schema.Literal("ask", "edits", "auto");
+export const PhoneAccess = Schema.Literal("ask", "edits", "auto", "full");
 export type PhoneAccess = typeof PhoneAccess.Type;
 
 export const NewWorktree = Schema.Struct({

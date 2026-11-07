@@ -5,8 +5,8 @@ import Stores
 import SwiftUI
 import Wire
 
-/// Under the transcript, top to bottom: the goal, a `/btw` answer, the background and queue trays, then the box (or
-/// the ask that replaces it) and the footer.
+/// Under the transcript, top to bottom: a `/btw` answer, the background and queue trays, then the box (or the ask that
+/// replaces it) and the footer, laid out as the desktop's.
 @MainActor
 struct ComposerView: View {
     /// The coordinate space the chat screen names, which the suggest list measures its room in.
@@ -22,7 +22,8 @@ struct ComposerView: View {
     let show: (String) -> Void
     @Binding var mapOpen: Bool
     let openLink: (MarkdownLink) -> Void
-    @FocusState private var focused: Bool
+    /// The input holds the keyboard; the chat screen lets it go on a tap or swipe down the transcript.
+    var focused: FocusState<Bool>.Binding
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @State private var keyboard = HardwareKeyboard.attached
@@ -52,9 +53,6 @@ struct ComposerView: View {
     var body: some View {
         let _ = BodyCount.hit("ComposerView")
         VStack(spacing: Space.s) {
-            if let goal = store.summary?.goal {
-                GoalStripView(goal: goal, pauses: store.adapter.pausesGoal) { store.goal($0) }
-            }
             if let btw = store.btw {
                 BtwCard(question: btw.question, answer: btw.answer, error: btw.error) { store.closeBtw() }
             }
@@ -103,7 +101,7 @@ struct ComposerView: View {
         .onChange(of: outsideTaps) { _, _ in closedOn = store.draft.text }
         .onReceive(HardwareKeyboard.changes) { keyboard = HardwareKeyboard.attached }
         .confirmationDialog(
-            store.settingsMenu == .effort ? "Effort" : "Model",
+            store.settingsMenu == .effort ? ModelPill.effortWord(store.provider) : "Model",
             isPresented: Binding(get: { store.settingsMenu != nil }, set: { if !$0 { store.settingsMenu = nil } })
         ) {
             if let agent = store.summary { settingsChoices(agent) }
@@ -131,7 +129,7 @@ struct ComposerView: View {
                 .lineLimit(1...Composer.rows(height: Double(height)))
                 .font(ChatFont.bubble)
                 .textFieldStyle(.plain)
-                .focused($focused)
+                .focused(focused)
                 .disabled(store.armed)
                 .padding(.horizontal, 4)
                 .padding(.top, 4)
@@ -210,22 +208,30 @@ struct ComposerView: View {
         #endif
     }
 
+    /// The desktop's bar: the settings lead, scrolling sideways when a phone is too narrow for them, and the context
+    /// ring, attach, Stop and Send stay in view under the thumb at the right.
     private var bar: some View {
         HStack(spacing: 2) {
-            AttachMenu(enabled: !store.armed) { data, name, thumbnail in store.attach(data, name: name, thumbnail: thumbnail) }
-            if let agent = store.summary {
-                AccessPillView(
-                    access: agent.access ?? "settings", editable: agent.chatOnly == true && store.hasCap(Caps.access),
-                    max: store.providers?.phoneMaxAccess ?? "full") { store.settings(access: $0) }
-            }
-            agentsChip
-            Spacer(minLength: 0)
-            if let agent = store.summary {
-                if let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
-                ModelPillView(agent: agent, efforts: efforts(agent), editable: store.hasCap(Caps.settings)) { model, effort in
-                    store.settings(model: model, effort: effort)
+            ScrollView(.horizontal) {
+                HStack(spacing: 2) {
+                    if let agent = store.summary {
+                        if let goal = agent.goal { GoalPillView(goal: goal, pauses: store.adapter.pausesGoal) { store.goal($0) } }
+                        ModelPillView(agent: agent, efforts: efforts(agent), editable: store.hasCap(Caps.settings)) { model, effort in
+                            store.settings(model: model, effort: effort)
+                        }
+                        if let access = agent.access, !access.isEmpty {
+                            AccessPillView(
+                                access: access, editable: agent.chatOnly == true && store.hasCap(Caps.access),
+                                max: store.providers?.phoneMaxAccess ?? "ask", who: who(agent.provider)) { store.settings(access: $0) }
+                        }
+                    }
+                    agentsChip
                 }
             }
+            .scrollIndicators(.never)
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            if let agent = store.summary, let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
+            AttachMenu(enabled: !store.armed) { data, name, thumbnail in store.attach(data, name: name, thumbnail: thumbnail) }
             HStack(spacing: Space.s) {
                 if Composer.stopBesideSteer(store.action, interrupt: caps.interrupt) { GhostStop(enabled: store.online) { store.stop() } }
                 SendButton(

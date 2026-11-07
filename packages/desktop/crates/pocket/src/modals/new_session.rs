@@ -32,6 +32,7 @@ pub enum Access {
     Ask,
     Edits,
     Auto,
+    Full,
 }
 
 impl Access {
@@ -40,6 +41,7 @@ impl Access {
             Access::Ask => "ask",
             Access::Edits => "edits",
             Access::Auto => "auto",
+            Access::Full => "full",
         }
     }
 
@@ -48,6 +50,7 @@ impl Access {
             Access::Ask => "Ask",
             Access::Edits => "Auto-accept edits",
             Access::Auto => "Auto",
+            Access::Full => "Full",
         }
     }
 
@@ -56,6 +59,7 @@ impl Access {
             Access::Ask => "Ask before commands and file changes.",
             Access::Edits => "Auto-approve edits, ask before other actions.",
             Access::Auto => "A reviewer model approves or denies actions.",
+            Access::Full => "Skip every approval.",
         }
     }
 }

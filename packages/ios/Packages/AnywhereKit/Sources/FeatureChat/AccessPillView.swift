@@ -3,38 +3,50 @@ import Domain
 import SwiftUI
 
 /// What the agent may do without asking: a shield and the access, a picker for a chat agent pocketd lets the phone set.
+/// Full asks first.
 @MainActor
 struct AccessPillView: View {
     let access: String
     let editable: Bool
     let max: String
+    /// The agent, as the confirmation names it.
+    let who: String
     let pick: (String) -> Void
+    @State private var confirming = false
 
     var body: some View {
         if editable {
             Menu {
-                AccessChoices(choices: AccessPill.choices(max: max, launching: false), picked: access, pick: pick)
+                Section("Access") {
+                    AccessChoices(choices: AccessPill.choices(max: max, launching: false), picked: access) { choose($0) }
+                }
             } label: {
                 label
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .fixedSize()
+            .confirmsFullAccess($confirming, who: who) { pick("full") }
         } else {
             label
         }
     }
 
-    private var label: some View {
-        HStack(spacing: 4) {
-            Image(systemName: AccessPill.warns(access) ? "exclamationmark.shield" : "shield").font(.system(size: 11))
-            Text(AccessPill.label(access))
+    private func choose(_ value: String) {
+        if AccessPill.confirms(value, from: access) {
+            Haptics.warning()
+            confirming = true
+        } else {
+            pick(value)
         }
-        .font(ChatFont.caption)
-        .foregroundStyle((AccessPill.warns(access) ? Palette.waitingText : Palette.text3).color)
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .hitTarget()
+    }
+
+    private var label: some View {
+        let warns = AccessPill.warns(access)
+        return PillLabel(opens: editable) {
+            Image(systemName: warns ? "exclamationmark.shield" : "shield").font(.system(size: 12)).foregroundStyle(Palette.text2.color)
+            Text(AccessPill.label(access)).foregroundStyle((warns ? Palette.waitingText : Palette.text).color)
+        }
         .accessibilityLabel("Access: \(AccessPill.label(access))")
     }
 }

@@ -60,6 +60,12 @@ public enum Composer {
         min(max(Int(height * 0.28 / lineHeight), 3), maxRows)
     }
 
+    /// Whether a drag `dragged` pt down the transcript hides the keyboard. Scrolling only hides it once the finger reaches
+    /// the keyboard, so a swipe that ends above it would leave it up.
+    public static func hidesKeyboard(dragged: Double) -> Bool {
+        dragged >= 24
+    }
+
     /// Whether a Stop pressed at `now` (ms) comes too soon after the send at `sentAt` to be meant.
     public static func guardsStop(sentAt: Int?, now: Int) -> Bool {
         sentAt.map { now - $0 < stopGuardMs } ?? false

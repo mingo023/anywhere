@@ -244,7 +244,7 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"7","branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","Branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","new":null},"provider":"claude","access":"ask","plan":false,"model":null}}`,
-		`{"type":"config.set","id":"1","key":"phone.maxAccess","value":"full"}`,
+		`{"type":"config.set","id":"1","key":"phone.maxAccess","value":"settings"}`,
 		`{"type":"config.set","id":"1","key":"theme","value":"ask"}`,
 		`{"type":"worktree.rename","id":"1","path":"","title":"x"}`,
 		`{"type":"worktree.rename","id":"1","path":"/p"}`,

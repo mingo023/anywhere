@@ -36,6 +36,8 @@ public enum Palette {
     public static let accentBackground = Token(0x1111131c, 0xebebeb33)
     public static let accentTint = Token(0x11111317, 0xebebeb29)
     public static let link = Token(0x0068daff, 0x419cffff)
+    public static let goalText = Token(0x0b5fb5ff, 0x70b8ffff)
+    public static let goalBackground = Token.fixed(0x3e8ef724)
 
     public static let waiting = Token(0xad5700ff, 0xffb224ff)
     public static let waitingText = Token(0xad5700ff, 0xffca16ff)

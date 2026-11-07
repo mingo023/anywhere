@@ -73,6 +73,11 @@ struct NewSessionTests {
         #expect(NewSessionDraft.defaultAccess(max: "full", mac: "settings") == .edits)
     }
 
+    @Test("a draft never starts on Full, even when the Mac's default is Full and the phone may pick it")
+    func neverStartsOnFull() {
+        #expect(NewSessionDraft.defaultAccess(max: "full", mac: "full") == .edits)
+    }
+
     @Test("picking another agent drops the model, effort and account picked for the last")
     func provider() {
         var d = draft(.tree("/w")) { $0.model = "opus"; $0.effort = "max"; $0.account = "a"; $0.access = .ask }

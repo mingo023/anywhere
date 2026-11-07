@@ -56,17 +56,20 @@ func TestResumeAgentsDefaultsOnAndPersists(t *testing.T) {
 	}
 }
 
-func TestFullIsNeverAcceptedForThePhone(t *testing.T) {
+func TestThePhoneCeilingTakesOnlyAPhoneAccess(t *testing.T) {
 	home := t.TempDir()
 	s := NewSettings(home)
-	for _, v := range []string{"full", "", "Auto"} {
+	for _, v := range []string{"settings", "", "Auto"} {
 		if err := s.SetPhoneMaxAccess(v); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%q: got %v", v, err)
 		}
 	}
-	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"phone":{"maxAccess":"full"}}`), 0o600)
+	if err := s.SetPhoneMaxAccess("full"); err != nil || s.PhoneMaxAccess() != "full" {
+		t.Fatalf("full: %v, reads %q", err, s.PhoneMaxAccess())
+	}
+	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"phone":{"maxAccess":"settings"}}`), 0o600)
 	if got := s.PhoneMaxAccess(); got != "ask" {
-		t.Fatalf("a hand-edited full reads as %q", got)
+		t.Fatalf("a hand-edited settings reads as %q", got)
 	}
 }
 

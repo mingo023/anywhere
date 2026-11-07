@@ -29,9 +29,6 @@ func CheckAccess(w Who, access, maxAccess string) *Failure {
 }
 
 func ceiling(access, maxAccess string) *Failure {
-	if access == "full" {
-		return fail("access_not_allowed", "Full access starts only from your Mac")
-	}
 	if rank[access] > rank[maxAccess] {
 		return fail("access_not_allowed", "On your Mac: ⌘K → Phone access level")
 	}

@@ -33,6 +33,13 @@ public enum ChatGallery {
                 _ = s.apply(.agentBtw(.init(agentId: agentId, answer: "The fold lives in crates/chat/src/timeline.rs.")))
                 return s
             }),
+            Entry(name: "chat-composer-pills", make: {
+                let goal = Goal(objective: "every golden test passes", status: "active", tokensUsed: 16510, tokenBudget: 50000)
+                let s = store(Sample.chat("long-markdown"), goal: goal, chatOnly: true, access: "full")
+                s.draft.text = "Keep the lanes stable across refreshes"
+                return s
+            }),
+            Entry(name: "chat-composer-codex", make: { store(Sample.chat("long-markdown"), provider: "codex", model: "gpt-5.5") }),
             Entry(name: "chat-composer-slash", make: {
                 let s = store(Sample.chat("empty"))
                 s.draft.text = "/"
@@ -118,14 +125,15 @@ public enum ChatGallery {
     @MainActor
     static func store(
         _ items: [TimelineItem], status: AgentStatus? = nil, requests: [PermissionRequest] = [], scopes: [Scope]? = nil, goal: Goal? = nil,
-        tokens: Int = 48_000, window: Int = 1_000_000
+        tokens: Int = 48_000, window: Int = 1_000_000, chatOnly: Bool? = nil, access: String = "edits", provider: String = "claude",
+        model: String = "claude-opus-5-5"
     ) -> ChatStore {
         let open = fold(items).turns.last.map { $0.end == nil } ?? false
         let agent = AgentSummary(
-            id: agentId, terminalId: "t-\(agentId)", title: "Port the commit graph lanes", cwd: "/Users/mingo/dev/anywhere", provider: "claude",
-            model: "claude-opus-5-5", effort: "high", access: "edits", status: status ?? (open ? .working : .idle), attached: true, epoch: 1,
+            id: agentId, terminalId: "t-\(agentId)", title: "Port the commit graph lanes", cwd: "/Users/mingo/dev/anywhere", provider: provider,
+            model: model, effort: "high", access: access, status: status ?? (open ? .working : .idle), attached: true, epoch: 1,
             maxSeq: items.last?.seq ?? 0, createdAt: Sample.now - 600_000, updatedAt: Sample.now, branch: "mobile/chat", tokensUsed: tokens,
-            contextWindow: window, goal: goal)
+            contextWindow: window, chatOnly: chatOnly, goal: goal)
         var hello = Sample.hello
         if let scopes { hello.scopes = scopes }
         let s = ChatStore(agentId: agentId, clock: { Sample.now })
