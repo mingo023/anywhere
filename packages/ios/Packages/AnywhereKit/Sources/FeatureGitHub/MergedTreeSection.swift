@@ -5,7 +5,6 @@ import SwiftUI
 @MainActor
 struct MergedTreeSection: View {
     let cleanup: WorktreeCleanup
-    let deleting: Bool
     let offline: Bool
     let keep: () -> Void
     let delete: () -> Void
@@ -17,10 +16,10 @@ struct MergedTreeSection: View {
                 Button(action: keep) { Text("Keep").frame(maxWidth: .infinity) }
                     .buttonStyle(.bordered)
                 Button(role: .destructive, action: delete) {
-                    Label(deleting ? "Deleting…" : "Delete Worktree", systemImage: "trash").frame(maxWidth: .infinity)
+                    Label("Delete Worktree", systemImage: "trash").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(deleting || offline)
+                .disabled(offline)
             }
             .controlSize(.large)
         }

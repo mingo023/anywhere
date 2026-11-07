@@ -35,7 +35,8 @@ struct PullRequestScreen: View {
     let newPr: NewPr
     /// Set when the tree is a worktree this phone may delete once its PR merges.
     let cleanup: WorktreeCleanup?
-    let deleteTree: (@MainActor () async throws -> Void)?
+    /// Starts deleting the worktree; the session lists say how it goes.
+    let deleteTree: (@MainActor () -> Void)?
     /// The branches a new PR may open into.
     let branches: (@MainActor () async throws -> BranchList)?
     /// Asks the Mac again this often while on screen; the Mac answers from its cache while that is fresh.
@@ -45,7 +46,7 @@ struct PullRequestScreen: View {
 
     init(
         store: GitHubStore, tree: String, mac: PrMac = PrMac(), newPr: NewPr = NewPr(), cleanup: WorktreeCleanup? = nil,
-        deleteTree: (@MainActor () async throws -> Void)? = nil, branches: (@MainActor () async throws -> BranchList)? = nil,
+        deleteTree: (@MainActor () -> Void)? = nil, branches: (@MainActor () async throws -> BranchList)? = nil,
         every: Duration? = .seconds(30)
     ) {
         self.store = store

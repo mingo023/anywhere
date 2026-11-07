@@ -12,14 +12,12 @@ struct PullRequestCard: View {
     let pr: PullRequest
     var mac = PrMac()
     var cleanup: WorktreeCleanup?
-    var deleteTree: (@MainActor () async throws -> Void)?
+    var deleteTree: (@MainActor () -> Void)?
 
     @State private var passedShown = false
     /// Delete after merging, once the reader has set it; until then the cleanup's default.
     @State private var deleteAfter: Bool?
     @State private var confirmingDelete = false
-    @State private var deleting = false
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -32,7 +30,7 @@ struct PullRequestCard: View {
                 }
             }
             if pr.state == "MERGED", let deletable, !model.kept {
-                MergedTreeSection(cleanup: deletable, deleting: deleting, offline: mac.offline) {
+                MergedTreeSection(cleanup: deletable, offline: mac.offline) {
                     model.kept = true
                 } delete: {
                     startDelete()
@@ -56,7 +54,7 @@ struct PullRequestCard: View {
         .refreshable { await store.recheck(model.tree) }
         .errorAlert(model)
         .confirmationDialog(deletable?.confirmTitle ?? "", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete Worktree", role: .destructive) { delete() }
+            Button("Delete Worktree", role: .destructive) { deleteTree?() }
         } message: {
             Text(deletable?.confirmMessage ?? "")
         }
@@ -72,23 +70,7 @@ struct PullRequestCard: View {
 
     private func startDelete() {
         guard let deletable else { return }
-        if deletable.asks { confirmingDelete = true } else { delete() }
-    }
-
-    private func delete() {
-        guard let deleteTree, !deleting else { return }
-        deleting = true
-        Task {
-            defer { deleting = false }
-            do {
-                try await deleteTree()
-                Haptics.success()
-                dismiss()
-            } catch {
-                Haptics.warning()
-                model.error = store.describe(error)
-            }
-        }
+        if deletable.asks { confirmingDelete = true } else { deleteTree?() }
     }
 
     private var header: some View {

@@ -43,7 +43,7 @@ public enum GitHubGallery {
     @MainActor private static func pr(_ answer: GhPr, mac: PrMac = PrMac(), newPr: NewPr = NewPr(), cleanup: WorktreeCleanup? = nil) -> AnyView {
         let store = GitHubStore()
         store.show(answer.tree, answer)
-        let delete: (@MainActor () async throws -> Void)? = cleanup == nil ? nil : { @MainActor in }
+        let delete: (@MainActor () -> Void)? = cleanup == nil ? nil : { @MainActor in }
         return AnyView(NavigationStack {
             PullRequestScreen(store: store, tree: answer.tree, mac: mac, newPr: newPr, cleanup: cleanup, deleteTree: delete, every: nil)
         })

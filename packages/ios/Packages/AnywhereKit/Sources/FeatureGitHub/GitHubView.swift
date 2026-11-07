@@ -8,12 +8,15 @@ import SwiftUI
 public struct GitHubView: View {
     let host: HostModel
     let route: Route
+    /// Leaves the screens of a tree being deleted.
+    let leave: ((String) -> Void)?
     /// The tree's status reads before this visit; deleting trusts only a change count read since.
     @State private var readsBefore: Int?
 
-    public init(host: HostModel, route: Route) {
+    public init(host: HostModel, route: Route, leave: ((String) -> Void)? = nil) {
         self.host = host
         self.route = route
+        self.leave = leave
     }
 
     public var body: some View {
@@ -26,7 +29,7 @@ public struct GitHubView: View {
                 store: host.github, tree: tree, mac: PrMac(id: mac, name: host.name, offline: host.link != .online),
                 newPr: NewPr(branch: head?.branch, base: head?.base, ahead: head?.ahead, commits: head?.commits ?? []),
                 cleanup: cleanup(tree, changes: readsBefore.flatMap { changes.files(readSince: $0) }),
-                deleteTree: { try await host.workspace.deleteWorktree(path: tree, deleteBranch: false) },
+                deleteTree: { delete(tree) },
                 branches: { try await host.workspace.loadBranches(tree: tree) }
             )
             .onAppear {
@@ -40,6 +43,19 @@ public struct GitHubView: View {
             ThreadsScreen(store: host.github, model: host.github.pullRequest(tree), mac: PrMac(id: mac, name: host.name, offline: host.link != .online))
         default:
             Placeholder("Pull request", systemImage: "arrow.triangle.pull")
+        }
+    }
+
+    /// Deletes as a list's Delete does, so the lists hide the tree and say how it went; its screens go first.
+    private func delete(_ tree: String) {
+        guard let worktree = host.workspace.projects.lazy.flatMap(\.worktrees).first(where: { $0.path == tree }) else { return }
+        let label = Sidebar.treeLabel(path: tree, branch: worktree.branch, given: host.workspace.names[tree]).label
+        let branch = worktree.branch.isEmpty || worktree.branch == "detached" ? nil : worktree.branch
+        leave?(tree)
+        let workspace = host.workspace
+        Task {
+            await workspace.remove(Removal(id: tree, label: label, local: false, branch: branch))
+            if workspace.removals[tree] == nil { Haptics.success() }
         }
     }
 
