@@ -81,6 +81,8 @@ Each attach has its own bounded queue (512 KiB) drained by a writer goroutine th
 ← {type:"worktree.progress", id, requestId, step, note?}*   // steps as agent.progress: prepare, verify, fetch, worktree, copy, setup
 ← {type:"worktree.created", id, requestId, path, branch}
    // errors as agent.create's: unknown_project, worktree_exists, invalid_name, spawn_failed…
+   // as with agent.create, the same requestId from the same device joins the create in flight, or for 10 minutes
+   //   after it ends gets its reply again (without its progress); another request under that id is code "duplicate"
    // a branch already checked out returns that worktree as it is
    // setup runs in a new login-shell terminal of the worktree, which stays open; worktree.created doesn't wait for it
    // the asking conn gets the new project.list before worktree.created

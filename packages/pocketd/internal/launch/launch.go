@@ -82,7 +82,8 @@ type Launcher struct {
 	// Locals are the Locals a create may start in; nil has none.
 	Locals   *locals.Locals
 	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
-	receipts *receipts
+	receipts *receipts[Result]
+	trees    *receipts[built]
 
 	mu      sync.Mutex
 	pending map[string]chan exit
@@ -90,7 +91,7 @@ type Launcher struct {
 }
 
 func New(d *daemon.Daemon, reg *registry.Registry, set *config.Settings, ev *events.Log) *Launcher {
-	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, receipts: newReceipts(time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
+	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, receipts: newReceipts[Result](time.Now), trees: newReceipts[built](time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
 }
 
 // Starting reports whether a create is running; an upgrade waits for it.

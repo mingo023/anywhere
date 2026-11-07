@@ -28,11 +28,33 @@ type Made struct {
 	Terminal string
 }
 
+// built is a worktree.create's outcome, kept for a retry of it.
+type built struct {
+	made Made
+	fail *Failure
+}
+
 // Worktree makes a Worktree as agent.create's checkout.new does, with the
 // same steps, copy and setup, but no agent. The setup runs in a login shell
 // in a new Terminal there, which stays open once it ends; Worktree doesn't
-// wait for it. A Worktree already on Branch is returned as it is.
-func (l *Launcher) Worktree(w Who, n NewWorktree, progress func(step, note string)) (Made, *Failure) {
+// wait for it. A Worktree already on Branch is returned as it is. A retry of
+// the same request joins the first and gets its outcome, but not its progress.
+func (l *Launcher) Worktree(w Who, requestID string, n NewWorktree, progress func(step, note string)) (Made, *Failure) {
+	x, fresh := l.trees.take(w.Key+"\x00"+requestID, n)
+	if x == nil {
+		return Made{}, fail("duplicate", "This request was already sent with a different spec")
+	}
+	if !fresh {
+		<-x.done
+		_, b := l.trees.outcome(x)
+		return b.made, b.fail
+	}
+	m, fl := l.worktree(w, n, progress)
+	l.trees.finish(x, built{m, fl})
+	return m, fl
+}
+
+func (l *Launcher) worktree(w Who, n NewWorktree, progress func(step, note string)) (Made, *Failure) {
 	progress(proto.StepPrepare, "")
 	f := l.reg.Load()
 	if !slices.Contains(f.Projects, n.Project) {
