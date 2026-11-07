@@ -113,6 +113,7 @@ export const GitServer = [
     unpushed: Schema.optional(Schema.Int),
     unpulled: Schema.optional(Schema.Int),
     commitAll: Schema.optional(Schema.Boolean),
+    forceWithLease: Schema.optional(Schema.Boolean),
     totals: Schema.Struct({
       files: Schema.Int,
       added: Schema.Int,

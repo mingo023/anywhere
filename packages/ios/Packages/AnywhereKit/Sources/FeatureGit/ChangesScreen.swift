@@ -410,14 +410,23 @@ private struct HeadRow: View {
     let changes: TreeChanges
     let head: GitHead
     let mac: String
+    @State private var forcing = false
 
     var body: some View {
+        let force = GitText.forcePush(head)
         VStack(alignment: .leading, spacing: Space.m) {
             BranchIndicator(head: head)
             HStack(spacing: Space.s) {
                 if let push = GitText.push(head) {
-                    Button(push, systemImage: "arrow.up") { run { await store.push(changes.tree) } }
-                        .buttonStyle(.bordered)
+                    Button(push, systemImage: "arrow.up") {
+                        if force != nil { forcing = true } else { run { await store.push(changes.tree) } }
+                    }
+                    .buttonStyle(.bordered)
+                    .confirmationDialog(force?.title ?? "", isPresented: $forcing, titleVisibility: .visible) {
+                        Button("Force Push", role: .destructive) { run { await store.push(changes.tree, lease: true) } }
+                    } message: {
+                        Text(force?.message ?? "")
+                    }
                 }
                 if let pull = GitText.pull(head) {
                     Button(pull, systemImage: "arrow.down") { run { await store.pull(changes.tree) } }

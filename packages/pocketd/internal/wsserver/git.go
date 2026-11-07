@@ -22,7 +22,8 @@ type GitService interface {
 	Stage(tree string, paths []string, staged bool) error
 	Discard(tree string, paths []string) error
 	CreateCommit(tree, message string, amend, all bool) (string, error)
-	Push(tree, remote string, lease bool) error
+	Push(tree, remote string, lease, mayForce bool) error
+	PushesToUpstream(tree, remote string) bool
 	Pull(tree string) error
 	Watch(trees []string, changed func(tree, rev string)) (stop func())
 	Top(tree string) error
@@ -84,8 +85,10 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 		if err != nil {
 			return err
 		}
+		git := c.s.Registry.Load().Git
 		st.ID = m.ID
-		st.CommitAll = new(c.s.Registry.Load().Git.CommitsAll())
+		st.CommitAll = new(git.CommitsAll())
+		st.ForceWithLease = git.ForceWithLease && g.PushesToUpstream(m.Tree, git.PushRemote())
 		c.send(st)
 	case "git.diff":
 		d, err := g.Diff(m.Tree, m.Path, *m.At, gitview.DiffOptions{Context: m.Context, IgnoreWhitespace: m.IgnoreWhitespace, MaxLines: m.MaxLines})
@@ -136,7 +139,11 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 		case "git.discard":
 			err = g.Discard(m.Tree, m.Paths)
 		case "git.push":
-			err = g.Push(m.Tree, c.s.Registry.Load().Git.PushRemote(), m.Lease)
+			git := c.s.Registry.Load().Git
+			if m.Lease && !git.ForceWithLease {
+				return errors.New("Force push with lease is off in the Mac's Settings › Git")
+			}
+			err = g.Push(m.Tree, git.PushRemote(), m.Lease, git.ForceWithLease)
 		case "git.pull":
 			err = g.Pull(m.Tree)
 		}

@@ -385,8 +385,17 @@ public struct GitHead: Hashable, Sendable {
     public var unpulled: Int?
     /// The desktop's setting: with nothing staged, a commit takes every change.
     public var commitAll: Bool
+    /// The desktop's `git.force_with_lease`, while Push goes to the upstream.
+    public var forceWithLease: Bool
     public var totals: GitTotals
     public var commits: [CommitRef]
+
+    /// The upstream commits Push would replace, when HEAD rewrote what it pushed and the desktop allows a force push
+    /// with lease; nil when Push needs no force or may not force.
+    public var forceReplaces: Int? {
+        guard forceWithLease, let unpushed, let unpulled, unpushed > 0, unpulled > 0 else { return nil }
+        return unpulled
+    }
 
     public init(_ s: GitStatus) {
         rev = s.rev
@@ -399,6 +408,7 @@ public struct GitHead: Hashable, Sendable {
         unpushed = s.unpushed
         unpulled = s.unpulled
         commitAll = s.commitAll ?? true
+        forceWithLease = s.forceWithLease ?? false
         totals = s.totals
         commits = s.commits
     }
