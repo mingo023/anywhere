@@ -127,13 +127,17 @@ public struct TerminalScreenView: View {
     @ToolbarContentBuilder
     private var menu: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            Toggle(isOn: Binding(get: { fit }, set: { on in
+                fit = on
+                if on, let session { fitNow(session) }
+            })) {
+                Label("Fit to Phone", systemImage: "arrow.down.right.and.arrow.up.left")
+            }
+            .toggleStyle(.button)
+            .disabled(store.writesOff)
+        }
+        ToolbarItem(placement: .primaryAction) {
             Menu {
-                Toggle(isOn: Binding(get: { fit }, set: { on in
-                    fit = on
-                    if on, let session { fitNow(session) }
-                })) {
-                    Label("Fit to Phone", systemImage: "arrow.down.right.and.arrow.up.left")
-                }
                 Button("Paste", systemImage: "doc.on.clipboard", action: paste).disabled(!writable)
                 if let session {
                     Button("Larger Text", systemImage: "textformat.size.larger") { zoom(to: session.fontSize + 1, session) }
