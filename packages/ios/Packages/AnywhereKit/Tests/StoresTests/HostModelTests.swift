@@ -50,6 +50,20 @@ struct HostModelTests {
         #expect(ServerMessage.agentList(.init(agents: [])).agentId == nil)
     }
 
+    @Test("with front.v1 the scene says outright whether the app is in front, with the chats on screen")
+    func sceneFront() {
+        #expect(HostModel.sceneView(active: true, viewing: ["a1"], front: true) == .init(agentIds: ["a1"], front: true))
+        #expect(HostModel.sceneView(active: true, viewing: [], front: true) == .init(agentIds: [], front: true))
+        #expect(HostModel.sceneView(active: false, viewing: ["a1"], front: true) == .init(agentIds: [], front: false))
+    }
+
+    @Test("without front.v1 the background is no ids, and the front re-sends only a chat on screen")
+    func sceneWithoutFront() {
+        #expect(HostModel.sceneView(active: false, viewing: ["a1"], front: false) == .init(agentIds: []))
+        #expect(HostModel.sceneView(active: true, viewing: ["a1"], front: false) == .init(agentIds: ["a1"]))
+        #expect(HostModel.sceneView(active: true, viewing: [], front: false) == nil)
+    }
+
     @Test("a message no store takes is reported as untaken")
     func untaken() {
         let h = host()

@@ -79,19 +79,27 @@ public final class HostModel: Identifiable {
         Task { await connection.start() }
     }
 
-    /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials now.
+    /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials
+    /// now, or checks a link that looks up is still there.
     public func scene(active: Bool) {
         let connection = connection
         // A link that stayed up says hello again to no one, so the chat on screen tells pocketd it's viewed once more.
-        let viewed = chats.values.filter(\.viewing).map(\.agentId)
+        let view = Self.sceneView(active: active, viewing: chats.values.filter(\.viewing).map(\.agentId), front: hello?.has(Caps.front) ?? false)
         Task {
             if active {
                 await connection.reconnectNow()
-                if !viewed.isEmpty { _ = try? await connection.send(.agentView(.init(agentIds: viewed))) }
-            } else {
-                _ = try? await connection.send(.agentView(.init(agentIds: [])))
+                await connection.verify()
             }
+            if let view { _ = try? await connection.send(.agentView(view)) }
         }
+    }
+
+    /// What `agent.view` tells pocketd when the app comes to the front or leaves it. Without `front.v1`, no ids is how
+    /// pocketd hears the app went to the background, so in front an empty view isn't sent.
+    nonisolated static func sceneView(active: Bool, viewing: [String], front: Bool) -> ClientMessage.AgentView? {
+        if front { return .init(agentIds: active ? viewing : [], front: active) }
+        guard active else { return .init(agentIds: []) }
+        return viewing.isEmpty ? nil : .init(agentIds: viewing)
     }
 
     public func stop() {
