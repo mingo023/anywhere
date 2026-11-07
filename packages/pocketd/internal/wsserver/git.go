@@ -22,7 +22,7 @@ type GitService interface {
 	Stage(tree string, paths []string, staged bool) error
 	Discard(tree string, paths []string) error
 	CreateCommit(tree, message string, amend, all bool) (string, error)
-	Push(tree, remote string, lease bool) error
+	Push(tree, remote string, lease, mayForce bool) error
 	Pull(tree string) error
 	Watch(trees []string, changed func(tree, rev string)) (stop func())
 	Top(tree string) error
@@ -142,7 +142,7 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 			if m.Lease && !git.ForceWithLease {
 				return errors.New("Force push with lease is off in the Mac's Settings › Git")
 			}
-			err = g.Push(m.Tree, git.PushRemote(), m.Lease)
+			err = g.Push(m.Tree, git.PushRemote(), m.Lease, git.ForceWithLease)
 		case "git.pull":
 			err = g.Pull(m.Tree)
 		}

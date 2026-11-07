@@ -240,7 +240,7 @@ func TestAPhoneForcePushesARewrittenBranchOnlyWhenTheDesktopLetsIt(t *testing.T)
 		t.Fatalf("%v", m)
 	}
 	p.send(`{"type":"git.push","id":"p2","tree":` + q(repo) + `}`)
-	if m := p.reply("p2"); m["code"] != proto.CodeGitFailed {
+	if m := p.reply("p2"); m["code"] != proto.CodeGitFailed || m["message"] != "origin has commits this branch doesn't. Pull, or force push." {
 		t.Fatalf("forced without the phone asking: %v", m)
 	}
 	p.send(`{"type":"git.push","id":"l2","tree":` + q(repo) + `,"lease":true}`)

@@ -144,7 +144,7 @@ func TestTheFirstPushSetsTheUpstream(t *testing.T) {
 	repo := scratch(t)
 	bare(t, repo)
 	sh(t, repo, "switch", "-qc", "feature")
-	if err := service().Push(repo, "origin", false); err != nil {
+	if err := service().Push(repo, "origin", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if u := sh(t, repo, "rev-parse", "--abbrev-ref", "@{u}"); u != "origin/feature" {
@@ -159,7 +159,7 @@ func TestAPushGoesToTheChosenRemoteAndToGitsPickWhenTheRepoHasNoneByThatName(t *
 	sh(t, repo, "remote", "add", "fork", filepath.Join(filepath.Dir(repo), "fork.git"))
 	s := service()
 	sh(t, repo, "switch", "-qc", "to-fork")
-	if err := s.Push(repo, "fork", false); err != nil {
+	if err := s.Push(repo, "fork", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if u := sh(t, repo, "rev-parse", "--abbrev-ref", "@{u}"); u != "fork/to-fork" {
@@ -167,7 +167,7 @@ func TestAPushGoesToTheChosenRemoteAndToGitsPickWhenTheRepoHasNoneByThatName(t *
 	}
 	sh(t, repo, "remote", "remove", "fork")
 	sh(t, repo, "switch", "-qc", "to-origin")
-	if err := s.Push(repo, "fork", false); err != nil {
+	if err := s.Push(repo, "fork", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if u := sh(t, repo, "rev-parse", "--abbrev-ref", "@{u}"); u != "origin/to-origin" {
@@ -179,31 +179,36 @@ func TestARewrittenBranchPushesWithLeaseButNeverOverCommitsNotYetFetched(t *test
 	repo := scratch(t)
 	remote := bare(t, repo)
 	s := service()
-	if err := s.Push(repo, "origin", true); err != nil {
+	if err := s.Push(repo, "origin", true, true); err != nil {
 		t.Fatal(err)
 	}
 	sh(t, repo, "commit", "-q", "--amend", "-m", "amended")
-	if err := s.Push(repo, "origin", false); err == nil {
+	if err := s.Push(repo, "origin", false, false); err == nil {
 		t.Fatal("pushed over the remote without a lease")
 	} else if f := err.(*Failed); f.Message != "origin has commits this branch doesn't. Pull, or force push from your Mac." || !strings.Contains(f.Detail, "non-fast-forward") {
 		t.Fatalf("%#v", f)
 	}
-	if err := s.Push(repo, "origin", true); err != nil {
+	if f, ok := s.Push(repo, "origin", false, true).(*Failed); !ok || f.Message != "origin has commits this branch doesn't. Pull, or force push." {
+		t.Fatalf("with force allowed: %#v", f)
+	}
+	if err := s.Push(repo, "origin", true, true); err != nil {
 		t.Fatal(err)
 	}
 	other := filepath.Join(filepath.Dir(repo), "other")
 	sh(t, repo, "clone", "-q", remote, other)
 	sh(t, other, "commit", "-q", "--allow-empty", "-m", "theirs")
 	sh(t, other, "push", "-q")
-	if f, ok := s.Push(repo, "origin", false).(*Failed); !ok || !strings.HasPrefix(f.Message, "origin has commits this branch doesn't") {
-		t.Fatalf("over unfetched commits: %#v", f)
+	for _, mayForce := range []bool{false, true} {
+		if f, ok := s.Push(repo, "origin", false, mayForce).(*Failed); !ok || f.Message != "origin has commits this branch doesn't. Pull first." {
+			t.Fatalf("over unfetched commits: %#v", f)
+		}
 	}
 	sh(t, repo, "commit", "-q", "--amend", "-m", "again")
-	if err := s.Push(repo, "origin", true); err == nil {
+	if err := s.Push(repo, "origin", true, true); err == nil {
 		t.Fatal("the lease let a push over unseen commits")
 	}
 	sh(t, repo, "fetch", "-q")
-	if err := s.Push(repo, "origin", true); err == nil {
+	if err := s.Push(repo, "origin", true, true); err == nil {
 		t.Fatal("fetched but not integrated")
 	}
 }
@@ -212,7 +217,7 @@ func TestPullOnlyFastForwards(t *testing.T) {
 	repo := scratch(t)
 	remote := bare(t, repo)
 	s := service()
-	s.Push(repo, "origin", false)
+	s.Push(repo, "origin", false, false)
 	other := filepath.Join(filepath.Dir(repo), "other")
 	sh(t, repo, "clone", "-q", remote, other)
 	sh(t, other, "commit", "-q", "--allow-empty", "-m", "theirs")

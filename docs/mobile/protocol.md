@@ -172,8 +172,9 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 → {type:"git.push", id, tree, lease?:bool}  ← ack           // to desktop.json's git.remote (default origin) when the repo
    //   has a remote by that name, else where git picks; the first push sets the upstream
    // lease:true is --force-with-lease --force-if-includes, refused (no code) while git.force_with_lease is off.
-   // Without lease, a remote with commits the branch lacks fails git_failed
-   //   "<remote> has commits this branch doesn't. Pull, or force push from your Mac."
+   // Without lease, a remote with commits the branch lacks fails git_failed "<remote> has commits this branch doesn't. "
+   //   then "Pull first." when they were never fetched, else "Pull, or force push." while git.force_with_lease is on,
+   //   else "Pull, or force push from your Mac."
 → {type:"git.pull", id, tree}  ← ack                           // pull --ff-only
    // failures: error{code:"git_failed", message:<first stderr line>, detail?:<stderr>}
    // a git.* tree must be a worktree's top folder, else not_a_tree; paths are file names, never pathspec patterns
