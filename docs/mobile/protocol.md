@@ -1,6 +1,6 @@
 # Phone protocol additions (protocol 3)
 
-The contract between pocketd (`packages/pocketd/internal/proto`, `internal/wsserver`) and the iOS app (`packages/ios/Packages/AnywhereKit/Sources/Wire`). Every addition is behind a cap negotiated in `hello`; a verb sent without its cap is `Malformed message`, as `locals.v1` does today. Conventions are the existing ones: every request has `id`; the reply echoes it as `ack`, a typed reply, or `error{id, message, code?}`; pushes have no `id`. Field names are camelCase. Optional fields are omitted, never `null`, unless stated.
+The contract between pocketd (`packages/pocketd/internal/proto`, `internal/wsserver`) and the iOS app (`packages/ios/Packages/AnywhereKit/Sources/Wire`). Every addition is behind a cap negotiated in `hello`; a verb sent without its cap is `Malformed message`, as `locals.v1` does today. Conventions are the existing ones: every request has `id`; the reply echoes it as `ack`, a typed reply, or `error{id, message, code?}`; pushes have no `id`. Field names are camelCase. Optional fields are omitted, never `null`, unless stated. A field added to an existing reply needs no cap: an older phone ignores it, and an older pocketd leaves it out, which the phone reads as unknown (`unpulled`, `totals.unstaged`, `commitAll`). A field that changes what a request does, or a reply value an older phone would misread, is behind a cap.
 
 Every verb is registered in `peer.Needs` with the scope given here, and appears in `peer/check_test.go`'s matrix, in golden files on both sides (`internal/proto/testdata/golden/{client,server}`) and in `packages/protocol`'s schema.
 
@@ -122,8 +122,8 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 
 ```
 → {type:"git.status", id, tree, cursor?:int, limit?:int}     // limit default 500, max 2000; cursor = file offset
-← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?,
-   totals:{files, added, removed, staged},
+← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?, unpulled?,
+   totals:{files, added, removed, staged, unstaged},
    files:[{path, oldPath?, status, staged, unstaged, added?, removed?, binary?}],
    commits:[{sha, subject}],                                  // ≤20 since base
    nextCursor?:int}
@@ -131,6 +131,8 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
    // rev = opaque stamp of the porcelain output and each changed file's size and mtime (no file is read).
    // added/removed omitted for untracked and binary files; an untracked file's binary is a guess from its name.
    // A page past the first comes from the read that served cursor 0, for up to 30 s, so pages agree.
+   // ahead/behind count against base; unpushed/unpulled against the upstream (Push N, Pull N), omitted before the first push.
+   // unstaged counts files with unstaged edits: a file staged and edited again counts in staged and unstaged.
 
 → {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops; ≤32 trees
 ← {type:"git.changed", tree, rev}                              // push when a watched tree's rev moves (polled ~2 s)

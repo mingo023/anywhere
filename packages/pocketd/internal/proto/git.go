@@ -87,10 +87,11 @@ var gitVerbs = map[string]verbDecoder{
 }
 
 type GitTotals struct {
-	Files   int `json:"files"`
-	Added   int `json:"added"`
-	Removed int `json:"removed"`
-	Staged  int `json:"staged"`
+	Files    int `json:"files"`
+	Added    int `json:"added"`
+	Removed  int `json:"removed"`
+	Staged   int `json:"staged"`
+	Unstaged int `json:"unstaged"`
 }
 
 // GitFile is a changed file. Status is M, A, D, R, U (conflict) or ? (untracked);
@@ -112,7 +113,8 @@ type CommitRef struct {
 }
 
 // GitStatus is one page of a tree's changes, files sorted by path. Rev is an
-// opaque stamp of the porcelain output; Unpushed is nil before the first push.
+// opaque stamp of the porcelain output; Unpushed and Unpulled, the commits
+// HEAD has that the upstream lacks and back, are nil before the first push.
 type GitStatus struct {
 	Type       string      `json:"type"`
 	ID         string      `json:"id"`
@@ -125,6 +127,7 @@ type GitStatus struct {
 	Ahead      int         `json:"ahead"`
 	Behind     int         `json:"behind"`
 	Unpushed   *int        `json:"unpushed,omitempty"`
+	Unpulled   *int        `json:"unpulled,omitempty"`
 	Totals     GitTotals   `json:"totals"`
 	Files      []GitFile   `json:"files"`
 	Commits    []CommitRef `json:"commits"`

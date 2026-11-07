@@ -42,8 +42,8 @@ var phoneServerGolden = map[string]any{
 		{ID: "builtin", Provider: "codex", Name: "Codex", SignedIn: false},
 	}),
 	"git_status": NewGitStatus(GitStatus{ID: "gs", Tree: "/Users/me/dev/pocket", Rev: "9f2c", Branch: "fix-login", Upstream: "origin/fix-login", Base: "origin/main",
-		Ahead: 2, Behind: 1, Unpushed: new(1),
-		Totals: GitTotals{Files: 3, Added: 12, Removed: 4, Staged: 1},
+		Ahead: 2, Behind: 1, Unpushed: new(1), Unpulled: new(0),
+		Totals: GitTotals{Files: 3, Added: 12, Removed: 4, Staged: 1, Unstaged: 2},
 		Files: []GitFile{
 			{Path: "README.md", Status: "M", Staged: true, Added: new(2), Removed: new(1)},
 			{Path: "src/new.rs", OldPath: "src/old.rs", Status: "R", Unstaged: true, Added: new(10), Removed: new(3)},
