@@ -10,6 +10,7 @@ struct GoalPillView: View {
     let goal: Goal
     let pauses: Bool
     let send: (String) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let words = GoalPill.label(goal.status) {
@@ -30,7 +31,7 @@ struct GoalPillView: View {
             } label: {
                 PillLabel(opens: false, fill: active ? Palette.goalBackground : Palette.fill2) {
                     Image(systemName: "sparkles").font(.system(size: 11))
-                    Text(words)
+                    Text(words).shimmer(active && !reduceMotion)
                 }
                 .foregroundStyle((active ? Palette.goalText : Palette.text2).color)
             }

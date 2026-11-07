@@ -11,10 +11,8 @@ struct ModelPillView: View {
     let editable: Bool
     let pick: (_ model: String?, _ effort: String?) -> Void
 
-    private var opens: Bool { editable && !(efforts.isEmpty && ModelPill.aliases(agent.provider).isEmpty) }
-
     var body: some View {
-        if opens {
+        if editable {
             Menu {
                 ModelChoices(agent: agent, efforts: efforts, pick: pick)
             } label: {
@@ -30,7 +28,7 @@ struct ModelPillView: View {
 
     private var label: some View {
         let (model, effort) = ModelPill.label(agent)
-        return PillLabel(opens: opens) {
+        return PillLabel(opens: editable) {
             BrandMark(agent.provider, size: 13)
             Text(model).foregroundStyle(Palette.text.color)
             if let effort { Text(effort).fontWeight(.regular).foregroundStyle(Palette.text3.color) }
@@ -38,7 +36,8 @@ struct ModelPillView: View {
     }
 }
 
-/// The model menu, as the desktop's: the effort the model runs on, named as its provider names it, over the models.
+/// The model menu, as the desktop's: the effort the model runs on, named as its provider names it, over the models; the
+/// agent's own when the phone has neither to offer.
 @MainActor
 struct ModelChoices: View {
     let agent: AgentSummary
@@ -58,6 +57,9 @@ struct ModelChoices: View {
             }
         }
         let models = ModelPill.aliases(agent.provider)
+        if efforts.isEmpty && models.isEmpty {
+            Text("Set by \(who(agent.provider))")
+        }
         if !models.isEmpty {
             Section("Model") {
                 ForEach(models, id: \.self) { alias in

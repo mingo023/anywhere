@@ -208,8 +208,8 @@ struct ComposerView: View {
         #endif
     }
 
-    /// The desktop's bar: the settings lead, scrolling sideways when a phone is too narrow for them, and attach, Stop and
-    /// Send stay under the thumb at the right.
+    /// The desktop's bar: the settings lead, scrolling sideways when a phone is too narrow for them, and the context
+    /// ring, attach, Stop and Send stay in view under the thumb at the right.
     private var bar: some View {
         HStack(spacing: 2) {
             ScrollView(.horizontal) {
@@ -226,11 +226,11 @@ struct ComposerView: View {
                         }
                     }
                     agentsChip
-                    if let agent = store.summary, let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
                 }
             }
             .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            if let agent = store.summary, let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
             AttachMenu(enabled: !store.armed) { data, name, thumbnail in store.attach(data, name: name, thumbnail: thumbnail) }
             HStack(spacing: Space.s) {
                 if Composer.stopBesideSteer(store.action, interrupt: caps.interrupt) { GhostStop(enabled: store.online) { store.stop() } }
