@@ -52,7 +52,7 @@ struct Destination: View {
         case .terminals, .terminal:
             TerminalsView(host: host, route: route)
         case .changes, .diff, .history, .commit, .branches:
-            GitView(host: host, route: route)
+            GitView(host: host, route: route, open: open)
         case .pullRequest, .pullRequests, .reviewThreads:
             GitHubView(host: host, route: route)
         case .files, .file:

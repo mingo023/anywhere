@@ -18,6 +18,7 @@ struct ChangesScreen: View {
     let tree: String
     /// The agent whose chat opened Changes, which takes quotes from its diffs.
     let chat: String?
+    let open: ((Route) -> Void)?
     @AppStorage("git.changes.tree") private var asTree = false
     /// The branch this worktree's Compare is against; nil is its base.
     @AppStorage private var picked: String?
@@ -29,11 +30,12 @@ struct ChangesScreen: View {
     @State private var lines = ChangeLines()
     @State private var discarding: [String]?
 
-    init(host: HostModel, mac: String, tree: String, chat: String? = nil) {
+    init(host: HostModel, mac: String, tree: String, chat: String? = nil, open: ((Route) -> Void)? = nil) {
         self.host = host
         self.mac = mac
         self.tree = tree
         self.chat = chat
+        self.open = open
         _picked = AppStorage("git.compare.\(tree)")
     }
 
@@ -99,7 +101,7 @@ struct ChangesScreen: View {
         }
         .navigationTitle("Changes")
         .navigationDestination(for: CompareFileRoute.self) { r in
-            DiffScreen(host: host, tree: r.tree, path: r.path, at: .base(rev: r.against), files: .compare(against: r.against), chat: chat)
+            DiffScreen(host: host, tree: r.tree, path: r.path, at: .base(rev: r.against), files: .compare(against: r.against), chat: chat, open: open)
         }
         .sheet(isPresented: $choosing) {
             ComparePicker(host: host, tree: tree, base: changes.head?.base, picked: $picked)
