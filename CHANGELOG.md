@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.33
+
+- The iPhone app is easier to drive: sessions, files, diffs, GitHub, composer (#200): (97cfcb68)
+- Chat shows a PR link as a chip that peeks the PR on hover (#198): (70372756)
+
 ## 0.1.32
 
 - PR card shows its own merge while another worktree's composer is open (#197): (a667db73)
