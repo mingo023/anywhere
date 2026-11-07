@@ -50,12 +50,6 @@ public final class AppModel {
         return host
     }
 
-    public func remove(_ deviceId: String) {
-        guard let at = hosts.firstIndex(where: { $0.id == deviceId }) else { return }
-        hosts[at].stop()
-        hosts.remove(at: at)
-    }
-
     /// The Mac with this `hello.ok` serverId, as deep links name it, or the device id a Mac is known by before its first hello.
     public func host(mac serverId: String) -> HostModel? {
         hosts.first { ($0.hello?.serverId ?? $0.credentials.serverId) == serverId } ?? hosts.first { $0.id == serverId }

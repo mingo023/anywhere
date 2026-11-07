@@ -127,7 +127,7 @@ struct AppModelTests {
         #expect(app.host(mac: "saved-id") === h)
         h.apply([.connected(Sample.hello)])
         #expect(app.host(mac: Sample.mac) === h)
-        app.remove("d1")
+        app.forget("d1")
         #expect(app.hosts.isEmpty)
     }
 }
