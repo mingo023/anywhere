@@ -96,7 +96,7 @@ public struct NotificationsSection: View {
                 try await row.test()
                 tested[row.id] = "Test notification sent"
             } catch {
-                tested[row.id] = PushStore.describe(error)
+                tested[row.id] = PushStore.describe(error, mac: row.name)
             }
             testing.remove(row.id)
         }

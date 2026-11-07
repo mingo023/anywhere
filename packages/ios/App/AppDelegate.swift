@@ -43,9 +43,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     /// pocketd holds alerts while the app is connected, so one arriving in front is for another Mac or a session not on screen.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        let agent = notification.request.content.userInfo["agent"] as? String
-        let visible = await PushCenter.shared.visibleAgent
-        return agent != nil && agent == visible ? [] : [.banner, .list, .sound]
+        let info = notification.request.content.userInfo
+        let remote = notification.request.trigger is UNPushNotificationTrigger
+        return await presents(remote: remote, mac: info["mac"] as? String, agent: info["agent"] as? String) ? [.banner, .list, .sound] : []
+    }
+
+    private func presents(remote: Bool, mac: String?, agent: String?) -> Bool {
+        PushCenter.presents(remote: remote, mac: mac, agent: agent, visible: PushCenter.shared.visibleAgent) { app.host(mac: $0) != nil }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
@@ -56,7 +60,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     private func handle(action: String, info: [String: String], text: String?) async {
-        guard let mac = info["mac"] else { return }
+        guard let mac = info["mac"], let host = app.host(mac: mac) else { return }
         do {
             switch NotificationReply.of(action: action, userInfo: info, text: text) {
             case .resolve(let request, let decision, let message):
@@ -69,9 +73,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 break
             }
         } catch {
+            guard let body = PushStore.describe(error, mac: host.name) else { return }
             let content = UNMutableNotificationContent()
             content.title = "Not sent"
-            content.body = PushStore.describe(error)
+            content.body = body
             content.threadIdentifier = info["agent"] ?? mac
             try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }

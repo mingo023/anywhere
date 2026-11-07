@@ -68,6 +68,14 @@ public final class PushCenter {
         #endif
     }
 
+    /// Whether an alert arriving while the app is in front shows: not for the session on screen, nor a push from a Mac this
+    /// phone forgot, whose alert stays sealed and so names no Mac, or names one no longer paired. The app's own alerts show.
+    public nonisolated static func presents(remote: Bool, mac: String?, agent: String?, visible: String?, known: (String) -> Bool) -> Bool {
+        guard remote else { return true }
+        guard let mac, known(mac) else { return false }
+        return agent == nil || agent != visible
+    }
+
     /// A session's alert from `on` is outdated once the session is no longer among `keep`; automation and test alerts stay.
     nonisolated static func outdated(mac: String?, agent: String?, kind: String?, on: String, keep: Set<String>) -> Bool {
         guard mac == on, let agent, !agent.isEmpty, kind != "automation", kind != "test" else { return false }
@@ -159,7 +167,10 @@ public final class PushCenter {
 
     /// Records a Mac's count of sessions wanting a look; the app's badge is the sum across Macs.
     func badge(mac: String, count: Int) {
-        let total = BadgeLedger(defaults: defaults).record(mac: mac, count: count)
+        show(badge: BadgeLedger(defaults: defaults).record(mac: mac, count: count))
+    }
+
+    private func show(badge total: Int) {
         #if os(iOS)
             UNUserNotificationCenter.current().setBadgeCount(total, withCompletionHandler: nil)
         #else
@@ -167,11 +178,17 @@ public final class PushCenter {
         #endif
     }
 
-    /// Drops what this phone kept for a Mac it no longer gets pushes from.
+    /// Drops what this phone kept for a Mac it no longer gets pushes from: its key, its part of the badge, and its alerts.
     func forget(mac: String) {
         try? keys.remove(mac)
-        BadgeLedger(defaults: defaults).forget(mac: mac)
+        show(badge: BadgeLedger(defaults: defaults).forget(mac: mac))
         activities[mac] = nil
+        #if os(iOS)
+            Task {
+                let ids = await Self.delivered { $0["mac"] as? String == mac }
+                if !ids.isEmpty { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids) }
+            }
+        #endif
     }
 
     func attach(_ store: PushStore) {

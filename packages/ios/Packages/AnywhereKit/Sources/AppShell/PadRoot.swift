@@ -49,7 +49,12 @@ struct PadRoot: View {
         } content: {
             Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, pair: pair)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if navigator.tab != .settings, let host { ConnectionBanner(host: host) }
+                    VStack(spacing: 0) {
+                        if navigator.tab != .settings, let host { ConnectionBanner(host: host) }
+                        if navigator.tab == .sessions, let text = HeldLinkRow.text(navigator.held, app: app) {
+                            HeldLinkRow(text: text, dismiss: navigator.dropHeld)
+                        }
+                    }
                 }
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380)
         } detail: {

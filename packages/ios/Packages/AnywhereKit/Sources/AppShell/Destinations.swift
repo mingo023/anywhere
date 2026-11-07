@@ -28,7 +28,10 @@ struct Destination: View {
             SettingsView(app: app, pair: pair)
         default:
             if let mac = route.mac, let host = app.host(mac: mac) {
+                // A Mac dialed again is a new host, so the screen's stores bind to it afresh.
                 Self.screen(route, host, open: open)
+                    .id(ObjectIdentifier(host))
+                    .safeAreaInset(edge: .top, spacing: 0) { EndedStrip(app: app, host: host) }
             } else {
                 Placeholder("This Mac isn't paired", systemImage: "laptopcomputer.slash", detail: "Pair it again from Settings.")
             }

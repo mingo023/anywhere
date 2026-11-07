@@ -42,12 +42,43 @@ struct HostModelTests {
         #expect(h.chats.isEmpty)
     }
 
+    @Test("a chat's store goes once no stack shows it, or once its session closes or goes unlisted")
+    func releasesChats() {
+        let h = host()
+        h.apply([.connected(Sample.hello)] + Sample.snapshot.map(ConnectionEvent.message))
+        #expect(h.agentsListed)
+        let ids = Array(h.sessions.sessions.keys.sorted().prefix(3))
+        for id in ids + ["gone"] { _ = h.chat(id) }
+        h.keepChats(Set(ids))
+        #expect(Set(h.chats.keys) == Set(ids))
+        var closed = h.sessions.session(ids[0])!.summary
+        closed.status = .closed
+        h.apply([.message(.agentUpdate(.init(agent: closed)))])
+        #expect(Set(h.chats.keys) == Set(ids.dropFirst()))
+        h.apply([.message(.agentList(.init(agents: Sample.agents.filter { $0.id != ids[1] })))])
+        #expect(Set(h.chats.keys) == [ids[2]])
+    }
+
     @Test("a message names the agent it is about, so only that agent's chat sees it")
     func agentIds() {
         #expect(ServerMessage.agentStream(.init(agentId: "a1", epoch: 1, item: Sample.timeline(turns: 1).items[0])).agentId == "a1")
         #expect(ServerMessage.agentTimeline(Sample.timeline(agentId: "a2", turns: 1)).agentId == "a2")
         #expect(ServerMessage.permissionRequest(.init(request: Sample.permission)).agentId == "a-needs")
         #expect(ServerMessage.agentList(.init(agents: [])).agentId == nil)
+    }
+
+    @Test("with front.v1 the scene says outright whether the app is in front, with the chats on screen")
+    func sceneFront() {
+        #expect(HostModel.sceneView(active: true, viewing: ["a1"], front: true) == .init(agentIds: ["a1"], front: true))
+        #expect(HostModel.sceneView(active: true, viewing: [], front: true) == .init(agentIds: [], front: true))
+        #expect(HostModel.sceneView(active: false, viewing: ["a1"], front: true) == .init(agentIds: [], front: false))
+    }
+
+    @Test("without front.v1 the background is no ids, and the front re-sends only a chat on screen")
+    func sceneWithoutFront() {
+        #expect(HostModel.sceneView(active: false, viewing: ["a1"], front: false) == .init(agentIds: []))
+        #expect(HostModel.sceneView(active: true, viewing: ["a1"], front: false) == .init(agentIds: ["a1"]))
+        #expect(HostModel.sceneView(active: true, viewing: [], front: false) == nil)
     }
 
     @Test("a message no store takes is reported as untaken")

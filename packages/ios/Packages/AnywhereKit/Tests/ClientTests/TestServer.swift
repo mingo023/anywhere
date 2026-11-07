@@ -50,10 +50,11 @@ final class TestServer: @unchecked Sendable {
     var accepted: Int { lock.withLock { _accepted } }
     var host: String { "127.0.0.1:\(listener.port!.rawValue)" }
 
-    init(script: @escaping @Sendable (Peer, ClientFrame) -> Void) async throws {
+    /// `answersPings` false stands in for a Mac that went away without closing the socket.
+    init(answersPings: Bool = true, script: @escaping @Sendable (Peer, ClientFrame) -> Void) async throws {
         let parameters = NWParameters.tcp
         let ws = NWProtocolWebSocket.Options()
-        ws.autoReplyPing = true
+        ws.autoReplyPing = answersPings
         parameters.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
         listener = try NWListener(using: parameters, on: .any)
         self.script = script

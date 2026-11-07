@@ -3,8 +3,11 @@ import Testing
 import Wire
 @testable import Client
 
-private func connect(_ server: TestServer, backoff: Backoff = Backoff(first: 0.05, cap: 0.2)) async -> (DaemonConnection, Recorder) {
-    let connection = DaemonConnection(config: .init(host: server.host, token: "tok", clientId: "ios-test", backoff: backoff))
+private func connect(
+    _ server: TestServer, backoff: Backoff = Backoff(first: 0.05, cap: 0.2), pingAfter: Duration = .seconds(25), pongTimeout: Duration = .seconds(10)
+) async -> (DaemonConnection, Recorder) {
+    let connection = DaemonConnection(
+        config: .init(host: server.host, token: "tok", clientId: "ios-test", backoff: backoff, pingAfter: pingAfter, pongTimeout: pongTimeout))
     let recorder = Recorder(connection)
     await connection.start()
     return (connection, recorder)
@@ -243,6 +246,41 @@ struct DaemonConnectionTests {
         }
         try await Task.sleep(for: .milliseconds(400))
         #expect(await recorder.events == [.connected(helloOk)])
+    }
+
+    @Test("a quiet link that stops answering pings counts as lost, and the connection redials")
+    func silence() async throws {
+        let server = try await TestServer(answersPings: false, script: helloThenAck)
+        defer { server.stop() }
+        let (connection, recorder) = await connect(server, pingAfter: .milliseconds(100), pongTimeout: .milliseconds(100))
+        defer { Task { await connection.stop() } }
+        #expect(await recorder.wait { $0.contains { $0.closed != nil } })
+        guard case .retrying? = await recorder.events.compactMap(\.closed).first else { Issue.record("not lost"); return }
+        #expect(await recorder.wait { $0.filter(\.isConnected).count == 2 })
+    }
+
+    @Test("a quiet link that answers its pings stays up")
+    func quietButAlive() async throws {
+        let server = try await TestServer(script: helloThenAck)
+        defer { server.stop() }
+        let (connection, recorder) = await connect(server, pingAfter: .milliseconds(100), pongTimeout: .milliseconds(100))
+        defer { Task { await connection.stop() } }
+        #expect(await recorder.wait { $0.contains(where: \.isConnected) })
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(await recorder.events == [.connected(helloOk)])
+    }
+
+    @Test("a timed-out request on a link that stopped answering counts as lost")
+    func timeoutLoses() async throws {
+        let server = try await TestServer(answersPings: false) { peer, frame in
+            if case .hello = frame.message { peer.send(ServerFrame(id: frame.id, .helloOk(helloOk))) }
+        }
+        defer { server.stop() }
+        let (connection, recorder) = await connect(server, pongTimeout: .milliseconds(100))
+        defer { Task { await connection.stop() } }
+        #expect(await recorder.wait { $0.contains(where: \.isConnected) })
+        await #expect(throws: DaemonError.timedOut) { try await connection.request(.agentList, timeout: .milliseconds(100)) }
+        #expect(await recorder.wait { $0.contains { $0.closed != nil } })
     }
 
     @Test("requests before hello.ok are refused as offline")

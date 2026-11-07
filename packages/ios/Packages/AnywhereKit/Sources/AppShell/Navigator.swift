@@ -39,21 +39,30 @@ public struct PairingRequest: Identifiable, Hashable, Sendable {
 }
 
 /// Where the app is: the section, the selected Mac, and a stack of `Route`s per section, so deep links and state
-/// restoration can set it. A link to a Mac that isn't connected yet is held until it is.
+/// restoration can set it. A link to a Mac that isn't connected yet is held until it is, or until the user goes
+/// somewhere else.
 @MainActor
 @Observable
 public final class Navigator {
-    public var tab = Tab.sessions
+    public var tab = Tab.sessions {
+        didSet { if tab != oldValue { held = nil } }
+    }
     /// The selected Mac's device id.
     public private(set) var macId: String?
     public var sessionsPath: [Route] = []
     public var terminalsPath: [Route] = []
     public var settingsPath: [Route] = []
     /// On iPad, the worktree or Local (a `.worktree` or `.local` route) the sessions list is narrowed to.
-    public var tree: Route?
+    public var tree: Route? {
+        didSet { if tree != oldValue { held = nil } }
+    }
     public var pairing: PairingRequest?
+    /// A `.newSession` route shown as a sheet over the current screen.
+    public var sheet: Route?
     /// A link that arrived before its Mac connected, opened once it does.
     public private(set) var held: DeepLink?
+    /// The stacks hold chats state restoration put back, not yet checked against the sessions their Mac lists.
+    private var restoredChats = false
 
     public init() {}
 
@@ -65,7 +74,9 @@ public final class Navigator {
         }
     }
 
+    /// The user moving through a stack drops a held link.
     public func setPath(_ path: [Route], for tab: Tab) {
+        if path != self.path(tab) { held = nil }
         switch tab {
         case .sessions: sessionsPath = path
         case .terminals: terminalsPath = path
@@ -73,25 +84,54 @@ public final class Navigator {
         }
     }
 
-    /// Pushes onto the current section's stack, as a chat's links do.
+    /// Pushes onto the current section's stack, as a chat's links do; New Session opens as a sheet.
     public func push(_ route: Route) {
-        setPath(path(tab) + [route], for: tab)
+        if case .newSession = route {
+            sheet = route
+        } else {
+            setPath(path(tab) + [route], for: tab)
+        }
     }
 
-    /// Selects a Mac. Routes belong to one Mac, so switching clears the Mac's stacks.
+    /// Opens a link from inside the app, as a new session's chat or an automation run's: a chat on the selected Mac is
+    /// pushed over the current screen, so Back returns there and the iPad keeps its tree. Other links open as from outside.
+    public func show(_ link: DeepLink, macs: [MacRef]) {
+        guard case .agent(let mac, _) = link, tab != .settings, let chat = link.routes.last,
+              macs.contains(where: { $0.named(mac) && $0.id == macId })
+        else { return open(link, macs: macs) }
+        if path(tab).last != chat { push(chat) }
+    }
+
+    /// The agent ids of every chat on a stack: the chats whose stores stay.
+    public var chats: Set<String> {
+        Set((sessionsPath + terminalsPath + settingsPath).compactMap { route in
+            if case .chat(_, let agentId) = route { agentId } else { nil }
+        })
+    }
+
+    public func dropHeld() { held = nil }
+
+    /// Selects a Mac. Routes belong to one Mac, so switching clears the Mac's stacks, and drops a held link as any move does.
     public func select(mac id: String) {
         guard id != macId else { return }
+        held = nil
+        switchMac(to: id)
+    }
+
+    private func switchMac(to id: String) {
         macId = id
         sessionsPath = []
         terminalsPath = []
         tree = nil
+        restoredChats = false
     }
 
     /// Keeps the selection on a Mac that exists: the first one when none is selected or the selected one was forgotten.
     public func keepSelection(_ macs: [MacRef]) {
         if let macId, macs.contains(where: { $0.id == macId }) { return }
+        // Not the user moving, so a held link stays.
         if let first = macs.first {
-            select(mac: first.id)
+            switchMac(to: first.id)
         } else {
             macId = nil
             sessionsPath = []
@@ -166,6 +206,21 @@ public final class Navigator {
         sessionsPath = saved.sessions
         terminalsPath = saved.terminals
         tree = saved.tree
+        restoredChats = !chats.isEmpty
+    }
+
+    /// Once the restored Mac lists its sessions, drops restored chats of sessions it no longer has, with whatever was
+    /// opened over them. Chats opened since are left to show they closed.
+    public func dropClosedChats(listed: Set<String>) {
+        guard restoredChats else { return }
+        restoredChats = false
+        for tab in [Tab.sessions, .terminals] {
+            let path = path(tab)
+            let closed = path.firstIndex { route in
+                if case .chat(_, let agentId) = route { !listed.contains(agentId) } else { false }
+            }
+            if let closed { setPath(Array(path[..<closed]), for: tab) }
+        }
     }
 
     public func encoded() -> Data? { try? JSONEncoder().encode(saved) }

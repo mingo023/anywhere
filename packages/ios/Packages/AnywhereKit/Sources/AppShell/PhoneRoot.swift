@@ -37,7 +37,12 @@ struct PhoneRoot: View {
                 .routeDestinations(app: app, navigator: navigator, pair: pair)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if tab != .settings, let host { ConnectionBanner(host: host) }
+            VStack(spacing: 0) {
+                if tab != .settings, let host { ConnectionBanner(host: host) }
+                if tab == .sessions, let text = HeldLinkRow.text(navigator.held, app: app) {
+                    HeldLinkRow(text: text, dismiss: navigator.dropHeld)
+                }
+            }
         }
     }
 

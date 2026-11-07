@@ -34,8 +34,10 @@ public final class HostModel: Identifiable {
     public let github: GitHubStore
     public let files: FilesStore
     public let push: PushStore
-    /// One per open chat, keyed by agent id.
+    /// One per chat on a stack, keyed by agent id; a chat's store goes once its screen is popped or its session closes.
     public private(set) var chats: [String: ChatStore] = [:]
+    /// The Mac has sent its session list since this host was made, so a session it lacks is gone.
+    public private(set) var agentsListed = false
 
     @ObservationIgnored private var listener: Task<Void, Never>?
     @ObservationIgnored private let now: @MainActor () -> Date
@@ -79,19 +81,27 @@ public final class HostModel: Identifiable {
         Task { await connection.start() }
     }
 
-    /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials now.
+    /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials
+    /// now, or checks a link that looks up is still there.
     public func scene(active: Bool) {
         let connection = connection
         // A link that stayed up says hello again to no one, so the chat on screen tells pocketd it's viewed once more.
-        let viewed = chats.values.filter(\.viewing).map(\.agentId)
+        let view = Self.sceneView(active: active, viewing: chats.values.filter(\.viewing).map(\.agentId), front: hello?.has(Caps.front) ?? false)
         Task {
             if active {
                 await connection.reconnectNow()
-                if !viewed.isEmpty { _ = try? await connection.send(.agentView(.init(agentIds: viewed))) }
-            } else {
-                _ = try? await connection.send(.agentView(.init(agentIds: [])))
+                await connection.verify()
             }
+            if let view { _ = try? await connection.send(.agentView(view)) }
         }
+    }
+
+    /// What `agent.view` tells pocketd when the app comes to the front or leaves it. Without `front.v1`, no ids is how
+    /// pocketd hears the app went to the background, so in front an empty view isn't sent.
+    nonisolated static func sceneView(active: Bool, viewing: [String], front: Bool) -> ClientMessage.AgentView? {
+        if front { return .init(agentIds: active ? viewing : [], front: active) }
+        guard active else { return .init(agentIds: []) }
+        return viewing.isEmpty ? nil : .init(agentIds: viewing)
     }
 
     public func stop() {
@@ -109,6 +119,11 @@ public final class HostModel: Identifiable {
 
     public func closeChat(_ agentId: String) {
         chats[agentId] = nil
+    }
+
+    /// Releases the chat stores of agents not in `open`, the chats left on a stack.
+    public func keepChats(_ open: Set<String>) {
+        for agentId in chats.keys where !open.contains(agentId) { chats[agentId] = nil }
     }
 
     private var stores: [any HostStore] {
@@ -155,6 +170,16 @@ public final class HostModel: Identifiable {
             if let chat = chats[agentId] { taken = chat.apply(message) || taken }
         } else {
             for chat in chats.values { taken = chat.apply(message) || taken }
+        }
+        // After the chat has seen its session close, so it can say so.
+        switch message {
+        case .agentList:
+            agentsListed = true
+            for agentId in chats.keys where sessions.session(agentId) == nil { chats[agentId] = nil }
+        case .agentUpdate(let update) where update.agent.status == .closed:
+            chats[update.agent.id] = nil
+        default:
+            break
         }
         return taken
     }

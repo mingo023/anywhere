@@ -84,7 +84,7 @@ public final class PushStore: HostStore {
             state = .registered
             sendActivity()
         } catch {
-            if mine == attempt { state = .failed(Self.describe(error)) }
+            if mine == attempt { state = Self.describe(error, mac: hello.hostname).map(State.failed) ?? .waiting }
         }
     }
 
@@ -169,11 +169,10 @@ public final class PushStore: HostStore {
         }, uniquingKeysWith: { $1 })
     }
 
-    public nonisolated static func describe(_ error: any Error) -> String {
+    /// Nil for a request that was cancelled.
+    public nonisolated static func describe(_ error: any Error, mac: String) -> String? {
         switch error {
-        case DaemonError.server(let e): e.message
-        case DaemonError.offline, DaemonError.closed: "Not connected to this Mac."
-        case DaemonError.timedOut: "The Mac didn't answer."
+        case is DaemonError: ErrorText.describe(error, mac: mac)
         case RelayClient.Failure.refused(let status, let reason): "The push relay refused this phone (\(reason ?? String(status)))."
         case RelayClient.Failure.unreadable: "The push relay sent a reply this app can't read."
         default: "The push relay couldn't be reached."
