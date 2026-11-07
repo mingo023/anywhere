@@ -44,6 +44,8 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
     public var access: String?
     public var status: AgentStatus
     public var failed: Bool?
+    /// With `failed`, the first line of the failed turn's error.
+    public var error: String?
     public var attached: Bool
     public var restore: RestoreOutcome?
     public var compacting: Bool?
@@ -75,7 +77,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
 
     public init(
         id: String, terminalId: String, title: String, cwd: String, provider: String, model: String? = nil, effort: String? = nil,
-        access: String? = nil, status: AgentStatus, failed: Bool? = nil, attached: Bool, restore: RestoreOutcome? = nil,
+        access: String? = nil, status: AgentStatus, failed: Bool? = nil, error: String? = nil, attached: Bool, restore: RestoreOutcome? = nil,
         compacting: Bool? = nil, pinned: Bool? = nil, epoch: Int, maxSeq: Int, resets: Int? = nil, providerSessionId: String? = nil,
         createdAt: Int, updatedAt: Int, project: String? = nil, worktree: String? = nil, mainWorktree: Bool? = nil, branch: String? = nil,
         tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
@@ -91,6 +93,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         self.access = access
         self.status = status
         self.failed = failed
+        self.error = error
         self.attached = attached
         self.restore = restore
         self.compacting = compacting

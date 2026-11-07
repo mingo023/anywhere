@@ -9,10 +9,11 @@ enum SessionText {
         s.title.isEmpty ? "New session" : s.title
     }
 
-    /// The line under a session's title: what it is doing, else its status, else its model. Working shows as the
-    /// glyph's spin, so it isn't spelled out; the other statuses are, as their dots differ by colour alone.
+    /// The line under a session's title: what failed, else what it is doing, else its status, else its model. Working
+    /// shows as the glyph's spin, so it isn't spelled out; the other statuses are, as their dots differ by colour alone.
     static func detail(_ s: AgentSummary, _ status: Status) -> String? {
         if s.compacting == true { return "Compacting…" }
+        if status == .failed, let error = s.error, !error.isEmpty { return error }
         if let doing = s.activity, !doing.isEmpty { return doing }
         if status != .working, let label = status.label { return label }
         return s.model.map(Sidebar.modelName).flatMap { $0.isEmpty ? nil : $0 }
@@ -22,7 +23,7 @@ enum SessionText {
     static func look(_ s: AgentSummary, _ status: Status, requests: [PermissionRequest]) -> String? {
         switch status {
         case .needsYou: requests.first.map(ask) ?? s.activity.flatMap { $0.isEmpty ? nil : $0 } ?? status.label
-        case .failed: s.activity.flatMap { $0.isEmpty ? nil : $0 } ?? status.label
+        case .failed: [s.error, s.activity].compactMap(\.self).first { !$0.isEmpty } ?? status.label
         default: detail(s, status)
         }
     }

@@ -10,14 +10,16 @@ private let utc = TimeZone(secondsFromGMT: 0)!
 
 @Suite("Session text")
 struct SessionTextTests {
-    @Test("a session's second line is what it is doing, else a status its glyph alone can't tell apart, else its model")
+    @Test("a session's second line is what failed, else what it is doing, else a status its glyph alone can't tell apart, else its model")
     func detail() {
         let needs = Sample.agents.first { $0.id == "a-needs" }!
         #expect(SessionText.detail(needs, .needsYou) == "Approve Bash: rm -rf build")
         let compacting = Sample.agents.first { $0.id == "a-compacting" }!
         #expect(SessionText.detail(compacting, .working) == "Compacting…")
-        let failed = Sample.agents.first { $0.id == "a-failed" }!
+        var failed = Sample.agents.first { $0.id == "a-failed" }!
         #expect(SessionText.detail(failed, .failed) == "Failed")
+        failed.error = "API Error: 529 overloaded"
+        #expect(SessionText.detail(failed, .failed) == "API Error: 529 overloaded")
         let working = Sample.agents.first { $0.id == "a-working" }!
         #expect(SessionText.detail(working, .working) == "Opus 5.5")
         let idle = Sample.agents.first { $0.id == "a-chat" }!
@@ -185,8 +187,12 @@ struct UpNextTextTests {
         #expect(SessionText.look(needs, .needsYou, requests: [Sample.permission]) == "Wants to run rm -rf build")
         #expect(SessionText.look(needs, .needsYou, requests: [Sample.question]) == "Which colour?")
         #expect(SessionText.look(needs, .needsYou, requests: []) == "Approve Bash: rm -rf build")
-        let failed = Sample.agents.first { $0.id == "a-failed" }!
+        var failed = Sample.agents.first { $0.id == "a-failed" }!
         #expect(SessionText.look(failed, .failed, requests: []) == "Failed")
+        failed.activity = "Running tests"
+        #expect(SessionText.look(failed, .failed, requests: []) == "Running tests")
+        failed.error = "API Error: 529 overloaded"
+        #expect(SessionText.look(failed, .failed, requests: []) == "API Error: 529 overloaded")
         let working = Sample.agents.first { $0.id == "a-working" }!
         #expect(SessionText.look(working, .working, requests: []) == "Opus 5.5")
     }
