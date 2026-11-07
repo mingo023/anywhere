@@ -3,7 +3,7 @@ import DesignSystem
 import SwiftUI
 import Wire
 
-/// The model and its effort, "Opus 4.5 · Extra high"; a menu of both once pocketd takes `agent.settings`.
+/// The model and its effort, "Opus 4.5 High"; a menu of both once pocketd takes `agent.settings`.
 @MainActor
 struct ModelPillView: View {
     let agent: AgentSummary
@@ -11,10 +11,12 @@ struct ModelPillView: View {
     let editable: Bool
     let pick: (_ model: String?, _ effort: String?) -> Void
 
+    private var opens: Bool { editable && !(efforts.isEmpty && ModelPill.aliases(agent.provider).isEmpty) }
+
     var body: some View {
-        if editable {
+        if opens {
             Menu {
-                ModelChoices(agent: agent, efforts: efforts, side: nil, pick: pick)
+                ModelChoices(agent: agent, efforts: efforts, pick: pick)
             } label: {
                 label
             }
@@ -28,51 +30,41 @@ struct ModelPillView: View {
 
     private var label: some View {
         let (model, effort) = ModelPill.label(agent)
-        return HStack(spacing: 5) {
-            BrandMark(agent.provider, size: 11)
-            Text(model).foregroundStyle(Palette.text2.color)
-            if let effort { Text(effort).foregroundStyle(Palette.text4.color) }
-            if editable { Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
+        return PillLabel(opens: opens) {
+            BrandMark(agent.provider, size: 13)
+            Text(model).foregroundStyle(Palette.text.color)
+            if let effort { Text(effort).fontWeight(.regular).foregroundStyle(Palette.text3.color) }
         }
-        .font(ChatFont.caption)
-        .lineLimit(1)
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .hitTarget()
     }
 }
 
-/// The model menu's two lists; `side` shows only one, as `/model` and `/effort` open them.
+/// The model menu, as the desktop's: the effort the model runs on, named as its provider names it, over the models.
 @MainActor
 struct ModelChoices: View {
     let agent: AgentSummary
     let efforts: [String]
-    let side: ChatModel.Local?
     let pick: (_ model: String?, _ effort: String?) -> Void
 
     var body: some View {
-        if side != .effort {
-            Section("Model") {
-                ForEach(ModelPill.aliases(agent.provider), id: \.self) { alias in
+        if !efforts.isEmpty {
+            Section(ModelPill.effortWord(agent.provider)) {
+                ForEach(efforts, id: \.self) { effort in
                     Button {
-                        pick(alias, nil)
+                        pick(nil, effort)
                     } label: {
-                        if ModelPill.runs(agent, alias) { Label(modelName(alias), systemImage: "checkmark") } else { Text(modelName(alias)) }
+                        if agent.effort == effort { Label(ModelPill.effortLabel(effort), systemImage: "checkmark") } else { Text(ModelPill.effortLabel(effort)) }
                     }
                 }
             }
         }
-        if side != .model {
-            Section("Effort") {
-                if efforts.isEmpty {
-                    Text("Set by \(who(agent.provider))")
-                } else {
-                    ForEach(efforts, id: \.self) { effort in
-                        Button {
-                            pick(nil, effort)
-                        } label: {
-                            if agent.effort == effort { Label(ModelPill.effortLabel(effort), systemImage: "checkmark") } else { Text(ModelPill.effortLabel(effort)) }
-                        }
+        let models = ModelPill.aliases(agent.provider)
+        if !models.isEmpty {
+            Section("Model") {
+                ForEach(models, id: \.self) { alias in
+                    Button {
+                        pick(alias, nil)
+                    } label: {
+                        if ModelPill.runs(agent, alias) { Label(modelName(alias), systemImage: "checkmark") } else { Text(modelName(alias)) }
                     }
                 }
             }

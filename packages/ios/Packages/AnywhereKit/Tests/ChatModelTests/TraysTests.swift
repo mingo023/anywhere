@@ -67,18 +67,24 @@ func editingAHeldSend() {
     #expect(Queue.editing("typed", "held") == "typed\n\nheld")
 }
 
-@Test("a stuck codex goal reads as stuck")
-func aStuckCodexGoal() {
-    #expect(GoalStrip.statusLabel("blocked") == "Stuck")
-    #expect(GoalStrip.statusLabel("failed") == "Gave up")
+@Test("a goal keeps its pill only while active or paused")
+func aGoalKeepsItsPillOnlyWhileActiveOrPaused() {
+    #expect(GoalPill.label("active") == "Goal active")
+    #expect(GoalPill.label("paused") == "Goal paused")
+    #expect(GoalPill.label("complete") == nil && GoalPill.label("blocked") == nil)
+}
+
+@Test("the model menu names effort as the provider does")
+func theModelMenuNamesEffortAsTheProviderDoes() {
+    #expect(ModelPill.effortWord("claude") == "Effort" && ModelPill.effortWord("codex") == "Reasoning")
 }
 
 @Test("a goal shows its tokens against a budget only when it has one")
 func aGoalShowsItsTokens() {
     let goal = { (used: Int, budget: Int) in Goal(objective: "", status: "active", tokensUsed: used, tokenBudget: budget) }
-    #expect(GoalStrip.spent(goal(16510, 50000)) == "16,510 / 50,000 tokens")
-    #expect(GoalStrip.spent(goal(16510, 0)) == "16,510 tokens")
-    #expect(GoalStrip.spent(goal(0, 0)) == nil)
+    #expect(GoalPill.spent(goal(16510, 50000)) == "16,510 / 50,000 tokens")
+    #expect(GoalPill.spent(goal(16510, 0)) == "16,510 tokens")
+    #expect(GoalPill.spent(goal(0, 0)) == nil)
 }
 
 @Test("thousands groups digits")
