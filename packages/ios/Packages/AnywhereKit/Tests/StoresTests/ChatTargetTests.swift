@@ -4,9 +4,9 @@ import Wire
 
 @Suite("Handing files or lines to a chat")
 struct ChatTargetTests {
-    private func agent(_ id: String, cwd: String = "/w", updatedAt: Int) -> AgentSummary {
+    private func agent(_ id: String, cwd: String = "/w", status: AgentStatus = .idle, updatedAt: Int) -> AgentSummary {
         AgentSummary(
-            id: id, terminalId: "t-\(id)", title: "Session \(id)", cwd: cwd, provider: "claude", status: .idle, attached: true, epoch: 1, maxSeq: 0,
+            id: id, terminalId: "t-\(id)", title: "Session \(id)", cwd: cwd, provider: "claude", status: status, attached: true, epoch: 1, maxSeq: 0,
             createdAt: 0, updatedAt: updatedAt)
     }
 
@@ -40,5 +40,20 @@ struct ChatTargetTests {
         #expect(ChatTarget([a, b], opener: nil) == .choose([a, b]))
         #expect(ChatTarget([a, b], opener: "elsewhere") == .choose([a, b]))
         #expect(ChatTarget([], opener: "a1") == .none)
+    }
+
+    @Test("a session waiting on a permission or question is passed over for one that can take a prompt")
+    func ready() {
+        let waiting = ChatSession.on("/w", trees: [], [agent("a1", status: .needsYou, updatedAt: 2), agent("a2", status: .working, updatedAt: 1)])
+        #expect(waiting.map(\.ready) == [false, true])
+        #expect(ChatTarget(waiting, opener: "a1") == .one(waiting[1]))
+        let c = ChatSession(id: "a3", title: "Docs", agent: "Codex")
+        #expect(ChatTarget(waiting + [c], opener: nil) == .choose([waiting[1], c]))
+    }
+
+    @Test("with none that can take a prompt, the waiting ones are still the target")
+    func noneReady() {
+        let a = ChatSession(id: "a1", title: "Fix the build", agent: "Claude", ready: false)
+        #expect(ChatTarget([a], opener: nil) == .one(a))
     }
 }
