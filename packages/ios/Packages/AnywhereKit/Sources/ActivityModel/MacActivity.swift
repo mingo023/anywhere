@@ -68,13 +68,25 @@ public struct MacActivity: Codable, Hashable, Sendable {
         public var since: Date { Date(timeIntervalSince1970: sinceUnix) }
     }
 
-    /// The shown activities to end so each Mac keeps one. pocketd updates only the one whose token it got last, so any other
-    /// passes its stale date and says the Mac is offline; the one kept is the one updated last, by its stale date.
-    public static func extras(_ shown: [(id: String, mac: String, staleDate: Date?)]) -> Set<String> {
+    /// The shown activities to end so each Mac keeps one. pocketd updates only the one whose token it got last (`held`), so
+    /// any other passes its stale date and says the Mac is offline. The one kept: a current one over a stale one, then the
+    /// one held, then the one updated last, by its stale date.
+    public static func extras(_ shown: [(id: String, mac: String, stale: Bool, staleDate: Date?)], held: Set<String>) -> Set<String> {
         let kept = Dictionary(grouping: shown) { $0.mac }.values.compactMap { same in
-            same.max { ($0.staleDate ?? .distantPast) < ($1.staleDate ?? .distantPast) }?.id
+            same.max { a, b in
+                if a.stale != b.stale { return a.stale }
+                if held.contains(a.id) != held.contains(b.id) { return held.contains(b.id) }
+                return (a.staleDate ?? .distantPast) < (b.staleDate ?? .distantPast)
+            }?.id
         }
         return Set(shown.map(\.id)).subtracting(kept)
+    }
+
+    /// Before starting a Mac's activity, its shown ones to end, or nil to start none. A current one stays, as pocketd keeps
+    /// it up to date; a stale one, which nothing may update, gives way to a fresh one. A renewal replaces only a stale one.
+    public static func replaced(_ shown: [(id: String, stale: Bool)], renewing: Bool) -> [String]? {
+        if shown.contains(where: { !$0.stale }) || (renewing && shown.isEmpty) { return nil }
+        return shown.map(\.id)
     }
 }
 
