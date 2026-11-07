@@ -31,6 +31,94 @@ struct GitStoreTests {
         #expect(t.files == all.files && t.complete && t.head?.totals.files == 1200)
     }
 
+    @Test("a refresh's pages replace the loaded range at once, keeping every row past the first page")
+    func refreshPages() {
+        let store = GitStore()
+        let t = store.changes(Sample.tree)
+        let all = Sample.gitStatus(files: 1200)
+        t.take(page(all, from: 0, count: 500), cursor: 0, generation: 0)
+        t.take(page(all, from: 500, count: 500), cursor: 500, generation: 0)
+        let revision = t.revision
+        var edited = all
+        edited.files[700].added = 999
+        t.take([page(edited, from: 0, count: 1000)], generation: 0)
+        #expect(t.files.count == 1000 && t.files[700].added == 999 && t.nextCursor == 1000)
+        #expect(t.revision == revision + 1)
+    }
+
+    @Test("section counts come from the totals, not the loaded page")
+    func counts() {
+        let store = GitStore()
+        let t = store.changes(Sample.tree)
+        var all = Sample.gitStatus(files: 1200)
+        all.totals.unstaged = 900
+        t.take(page(all, from: 0, count: 500), cursor: 0, generation: 0)
+        #expect(t.count(.staged) == all.totals.staged && t.count(.changes) == 900)
+        all.totals.unstaged = nil
+        t.take(page(all, from: 0, count: 500), cursor: 0, generation: 0)
+        #expect(t.count(.changes) == t.files.count(where: \.unstaged))
+    }
+
+    @Test("a stage moves its files between both section counts at once")
+    func flipCounts() {
+        let store = GitStore()
+        let t = store.changes(Sample.tree)
+        var status = Sample.gitStatus(files: 6)
+        status.totals.unstaged = status.files.count(where: \.unstaged)
+        t.take(status, cursor: 0, generation: 0)
+        let paths = status.files.filter { $0.unstaged && !$0.staged }.map(\.path)
+        t.flip(paths, staged: true)
+        #expect(t.count(.staged) == status.totals.staged + paths.count)
+        #expect(t.count(.changes) == status.totals.unstaged! - paths.count)
+    }
+
+    @Test("a fresh first page of history keeps the loaded pages while the tips hold, and starts over when they moved")
+    func historyRefresh() {
+        let store = GitStore()
+        let h = store.history(Sample.tree)
+        let log = Sample.log(commits: 100)
+        h.take(GitLog(tips: log.tips, commits: Array(log.commits[..<50]), more: true), skip: 0)
+        h.take(GitLog(tips: log.tips, commits: Array(log.commits[50...]), more: false), skip: 50)
+        h.takeFirst(GitLog(tips: log.tips, commits: Array(log.commits[..<50]), more: true))
+        #expect(h.commits.count == 100)
+        var moved = log.tips
+        moved.head = "new"
+        h.takeFirst(GitLog(tips: moved, commits: Array(log.commits[..<50]), more: true))
+        #expect(h.commits.count == 50 && h.tips == moved && h.more)
+    }
+
+    @Test("a compare's first page replaces it and later pages extend it where it ends")
+    func comparePages() {
+        let store = GitStore()
+        let files = (0..<3).map { CommitFile(path: "f\($0)", status: .modified, added: 1, removed: 0) }
+        let totals = CompareTotals(files: 3, added: 3, removed: 0)
+        store.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: Array(files[..<2]), nextCursor: 2))
+        let c = store.compare(Sample.tree, against: "main")
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 5, generation: c.generation)
+        #expect(c.files.count == 2 && c.nextCursor == 2)
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 2, generation: c.generation)
+        #expect(c.files == files && c.nextCursor == nil && c.totals == totals)
+        #expect(store.compare(Sample.tree, against: "dev").files.isEmpty)
+    }
+
+    @Test("a reply to a compare read that a newer first-page read overtook is dropped")
+    func compareOvertaken() {
+        let store = GitStore()
+        let files = (0..<3).map { CommitFile(path: "f\($0)", status: .modified, added: 1, removed: 0) }
+        let totals = CompareTotals(files: 3, added: 3, removed: 0)
+        store.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: Array(files[..<2]), nextCursor: 2))
+        let c = store.compare(Sample.tree, against: "main")
+        let older = c.generation
+        c.generation += 1
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 2, generation: older)
+        #expect(c.files == Array(files[..<2]) && c.nextCursor == 2)
+        let fresh = [CommitFile(path: "g", status: .added, added: 1, removed: 0)]
+        let newer = CompareTotals(files: 1, added: 1, removed: 0)
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: newer, files: fresh), cursor: 0, generation: c.generation)
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: files), cursor: 0, generation: older)
+        #expect(c.files == fresh && c.totals == newer && c.nextCursor == nil)
+    }
+
     @Test("a read that started before a stage can't undo its optimistic flip")
     func flip() {
         let store = GitStore()

@@ -18,6 +18,7 @@ public final class GitStore: HostStore {
     @ObservationIgnored private var watchSend: Task<Void, Never>?
     @ObservationIgnored private var diffs = DiffCache(capacity: 24)
     @ObservationIgnored private var commits: [String: CommitDetail] = [:]
+    @ObservationIgnored private var compares: [CompareKey: TreeCompare] = [:]
 
     public init(connection: DaemonConnection? = nil) {
         self.connection = connection
@@ -89,18 +90,33 @@ public final class GitStore: HostStore {
 
     // MARK: Reads
 
-    /// Reads the first page again; a read that a newer write overtook is dropped.
+    /// Reads the pages already loaded again and swaps them in at once, so rows keep their place; a read that a newer
+    /// write overtook is dropped.
     public func refresh(_ tree: String) async {
         let t = changes(tree)
         let generation = t.generation
         t.loading = true
         defer { t.loading = false }
         do {
-            let page = try await statusPage(tree, cursor: 0)
-            t.take(page, cursor: 0, generation: generation)
+            t.take(try await statusPages(tree, upTo: t.files.count), generation: generation)
         } catch {
             t.error = Self.describe(error)
         }
+    }
+
+    /// Reads every page not loaded yet, so a section-wide action sees every file; false when that couldn't be done.
+    public func complete(_ tree: String) async -> Bool {
+        let t = changes(tree)
+        guard !t.complete else { return true }
+        let generation = t.generation
+        do {
+            t.take(try await statusPages(tree, upTo: .max), generation: generation)
+        } catch {
+            t.error = Self.describe(error)
+            return false
+        }
+        if !t.complete { t.error = "The changes moved while they were read. Try again." }
+        return t.complete
     }
 
     /// The next page of files, when the list scrolls near its end.
@@ -117,20 +133,36 @@ public final class GitStore: HostStore {
         }
     }
 
-    private func statusPage(_ tree: String, cursor: Int) async throws -> GitStatus {
-        guard let connection else { throw DaemonError.offline }
-        guard case .gitStatus(let page) = try await connection.request(.gitStatus(.init(tree: tree, cursor: cursor > 0 ? cursor : nil))) else {
-            throw DaemonError.encoding("git.status")
+    /// Pages from the first until `count` files are read or the list ends. pocketd serves one read's pages for a while,
+    /// so they agree; a page from a newer read ends the run.
+    private func statusPages(_ tree: String, upTo count: Int) async throws -> [GitStatus] {
+        let limit = count > Limits.gitStatusPage ? min(count, Limits.gitStatusPageMax) : nil
+        var pages = [try await statusPage(tree, cursor: 0, limit: limit)]
+        var read = pages[0].files.count
+        while read < count, let cursor = pages.last?.nextCursor {
+            let page = try await statusPage(tree, cursor: cursor, limit: limit)
+            guard page.rev == pages[0].rev else { break }
+            pages.append(page)
+            read += page.files.count
         }
+        return pages
+    }
+
+    private func statusPage(_ tree: String, cursor: Int, limit: Int? = nil) async throws -> GitStatus {
+        guard let connection else { throw DaemonError.offline }
+        let reply = try await connection.request(.gitStatus(.init(tree: tree, cursor: cursor > 0 ? cursor : nil, limit: limit)))
+        guard case .gitStatus(let page) = reply else { throw DaemonError.encoding("git.status") }
         return page
     }
 
-    /// A diff ready to draw, from the cache while the tree's rev holds. Rows are built off the main actor.
-    public func diff(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool = false) async throws -> DiffDocument {
-        let key = diffKey(tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace)
+    /// A diff ready to draw, from the cache while the tree's rev holds. Rows are built off the main actor. `context` is
+    /// how many unchanged lines show around each change; nil is git's 3.
+    public func diff(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool = false, context: Int? = nil) async throws -> DiffDocument {
+        let key = diffKey(tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace, context: context)
         if let hit = diffs[key] { return hit }
         guard let connection else { throw DaemonError.offline }
-        let reply = try await connection.request(.gitDiff(.init(tree: tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace ? true : nil)))
+        let reply = try await connection.request(
+            .gitDiff(.init(tree: tree, path: path, at: at, context: context, ignoreWhitespace: ignoreWhitespace ? true : nil)))
         guard case .gitDiff(let diff) = reply else { throw DaemonError.encoding("git.diff") }
         let doc = await Task.detached(priority: .userInitiated) { DiffDocument(diff) }.value
         diffs[key] = doc
@@ -138,12 +170,14 @@ public final class GitStore: HostStore {
     }
 
     /// The diff already in the cache, so a screen can draw it on its first frame.
-    public func cachedDiff(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool = false) -> DiffDocument? {
-        diffs[diffKey(tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace)]
+    public func cachedDiff(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool = false, context: Int? = nil) -> DiffDocument? {
+        diffs[diffKey(tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace, context: context)]
     }
 
-    private func diffKey(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool) -> DiffKey {
-        DiffKey(tree: tree, path: path, at: at, rev: Self.revKey(at, rev: changes[tree]?.head?.rev), ignoreWhitespace: ignoreWhitespace)
+    private func diffKey(_ tree: String, path: String, at: DiffAt, ignoreWhitespace: Bool, context: Int?) -> DiffKey {
+        DiffKey(
+            tree: tree, path: path, at: at, rev: Self.revKey(at, rev: changes[tree]?.head?.rev), ignoreWhitespace: ignoreWhitespace,
+            context: context)
     }
 
     /// A commit's diffs never change; the working tree's change with its rev, and a base diff with HEAD.
@@ -179,6 +213,51 @@ public final class GitStore: HostStore {
         } while h.commits.isEmpty && h.more
     }
 
+    /// Reads the first page of history again, as after a commit; the pages loaded stay while the tips hold.
+    public func refreshHistory(_ tree: String) async {
+        let h = history(tree)
+        guard !h.loading, let connection else { return }
+        h.loading = true
+        do {
+            if case .gitLog(let log) = try await connection.request(.gitLog(.init(tree: tree, all: h.all ? true : nil))) { h.takeFirst(log) }
+        } catch {
+            h.error = Self.describe(error)
+        }
+        h.loading = false
+    }
+
+    /// What `tree` committed since it left `against`.
+    public func compare(_ tree: String, against: String) -> TreeCompare {
+        let key = CompareKey(tree: tree, against: against)
+        if let c = compares[key] { return c }
+        let c = TreeCompare(tree: tree, against: against)
+        compares[key] = c
+        return c
+    }
+
+    /// Reads a compare's first page again, or with `more` its next one. A first-page read overtakes any read under way.
+    public func loadCompare(_ tree: String, against: String, more: Bool = false) async {
+        let c = compare(tree, against: against)
+        guard let cursor = more ? c.nextCursor : 0, !(more && c.loading) else { return }
+        guard let connection else {
+            c.error = Self.describe(DaemonError.offline)
+            return
+        }
+        if cursor == 0 { c.generation += 1 }
+        let generation = c.generation
+        c.loading = true
+        do {
+            let reply = try await connection.request(.gitCompare(.init(tree: tree, against: against, cursor: cursor > 0 ? cursor : nil)))
+            guard case .gitCompare(let page) = reply else { throw DaemonError.encoding("git.compare") }
+            c.take(page, cursor: cursor, generation: generation)
+        } catch DaemonError.server(let e) where e.code == "unknown_ref" {
+            if generation == c.generation { c.missing = true }
+        } catch {
+            if generation == c.generation { c.error = Self.describe(error) }
+        }
+        if generation == c.generation { c.loading = false }
+    }
+
     public func cachedCommit(_ sha: String) -> CommitDetail? { commits[sha] }
 
     public func commit(_ tree: String, sha: String) async throws -> CommitDetail {
@@ -204,7 +283,12 @@ public final class GitStore: HostStore {
     }
 
     public func take(_ diff: GitDiff, at: DiffAt) {
-        diffs[diffKey(diff.tree, path: diff.path, at: at, ignoreWhitespace: false)] = DiffDocument(diff)
+        diffs[diffKey(diff.tree, path: diff.path, at: at, ignoreWhitespace: false, context: nil)] = DiffDocument(diff)
+    }
+
+    public func take(_ page: GitCompare) {
+        let c = compare(page.tree, against: page.against)
+        c.take(page, cursor: 0, generation: c.generation)
     }
 
     public func take(_ commit: CommitDetail) {
@@ -218,6 +302,18 @@ public final class GitStore: HostStore {
         let t = changes(tree)
         t.flip(paths, staged: staged)
         await write(tree, busy: nil) { try await $0.request(.gitStage(.init(tree: tree, paths: paths, staged: staged))) }
+    }
+
+    /// Stages every file of Changes, or unstages every staged one, reading the pages not loaded yet first.
+    public func stageAll(_ tree: String, section: ChangeSection) async {
+        let t = changes(tree)
+        guard t.bulk == nil else { return }
+        t.bulk = BulkStage(section: section, count: t.count(section))
+        defer { t.bulk = nil }
+        guard await complete(tree) else { return }
+        let paths = t.files.filter { section == .staged ? $0.staged : $0.unstaged }.map(\.path)
+        guard !paths.isEmpty else { return }
+        await stage(tree, paths: paths, staged: section == .changes)
     }
 
     public func discard(_ tree: String, paths: [String]) async {
@@ -289,6 +385,9 @@ public struct GitHead: Hashable, Sendable {
     public var ahead: Int
     public var behind: Int
     public var unpushed: Int?
+    public var unpulled: Int?
+    /// The desktop's setting: with nothing staged, a commit takes every change.
+    public var commitAll: Bool
     public var totals: GitTotals
     public var commits: [CommitRef]
 
@@ -301,6 +400,8 @@ public struct GitHead: Hashable, Sendable {
         ahead = s.ahead
         behind = s.behind
         unpushed = s.unpushed
+        unpulled = s.unpulled
+        commitAll = s.commitAll ?? true
         totals = s.totals
         commits = s.commits
     }
@@ -317,6 +418,8 @@ public final class TreeChanges {
     public internal(set) var loading = false
     /// What git is doing now: "Committing…", "Pushing…".
     public internal(set) var busy: String?
+    /// A Stage All or Unstage All under way.
+    public internal(set) var bulk: BulkStage?
     public var error: String?
     /// The Mac said the tree moved since the last read.
     public internal(set) var stale = false
@@ -329,25 +432,36 @@ public final class TreeChanges {
 
     /// Takes in a page: the first replaces everything, a later one extends the list only while the rev holds.
     func take(_ page: GitStatus, cursor: Int, generation: Int) {
-        guard generation == self.generation else { return }
-        if cursor == 0 {
-            head = GitHead(page)
-            files = page.files
-            stale = false
-        } else {
-            guard page.rev == head?.rev, cursor == files.count else { return }
-            files.append(contentsOf: page.files)
-        }
+        guard cursor > 0 else { return take([page], generation: generation) }
+        guard generation == self.generation, page.rev == head?.rev, cursor == files.count else { return }
+        files.append(contentsOf: page.files)
         revision += 1
         nextCursor = page.nextCursor
     }
 
+    /// Takes in pages read from the first on, replacing everything at once.
+    func take(_ pages: [GitStatus], generation: Int) {
+        guard generation == self.generation, let first = pages.first else { return }
+        head = GitHead(first)
+        files = pages.flatMap(\.files)
+        stale = false
+        revision += 1
+        nextCursor = pages.last?.nextCursor
+    }
+
     func flip(_ paths: [String], staged: Bool) {
         generation += 1
-        let before = files.count(where: \.staged)
+        let before = (staged: files.count(where: \.staged), unstaged: files.count(where: \.unstaged))
         ChangeTree.flipStaged(&files, paths: paths, staged: staged)
         revision += 1
-        head?.totals.staged += files.count(where: \.staged) - before
+        head?.totals.staged += files.count(where: \.staged) - before.staged
+        head?.totals.unstaged? += files.count(where: \.unstaged) - before.unstaged
+    }
+
+    /// A section's file count over the whole tree, not only the loaded pages.
+    public func count(_ section: ChangeSection) -> Int {
+        guard let totals = head?.totals else { return 0 }
+        return section == .staged ? totals.staged : totals.unstaged ?? files.count(where: \.unstaged)
     }
 
     /// Every changed file is loaded, so section-wide actions see them all.
@@ -391,6 +505,65 @@ public final class TreeHistory {
         layout.append(log.commits)
         more = log.more
     }
+
+    /// Takes a fresh first page; while the tips hold, the pages already loaded stay.
+    func takeFirst(_ log: GitLog) {
+        guard log.tips != tips || commits.isEmpty else { return }
+        take(log, skip: 0)
+    }
+}
+
+/// A section-wide stage and how many files it covers.
+public struct BulkStage: Hashable, Sendable {
+    public let section: ChangeSection
+    public let count: Int
+
+    public init(section: ChangeSection, count: Int) {
+        self.section = section
+        self.count = count
+    }
+}
+
+/// What a tree committed since it left `against`, page by page; read-only.
+@MainActor
+@Observable
+public final class TreeCompare {
+    public let tree: String
+    public let against: String
+    public internal(set) var totals: CompareTotals?
+    public internal(set) var files: [CommitFile] = []
+    public internal(set) var nextCursor: Int?
+    public internal(set) var loading = false
+    public var error: String?
+    /// `against` names no branch or commit.
+    public internal(set) var missing = false
+    /// Bumped by each first-page read, so a reply to an older read is dropped.
+    @ObservationIgnored var generation = 0
+
+    init(tree: String, against: String) {
+        self.tree = tree
+        self.against = against
+    }
+
+    /// The first page replaces everything; a later one extends the list where it ends. Both only from the newest read.
+    func take(_ page: GitCompare, cursor: Int, generation: Int) {
+        guard generation == self.generation else { return }
+        if cursor == 0 {
+            totals = page.totals
+            files = page.files
+            missing = false
+            error = nil
+        } else {
+            guard cursor == files.count else { return }
+            files.append(contentsOf: page.files)
+        }
+        nextCursor = page.nextCursor
+    }
+}
+
+struct CompareKey: Hashable {
+    var tree: String
+    var against: String
 }
 
 struct DiffKey: Hashable {
@@ -399,6 +572,7 @@ struct DiffKey: Hashable {
     var at: DiffAt
     var rev: String
     var ignoreWhitespace: Bool
+    var context: Int?
 }
 
 /// The last few diffs opened, so flicking between files doesn't refetch them.

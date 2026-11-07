@@ -27,13 +27,96 @@ import Wire
     #expect(GitText.push(GitHead(s)) == nil)
 }
 
-@Test func ahead_and_behind_show_only_what_differs() {
+@Test func the_branch_card_measures_against_the_base_in_words() {
     var s = Sample.gitStatus(files: 1)
-    #expect(GitText.aheadBehind(GitHead(s)) == "↑4 ↓1")
-    s.behind = 0
-    #expect(GitText.aheadBehind(GitHead(s)) == "↑4")
-    s.ahead = 0
-    #expect(GitText.aheadBehind(GitHead(s)) == nil)
+    #expect(GitText.branchLine(GitHead(s)) == "calm-otter → main")
+    #expect(GitText.distance(GitHead(s)) == "4 ahead · 1 behind main")
+    #expect(GitText.sinceBase(GitHead(s)) == "4 commits since main")
+    s.base = nil
+    #expect(GitText.branchLine(GitHead(s)) == "calm-otter")
+    #expect(GitText.distance(GitHead(s)) == nil)
+}
+
+@Test func pull_counts_what_the_upstream_has_and_hides_when_there_is_nothing() {
+    var s = Sample.gitStatus(files: 1)
+    #expect(GitText.pull(GitHead(s)) == "Pull")
+    s.unpulled = 12
+    #expect(GitText.pull(GitHead(s)) == "Pull 12")
+    s.unpulled = 0
+    #expect(GitText.pull(GitHead(s)) == nil)
+    s.upstream = nil
+    #expect(GitText.pull(GitHead(s)) == nil)
+}
+
+@Test func commit_all_follows_the_mac_and_defaults_on_for_an_older_pocketd() {
+    var s = Sample.gitStatus(files: 1)
+    #expect(GitHead(s).commitAll)
+    s.commitAll = false
+    #expect(!GitHead(s).commitAll)
+}
+
+@Test func stage_all_carries_its_count_and_says_so_while_it_runs() {
+    #expect(GitText.stageAll(.changes, count: 12, bulk: nil) == "Stage All 12")
+    #expect(GitText.stageAll(.staged, count: 3, bulk: nil) == "Unstage All 3")
+    let bulk = BulkStage(section: .changes, count: 1200)
+    #expect(GitText.stageAll(.changes, count: 0, bulk: bulk) == "Staging \(1200.formatted())…")
+    #expect(GitText.stageAll(.staged, count: 3, bulk: bulk) == "Unstage All 3")
+}
+
+@Test func the_discard_confirm_says_untracked_files_get_deleted() {
+    let files = [
+        GitFile(path: "a.swift", status: .modified, staged: false, unstaged: true),
+        GitFile(path: "b.swift", status: .untracked, staged: false, unstaged: true),
+        GitFile(path: "c.swift", status: .untracked, staged: false, unstaged: true),
+    ]
+    #expect(GitText.discardFacts(["a.swift"], files: files) == "Unstaged edits can't be restored")
+    #expect(GitText.discardFacts(["a.swift", "b.swift"], files: files) == "Unstaged edits can't be restored\nDeletes 1 untracked file")
+    #expect(GitText.discardFacts(["b.swift", "c.swift"], files: files) == "Unstaged edits can't be restored\nDeletes 2 untracked files")
+}
+
+@Test func the_change_bar_counts_changes_then_shows_where_it_is() {
+    #expect(GitText.position(nil, of: 42) == "42 changes")
+    #expect(GitText.position(nil, of: 1) == "1 change")
+    #expect(GitText.position(2, of: 42) == "3 of 42")
+}
+
+@Test func stepping_files_stops_at_the_ends_and_a_staged_file_gives_way_to_the_next() {
+    let files = ["a", "b", "c"]
+    #expect(DiffFiles.step(from: "b", by: 1, in: files) == "c")
+    #expect(DiffFiles.step(from: "c", by: 1, in: files) == nil)
+    #expect(DiffFiles.step(from: "x", by: 1, in: files) == nil)
+    #expect(DiffFiles.after(removing: "b", in: files) == "c")
+    #expect(DiffFiles.after(removing: "c", in: files) == "b")
+    #expect(DiffFiles.after(removing: "a", in: ["a"]) == nil)
+}
+
+@Test func stepping_changes_starts_at_either_end_and_stops_at_the_ends() {
+    #expect(ChangeStep.step(from: nil, by: 1, count: 3) == 0)
+    #expect(ChangeStep.step(from: nil, by: -1, count: 3) == 2)
+    #expect(ChangeStep.step(from: 2, by: 1, count: 3) == nil)
+    #expect(ChangeStep.step(from: 0, by: -1, count: 3) == nil)
+    #expect(ChangeStep.step(from: nil, by: 1, count: 0) == nil)
+}
+
+@Test func a_reloaded_diff_with_fewer_changes_keeps_the_stepped_change_within_them() {
+    #expect(ChangeStep.kept(5, count: 3) == 2)
+    #expect(ChangeStep.kept(1, count: 3) == 1)
+    #expect(ChangeStep.kept(1, count: 0) == nil)
+    #expect(ChangeStep.kept(nil, count: 3) == nil)
+    #expect(ChangeStep.step(from: ChangeStep.kept(5, count: 3), by: -1, count: 3) == 1)
+}
+
+@Test func a_quote_goes_to_the_worktree_s_only_session_or_a_pick_among_its_sessions() {
+    let tree = "/w/calm-otter"
+    #expect(AskTarget.of(tree: tree, sessions: [(id: "x", cwd: "/w/other")]) == .none)
+    #expect(AskTarget.of(tree: tree, sessions: [(id: "a", cwd: tree + "/src"), (id: "x", cwd: "/w/calm-otter-2")]) == .one("a"))
+    #expect(AskTarget.of(tree: tree, sessions: [(id: "b", cwd: tree), (id: "a", cwd: tree)]) == .pick(["b", "a"]))
+}
+
+@Test func a_quote_lands_below_what_the_draft_holds() {
+    #expect(AskTarget.appending("q", to: "") == "q\n")
+    #expect(AskTarget.appending("q", to: "look at") == "look at\n\nq\n")
+    #expect(AskTarget.appending("q", to: "a\n") == "a\n\nq\n")
 }
 
 @Test func a_path_splits_into_name_and_folder() {

@@ -2,7 +2,7 @@ import DesignSystem
 import Stores
 import SwiftUI
 
-/// The branch a tree is on, how far it is from its base, and what it grew from.
+/// The branch a tree is on and the base it grew from, then how far apart they are.
 @MainActor
 struct BranchIndicator: View {
     let head: GitHead
@@ -12,19 +12,17 @@ struct BranchIndicator: View {
             HStack(spacing: Space.s) {
                 Image(systemName: head.detached ? "circle.dashed" : "arrow.triangle.branch")
                     .foregroundStyle(Palette.graphHead.color)
-                Text(head.detached ? "Detached HEAD" : head.branch ?? "No branch")
+                Text(GitText.branchLine(head))
                     .font(Typography.headline)
                     .foregroundStyle(Palette.text.color)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let ab = GitText.aheadBehind(head) {
-                    Text(ab).font(Typography.digits).foregroundStyle(Palette.text2.color)
-                }
                 Spacer(minLength: 0)
             }
-            if let base = head.base {
-                Text("from \(base)")
+            if let distance = GitText.distance(head) {
+                Text(distance)
                     .font(Typography.caption)
+                    .monospacedDigit()
                     .foregroundStyle(Palette.text3.color)
                     .lineLimit(1)
             }
