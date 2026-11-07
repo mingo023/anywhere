@@ -10,10 +10,20 @@ public final class TreePullRequest {
     public let tree: String
     /// Whether gh has answered for this tree since it was opened.
     public internal(set) var loaded: Bool
-    /// missing or signedOut: gh can't be asked at all.
+    /// Why gh has no answer for the tree: missing, signedOut, noRemote or failed.
     public internal(set) var problem: GhState?
     /// Nil once loaded means the branch has no PR.
     public internal(set) var pr: PullRequest?
+    /// gh couldn't be asked, so `pr` is what it last said.
+    public internal(set) var stale = false
+    /// When the Mac last answered for the tree, in ms.
+    public internal(set) var at: Int?
+    /// Replies that didn't post, by thread, kept to retry or edit.
+    public internal(set) var unposted: [String: String] = [:]
+    /// Replies typed and not sent, by thread.
+    public var drafts: [String: String] = [:]
+    /// The merged PR's worktree is kept, so deleting it isn't offered again.
+    public var kept = false
     /// What the PR screen's button says while gh works: "Merging…".
     public internal(set) var busy: String?
     public var error: String?
@@ -48,6 +58,8 @@ public final class GitHubStore: HostStore {
     public private(set) var status: GhStatus?
     /// Each project's PRs, by project path.
     public private(set) var lists: [String: [PrItem]] = [:]
+    /// Why gh isn't keeping a project's list fresh, by project path.
+    public private(set) var listProblems: [String: GhState] = [:]
     @ObservationIgnored private var trees: [String: TreePullRequest] = [:]
     @ObservationIgnored private var notices = 0
     /// How long a notice with Undo stays, as the desktop's.
@@ -70,8 +82,9 @@ public final class GitHubStore: HostStore {
         take(answer, into: pullRequest(tree))
     }
 
-    public func showList(_ project: String, _ items: [PrItem]) {
-        lists[project] = items
+    public func showList(_ project: String, _ list: GhPrs) {
+        lists[project] = list.items
+        listProblems[project] = list.problem
     }
 
     public func apply(_ message: ServerMessage) -> Bool {
@@ -105,11 +118,25 @@ public final class GitHubStore: HostStore {
         }
     }
 
+    /// Retry and Check again: a missing or signed-out gh is checked first, as a ready one clears that at once.
+    public func recheck(_ tree: String) async {
+        if Self.ghUnready(pullRequest(tree).problem) { await checkStatus(tree: tree) }
+        await refresh(tree)
+    }
+
     private func take(_ answer: GhPr, into t: TreePullRequest) {
         t.loaded = true
-        t.problem = answer.problem
-        if t.pr != answer.pr { t.pr = answer.pr }
+        t.at = Int(Date().timeIntervalSince1970 * 1000)
         t.error = nil
+        // A blip never turns a PR the phone holds into "no PR".
+        if answer.problem == .failed, answer.pr == nil, t.pr != nil {
+            t.problem = nil
+            t.stale = true
+            return
+        }
+        t.problem = answer.problem
+        t.stale = answer.stale ?? false
+        if t.pr != answer.pr { t.pr = answer.pr }
     }
 
     public func checkStatus(tree: String? = nil) async {
@@ -117,7 +144,18 @@ public final class GitHubStore: HostStore {
     }
 
     public func refreshList(_ project: String) async throws {
-        if case .ghPrs(let list) = try await request(.ghPrs(.init(project: project))) { lists[project] = list.items }
+        if case .ghPrs(let list) = try await request(.ghPrs(.init(project: project))) { showList(project, list) }
+    }
+
+    /// The list's Check again: gh.status first, as a ready gh clears the problem at once.
+    public func recheckList(_ project: String) async throws {
+        if listProblems[project] != nil { await checkStatus() }
+        try await refreshList(project)
+    }
+
+    /// gh itself can't be asked, as opposed to the tree having no GitHub remote or GitHub not answering.
+    public nonisolated static func ghUnready(_ problem: GhState?) -> Bool {
+        problem == .missing || problem == .signedOut
     }
 
     /// Pushes the tree's branch and opens its PR; the screen shows it at once.
@@ -151,19 +189,28 @@ public final class GitHubStore: HostStore {
         }
     }
 
-    /// Shows the reply at once as `me`'s; a failure takes it back out.
+    /// Shows the reply at once as `me`'s; a failure takes it back out and keeps it under its thread as not posted.
     public func reply(_ tree: String, thread: String, body: String, at: Int = Int(Date().timeIntervalSince1970)) async {
         let t = pullRequest(tree)
         let body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, let pr = t.pr else { return }
         let me = status?.login ?? "You"
         t.pr = pr.replying(to: thread, ThreadComment(author: me, body: body, at: at))
+        t.unposted[thread] = nil
+        t.drafts[thread] = nil
         do {
             _ = try await request(.ghThreadReply(.init(tree: tree, thread: thread, body: body)), timeout: .seconds(60))
         } catch {
             t.pr = t.pr?.withoutReply(to: thread, ThreadComment(author: me, body: body, at: at))
-            t.error = "Couldn't post the reply: \(Self.describe(error))"
+            t.unposted[thread] = body
         }
+    }
+
+    /// Takes a reply that didn't post off its thread: to edit, back into its draft, else dropped.
+    public func unpost(_ tree: String, thread: String, edit: Bool) {
+        let t = pullRequest(tree)
+        if edit { t.drafts[thread] = t.unposted[thread] }
+        t.unposted[thread] = nil
     }
 
     /// Resolves or reopens a thread at once, with Undo unless this is the undo; a failure flips it back.
