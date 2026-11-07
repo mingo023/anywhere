@@ -69,6 +69,7 @@ struct TranscriptView: View {
     /// A call to show, from a tray or the agent map.
     @Binding var showing: String?
     let openLink: (MarkdownLink) -> Void
+    let openAgent: (_ callId: String) -> Void
 
     @State private var scroll = ScrollState()
     @State private var spacer: CGFloat = 0
@@ -166,6 +167,7 @@ struct TranscriptView: View {
             retryTurn: { [store] turn in store.retryTurn(turn) },
             showCall: { id in show(call: id) },
             openLink: openLink,
+            openAgent: openAgent,
             reveal: { [store] in store.reveals[$0] })
     }
 

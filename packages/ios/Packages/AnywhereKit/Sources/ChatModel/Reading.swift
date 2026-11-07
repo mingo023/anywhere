@@ -277,9 +277,8 @@ public enum Mark: Hashable, Sendable {
 public enum Agent {
     /// Chars a sub-agent's name keeps before it's cut.
     static let nameMax = 55
-    /// Lines a brief and a report show until "Show more".
+    /// Lines a brief shows until "Show more".
     public static let briefLines = 3
-    public static let reportLines = 12
     /// Chars a line of the body holds at the chat's usual width, to guess how many lines a text wraps to.
     static let wrap = 90
 

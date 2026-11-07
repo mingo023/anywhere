@@ -139,12 +139,28 @@ struct NavigatorTests {
         #expect(nav.sessionsPath.isEmpty)
     }
 
+    @Test("Show in chat from a sub-agent nested over its chat goes back to the chat")
+    func showInChatGoesBack() {
+        let nav = Navigator()
+        let chat = Route.chat(mac: "mbp", agentId: "a1")
+        nav.sessionsPath = [chat, .subAgent(mac: "mbp", agentId: "a1", callId: "c1"), .subAgent(mac: "mbp", agentId: "a1", callId: "c2")]
+        nav.push(chat)
+        #expect(nav.sessionsPath == [chat])
+    }
+
     @Test("the chats on any stack are the ones whose stores stay")
     func chats() {
         let nav = Navigator()
         nav.sessionsPath = [.project(mac: "mbp", path: "/p"), .chat(mac: "mbp", agentId: "a1")]
         nav.terminalsPath = [.chat(mac: "mbp", agentId: "a2")]
         #expect(nav.chats == ["a1", "a2"])
+    }
+
+    @Test("a sub-agent restored on top of a stack keeps its chat's store")
+    func subAgentKeepsItsChat() {
+        let nav = Navigator()
+        nav.sessionsPath = [.subAgent(mac: "mbp", agentId: "a1", callId: "c1")]
+        #expect(nav.chats == ["a1"])
     }
 
     @Test("a restored chat of a session the Mac no longer lists is dropped with what was over it, once")

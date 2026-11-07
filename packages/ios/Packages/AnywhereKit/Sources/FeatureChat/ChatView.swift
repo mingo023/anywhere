@@ -38,10 +38,14 @@ private struct HostedChat: View {
 
     var body: some View {
         if let store {
-            ChatScreen(store: store, machine: host.name) { follow($0, in: store) }
-                .toolbar {
-                    if let cwd = store.summary?.cwd {
-                        ToolbarItemGroup(placement: .primaryAction) {
+            ChatScreen(store: store, machine: host.name, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }) {
+                follow($0, in: store)
+            }
+            .toolbar {
+                // One item, as wide as Back: the bar centres the title only when it fits between them evenly.
+                if let cwd = store.summary?.cwd {
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
                             Button { open(.changes(mac: mac, tree: cwd, chat: agentId)) } label: { Label("Changes", systemImage: "plusminus") }
                             Button { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) } label: { Label("Files", systemImage: "folder") }
                             if host.hello?.has(Caps.gh) == true {
@@ -49,16 +53,19 @@ private struct HostedChat: View {
                                     Label("Pull request", systemImage: "arrow.triangle.pull")
                                 }
                             }
+                        } label: {
+                            Label("More", systemImage: "ellipsis")
                         }
                     }
                 }
-                .onChange(of: host.link == .online, initial: true) { _, online in store.follow(online: online, mac: host.name) }
-                .onChange(of: store.newSession) { _, ask in
-                    guard let ask else { return }
-                    store.openedNewSession()
-                    let at = ask.cwd.flatMap(host.workspace.place(of:))
-                    open(.newSession(mac: mac, project: at?.project, place: at?.tree, prompt: ask.prompt))
-                }
+            }
+            .onChange(of: host.link == .online, initial: true) { _, online in store.follow(online: online, mac: host.name) }
+            .onChange(of: store.newSession) { _, ask in
+                guard let ask else { return }
+                store.openedNewSession()
+                let at = ask.cwd.flatMap(host.workspace.place(of:))
+                open(.newSession(mac: mac, project: at?.project, place: at?.tree, prompt: ask.prompt))
+            }
         } else {
             Color.clear.screenBackground().onAppear { store = host.chat(agentId) }
         }

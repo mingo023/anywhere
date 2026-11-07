@@ -1,60 +1,40 @@
 import ChatModel
 import DesignSystem
-import MarkdownView
 import SwiftUI
 
-/// Who spawned whom, as a sheet: a column per generation with dashes flowing to the agents at work, and a page per
-/// sub-agent with its prompt, steps and report.
+/// Who spawned whom, as a sheet: a column per generation with dashes flowing to the agents at work. Picking a sub-agent
+/// opens its own screen in the chat's stack.
 @MainActor
 struct AgentMapSheet: View {
     let transcript: Transcript
     let provider: String
-    let show: (_ callId: String) -> Void
-    let openLink: (MarkdownLink) -> Void
+    let openAgent: (_ callId: String) -> Void
     @State private var nav = AgentMap.Nav()
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let map = spawned(transcript)
         NavigationStack {
-            Group {
-                if let id = nav.detail, let ix = map.firstIndex(where: { $0.call.id == id }) {
-                    AgentDetail(spawned: map[ix], show: {
-                        if let (turn, block) = AgentMap.place(transcript, map, ix), let call = transcript.turns[turn].blocks[block].call {
-                            dismiss()
-                            show(call.id)
-                        }
-                    }, openLink: { link in
-                        // A file opens in the chat's stack, under this sheet.
-                        if case .file = link { dismiss() }
-                        openLink(link)
-                    })
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else {
-                    graph(map).transition(.move(edge: .leading).combined(with: .opacity))
+            graph(map)
+                .navigationTitle("Agents")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 }
-            }
-            .animation(.easeOut(duration: 0.24), value: nav.detail)
-            .navigationTitle(nav.detail == nil ? "Agents" : "")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    if nav.detail != nil {
-                        Button("Back") { nav.back() }
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
+        }
+        .onChange(of: nav.detail) { _, id in
+            guard let id else { return }
+            dismiss()
+            openAgent(id)
         }
         .onKeyPress(.escape) {
-            if nav.detail != nil { nav.back() } else { dismiss() }
+            dismiss()
             return .handled
         }
-        .onKeyPress(keys: [.upArrow, .downArrow, .return, .rightArrow, .leftArrow]) { press in
+        .onKeyPress(keys: [.upArrow, .downArrow, .return, .rightArrow]) { press in
             let key: AgentMap.Nav.Key =
                 switch press.key {
                 case .upArrow: .up
                 case .downArrow: .down
-                case .leftArrow: .left
                 case .rightArrow: .right
                 default: .enter
                 }
@@ -130,48 +110,5 @@ struct AgentMapSheet: View {
             .frame(width: Graph.width, height: Graph.height, alignment: .leading)
             .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder((selected ? Palette.separatorStrong : Palette.hairline).color))
-    }
-}
-
-/// A sub-agent's page: how it stands, what it was asked, its steps and what it reported.
-@MainActor
-struct AgentDetail: View {
-    let spawned: Spawned
-    let show: () -> Void
-    let openLink: (MarkdownLink) -> Void
-
-    var body: some View {
-        let s = spawned
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.m) {
-                HStack(spacing: 8) {
-                    AgentMark(mark: Agent.mark(s.call, s.agent))
-                    Text(Agent.name(s.agent)).font(ChatFont.body.weight(.semibold))
-                }
-                Text(AgentMap.facts(Agent.mark(s.call, s.agent), model: s.agent.model)).font(ChatFont.caption).foregroundStyle(Palette.text3.color)
-                if let brief = Agent.brief(s.agent) {
-                    ClippedText(lines: Agent.briefLines, estimate: Agent.lineCount(brief)) {
-                        Text(brief).font(ChatFont.small).foregroundStyle(Palette.textBody.color)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(Agent.steps(s.agent).compactMap(\.call).enumerated()), id: \.offset) { _, call in
-                        let (tool, arg) = AgentMap.step(call)
-                        HStack(spacing: 6) {
-                            Text(tool).foregroundStyle(Palette.text2.color)
-                            Text(arg).font(ChatFont.mono).foregroundStyle((call.status == .failed ? Palette.failedText : Palette.text3).color).lineLimit(1)
-                        }
-                        .font(ChatFont.small)
-                    }
-                }
-                if let report = Agent.report(s.call, s.agent) {
-                    MarkdownView(report, style: .compact, onLink: openLink)
-                }
-                Button("Show in chat", action: show).font(ChatFont.small.weight(.medium))
-            }
-            .padding(Space.l)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .screenBackground()
     }
 }

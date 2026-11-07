@@ -294,6 +294,46 @@ struct ChatStoreTests {
         #expect(files.takeAdditions(for: "a2", in: "/w") == ["@c.rs"])
     }
 
+    @Test("a chat stays viewed while a sub-agent's screen opens over it and after it closes")
+    func viewedUnderASubAgent() {
+        let c = chat([])
+        c.appear()
+        c.appear()
+        c.disappear()
+        #expect(c.viewing)
+        c.disappear()
+        #expect(!c.viewing)
+        c.disappear()
+        c.appear()
+        #expect(c.viewing)
+    }
+
+    @Test("a sub-agent's screen waits for the first page and pages back to find a sub-agent not held")
+    func aSubAgentIsSoughtInOlderPages() {
+        let unloaded = chat([])
+        #expect(!unloaded.whole)
+        let latest = chat([timeline(Sample.chat("background-agents"), hasOlder: true)])
+        #expect(!latest.whole)
+        latest.seek("tu-a1")
+        #expect(!latest.loadingOlder)
+        latest.seek("tu-none")
+        #expect(latest.loadingOlder)
+        let all = chat([timeline(Sample.chat("background-agents"))])
+        all.seek("tu-none")
+        #expect(all.whole && !all.loadingOlder)
+        _ = all.apply(stream(item("late", 10_000)))
+        #expect(!all.whole, "a refold is due")
+    }
+
+    @Test("a sub-agent's screen asks the chat to show the main agent's call that spawned it")
+    func aSubAgentIsRevealedAtItsCall() {
+        let c = chat([timeline(Sample.chat("background-agents"))])
+        c.reveal("tu-a1")
+        #expect(c.revealing == "tu-a1")
+        c.revealed()
+        #expect(c.revealing == nil)
+    }
+
     @Test("the background tray and the agent map are worked out as the transcript refolds")
     func backgroundAndAgentsFollowTheTranscript() {
         let c = chat([timeline(Sample.chat("background-agents"))])

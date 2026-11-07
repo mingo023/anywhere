@@ -52,6 +52,11 @@ struct Destination: View {
                     // A session takes the screen: the composer sits where the tab bar would.
                     .toolbar(.hidden, for: .tabBar)
                 #endif
+        case .subAgent(_, let agentId, let callId):
+            SubAgentView(host: host, agentId: agentId, callId: callId, open: open)
+                #if os(iOS)
+                    .toolbar(.hidden, for: .tabBar)
+                #endif
         case .terminals, .terminal:
             TerminalsView(host: host, route: route)
         case .changes, .diff, .history, .commit, .branches:

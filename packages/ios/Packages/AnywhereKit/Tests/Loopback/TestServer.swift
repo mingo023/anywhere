@@ -30,7 +30,7 @@ public final class TestServer: @unchecked Sendable {
         }
 
         /// Sends one text message in `pieces` spread over `over`, as a big reply crawls over a slow link.
-        func sendSlowly(_ frame: ServerFrame, pieces: Int, over: Duration) {
+        public func sendSlowly(_ frame: ServerFrame, pieces: Int, over: Duration) {
             let data = try! frame.encoded()
             let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
             let context = NWConnection.ContentContext(identifier: "slow", metadata: [metadata])

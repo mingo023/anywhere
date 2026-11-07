@@ -1,40 +1,33 @@
 import ChatModel
 import DesignSystem
 import Domain
-import MarkdownView
 import SwiftUI
 
-/// A spawned agent: its mark, name and what it does now; open, its brief, its steps on a rail and its report.
+/// A spawned agent: its mark, name and what it does now; a tap opens its own screen.
 @MainActor
 struct SubAgentRow: View {
     let call: Call
     let agent: SubAgent
-    let open: Bool
-    let provider: String
-    let onLink: (MarkdownLink) -> Void
-    let toggle: () -> Void
+    let open: () -> Void
 
     private var mark: Mark { Agent.mark(call, agent) }
     private var running: Bool { call.status == .running }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                Haptics.tap()
-                toggle()
-            } label: {
-                head.contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if open { detail.padding(.leading, 20) }
+        Button {
+            Haptics.tap()
+            open()
+        } label: {
+            head.contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     private var head: some View {
         HStack(spacing: 6) {
             AgentMark(mark: mark)
             Text(Agent.name(agent)).foregroundStyle((mark == .failed ? Palette.failedText : Palette.text2).color).lineLimit(1)
-            if running && !open, let latest = Agent.latest(agent) {
+            if running, let latest = Agent.latest(agent) {
                 Text(Agent.step(latest)).font(ChatFont.mono).foregroundStyle(Palette.text4.color).lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: Space.s)
@@ -49,39 +42,10 @@ struct SubAgentRow: View {
             }
             .font(ChatFont.caption)
             .foregroundStyle(Palette.text4.color)
-            Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.text4.color)
+            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.text4.color)
         }
         .font(ChatFont.small)
         .frame(minHeight: 26)
-    }
-
-    @ViewBuilder
-    private var detail: some View {
-        if let brief = Agent.brief(agent) {
-            ClippedText(lines: Agent.briefLines, estimate: Agent.lineCount(brief)) {
-                Text(brief).font(ChatFont.small).lineSpacing(7).foregroundStyle(Palette.text3.color)
-            }
-        }
-        ForEach(Array(Agent.steps(agent).enumerated()), id: \.offset) { _, block in
-            switch block {
-            // Nested sub-agents show as tool rows; the agent map holds the tree.
-            case .tool(let c):
-                ToolRow(call: c, background: false, open: false) {}
-            case .text(let m):
-                Text(m.text).font(ChatFont.small).foregroundStyle(Palette.text3.color).lineLimit(3)
-            default:
-                EmptyView()
-            }
-        }
-        if let report = Agent.report(call, agent) {
-            ClippedText(lines: Agent.reportLines, estimate: Agent.lineCount(report)) {
-                if mark == .failed {
-                    Text(report).font(ChatFont.mono).foregroundStyle(Palette.failedText.color)
-                } else {
-                    MarkdownView(report, style: .compact, onLink: onLink)
-                }
-            }
-        }
     }
 }
 

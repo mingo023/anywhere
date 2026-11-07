@@ -52,6 +52,7 @@ struct RouteTests {
             .newSession(mac: "m1", project: "/r", place: "local-1", prompt: "Explain lines 40–58"),
             .pullRequest(mac: "m1", tree: "/r", chat: "a1"),
             .reviewThreads(mac: "m1", tree: "/r", chat: "a1"),
+            .subAgent(mac: "m1", agentId: "a1", callId: "c1"),
         ]
         #expect(try JSONDecoder().decode([Route].self, from: JSONEncoder().encode(routes)) == routes)
     }

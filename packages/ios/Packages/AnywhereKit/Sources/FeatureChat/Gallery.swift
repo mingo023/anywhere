@@ -70,13 +70,26 @@ public enum ChatGallery {
                 return s
             }),
         ]
-        return (transcripts + composer).flatMap { scene in
+        let chats = (transcripts + composer).flatMap { scene in
             [false, true].map { dark in
                 GalleryScene(dark ? "\(scene.name)-dark" : scene.name, dark: dark) {
                     AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", openLink: { _ in }, live: false) })
                 }
             }
         }
+        let subAgents = [
+            ("chat-subagent-working", "background-agents", "tu-a1"), ("chat-subagent-report", "subagent-brief-report", "tu-t1"),
+            ("chat-subagent-gone", "background-agents", "tu-none"),
+        ].flatMap { name, chat, call in
+            [false, true].map { dark in
+                GalleryScene(dark ? "\(name)-dark" : name, dark: dark) {
+                    AnyView(NavigationStack {
+                        SubAgentScreen(store: store(Sample.chat(chat)), callId: call, openAgent: { _ in }, openLink: { _ in }, live: false)
+                    })
+                }
+            }
+        }
+        return chats + subAgents
     }
 
     struct Entry {
