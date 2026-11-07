@@ -34,10 +34,11 @@ struct ChatScreen: View {
             .coordinateSpace(name: ComposerView.space)
         }
         .screenBackground()
-        .navigationTitle(store.summary?.title ?? "Chat")
+        .barTitle(store.summary?.title ?? "Chat", subtitle: ChatTitle.subtitle(store.summary, busy: store.busy, mac: machine))
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
+        .chatBar()
         .onAppear {
             guard live else { return }
             store.appear()

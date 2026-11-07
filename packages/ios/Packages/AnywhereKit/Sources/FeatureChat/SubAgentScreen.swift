@@ -20,7 +20,7 @@ struct SubAgentScreen: View {
     var body: some View {
         Group {
             if let (call, agent, by) = subAgent(store.session.transcript, callId) {
-                page(call, agent, by).navigationTitle(Agent.name(agent))
+                page(call, agent, by).barTitle(Agent.name(agent), subtitle: AgentMap.facts(Agent.mark(call, agent), model: agent.model))
             } else {
                 Placeholder("This agent isn't in the chat any more", systemImage: "person.2.slash").navigationTitle("Agent")
             }
