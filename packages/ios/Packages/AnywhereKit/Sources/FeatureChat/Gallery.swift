@@ -43,11 +43,37 @@ public enum ChatGallery {
             Entry(name: "chat-open-errors", make: { opened(store(Sample.chat("errors"))) }),
             Entry(name: "chat-open-background-agents", make: { opened(store(Sample.chat("background-agents"))) }),
             Entry(name: "chat-composer-context-full", make: { store(Sample.chat("code-blocks"), tokens: 184_000, window: 200_000) }),
+            Entry(name: "chat-composer-offline", make: {
+                let s = store(Sample.chat("streaming-live"), status: .working)
+                s.follow(online: false, mac: "Mingo's MacBook Pro")
+                s.draft.text = "Also keep sub-agents as their own rows"
+                return s
+            }),
+            Entry(name: "chat-composer-upload-failed", make: {
+                let s = store(Sample.chat("empty"))
+                s.draft.images = [.init(id: "a", name: "a.png", path: "/att/a.png")]
+                // No Mac takes it in the gallery, so it fails as offline.
+                s.attach(Data([1]), name: "b.png")
+                s.draft.text = "Why does the graph overlap here?"
+                return s
+            }),
+            Entry(name: "chat-composer-armed", make: {
+                let s = store(Sample.chat("empty"))
+                s.draft.images = [.init(id: "a", name: "a.png")]
+                s.draft.text = "Why does the graph overlap here?"
+                s.send()
+                return s
+            }),
+            Entry(name: "chat-composer-closed", make: {
+                let s = store(Sample.chat("every-tool-kind"))
+                _ = s.apply(.agentList(.init(agents: [])))
+                return s
+            }),
         ]
         return (transcripts + composer).flatMap { scene in
             [false, true].map { dark in
                 GalleryScene(dark ? "\(scene.name)-dark" : scene.name, dark: dark) {
-                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", openFile: { _ in }, live: false) })
+                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", openLink: { _ in }, live: false) })
                 }
             }
         }

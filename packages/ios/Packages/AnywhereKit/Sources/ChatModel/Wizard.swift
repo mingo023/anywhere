@@ -28,7 +28,7 @@ public struct Wizard: Hashable, Sendable {
     }
 
     public var question: Question { questions[page] }
-    var last: Bool { page + 1 >= questions.count }
+    public var last: Bool { page + 1 >= questions.count }
     public func isPicked(_ option: Int) -> Bool { picked[page].contains(option) }
     public var pageHasPick: Bool { !picked[page].isEmpty }
     public func canAdvance(typedEmpty: Bool) -> Bool { pageHasPick || !typedEmpty }

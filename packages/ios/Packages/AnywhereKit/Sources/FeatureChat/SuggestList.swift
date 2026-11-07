@@ -13,8 +13,10 @@ struct SuggestList: View {
     let signsIn: (String) -> Bool
     let acting: (String) -> ClientMessage.AgentMcp.Action?
     let pick: (Int) -> Void
+    /// The room over the composer it may take, no more than `maxHeight`.
+    var height = SuggestList.maxHeight
 
-    static let rowHeight: CGFloat = 40
+    static let rowHeight: CGFloat = 44
     static let maxHeight = rowHeight * CGFloat(Suggest.shown) + 8
 
     var body: some View {
@@ -48,7 +50,7 @@ struct SuggestList: View {
             }
             .padding(4)
         }
-        .frame(maxHeight: Self.maxHeight)
+        .frame(maxHeight: min(height, Self.maxHeight))
         .fixedSize(horizontal: false, vertical: true)
         .background(Palette.popover.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.hairline.color))

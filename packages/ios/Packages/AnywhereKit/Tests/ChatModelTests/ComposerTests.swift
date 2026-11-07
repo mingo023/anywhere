@@ -37,7 +37,7 @@ func subAgentsLeftInTheBackground() {
     let busy = Composer.busy(agent("idle"), ended)
     #expect(!busy)
     #expect(Composer.placeholder(working: busy, stopping: false, canQueue: true) == Composer.placeholder)
-    #expect(Composer.hint(.prompt, working: busy, stopping: false, empty: true, canQueue: true) == nil)
+    #expect(Composer.hint(.prompt, working: busy, stopping: false, empty: true, canQueue: true, keyboard: true, mac: "Studio") == nil)
     #expect(action(working: busy, stopping: false, empty: true) == .send)
 }
 
@@ -68,19 +68,20 @@ func aSendOnItsWayHoldsTheNext() {
 
 @Test("the footer hints at what enter does now")
 func theFooterHints() {
-    #expect(Composer.hint(.prompt, working: false, stopping: false, empty: true, canQueue: true) == nil)
-    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: true, canQueue: true) == "Working · esc to stop")
-    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: false, canQueue: true) == "⏎ send into this turn · ⌘⏎ queue for after")
-    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: false, canQueue: false) == "Working · esc to stop")
-    #expect(Composer.hint(.permission(answerable: true), working: true, stopping: false, empty: true, canQueue: true) == "Answer the request above to continue")
-    #expect(Composer.hint(.viewOnly, working: false, stopping: false, empty: true, canQueue: true) == nil)
+    #expect(Composer.hint(.prompt, working: false, stopping: false, empty: true, canQueue: true, keyboard: true, mac: "Studio") == nil)
+    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: true, canQueue: true, keyboard: true, mac: "Studio") == "Working · esc to stop")
+    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: false, canQueue: true, keyboard: true, mac: "Studio") == "⏎ send into this turn · ⌘⏎ queue for after")
+    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: false, canQueue: false, keyboard: true, mac: "Studio") == "Working · esc to stop")
+    #expect(Composer.hint(.permission(answerable: true), working: true, stopping: false, empty: true, canQueue: true, keyboard: true, mac: "Studio")
+        == "Answer the request above to continue")
+    #expect(Composer.hint(.viewOnly, working: false, stopping: false, empty: true, canQueue: true, keyboard: true, mac: "Studio") == nil)
 }
 
 @Test("a turn being stopped reads stopping and takes sends only into the queue")
 func aTurnBeingStoppedReadsStopping() {
-    #expect(Composer.hint(.prompt, working: true, stopping: true, empty: true, canQueue: true) == "Stopping…")
-    #expect(Composer.hint(.prompt, working: true, stopping: true, empty: false, canQueue: true) == "Stopping…")
-    #expect(Composer.hint(.prompt, working: false, stopping: true, empty: true, canQueue: true) == nil)
+    #expect(Composer.hint(.prompt, working: true, stopping: true, empty: true, canQueue: true, keyboard: true, mac: "Studio") == "Stopping…")
+    #expect(Composer.hint(.prompt, working: true, stopping: true, empty: false, canQueue: true, keyboard: true, mac: "Studio") == "Stopping…")
+    #expect(Composer.hint(.prompt, working: false, stopping: true, empty: true, canQueue: true, keyboard: true, mac: "Studio") == nil)
     #expect(Composer.placeholder(working: true, stopping: true, canQueue: true) == "Queue a follow-up…")
     #expect(Composer.placeholder(working: true, stopping: false, canQueue: true) == "Send a follow-up into this turn…")
     #expect(Composer.stopBesideSteer(.steer, interrupt: true))
@@ -112,4 +113,40 @@ func anAskIsAnswerableByTheApproveScope() {
 @Test("the input grows to eleven rows before it scrolls")
 func theInputGrowsToElevenRows() {
     #expect(Composer.maxRows == 11)
+}
+
+@Test("on a touch phone the footer hints at the buttons, not the keys")
+func onATouchPhoneTheFooterHintsAtTheButtons() {
+    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: true, canQueue: true, keyboard: false, mac: "Studio") == "Working · tap ■ to stop")
+    #expect(Composer.hint(.prompt, working: true, stopping: false, empty: false, canQueue: true, keyboard: false, mac: "Studio")
+        == "↑ sends into this turn · hold to queue")
+}
+
+@Test("a phone that can't answer an ask is told to answer on the Mac, and one that can only watch how to drive")
+func aPhoneThatCantAnswerIsToldWhere() {
+    #expect(Composer.hint(.permission(answerable: false), working: true, stopping: false, empty: true, canQueue: true, keyboard: false, mac: "Studio")
+        == "Answer it on Studio")
+    #expect(Composer.hint(.question(answerable: false), working: true, stopping: false, empty: true, canQueue: true, keyboard: false, mac: "Studio")
+        == "Answer it on Studio")
+    #expect(Composer.viewOnly(mac: "Studio") == "This iPhone can only watch on Studio. Pair it again to send prompts.")
+}
+
+@Test("a closed session gets no composer, whatever it asked")
+func aClosedSessionGetsNoComposer() {
+    #expect(Composer.mode(observeOnly: false, canApprove: true, ask: ask([]), closed: true) == .closed)
+    #expect(Composer.hint(.closed, working: false, stopping: false, empty: true, canQueue: true, keyboard: false, mac: "Studio") == nil)
+}
+
+@Test("the input keeps to about five rows with the keyboard up and eleven at most")
+func theInputKeepsToAboutFiveRowsWithTheKeyboardUp() {
+    #expect(Composer.rows(height: 420) == 5)
+    #expect(Composer.rows(height: 2000) == Composer.maxRows)
+    #expect(Composer.rows(height: 100) == 3)
+}
+
+@Test("Stop pressed within a second of a send is ignored")
+func stopPressedWithinASecondOfASendIsIgnored() {
+    #expect(Composer.guardsStop(sentAt: 10_000, now: 10_400))
+    #expect(!Composer.guardsStop(sentAt: 10_000, now: 11_000))
+    #expect(!Composer.guardsStop(sentAt: nil, now: 10_400))
 }
