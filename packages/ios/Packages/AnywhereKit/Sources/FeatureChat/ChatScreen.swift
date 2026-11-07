@@ -19,7 +19,7 @@ struct ChatScreen: View {
     @State private var showing: String?
     /// Taps on the transcript, which close the suggest list.
     @State private var outsideTaps = 0
-    @FocusState private var typing: Bool
+    @FocusState private var focus: ChatField?
 
     var body: some View {
         let _ = BodyCount.hit("ChatScreen")
@@ -29,18 +29,18 @@ struct ChatScreen: View {
                     .simultaneousGesture(
                         TapGesture().onEnded {
                             outsideTaps += 1
-                            typing = false
+                            focus = nil
                         }
                     )
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 6).onChanged { drag in
-                            if typing && Composer.hidesKeyboard(dragged: drag.translation.height) { typing = false }
+                            if focus != nil && Composer.hidesKeyboard(dragged: drag.translation.height) { focus = nil }
                         }
                     )
                 if !store.online { StaleStrip(mac: machine) }
                 ComposerView(
                     store: store, machine: machine, height: screen.size.height, outsideTaps: outsideTaps, show: show, mapOpen: $mapOpen,
-                    openLink: openLink, focused: $typing)
+                    openLink: openLink, focus: $focus)
             }
             .coordinateSpace(name: ComposerView.space)
         }

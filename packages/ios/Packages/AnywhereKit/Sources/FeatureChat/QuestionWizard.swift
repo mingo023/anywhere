@@ -15,6 +15,7 @@ struct QuestionWizard: View {
     let change: ((inout Wizard) -> Wizard.Step) -> Void
     let skip: () -> Void
     let openLink: (MarkdownLink) -> Void
+    var focus: FocusState<ChatField?>.Binding
     @State private var advancing: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -56,6 +57,7 @@ struct QuestionWizard: View {
                         .lineLimit(1...4)
                         .textFieldStyle(.plain)
                         .font(ChatFont.small)
+                        .focused(focus, equals: .answer)
                         .disabled(!answerable)
                 }
                 .padding(Space.s)
