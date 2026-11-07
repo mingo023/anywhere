@@ -148,7 +148,7 @@ public struct CodeBlockView: View {
                     .foregroundStyle((wrapped ? Palette.text : Palette.text2).color)
                     .frame(width: 28, height: 28)
                     .background(wrapped ? Palette.fill3.color : .clear, in: RoundedRectangle(cornerRadius: 5))
-                    .contentShape(Rectangle())
+                    .hitTarget()
             }
             .buttonStyle(.plain)
             .help(wrapped ? "Scroll long lines" : "Wrap long lines")
@@ -160,8 +160,7 @@ public struct CodeBlockView: View {
                 }
                 .foregroundStyle(Palette.text2.color)
                 .padding(.horizontal, 6)
-                .frame(minWidth: 28, minHeight: 28)
-                .contentShape(Rectangle())
+                .hitTarget()
             }
             .buttonStyle(.plain)
             .help("Copy code")
@@ -169,7 +168,6 @@ public struct CodeBlockView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 2)
-        .frame(height: 28)
         .background(Palette.fill1.color)
     }
 
