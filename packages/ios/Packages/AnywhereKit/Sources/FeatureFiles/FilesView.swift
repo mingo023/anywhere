@@ -18,7 +18,7 @@ public struct FilesView: View {
         switch route {
         case .files(_, let tree, let dir):
             FileTreeScreen(files: host.files, model: host.files.tree(tree), dir: dir)
-        case .file(_, let tree, let path):
+        case .file(_, let tree, let path, _):
             FilePreviewScreen(files: host.files, preview: host.files.preview(tree: tree, path: path))
         default:
             Placeholder("Files", systemImage: "folder")
