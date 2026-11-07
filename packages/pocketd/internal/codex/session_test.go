@@ -498,3 +498,10 @@ func TestASubAgentsApprovalClosesItsCardWhenItsThreadResolvesIt(t *testing.T) {
 	}
 	t.Fatal("the card stayed open")
 }
+
+func TestATeamPromptShowsOnlyWhatTheUserTyped(t *testing.T) {
+	srv, _, snk, _ := open(t, emptyThread)
+	srv.Push("turn/started", nil, `{"threadId":"th1","turn":{"id":"t2","items":[],"status":"inProgress"}}`)
+	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t2","item":{"type":"userMessage","id":"u2","content":[{"type":"text","text":"<anywhere_team>\nPlan it.\n</anywhere_team>\n\nAdd truncate"}]}}`)
+	snk.wait(t, "user:Add truncate")
+}

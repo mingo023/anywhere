@@ -34,6 +34,9 @@ type Answer struct {
 type Broker struct {
 	// OnAsk runs after each new request is shown, outside the lock. Set it before the first Ask.
 	OnAsk func(proto.PermissionRequest)
+	// Allow is what Auto asks: true answers an ask allow without showing it
+	// to anyone. Set it before the first Ask.
+	Allow func(proto.PermissionRequest) bool
 
 	mu   sync.Mutex
 	hub  *hub.Hub
@@ -49,6 +52,12 @@ func newRequestID() string {
 }
 
 func New(h *hub.Hub) *Broker { return &Broker{hub: h, open: map[string]*pending{}} }
+
+// Auto is whether Allow answers req allow by itself. Callers check it before
+// Ask, and before showing the agent as needing you, which it then doesn't.
+func (b *Broker) Auto(req proto.PermissionRequest) bool {
+	return b.Allow != nil && b.Allow(req)
+}
 
 // Ask shows req on every phone and returns its answer, whose Decision is
 // "allow" or "deny", or "" when the desktop answered first (see Dismiss).

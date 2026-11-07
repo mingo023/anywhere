@@ -406,7 +406,7 @@ impl Desktop {
             released.extend(view.refresh(agent, self.agents.revision(id), items).into_iter().map(|(send, text)| (id.clone(), send, text)));
         }
         for (id, send, text) in released {
-            if let (Some(request), Some(v)) = (self.outbox.prompt(&id, &text), self.chats.views.get_mut(&id)) {
+            if let (Some(request), Some(v)) = (self.outbox.prompt(&id, &text, false), self.chats.views.get_mut(&id)) {
                 v.session.outgoing.sent_as(send, request);
             }
         }
@@ -427,7 +427,7 @@ impl Desktop {
             v
         });
         for (send, text) in view.refresh(&agent, self.agents.revision(&id), items) {
-            if let Some(request) = self.outbox.prompt(&id, &text) {
+            if let Some(request) = self.outbox.prompt(&id, &text, false) {
                 view.session.outgoing.sent_as(send, request);
             }
         }
@@ -587,8 +587,9 @@ impl Desktop {
     }
 
     fn chat_retry(&mut self, agent: &str, send: u64, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.retry(send)) else { return };
+        let Some((text, team)) = self.chats.views.get_mut(agent).and_then(|v| v.session.outgoing.retry(send)) else { return };
         self.chat_take_back(agent, &text, window, cx);
+        self.chats.composer.draft.team |= team;
     }
 
     fn chat_highlight(&mut self, agent: &str, row: &str, lang: &str, code: &str, cx: &mut Context<Self>) {

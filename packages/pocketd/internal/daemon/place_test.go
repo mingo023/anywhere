@@ -90,6 +90,18 @@ func TestTheTerminalsOriginGoesToItsFirstAgent(t *testing.T) {
 	}
 }
 
+func TestTheTerminalsParentGoesToItsFirstAgent(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Cwd: t.TempDir(), Env: []string{"PATH=/bin:/usr/bin"}, Parent: "a-lead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	if a := waitAgent(t, d, term); a.Parent != "a-lead" {
+		t.Fatalf("%+v", a)
+	}
+}
+
 func TestClaudeReportsTheContextItAnsweredFrom(t *testing.T) {
 	d := newDaemon(t)
 	_, pr := claudeIn(t, d)

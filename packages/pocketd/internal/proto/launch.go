@@ -43,6 +43,11 @@ type LaunchSpec struct {
 	Account string `json:"account,omitempty"`
 	// Chat runs the agent for the chat where its provider can; without it, in its TUI.
 	Chat bool `json:"chat,omitempty"`
+	// Team makes the first prompt ask the agent for a team's plan.
+	Team bool `json:"team,omitempty"`
+	// Parent is the id of the listed agent this one starts under, as a team's
+	// worker under its lead; empty for none. Only the owner may set it.
+	Parent string `json:"parent,omitempty"`
 }
 
 // Checkout is exactly one of Worktree, New and Local.
@@ -168,7 +173,7 @@ func strictObject(raw json.RawMessage, allowed ...string) (map[string]json.RawMe
 }
 
 func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
-	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account", "chat")
+	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account", "chat", "parent", "team")
 	if !ok {
 		return false
 	}

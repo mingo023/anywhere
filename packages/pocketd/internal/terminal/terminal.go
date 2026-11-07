@@ -35,6 +35,8 @@ type Spec struct {
 	Rows int
 	// Origin is who asked for the Terminal; its first agent takes it.
 	Origin string
+	// Parent is the agent its first agent was started under; empty for none.
+	Parent string
 	// Local is the Local the Terminal was opened in, fixed for life; empty
 	// means it belongs to the Worktree holding Cwd.
 	Local string
@@ -68,6 +70,7 @@ type Terminal struct {
 	closed bool
 	input  func(id string, b []byte)
 	origin string
+	parent string
 	resume chan struct{} // closed by Resume; nil unless paused
 	parked chan struct{} // closed once the pump stops reading for this pause
 	osc    scanner
@@ -152,6 +155,7 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		input:  m.OnInput,
 		report: m.OnReport,
 		origin: spec.Origin,
+		parent: spec.Parent,
 	}
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
 	if err != nil {
@@ -432,6 +436,16 @@ func (s *Terminal) TakeOrigin() string {
 	o := s.origin
 	s.origin = ""
 	return o
+}
+
+// TakeParent is Spec.Parent once, then "": only the agent the Terminal was
+// launched for starts under another.
+func (s *Terminal) TakeParent() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.parent
+	s.parent = ""
+	return p
 }
 
 func (s *Terminal) Pid() int {

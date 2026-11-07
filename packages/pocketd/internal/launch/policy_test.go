@@ -14,6 +14,11 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		s.Checkout = proto.Checkout{New: &n}
 		return s
 	}
+	under := func(parent string) proto.LaunchSpec {
+		s := spec("claude", "ask", false)
+		s.Parent = parent
+		return s
+	}
 	for _, c := range []struct {
 		name      string
 		w         Who
@@ -38,6 +43,8 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		{"phone pr", phone, newTree(proto.NewWorktree{PR: "123"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
 		{"phone copy", phone, newTree(proto.NewWorktree{Name: "n", Copy: &no}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
 		{"phone setup", phone, newTree(proto.NewWorktree{Name: "n", Setup: &no}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
+		{"owner parent", owner, under("a1"), "ask", ""},
+		{"phone parent", phone, under("a1"), "ask", "Only your Mac starts a session under another"},
 	} {
 		f := Check(c.w, c.s, c.maxAccess)
 		switch {

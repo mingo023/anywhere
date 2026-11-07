@@ -24,6 +24,8 @@ pub struct Pending {
     request: Option<String>,
     /// A stop put it back in the queue after it went out; should the agent run it after all, its echo settles it.
     stopped: bool,
+    /// It asked for a team plan; a retry asks again.
+    team: bool,
 }
 
 /// A prompt must reach the transcript within this long of being sent, or it reads as not delivered.
@@ -94,7 +96,7 @@ impl Outgoing {
         let delivery = if working { Delivery::Queued } else { Delivery::Sending };
         self.after_stop |= working && self.stopping.is_some();
         self.next_id += 1;
-        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery, request: None, stopped: false });
+        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery, request: None, stopped: false, team: false });
         (!working).then_some(self.next_id)
     }
 
@@ -104,7 +106,7 @@ impl Outgoing {
             self.command = Some(Ran::new(now_ms));
         }
         self.next_id += 1;
-        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery: Delivery::Steered, request: None, stopped: false });
+        self.sends.push(Pending { id: self.next_id, text, sent_at: now_ms, delivery: Delivery::Steered, request: None, stopped: false, team: false });
         self.next_id
     }
 
@@ -112,6 +114,13 @@ impl Outgoing {
     pub fn sent_as(&mut self, id: u64, request: String) {
         if let Some(send) = self.sends.iter_mut().find(|s| s.id == id) {
             send.request = Some(request);
+        }
+    }
+
+    /// Marks send `id` as asking for a team plan.
+    pub fn asks_team(&mut self, id: u64) {
+        if let Some(send) = self.sends.iter_mut().find(|s| s.id == id) {
+            send.team = true;
         }
     }
 
@@ -243,17 +252,17 @@ impl Outgoing {
 
     /// Drops a queued send unsent, handing back its text.
     pub fn withdraw(&mut self, id: u64) -> Option<String> {
-        self.take(id, Delivery::Queued)
+        self.take(id, Delivery::Queued).map(|s| s.text)
     }
 
-    /// Takes a failed send back for resending.
-    pub fn retry(&mut self, id: u64) -> Option<String> {
-        self.take(id, Delivery::Failed)
+    /// Takes a failed send back for resending: its text, and whether it asked for a team plan.
+    pub fn retry(&mut self, id: u64) -> Option<(String, bool)> {
+        self.take(id, Delivery::Failed).map(|s| (s.text, s.team))
     }
 
-    fn take(&mut self, id: u64, delivery: Delivery) -> Option<String> {
+    fn take(&mut self, id: u64, delivery: Delivery) -> Option<Pending> {
         let ix = self.sends.iter().position(|s| s.id == id && s.delivery == delivery)?;
-        Some(self.sends.remove(ix).text)
+        Some(self.sends.remove(ix))
     }
 
     /// Fails the send that went under `request` at once: the agent refused it. The queue waits until a send gets through or the user resumes.
@@ -565,7 +574,7 @@ mod tests {
         let hello = id(&o, "hello");
         assert_eq!(o.retry(hello), None);
         o.settle(&Transcript::default(), false, 200_000);
-        assert_eq!(o.retry(hello), Some("hello".into()));
+        assert_eq!(o.retry(hello), Some(("hello".into(), false)));
         assert!(o.list().is_empty());
         assert_eq!(o.retry(hello), None);
     }
@@ -692,7 +701,7 @@ mod tests {
         sent(&mut o, "a", "prompt-1");
         o.push("b".into(), true, 0);
         o.fail("prompt-1");
-        let retried = o.retry(id(&o, "a")).unwrap();
+        let (retried, _) = o.retry(id(&o, "a")).unwrap();
         sent(&mut o, &retried, "prompt-2");
         let done = Transcript { turns: vec![turn("u1", 100, "a", true)] };
         o.settle(&done, false, 1_000);
@@ -735,9 +744,21 @@ mod tests {
         o.push("a".into(), false, 0);
         o.push("b".into(), false, 0);
         o.settle(&Transcript::default(), false, 200_000);
-        assert_eq!(o.retry(id(&o, "b")), Some("b".into()));
+        assert_eq!(o.retry(id(&o, "b")), Some(("b".into(), false)));
         assert_eq!(texts(&o), ["a"]);
         assert_eq!(deliveries(&o), vec![Delivery::Failed]);
+    }
+
+    #[test]
+    fn a_retried_team_send_asks_for_a_team_again() {
+        let mut o = Outgoing::default();
+        sent(&mut o, "Split the parser", "prompt-1");
+        o.asks_team(id(&o, "Split the parser"));
+        sent(&mut o, "hi", "prompt-2");
+        o.fail("prompt-1");
+        o.fail("prompt-2");
+        assert_eq!(o.retry(id(&o, "Split the parser")), Some(("Split the parser".into(), true)));
+        assert_eq!(o.retry(id(&o, "hi")), Some(("hi".into(), false)));
     }
 
     #[test]

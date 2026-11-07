@@ -84,10 +84,12 @@ public struct LaunchSpec: Codable, Hashable, Sendable {
     public var account: String?
     /// Run without its TUI: only the chat drives it.
     public var chat: Bool?
+    /// The first prompt asks the agent for a team's plan.
+    public var team: Bool?
 
     public init(
         project: String, checkout: Checkout, provider: ProviderId, model: String? = nil, effort: String? = nil, access: Access,
-        plan: Bool, prompt: String? = nil, fork: String? = nil, account: String? = nil, chat: Bool? = nil
+        plan: Bool, prompt: String? = nil, fork: String? = nil, account: String? = nil, chat: Bool? = nil, team: Bool? = nil
     ) {
         self.project = project
         self.checkout = checkout
@@ -100,6 +102,7 @@ public struct LaunchSpec: Codable, Hashable, Sendable {
         self.fork = fork
         self.account = account
         self.chat = chat
+        self.team = team
     }
 }
 

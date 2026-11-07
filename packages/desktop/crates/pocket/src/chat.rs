@@ -1,4 +1,5 @@
 mod agent_map;
+mod breadcrumb;
 pub(crate) mod composer;
 mod diff;
 mod drafts;
@@ -178,8 +179,9 @@ impl Desktop {
             Some(agent) => self.arriving(agent, crate::creating::DOCK, composer, window, cx),
             None => composer,
         };
+        let crumb = agent.as_deref().and_then(|a| self.chat_breadcrumb(a, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
-        div().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(transcript).child(composer).children(files)
+        div().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).children(crumb).child(transcript).child(composer).children(files)
     }
 }
 

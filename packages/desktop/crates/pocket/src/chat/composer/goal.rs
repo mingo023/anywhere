@@ -34,7 +34,7 @@ impl Desktop {
         // Sent at once rather than queued behind the turn, which a goal can keep going for long.
         let send = |text: &'static str| {
             let agent = agent.id.clone();
-            cx.listener(move |this, _: &ClickEvent, _, _| _ = this.outbox.prompt(&agent, text))
+            cx.listener(move |this, _: &ClickEvent, _, _| _ = this.outbox.prompt(&agent, text, false))
         };
         let pause = (chat::for_provider(&agent.provider).pauses_goal() && goal.status == GoalStatus::Active)
             .then(|| control(format!("chat-goal-pause:{}", agent.id), "Pause the goal").child(icon("stop", 12., TEXT_3)).on_click(send("/goal pause")));

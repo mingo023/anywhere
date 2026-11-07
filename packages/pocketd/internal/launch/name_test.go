@@ -80,6 +80,21 @@ func TestAVaguePromptIsNamedAgainFromTheAgentsFirstReply(t *testing.T) {
 	}
 }
 
+func TestALeadWhosePlanWaitsIsStillNamedFromItsFirstReply(t *testing.T) {
+	old := replyPoll
+	replyPoll = time.Millisecond
+	t.Cleanup(func() { replyPoll = old })
+	l, a, j := placed(t)
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "I'll split this into two tasks"})
+	a.TurnEnded(false)
+	a.SetAwaiting(true)
+	prompts := answers(l, naming.Result{Title: "Hello", Branch: "hello", Vague: true}, naming.Result{Title: "Split the work", Branch: "split-the-work"})
+	name(l, a, j)
+	if len(*prompts) != 2 || a.Summary().Title != "Split the work" {
+		t.Fatalf("%q %+v", *prompts, a.Summary())
+	}
+}
+
 func TestNamingGivesUpAfterThreeFailuresAndSaysSo(t *testing.T) {
 	l, a, j := placed(t)
 	msgs, stop := l.Names.Subscribe()

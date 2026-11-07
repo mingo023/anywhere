@@ -10,3 +10,4 @@ export * from "./git.js";
 export * from "./gh.js";
 export * from "./fs.js";
 export * from "./push.js";
+export * from "./team.js";

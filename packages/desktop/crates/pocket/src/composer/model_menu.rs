@@ -21,7 +21,7 @@ fn pill_label(agent: &str, pick: &LaunchPick, app: &Provider, efforts: &[String]
 }
 
 /// Codex's listed name for its slug, else the model's label.
-fn model_name(model: &str, names: &[(String, String)]) -> String {
+pub(crate) fn model_name(model: &str, names: &[(String, String)]) -> String {
     names.iter().find(|(slug, _)| slug == model).map_or_else(|| model_label(model), |(_, name)| name.clone())
 }
 

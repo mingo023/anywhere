@@ -138,7 +138,7 @@ impl Desktop {
         let Some(v) = self.chats.views.get_mut(agent) else { return };
         let Some(text) = v.session.outgoing.steer(send, now_ms()) else { return };
         v.steered();
-        if let Some(request) = self.outbox.prompt(agent, &text) {
+        if let Some(request) = self.outbox.prompt(agent, &text, false) {
             v.session.outgoing.sent_as(send, request);
         }
         cx.notify();

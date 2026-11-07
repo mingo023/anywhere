@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"log"
 	"os"
@@ -37,6 +38,7 @@ type hint struct {
 	pr      *presence
 	live    agent.Driver // pr's driver, which takes over once the restore settles
 	over    bool
+	settled bool // finish has returned: the agent shows how its restore went
 	timer   *time.Timer
 	handoff bool   // handed down by the pocketd before exec; its agent never stopped
 	moved   bool   // a switch restarted the agent on another account; it stayed listed throughout
@@ -148,7 +150,7 @@ func (d *Daemon) reopen(e state.Terminal, shell string) (*terminal.Terminal, str
 func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, carried *handoff.Agent) {
 	h := &hint{saved: e, started: time.Now(), handoff: carried != nil}
 	x := agent.Restored{ID: e.AgentID, Cwd: e.LaunchDir, Provider: e.Provider, Conversation: e.ConversationID,
-		Origin: e.Origin, Fallback: filepath.Base(e.LaunchDir), CreatedAt: e.CreatedAt, Done: e.Status == "done", Failed: e.Failed, Pinned: e.Pinned, Account: e.Account, ChatOnly: e.Chat}
+		Origin: e.Origin, Fallback: filepath.Base(e.LaunchDir), CreatedAt: e.CreatedAt, Done: e.Status == "done", Failed: e.Failed, Pinned: e.Pinned, Account: e.Account, ChatOnly: e.Chat, Parent: e.Parent}
 	if carried != nil {
 		x.Named, x.Phase, x.Epoch, x.Seq = carried.Named, carried.Phase, carried.Epoch, carried.Seq
 	}
@@ -247,6 +249,7 @@ func (d *Daemon) finish(h *hint, reason string) {
 		return
 	}
 	h.over = true
+	defer d.markSettled(h)
 	if h.timer != nil {
 		h.timer.Stop()
 	}
@@ -258,6 +261,8 @@ func (d *Daemon) finish(h *hint, reason string) {
 	if reason == "" && h.pr != nil {
 		// A switch picked while the agent was settling waits for it.
 		go d.switchPending(h.pr)
+		// So does its mail: a restoring agent's driver takes none.
+		d.Pump(h.a.ID())
 	}
 	if h.handoff && reason == "" {
 		return
@@ -277,6 +282,35 @@ func (d *Daemon) finish(h *hint, reason string) {
 		h.a.SetRestore(outcome)
 	}
 	d.report(h.a.ID(), reason == "", time.Since(h.started).Milliseconds(), outcome, reason)
+}
+
+func (d *Daemon) markSettled(h *hint) {
+	d.mu.Lock()
+	h.settled = true
+	d.mu.Unlock()
+}
+
+// WaitRestored returns once every saved agent has come back or failed to, or with ctx's error.
+func (d *Daemon) WaitRestored(ctx context.Context) error {
+	for !d.restored() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
+func (d *Daemon) restored() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, h := range d.restoring {
+		if !h.settled {
+			return false
+		}
+	}
+	return true
 }
 
 // drop closes h's placeholder, unless an agent settled it.

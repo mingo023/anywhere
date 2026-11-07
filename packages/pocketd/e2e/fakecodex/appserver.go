@@ -19,6 +19,7 @@ import (
 //	<text>       reply "echo: <text>"
 //	run <cmd>    ask to run cmd, then reply "echo: ran <cmd>" if allowed
 //	slow <text>  reply after 3s, unless interrupted; a prompt meanwhile joins the reply
+//	turn/steer   joins the slow turn under way, as a prompt sent mid-turn does
 //
 // Like codex, a bogus model fails each turn rather than the start.
 type appServer struct {
@@ -168,10 +169,7 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 		note("resume: %s", threadID)
 		a.opened(id)
 	case "turn/start":
-		text := ""
-		if input, _ := p["input"].([]any); len(input) > 0 {
-			text, _ = input[0].(map[string]any)["text"].(string)
-		}
+		text := inputText(p)
 		a.mu.Lock()
 		t := a.turn
 		a.mu.Unlock()
@@ -187,6 +185,18 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 		a.mu.Unlock()
 		a.reply(id, map[string]any{"turn": map[string]any{"id": t.id, "status": "inProgress"}})
 		go a.run(t, text)
+	case "turn/steer":
+		text := inputText(p)
+		a.mu.Lock()
+		t := a.turn
+		a.mu.Unlock()
+		if t == nil || p["expectedTurnId"] != t.id {
+			a.refuse(id, "expected active turn id mismatch")
+			return
+		}
+		note("steer: %s", text)
+		t.steers <- text
+		a.reply(id, map[string]any{"turnId": t.id})
 	case "turn/interrupt":
 		a.mu.Lock()
 		t := a.turn
@@ -352,4 +362,14 @@ func (a *appServer) compact(t *liveTurn) {
 	a.item(t, map[string]any{"type": "contextCompaction", "id": "k-" + uuid()}, true)
 	note("compacted")
 	a.end(t, "completed", "")
+}
+
+// inputText is the text of a turn call's first input.
+func inputText(p map[string]any) string {
+	input, _ := p["input"].([]any)
+	if len(input) == 0 {
+		return ""
+	}
+	text, _ := input[0].(map[string]any)["text"].(string)
+	return text
 }

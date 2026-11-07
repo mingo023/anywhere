@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"c10","requestId":"r10","spec":{"project":"/Users/me/pocket","checkout":{"worktree":"/Users/me/pocket"},"provider":"claude","access":"ask","plan":false,"prompt":"Add truncate and titleCase","chat":true,"team":true}}

@@ -1,6 +1,6 @@
 //! Terminals and agents on hosts next to this Mac's: their ids carry the host's, and ops go back to the pocketd holding them.
 
-use agents::{Decision, Event, McpAction, Outbox, Summary};
+use agents::{Decision, Event, McpAction, Outbox, Summary, TaskPick, Team};
 use daemon::{Daemon, Info, Msg};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -103,8 +103,23 @@ fn tag_summary(host: &str, a: &mut Summary) {
     if !a.terminal_id.is_empty() {
         a.terminal_id = tag(host, &a.terminal_id);
     }
+    if !a.parent.is_empty() {
+        a.parent = tag(host, &a.parent);
+    }
     if !a.cwd.is_empty() {
         a.cwd = crate::place(host, &a.cwd);
+    }
+}
+
+fn tag_team(host: &str, team: &mut Team) {
+    team.lead = tag(host, &team.lead);
+    for t in &mut team.tasks {
+        if !t.worker.is_empty() {
+            t.worker = tag(host, &t.worker);
+        }
+        if !t.worktree.is_empty() {
+            t.worktree = crate::place(host, &t.worktree);
+        }
     }
 }
 
@@ -114,6 +129,8 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
     match ev {
         Event::Agents(list) => list.iter_mut().for_each(|a| tag_summary(host, a)),
         Event::Agent(a) => tag_summary(host, a),
+        Event::Team(team) => tag_team(host, team),
+        Event::Teams(teams) => teams.iter_mut().for_each(|t| tag_team(host, t)),
         Event::Items(id, _) | Event::Page { agent: id, .. } | Event::Resolved(id) | Event::NamingFailed(id) | Event::Progress { request: id, .. } | Event::CreateFailed { request: id, .. } => t(id),
         Event::Asked(p) => {
             t(&mut p.request_id);
@@ -128,7 +145,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(request);
             t(agent);
         }
-        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } => t(agent),
+        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } | Event::TeamFailed { lead: agent, .. } => t(agent),
         Event::Skills { project, .. } => *project = crate::place(host, project),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
         Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } => {}
@@ -216,9 +233,9 @@ impl Outboxes {
     }
 
     /// The request id a refusal names, once sent.
-    pub fn prompt(&self, agent_id: &str, text: &str) -> Option<String> {
+    pub fn prompt(&self, agent_id: &str, text: &str, team: bool) -> Option<String> {
         let (host, theirs) = untag(agent_id);
-        self.to(host).map(|out| out.prompt(theirs, text))
+        self.to(host).map(|out| out.prompt(theirs, text, team))
     }
 
     pub fn interrupt(&self, agent_id: &str) {
@@ -275,6 +292,18 @@ impl Outboxes {
 
     pub fn reply(&self, request_id: &str, message: &str) {
         self.by_id(request_id, |o, id| o.reply(id, message));
+    }
+
+    pub fn team_start(&self, lead: &str, tasks: &[TaskPick]) {
+        self.by_id(lead, |o, id| o.team_start(id, tasks));
+    }
+
+    pub fn team_stop(&self, lead: &str, task: &str) {
+        self.by_id(lead, |o, id| o.team_stop(id, task));
+    }
+
+    pub fn team_merge(&self, lead: &str) {
+        self.by_id(lead, |o, id| o.team_merge(id));
     }
 
     pub fn rename(&self, path: &str, title: &str) {
@@ -413,6 +442,37 @@ mod tests {
         assert!(!tag_event("devbox", &mut Event::Locals(Vec::new())));
     }
 
+    #[test]
+    fn a_hosts_team_names_its_lead_workers_and_worktrees_in_the_desktops_terms() {
+        let task = |worker: &str, worktree: &str| agents::TeamTask { id: "t1".into(), worker: worker.into(), worktree: worktree.into(), ..Default::default() };
+        let mut ev = Event::Team(Team { lead: "a1".into(), tasks: vec![task("w1", "/home/me/.worktrees/team-a1-t1"), task("", "")], ..Team::default() });
+        assert!(tag_event("devbox", &mut ev));
+        let Event::Team(team) = ev else { unreachable!() };
+        assert_eq!(team, Team { lead: "devbox/a1".into(), tasks: vec![task("devbox/w1", "//devbox/home/me/.worktrees/team-a1-t1"), task("", "")], ..Team::default() });
+
+        let mut list = Event::Teams(vec![Team { lead: "a2".into(), ..Team::default() }]);
+        assert!(tag_event("devbox", &mut list));
+        assert!(matches!(list, Event::Teams(t) if t[0].lead == "devbox/a2"));
+    }
+
+    #[test]
+    fn a_hosts_refused_team_request_names_its_lead_in_the_desktops_terms() {
+        let mut ev = Event::TeamFailed { lead: "a1".into(), action: agents::TeamAction::Plan("prompt-1".into()), message: "busy".into() };
+        assert!(tag_event("devbox", &mut ev));
+        assert!(matches!(ev, Event::TeamFailed { lead, action: agents::TeamAction::Plan(request), .. } if lead == "devbox/a1" && request == "prompt-1"));
+    }
+
+    #[test]
+    fn a_hosts_session_names_its_parent_by_the_tagged_id_and_one_without_stays_without() {
+        let mut child = Event::Agent(Summary { id: "w1".into(), parent: "a1".into(), ..Summary::default() });
+        assert!(tag_event("devbox", &mut child));
+        assert!(matches!(child, Event::Agent(a) if a.id == "devbox/w1" && a.parent == "devbox/a1"));
+
+        let mut lead = Event::Agent(Summary { id: "a1".into(), ..Summary::default() });
+        assert!(tag_event("devbox", &mut lead));
+        assert!(matches!(lead, Event::Agent(a) if a.parent.is_empty()));
+    }
+
     fn outboxes() -> (Outboxes, std::sync::mpsc::Receiver<Value>, std::sync::mpsc::Receiver<Value>) {
         let (local, here) = std::sync::mpsc::channel();
         let (host, there) = std::sync::mpsc::channel();
@@ -463,12 +523,27 @@ mod tests {
     #[test]
     fn a_host_agents_prompt_goes_to_that_host_untagged() {
         let (out, here, there) = outboxes();
-        out.prompt("devbox/a1", "hi");
+        out.prompt("devbox/a1", "hi", false);
         out.interrupt("devbox/a1");
         out.compact("a2");
         let sent: Vec<Value> = there.try_iter().collect();
         assert_eq!((&sent[0]["type"], &sent[0]["agentId"], &sent[0]["text"]), (&json!("agent.prompt"), &json!("a1"), &json!("hi")));
         assert_eq!((&sent[1]["type"], &sent[1]["agentId"]), (&json!("agent.interrupt"), &json!("a1")));
         assert_eq!(here.try_iter().next().unwrap()["agentId"], "a2");
+    }
+
+    #[test]
+    fn a_host_leads_team_ops_reach_that_host_with_its_own_ids() {
+        let (out, here, there) = outboxes();
+        out.prompt("devbox/a1", "Plan it", true);
+        out.team_start("devbox/a1", &[agents::TaskPick { id: "t1".into(), agent: "claude".into(), model: String::new(), allow: vec![] }]);
+        out.team_stop("devbox/a1", "t1");
+        out.team_merge("a2");
+        let sent: Vec<Value> = there.try_iter().collect();
+        assert_eq!((&sent[0]["agentId"], &sent[0]["team"]), (&json!("a1"), &json!(true)));
+        assert_eq!((&sent[1]["type"], &sent[1]["lead"]), (&json!("team.start"), &json!("a1")));
+        assert_eq!((&sent[2]["type"], &sent[2]["lead"], &sent[2]["task"]), (&json!("team.stop"), &json!("a1"), &json!("t1")));
+        let mine = here.try_iter().next().unwrap();
+        assert_eq!((&mine["type"], &mine["lead"]), (&json!("team.merge"), &json!("a2")));
     }
 }

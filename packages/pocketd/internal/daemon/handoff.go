@@ -65,8 +65,8 @@ func (d *Daemon) carried(agentID string) *handoff.Agent {
 	}
 	s := a.Summary()
 	phase := "idle"
-	if s.Status == "working" || s.Status == "needsYou" {
-		phase = s.Status
+	if turn := a.Turn(); turn == "working" || turn == "needsYou" {
+		phase = turn
 	}
 	return &handoff.Agent{Named: a.Named(), Phase: phase, Epoch: s.Epoch, Seq: s.MaxSeq}
 }

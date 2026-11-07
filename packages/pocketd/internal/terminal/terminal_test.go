@@ -264,6 +264,17 @@ func TestTheOriginIsTakenOnce(t *testing.T) {
 	}
 }
 
+func TestTheParentIsTakenOnce(t *testing.T) {
+	s, err := NewManager().Spawn(Spec{Cmd: "sleep", Args: []string{"5"}, Parent: "a-lead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	if first, second := s.TakeParent(), s.TakeParent(); first != "a-lead" || second != "" {
+		t.Fatalf("took %q then %q", first, second)
+	}
+}
+
 func pidIn(t *testing.T, path string) int {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {

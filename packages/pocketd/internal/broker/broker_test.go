@@ -229,3 +229,28 @@ func TestOnAskSeesEachRequestOnceItIsOpen(t *testing.T) {
 		t.Fatalf("%+v %+v", req, open)
 	}
 }
+
+func TestOnlyAnAskTheAllowHookTakesIsAnsweredByItself(t *testing.T) {
+	b := New(hub.New())
+	ls := proto.PermissionRequest{AgentID: "a1", ToolName: "Bash", Detail: proto.ToolDetail{Kind: "shell", Command: "ls"}}
+	if b.Auto(ls) {
+		t.Fatal("answered with no hook")
+	}
+	b.Allow = func(req proto.PermissionRequest) bool { return req.Detail.Command == "ls" }
+	rm := ls
+	rm.Detail.Command = "rm x"
+	if !b.Auto(ls) || b.Auto(rm) {
+		t.Fatal("answered the wrong ask")
+	}
+}
+
+func TestAnAskTheAllowHookLeavesIsShownAsBefore(t *testing.T) {
+	b := New(hub.New())
+	b.Allow = func(proto.PermissionRequest) bool { return false }
+	got := ask(b, context.Background(), "a1", "k")
+	req := waitOpen(t, b, 1)[0]
+	b.Resolve(req.RequestID, Answer{Decision: "deny"})
+	if d := <-got; d != "deny" {
+		t.Fatalf("got %q", d)
+	}
+}

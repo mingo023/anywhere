@@ -47,6 +47,12 @@ type McpLister interface {
 	McpAct(action, server string) (string, error)
 }
 
+// Deliverer is a chat driver that takes mail: it sends text as a prompt and
+// returns the ref the turn that shows it settles under.
+type Deliverer interface {
+	Deliver(text string) (ref string, err error)
+}
+
 type Agent struct {
 	id, provider string
 	hub          *hub.Hub
@@ -87,12 +93,14 @@ type Agent struct {
 	tokensUsed      int64
 	contextWindow   int64
 	origin          string
+	parent          string // the agent it was started under; empty for none
 	chatOnly        bool
 	activity        string // the provider's live line; each report replaces it
 	stopped         bool   // the user stopped the turn; the next one forgets it
 	refilled        bool   // stopped since the last typed prompt: Claude may have put it back in its input
 	prompted        bool   // a prompt went to claude and its turn hasn't begun
 	goal            proto.Goal
+	awaiting        bool // between turns, the user has something to do for it, such as a team plan to start
 	holding         bool // the turn ended with sub-agents running on in the background, so it ends with them
 	holdGen         int  // holds so far, so a grace timer from an older one is dropped
 	drafts          map[string]proto.Item
@@ -116,10 +124,19 @@ type Registry struct {
 	// OnStatus runs under the agent's lock on each status change, so it must
 	// stay short and not call back into the registry. Set it before adding agents.
 	OnStatus func(id, provider, from, to string)
+	// OnTurnEnd runs under the agent's lock when a turn ends: ok unless it
+	// failed or the user stopped it. Like OnStatus, it must stay short.
+	OnTurnEnd func(id string, ok bool)
 }
 
 func NewRegistry(h *hub.Hub) *Registry {
 	return &Registry{agents: map[string]*Agent{}, views: map[string][]string{}, hub: h}
+}
+
+func (r *Registry) turnEnd(id string, ok bool) {
+	if r.OnTurnEnd != nil {
+		r.OnTurnEnd(id, ok)
+	}
 }
 
 func now() int64 { return time.Now().UnixMilli() }
@@ -162,6 +179,7 @@ type Restored struct {
 	Done, Failed, Pinned                      bool
 	Account                                   string
 	ChatOnly                                  bool
+	Parent                                    string
 	// Named, Phase, Epoch and Seq carry an Agent across an upgrade's exec.
 	Named, Phase string
 	Epoch, Seq   int64
@@ -169,7 +187,7 @@ type Restored struct {
 
 func (r *Registry) Restore(x Restored, d Driver) *Agent {
 	a := &Agent{id: x.ID, cwd: x.Cwd, provider: x.Provider, hub: r.hub, reg: r, Timeline: timeline.New(), driver: d, terminal: x.Terminal,
-		conversation: x.Conversation, named: x.Named, fallback: x.Fallback, phase: cmp.Or(x.Phase, "idle"), unseenEnd: x.Done, failed: x.Failed, pinned: x.Pinned, account: x.Account, chatOnly: x.ChatOnly, attached: true,
+		conversation: x.Conversation, named: x.Named, fallback: x.Fallback, phase: cmp.Or(x.Phase, "idle"), unseenEnd: x.Done, failed: x.Failed, pinned: x.Pinned, account: x.Account, chatOnly: x.ChatOnly, parent: x.Parent, attached: true,
 		origin: cmp.Or(x.Origin, "desktop"), createdAt: x.CreatedAt, updatedAt: now()}
 	if x.Seq > 0 {
 		a.Timeline.Continue(x.Epoch, x.Seq)
@@ -286,11 +304,21 @@ func (a *Agent) summary() proto.AgentSummary {
 		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account, Switching: a.switching,
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
-		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal,
+		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal, Parent: a.parent,
 	}
 }
 
+// status is what clients see: the agent's turn, or needsYou while it awaits the user between turns.
 func (a *Agent) status() string {
+	s := a.turn()
+	if a.awaiting && (s == "idle" || s == "done") {
+		return "needsYou"
+	}
+	return s
+}
+
+// turn is the agent's own status, without the wait SetAwaiting adds.
+func (a *Agent) turn() string {
 	switch {
 	case a.closed:
 		return "closed"
@@ -300,6 +328,19 @@ func (a *Agent) status() string {
 		return "done"
 	}
 	return "idle"
+}
+
+// Turn is the agent's status without SetAwaiting's wait: what an upgrade or a restart carries.
+func (a *Agent) Turn() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.turn()
+}
+
+// SetAwaiting marks the agent as waiting on the user between turns, so it reads needsYou while idle or done.
+// Its next turn clears it.
+func (a *Agent) SetAwaiting(awaiting bool) {
+	a.update(true, func() { a.awaiting = awaiting })
 }
 
 // update runs f and publishes one agent.update if phones would see a change.
@@ -326,21 +367,23 @@ func (a *Agent) update(touch bool, f func()) {
 	}
 }
 
-// Busy is whether any agent is working or waiting on the user.
-func Busy(agents []proto.AgentSummary) bool {
-	for _, a := range agents {
-		if a.Status == "working" || a.Status == "needsYou" {
-			return true
-		}
-	}
-	return false
+// Busy is whether any agent is on a turn or has an ask open. A wait for the user between turns (SetAwaiting) is
+// neither: it shouldn't keep the Mac awake.
+func (r *Registry) Busy() bool {
+	r.mu.Lock()
+	all := slices.Collect(maps.Values(r.agents))
+	r.mu.Unlock()
+	return slices.ContainsFunc(all, func(a *Agent) bool {
+		turn := a.Turn()
+		return turn == "working" || turn == "needsYou"
+	})
 }
 
 func (a *Agent) Working() {
 	a.update(true, func() {
 		a.enter("working")
 		a.unseenEnd, a.failed, a.restore = false, false, ""
-		a.stopped, a.prompted = false, false
+		a.stopped, a.prompted, a.awaiting = false, false, false
 		a.unhold()
 	})
 }
@@ -372,6 +415,7 @@ func (a *Agent) turnEnded(failed bool) {
 		a.enter("idle")
 		a.unseenEnd, a.failed = !a.seen, failed
 		a.endCompactFromIdle()
+		a.reg.turnEnd(a.id, !failed && !a.stopped)
 	}
 }
 
@@ -384,6 +428,7 @@ func (a *Agent) Clear() {
 			a.enter("idle")
 			a.unseenEnd = false
 			a.endCompactFromIdle()
+			a.reg.turnEnd(a.id, false)
 		}
 	})
 }
@@ -621,6 +666,8 @@ func (a *Agent) SetTokens(used, window int64) {
 func (a *Agent) SetOrigin(origin string) {
 	a.update(false, func() { a.origin = origin })
 }
+
+func (a *Agent) SetParent(id string) { a.update(false, func() { a.parent = id }) }
 
 func (a *Agent) SetChatOnly() { a.update(false, func() { a.chatOnly = true }) }
 
