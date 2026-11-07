@@ -1,6 +1,8 @@
 package gitview
 
 import (
+	"cmp"
+	"errors"
 	"slices"
 	"strings"
 )
@@ -131,13 +133,17 @@ func PushArgs(remote string, lease bool) []string {
 }
 
 // Push sends the branch to remote, or where git picks when the repository has
-// no remote by that name, as the desktop's push_argv.
+// no remote by that name, as the desktop's push_argv. Without lease, a remote
+// holding commits the branch lacks is said in words.
 func (s *Service) Push(tree, remote string, lease bool) error {
 	return s.write(tree, func() error {
 		if remotes, err := s.text(tree, "remote"); err != nil || !slices.Contains(strings.Split(remotes, "\n"), remote) {
 			remote = ""
 		}
 		_, err := s.git(tree, nil, writeTimeout, PushArgs(remote, lease))
+		if f, ok := errors.AsType[*Failed](err); ok && !lease && (strings.Contains(f.Detail, "(non-fast-forward)") || strings.Contains(f.Detail, "(fetch first)")) {
+			f.Message = cmp.Or(remote, "The remote") + " has commits this branch doesn't. Pull, or force push from your Mac."
+		}
 		return err
 	})
 }

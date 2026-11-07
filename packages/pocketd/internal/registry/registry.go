@@ -40,6 +40,8 @@ type Git struct {
 	Remote string `json:"remote"`
 	// CommitAll: with nothing staged, a commit takes every change. Nil is the desktop's default, on.
 	CommitAll *bool `json:"commit_all"`
+	// ForceWithLease lets a push replace a rewritten branch on the remote; a phone asks first.
+	ForceWithLease bool `json:"force_with_lease"`
 }
 
 // PushRemote is Remote, or the desktop's default.

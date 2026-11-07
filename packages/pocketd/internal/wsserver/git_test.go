@@ -205,3 +205,50 @@ func TestAPhoneCommitsAndPushesAsTheDesktopsGitSettingsSay(t *testing.T) {
 		t.Fatalf("upstream %q", out)
 	}
 }
+
+func TestAPhoneForcePushesARewrittenBranchOnlyWhenTheDesktopLetsIt(t *testing.T) {
+	repo, opt := withGitProject(t)
+	dir := filepath.Dir(repo)
+	gitIn(t, repo, "init", "-q", "--bare", "-b", "main", filepath.Join(dir, "origin.git"))
+	gitIn(t, repo, "remote", "add", "origin", filepath.Join(dir, "origin.git"))
+	gitIn(t, repo, "push", "-qu", "origin", "main")
+	gitIn(t, repo, "commit", "-q", "--amend", "-m", "Amended")
+	settings := func(git map[string]any) {
+		raw, _ := json.Marshal(map[string]any{"projects": []string{repo}, "git": git})
+		os.WriteFile(filepath.Join(dir, "desktop.json"), raw, 0o600)
+	}
+	settings(map[string]any{})
+	_, _, p := local(t, phoneDevice, opt)
+	helloWith(p, proto.CapGit)
+
+	p.send(`{"type":"git.status","id":"s","tree":` + q(repo) + `}`)
+	if m := p.reply("s"); m["forceWithLease"] != nil || m["unpushed"] != 1.0 || m["unpulled"] != 1.0 {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"git.push","id":"l","tree":` + q(repo) + `,"lease":true}`)
+	if m := p.reply("l"); m["type"] != "error" || !strings.Contains(m["message"].(string), "off") {
+		t.Fatalf("a lease the desktop didn't grant: %v", m)
+	}
+	p.send(`{"type":"git.push","id":"p","tree":` + q(repo) + `}`)
+	if m := p.reply("p"); m["code"] != proto.CodeGitFailed || m["message"] != "origin has commits this branch doesn't. Pull, or force push from your Mac." {
+		t.Fatalf("%v", m)
+	}
+
+	settings(map[string]any{"force_with_lease": true})
+	p.send(`{"type":"git.status","id":"s2","tree":` + q(repo) + `}`)
+	if m := p.reply("s2"); m["forceWithLease"] != true || m["unpulled"] != 1.0 {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"git.push","id":"p2","tree":` + q(repo) + `}`)
+	if m := p.reply("p2"); m["code"] != proto.CodeGitFailed {
+		t.Fatalf("forced without the phone asking: %v", m)
+	}
+	p.send(`{"type":"git.push","id":"l2","tree":` + q(repo) + `,"lease":true}`)
+	if m := p.reply("l2"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	cmd := exec.Command("git", "-C", filepath.Join(dir, "origin.git"), "log", "-1", "--format=%s", "main")
+	if out, _ := cmd.Output(); strings.TrimSpace(string(out)) != "Amended" {
+		t.Fatalf("remote has %q", out)
+	}
+}

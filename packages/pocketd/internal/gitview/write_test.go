@@ -185,8 +185,8 @@ func TestARewrittenBranchPushesWithLeaseButNeverOverCommitsNotYetFetched(t *test
 	sh(t, repo, "commit", "-q", "--amend", "-m", "amended")
 	if err := s.Push(repo, "origin", false); err == nil {
 		t.Fatal("pushed over the remote without a lease")
-	} else if f := err.(*Failed); !strings.HasPrefix(f.Message, "!") && !strings.HasPrefix(f.Message, "error:") {
-		t.Fatalf("%q", f.Message)
+	} else if f := err.(*Failed); f.Message != "origin has commits this branch doesn't. Pull, or force push from your Mac." || !strings.Contains(f.Detail, "non-fast-forward") {
+		t.Fatalf("%#v", f)
 	}
 	if err := s.Push(repo, "origin", true); err != nil {
 		t.Fatal(err)
@@ -195,6 +195,9 @@ func TestARewrittenBranchPushesWithLeaseButNeverOverCommitsNotYetFetched(t *test
 	sh(t, repo, "clone", "-q", remote, other)
 	sh(t, other, "commit", "-q", "--allow-empty", "-m", "theirs")
 	sh(t, other, "push", "-q")
+	if f, ok := s.Push(repo, "origin", false).(*Failed); !ok || !strings.HasPrefix(f.Message, "origin has commits this branch doesn't") {
+		t.Fatalf("over unfetched commits: %#v", f)
+	}
 	sh(t, repo, "commit", "-q", "--amend", "-m", "again")
 	if err := s.Push(repo, "origin", true); err == nil {
 		t.Fatal("the lease let a push over unseen commits")

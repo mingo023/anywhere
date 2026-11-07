@@ -126,6 +126,7 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 ```
 → {type:"git.status", id, tree, cursor?:int, limit?:int}     // limit default 500, max 2000; cursor = file offset
 ← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?, unpulled?, commitAll?:bool,
+   forceWithLease?:bool,
    totals:{files, added, removed, staged, unstaged},
    files:[{path, oldPath?, status, staged, unstaged, added?, removed?, binary?}],
    commits:[{sha, subject}],                                  // ≤20 since base
@@ -137,6 +138,9 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
    // ahead/behind count against base; unpushed/unpulled against the upstream (Push N, Pull N), omitted before the first push.
    // unstaged counts files with unstaged edits: a file staged and edited again counts in staged and unstaged.
    // commitAll = desktop.json's git.commit_all (default true): with nothing staged, the phone's Commit sends all:true.
+   // forceWithLease = desktop.json's git.force_with_lease, sent only when on. With it, a Push while unpulled > 0 (the
+   //   upstream isn't an ancestor of HEAD) would replace unpulled commits: the phone confirms, then sends git.push lease:true.
+   //   An older phone ignores it and never sends a lease, so it needs no cap.
 
 → {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops; ≤32 trees
 ← {type:"git.changed", tree, rev}                              // push when a watched tree's rev moves (polled ~2 s)
@@ -167,6 +171,9 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 ← {type:"git.committed", id, sha}
 → {type:"git.push", id, tree, lease?:bool}  ← ack           // to desktop.json's git.remote (default origin) when the repo
    //   has a remote by that name, else where git picks; the first push sets the upstream
+   // lease:true is --force-with-lease --force-if-includes, refused (no code) while git.force_with_lease is off.
+   // Without lease, a remote with commits the branch lacks fails git_failed
+   //   "<remote> has commits this branch doesn't. Pull, or force push from your Mac."
 → {type:"git.pull", id, tree}  ← ack                           // pull --ff-only
    // failures: error{code:"git_failed", message:<first stderr line>, detail?:<stderr>}
    // a git.* tree must be a worktree's top folder, else not_a_tree; paths are file names, never pathspec patterns
