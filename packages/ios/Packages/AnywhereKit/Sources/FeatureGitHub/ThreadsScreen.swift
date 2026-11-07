@@ -1,3 +1,4 @@
+import ChatModel
 import Domain
 import DesignSystem
 import MarkdownView
@@ -5,22 +6,28 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A PR's review threads by file: reply, resolve and reopen, with Undo.
+/// A PR's review threads by file: reply, resolve and reopen, with Undo, and send one to the agent.
 @MainActor
 struct ThreadsScreen: View {
     let store: GitHubStore
     let model: TreePullRequest
     var mac = PrMac()
     var now: Int?
+    var fix = FixContext()
 
     @State private var filter = ThreadFilter()
     @State private var replying: ReviewThread?
+    @State private var fixing: FixRequest?
 
-    init(store: GitHubStore, model: TreePullRequest, mac: PrMac = PrMac(), now: Int? = nil, filter: ThreadFilter = ThreadFilter()) {
+    init(
+        store: GitHubStore, model: TreePullRequest, mac: PrMac = PrMac(), now: Int? = nil, filter: ThreadFilter = ThreadFilter(),
+        fix: FixContext = FixContext()
+    ) {
         self.store = store
         self.model = model
         self.mac = mac
         self.now = now
+        self.fix = fix
         _filter = State(initialValue: filter)
     }
 
@@ -43,7 +50,10 @@ struct ThreadsScreen: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.threads) { thread in
-                        ThreadRow(thread: thread, now: now ?? Int(Date().timeIntervalSince1970), file: file(thread), offline: mac.offline) {
+                        ThreadRow(
+                            thread: thread, now: now ?? Int(Date().timeIntervalSince1970), file: file(thread), offline: mac.offline,
+                            sent: model.fixing?.threads.contains(thread.id) ?? false, send: send(thread)
+                        ) {
                             replying = thread
                         } resolve: { resolved in
                             Haptics.tap()
@@ -68,6 +78,7 @@ struct ThreadsScreen: View {
         .groupedList()
         .navigationTitle("Comments")
         .errorAlert(model)
+        .sendsFixes($fixing, store: store, tree: model.tree, context: fix)
         .animation(.default, value: filter)
         .overlay(alignment: .bottom) {
             if let notice = model.notice {
@@ -83,6 +94,12 @@ struct ThreadsScreen: View {
                 Task { await store.reply(model.tree, thread: thread.id, body: body) }
             }
         }
+    }
+
+    /// Send to the agent's title and action, nil when the thread can't be sent.
+    private func send(_ thread: ReviewThread) -> (title: String, action: () -> Void)? {
+        guard fix.offered, let pr = model.pr else { return nil }
+        return (fix.target.title("Send to"), { fixing = FixRequest(prompt: FixPrompt.fix(pr, checks: [], threads: [thread]), threads: [thread.id]) })
     }
 
     /// The file a thread is on, at its line on the new side; the old side's line isn't in today's file.
@@ -114,29 +131,51 @@ struct ThreadRow: View {
     let now: Int
     /// The code the thread is on, opened by tapping its place or hunk.
     let file: Route
-    /// Resolving waits for the Mac; replies can still be written.
+    /// Resolving and sending wait for the Mac; replies can still be written.
     let offline: Bool
+    /// Its agent still works on it.
+    var sent = false
+    /// Send to the agent, offered while the thread is open.
+    var send: (title: String, action: () -> Void)?
     let reply: () -> Void
     let resolve: (Bool) -> Void
     @Environment(\.openURL) private var openURL
+
+    private var state: ThreadState { ThreadState(thread, sent: sent) }
+
+    private var sendable: (title: String, action: () -> Void)? { state == .open ? send : nil }
+
+    @ViewBuilder
+    private var sendButton: some View {
+        if let sendable {
+            Button(sendable.title, systemImage: "paperplane", action: sendable.action).buttonStyle(.borderedProminent).disabled(offline)
+        }
+    }
+
+    @ViewBuilder
+    private var replyAndResolve: some View {
+        Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
+        Button("Resolve", systemImage: "checkmark") { resolve(true) }.disabled(offline)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
             NavigationLink(value: file) {
                 VStack(alignment: .leading, spacing: Space.s) {
                     HStack(spacing: Space.s) {
-                        Text(ThreadGroups.place(thread)).font(Typography.codeSmall).foregroundStyle(Palette.accent.color).lineLimit(1)
+                        Text(FixPrompt.place(thread)).font(Typography.codeSmall).foregroundStyle(Palette.accent.color).lineLimit(1)
                             .truncationMode(.head)
                         Spacer(minLength: 0)
                         if thread.outdated { PrPill(text: "Outdated", tone: .quiet) }
-                        switch ThreadState(thread) {
+                        switch state {
                         case .resolved: PrPill(text: "Resolved", tone: .success)
+                        case .sent: PrPill(text: "Fixing", tone: .waiting)
                         case .replied: PrPill(text: "Replied", tone: .quiet)
                         case .open: EmptyView()
                         }
                     }
                     .frame(minHeight: HitTarget.minimum)
-                    let hunk = ThreadGroups.hunkTail(thread.comments.first?.hunk)
+                    let hunk = FixPrompt.hunkTail(thread.comments.first?.hunk)
                     if !hunk.isEmpty && !thread.resolved { HunkBox(lines: hunk) }
                 }
                 .contentShape(Rectangle())
@@ -156,9 +195,16 @@ struct ThreadRow: View {
                 }
             }
             if !thread.resolved {
-                HStack(spacing: Space.m) {
-                    Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
-                    Button("Resolve", systemImage: "checkmark") { resolve(true) }.disabled(offline)
+                // Send goes on its own line when the three don't fit, as the desktop's buttons wrap.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Space.m) {
+                        sendButton
+                        replyAndResolve
+                    }
+                    VStack(alignment: .leading, spacing: Space.s) {
+                        sendButton
+                        HStack(spacing: Space.m) { replyAndResolve }
+                    }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
@@ -176,8 +222,10 @@ struct ThreadRow: View {
         }
         .swipeActions(edge: .leading) {
             Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply).tint(.blue)
+            if let sendable { Button(sendable.title, systemImage: "paperplane", action: sendable.action).tint(.indigo).disabled(offline) }
         }
         .contextMenu {
+            if let sendable { Button(sendable.title, systemImage: "paperplane", action: sendable.action).disabled(offline) }
             Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
             if thread.resolved {
                 Button("Unresolve", systemImage: "arrow.uturn.backward") { resolve(false) }.disabled(offline)
@@ -257,7 +305,7 @@ struct ReplySheet: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle(ThreadGroups.place(thread))
+            .navigationTitle(FixPrompt.place(thread))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

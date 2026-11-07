@@ -1,5 +1,7 @@
+import ChatModel
 import Fixtures
 import Foundation
+import Stores
 import Testing
 import Wire
 @testable import FeatureGitHub
@@ -162,6 +164,13 @@ struct PullRequestTextTests {
         #expect(GhProblemView.text(.missing, mac: "Studio").detail == "On Studio, run brew install gh, then gh auth login.")
     }
 
+    @Test("the callout counts what there is to fix")
+    func fixSummary() {
+        #expect(PullRequestText.fixSummary(checks: 1, comments: 2) == ("3 things to fix", "1 failed check · 2 review comments"))
+        #expect(PullRequestText.fixSummary(checks: 0, comments: 1) == ("1 thing to fix", "1 review comment"))
+        #expect(PullRequestText.resolving("Claude") == "Claude is resolving the conflict")
+    }
+
     @Test("the create button says draft when it makes one, and what gh does while it works")
     func createLabel() {
         #expect(PullRequestText.createLabel(draft: false, busy: nil) == "Create PR")
@@ -178,6 +187,23 @@ struct ThreadGroupsTests {
         #expect(ThreadState(thread("a", authors: ["mira", "mira"])) == .open)
         #expect(ThreadState(thread("a")) == .replied)
         #expect(ThreadState(thread("a", resolved: true)) == .resolved)
+        #expect(ThreadState(thread("a"), sent: true) == .sent)
+        #expect(ThreadState(thread("a", resolved: true), sent: true) == .resolved)
+    }
+
+    @Test("what can still be sent is each failed check and open thread the agent isn't fixing")
+    func unsent() {
+        let p = pr {
+            $0.runs = [check("a", "failed"), check("b", "passed"), check("c", "failed")]
+            $0.threads = [thread("1", authors: ["mira"]), thread("2"), thread("3", resolved: true), thread("4", authors: ["kai"])]
+        }
+        let all = ThreadGroups.unsent(p, fixing: nil)
+        #expect(all.checks.map(\.name) == ["a", "c"] && all.threads.map(\.id) == ["1", "4"])
+        var fixing = SentFixes(head: "aaa")
+        fixing.checks = ["a"]
+        fixing.threads = ["1"]
+        let rest = ThreadGroups.unsent(p, fixing: fixing)
+        #expect(rest.checks.map(\.name) == ["c"] && rest.threads.map(\.id) == ["4"])
     }
 
     @Test("threads group by file in the order each file first comes, unresolved only by default")
@@ -193,18 +219,8 @@ struct ThreadGroupsTests {
         #expect(ThreadGroups.unresolved(threads) == 3)
     }
 
-    @Test("a hunk tail skips its header")
-    func hunkTail() {
-        #expect(ThreadGroups.hunkTail("@@ -1 +1 @@\n+a") == ["+a"])
-        #expect(ThreadGroups.hunkTail("@@ -1,4 +1,4 @@\n a\n b\n-c\n+d\n e") == ["-c", "+d", " e"])
-        #expect(ThreadGroups.hunkTail("").isEmpty)
-        #expect(ThreadGroups.hunkTail(nil).isEmpty)
-    }
-
-    @Test("a thread's place is its path and line, or its path on a whole file")
-    func place() {
-        #expect(ThreadGroups.place(thread("a")) == "src/a.rs:42")
-        #expect(ThreadGroups.place(ReviewThread(id: "f", path: "README.md", outdated: false, resolved: false, comments: [])) == "README.md")
+    @Test("the reply box names whom the reply answers")
+    func replyPrompt() {
         #expect(ThreadGroups.replyPrompt(thread("a")) == "Reply to mira…")
     }
 }
@@ -290,6 +306,52 @@ struct WorktreeCleanupTests {
     }
 }
 
+private func session(_ id: String, cwd: String, provider: String = "claude", updatedAt: Int) -> AgentSummary {
+    AgentSummary(id: id, terminalId: "t-\(id)", title: "Session \(id)", cwd: cwd, provider: provider, status: .idle, attached: true, epoch: 1,
+                 maxSeq: 0, createdAt: 0, updatedAt: updatedAt)
+}
+
+@Suite("Sending a PR's problems")
+struct FixTargetTests {
+    let agents = [
+        session("old", cwd: "/w/fix", updatedAt: 1), session("new", cwd: "/w/fix/src", provider: "codex", updatedAt: 2),
+        session("elsewhere", cwd: "/w/fix-two", updatedAt: 3),
+    ]
+
+    @Test("the chat that opened the PR takes what's sent, though another is newer")
+    func opener() {
+        let target = FixTarget(tree: "/w/fix", agents: agents, opener: "old")
+        #expect(target == .one(FixSession(id: "old", title: "Session old", agent: "Claude")))
+        #expect(target.title("Send to") == "Send to Claude")
+    }
+
+    @Test("several sessions in the worktree are offered newest first, named by the agent they share or as agent")
+    func choose() {
+        let target = FixTarget(tree: "/w/fix", agents: agents, opener: "elsewhere")
+        #expect(target == .choose([FixSession(id: "new", title: "Session new", agent: "Codex"), FixSession(id: "old", title: "Session old", agent: "Claude")]))
+        #expect(target.title("Send all to") == "Send all to agent")
+        #expect(FixTarget.choose([FixSession(id: "a", title: "", agent: "Claude"), FixSession(id: "b", title: "", agent: "Claude")]).agent == "Claude")
+    }
+
+    @Test("a worktree's only session takes it, and one without a session starts one")
+    func onlyOrNone() {
+        #expect(FixTarget(tree: "/w/fix-two", agents: agents, opener: nil).title("Resolve with") == "Resolve with Claude")
+        let none = FixTarget(tree: "/w/empty", agents: agents, opener: nil)
+        #expect(none == .none)
+        #expect(none.title("Send to") == "Start a session with this")
+    }
+
+    @Test("nothing is offered without the drive scope, and a worktree without a session needs a way to start one")
+    @MainActor
+    func offered() {
+        let one = FixTarget.one(FixSession(id: "a", title: "", agent: "Claude"))
+        #expect(FixContext(target: one, canDrive: true, send: { _, _ in true }).offered)
+        #expect(!FixContext(target: one, canDrive: false, send: { _, _ in true }).offered)
+        #expect(!FixContext(target: .none, canDrive: true).offered)
+        #expect(FixContext(target: .none, canDrive: true, open: { _ in }).offered)
+    }
+}
+
 @Suite("pocketd's PR")
 struct GoldenPrTests {
     @Test("the PR pocketd sends decodes with every field the card reads")
@@ -302,7 +364,7 @@ struct GoldenPrTests {
         #expect(PullRequestText.verdict(pr) == (.waiting, "1 check in progress"))
         #expect(PullRequestText.checkRows(pr).named.map(\.name) == ["lint"])
         #expect(ThreadGroups.group(pr.threads, ThreadFilter()).map(\.path) == ["src/sync.rs"])
-        #expect(ThreadGroups.hunkTail(pr.threads[0].comments[0].hunk) == [" fn sync() {", "+    loop {", "+        retry();"])
+        #expect(FixPrompt.hunkTail(pr.threads[0].comments[0].hunk) == [" fn sync() {", "+    loop {", "+        retry();"])
     }
 }
 

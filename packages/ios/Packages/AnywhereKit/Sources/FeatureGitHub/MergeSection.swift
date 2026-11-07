@@ -13,6 +13,11 @@ struct MergeSection: View {
     let offline: Bool
     let cleanup: WorktreeCleanup?
     @Binding var deleteAfter: Bool
+    /// Resolve with the agent's title, standing in for Merge while the PR conflicts; nil when it can't be sent.
+    let resolveTitle: String?
+    /// What the merge row says while the agent resolves the conflict.
+    let resolving: String?
+    let resolve: () -> Void
     let merged: () -> Void
 
     @AppStorage private var method: MergeMethod
@@ -20,7 +25,7 @@ struct MergeSection: View {
 
     init(
         store: GitHubStore, model: TreePullRequest, pr: PullRequest, offline: Bool, cleanup: WorktreeCleanup?, deleteAfter: Binding<Bool>,
-        merged: @escaping () -> Void
+        resolveTitle: String? = nil, resolving: String? = nil, resolve: @escaping () -> Void = {}, merged: @escaping () -> Void
     ) {
         self.store = store
         self.model = model
@@ -28,6 +33,9 @@ struct MergeSection: View {
         self.offline = offline
         self.cleanup = cleanup
         _deleteAfter = deleteAfter
+        self.resolveTitle = resolveTitle
+        self.resolving = resolving
+        self.resolve = resolve
         self.merged = merged
         _method = AppStorage(wrappedValue: .squash, "github.mergeMethod.\(PullRequestText.repo(pr.url) ?? "")")
     }
@@ -35,7 +43,7 @@ struct MergeSection: View {
     var body: some View {
         Section("Merge") {
             Label {
-                Text(PullRequestText.gate(pr.gate, base: pr.base)).foregroundStyle(Palette.text.color)
+                Text(resolving ?? PullRequestText.gate(pr.gate, base: pr.base)).foregroundStyle(Palette.text.color)
             } icon: {
                 let tone: PrTone = pr.gate == .ready ? .success : pr.gate == .conflicts || pr.gate == .checksFailed ? .failed : .waiting
                 Image(systemName: pr.gate == .ready ? "checkmark.seal.fill" : "exclamationmark.triangle.fill").foregroundStyle(tone.text.color)
@@ -59,7 +67,18 @@ struct MergeSection: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(model.busy != nil || offline)
             } else {
-                mergeButtons
+                if pr.gate == .conflicts, let resolveTitle {
+                    Button {
+                        Haptics.tap()
+                        resolve()
+                    } label: {
+                        Text(resolveTitle).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(resolving != nil || offline)
+                } else {
+                    mergeButtons
+                }
                 if let cleanup {
                     Toggle(isOn: $deleteAfter) {
                         VStack(alignment: .leading, spacing: Space.xxs) {

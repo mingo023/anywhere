@@ -54,7 +54,7 @@ struct Destination: View {
         case .changes, .diff, .history, .commit, .branches:
             GitView(host: host, route: route)
         case .pullRequest, .pullRequests, .reviewThreads:
-            GitHubView(host: host, route: route)
+            GitHubView(host: host, route: route, open: open)
         case .files, .file:
             FilesView(host: host, route: route, open: open)
         case .pairing, .settings:

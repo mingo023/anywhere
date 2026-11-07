@@ -399,7 +399,7 @@ public final class ChatStore: HostStore {
         ChatModel.capabilities(provider, providers?.providers.first { $0.id == provider }?.chat)
     }
 
-    public var observeOnly: Bool { !scopes.isEmpty && !scopes.contains(.drive) && !scopes.contains(.owner) }
+    public var observeOnly: Bool { Composer.observeOnly(scopes) }
 
     /// `permission.resolve` needs the approve scope, which a phone may hold without drive.
     public var canApprove: Bool { scopes.isEmpty || scopes.contains(.approve) || scopes.contains(.owner) }
@@ -456,9 +456,24 @@ public final class ChatStore: HostStore {
             _ = prompt(sent)
             return
         }
-        if !steer { return push(sent, busy: busy) }
-        let id = session.outgoing.steerText(sent, now: clock())
-        session.outgoing.sentAs(id, prompt(sent))
+        deliver(sent, steer: steer, busy: busy)
+    }
+
+    /// Sends `text` as Send would a typed draft, leaving the draft alone; false when the agent can't take it now.
+    @discardableResult
+    public func send(text: String) -> Bool {
+        guard mode == .prompt, online, summary != nil else { return false }
+        let busy = busy
+        if busy && !capabilities.sendWhileWorking { return false }
+        sentAt = clock()
+        deliver(text, steer: busy && !stopping, busy: busy)
+        return true
+    }
+
+    func deliver(_ text: String, steer: Bool, busy: Bool) {
+        if !steer { return push(text, busy: busy) }
+        let id = session.outgoing.steerText(text, now: clock())
+        session.outgoing.sentAs(id, prompt(text))
         steers += 1
         scheduleFlush()
     }

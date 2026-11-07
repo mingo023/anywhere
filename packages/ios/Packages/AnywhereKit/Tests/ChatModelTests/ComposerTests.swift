@@ -103,6 +103,14 @@ func anObserveOnlyAgentGetsNoComposer() {
     #expect(Composer.mode(observeOnly: false, canApprove: true, ask: ask([Question(question: "")])) == .question(answerable: true))
 }
 
+@Test("a phone with neither drive nor owner may only watch, and a pocketd without scopes lets it drive")
+func aPhoneWithoutDriveMayOnlyWatch() {
+    #expect(Composer.observeOnly([.observe, .approve]))
+    #expect(!Composer.observeOnly([.observe, .drive]))
+    #expect(!Composer.observeOnly([.owner]))
+    #expect(!Composer.observeOnly([]))
+}
+
 @Test("an ask is answerable by the approve scope, not the drive scope")
 func anAskIsAnswerableByTheApproveScope() {
     #expect(Composer.mode(observeOnly: true, canApprove: true, ask: ask([])) == .permission(answerable: true))
