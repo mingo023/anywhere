@@ -10,6 +10,7 @@ A **tree** is an absolute path that `worktree.Containing` (or the Locals store) 
 
 - `ws:agent.btw` joins `peer.Needs` with scope `drive`.
 - `agent.timeline {id, agentId, beforeSeq?, sinceSeq?, limit?}`. With `beforeSeq`, the reply holds the newest `limit` items with `seq < beforeSeq`, and `hasOlder` is exact: true only when an item older than the oldest returned exists. `beforeSeq` and `sinceSeq` together are malformed. No cap: an old pocketd ignores the field and the phone sees `hasOlder` as before.
+- `AgentSummary.error?`: with `failed`, the first line of the failed turn's error (its `result` item's), as the desktop inbox shows it; omitted when the turn's result carried none. No cap: an old pocketd leaves it out and the row falls back to the agent's activity.
 
 ## terminal.v1
 

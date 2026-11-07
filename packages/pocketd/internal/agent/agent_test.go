@@ -27,6 +27,7 @@ type msg struct {
 	Agent struct {
 		Status string `json:"status"`
 		Title  string `json:"title"`
+		Error  string `json:"error"`
 	} `json:"agent"`
 	Item struct {
 		Kind string `json:"kind"`
@@ -181,6 +182,46 @@ func TestStatusMachine(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAFailedTurnShowsTheFirstLineOfItsErrorWhetherItsResultComesBeforeOrAfterItEnds(t *testing.T) {
+	result := timeline.Event{Kind: "result", Error: "\nAPI Error: 529 overloaded\n{\"type\":\"error\"}"}
+	for name, end := range map[string]func(a *Agent){
+		"result first":   func(a *Agent) { a.Record(result); a.TurnEnded(true) },
+		"turn end first": func(a *Agent) { a.TurnEnded(true); a.Record(result) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := hub.New()
+			a := NewRegistry(h).Add("a1", "/w", "claude", fakeDriver{})
+			a.Working()
+			ch, _ := h.Subscribe()
+			end(a)
+			var last string
+			for _, m := range drain(ch) {
+				if m.Type == "agent.update" {
+					last = m.Agent.Error
+				}
+			}
+			if last != "API Error: 529 overloaded" || a.Summary().Error != last {
+				t.Fatalf("published %q, summary %q", last, a.Summary().Error)
+			}
+		})
+	}
+}
+
+func TestAnErrorLeavesWithTheTurnItFailed(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.Working()
+	a.Record(timeline.Event{Kind: "result", Error: "exit 1"})
+	a.TurnEnded(true)
+	a.Working()
+	if s := a.Summary(); s.Error != "" {
+		t.Fatalf("a working agent shows %q", s.Error)
+	}
+	a.TurnEnded(true)
+	if s := a.Summary(); !s.Failed || s.Error != "" {
+		t.Fatalf("a failed turn without a result shows %q", s.Error)
 	}
 }
 

@@ -33,7 +33,7 @@ var serverGolden = map[string]any{
 	"agent_list":          NewAgentList("l1", []AgentSummary{summary()}),
 	"agent_list_push":     NewAgentList("", nil),
 	"agent_update":        NewAgentUpdate(summary()),
-	"agent_update_failed": NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Failed = "done", true })),
+	"agent_update_failed": NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Failed, s.Error = "done", true, "API Error: 529 overloaded" })),
 	"agent_update_compacting": NewAgentUpdate(with(func(s *AgentSummary) {
 		s.Status, s.Compacting, s.Attached, s.ProviderSessionID = "working", true, false, ""
 	})),
