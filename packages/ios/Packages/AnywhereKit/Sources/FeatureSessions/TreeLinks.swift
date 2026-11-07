@@ -16,7 +16,7 @@ struct TreeLinks: View {
     var body: some View {
         let changes = host.git.changes(tree)
         let pr = Self.pullRequest(host.github.lists[project]?.first { $0.tree == tree }, gh: host.github.status?.state,
-                                  problem: host.github.pullRequest(tree).problem)
+                                  problem: host.github.pullRequest(tree).problem, readsGitHub: host.hello?.has(Caps.gh) == true)
         Section {
             NavigationLink(value: Route.changes(mac: mac, tree: tree)) {
                 LabeledContent {
@@ -40,6 +40,8 @@ struct TreeLinks: View {
         .onDisappear { host.git.hide(tree) }
         .task {
             guard host.hello?.has(Caps.gh) == true else { return }
+            // Only the tree's own answer says it has no GitHub remote.
+            await host.github.refresh(tree)
             try? await host.github.refreshList(project)
         }
     }
@@ -50,9 +52,9 @@ struct TreeLinks: View {
     }
 
     /// The pull request row: the PR's number and checks, else "Create pull request" once gh can make one. Nil hides the
-    /// row, for a repository with no GitHub remote.
-    nonisolated static func pullRequest(_ item: PrItem?, gh: GhState?, problem: GhState?) -> (title: String, detail: String?)? {
-        if problem == .noRemote { return nil }
+    /// row, for a repository with no GitHub remote or a Mac that can't read GitHub.
+    nonisolated static func pullRequest(_ item: PrItem?, gh: GhState?, problem: GhState?, readsGitHub: Bool) -> (title: String, detail: String?)? {
+        if !readsGitHub || problem == .noRemote { return nil }
         if let item { return ("Pull request", SessionText.pullRequest(item)) }
         return (gh == .ready ? "Create pull request" : "Pull request", nil)
     }
