@@ -296,8 +296,8 @@ struct DaemonConnectionTests {
             }
         }
         defer { server.stop() }
-        // The reply (800 ms) outlasts ping plus pong timeout (400 ms), while the 20 ms gaps between its pieces stay
-        // far under the timeout even when the machine is busy.
+        /* The reply (800 ms) outlasts ping plus pong timeout (400 ms), while the 20 ms gaps between its pieces stay
+           far under the timeout even when the machine is busy. */
         let (connection, recorder) = await connect(server, pingAfter: .milliseconds(100), pongTimeout: .milliseconds(300))
         defer { Task { await connection.stop() } }
         #expect(await recorder.wait { $0.contains(where: \.isConnected) })
