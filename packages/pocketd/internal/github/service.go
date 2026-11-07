@@ -148,7 +148,7 @@ func (s *Service) poll(ctx context.Context) {
 			changed := s.cache.apply(tree, started, pr, problem, s.now())
 			s.mu.Unlock()
 			if changed {
-				s.changed(tree, problem != "")
+				s.changed(tree, problem.EveryTree())
 			}
 			continue
 		}
@@ -267,7 +267,7 @@ func (s *Service) Status(ctx context.Context, tree string) Status {
 }
 
 // PR is tree's PR: the cached one while it is fresh for a watched tree, else
-// gh is asked now. A missing or signed-out gh is its problem.
+// gh is asked now. With Failed, a PR is the last one gh reported, now stale.
 func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 	now := s.now()
 	s.mu.Lock()
@@ -279,28 +279,26 @@ func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 	s.mu.Unlock()
 	switch {
 	case had && now.Sub(a.at) < WatchedEvery:
-		return wire(a.pr), ""
+		return wire(a.pr), a.problem
 	case problem != "" && !had:
 		return nil, problem
 	}
 	pr, problem, err := s.ask(ctx, true, tree)
 	if err != nil {
 		// Busy: what is cached, however old, rather than another gh at once.
-		return wire(a.pr), ""
+		return wire(a.pr), a.problem
 	}
 	if ctx.Err() != nil {
 		return nil, ""
 	}
 	s.mu.Lock()
 	changed := s.cache.record(tree, pr, problem, s.now())
-	if problem != "" {
-		if old, ok := s.cache.get(tree); ok {
-			pr, problem = old, ""
-		}
+	if a, ok := s.cache.byTree[tree]; ok {
+		pr, problem = a.pr, a.problem
 	}
 	s.mu.Unlock()
 	if changed {
-		s.changed(tree, problem != "")
+		s.changed(tree, problem.EveryTree())
 	}
 	return wire(pr), problem
 }
@@ -312,8 +310,9 @@ func wire(pr *PR) *proto.PR {
 	return pr.Wire()
 }
 
-// PRs are the cached PRs of project's Worktrees, in the order they are listed.
-func (s *Service) PRs(project string) []proto.PRItem {
+// PRs are the cached PRs of project's Worktrees, in the order they are
+// listed, and a missing or signed-out gh that keeps them from being asked.
+func (s *Service) PRs(project string) ([]proto.PRItem, Problem) {
 	ws, _ := worktree.List(project)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -323,7 +322,7 @@ func (s *Service) PRs(project string) []proto.PRItem {
 			items = append(items, pr.Item(w.Path))
 		}
 	}
-	return items
+	return items, s.cache.problem
 }
 
 // act runs a gh verb in tree; its failure is coded for the phone.

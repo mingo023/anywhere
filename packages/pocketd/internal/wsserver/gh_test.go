@@ -84,6 +84,22 @@ func TestAPhoneGetsATreesPRAsGhReportsIt(t *testing.T) {
 	}
 }
 
+func TestOnlyAPhoneWithGhStateIsToldTheRepoHasNoGitHubRemote(t *testing.T) {
+	f := newGhFixture(t)
+	f.put("view.err", "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`\n")
+	ask := fmt.Sprintf(`{"type":"gh.pr","id":"p","tree":%q}`, f.tree)
+	newer := f.phone(proto.CapGitHub, proto.CapGhState)
+	newer.send(ask)
+	if m := newer.recv(); m["problem"] != "noRemote" || m["pr"] != nil {
+		t.Fatalf("%v", m)
+	}
+	older := f.phone(proto.CapGitHub)
+	older.send(ask)
+	if m := older.recv(); m["type"] != "gh.pr" || m["problem"] != nil || m["pr"] != nil {
+		t.Fatalf("%v", m)
+	}
+}
+
 func TestAPathOutsideEveryProjectIsNotATree(t *testing.T) {
 	f := newGhFixture(t)
 	p := f.phone(proto.CapGitHub)

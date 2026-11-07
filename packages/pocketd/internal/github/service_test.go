@@ -191,7 +191,7 @@ func TestASignedOutGhSaysSo(t *testing.T) {
 	f.put("auth", "You are not logged into any GitHub hosts. To log in, run: gh auth login\n")
 	f.put("auth.fail", "")
 	f.put("view.err", "To get started with GitHub CLI, please run:  gh auth login\n")
-	_, tree, reg := repo(t, false)
+	project, tree, reg := repo(t, false)
 	s := New(f.env(true), reg)
 	if st := s.Status(ctx(t), tree); st.State != "signedOut" || st.Version != "2.81.0" {
 		t.Fatalf("%+v", st)
@@ -199,10 +199,69 @@ func TestASignedOutGhSaysSo(t *testing.T) {
 	if _, problem := s.PR(ctx(t), tree); problem != SignedOut {
 		t.Fatalf("%q", problem)
 	}
+	if _, problem := s.PRs(project); problem != SignedOut {
+		t.Fatalf("the list: %q", problem)
+	}
 	f.put("fail", "To get started with GitHub CLI, please run:  gh auth login\n")
 	var e *Error
 	if err := s.Merge(ctx(t), tree, 7, "squash"); !errors.As(err, &e) || e.Code != proto.CodeGhSignedOut {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestSigningInAndCheckingAgainClearsTheProblemAtOnce(t *testing.T) {
+	f := newFake(t)
+	f.put("auth.fail", "")
+	f.put("view.err", "To get started with GitHub CLI, please run:  gh auth login\n")
+	project, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	s.PR(ctx(t), tree)
+	f.drop("auth.fail")
+	f.drop("view.err")
+	f.put("view.json", fixture(t, "open.json"))
+	f.put("threads.json", fixture(t, "threads.json"))
+	if st := s.Status(ctx(t), tree); st.State != "ready" {
+		t.Fatalf("%+v", st)
+	}
+	if _, problem := s.PRs(project); problem != "" {
+		t.Fatalf("the list: %q", problem)
+	}
+	if pr, problem := s.PR(ctx(t), tree); pr == nil || problem != "" {
+		t.Fatalf("%v %q", pr, problem)
+	}
+}
+
+func TestAGhFailureKeepsTheLastPRMarkedStaleAndWithoutOneSaysSo(t *testing.T) {
+	f := newFake(t)
+	f.put("view.json", fixture(t, "open.json"))
+	f.put("threads.json", fixture(t, "threads.json"))
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	c := &clock{at: time.Now()}
+	s.now = c.now
+	if pr, problem := s.PR(ctx(t), tree); pr == nil || problem != "" {
+		t.Fatalf("%v %q", pr, problem)
+	}
+	f.put("view.err", "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com\n")
+	c.add(WatchedEvery)
+	if pr, problem := s.PR(ctx(t), tree); pr == nil || problem != Failed {
+		t.Fatalf("stale: %v %q", pr, problem)
+	}
+	if pr, problem := New(f.env(true), reg).PR(ctx(t), tree); pr != nil || problem != Failed {
+		t.Fatalf("never seen: %v %q", pr, problem)
+	}
+}
+
+func TestATreeWithoutAGitHubRemoteSaysSoAndLeavesTheOthersAlone(t *testing.T) {
+	f := newFake(t)
+	f.put("view.err", "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`\n")
+	project, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	if pr, problem := s.PR(ctx(t), tree); pr != nil || problem != NoRemote {
+		t.Fatalf("%v %q", pr, problem)
+	}
+	if _, problem := s.PRs(project); problem != "" {
+		t.Fatalf("every tree: %q", problem)
 	}
 }
 
@@ -229,7 +288,7 @@ func TestCreatePushesTheBranchThenOpensItsPR(t *testing.T) {
 	if body, _ := os.ReadFile(filepath.Join(f.dir, "body")); string(body) != "Closes #12\n" || !f.called("pr create --base main --title Fix it --body-file - --draft") {
 		t.Fatalf("%q %v", body, f.calls())
 	}
-	items := s.PRs(project)
+	items, _ := s.PRs(project)
 	if len(items) != 1 || items[0].Tree != tree || items[0].Number != 57 || items[0].Gate != "draft" {
 		t.Fatalf("%+v", items)
 	}
@@ -414,7 +473,7 @@ func TestAPhoneLeavingMidAskLeavesTheShownPRAlone(t *testing.T) {
 	cancel()
 	s.PR(gone, tree)
 	s.poll(gone)
-	if items := s.PRs(project); len(items) != 1 {
+	if items, _ := s.PRs(project); len(items) != 1 {
 		t.Fatalf("%+v", items)
 	}
 	if s.cache.running != "" {

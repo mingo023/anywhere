@@ -85,10 +85,15 @@ var phoneServerGolden = map[string]any{
 		Mergeable: "MERGEABLE", Gate: "checksFailed",
 		Threads: []Thread{{ID: "PRRT_kwDOA1", Path: "src/main.rs", Line: 2, Outdated: false, Resolved: false,
 			Comments: []ThreadComment{{Author: "ana", Body: "Say hello", At: 1790000000, Hunk: "@@ -1,2 +1,2 @@\n-    println!(\"hi\");"}}}},
-	}),
-	"gh_pr_none":       NewGhPR("hp", "/Users/me/dev/pocket", "", nil),
-	"gh_pr_problem":    NewGhPR("hp", "/Users/me/dev/pocket", "signedOut", nil),
-	"gh_prs":           NewGhPRs("hps", []PRItem{{Tree: "/Users/me/.worktrees/pocket/calm-otter", Number: 118, Title: "Fix login", State: "OPEN", Draft: true, Gate: "draft", Checks: Checks{Pending: 2}}}),
+	}, false),
+	"gh_pr_none":      NewGhPR("hp", "/Users/me/dev/pocket", "", nil, false),
+	"gh_pr_problem":   NewGhPR("hp", "/Users/me/dev/pocket", "signedOut", nil, false),
+	"gh_pr_failed":    NewGhPR("hp", "/Users/me/dev/pocket", "failed", nil, false),
+	"gh_pr_no_remote": NewGhPR("hp", "/Users/me/dev/pocket", "noRemote", nil, false),
+	"gh_pr_stale": NewGhPR("hp", "/Users/me/dev/pocket", "", &PR{Number: 118, Title: "Fix login", URL: "https://github.com/me/pocket/pull/118", State: "OPEN",
+		Base: "main", Head: "fix-login", Mergeable: "UNKNOWN", Gate: "checking"}, true),
+	"gh_prs":           NewGhPRs("hps", []PRItem{{Tree: "/Users/me/.worktrees/pocket/calm-otter", Number: 118, Title: "Fix login", State: "OPEN", Draft: true, Gate: "draft", Checks: Checks{Pending: 2}}}, ""),
+	"gh_prs_problem":   NewGhPRs("hps", nil, "signedOut"),
 	"gh_pr_created":    NewGhPRCreated("hc", 119, "https://github.com/me/pocket/pull/119"),
 	"error_gh_missing": NewErrorCode("hp", CodeGhMissing, "Install the GitHub CLI on your Mac"),
 	"fs_list": NewFsList("fl", "/Users/me/dev/pocket", "", []FsEntry{
@@ -124,7 +129,7 @@ func TestEveryPhoneVerbHasAClientGolden(t *testing.T) {
 }
 
 func TestEveryPhoneCapIsServed(t *testing.T) {
-	for _, c := range []string{CapTerminal, CapWorkspace, CapGit, CapCompare, CapGitHub, CapFiles, CapPush} {
+	for _, c := range []string{CapTerminal, CapWorkspace, CapGit, CapCompare, CapGitHub, CapGhState, CapFiles, CapPush} {
 		if !slices.Contains(ServerCaps, c) {
 			t.Errorf("%s's handlers landed but it isn't served", c)
 		}

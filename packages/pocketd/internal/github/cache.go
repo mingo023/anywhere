@@ -14,9 +14,12 @@ const (
 	ghTurn = time.Minute
 )
 
+// answer is what gh last said about a tree: its PR, or none, or NoRemote; or,
+// with Failed, the PR it said before, now stale.
 type answer struct {
-	at time.Time
-	pr *PR
+	at      time.Time
+	pr      *PR
+	problem Problem
 }
 
 // cache is each tree's PR as gh last reported it and when it was asked, the
@@ -81,15 +84,18 @@ func (c *cache) apply(tree string, started time.Time, pr *PR, problem Problem, n
 // gh.pr is; an answer of the poll still running for tree no longer lands.
 func (c *cache) record(tree string, pr *PR, problem Problem, now time.Time) bool {
 	c.dropRun(tree)
-	if problem != "" {
+	if problem.EveryTree() {
 		changed := c.problem != problem
 		c.problem, c.problemAt = problem, now
 		return changed
 	}
 	old, had := c.byTree[tree]
-	changed := c.problem != "" || !had || !reflect.DeepEqual(old.pr, pr)
+	if problem == Failed {
+		pr = old.pr
+	}
+	changed := c.problem != "" || !had || old.problem != problem || !reflect.DeepEqual(old.pr, pr)
 	c.problem = ""
-	c.byTree[tree] = answer{now, pr}
+	c.byTree[tree] = answer{now, pr, problem}
 	return changed
 }
 
@@ -106,7 +112,7 @@ func (c *cache) forget(tree string) {
 
 // put shows pr for tree at once, as when it was just opened, until the next poll asks gh.
 func (c *cache) put(tree string, pr *PR, now time.Time) {
-	c.byTree[tree] = answer{now, pr}
+	c.byTree[tree] = answer{at: now, pr: pr}
 	c.expire(tree, now)
 }
 
@@ -115,7 +121,7 @@ func (c *cache) edit(tree string, f func(*PR)) {
 	if a, ok := c.byTree[tree]; ok && a.pr != nil {
 		pr := *a.pr
 		f(&pr)
-		c.byTree[tree] = answer{a.at, &pr}
+		c.byTree[tree] = answer{a.at, &pr, a.problem}
 	}
 	c.dropRun(tree)
 }

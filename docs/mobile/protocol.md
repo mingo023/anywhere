@@ -185,6 +185,8 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 
 ## gh.v1
 
+`ghstate.v1` (no verbs of its own) lets `gh.pr` answer `noRemote` and `failed`, which a phone that knows only `missing` and `signedOut` would show as a signed-out gh.
+
 | Verb | Scope |
 |---|---|
 | `gh.status`, `gh.pr`, `gh.prs` | observe |
@@ -195,7 +197,13 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 ← {type:"gh.status", id, state:"missing"|"signedOut"|"ready", login?}
 
 → {type:"gh.pr", id, tree}
-← {type:"gh.pr", id, tree, problem?:"missing"|"signedOut", pr?:PR}      // no pr and no problem = no PR for the branch
+← {type:"gh.pr", id, tree, problem?:"missing"|"signedOut"|"noRemote"|"failed", pr?:PR, stale?:bool}
+   // no pr and no problem = gh said the branch has no PR ("no pull requests found"), and nothing else does
+   // noRemote = the repo has no GitHub remote (gh's "no git remotes found" / "none of the git remotes configured…"):
+   //   say so and offer no Create. It is the tree's, not gh's: other trees are unaffected.
+   // gh failing any other way keeps what it last said: pr with stale:true, or problem "failed" when it never said
+   //   ("Couldn't reach GitHub", with Retry). Either is asked again on the usual cadence.
+   // noRemote and failed only to a ghstate.v1 conn; any other sees no problem (and the stale pr, unmarked)
 PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
       checks:{passed, failed, pending}, runs:[{name, outcome:"passed"|"failed"|"pending"|"skipped", url?}],
       review?:"APPROVED"|"CHANGES_REQUESTED"|"REVIEW_REQUIRED", reviews:[{login, state}], requested:[login],
@@ -205,7 +213,9 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
    //   (Pr::gate in packages/desktop/crates/git/src/github.rs)
 
 → {type:"gh.prs", id, project}
-← {type:"gh.prs", id, items:[{tree, number, title, state, draft, gate, checks:{passed, failed, pending}}]}
+← {type:"gh.prs", id, items:[{tree, number, title, state, draft, gate, checks:{passed, failed, pending}}], problem?:"missing"|"signedOut"}
+   // problem: gh isn't installed or signed in, so the list isn't kept fresh; "Check again" is gh.status (a ready gh
+   //   clears it at once) then gh.prs
 
 → {type:"gh.pr.create", id, tree, title, body, draft?:bool, base?}  ← {type:"gh.pr.created", id, number, url}
 → {type:"gh.pr.merge", id, tree, number, method:"squash"|"merge"|"rebase"}  ← ack

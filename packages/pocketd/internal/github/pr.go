@@ -38,26 +38,44 @@ type PR struct {
 	Threads []proto.Thread
 }
 
-// Problem is why gh can't be asked at all, as opposed to a branch having no PR.
+// Problem is why gh couldn't say whether a branch has a PR, as opposed to it having none.
 type Problem string
 
 const (
 	Missing   Problem = "missing"
 	SignedOut Problem = "signedOut"
+	// NoRemote: the repository has no GitHub remote, so it can have no PR.
+	NoRemote Problem = "noRemote"
+	// Failed: gh answered with anything else, as it does offline or when GitHub is down.
+	Failed Problem = "failed"
 )
+
+// EveryTree: the problem is gh's own, so every tree has it until gh is asked again.
+func (p Problem) EveryTree() bool { return p == Missing || p == SignedOut }
 
 // view is the PR for the branch checked out in the working directory.
 var view = []string{"gh", "pr", "view", "--json", "number,title,url,state,isDraft,statusCheckRollup,reviewDecision,latestReviews,reviewRequests,mergeable,mergeStateStatus,headRefOid,baseRefName"}
 
-// viewResult reads what view returned. No PR, or any other failure, is nil.
+// viewResult reads what view returned. Only gh saying it found none is no PR
+// and no problem; any other failure is one.
 func viewResult(out string, err error) (*PR, Problem) {
 	if err != nil {
-		return nil, problemOf(err)
+		if strings.Contains(err.Error(), "no pull requests found") {
+			return nil, ""
+		}
+		if p := problemOf(err); p != "" {
+			return nil, p
+		}
+		return nil, Failed
 	}
-	return parse(out), ""
+	if pr := parse(out); pr != nil {
+		return pr, ""
+	}
+	return nil, Failed
 }
 
-// problemOf tells a missing or signed-out gh from any other failure.
+// problemOf tells a missing or signed-out gh, or a repository without a
+// GitHub remote, from any other failure.
 func problemOf(err error) Problem {
 	if err == nil {
 		return ""
@@ -67,6 +85,9 @@ func problemOf(err error) Problem {
 	// A login shell reports a missing command: zsh and bash say "command not found", fish "Unknown command".
 	case err == ErrMissing, strings.Contains(e, "command not found"), strings.Contains(e, "Unknown command"):
 		return Missing
+	// Before "gh auth login", which gh's no-GitHub-host message ends with.
+	case strings.Contains(e, "no git remotes found"), strings.Contains(e, "none of the git remotes configured"):
+		return NoRemote
 	case strings.Contains(e, "gh auth login"):
 		return SignedOut
 	}

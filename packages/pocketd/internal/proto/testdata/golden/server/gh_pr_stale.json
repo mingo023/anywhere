@@ -1,0 +1,26 @@
+{
+  "type": "gh.pr",
+  "id": "hp",
+  "tree": "/Users/me/dev/pocket",
+  "pr": {
+    "number": 118,
+    "title": "Fix login",
+    "url": "https://github.com/me/pocket/pull/118",
+    "state": "OPEN",
+    "draft": false,
+    "base": "main",
+    "head": "fix-login",
+    "checks": {
+      "passed": 0,
+      "failed": 0,
+      "pending": 0
+    },
+    "runs": [],
+    "reviews": [],
+    "requested": [],
+    "mergeable": "UNKNOWN",
+    "gate": "checking",
+    "threads": []
+  },
+  "stale": true
+}
