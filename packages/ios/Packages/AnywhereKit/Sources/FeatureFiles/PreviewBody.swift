@@ -47,9 +47,10 @@ enum PreviewBody: Equatable {
     /// pocketd says only that it couldn't.
     static let unreadableWhy = "It may be a broken link, a special file, or not readable."
 
-    /// The language id the preview highlights and names: the Mac's, else the highlighter's for the path.
+    /// The language id the preview highlights and names: the Mac's, else the highlighter's for the path. pocketd says
+    /// "text" for every name it doesn't know, so that counts as not knowing.
     static func language(_ read: FsRead, path: String) -> String {
-        read.language ?? Highlighter.language(for: path)
+        read.language.flatMap { $0 == "text" ? nil : $0 } ?? Highlighter.language(for: path)
     }
 
     /// Whether the file has a rendered look and a source look to switch between.

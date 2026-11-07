@@ -186,12 +186,6 @@ public final class FilesStore: HostStore {
         return taken.map(\.text)
     }
 
-    /// The oldest path waiting in `tree`, without its `@`, for a chat that takes one mention at a time.
-    public func takeMention(in tree: String) -> String? {
-        guard let i = additions.firstIndex(where: { $0.tree == tree && $0.text.hasPrefix("@") && !$0.text.contains("\n") }) else { return nil }
-        return String(additions.remove(at: i).text.dropFirst())
-    }
-
     /// `text` with `pieces` added at its end: a mention after a space, a quote on lines of its own.
     public nonisolated static func draft(_ text: String, adding pieces: [String]) -> String {
         pieces.reduce(text) { text, piece in

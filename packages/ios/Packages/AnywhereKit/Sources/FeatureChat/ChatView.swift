@@ -28,14 +28,14 @@ public struct ChatView: View {
                 case .web: break
                 case .file(let path, _):
                     guard let cwd = store.summary?.cwd else { return }
-                    open(.file(mac: mac, tree: cwd, path: path))
+                    open(.file(mac: mac, tree: cwd, path: path, chat: agentId))
                 }
             }
             .toolbar {
                 if let cwd = store.summary?.cwd {
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button { open(.changes(mac: mac, tree: cwd)) } label: { Label("Changes", systemImage: "plusminus") }
-                        Button { open(.files(mac: mac, tree: cwd, dir: "")) } label: { Label("Files", systemImage: "folder") }
+                        Button { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) } label: { Label("Files", systemImage: "folder") }
                     }
                 }
             }

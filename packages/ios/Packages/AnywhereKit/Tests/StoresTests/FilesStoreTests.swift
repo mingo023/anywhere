@@ -223,18 +223,6 @@ struct FilesStoreTests {
         #expect(store.additions.isEmpty)
     }
 
-    @Test("a chat that takes one mention at a time gets the oldest on its tree")
-    func oneMentionAtATime() {
-        let store = FilesStore()
-        store.quote("a.rs:1\n```\nx\n```", tree: "/t", for: "a1")
-        store.mention(tree: "/t", path: "a.rs", for: "a1")
-        store.mention(tree: "/t", path: "b.rs", for: "a1")
-        #expect(store.takeMention(in: "/elsewhere") == nil)
-        #expect(store.takeMention(in: "/t") == "a.rs")
-        #expect(store.takeMention(in: "/t") == "b.rs")
-        #expect(store.takeMention(in: "/t") == nil)
-    }
-
     @Test("a mention joins the draft after a space, and a quote takes lines of its own")
     func draft() {
         #expect(FilesStore.draft("", adding: ["@a.rs", "@b.rs"]) == "@a.rs @b.rs ")

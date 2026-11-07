@@ -22,11 +22,10 @@ enum ChatTarget: Equatable {
     case choose([ChatSession])
     case none
 
-    /// `open` holds the chats open on a stack; the one on this tree is the chat that opened Files.
-    init(_ sessions: [ChatSession], open: Set<String>) {
-        let opened = sessions.filter { open.contains($0.id) }
-        if opened.count == 1 {
-            self = .one(opened[0])
+    /// `opener` is the agent whose chat opened Files, nil when something else did.
+    init(_ sessions: [ChatSession], opener: String?) {
+        if let opened = sessions.first(where: { $0.id == opener }) {
+            self = .one(opened)
         } else if sessions.count == 1 {
             self = .one(sessions[0])
         } else if sessions.isEmpty {

@@ -20,11 +20,12 @@ public struct FilesView: View {
 
     public var body: some View {
         switch route {
-        case .files(_, let tree, let dir):
-            FileTreeScreen(files: host.files, model: host.files.tree(tree), dir: dir, context: context(tree))
-        case .file(_, let tree, let path, let line):
+        case .files(_, let tree, let dir, let chat):
+            FileTreeScreen(files: host.files, model: host.files.tree(tree), dir: dir, context: context(tree, chat: chat))
+        case .file(_, let tree, let path, let line, let chat):
             if let path = FileText.relative(path, tree: tree) {
-                FilePreviewScreen(files: host.files, preview: host.files.preview(tree: tree, path: path), line: line, context: context(tree))
+                FilePreviewScreen(
+                    files: host.files, preview: host.files.preview(tree: tree, path: path), line: line, context: context(tree, chat: chat))
             } else {
                 Placeholder("This file is outside \(FileText.baseName(tree))", systemImage: "folder.badge.questionmark", detail: path)
             }
@@ -33,10 +34,10 @@ public struct FilesView: View {
         }
     }
 
-    private func context(_ tree: String) -> FilesContext {
+    private func context(_ tree: String, chat: String?) -> FilesContext {
         FilesContext(
             mac: route.mac ?? host.mac,
-            target: ChatTarget(ChatSession.on(tree, host.sessions.sessions.values.map(\.summary)), open: Set(host.chats.keys)),
+            target: ChatTarget(ChatSession.on(tree, host.sessions.sessions.values.map(\.summary)), opener: chat),
             project: host.workspace.projects.first { $0.path == tree || $0.worktrees.contains { $0.path == tree } }?.path,
             open: open,
             git: host.git)

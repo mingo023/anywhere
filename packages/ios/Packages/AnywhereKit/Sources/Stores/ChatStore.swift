@@ -269,7 +269,9 @@ public final class ChatStore: HostStore {
     public func appear() {
         viewing = true
         open()
-        if let cwd = summary?.cwd, let path = files?.takeMention(in: cwd) { mention(path) }
+        if let cwd = summary?.cwd, let pieces = files?.takeAdditions(for: agentId, in: cwd), !pieces.isEmpty {
+            draft.text = FilesStore.draft(draft.text, adding: pieces)
+        }
         ticker?.cancel()
         ticker = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -277,12 +279,6 @@ public final class ChatStore: HostStore {
                 self?.flush()
             }
         }
-    }
-
-    /// Puts `@path` at the end of the draft, as a pick from the suggest list would.
-    func mention(_ path: String) {
-        let text = draft.text
-        draft.text = text + (text.isEmpty || text.last!.isWhitespace ? "" : " ") + "@" + path + " "
     }
 
     public func disappear() {

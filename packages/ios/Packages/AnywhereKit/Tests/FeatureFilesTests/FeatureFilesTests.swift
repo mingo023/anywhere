@@ -40,13 +40,15 @@ struct PreviewBodyTests {
     func language() {
         #expect(PreviewBody.of(read(.text, text: "x", language: "html"), path: "a.htm", source: false) == .code("x", language: "html"))
         #expect(PreviewBody.of(read(.text, text: "x"), path: "Makefile", source: false) == .code("x", language: "makefile"))
+        #expect(PreviewBody.of(read(.text, text: "x", language: "text"), path: "Makefile", source: false) == .code("x", language: "makefile"))
+        #expect(PreviewBody.subtitle(read(.text, size: 2048, text: "", language: "text"), path: "a.scss") == "CSS · 2.0 KB")
     }
 
     @Test("an SVG draws unless its source is asked for")
     func svg() {
         let svg = read(.text, text: "<svg/>", language: "text", mime: "image/svg+xml")
         #expect(PreviewBody.of(svg, path: "icon.svg", source: false) == .svg("<svg/>"))
-        #expect(PreviewBody.of(svg, path: "icon.svg", source: true) == .code("<svg/>", language: "text"))
+        #expect(PreviewBody.of(svg, path: "icon.svg", source: true) == .code("<svg/>", language: "html"))
         #expect(PreviewBody.hasSource(svg, path: "icon.svg"))
     }
 
@@ -138,11 +140,11 @@ struct ChatTargetTests {
     func target() {
         let a = ChatSession(id: "a1", title: "Fix the build", agent: "Claude")
         let b = ChatSession(id: "a2", title: "Docs", agent: "Codex")
-        #expect(ChatTarget([a, b], open: ["a2", "elsewhere"]) == .one(b))
-        #expect(ChatTarget([a], open: []) == .one(a))
-        #expect(ChatTarget([a, b], open: []) == .choose([a, b]))
-        #expect(ChatTarget([a, b], open: ["a1", "a2"]) == .choose([a, b]))
-        #expect(ChatTarget([], open: ["a1"]) == .none)
+        #expect(ChatTarget([a, b], opener: "a2") == .one(b))
+        #expect(ChatTarget([a], opener: nil) == .one(a))
+        #expect(ChatTarget([a, b], opener: nil) == .choose([a, b]))
+        #expect(ChatTarget([a, b], opener: "elsewhere") == .choose([a, b]))
+        #expect(ChatTarget([], opener: "a1") == .none)
     }
 
     @Test("the toast names the session for a mention and the agent for a quote")
