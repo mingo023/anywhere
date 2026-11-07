@@ -6,7 +6,7 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A PR's review threads by file: reply, resolve and reopen, with Undo, and send one to the agent.
+/// A PR's review threads by file: reply, resolve and reopen, with Undo, and send one or all open ones to the agent.
 @MainActor
 struct ThreadsScreen: View {
     let store: GitHubStore
@@ -74,6 +74,13 @@ struct ThreadsScreen: View {
                     Text(group.path).font(Typography.codeSmall).textCase(nil).lineLimit(1).truncationMode(.head)
                 }
             }
+            if let all = sendOpen {
+                Section {
+                    Button(action: all.action) { Text(all.title).frame(maxWidth: .infinity) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(mac.offline)
+                }
+            }
         }
         .groupedList()
         .navigationTitle("Comments")
@@ -100,6 +107,15 @@ struct ThreadsScreen: View {
     private func send(_ thread: ReviewThread) -> (title: String, action: () -> Void)? {
         guard fix.canSend(fixing: model.fixing), let pr = model.pr else { return nil }
         return (fix.target.title("Send to"), { fixing = FixRequest(prompt: FixPrompt.fix(pr, checks: [], threads: [thread]), threads: [thread.id]) })
+    }
+
+    /// Send every open thread to the agent, offered while more than one is open.
+    private var sendOpen: (title: String, action: () -> Void)? {
+        guard fix.canSend(fixing: model.fixing), let pr = model.pr else { return nil }
+        let open = ThreadGroups.unsent(pr, fixing: nil).threads
+        guard open.count > 1 else { return nil }
+        return (fix.target.title("Send \(open.count) open comments to"),
+                { fixing = FixRequest(prompt: FixPrompt.fix(pr, checks: [], threads: open), threads: open.map(\.id)) })
     }
 
     /// The file a thread is on, at its line on the new side; the old side's line isn't in today's file.
