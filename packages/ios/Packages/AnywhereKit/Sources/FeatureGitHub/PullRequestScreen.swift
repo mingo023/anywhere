@@ -80,7 +80,7 @@ struct PullRequestScreen: View {
             }
             .overlay(alignment: .bottom) {
                 if let notice = model.notice {
-                    NoticeBar(notice: notice) { Task { await store.undo(model.tree) } }.disabled(mac.offline)
+                    ToastBar(notice.text, actionTitle: "Undo", act: notice.undo == nil ? nil : { Task { await store.undo(model.tree) } }).disabled(mac.offline)
                 }
             }
             .animation(.snappy, value: model.notice)

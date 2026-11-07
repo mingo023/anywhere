@@ -62,28 +62,3 @@ struct PrGlyph: View {
             .accessibilityLabel(state == "OPEN" ? (draft ? "Draft" : "Open") : state.capitalized)
     }
 }
-
-/// A short note at the bottom of a PR screen, with Undo when it can be taken back.
-@MainActor
-struct NoticeBar: View {
-    let notice: PullRequestNotice
-    let undo: () -> Void
-
-    var body: some View {
-        HStack(spacing: Space.m) {
-            Text(notice.text).font(Typography.subheadline).foregroundStyle(Palette.text.color)
-            Spacer(minLength: 0)
-            if notice.undo != nil {
-                Button(action: undo) { Text("Undo").hitTarget() }.font(Typography.subheadline.weight(.semibold)).buttonStyle(.borderless)
-            }
-        }
-        .padding(.horizontal, Space.l)
-        .padding(.vertical, notice.undo == nil ? Space.m : 0)
-        .frame(minHeight: HitTarget.minimum)
-        .background(Palette.popover.color, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        .padding(.horizontal, Space.l)
-        .padding(.bottom, Space.s)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
-}

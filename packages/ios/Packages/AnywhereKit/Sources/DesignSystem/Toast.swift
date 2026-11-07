@@ -44,10 +44,12 @@ private struct ToastHost: ViewModifier {
         content
             .overlay(alignment: .bottom) {
                 if let toast {
-                    ToastBar(toast: toast) {
-                        self.toast = nil
-                        toast.action?()
-                    }
+                    ToastBar(toast.text, actionTitle: toast.actionTitle, act: toast.action.map { action in
+                        {
+                            self.toast = nil
+                            action()
+                        }
+                    })
                 }
             }
             .animation(.snappy, value: toast?.id)
@@ -61,23 +63,31 @@ private struct ToastHost: ViewModifier {
     }
 }
 
+/// A toast as it's drawn, for a screen whose notes come and go with its store rather than `.toast`.
 @MainActor
-private struct ToastBar: View {
-    let toast: Toast
-    let act: () -> Void
+public struct ToastBar: View {
+    let text: String
+    let actionTitle: String?
+    let act: (() -> Void)?
 
-    var body: some View {
+    public init(_ text: String, actionTitle: String? = nil, act: (() -> Void)? = nil) {
+        self.text = text
+        self.actionTitle = actionTitle
+        self.act = act
+    }
+
+    public var body: some View {
         HStack(spacing: Space.m) {
-            Text(toast.text).font(Typography.subheadline).foregroundStyle(Palette.text.color).lineLimit(2)
+            Text(text).font(Typography.subheadline).foregroundStyle(Palette.text.color).lineLimit(2)
             Spacer(minLength: 0)
-            if let title = toast.actionTitle, toast.action != nil {
-                Button(action: act) { Text(title).hitTarget() }
+            if let actionTitle, let act {
+                Button(action: act) { Text(actionTitle).hitTarget() }
                     .font(Typography.subheadline.weight(.semibold))
                     .buttonStyle(.borderless)
             }
         }
         .padding(.horizontal, Space.l)
-        .padding(.vertical, toast.action == nil ? Space.m : 0)
+        .padding(.vertical, act == nil ? Space.m : 0)
         .frame(minHeight: HitTarget.minimum)
         .background(Palette.popover.color, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
