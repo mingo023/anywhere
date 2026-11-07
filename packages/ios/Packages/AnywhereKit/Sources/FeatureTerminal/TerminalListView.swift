@@ -78,12 +78,28 @@ struct TerminalListView: View {
     @State private var creating = false
     @State private var opened: String?
     @State private var problem: String?
+    @State private var area = CGSize.zero
+    @AppStorage("terminal.fontSize") private var fontSize = Double(Fit.defaultFontSize)
+    #if os(iOS)
+        @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
 
     private var store: TerminalStore { host.terminals }
     private var mac: String { host.hello?.serverId ?? host.id }
 
+    /// On a phone a terminal opens where this list is, so a new one is made to fit there. A pad opens it in another column.
+    private var newGrid: (cols: Int, rows: Int)? {
+        #if os(iOS)
+            guard sizeClass == .compact, area != .zero else { return nil }
+            return Fit.newTerminal(in: area, fontSize: CGFloat(fontSize))
+        #else
+            return nil
+        #endif
+    }
+
     var body: some View {
         content
+            .onGeometryChange(for: CGSize.self, of: \.size) { area = $0 }
             .navigationTitle("Terminals")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -92,7 +108,7 @@ struct TerminalListView: View {
                 }
             }
             .sheet(isPresented: $creating) {
-                NewTerminalSheet(store: store) { id in opened = id }
+                NewTerminalSheet(store: store, grid: newGrid) { id in opened = id }
             }
             .navigationDestination(item: $opened) { id in
                 TerminalScreenView(store: store, terminalId: id, title: store.terminal(id)?.title ?? "Shell")

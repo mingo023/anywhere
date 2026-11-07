@@ -7,14 +7,17 @@ import Wire
 @MainActor
 struct NewTerminalSheet: View {
     let store: TerminalStore
+    /// The cols × rows the new terminal opens at; nil leaves it to the Mac.
+    let grid: (cols: Int, rows: Int)?
     let created: (String) -> Void
     @State private var projects: [Project]?
     @State private var opening: String?
     @State private var problem: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(store: TerminalStore, projects: [Project]? = nil, created: @escaping (String) -> Void) {
+    init(store: TerminalStore, grid: (cols: Int, rows: Int)? = nil, projects: [Project]? = nil, created: @escaping (String) -> Void) {
         self.store = store
+        self.grid = grid
         self.created = created
         _projects = State(initialValue: projects)
     }
@@ -32,12 +35,12 @@ struct NewTerminalSheet: View {
                                 ForEach(project.worktrees, id: \.path) { tree in
                                     place(tree.name, detail: tree.branch.isEmpty ? nil : tree.branch,
                                           systemImage: tree.isMain ? "folder" : "arrow.triangle.branch", key: tree.path) {
-                                        try await store.create(cwd: tree.path, localId: nil)
+                                        try await store.create(cwd: tree.path, localId: nil, cols: grid?.cols, rows: grid?.rows)
                                     }
                                 }
                                 ForEach(store.locals.filter { $0.project == project.path }) { local in
                                     place(local.name, detail: "Local", systemImage: "house", key: "local:" + local.id) {
-                                        try await store.create(cwd: nil, localId: local.id)
+                                        try await store.create(cwd: nil, localId: local.id, cols: grid?.cols, rows: grid?.rows)
                                     }
                                 }
                             }
