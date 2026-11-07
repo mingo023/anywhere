@@ -2,6 +2,7 @@ import Highlight
 import SwiftUI
 import Testing
 import DiffModel
+import Fixtures
 @testable import CodeView
 
 @Suite("Code lines")
@@ -295,5 +296,19 @@ struct WrappedRowTests {
         #expect(runs.string == "t a")
         #expect(runs.colors.map { String(decoding: utf16[$0.range], as: UTF16.self) } == ["t"])
         #expect(runs.tints.map { String(decoding: utf16[$0.range], as: UTF16.self) } == ["a"])
+    }
+}
+
+@Suite("Diff scroll target")
+struct DiffTargetTests {
+    @Test("a target that comes with a new document waits for that document's rows, then shows once")
+    func waitsForItsDocument() {
+        let old = DiffDocument(Sample.smallDiff)
+        var grown = old
+        grown.lines += old.lines
+        let target = old.lines.count - 1
+        #expect(DiffView.target(target, shown: old, document: grown, done: nil) == nil)
+        #expect(DiffView.target(target, shown: grown, document: grown, done: nil) == target)
+        #expect(DiffView.target(target, shown: grown, document: grown, done: target) == nil)
     }
 }

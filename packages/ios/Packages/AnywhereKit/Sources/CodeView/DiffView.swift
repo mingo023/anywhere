@@ -78,7 +78,7 @@ public struct DiffView: View {
             }
         }
         .task(id: DocumentKey(document)) { await load() }
-        .task(id: TargetKey(target: scrollTo, ready: shown.flatMap(rows) != nil)) { showTarget() }
+        .task(id: TargetKey(target: scrollTo, shown: shown.map { DocumentKey($0.document) }, ready: shown.flatMap(rows) != nil)) { showTarget() }
     }
 
     /// The rows drawn: pairs side by side, lines unwrapped, or the lines cut to the width; nil while those are cut.
@@ -183,14 +183,23 @@ public struct DiffView: View {
     }
 
     private func showTarget() {
-        guard let scrollTo, scrollTo != shownTarget, let shown, let rows = rows(shown), shown.document.lines.indices.contains(scrollTo) else { return }
+        guard let shown, let rows = rows(shown), let scrollTo = Self.target(scrollTo, shown: shown.document, document: document, done: shownTarget)
+        else { return }
         shownTarget = scrollTo
         let row = sideBySide ? shown.document.pairs.firstIndex { $0.left == scrollTo || $0.right == scrollTo } ?? 0 : rows.first(of: scrollTo)
         mark = Mark(row: row, x: 0, serial: (mark?.serial ?? 0) + 1)
     }
 
+    /// The line `scrollTo` brings into view, once: only when the document it indexes is the one on screen, as a new
+    /// target can come with a new document before its rows are swapped in.
+    nonisolated static func target(_ scrollTo: Int?, shown: DiffDocument, document: DiffDocument, done: Int?) -> Int? {
+        guard let scrollTo, scrollTo != done, DocumentKey(shown) == DocumentKey(document), shown.lines.indices.contains(scrollTo) else { return nil }
+        return scrollTo
+    }
+
     private struct TargetKey: Equatable {
         let target: Int?
+        let shown: DocumentKey?
         let ready: Bool
     }
 
