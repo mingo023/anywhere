@@ -117,6 +117,18 @@ struct FitTests {
         #expect(Fit.grid(CGSize(width: 393, height: 600), cell: .zero) == (80, 24))
     }
 
+    @Test("a terminal created on a phone fills its width, so it needs no sideways scrolling, and stops above the key bar")
+    @MainActor
+    func newTerminal() {
+        let grid = Fit.newTerminal(in: CGSize(width: 393, height: 700), fontSize: 11)
+        let screen = TerminalSession(id: "t1", cols: grid.cols, rows: grid.rows, fontSize: 11).surface
+        let cell = Fit.cell(fontSize: 11)
+        #expect(screen.width + 2 * Fit.inset <= 393)
+        #expect(screen.width + cell.width + 2 * Fit.inset > 393)
+        #expect(screen.height + 2 * Fit.inset <= 700 - 56)
+        #expect(screen.height + cell.height + 2 * Fit.inset > 700 - 56)
+    }
+
     @Test("a monospaced cell is as wide at every letter and grows with the font")
     func cell() {
         let small = Fit.cell(fontSize: 11)

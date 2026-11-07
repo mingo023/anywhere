@@ -10,9 +10,13 @@ struct KeyBar: View {
     let toggle: (KeyMods) -> Void
     let paste: () -> Void
 
+    /// Its keys and the padding above and below them.
+    nonisolated static let height = HitTarget.minimum + 2 * inset
+    private nonisolated static let inset = Space.xs + 2
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Space.xs) {
+            HStack(spacing: Space.s) {
                 key("esc") { press(.escape) }
                 key("tab") { press(.tab) }
                 modifier("ctrl", .ctrl)
@@ -25,7 +29,7 @@ struct KeyBar: View {
                 key(systemImage: "doc.on.clipboard", label: "Paste", paste)
             }
             .padding(.horizontal, Space.s)
-            .padding(.vertical, Space.xs + 2)
+            .padding(.vertical, Self.inset)
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
@@ -37,7 +41,7 @@ struct KeyBar: View {
             Haptics.tap()
             action()
         } label: {
-            Text(text).font(.system(.callout, design: .monospaced).weight(.medium)).frame(minWidth: 30)
+            Text(text).font(.system(.callout, design: .monospaced).weight(.medium)).padding(.horizontal, Space.xs).hitTarget()
         }
         .buttonStyle(KeyStyle(on: false))
     }
@@ -47,7 +51,7 @@ struct KeyBar: View {
             Haptics.tap()
             action()
         } label: {
-            Image(systemName: systemImage).font(.callout.weight(.medium)).frame(minWidth: 30)
+            Image(systemName: systemImage).font(.callout.weight(.medium)).hitTarget()
         }
         .buttonStyle(KeyStyle(on: false))
         .accessibilityLabel(label)
@@ -59,7 +63,7 @@ struct KeyBar: View {
             Haptics.tap()
             toggle(mod)
         } label: {
-            Text(text).font(.system(.callout, design: .monospaced).weight(.medium)).frame(minWidth: 34)
+            Text(text).font(.system(.callout, design: .monospaced).weight(.medium)).padding(.horizontal, Space.xs).hitTarget()
         }
         .buttonStyle(KeyStyle(on: on))
         .accessibilityAddTraits(on ? .isSelected : [])
@@ -71,8 +75,6 @@ private struct KeyStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.horizontal, Space.s)
-            .padding(.vertical, Space.xs + 2)
             .foregroundStyle(on ? Palette.onText.color : Palette.text.color)
             .background(
                 on ? Palette.accent.color : (configuration.isPressed ? Palette.fill4.color : Palette.surfaceRaised.color),
