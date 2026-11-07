@@ -76,7 +76,7 @@ struct PushSupportTests {
         #expect(ledger.record(mac: "m1", count: 2) == 2)
         #expect(ledger.record(mac: "m2", count: 3) == 5)
         #expect(ledger.record(mac: "m1", count: 0) == 3)
-        ledger.forget(mac: "m2")
+        #expect(ledger.forget(mac: "m2") == 0)
         #expect(ledger.record(mac: "m1", count: 1) == 1)
     }
 

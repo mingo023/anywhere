@@ -55,9 +55,18 @@ public final class AppModel {
         hosts.first { ($0.hello?.serverId ?? $0.credentials.serverId) == serverId } ?? hosts.first { $0.id == serverId }
     }
 
-    /// Stops using a Mac and deletes what this phone kept for it.
+    /// Stops using a Mac and deletes what this phone kept for it. A connected Mac is asked to stop pushing first; alerts
+    /// from one that isn't can no longer be opened, and the app drops them.
     public func forget(_ deviceId: String) {
-        remove(deviceId)
+        if let at = hosts.firstIndex(where: { $0.id == deviceId }) {
+            let host = hosts.remove(at: at)
+            host.push.center.forget(mac: host.mac)
+            let connection = host.connection
+            Task {
+                _ = try? await connection.request(.pushUnregister, timeout: .seconds(5))
+                await connection.stop()
+            }
+        }
         saved[deviceId] = nil
         try? vault?.remove(deviceId: deviceId)
     }

@@ -144,6 +144,36 @@ struct PushStoreTests {
 
 @Suite("Delivered alerts")
 struct DeliveredAlertTests {
+    @Test("forgetting a Mac drops its sealing key and its part of the badge")
+    @MainActor
+    func forgets() throws {
+        let c = center()
+        c.badge(mac: "m1", count: 2)
+        c.badge(mac: "m2", count: 3)
+        let key = try c.key(mac: "m1")
+        c.forget(mac: "m1")
+        defer { c.forget(mac: "m1") }
+        #expect(try c.key(mac: "m1") != key)
+        #expect(BadgeLedger(defaults: c.defaults).record(mac: "m2", count: 3) == 3)
+    }
+
+    @Test("an alert in front shows unless it is for the chat on screen or for a Mac this phone forgot")
+    func presents() {
+        let known: (String) -> Bool = { $0 == "m" }
+        #expect(PushCenter.presents(mac: "m", agent: "a1", visible: "a2", known: known))
+        #expect(PushCenter.presents(mac: "m", agent: nil, visible: "a2", known: known))
+        #expect(!PushCenter.presents(mac: "m", agent: "a1", visible: "a1", known: known))
+        #expect(!PushCenter.presents(mac: "gone", agent: "a1", visible: nil, known: known))
+        #expect(!PushCenter.presents(mac: nil, agent: nil, visible: nil, known: known), "a sealed alert has no key to open it")
+    }
+
+    @Test("a push failure names the Mac, and a relay failure says so")
+    func describes() {
+        #expect(PushStore.describe(DaemonError.timedOut, mac: "Studio") == "Studio didn't answer in time")
+        #expect(PushStore.describe(DaemonError.cancelled, mac: "Studio") == nil)
+        #expect(PushStore.describe(RelayClient.Failure.unreadable, mac: "Studio") == "The push relay sent a reply this app can't read.")
+    }
+
     @Test("a sync clears a Mac's alerts for sessions no longer needing a look, and nothing else")
     func outdated() {
         let keep: Set = ["a1"]
