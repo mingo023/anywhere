@@ -42,8 +42,8 @@ var phoneServerGolden = map[string]any{
 		{ID: "builtin", Provider: "codex", Name: "Codex", SignedIn: false},
 	}),
 	"git_status": NewGitStatus(GitStatus{ID: "gs", Tree: "/Users/me/dev/pocket", Rev: "9f2c", Branch: "fix-login", Upstream: "origin/fix-login", Base: "origin/main",
-		Ahead: 2, Behind: 1, Unpushed: new(1),
-		Totals: GitTotals{Files: 3, Added: 12, Removed: 4, Staged: 1},
+		Ahead: 2, Behind: 1, Unpushed: new(1), Unpulled: new(0), CommitAll: new(true),
+		Totals: GitTotals{Files: 3, Added: 12, Removed: 4, Staged: 1, Unstaged: 2},
 		Files: []GitFile{
 			{Path: "README.md", Status: "M", Staged: true, Added: new(2), Removed: new(1)},
 			{Path: "src/new.rs", OldPath: "src/old.rs", Status: "R", Unstaged: true, Added: new(10), Removed: new(3)},
@@ -69,7 +69,12 @@ var phoneServerGolden = map[string]any{
 	}, true),
 	"git_commit": NewGitCommit(GitCommit{ID: "gc", Sha: "1b59160", Subject: "Fix login", Body: "Closes #12", Author: "Minh", At: 1790000000,
 		Files: []CommitFile{{Path: "src/main.rs", Status: "M", Added: new(1), Removed: new(1)}, {Path: "logo.png", Status: "A"}}}),
-	"git_committed":     NewGitCommitted("gcc", "1b59160"),
+	"git_committed": NewGitCommitted("gcc", "1b59160"),
+	"git_compare": NewGitCompare(GitCompare{ID: "gx", Tree: "/Users/me/dev/pocket", Against: "origin/main",
+		Totals:     CompareTotals{Files: 3, Added: 11, Removed: 4},
+		Files:      []CommitFile{{Path: "logo.png", Status: "A"}, {Path: "src/new.rs", OldPath: "src/old.rs", Status: "R", Added: new(10), Removed: new(3)}},
+		NextCursor: new(2)}),
+	"error_unknown_ref": NewErrorCode("gx", CodeUnknownRef, "No branch or commit by that name"),
 	"error_git_failed":  NewCodedError("gp", CodeGitFailed, "! [rejected] fix-login -> fix-login (non-fast-forward)", "To github.com:me/pocket.git\n ! [rejected] fix-login -> fix-login (non-fast-forward)"),
 	"gh_status":         NewGhStatus("hs", "ready", "me"),
 	"gh_status_missing": NewGhStatus("hs", "missing", ""),
@@ -80,10 +85,15 @@ var phoneServerGolden = map[string]any{
 		Mergeable: "MERGEABLE", Gate: "checksFailed",
 		Threads: []Thread{{ID: "PRRT_kwDOA1", Path: "src/main.rs", Line: 2, Outdated: false, Resolved: false,
 			Comments: []ThreadComment{{Author: "ana", Body: "Say hello", At: 1790000000, Hunk: "@@ -1,2 +1,2 @@\n-    println!(\"hi\");"}}}},
-	}),
-	"gh_pr_none":       NewGhPR("hp", "/Users/me/dev/pocket", "", nil),
-	"gh_pr_problem":    NewGhPR("hp", "/Users/me/dev/pocket", "signedOut", nil),
-	"gh_prs":           NewGhPRs("hps", []PRItem{{Tree: "/Users/me/.worktrees/pocket/calm-otter", Number: 118, Title: "Fix login", State: "OPEN", Draft: true, Gate: "draft", Checks: Checks{Pending: 2}}}),
+	}, false),
+	"gh_pr_none":      NewGhPR("hp", "/Users/me/dev/pocket", "", nil, false),
+	"gh_pr_problem":   NewGhPR("hp", "/Users/me/dev/pocket", "signedOut", nil, false),
+	"gh_pr_failed":    NewGhPR("hp", "/Users/me/dev/pocket", "failed", nil, false),
+	"gh_pr_no_remote": NewGhPR("hp", "/Users/me/dev/pocket", "noRemote", nil, false),
+	"gh_pr_stale": NewGhPR("hp", "/Users/me/dev/pocket", "", &PR{Number: 118, Title: "Fix login", URL: "https://github.com/me/pocket/pull/118", State: "OPEN",
+		Base: "main", Head: "fix-login", Mergeable: "UNKNOWN", Gate: "checking"}, true),
+	"gh_prs":           NewGhPRs("hps", []PRItem{{Tree: "/Users/me/.worktrees/pocket/calm-otter", Number: 118, Title: "Fix login", State: "OPEN", Draft: true, Gate: "draft", Checks: Checks{Pending: 2}}}, ""),
+	"gh_prs_problem":   NewGhPRs("hps", nil, "signedOut"),
 	"gh_pr_created":    NewGhPRCreated("hc", 119, "https://github.com/me/pocket/pull/119"),
 	"error_gh_missing": NewErrorCode("hp", CodeGhMissing, "Install the GitHub CLI on your Mac"),
 	"fs_list": NewFsList("fl", "/Users/me/dev/pocket", "", []FsEntry{
@@ -119,7 +129,7 @@ func TestEveryPhoneVerbHasAClientGolden(t *testing.T) {
 }
 
 func TestEveryPhoneCapIsServed(t *testing.T) {
-	for _, c := range []string{CapTerminal, CapWorkspace, CapGit, CapGitHub, CapFiles, CapPush} {
+	for _, c := range []string{CapTerminal, CapWorkspace, CapGit, CapCompare, CapGitHub, CapGhState, CapFiles, CapPush} {
 		if !slices.Contains(ServerCaps, c) {
 			t.Errorf("%s's handlers landed but it isn't served", c)
 		}
@@ -190,6 +200,9 @@ func TestDecodeClientRejectsMalformedPhoneVerbs(t *testing.T) {
 		`{"type":"git.commit.create","id":"1","tree":"/p"}`,
 		`{"type":"git.push","id":"1","tree":"/p","lease":"yes"}`,
 		`{"type":"git.pull","id":"1"}`,
+		`{"type":"git.compare","id":"1","tree":"/p"}`,
+		`{"type":"git.compare","id":"1","tree":"/p","against":""}`,
+		`{"type":"git.compare","id":"1","tree":"/p","against":"main","limit":2001}`,
 		`{"type":"gh.status","id":"1","tree":null}`,
 		`{"type":"gh.pr","id":"1"}`,
 		`{"type":"gh.prs","id":"1","project":""}`,

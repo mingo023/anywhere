@@ -9,11 +9,14 @@
   "ahead": 2,
   "behind": 1,
   "unpushed": 1,
+  "unpulled": 0,
+  "commitAll": true,
   "totals": {
     "files": 3,
     "added": 12,
     "removed": 4,
-    "staged": 1
+    "staged": 1,
+    "unstaged": 2
   },
   "files": [
     {

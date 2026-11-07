@@ -537,7 +537,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.view":
 		c.emitSeen(m.AgentIDs)
 		c.s.Agents.SetView(c.key, m.AgentIDs)
-		c.viewed(m.AgentIDs)
+		c.viewed(m)
 		c.send(proto.NewAck(m.ID))
 		return nil
 	case "agent.seen":
@@ -564,7 +564,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.terminalVerb(m)
 	case "worktree.create", "worktree.delete", "branch.list", "account.list", "agent.account":
 		return c.workspaceVerb(m)
-	case "git.status", "git.watch", "git.diff", "git.log", "git.commit", "git.stage", "git.discard", "git.commit.create", "git.push", "git.pull":
+	case "git.status", "git.watch", "git.diff", "git.log", "git.commit", "git.stage", "git.discard", "git.commit.create", "git.push", "git.pull", "git.compare":
 		return c.gitVerb(m)
 	case "gh.status", "gh.pr", "gh.prs", "gh.pr.create", "gh.pr.merge", "gh.pr.ready", "gh.thread.reply", "gh.thread.resolve":
 		return c.ghVerb(m)

@@ -4,6 +4,10 @@ public struct GhState: OpenString {
     public static let missing: Self = "missing"
     public static let signedOut: Self = "signedOut"
     public static let ready: Self = "ready"
+    /// A tree's repository has no GitHub remote, so it can have no PR. Only with `Caps.ghState`.
+    public static let noRemote: Self = "noRemote"
+    /// gh couldn't be asked, as offline or while GitHub is down. Only with `Caps.ghState`.
+    public static let failed: Self = "failed"
 }
 
 public struct GhStatus: Codable, Hashable, Sendable {
@@ -142,13 +146,16 @@ public struct PullRequest: Codable, Hashable, Sendable {
 /// A tree's PR. No `pr` and no `problem` means the branch has none.
 public struct GhPr: Codable, Hashable, Sendable {
     public var tree: String
-    /// missing or signedOut.
+    /// missing or signedOut; noRemote or failed too with `Caps.ghState`.
     public var problem: GhState?
     public var pr: PullRequest?
-    public init(tree: String, problem: GhState? = nil, pr: PullRequest? = nil) {
+    /// gh couldn't be asked, and `pr` is what it last said.
+    public var stale: Bool?
+    public init(tree: String, problem: GhState? = nil, pr: PullRequest? = nil, stale: Bool? = nil) {
         self.tree = tree
         self.problem = problem
         self.pr = pr
+        self.stale = stale
     }
 }
 
@@ -173,7 +180,12 @@ public struct PrItem: Codable, Hashable, Sendable {
 
 public struct GhPrs: Codable, Hashable, Sendable {
     public var items: [PrItem]
-    public init(items: [PrItem]) { self.items = items }
+    /// missing or signedOut: gh isn't keeping the list fresh. Absent from an older pocketd.
+    public var problem: GhState?
+    public init(items: [PrItem], problem: GhState? = nil) {
+        self.items = items
+        self.problem = problem
+    }
 }
 
 public struct GhPrCreated: Codable, Hashable, Sendable {

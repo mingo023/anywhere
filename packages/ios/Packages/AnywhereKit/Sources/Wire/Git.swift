@@ -15,11 +15,14 @@ public struct GitTotals: Codable, Hashable, Sendable {
     public var added: Int
     public var removed: Int
     public var staged: Int
-    public init(files: Int, added: Int, removed: Int, staged: Int) {
+    /// Files with unstaged edits; a file staged and edited again counts here and in `staged`. Absent from an older pocketd.
+    public var unstaged: Int?
+    public init(files: Int, added: Int, removed: Int, staged: Int, unstaged: Int? = nil) {
         self.files = files
         self.added = added
         self.removed = removed
         self.staged = staged
+        self.unstaged = unstaged
     }
 }
 
@@ -70,6 +73,10 @@ public struct GitStatus: Codable, Hashable, Sendable {
     public var behind: Int
     /// Commits not on the upstream; none before the first push.
     public var unpushed: Int?
+    /// Upstream commits HEAD lacks, what Pull would bring; none before the first push or from an older pocketd.
+    public var unpulled: Int?
+    /// The desktop's setting: with nothing staged, a commit takes every change. Absent from an older pocketd.
+    public var commitAll: Bool?
     public var totals: GitTotals
     public var files: [GitFile]
     /// At most 20 since the base.
@@ -79,7 +86,8 @@ public struct GitStatus: Codable, Hashable, Sendable {
 
     public init(
         tree: String, rev: String, branch: String? = nil, detached: Bool? = nil, upstream: String? = nil, base: String? = nil, ahead: Int,
-        behind: Int, unpushed: Int? = nil, totals: GitTotals, files: [GitFile], commits: [CommitRef], nextCursor: Int? = nil
+        behind: Int, unpushed: Int? = nil, unpulled: Int? = nil, commitAll: Bool? = nil, totals: GitTotals, files: [GitFile],
+        commits: [CommitRef], nextCursor: Int? = nil
     ) {
         self.tree = tree
         self.rev = rev
@@ -90,6 +98,8 @@ public struct GitStatus: Codable, Hashable, Sendable {
         self.ahead = ahead
         self.behind = behind
         self.unpushed = unpushed
+        self.unpulled = unpulled
+        self.commitAll = commitAll
         self.totals = totals
         self.files = files
         self.commits = commits
@@ -306,6 +316,34 @@ public struct GitCommitted: Codable, Hashable, Sendable {
     public init(sha: String) { self.sha = sha }
 }
 
+public struct CompareTotals: Codable, Hashable, Sendable {
+    public var files: Int
+    public var added: Int
+    public var removed: Int
+    public init(files: Int, added: Int, removed: Int) {
+        self.files = files
+        self.added = added
+        self.removed = removed
+    }
+}
+
+/// One page of what a tree's HEAD committed since it left `against`, files sorted by path; nothing uncommitted.
+public struct GitCompare: Codable, Hashable, Sendable {
+    public var tree: String
+    public var against: String
+    public var totals: CompareTotals
+    public var files: [CommitFile]
+    /// The file offset of the next page.
+    public var nextCursor: Int?
+    public init(tree: String, against: String, totals: CompareTotals, files: [CommitFile], nextCursor: Int? = nil) {
+        self.tree = tree
+        self.against = against
+        self.totals = totals
+        self.files = files
+        self.nextCursor = nextCursor
+    }
+}
+
 extension ClientMessage {
     public struct GitStatus: Codable, Hashable, Sendable {
         public var tree: String
@@ -395,6 +433,21 @@ extension ClientMessage {
             self.message = message
             self.amend = amend
             self.all = all
+        }
+    }
+
+    /// Needs `Caps.compare`; a ref that names no commit is `error{code:"unknown_ref"}`.
+    public struct GitCompare: Codable, Hashable, Sendable {
+        public var tree: String
+        public var against: String
+        public var cursor: Int?
+        /// Default 500, at most 2000.
+        public var limit: Int?
+        public init(tree: String, against: String, cursor: Int? = nil, limit: Int? = nil) {
+            self.tree = tree
+            self.against = against
+            self.cursor = cursor
+            self.limit = limit
         }
     }
 

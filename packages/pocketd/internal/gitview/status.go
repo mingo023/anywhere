@@ -238,11 +238,14 @@ func (s *Service) readStatus(tree string) (proto.GitStatus, error) {
 		if f.Staged {
 			st.Totals.Staged++
 		}
+		if f.Unstaged {
+			st.Totals.Unstaged++
+		}
 		st.Files = append(st.Files, f)
 	}
 	st.Totals.Files = len(st.Files)
 	if p.upstream != "" && p.tracked {
-		st.Unpushed = new(p.ahead)
+		st.Unpushed, st.Unpulled = new(p.ahead), new(p.behind)
 	}
 	if p.unborn() || st.Branch == "" {
 		return st, nil

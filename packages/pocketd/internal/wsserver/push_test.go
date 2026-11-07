@@ -147,6 +147,36 @@ func TestAPhoneIsInFrontUntilItViewsNothing(t *testing.T) {
 	}
 }
 
+func TestAFrontPhoneLeavingAChatStaysInFrontUntilItSaysOtherwise(t *testing.T) {
+	var s *Server
+	_, _, p := setup(t, withPush(t, &relaySends{}, &s))
+	p.send(`{"type":"hello","id":"h","token":"tok","clientId":"c","protocolVersion":3,"caps":["push.v1","front.v1"]}`)
+	for m := p.recv(); m["type"] != "agent.list"; m = p.recv() {
+	}
+	p.ack(`{"type":"agent.view","id":"v","agentIds":[],"front":true}`)
+	if !s.Foreground(devices.LegacyID) {
+		t.Fatal("leaving a chat sent the app to the background")
+	}
+	p.ack(`{"type":"agent.view","id":"v","agentIds":["a1"],"front":false}`)
+	if s.Foreground(devices.LegacyID) {
+		t.Fatal("still in front after saying it isn't")
+	}
+	p.ack(`{"type":"agent.view","id":"v","agentIds":["a1"]}`)
+	if !s.Foreground(devices.LegacyID) {
+		t.Fatal("a view without front isn't read from its ids")
+	}
+}
+
+func TestFrontFromAPhoneWithoutTheCapIsLeftToTheIds(t *testing.T) {
+	var s *Server
+	_, _, p := setup(t, withPush(t, &relaySends{}, &s))
+	pushHello(p)
+	p.ack(`{"type":"agent.view","id":"v","agentIds":[],"front":true}`)
+	if s.Foreground(devices.LegacyID) {
+		t.Fatal("front counted without front.v1")
+	}
+}
+
 func TestARegisteredPhoneInTheBackgroundGetsOneAlertWhenAnUnseenSessionNeedsIt(t *testing.T) {
 	var s *Server
 	sends := &relaySends{}

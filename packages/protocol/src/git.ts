@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 export const CAP_GIT = "git.v1";
+export const CAP_COMPARE = "compare.v1";
 
 const Tree = Schema.NonEmptyString;
 const Count = Schema.Int.pipe(Schema.nonNegative());
@@ -87,6 +88,14 @@ export const GitClient = [
   }),
   Schema.Struct({ type: Schema.Literal("git.push"), id: Schema.String, tree: Tree, lease: Schema.optional(Schema.Boolean) }),
   Schema.Struct({ type: Schema.Literal("git.pull"), id: Schema.String, tree: Tree }),
+  Schema.Struct({
+    type: Schema.Literal("git.compare"),
+    id: Schema.String,
+    tree: Tree,
+    against: Schema.NonEmptyString,
+    cursor: Schema.optional(Count),
+    limit: Schema.optional(Schema.Int.pipe(Schema.between(1, 2000))),
+  }),
 ] as const;
 
 export const GitServer = [
@@ -102,7 +111,15 @@ export const GitServer = [
     ahead: Schema.Int,
     behind: Schema.Int,
     unpushed: Schema.optional(Schema.Int),
-    totals: Schema.Struct({ files: Schema.Int, added: Schema.Int, removed: Schema.Int, staged: Schema.Int }),
+    unpulled: Schema.optional(Schema.Int),
+    commitAll: Schema.optional(Schema.Boolean),
+    totals: Schema.Struct({
+      files: Schema.Int,
+      added: Schema.Int,
+      removed: Schema.Int,
+      staged: Schema.Int,
+      unstaged: Schema.optional(Schema.Int),
+    }),
     files: Schema.Array(GitFile),
     commits: Schema.Array(CommitRef),
     nextCursor: Schema.optional(Schema.Int),
@@ -147,4 +164,13 @@ export const GitServer = [
     files: Schema.Array(CommitFile),
   }),
   Schema.Struct({ type: Schema.Literal("git.committed"), id: Schema.String, sha: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("git.compare"),
+    id: Schema.String,
+    tree: Schema.String,
+    against: Schema.String,
+    totals: Schema.Struct({ files: Schema.Int, added: Schema.Int, removed: Schema.Int }),
+    files: Schema.Array(CommitFile),
+    nextCursor: Schema.optional(Schema.Int),
+  }),
 ] as const;

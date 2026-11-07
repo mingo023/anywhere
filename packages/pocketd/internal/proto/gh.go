@@ -5,6 +5,9 @@ import "slices"
 // CapGitHub gates the gh.* verbs.
 const CapGitHub = "gh.v1"
 
+// CapGhState: gh.pr may answer noRemote and failed, which an older phone would read as a signed-out gh.
+const CapGhState = "ghstate.v1"
+
 const (
 	CodeGhFailed    = "gh_failed"
 	CodeGhMissing   = "gh_missing"
@@ -101,16 +104,18 @@ type PR struct {
 	Threads   []Thread   `json:"threads"`
 }
 
-// GhPR has neither PR nor Problem when the branch has no PR.
+// GhPR has neither PR nor Problem when the branch has no PR. Stale: gh
+// couldn't be asked, and PR is what it last said.
 type GhPR struct {
 	Type    string `json:"type"`
 	ID      string `json:"id"`
 	Tree    string `json:"tree"`
 	Problem string `json:"problem,omitempty"`
 	PR      *PR    `json:"pr,omitempty"`
+	Stale   bool   `json:"stale,omitempty"`
 }
 
-func NewGhPR(id, tree, problem string, pr *PR) GhPR {
+func NewGhPR(id, tree, problem string, pr *PR, stale bool) GhPR {
 	if pr != nil {
 		p := *pr
 		p.Runs = orEmpty(p.Runs)
@@ -122,7 +127,7 @@ func NewGhPR(id, tree, problem string, pr *PR) GhPR {
 		}
 		pr = &p
 	}
-	return GhPR{"gh.pr", id, tree, problem, pr}
+	return GhPR{"gh.pr", id, tree, problem, pr, stale}
 }
 
 type PRItem struct {
@@ -135,13 +140,17 @@ type PRItem struct {
 	Checks Checks `json:"checks"`
 }
 
+// GhPRs' Problem is a missing or signed-out gh, which keeps the list from being kept fresh.
 type GhPRs struct {
-	Type  string   `json:"type"`
-	ID    string   `json:"id"`
-	Items []PRItem `json:"items"`
+	Type    string   `json:"type"`
+	ID      string   `json:"id"`
+	Items   []PRItem `json:"items"`
+	Problem string   `json:"problem,omitempty"`
 }
 
-func NewGhPRs(id string, items []PRItem) GhPRs { return GhPRs{"gh.prs", id, orEmpty(items)} }
+func NewGhPRs(id string, items []PRItem, problem string) GhPRs {
+	return GhPRs{"gh.prs", id, orEmpty(items), problem}
+}
 
 type GhPRCreated struct {
 	Type   string `json:"type"`

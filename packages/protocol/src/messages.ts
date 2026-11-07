@@ -88,7 +88,12 @@ export const ClientMessage = Schema.Union(
     access: Schema.optional(Schema.Literal("ask", "edits", "auto", "full")),
   }),
   Schema.Struct({ type: Schema.Literal("agent.pin"), id: Schema.String, agentId: Schema.String, pinned: Schema.Boolean }),
-  Schema.Struct({ type: Schema.Literal("agent.view"), id: Schema.String, agentIds: Schema.Array(Schema.String) }),
+  Schema.Struct({
+    type: Schema.Literal("agent.view"),
+    id: Schema.String,
+    agentIds: Schema.Array(Schema.String),
+    front: Schema.optional(Schema.Boolean),
+  }),
   Schema.Struct({ type: Schema.Literal("agent.seen"), id: Schema.String, agentIds: Schema.Array(Schema.String) }),
   Schema.Struct({
     type: Schema.Literal("agent.timeline"),

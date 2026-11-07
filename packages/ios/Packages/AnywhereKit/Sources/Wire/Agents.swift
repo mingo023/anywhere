@@ -148,6 +148,20 @@ public struct AgentCommands: Codable, Hashable, Sendable {
     }
 }
 
+/// The slash commands a provider offers in a project before any agent runs there.
+public struct SkillsList: Codable, Hashable, Sendable {
+    public var provider: String
+    public var account: String?
+    public var project: String
+    public var commands: [Command]
+    public init(provider: String, account: String? = nil, project: String, commands: [Command]) {
+        self.provider = provider
+        self.account = account
+        self.project = project
+        self.commands = commands
+    }
+}
+
 public struct McpServer: Codable, Hashable, Sendable {
     public struct Status: OpenString {
         public let rawValue: String
@@ -246,6 +260,17 @@ extension ClientMessage {
         public init(agentId: String) { self.agentId = agentId }
     }
 
+    public struct SkillsList: Codable, Hashable, Sendable {
+        public var provider: String
+        public var account: String?
+        public var project: String
+        public init(provider: String, account: String? = nil, project: String) {
+            self.provider = provider
+            self.account = account
+            self.project = project
+        }
+    }
+
     public struct AgentText: Codable, Hashable, Sendable {
         public var agentId: String
         public var text: String
@@ -301,6 +326,17 @@ extension ClientMessage {
     public struct AgentIds: Codable, Hashable, Sendable {
         public var agentIds: [String]
         public init(agentIds: [String]) { self.agentIds = agentIds }
+    }
+
+    /// The chats on screen. With `Caps.front`, `front` says whether the app is in front; without it pocketd reads
+    /// no ids as the app gone to the background.
+    public struct AgentView: Codable, Hashable, Sendable {
+        public var agentIds: [String]
+        public var front: Bool?
+        public init(agentIds: [String], front: Bool? = nil) {
+            self.agentIds = agentIds
+            self.front = front
+        }
     }
 
     /// `beforeSeq` and `sinceSeq` together are malformed.

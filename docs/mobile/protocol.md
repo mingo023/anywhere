@@ -1,6 +1,6 @@
 # Phone protocol additions (protocol 3)
 
-The contract between pocketd (`packages/pocketd/internal/proto`, `internal/wsserver`) and the iOS app (`packages/ios/Packages/AnywhereKit/Sources/Wire`). Every addition is behind a cap negotiated in `hello`; a verb sent without its cap is `Malformed message`, as `locals.v1` does today. Conventions are the existing ones: every request has `id`; the reply echoes it as `ack`, a typed reply, or `error{id, message, code?}`; pushes have no `id`. Field names are camelCase. Optional fields are omitted, never `null`, unless stated.
+The contract between pocketd (`packages/pocketd/internal/proto`, `internal/wsserver`) and the iOS app (`packages/ios/Packages/AnywhereKit/Sources/Wire`). Every addition is behind a cap negotiated in `hello`; a verb sent without its cap is `Malformed message`, as `locals.v1` does today. Conventions are the existing ones: every request has `id`; the reply echoes it as `ack`, a typed reply, or `error{id, message, code?}`; pushes have no `id`. Field names are camelCase. Optional fields are omitted, never `null`, unless stated. A field added to an existing reply needs no cap: an older phone ignores it, and an older pocketd leaves it out, which the phone reads as unknown (`unpulled`, `totals.unstaged`, `commitAll`). A field that changes what a request does, or a reply value an older phone would misread, is behind a cap.
 
 Every verb is registered in `peer.Needs` with the scope given here, and appears in `peer/check_test.go`'s matrix, in golden files on both sides (`internal/proto/testdata/golden/{client,server}`) and in `packages/protocol`'s schema.
 
@@ -122,8 +122,8 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 
 ```
 → {type:"git.status", id, tree, cursor?:int, limit?:int}     // limit default 500, max 2000; cursor = file offset
-← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?,
-   totals:{files, added, removed, staged},
+← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?, unpulled?, commitAll?:bool,
+   totals:{files, added, removed, staged, unstaged},
    files:[{path, oldPath?, status, staged, unstaged, added?, removed?, binary?}],
    commits:[{sha, subject}],                                  // ≤20 since base
    nextCursor?:int}
@@ -131,6 +131,9 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
    // rev = opaque stamp of the porcelain output and each changed file's size and mtime (no file is read).
    // added/removed omitted for untracked and binary files; an untracked file's binary is a guess from its name.
    // A page past the first comes from the read that served cursor 0, for up to 30 s, so pages agree.
+   // ahead/behind count against base; unpushed/unpulled against the upstream (Push N, Pull N), omitted before the first push.
+   // unstaged counts files with unstaged edits: a file staged and edited again counts in staged and unstaged.
+   // commitAll = desktop.json's git.commit_all (default true): with nothing staged, the phone's Commit sends all:true.
 
 → {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops; ≤32 trees
 ← {type:"git.changed", tree, rev}                              // push when a watched tree's rev moves (polled ~2 s)
@@ -159,13 +162,30 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 → {type:"git.discard", id, tree, paths:[…]}  ← ack
 → {type:"git.commit.create", id, tree, message, amend?:bool, all?:bool}
 ← {type:"git.committed", id, sha}
-→ {type:"git.push", id, tree, lease?:bool}  ← ack
+→ {type:"git.push", id, tree, lease?:bool}  ← ack           // to desktop.json's git.remote (default origin) when the repo
+   //   has a remote by that name, else where git picks; the first push sets the upstream
 → {type:"git.pull", id, tree}  ← ack                           // pull --ff-only
    // failures: error{code:"git_failed", message:<first stderr line>, detail?:<stderr>}
    // a git.* tree must be a worktree's top folder, else not_a_tree; paths are file names, never pathspec patterns
 ```
 
+### compare.v1
+
+`git.compare` (observe) is the Changes panel's Compare scope (CONTEXT.md **Compare**): what HEAD committed since it left a ref, as `crates/git/src/compare.rs` reads it. Without the cap it is `Malformed message`.
+
+```
+→ {type:"git.compare", id, tree, against, cursor?:int, limit?:int}   // against = a branch or commit; limit default 500, max 2000
+← {type:"git.compare", id, tree, against, totals:{files, added, removed},
+   files:[{path, oldPath?, status, added?, removed?}],                // as git.commit's files; added/removed omitted for binaries
+   nextCursor?:int}
+   // against...HEAD: from where HEAD left against (merge-base), or against itself with no shared history, to HEAD.
+   //   Nothing uncommitted. Files sorted by path. A page past the first comes from the read that served cursor 0, for up to 30 s.
+   // a ref that names no commit is error{code:"unknown_ref"}; the phone opens a row with git.diff at {kind:"base", rev:against}
+```
+
 ## gh.v1
+
+`ghstate.v1` (no verbs of its own) lets `gh.pr` answer `noRemote` and `failed`, which a phone that knows only `missing` and `signedOut` would show as a signed-out gh.
 
 | Verb | Scope |
 |---|---|
@@ -177,7 +197,13 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 ← {type:"gh.status", id, state:"missing"|"signedOut"|"ready", login?}
 
 → {type:"gh.pr", id, tree}
-← {type:"gh.pr", id, tree, problem?:"missing"|"signedOut", pr?:PR}      // no pr and no problem = no PR for the branch
+← {type:"gh.pr", id, tree, problem?:"missing"|"signedOut"|"noRemote"|"failed", pr?:PR, stale?:bool}
+   // no pr and no problem = gh said the branch has no PR ("no pull requests found"), and nothing else does
+   // noRemote = the repo has no GitHub remote (gh's "no git remotes found" / "none of the git remotes configured…"):
+   //   say so and offer no Create. It is the tree's, not gh's: other trees are unaffected.
+   // gh failing any other way keeps what it last said: pr with stale:true, or problem "failed" when it never said
+   //   ("Couldn't reach GitHub", with Retry). Either is asked again on the usual cadence.
+   // noRemote and failed only to a ghstate.v1 conn; any other sees no problem (and the stale pr, unmarked)
 PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
       checks:{passed, failed, pending}, runs:[{name, outcome:"passed"|"failed"|"pending"|"skipped", url?}],
       review?:"APPROVED"|"CHANGES_REQUESTED"|"REVIEW_REQUIRED", reviews:[{login, state}], requested:[login],
@@ -187,7 +213,9 @@ PR = {number, title, url, state:"OPEN"|"CLOSED"|"MERGED", draft, base, head,
    //   (Pr::gate in packages/desktop/crates/git/src/github.rs)
 
 → {type:"gh.prs", id, project}
-← {type:"gh.prs", id, items:[{tree, number, title, state, draft, gate, checks:{passed, failed, pending}}]}
+← {type:"gh.prs", id, items:[{tree, number, title, state, draft, gate, checks:{passed, failed, pending}}], problem?:"missing"|"signedOut"}
+   // problem: gh isn't installed or signed in, so the list isn't kept fresh; "Check again" is gh.status (a ready gh
+   //   clears it at once) then gh.prs
 
 → {type:"gh.pr.create", id, tree, title, body, draft?:bool, base?}  ← {type:"gh.pr.created", id, number, url}
 → {type:"gh.pr.merge", id, tree, number, method:"squash"|"merge"|"rebase"}  ← ack
@@ -282,6 +310,8 @@ POST /v1/send      headers X-Anywhere-Timestamp: <unix>, X-Anywhere-Signature: b
 `e` opens to `Notice = {mac, agent, kind:"needsYou"|"done"|"failed"|"automation"|"test", title, place, line, request?, badge}` (mac = the `hello.ok` serverId). Categories: `PERM` (Allow, Deny), `PERM_NOTE` (Allow, Deny, Deny with note), `QUESTION` (Open), `DONE` and `FAILED` (Reply), `AUTOMATION`. Levels: needsYou time-sensitive, others active, automation passive unless failed. `apns-collapse-id` = opaque per agent.
 
 Triggers: →needsYou (debounce 1.5 s), working→done (3 s, Failed picks FAILED), automation run end. Nothing is pushed for an agent that is Seen at send time, to a device with a foreground connection, or twice for one `(agent, status, updatedAt)`. A connection counts as foreground from its hello until it sends `agent.view{agentIds:[]}` (the app going to the background), and again from its next non-empty `agent.view`.
+
+With `front.v1`, `agent.view {id, agentIds, front?:bool}` says so outright, so leaving a chat in the app isn't read as the app leaving: pocketd stores background = !front. The phone sends its current ids with `front:true` when the scene becomes active and when it leaves a chat, and `front:false` when the scene goes to the background. A view without `front`, or `front` from a conn without the cap, is read from its ids as above.
 
 ### Live Activity
 
