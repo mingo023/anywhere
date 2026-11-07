@@ -14,8 +14,11 @@ public struct Creation: Hashable, Sendable {
 
     public var kind: Kind
     public var steps: [Step] = []
-    /// The terminal an agent.create opened, once it exists.
+    /// The terminal an agent.create opened, once it exists, and the folder it opened in.
     public var terminalId: String?
+    public var cwd: String?
+    /// The request id it goes out with when not its own, after pocketd answered the first with an error.
+    public var requestId: String?
     public var error: ServerError?
     public var done = false
     /// The Local and worktree a launch made before a later step failed, so trying again starts there.
@@ -37,6 +40,24 @@ public struct Creation: Hashable, Sendable {
     /// The step running now, or the last one.
     public var current: String? { steps.last?.step }
     public var project: String? { plan?.spec.project }
+
+    /// The agent.create it sends: the same spec under the same request id each time, as pocketd joins or replays a
+    /// request it has seen only when the spec matches.
+    func agentCreate(requestId: String) -> ClientMessage.AgentCreate? {
+        guard var spec = plan?.spec else { return nil }
+        if let madeTree { spec.checkout = .worktree(madeTree) }
+        return .init(requestId: requestId, spec: spec)
+    }
+
+    /// pocketd answered with an error, and would give the same answer to the same request id for 10 minutes; trying
+    /// again takes a new one, in the worktree a new-worktree start made before it failed.
+    mutating func answered(_ error: ServerError) {
+        self.error = error
+        if case .new = plan?.spec.checkout, madeTree == nil { madeTree = cwd }
+        requestId = WorkspaceStore.newRequestId()
+        terminalId = nil
+        cwd = nil
+    }
 }
 
 /// A worktree or Local on its way out: hidden from the lists until it's gone, or back with why it couldn't go.
@@ -123,13 +144,13 @@ public final class WorkspaceStore: HostStore {
             let placed = set(\.localOfTerminal, map)
             return set(\.terminalCwds, cwds) || placed
         case .worktreeProgress(let p), .agentProgress(let p):
-            guard var c = creations[p.requestId] else { return false }
-            c.steps.append(.init(step: p.step, note: p.note))
-            creations[p.requestId] = c
+            guard let id = creation(sentAs: p.requestId) else { return false }
+            creations[id]?.steps.append(.init(step: p.step, note: p.note))
             return true
         case .agentCreating(let m):
-            guard creations[m.requestId] != nil else { return false }
-            creations[m.requestId]?.terminalId = m.terminalId
+            guard let id = creation(sentAs: m.requestId) else { return false }
+            creations[id]?.terminalId = m.terminalId
+            creations[id]?.cwd = m.cwd
             return true
         case .agentProviders(let m):
             guard providers != m else { return false }
@@ -285,14 +306,15 @@ public final class WorkspaceStore: HostStore {
     }
 
     /// Runs what is left of a launch: its Local, then its worktree, then the agent in it, each step's progress landing in
-    /// `creations[requestId]`. Trying again runs it with the same request id. A dropped link leaves it waiting; once the
-    /// Mac is back, what it made by then is taken up rather than made twice, and an agent whose terminal opened is
-    /// awaited rather than started again.
-    public func run(_ requestId: String) async {
-        guard var c = creations[requestId], let plan = c.plan, !c.done else { return }
+    /// `creations[id]`. A dropped link leaves it waiting; once the Mac is back, a Local or worktree made by then is taken
+    /// up rather than made twice, and agent.create goes out again as before, which pocketd joins or answers as it did
+    /// the first. Trying again does the same, under a new request id when pocketd answered with an error.
+    public func run(_ id: String) async {
+        guard var c = creations[id], let plan = c.plan, !c.done else { return }
         c.error = nil
         c.waiting = false
-        creations[requestId] = c
+        creations[id] = c
+        let requestId = c.requestId ?? id
         let project = project(plan.spec.project)
         do {
             if let local = plan.local, c.madeLocal == nil {
@@ -305,33 +327,31 @@ public final class WorkspaceStore: HostStore {
                         throw error
                     }
                 }
-                creations[requestId]?.madeLocal = local.localId
+                creations[id]?.madeLocal = local.localId
             }
-            if var create = plan.worktree, creations[requestId]?.madeTree == nil {
+            if var create = plan.worktree, creations[id]?.madeTree == nil {
                 if let made = create.branch == nil && create.pr == nil ? Self.landed(create.name, in: project) : nil {
-                    creations[requestId]?.madeTree = made
+                    creations[id]?.madeTree = made
                 } else {
                     create.requestId = requestId
                     guard case .worktreeCreated(let made) = try await request(.worktreeCreate(create), timeout: .seconds(600)) else {
                         throw DaemonError.closed
                     }
-                    creations[requestId]?.madeTree = made.path
+                    creations[id]?.madeTree = made.path
                 }
             }
-            if case .new(let new) = plan.spec.checkout, new.branch == nil, new.pr == nil, creations[requestId]?.madeTree == nil {
-                creations[requestId]?.madeTree = new.name.flatMap { Self.landed($0, in: project) }
+            guard let now = creations[id], !now.done, let create = now.agentCreate(requestId: requestId) else { return }
+            guard case .agentCreated(let created) = try await request(.agentCreate(create), timeout: .seconds(600)) else {
+                throw DaemonError.closed
             }
-            guard let now = creations[requestId], now.terminalId == nil, !now.done else { return }
-            var spec = plan.spec
-            if let tree = now.madeTree { spec.checkout = .worktree(tree) }
-            guard case .agentCreated(let created) = try await request(.agentCreate(.init(requestId: requestId, spec: spec)), timeout: .seconds(600))
-            else { throw DaemonError.closed }
-            creations[requestId]?.agentId = created.agentId
-            creations[requestId]?.done = true
+            creations[id]?.agentId = created.agentId
+            creations[id]?.done = true
         } catch DaemonError.closed, DaemonError.offline {
-            creations[requestId]?.waiting = true
+            creations[id]?.waiting = true
+        } catch DaemonError.server(let e) {
+            creations[id]?.answered(e)
         } catch {
-            creations[requestId]?.error = failure(error)
+            creations[id]?.error = failure(error)
         }
     }
 
@@ -339,6 +359,11 @@ public final class WorkspaceStore: HostStore {
     /// dropped link lost is found by it.
     nonisolated static func landed(_ name: String, in project: Project?) -> String? {
         project?.worktrees.first { !$0.isMain && $0.path.split(separator: "/").last.map(String.init) == name }?.path
+    }
+
+    /// The creation a request id now names.
+    private func creation(sentAs requestId: String) -> String? {
+        creations.first { ($0.value.requestId ?? $0.key) == requestId }?.key
     }
 
     /// An agent on the terminal a launch opened is the one it started, whether or not its reply came.
@@ -418,7 +443,7 @@ public final class WorkspaceStore: HostStore {
         _ = try await request(.automationRun(.init(automationId: id)))
     }
 
-    public static func newRequestId() -> String {
+    public nonisolated static func newRequestId() -> String {
         "r-" + UUID().uuidString.prefix(13).lowercased()
     }
 

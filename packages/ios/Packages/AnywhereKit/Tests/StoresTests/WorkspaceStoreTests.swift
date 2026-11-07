@@ -79,6 +79,40 @@ struct WorkspaceStoreTests {
         #expect(s.creations["r1"]?.waiting == false, "taken up again at once, so a second list doesn't run it twice")
     }
 
+    @Test("a launch whose terminal opened before the link dropped asks pocketd again rather than waiting on an agent that may never come")
+    func resendsAfterTerminal() async {
+        let s = store()
+        s.add(.init(spec: .init(project: "/p", checkout: .worktree("/p"), provider: .claude, access: .edits, plan: false)), requestId: "r1", title: "", place: "/p")
+        _ = s.apply(.agentCreating(.init(requestId: "r1", terminalId: "t9", cwd: "/p", setup: true)))
+        await s.run("r1")
+        #expect(s.creations["r1"]?.waiting == true, "it went to send agent.create")
+    }
+
+    @Test("a new-worktree launch the link dropped goes out again with its first spec, even once its worktree is listed")
+    func resendsSameSpec() async {
+        let s = store()
+        let project = Sample.projects[0].path
+        let plan = LaunchPlan(spec: .init(project: project, checkout: .new(.init(name: "calm-otter")), provider: .claude, access: .edits, plan: false))
+        s.add(plan, requestId: "r1", title: "", place: nil)
+        _ = s.apply(.agentCreating(.init(requestId: "r1", terminalId: "t9", cwd: "/Users/mingo/.worktrees/anywhere/calm-otter", setup: true)))
+        await s.run("r1")
+        #expect(s.creations["r1"]?.agentCreate(requestId: "r1") == .init(requestId: "r1", spec: plan.spec))
+    }
+
+    @Test("a start pocketd refused tries again under a new request id each time, in the worktree it made")
+    func answered() throws {
+        let plan = LaunchPlan(spec: .init(project: "/p", checkout: .new(.init(name: "calm-otter")), provider: .claude, access: .edits, plan: false))
+        var c = Creation(kind: .session, terminalId: "t9", cwd: "/w/calm-otter", plan: plan)
+        c.answered(ServerError(message: "Setup failed"))
+        let id = try #require(c.requestId)
+        #expect(c.error?.message == "Setup failed")
+        #expect(c.terminalId == nil)
+        #expect(c.agentCreate(requestId: id)?.spec.checkout == .worktree("/w/calm-otter"))
+        c.answered(ServerError(message: "Setup failed"))
+        #expect(c.requestId != id)
+        #expect(c.agentCreate(requestId: "x")?.spec.checkout == .worktree("/w/calm-otter"))
+    }
+
     @Test("an agent on the terminal a launch opened is the agent it started, even when its reply was lost")
     func startedByTerminal() {
         let s = store()
