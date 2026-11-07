@@ -5,7 +5,6 @@ import UIKit
 
 /// `-bench <scenario>`: one of `anywhere-bench`'s screens over fixture stores, timed frame by frame on iOS. It streams
 /// the scenario's updates one per display frame, then flicks the main list, and prints a `IOSBENCH|…` line and exits.
-/// With `-hold` it only shows the screen, to try by hand with no paired Mac.
 @MainActor
 enum BenchRun {
     static var scenario: BenchScenes.Scenario? {
@@ -13,8 +12,6 @@ enum BenchRun {
         guard let at = args.firstIndex(of: "-bench"), at + 1 < args.count else { return nil }
         return (BenchScenes.scenarios + BenchScenes.extras).first { $0.name == args[at + 1] }
     }
-
-    static let holds = ProcessInfo.processInfo.arguments.contains("-hold")
 
     /// Made once: the App's body runs more than once, and each scenario builds thousands of items.
     static let driver = scenario.map { BenchDriver($0) }
@@ -24,7 +21,7 @@ struct BenchView: View {
     let run: BenchDriver
 
     var body: some View {
-        run.screen.view.onAppear { if !BenchRun.holds { run.start() } }
+        run.screen.view.onAppear { run.start() }
     }
 }
 
@@ -145,7 +142,8 @@ final class BenchDriver {
         exit(0)
     }
 
-    /// `UIBENCH_HOLD`: stays on the screen after the stream, for screenshots, instead of scrolling and exiting.
+    /// `UIBENCH_HOLD`: stays on the screen after the stream, for screenshots or to try by hand with no paired Mac,
+    /// instead of scrolling and exiting.
     static let hold = ProcessInfo.processInfo.environment["UIBENCH_HOLD"] != nil
 
     static let scrollFrames = Int(ProcessInfo.processInfo.environment["UIBENCH_SCROLL"] ?? "") ?? 240
