@@ -48,6 +48,8 @@ public final class ChatStore: HostStore {
     public private(set) var answering: String?
     /// A New Session `/new` asked to open, until the screen opens it.
     public private(set) var newSession: NewSession?
+    /// The main agent's call a sub-agent's screen asked the chat to show, until the chat shows it.
+    public private(set) var revealing: String?
     /// The New Session the screen opened, with the draft that asked for it, until a session like it starts.
     @ObservationIgnored var asked: (session: NewSession, draft: Draft)?
     /// Messages being let out as they stream, by message id.
@@ -72,7 +74,7 @@ public final class ChatStore: HostStore {
     @ObservationIgnored var primed = false
     /// Screens showing the chat or one of its sub-agents: one opening over another may appear before the other goes.
     @ObservationIgnored var viewers = 0
-    var viewing: Bool { viewers > 0 }
+    public var viewing: Bool { viewers > 0 }
     @ObservationIgnored var ticker: Task<Void, Never>?
     @ObservationIgnored var requestsMade = 0
     @ObservationIgnored var searching: Task<Void, Never>?
@@ -873,11 +875,20 @@ public final class ChatStore: HostStore {
         if session.shutPhase(row), session.rows.indices.contains(row) { session.toggle(session.ids[row], false) }
     }
 
-    /// The transcript a sub-agent's call holds, for its own view.
-    public func subAgent(_ callId: String) -> SubAgent? {
-        guard let (turn, block) = findCall(session.transcript, callId) else { return nil }
-        return session.transcript.turns[turn].blocks[block].call?.agent
+    /// Everything the agent did is held and folded: the first page came, no older one is left and no refold is due.
+    public var whole: Bool { loaded && !hasOlder && !flushing }
+
+    /// Pages in the items before the oldest held while the sub-agent the call `callId` spawned isn't among them, as for its
+    /// screen opened on a chat holding only its latest page.
+    public func seek(_ callId: String) {
+        guard !flushing, ChatModel.subAgent(session.transcript, callId) == nil else { return }
+        loadOlder()
     }
+
+    /// Asks the chat to show the call its main agent spawned the sub-agent `callId` under.
+    public func reveal(_ callId: String) { revealing = spawnedUnder(session.transcript, callId) }
+
+    public func revealed() { revealing = nil }
 
     // MARK: Plumbing
 

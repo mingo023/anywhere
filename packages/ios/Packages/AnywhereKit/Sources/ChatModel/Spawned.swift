@@ -43,3 +43,10 @@ private func find(_ t: Transcript, _ id: String, by: SubAgent?) -> (call: Call, 
     }
     return nil
 }
+
+/// The main agent's call the sub-agent `id` was spawned under, however deep: where the chat shows it.
+public func spawnedUnder(_ t: Transcript, _ id: String) -> String? {
+    t.turns.lazy.flatMap(\.blocks).compactMap(\.call).first { call in
+        call.id == id || call.agent.map { subAgent($0.transcript, id) != nil } == true
+    }?.id
+}

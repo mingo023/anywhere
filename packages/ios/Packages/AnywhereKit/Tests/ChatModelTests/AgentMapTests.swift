@@ -46,7 +46,7 @@ func theArrowKeysStop() {
     #expect(nav.selected == 2)
 }
 
-@Test("enter opens the picked agent and left goes back to the graph")
+@Test("enter opens the picked agent")
 func enterOpensThePickedAgent() {
     var nav = AgentMap.Nav()
     nav.toggle("a", 0)
@@ -58,9 +58,8 @@ func enterOpensThePickedAgent() {
     #expect(nav.detail == "c2")
     took = nav.key(.down, calls, 0)
     #expect(!took)
-    took = nav.key(.left, calls, 0)
-    #expect(took && nav.detail == nil)
-    took = nav.key(.enter, ["c1"], 0)
+    var fewer = AgentMap.Nav()
+    took = fewer.key(.down, calls, 0) && fewer.key(.down, calls, 0) && fewer.key(.enter, ["c1"], 0)
     #expect(!took)
 }
 
@@ -159,6 +158,17 @@ func aSubAgentIsFoundHoweverDeep() {
     #expect(subAgent(t, "inner")?.call.status == .running)
     #expect(subAgent(t, "inner")?.by.map(Agent.name) == "Audit the quit flow")
     #expect(subAgent(t, "s") == nil)
+}
+
+@Test("a sub-agent shows in the chat at the call its main agent spawned it under")
+func aSubAgentShowsAtItsAncestorsCall() {
+    let inner = Transcript(turns: [turn([agent("inner", .ok)], true)])
+    var outer = agent("outer", .ok).call!
+    outer.kind = .agent(SubAgent(description: "", transcript: inner))
+    let t = Transcript(turns: [turn([shell("s")], true), turn([shell("x"), .tool(outer)], true)])
+    #expect(spawnedUnder(t, "inner") == "outer")
+    #expect(spawnedUnder(t, "outer") == "outer")
+    #expect(spawnedUnder(t, "gone") == nil)
 }
 
 @Test("a sub-agent's page says who spawned it, when, and when it ended")

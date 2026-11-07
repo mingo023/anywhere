@@ -120,6 +120,15 @@ struct NavigatorTests {
         #expect(nav.sessionsPath == [chat, .chat(mac: "mbp", agentId: "a2")])
     }
 
+    @Test("Show in chat from a sub-agent nested over its chat goes back to the chat")
+    func showInChatGoesBack() {
+        let nav = Navigator()
+        let chat = Route.chat(mac: "mbp", agentId: "a1")
+        nav.sessionsPath = [chat, .subAgent(mac: "mbp", agentId: "a1", callId: "c1"), .subAgent(mac: "mbp", agentId: "a1", callId: "c2")]
+        nav.push(chat)
+        #expect(nav.sessionsPath == [chat])
+    }
+
     @Test("the chats on any stack are the ones whose stores stay")
     func chats() {
         let nav = Navigator()

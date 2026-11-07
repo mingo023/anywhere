@@ -61,11 +61,9 @@ public enum AgentMap {
             promptOpen = false
         }
 
-        public mutating func back() { detail = nil }
-
         /// Esc leaves the details for the graph, and the graph for the chat.
         public mutating func escape(_ now: Seconds) {
-            if detail != nil { back() } else { close(now) }
+            if detail != nil { detail = nil } else { close(now) }
         }
 
         /// Moves the pick down or up the `count` nodes, stopping at either end.
@@ -74,7 +72,7 @@ public enum AgentMap {
         }
 
         public enum Key: Hashable, Sendable {
-            case escape, up, down, enter, right, left
+            case escape, up, down, enter, right
         }
 
         /// Takes `key` on the map whose sub-agents' calls are `calls`; false for a key it leaves alone. A pick the map no
@@ -86,7 +84,6 @@ public enum AgentMap {
             case .enter where detail == nil, .right where detail == nil:
                 guard selected > 0, selected - 1 < calls.count else { return false }
                 show(selected, calls[selected - 1])
-            case .left where detail != nil: back()
             default: return false
             }
             return true

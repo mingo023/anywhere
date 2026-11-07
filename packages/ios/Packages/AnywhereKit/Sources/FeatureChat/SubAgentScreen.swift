@@ -13,6 +13,8 @@ struct SubAgentScreen: View {
     let callId: String
     let openAgent: (_ callId: String) -> Void
     let openLink: (MarkdownLink) -> Void
+    /// Goes back to the chat at the call the sub-agent was spawned under.
+    var showInChat: () -> Void = {}
     /// Off for gallery scenes, which have no Mac to tell.
     var live = true
     @State private var open: Set<String> = []
@@ -21,16 +23,25 @@ struct SubAgentScreen: View {
         Group {
             if let (call, agent, by) = subAgent(store.session.transcript, callId) {
                 page(call, agent, by).barTitle(Agent.name(agent), subtitle: AgentMap.facts(Agent.mark(call, agent), model: agent.model))
-            } else {
+                    .toolbar {
+                        // Balances Back, so the title stays centred.
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: showInChat) { Label("Show in chat", systemImage: "text.bubble") }
+                        }
+                    }
+            } else if store.whole {
                 Placeholder("This agent isn't in the chat any more", systemImage: "person.2.slash").navigationTitle("Agent")
+            } else {
+                // Each page that comes in folds in an earlier first turn, which looks again.
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).navigationTitle("Agent")
+                    .task(id: store.session.transcript.turns.first?.id) { store.seek(callId) }
             }
         }
         .screenBackground()
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
-        .onAppear { if live { store.appear() } }
-        .onDisappear { if live { store.disappear() } }
+        .viewed(store, live: live)
     }
 
     private func page(_ call: Call, _ agent: SubAgent, _ by: SubAgent?) -> some View {

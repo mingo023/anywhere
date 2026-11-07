@@ -26,7 +26,7 @@ public struct SubAgentView: View {
 
     public var body: some View {
         if let store {
-            SubAgentScreen(store: store, callId: callId, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }) { link in
+            SubAgentScreen(store: store, callId: callId, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }, openLink: { link in
                 switch link {
                 case .file(let path, let line):
                     guard let cwd = store.summary?.cwd else { return }
@@ -34,6 +34,10 @@ public struct SubAgentView: View {
                 case .web(let url):
                     openURL(url)
                 }
+            }) {
+                store.reveal(callId)
+                // The chat is on the stack under its sub-agents, so this goes back to it.
+                open(.chat(mac: mac, agentId: agentId))
             }
         } else {
             Color.clear.screenBackground().onAppear { store = host.chat(agentId) }
