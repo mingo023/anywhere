@@ -1,7 +1,10 @@
 import Foundation
+import Loopback
 import Testing
 import Wire
 @testable import Client
+
+let helloOk = HelloOk(serverId: "mac-1", hostname: "Mingo's Mac", protocolVersion: 3, caps: Caps.phone, protocol: .phone)
 
 private func connect(
     _ server: TestServer, backoff: Backoff = Backoff(first: 0.05, cap: 0.2), pingAfter: Duration = .seconds(25), pongTimeout: Duration = .seconds(10)

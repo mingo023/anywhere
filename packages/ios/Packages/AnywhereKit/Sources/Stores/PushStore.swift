@@ -27,7 +27,9 @@ public final class PushStore: HostStore {
     @ObservationIgnored private var agents: [String: AgentSummary] = [:]
     @ObservationIgnored private var titles: [String: ActivityTitles.Entry] = [:]
     @ObservationIgnored private var badge: Int?
-    @ObservationIgnored private var wasBusy = false
+    @ObservationIgnored private var content = MacActivity.ContentState(working: 0, needsYou: 0, unseen: 0)
+    /// The Mac turned busy and its activity hasn't started yet.
+    @ObservationIgnored private var startDue = false
     /// Bumped by each registration, so an older one finishing late doesn't overwrite a newer one's state.
     @ObservationIgnored private var attempt = 0
 
@@ -83,6 +85,7 @@ public final class PushStore: HostStore {
             guard mine == attempt else { return }
             state = .registered
             sendActivity()
+            startActivity()
         } catch {
             if mine == attempt { state = Self.describe(error, mac: hello.hostname).map(State.failed) ?? .waiting }
         }
@@ -137,16 +140,25 @@ public final class PushStore: HostStore {
             self.badge = badge
             center.badge(mac: hello.serverId, count: badge)
         }
-        let state = MacActivity.ContentState.build(sessions, asks: [], details: false)
-        if Self.turnedBusy(was: wasBusy, now: state), center.liveActivities, hello.has(Caps.push) {
-            center.startActivity?(MacActivity(mac: hello.serverId, macName: hello.hostname), state)
-        }
-        wasBusy = state.isBusy
+        let content = MacActivity.ContentState.build(sessions, asks: [], details: false)
+        startDue = Self.startDue(due: startDue, was: self.content, now: content)
+        self.content = content
+        startActivity()
     }
 
-    /// The app starts a Mac's Live Activity itself when the Mac turns busy while the app is in front; pocketd fills in the ask
-    /// and keeps it current once it has the activity's token.
-    nonisolated static func turnedBusy(was: Bool, now: MacActivity.ContentState) -> Bool { !was && now.isBusy }
+    /// The app starts a Mac's Live Activity itself when the Mac turns busy while the app is in front, but only once registered
+    /// with it: pocketd fills in the ask and keeps it current once it has the activity's token, and one it never hears of says
+    /// the Mac is offline five minutes on.
+    private func startActivity() {
+        guard startDue, state == .registered, center.liveActivities, let hello else { return }
+        startDue = false
+        center.startActivity?(MacActivity(mac: hello.serverId, macName: hello.hostname), content)
+    }
+
+    /// A start is due from the Mac turning busy until it is made, and dropped once nothing is busy.
+    nonisolated static func startDue(due: Bool, was: MacActivity.ContentState, now: MacActivity.ContentState) -> Bool {
+        now.isBusy && (due || !was.isBusy)
+    }
 
     /// Sessions as pocketd's `push.Build` counts them: attached, and Needs you, working, Failed or Done.
     nonisolated static func sessions(_ agents: [AgentSummary]) -> [ActivitySession] {

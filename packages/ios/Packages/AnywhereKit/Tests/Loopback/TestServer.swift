@@ -3,25 +3,25 @@ import Network
 import Wire
 
 /// A real WebSocket server on loopback, standing in for pocketd. `script` answers each text frame the phone sends.
-final class TestServer: @unchecked Sendable {
-    final class Peer: @unchecked Sendable {
+public final class TestServer: @unchecked Sendable {
+    public final class Peer: @unchecked Sendable {
         let connection: NWConnection
 
         init(_ connection: NWConnection) { self.connection = connection }
 
-        func send(_ frame: ServerFrame) {
+        public func send(_ frame: ServerFrame) {
             send(try! frame.encoded(), .text)
         }
 
-        func sendRaw(_ text: String) {
+        public func sendRaw(_ text: String) {
             send(Data(text.utf8), .text)
         }
 
-        func sendBinary(_ data: Data) {
+        public func sendBinary(_ data: Data) {
             send(data, .binary)
         }
 
-        func close(code: UInt16, reason: String = "") {
+        public func close(code: UInt16, reason: String = "") {
             let metadata = NWProtocolWebSocket.Metadata(opcode: .close)
             metadata.closeCode = .privateCode(code)
             let context = NWConnection.ContentContext(identifier: "close", metadata: [metadata])
@@ -45,7 +45,7 @@ final class TestServer: @unchecked Sendable {
         }
 
         /// Drops the socket without a close frame, as a sleeping Mac would.
-        func cut() { connection.cancel() }
+        public func cut() { connection.cancel() }
 
         private func send(_ data: Data, _ opcode: NWProtocolWebSocket.Opcode) {
             let metadata = NWProtocolWebSocket.Metadata(opcode: opcode)
@@ -61,12 +61,12 @@ final class TestServer: @unchecked Sendable {
     private var _received: [ClientFrame] = []
     private var _accepted = 0
 
-    var received: [ClientFrame] { lock.withLock { _received } }
-    var accepted: Int { lock.withLock { _accepted } }
-    var host: String { "127.0.0.1:\(listener.port!.rawValue)" }
+    public var received: [ClientFrame] { lock.withLock { _received } }
+    public var accepted: Int { lock.withLock { _accepted } }
+    public var host: String { "127.0.0.1:\(listener.port!.rawValue)" }
 
     /// `answersPings` false stands in for a Mac that went away without closing the socket.
-    init(answersPings: Bool = true, script: @escaping @Sendable (Peer, ClientFrame) -> Void) async throws {
+    public init(answersPings: Bool = true, script: @escaping @Sendable (Peer, ClientFrame) -> Void) async throws {
         let parameters = NWParameters.tcp
         let ws = NWProtocolWebSocket.Options()
         ws.autoReplyPing = answersPings
@@ -83,7 +83,7 @@ final class TestServer: @unchecked Sendable {
         }
     }
 
-    func stop() { listener.cancel() }
+    public func stop() { listener.cancel() }
 
     private func accept(_ connection: NWConnection) {
         lock.withLock { _accepted += 1 }
@@ -120,5 +120,3 @@ final class Once: @unchecked Sendable {
         }
     }
 }
-
-let helloOk = HelloOk(serverId: "mac-1", hostname: "Mingo's Mac", protocolVersion: 3, caps: Caps.phone, protocol: .phone)

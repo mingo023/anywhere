@@ -19,8 +19,8 @@
             center.frequent(info.frequentPushesEnabled)
             Task { for await on in info.frequentPushEnablementUpdates { center.frequent(on) } }
             Task { for await token in Activity<MacActivity>.pushToStartTokenUpdates { center.received(startToken: token) } }
-            Task { for await activity in Activity<MacActivity>.activityUpdates { watch(activity, center) } }
-            for activity in Activity<MacActivity>.activities { watch(activity, center) }
+            Task { for await _ in Activity<MacActivity>.activityUpdates { settle(center) } }
+            settle(center)
         }
 
         /// One activity per Mac; ActivityKit refuses a start while the app is in the background, which is when pocketd starts it by push instead.
@@ -30,7 +30,7 @@
             // The checks and the request are synchronous calls to the system, ~0.7 s on the main thread.
             Task.detached(priority: .userInitiated) {
                 if ActivityAuthorizationInfo().areActivitiesEnabled,
-                    !Activity<MacActivity>.activities.contains(where: { $0.attributes.mac == attributes.mac && $0.activityState == .active })
+                    !Activity<MacActivity>.activities.contains(where: { $0.attributes.mac == attributes.mac && shown($0) })
                 {
                     let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(300), relevanceScore: state.relevance)
                     _ = try? Activity.request(attributes: attributes, content: content, pushType: .token)
@@ -40,6 +40,22 @@
         }
 
         private static var starting: Set<String> = []
+
+        /// A stale activity is still on screen, saying its Mac is offline until pocketd, given its token, updates it.
+        nonisolated private static func shown(_ activity: Activity<MacActivity>) -> Bool {
+            activity.activityState == .active || activity.activityState == .stale
+        }
+
+        /// Ends all but one shown activity per Mac before watching the rest, so the token pocketd gets is the one left's.
+        private static func settle(_ center: PushCenter) {
+            let all = Activity<MacActivity>.activities
+            let extras = MacActivity.extras(all.filter(shown).map { (id: $0.id, mac: $0.attributes.mac, staleDate: $0.content.staleDate) })
+            for activity in all where !extras.contains(activity.id) { watch(activity, center) }
+            guard !extras.isEmpty else { return }
+            Task {
+                for activity in Activity<MacActivity>.activities where extras.contains(activity.id) { await activity.end(nil, dismissalPolicy: .immediate) }
+            }
+        }
 
         private static func watch(_ activity: Activity<MacActivity>, _ center: PushCenter) {
             guard watched.insert(activity.id).inserted else { return }

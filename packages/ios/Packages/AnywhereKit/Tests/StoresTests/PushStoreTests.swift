@@ -2,6 +2,7 @@ import ActivityModel
 import Client
 import Fixtures
 import Foundation
+import Loopback
 import PushSupport
 import Testing
 import Wire
@@ -127,16 +128,70 @@ struct PushStoreTests {
         #expect(titles["x"] == ActivityTitles.Entry(title: "Shell", place: "", provider: "shell"))
     }
 
-    @Test("the snapshot saves titles for the widget, counts the badge, and starts the activity once the Mac turns busy")
-    func snapshot() {
-        let c = center()
+    @Test("a Mac this phone isn't registered with starts no activity, as nothing would update it and it would soon say the Mac is offline")
+    func noActivityUnregistered() async {
+        let c = PushCenter(
+            defaults: UserDefaults(suiteName: "push-test-\(UUID().uuidString)")!, keys: Keychain(service: "dev.mingo.anywhere.push.test-\(UUID().uuidString)"),
+            relay: RelayClient(base: URL(string: "https://relay.test")!, session: RelayStub.session { _ in throw URLError(.cannotFindHost) }), env: .development)
+        defer { c.forget(mac: Sample.mac) }
+        c.granted(true)
+        c.received(alertToken: Data([1]))
         var started: [MacActivity] = []
         c.startActivity = { attributes, _ in started.append(attributes) }
+        let store = PushStore(connection: DaemonConnection(config: .init(host: "127.0.0.1:9", token: "t", clientId: "c")), center: c)
+        store.connected(Sample.hello)
+        await store.register()
+        _ = store.apply(.agentList(.init(agents: Sample.agents)))
+        #expect(store.state == .failed("The push relay couldn't be reached."))
+        #expect(started.isEmpty)
+    }
+
+    @Test("a Mac that turned busy before the phone registered with it starts its activity once registered")
+    func startsOnceRegistered() async throws {
+        let server = try await TestServer { peer, frame in
+            if case .hello = frame.message {
+                peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello)))
+            } else {
+                peer.send(ServerFrame(id: frame.id, .ack))
+            }
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(config: .init(host: server.host, token: "t", clientId: "c"))
+        await connection.start()
+        defer { Task { await connection.stop() } }
+        for _ in 0..<200 where await !connection.isOnline { try await Task.sleep(for: .milliseconds(5)) }
+        let c = center()
+        defer { c.forget(mac: Sample.mac) }
+        c.granted(true)
+        c.received(alertToken: Data([1]))
+        var started: [MacActivity] = []
+        c.startActivity = { attributes, _ in started.append(attributes) }
+        let store = PushStore(connection: connection, center: c)
+        store.connected(Sample.hello)
+        _ = store.apply(.agentList(.init(agents: Sample.agents)))
+        #expect(started.isEmpty)
+        for _ in 0..<200 where store.state != .registered { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(store.state == .registered)
+        #expect(started == [MacActivity(mac: Sample.mac, macName: Sample.hello.hostname)])
+    }
+
+    @Test("a start waits from the Mac turning busy until the phone is registered with it, and is dropped once nothing is busy")
+    func startWaits() {
+        let idle = MacActivity.ContentState(working: 0, needsYou: 0, unseen: 1)
+        let busy = MacActivity.ContentState(working: 1, needsYou: 0, unseen: 0)
+        #expect(PushStore.startDue(due: false, was: idle, now: busy))
+        #expect(PushStore.startDue(due: true, was: busy, now: busy))
+        #expect(!PushStore.startDue(due: false, was: busy, now: busy), "a start already made isn't made again")
+        #expect(!PushStore.startDue(due: true, was: busy, now: idle))
+    }
+
+    @Test("the snapshot saves titles for the widget and counts the badge")
+    func snapshot() {
+        let c = center()
         let store = PushStore(center: c)
         store.connected(Sample.hello)
         _ = store.apply(.agentList(.init(agents: Sample.agents)))
         _ = store.apply(.agentUpdate(.init(agent: Sample.agents[4])))
-        #expect(started == [MacActivity(mac: Sample.mac, macName: "Mingo's MacBook Pro")])
         #expect(ActivityTitles(defaults: c.defaults).entry(mac: Sample.mac, slot: "a-working").title == "Port the commit graph lanes")
         #expect(BadgeLedger(defaults: c.defaults).record(mac: "other", count: 0) == 4)
     }

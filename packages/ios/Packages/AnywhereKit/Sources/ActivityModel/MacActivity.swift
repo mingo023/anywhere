@@ -67,6 +67,15 @@ public struct MacActivity: Codable, Hashable, Sendable {
 
         public var since: Date { Date(timeIntervalSince1970: sinceUnix) }
     }
+
+    /// The shown activities to end so each Mac keeps one. pocketd updates only the one whose token it got last, so any other
+    /// passes its stale date and says the Mac is offline; the one kept is the one updated last, by its stale date.
+    public static func extras(_ shown: [(id: String, mac: String, staleDate: Date?)]) -> Set<String> {
+        let kept = Dictionary(grouping: shown) { $0.mac }.values.compactMap { same in
+            same.max { ($0.staleDate ?? .distantPast) < ($1.staleDate ?? .distantPast) }?.id
+        }
+        return Set(shown.map(\.id)).subtracting(kept)
+    }
 }
 
 #if canImport(ActivityKit) && os(iOS)

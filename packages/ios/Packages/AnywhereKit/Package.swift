@@ -38,6 +38,9 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("BenchScenes", ["Client", "DesignSystem", "FeatureChat", "FeatureFiles", "FeatureGit", "Fixtures", "Stores", "Wire"], false),
 ]
 
+/// Test modules that talk to a pocketd stand-in on loopback.
+let loopbackTested: Set = ["Client", "Stores"]
+
 let executables: [(name: String, deps: [Target.Dependency])] = [
     ("anywhere-probe", ["Wire", "Client", "Stores", "PushSupport"]),
     ("anywhere-gallery", ["Fixtures", "DesignSystem", "AppShell", "Stores", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit", "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "MarkdownView", "CodeView", "LiveActivityUI"]),
@@ -56,8 +59,11 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.20.0"),
     ],
     targets: modules.map { .target(name: $0.name, dependencies: $0.deps) }
+        + [.target(name: "Loopback", dependencies: ["Wire"], path: "Tests/Loopback")]
         + modules.filter(\.tested).map {
-            .testTarget(name: "\($0.name)Tests", dependencies: $0.name == "Fixtures" ? ["Fixtures"] : [.byName(name: $0.name), "Fixtures"])
+            .testTarget(
+                name: "\($0.name)Tests",
+                dependencies: ($0.name == "Fixtures" ? ["Fixtures"] : [.byName(name: $0.name), "Fixtures"]) + (loopbackTested.contains($0.name) ? ["Loopback"] : []))
         }
         + executables.map { .executableTarget(name: $0.name, dependencies: $0.deps) },
     swiftLanguageModes: [.v6]
