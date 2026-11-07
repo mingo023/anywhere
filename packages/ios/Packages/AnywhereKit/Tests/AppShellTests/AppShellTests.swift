@@ -109,6 +109,17 @@ struct NavigatorTests {
         #expect(nav.sessionsPath == [.chat(mac: "mbp", agentId: "a1")])
     }
 
+    @Test("opening a chat already on the stack goes back to it rather than pushing it again")
+    func pushGoesBack() {
+        let nav = Navigator()
+        let chat = Route.chat(mac: "mbp", agentId: "a1")
+        nav.sessionsPath = [chat, .files(mac: "mbp", tree: "/p", dir: "", chat: "a1"), .file(mac: "mbp", tree: "/p", path: "a.rs", chat: "a1")]
+        nav.push(chat)
+        #expect(nav.sessionsPath == [chat])
+        nav.push(.chat(mac: "mbp", agentId: "a2"))
+        #expect(nav.sessionsPath == [chat, .chat(mac: "mbp", agentId: "a2")])
+    }
+
     @Test("the chats on any stack are the ones whose stores stay")
     func chats() {
         let nav = Navigator()

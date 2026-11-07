@@ -84,12 +84,16 @@ public final class Navigator {
         }
     }
 
-    /// Pushes onto the current section's stack, as a chat's links do; New Session opens as a sheet.
+    /// Pushes onto the current section's stack, as a chat's links do; New Session opens as a sheet, and a chat already on
+    /// the stack is gone back to.
     public func push(_ route: Route) {
+        let path = path(tab)
         if case .newSession = route {
             sheet = route
+        } else if case .chat = route, let at = path.lastIndex(of: route) {
+            setPath(Array(path[...at]), for: tab)
         } else {
-            setPath(path(tab) + [route], for: tab)
+            setPath(path + [route], for: tab)
         }
     }
 
