@@ -52,7 +52,7 @@ public final class Navigator {
     public var sessionsPath: [Route] = []
     public var terminalsPath: [Route] = []
     public var settingsPath: [Route] = []
-    /// On iPad, the worktree or Local (a `.worktree` or `.local` route) the sessions list is narrowed to.
+    /// On iPad, the project, worktree or Local (a `.project`, `.worktree` or `.local` route) the sessions list is narrowed to.
     public var tree: Route? {
         didSet { if tree != oldValue { held = nil } }
     }

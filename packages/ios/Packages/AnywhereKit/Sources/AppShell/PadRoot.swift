@@ -17,7 +17,7 @@ struct PadRoot: View {
         var tab: Tab
         /// nil for Settings, which belongs to no Mac.
         var mac: String?
-        /// The worktree or Local the sessions list is narrowed to.
+        /// The project, worktree or Local the sessions list is narrowed to.
         var tree: Route?
     }
 

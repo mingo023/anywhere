@@ -3,8 +3,9 @@ import Domain
 import Stores
 import SwiftUI
 
-/// A Mac's projects, each opening onto its worktrees and Locals, for the iPad sidebar. `value` tags a tree's row with
-/// what the sidebar selects; the tree comes as its `.worktree` or `.local` route.
+/// A Mac's projects, each opening onto its worktrees and Locals, for the iPad sidebar. `value` tags a row with what the
+/// sidebar selects: a project as its `.project` route, whose screen holds what can be made in it, and a tree as its
+/// `.worktree` or `.local` route.
 @MainActor
 public struct TreeSidebar<Value: Hashable>: View {
     let host: HostModel
@@ -24,9 +25,11 @@ public struct TreeSidebar<Value: Hashable>: View {
                     NavigationLink(value: value(TreeRow.route(tree, mac: host.mac))) { TreeRow(tree: tree) }
                 }
             } label: {
-                HStack(spacing: Space.s) {
-                    Label(section.name, systemImage: "shippingbox").lineLimit(1)
-                    if let roll = section.rollUp { StatusGlyph(roll.status, size: 8) }
+                NavigationLink(value: value(.project(mac: host.mac, path: section.id))) {
+                    HStack(spacing: Space.s) {
+                        Label(section.name, systemImage: "shippingbox").lineLimit(1)
+                        if let roll = section.rollUp { StatusGlyph(roll.status, size: 8) }
+                    }
                 }
             }
         }
