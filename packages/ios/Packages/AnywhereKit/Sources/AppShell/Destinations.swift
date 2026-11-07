@@ -63,8 +63,11 @@ struct Destination: View {
     }
 
     /// The root of a section for a Mac, its sessions narrowed to `tree` if given; a Mac whose link ended shows why instead.
+    /// With `upNext`, a Mac's sessions are its Up next and Working only, as the iPad's sidebar holds its projects.
     @ViewBuilder
-    static func root(_ tab: Tab, host: HostModel?, app: AppModel, tree: Route? = nil, pair: @escaping @MainActor () -> Void) -> some View {
+    static func root(_ tab: Tab, host: HostModel?, app: AppModel, tree: Route? = nil, upNext: Bool = false, pair: @escaping @MainActor () -> Void)
+        -> some View
+    {
         switch tab {
         case .settings:
             SettingsView(app: app, pair: pair)
@@ -73,7 +76,11 @@ struct Destination: View {
                 if host.reachability(at: .now).isFinal {
                     EndedView(app: app, host: host)
                 } else if tab == .sessions {
-                    SessionsView(host: host, route: tree ?? .sessions(mac: host.mac))
+                    if upNext && tree == nil {
+                        UpNextList(host: host)
+                    } else {
+                        SessionsView(host: host, route: tree ?? .sessions(mac: host.mac))
+                    }
                 } else {
                     TerminalsView(host: host, route: .terminals(mac: host.mac))
                 }
