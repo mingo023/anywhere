@@ -231,9 +231,10 @@ public final class ChatStore: HostStore {
 
     /// Takes a newer summary; a timeline pocketd started over drops what was held.
     func take(_ agent: AgentSummary) -> Bool {
-        let reopened = closed
-        if closed { closed = false }
-        guard agent != summary else { return reopened }
+        let isClosed = agent.status == .closed
+        let flipped = closed != isClosed
+        if flipped { closed = isClosed }
+        guard agent != summary else { return flipped }
         let reset = summary.map { $0.resets != agent.resets } ?? false
         let wasWorking = summary.map(Composer.working)
         summary = agent
@@ -766,9 +767,10 @@ public final class ChatStore: HostStore {
                 put = named(list[ix].name, arg)
                 break
             }
-            draft.text = ""
+            // New Session keeps the draft, as a typed `/new` does.
+            if local != .new { draft.text = "" }
             runLocal(local, arg)
-            return 0
+            return draft.text.utf8.count
         case .files(let at, _, let paths) where paths.indices.contains(ix):
             put = replaced(text, at, cursor, "@" + paths[ix])
         default:

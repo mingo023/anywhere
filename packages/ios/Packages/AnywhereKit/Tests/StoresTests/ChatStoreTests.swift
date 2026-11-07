@@ -211,6 +211,27 @@ struct ChatStoreTests {
         #expect(c.settingsMenu == .model)
     }
 
+    @Test("picking /mcp leaves the caret after the tag it puts in")
+    func pickMcp() {
+        let c = chat([])
+        c.draft.text = "/mc"
+        let caret = c.pick(0, cursor: 3)
+        #expect(c.draft.text == "@mcp/")
+        #expect(caret == 5)
+    }
+
+    @Test("picking /new asks for New Session and keeps the draft, as typing it does")
+    func pickNew() {
+        var a = agent()
+        a.provider = "codex"
+        let c = ChatStore(agentId: "a1")
+        c.seed(a, requests: [], hello: Sample.hello)
+        c.draft.text = "/ne"
+        c.pick(0, cursor: 3)
+        #expect(c.newSession != nil)
+        #expect(c.draft.text == "/ne")
+    }
+
     @Test("picking a command mid-draft puts it in for the word typed")
     func pickMidDraft() {
         let c = chat([.agentCommands(.init(agentId: "a1", commands: [Command(name: "review", description: "Review a PR")]))])
@@ -452,6 +473,14 @@ struct ChatStoreTests {
         #expect(c.mode == .prompt)
     }
 
+    @Test("a session pocketd reports closed closes its composer")
+    func closedByUpdate() {
+        let c = chat([])
+        #expect(c.apply(.agentUpdate(.init(agent: agent(.closed)))))
+        #expect(c.mode == .closed)
+        #expect(c.apply(.agentList(.init(agents: [agent(.closed)]))) == false)
+        #expect(c.mode == .closed)
+    }
 }
 
 @MainActor

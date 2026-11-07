@@ -6,7 +6,7 @@ import SwiftUI
 #endif
 
 /// The composer's +: an image from Photos, the camera, Files or the clipboard. `attach` takes its data, a file name,
-/// and a thumbnail made off the main actor.
+/// and a thumbnail; reading, encoding and the thumbnail happen off the main actor.
 @MainActor
 struct AttachMenu: View {
     let enabled: Bool
@@ -28,7 +28,7 @@ struct AttachMenu: View {
                 Button("Choose File", systemImage: "folder") { choosingFiles = true }
                 if UIPasteboard.general.hasImages {
                     Button("Paste Image", systemImage: "doc.on.clipboard") {
-                        if let data = UIPasteboard.general.image?.pngData() { add(data, ext: "png") }
+                        paste()
                     }
                 }
             } label: {
@@ -48,19 +48,21 @@ struct AttachMenu: View {
                     let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                     Task { @MainActor in
                         guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-                        add(data, ext: ext)
+                        add(ext: ext) { data }
                     }
                 }
             }
             .fullScreenCover(isPresented: $takingPhoto) {
-                CameraPicker { add($0, ext: "jpg") }.ignoresSafeArea()
+                CameraPicker { image in add(ext: "jpg") { image.jpegData(compressionQuality: 0.85) } }.ignoresSafeArea()
             }
             .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
                 guard case .success(let urls) = result else { return }
                 for url in urls {
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    if let data = try? Data(contentsOf: url) { add(data, ext: url.pathExtension.isEmpty ? "jpg" : url.pathExtension) }
+                    add(ext: url.pathExtension.isEmpty ? "jpg" : url.pathExtension) {
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        return try? Data(contentsOf: url)
+                    }
                 }
             }
         #else
@@ -68,10 +70,26 @@ struct AttachMenu: View {
         #endif
     }
 
-    private func add(_ data: Data, ext: String) {
+    #if os(iOS)
+        /// The clipboard's own JPEG or PNG bytes when it has them; a PNG re-encode of a photo can run to many MB.
+        private func paste() {
+            let board = UIPasteboard.general
+            for (type, ext) in [(UTType.jpeg, "jpg"), (.png, "png")] {
+                if let data = board.data(forPasteboardType: type.identifier) { return add(ext: ext) { data } }
+            }
+            guard let image = board.image else { return }
+            add(ext: "jpg") { image.jpegData(compressionQuality: 0.85) }
+        }
+    #endif
+
+    private func add(ext: String, _ load: @escaping @Sendable () -> Data?) {
         let name = "\(UUID().uuidString.prefix(8)).\(ext)"
         Task {
-            let thumbnail = await Task.detached(priority: .userInitiated) { Thumbnail.make(data) }.value
+            let loaded = await Task.detached(priority: .userInitiated) { () -> (Data, Data?)? in
+                guard let data = load() else { return nil }
+                return (data, Thumbnail.make(data))
+            }.value
+            guard let (data, thumbnail) = loaded else { return }
             attach(data, name, thumbnail)
         }
     }

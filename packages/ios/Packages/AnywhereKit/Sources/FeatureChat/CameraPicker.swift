@@ -2,10 +2,10 @@
     import SwiftUI
     import UIKit
 
-    /// The camera, full screen; `took` gets the photo as JPEG, and the sheet closes either way.
+    /// The camera, full screen; `took` gets the photo, and the sheet closes either way.
     @MainActor
     struct CameraPicker: UIViewControllerRepresentable {
-        let took: (Data) -> Void
+        let took: (UIImage) -> Void
         @Environment(\.dismiss) private var dismiss
 
         func makeUIViewController(context: Context) -> UIImagePickerController {
@@ -26,7 +26,7 @@
             init(_ parent: CameraPicker) { self.parent = parent }
 
             func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-                if let data = (info[.originalImage] as? UIImage)?.jpegData(compressionQuality: 0.85) { parent.took(data) }
+                if let image = info[.originalImage] as? UIImage { parent.took(image) }
                 parent.dismiss()
             }
 
