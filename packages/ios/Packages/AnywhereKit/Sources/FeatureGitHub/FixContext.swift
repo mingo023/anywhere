@@ -18,4 +18,7 @@ struct FixContext {
 
     /// Problems can go to a session, or start one.
     var offered: Bool { canDrive && (target == .none ? open != nil : send != nil) }
+
+    /// Threads can go one by one too, unless the agent already fixes something on the PR (`can_send`).
+    func canSend(fixing: SentFixes?) -> Bool { offered && fixing == nil }
 }

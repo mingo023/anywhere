@@ -333,6 +333,17 @@ struct FixTargetTests {
         #expect(!FixContext(target: .none, canDrive: true).offered)
         #expect(FixContext(target: .none, canDrive: true, open: { _ in }).offered)
     }
+
+    @Test("a thread is offered to the agent only while it isn't fixing anything on the PR")
+    @MainActor
+    func threadWhileFixing() {
+        let fix = FixContext(target: .one(claude), canDrive: true, send: { _, _ in true })
+        var fixing = SentFixes(head: "h")
+        fixing.conflict = true
+        #expect(fix.canSend(fixing: nil))
+        #expect(!fix.canSend(fixing: fixing))
+        #expect(!FixContext(target: .one(claude), canDrive: false, send: { _, _ in true }).canSend(fixing: nil))
+    }
 }
 
 @Suite("pocketd's PR")

@@ -98,7 +98,7 @@ struct ThreadsScreen: View {
 
     /// Send to the agent's title and action, nil when the thread can't be sent.
     private func send(_ thread: ReviewThread) -> (title: String, action: () -> Void)? {
-        guard fix.offered, let pr = model.pr else { return nil }
+        guard fix.canSend(fixing: model.fixing), let pr = model.pr else { return nil }
         return (fix.target.title("Send to"), { fixing = FixRequest(prompt: FixPrompt.fix(pr, checks: [], threads: [thread]), threads: [thread.id]) })
     }
 
