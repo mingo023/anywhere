@@ -13,6 +13,8 @@ struct RowActions {
     /// Scrolls to the phase holding a call, opens it and flashes it.
     var showCall: (_ id: String) -> Void = { _ in }
     var openLink: (MarkdownLink) -> Void = { _ in }
+    /// Opens the screen of the sub-agent a call spawned.
+    var openAgent: (_ callId: String) -> Void = { _ in }
     /// Where a streaming message's reveal is, read by the text it lets out alone.
     var reveal: (_ message: String) -> Reveal? = { _ in nil }
 }
@@ -52,7 +54,7 @@ struct RowView: View, Equatable {
         case .prompt(let p): PromptBubble(text: p.text, images: p.images, at: p.at)
         case .fold(let label, let open, let settled):
             FoldRow(label: label, open: open, settled: settled, provider: provider) { actions.toggle(item.id, false) }
-        case .phase(let p): PhaseRow(phase: p, provider: provider, actions: actions)
+        case .phase(let p): PhaseRow(phase: p, actions: actions)
         case .notice(let label, let call): NoticeRow(label: label) { if let call { actions.showCall(call) } }
         case .note(let text, let error): NoteRow(text: text, error: error)
         case .tasks(let todos): TasksCard(todos: todos)

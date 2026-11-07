@@ -106,10 +106,13 @@ public final class Navigator {
         if path(tab).last != chat { push(chat) }
     }
 
-    /// The agent ids of every chat on a stack: the chats whose stores stay.
+    /// The agent ids of every chat or sub-agent on a stack: the chats whose stores stay.
     public var chats: Set<String> {
         Set((sessionsPath + terminalsPath + settingsPath).compactMap { route in
-            if case .chat(_, let agentId) = route { agentId } else { nil }
+            switch route {
+            case .chat(_, let agentId), .subAgent(_, let agentId, _): agentId
+            default: nil
+            }
         })
     }
 

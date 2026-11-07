@@ -1,4 +1,5 @@
 import Domain
+import Foundation
 
 /// The map of who spawned whom: its chip, its nodes' words, where it stands and how its graph lays out.
 public enum AgentMap {
@@ -98,7 +99,7 @@ public enum AgentMap {
     }
 
     /// "32.9k", "640".
-    static func short(_ n: Int) -> String {
+    public static func short(_ n: Int) -> String {
         n < 1000 ? "\(n)" : String(format: "%.1fk", Double(n) / 1000)
     }
 
@@ -145,13 +146,6 @@ public enum AgentMap {
         return parts.joined(separator: " · ")
     }
 
-    /// The turn and block of the main agent's call that `map[ix]` was spawned under, to show it in the chat.
-    public static func place(_ t: Transcript, _ map: [Spawned], _ ix: Int) -> (turn: Int, block: Int)? {
-        var ix = ix
-        while let parent = map[ix].parent { ix = parent }
-        return findCall(t, map[ix].call.id)
-    }
-
     /// A step's tool and what it acted on: "Read" and a path, or the tool's own name and its command.
     public static func step(_ call: Call) -> (tool: String, arg: String) {
         let (verb, arg) = toolLine(call)
@@ -167,6 +161,18 @@ public enum AgentMap {
             case .failed: "Failed"
             }
         return model.isEmpty ? state : "\(state) · \(modelName(model))"
+    }
+
+    /// How many tools the sub-agent called.
+    public static func calls(_ agent: SubAgent) -> Int {
+        Agent.steps(agent).count { $0.call != nil }
+    }
+
+    /// "Spawned by the main agent at 14:05 · ended 14:07": who spawned the sub-agent, when, and when it ended if it did.
+    public static func origin(by: SubAgent?, _ call: Call, now: Int, timeZone: TimeZone = .current) -> String {
+        let who = by.map(Agent.name) ?? "the main agent"
+        let ended = call.status == .running ? "" : " · ended \(TimeText.clock(ms: call.at + ranMs(call, now), timeZone: timeZone))"
+        return "Spawned by \(who) at \(TimeText.clock(ms: call.at, timeZone: timeZone))\(ended)"
     }
 }
 

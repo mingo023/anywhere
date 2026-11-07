@@ -128,6 +128,13 @@ struct NavigatorTests {
         #expect(nav.chats == ["a1", "a2"])
     }
 
+    @Test("a sub-agent restored on top of a stack keeps its chat's store")
+    func subAgentKeepsItsChat() {
+        let nav = Navigator()
+        nav.sessionsPath = [.subAgent(mac: "mbp", agentId: "a1", callId: "c1")]
+        #expect(nav.chats == ["a1"])
+    }
+
     @Test("a restored chat of a session the Mac no longer lists is dropped with what was over it, once")
     func restoredChats() throws {
         let nav = Navigator()

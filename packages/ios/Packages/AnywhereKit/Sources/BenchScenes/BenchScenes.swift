@@ -1,5 +1,6 @@
 import Client
 import DesignSystem
+import Domain
 import FeatureChat
 import FeatureFiles
 import FeatureGit
@@ -54,7 +55,10 @@ public enum BenchScenes {
 
     /// Run only by name: a prompt sent at the end of a long chat glides up and is held a quarter down (see its PNGs).
     public static var extras: [Scenario] {
-        var extras = [Scenario(name: "chat-send", up: true, make: chatSend)]
+        var extras = [
+            Scenario(name: "chat-send", up: true, make: chatSend), Scenario(name: "chat-agents", up: true, make: { chatAgents() }),
+            Scenario(name: "chat-subagent", make: { chatAgents(open: "tu-a1") }),
+        ]
         #if os(iOS)
             // The sheet iOS selects markdown text in, over the 258 KB document.
             extras.append(Scenario(name: "select-text", make: { Screen(view: AnyView(SelectTextSheet(Sample.markdownDocument(bytes: 258 * 1024)))) }))
@@ -106,6 +110,37 @@ public enum BenchScenes {
             store.send()
         }]
         return Screen(view: AnyView(NavigationStack { ChatView(host: host, agentId: agentId) }), updates: updates)
+    }
+
+    /// A chat that spawned three sub-agents, still at work, under turns long enough to scroll beneath the bar; its
+    /// updates are the first agent's next steps. Pushed over a list as the app does, with the sub-agent `open` spawned over it.
+    public static func chatAgents(open: String? = nil) -> Screen {
+        let shift = Int(Date.now.timeIntervalSince1970 * 1000) - Sample.now
+        let earlier = Sample.chatPerf(items: 48)
+        let agents = Sample.chat("background-agents").enumerated().map { n, item in
+            TimelineItem(id: "ba-\(item.id)", seq: earlier.count + n + 1, ts: item.ts, parentToolUseId: item.parentToolUseId, body: item.body)
+        }
+        let items = (earlier + agents).map { TimelineItem(id: $0.id, seq: $0.seq, ts: $0.ts + shift, parentToolUseId: $0.parentToolUseId, body: $0.body) }
+        let seq = items.count
+        let agent = AgentSummary(
+            id: agentId, terminalId: "t-perf", title: "Discover this project", cwd: "/Users/mingo/dev/anywhere", provider: "claude", model: "claude-opus-5-5",
+            effort: "high", access: "edits", status: .working, attached: true, epoch: 1, maxSeq: seq, createdAt: Sample.now + shift - 600_000,
+            updatedAt: Sample.now + shift, branch: "main", tokensUsed: 48_000, contextWindow: 1_000_000)
+        let host = HostModel.offline(hello: Sample.hello, messages: [.agentList(.init(agents: [agent]))])
+        let store = host.chat(agentId)
+        host.apply([.message(.agentTimeline(.init(agentId: agentId, epoch: 1, items: items, hasOlder: false, maxSeq: seq)))])
+        store.flush()
+        let steps = ["docs/adr/0003-desktop-code-layout.md", "docs/adr/0007-ios-modules.md", "CONTEXT.md"].enumerated().map { n, path in
+            TimelineItem(
+                id: "live-\(n)", seq: seq + n + 1, ts: Sample.now + shift, parentToolUseId: "tu-a1",
+                body: .tool(.init(toolUseId: "tu-live-\(n)", name: "Read", detail: .read(path: path), status: .ok, durationMs: 10)))
+        }
+        let updates = steps.map { item -> @MainActor () -> Void in
+            { host.apply([.message(.agentStream(.init(agentId: agentId, epoch: 1, item: item)))]) }
+        }
+        let chat = Route.chat(mac: Sample.mac, agentId: agentId)
+        let path = [chat] + (open.map { [.subAgent(mac: Sample.mac, agentId: agentId, callId: $0)] } ?? [])
+        return Screen(view: AnyView(BenchStack(host: host, path: path)), updates: updates)
     }
 
     public static func offlineHost() -> HostModel {

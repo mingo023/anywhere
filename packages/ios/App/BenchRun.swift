@@ -100,6 +100,8 @@ final class BenchDriver {
         case .streaming(let n) where n < screen.updates.count:
             screen.updates[n]()
             phase = .streaming(n + 1)
+        case .streaming where Self.hold:
+            link.invalidate()
         case .streaming:
             phase = .scrolling(0)
         case .scrolling(let n) where n < Self.scrollFrames:
@@ -139,6 +141,9 @@ final class BenchDriver {
         NSLog("%@", line)
         exit(0)
     }
+
+    /// `UIBENCH_HOLD`: stays on the screen after the stream, for screenshots, instead of scrolling and exiting.
+    static let hold = ProcessInfo.processInfo.environment["UIBENCH_HOLD"] != nil
 
     static let scrollFrames = Int(ProcessInfo.processInfo.environment["UIBENCH_SCROLL"] ?? "") ?? 240
 

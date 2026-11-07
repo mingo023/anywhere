@@ -3,8 +3,8 @@ import DesignSystem
 import Domain
 import SwiftUI
 
-/// Sub-agents and commands left running past their turn: folded to the newest step, open to a row each that shows
-/// where it ran.
+/// Sub-agents and commands left running past their turn: folded to the newest step, open to a row each that opens a
+/// sub-agent's screen or shows where a command ran.
 @MainActor
 struct BackgroundTray: View {
     let tasks: [Call]
@@ -61,9 +61,15 @@ struct BackgroundTray: View {
                             }
                             .font(ChatFont.caption)
                             .foregroundStyle(Palette.text4.color)
-                            HStack(spacing: 3) {
-                                Text("Show")
-                                Image(systemName: "arrow.up").font(.system(size: 10))
+                            Group {
+                                if call.agent != nil {
+                                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                                } else {
+                                    HStack(spacing: 3) {
+                                        Text("Show")
+                                        Image(systemName: "arrow.up").font(.system(size: 10))
+                                    }
+                                }
                             }
                             .font(ChatFont.caption)
                             .foregroundStyle(Palette.text4.color)

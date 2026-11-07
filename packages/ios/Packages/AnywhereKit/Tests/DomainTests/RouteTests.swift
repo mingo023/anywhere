@@ -39,6 +39,7 @@ struct RouteTests {
             .diff(mac: "m1", tree: "/r", path: "a.rs", staged: true, chat: "a1"),
             .newSession(mac: "m1", project: "/r", place: "local-1", prompt: "Explain lines 40–58"),
             .reviewThreads(mac: "m1", tree: "/r"),
+            .subAgent(mac: "m1", agentId: "a1", callId: "c1"),
         ]
         #expect(try JSONDecoder().decode([Route].self, from: JSONEncoder().encode(routes)) == routes)
     }

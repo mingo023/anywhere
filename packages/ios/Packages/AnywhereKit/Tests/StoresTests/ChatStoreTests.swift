@@ -271,6 +271,20 @@ struct ChatStoreTests {
         #expect(files.takeAdditions(for: "a2", in: "/w") == ["@c.rs"])
     }
 
+    @Test("a chat stays viewed while a sub-agent's screen opens over it and after it closes")
+    func viewedUnderASubAgent() {
+        let c = chat([])
+        c.appear()
+        c.appear()
+        c.disappear()
+        #expect(c.viewing)
+        c.disappear()
+        #expect(!c.viewing)
+        c.disappear()
+        c.appear()
+        #expect(c.viewing)
+    }
+
     @Test("the background tray and the agent map are worked out as the transcript refolds")
     func backgroundAndAgentsFollowTheTranscript() {
         let c = chat([timeline(Sample.chat("background-agents"))])

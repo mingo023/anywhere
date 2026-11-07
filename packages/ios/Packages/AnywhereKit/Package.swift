@@ -35,7 +35,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
         "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "Fixtures",
     ], true),
     ("LiveActivityUI", ["ActivityModel", "DesignSystem"], true),
-    ("BenchScenes", ["Client", "DesignSystem", "FeatureChat", "FeatureFiles", "FeatureGit", "Fixtures", "Stores", "Wire"], false),
+    ("BenchScenes", ["Client", "DesignSystem", "Domain", "FeatureChat", "FeatureFiles", "FeatureGit", "Fixtures", "Stores", "Wire"], false),
 ]
 
 let executables: [(name: String, deps: [Target.Dependency])] = [

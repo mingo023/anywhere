@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ChatModel
 
@@ -98,16 +99,6 @@ func theMainAgentHandsOff() {
     #expect(AgentMap.mainLine(done, spawned(done)) == "Done")
 }
 
-@Test("a nested agent shows in the chat at the call its ancestor was spawned under")
-func aNestedAgentShowsAtItsAncestorsCall() {
-    let inner = Transcript(turns: [turn([agent("inner", .ok)], true)])
-    var outer = agent("outer", .ok).call!
-    outer.kind = .agent(SubAgent(description: "", transcript: inner))
-    let t = Transcript(turns: [turn([shell("s")], true), turn([shell("x"), .tool(outer)], true)])
-    let place = AgentMap.place(t, spawned(t), 1)
-    #expect(place?.turn == 1 && place?.block == 1)
-}
-
 @Test("a step names its tool beside what it acted on")
 func aStepNamesItsTool() {
     #expect(AgentMap.step(Call(id: "c", name: "Read", kind: .read(path: "src/a.rs"), status: .ok)) == ("Read", "src/a.rs"))
@@ -155,4 +146,33 @@ func dashesFlow() {
     let starts = { (phase: Double) in Graph.dashes(line, on: 3, off: 5, phase: phase).map { [$0[0].x, $0.last!.x] } }
     #expect(starts(0) == [[0, 3], [8, 11], [16, 19]])
     #expect(starts(2) == [[2, 5], [10, 13], [18, 20]])
+}
+
+@Test("a sub-agent is found however deep it was spawned, with the agent that spawned it")
+func aSubAgentIsFoundHoweverDeep() {
+    let inner = Transcript(turns: [turn([agent("inner", .running)], false)])
+    var outer = agent("outer", .ok).call!
+    outer.kind = .agent(SubAgent(description: "Audit the quit flow", transcript: inner))
+    let t = Transcript(turns: [turn([shell("s")], true), turn([.tool(outer)], true)])
+    #expect(subAgent(t, "outer")?.call.id == "outer")
+    #expect(subAgent(t, "outer")?.by == nil)
+    #expect(subAgent(t, "inner")?.call.status == .running)
+    #expect(subAgent(t, "inner")?.by.map(Agent.name) == "Audit the quit flow")
+    #expect(subAgent(t, "s") == nil)
+}
+
+@Test("a sub-agent's page says who spawned it, when, and when it ended")
+func aSubAgentsPageSaysWhoSpawnedIt() {
+    let utc = TimeZone(identifier: "UTC")!
+    let ran = Call(id: "a", name: "Agent", kind: .agent(SubAgent(description: "")), status: .ok, durationMs: 120_000, at: 0)
+    #expect(AgentMap.origin(by: nil, ran, now: 0, timeZone: utc) == "Spawned by the main agent at 0:00 · ended 0:02")
+    var running = ran
+    running.status = .running
+    #expect(AgentMap.origin(by: SubAgent(description: "Audit the quit flow"), running, now: 0, timeZone: utc) == "Spawned by Audit the quit flow at 0:00")
+}
+
+@Test("a sub-agent counts its tool calls, not its notes")
+func aSubAgentCountsItsToolCalls() {
+    let notes = Transcript(turns: [Turn(id: "t", blocks: [shell("a"), .text(Message(id: "m", at: 0, text: "Reading next")), shell("b")])])
+    #expect(AgentMap.calls(SubAgent(description: "", transcript: notes)) == 2)
 }

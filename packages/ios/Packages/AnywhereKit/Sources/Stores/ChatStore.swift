@@ -70,7 +70,9 @@ public final class ChatStore: HostStore {
     @ObservationIgnored var unchanged = 0
     @ObservationIgnored var flushing = false
     @ObservationIgnored var primed = false
-    @ObservationIgnored var viewing = false
+    /// Screens showing the chat or one of its sub-agents: one opening over another may appear before the other goes.
+    @ObservationIgnored var viewers = 0
+    var viewing: Bool { viewers > 0 }
     @ObservationIgnored var ticker: Task<Void, Never>?
     @ObservationIgnored var requestsMade = 0
     @ObservationIgnored var searching: Task<Void, Never>?
@@ -334,9 +336,10 @@ public final class ChatStore: HostStore {
 
     // MARK: On screen
 
-    /// The chat came on screen: fetch what's missing, tell pocketd it's viewed, keep the queue moving.
+    /// The chat or a sub-agent of it came on screen: fetch what's missing, tell pocketd it's viewed, keep the queue moving.
     public func appear() {
-        viewing = true
+        viewers += 1
+        guard viewers == 1 else { return }
         open()
         if let cwd = summary?.cwd, let pieces = files?.takeAdditions(for: agentId, in: cwd), !pieces.isEmpty {
             draft.text = FilesStore.draft(draft.text, adding: pieces)
@@ -351,7 +354,8 @@ public final class ChatStore: HostStore {
     }
 
     public func disappear() {
-        viewing = false
+        viewers = max(viewers - 1, 0)
+        guard viewers == 0 else { return }
         ticker?.cancel()
         ticker = nil
         // The app is still in front: without `front`, pocketd would take leaving the chat for leaving the app and push.
