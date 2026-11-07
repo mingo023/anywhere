@@ -64,6 +64,17 @@ struct AppModelPairingTests {
         #expect(host.credentials.serverId == "s1")
     }
 
+    @Test("pairing again with one of several Macs keeps its place in the list and names it the one to switch to")
+    func repairsInPlace() {
+        let app = AppModel()
+        app.add(Credentials(host: link.host, deviceToken: "", deviceId: "old", macName: "Mac", clientId: "c"), start: false)
+        app.add(Credentials(host: "100.64.0.2:4517", deviceToken: "t", deviceId: "other", macName: "Studio", clientId: "c"), start: false)
+        app.paired(PairOk(deviceId: "new", token: "tok"), link: link)
+        defer { app.forget("new"); app.forget("other") }
+        #expect(app.hosts.map(\.id) == ["new", "other"])
+        #expect(app.lastPaired == "new")
+    }
+
     @Test("forgetting a Mac drops it and its record")
     func forgets() throws {
         let vault = MemoryVault()

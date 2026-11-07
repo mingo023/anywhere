@@ -8,6 +8,7 @@
     "provider": "claude",
     "status": "done",
     "failed": true,
+    "error": "API Error: 529 overloaded",
     "attached": true,
     "epoch": 1,
     "maxSeq": 3,

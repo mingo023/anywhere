@@ -32,7 +32,7 @@ Non-goals:
 
 | UX section | Spec says | Winning decision | Text to build |
 |---|---|---|---|
-| UXP §4.8 access chips | Full access allowed from the phone, with a confirm | D18 | The phone offers Ask / Auto-accept edits / Auto, up to `phone.maxAccess` (default Ask), and never Full access. Hint under a locked chip: "On your Mac: ⌘K → Phone access level" |
+| UXP §4.8 access chips | Full access allowed from the phone, with a confirm | D18 | The phone offers Ask / Auto-accept edits / Auto, up to `phone.maxAccess` (default Ask), and never starts on Full access. Hint under a locked chip: "On your Mac: ⌘K → Phone access level" |
 | UXP §4.8 Codex hint | "Codex plan needs a chat session" | D14, D31 | "Codex can't plan first in a terminal session" |
 | UXP §4.8 states | "Trust this folder on your Mac first" | FR 06-6 | On `folder_not_trusted`: "Trust this folder in Claude on your Mac first" |
 | UXD §3.9 access rules | canvas chips, Phase 4 | E06 PR4 | The existing sheet, not the canvas, uses the §6 chips: "Ask" · "Auto-accept edits" · "Auto" · "Full access" (desktop only, amber) · "Plan first". Picks are remembered per Project |
@@ -62,7 +62,7 @@ Behaviour:
 - Send builds a LaunchSpec from chip state and sends `agent.create`. The sheet stays open, with the draft, until `agent.creating` or `error`. An error shows in the sheet's error row, and the prompt is kept.
 - On `agent.creating` the sheet closes and the Terminal is adopted as a tab of its Worktree. The Terminal is marked "setting up" when `setup` is true (P pk/terminals.rs:44-47). The Project is un-collapsed and `refresh_git` runs.
 - A later `error` for that request (setup or agent exit) goes to the page error line, and the failed pane stays open (P pk/terminals.rs:51-56).
-- Picks remembered per Project: provider, model, effort, access (never Full). Plan is not remembered.
+- Picks remembered per Project: provider, model, effort, access (Full only once picked). Plan is not remembered.
 - Palette: "Phone access level…" opens a three-row menu (Ask / Auto-accept edits / Auto) with a check on the current value, and sends `config.set`.
 
 ### 3.2 Phone sheet (PR5), UXP §4.8 with overrides
@@ -254,7 +254,7 @@ ops messages (`ops.Msg`, P pd/internal/ops/ops.go:15-32; adds `Key string json:"
 ### 5.4 Caps, config, files
 
 - Cap `launch.v1` in `hello.ok.caps`, from PR3. Before PR3, `agent.create` works for the owner principal only, and a device gets `access_not_allowed`.
-- Config key `phone.maxAccess`, stored in `$POCKET_HOME/config.json` as `{"phone":{"maxAccess":"ask"}}`. Default `ask`; `full` is never accepted.
+- Config key `phone.maxAccess`, stored in `$POCKET_HOME/config.json` as `{"phone":{"maxAccess":"ask"}}`. Default `ask`; `full` is accepted, the owner's opt-in.
 - Scope matrix rows (S-9, E03): `agent.create` → `spawn`, owner-only fields → `owner`; `agent.providers` → `observe`; `config.set` and ops `config-set` → `owner`; ops `launch-exit` → Terminal descendant of `id`.
 - Files created:
   - `pd/internal/launch/{launch.go,argv.go,wrap.go,policy.go,trust.go,receipts.go}` + `_test.go`
@@ -332,7 +332,7 @@ Nothing stores argv, env, prompt or screen tail (S-5). The tail lives only in th
 ## 8. Test strategy
 
 pocketd (`cd packages/pocketd && go vet ./... && go test -race -count=1 ./...`; goldens `go test ./internal/proto -update`):
-- proto: `TestServerGolden` / `TestDecodeClientAcceptsGoldens` gain `agent_create_worktree`, `agent_create_new`, `agent_creating`, `agent_created`, `agent_providers`, `config_set`, `error_coded`. `TestDecodeClientRejects` gains both-checkouts, no-checkout, unknown spec field, prompt 64 KiB + 1, and `phone.maxAccess=full`.
+- proto: `TestServerGolden` / `TestDecodeClientAcceptsGoldens` gain `agent_create_worktree`, `agent_create_new`, `agent_creating`, `agent_created`, `agent_providers`, `config_set`, `error_coded`. `TestDecodeClientRejects` gains both-checkouts, no-checkout, unknown spec field, prompt 64 KiB + 1.
 - launch, pure: `TestArgvMatchesTheF14TableForEveryProviderAccessAndPlan` (table golden `testdata/argv.golden`), `TestCodexPlanIsNotAllowed`, `TestPromptGoesLastAfterDoubleDash`, `TestWrapRecordsTheExitBeforeTheShellTakesOver` (sh and fish; runs `sh -c` with a stub exe that appends to a file), `TestAFailedSetupStopsBeforeTheAgent`.
 - policy: `TestPhonePolicyTable` (rows: provider, project, worktree, base/copy/setup, access × maxAccess, full, plan × provider, missing `spawn` scope).
 - receipts: `TestADuplicateReturnsTheFirstResult`, `TestADifferentSpecUnderTheSameRequestIsADuplicate`, `TestAReceiptExpiresAfterTenMinutes` (injected clock).

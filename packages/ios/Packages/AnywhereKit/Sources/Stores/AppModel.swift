@@ -7,6 +7,8 @@ import Wire
 @Observable
 public final class AppModel {
     public private(set) var hosts: [HostModel] = []
+    /// The device id of the Mac pairing saved last, for the shell to switch to.
+    public private(set) var lastPaired: String?
     /// Where pairing saves each Mac; nil keeps nothing.
     @ObservationIgnored public let vault: (any CredentialVault)?
     /// What the vault holds, so a host is saved again only when its record changes.
@@ -37,17 +39,15 @@ public final class AppModel {
     /// Adds a Mac built elsewhere, with its own connection settings or clock; a Mac already added is returned as is.
     @discardableResult
     public func add(_ host: HostModel, start: Bool = true) -> HostModel {
+        add(host, at: hosts.count, start: start)
+    }
+
+    private func add(_ host: HostModel, at index: Int, start: Bool) -> HostModel {
         if let known = hosts.first(where: { $0.id == host.id }) { return known }
-        hosts.append(host)
+        hosts.insert(host, at: min(index, hosts.count))
         watch(host)
         if start { host.start() }
         return host
-    }
-
-    public func remove(_ deviceId: String) {
-        guard let at = hosts.firstIndex(where: { $0.id == deviceId }) else { return }
-        hosts[at].stop()
-        hosts.remove(at: at)
     }
 
     /// The Mac with this `hello.ok` serverId, as deep links name it, or the device id a Mac is known by before its first hello.
@@ -55,9 +55,18 @@ public final class AppModel {
         hosts.first { ($0.hello?.serverId ?? $0.credentials.serverId) == serverId } ?? hosts.first { $0.id == serverId }
     }
 
-    /// Stops using a Mac and deletes what this phone kept for it.
+    /// Stops using a Mac and deletes what this phone kept for it. A connected Mac is asked to stop pushing first; alerts
+    /// from one that isn't can no longer be opened, and the app drops them.
     public func forget(_ deviceId: String) {
-        remove(deviceId)
+        if let at = hosts.firstIndex(where: { $0.id == deviceId }) {
+            let host = hosts.remove(at: at)
+            host.push.center.forget(mac: host.mac)
+            let connection = host.connection
+            Task {
+                _ = try? await connection.request(.pushUnregister, timeout: .seconds(5))
+                await connection.stop()
+            }
+        }
         saved[deviceId] = nil
         try? vault?.remove(deviceId: deviceId)
     }
@@ -74,16 +83,19 @@ public final class AppModel {
         host.start()
     }
 
-    /// Saves a Mac `pair.ok` admitted this phone to, replacing any earlier record of the same Mac, and connects to it.
+    /// Saves a Mac `pair.ok` admitted this phone to, replacing any earlier record of the same Mac in its place in the
+    /// list, and connects to it.
     @discardableResult
     public func paired(_ ok: PairOk, link: PairingLink) -> HostModel {
-        let earlier = hosts.first { $0.credentials.host == link.host }
+        let place = hosts.firstIndex { $0.credentials.host == link.host }
+        let earlier = place.map { hosts[$0] }
         let credentials = Credentials(
             host: link.host, deviceToken: ok.token, deviceId: ok.deviceId, macName: link.name,
             clientId: earlier?.credentials.clientId ?? Credentials.newClientId(), serverId: earlier.flatMap { saved[$0.id]?.serverId })
         if let earlier { forget(earlier.id) }
         save(credentials)
-        return add(credentials)
+        lastPaired = credentials.deviceId
+        return add(HostModel(credentials: credentials), at: place ?? hosts.count, start: true)
     }
 
     /// Pairs with the Mac a link names: trades its code for a token, saves it, and connects.

@@ -7,13 +7,12 @@ import SwiftUI
 @MainActor
 struct PhaseRow: View {
     let phase: PhaseContent
-    let provider: String
     let actions: RowActions
 
     var body: some View {
         let _ = BodyCount.hit("PhaseRow")
         if phase.lone, let step = phase.steps.first {
-            StepView(step: step, phaseLive: phase.live, provider: provider, actions: actions)
+            StepView(step: step, phaseLive: phase.live, actions: actions)
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 Button {
@@ -35,7 +34,7 @@ struct PhaseRow: View {
                 if phase.open {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(phase.steps) { step in
-                            StepView(step: step, phaseLive: phase.live, provider: provider, actions: actions)
+                            StepView(step: step, phaseLive: phase.live, actions: actions)
                         }
                     }
                     .padding(.leading, 20)
@@ -50,7 +49,6 @@ struct PhaseRow: View {
 struct StepView: View {
     let step: StepContent
     let phaseLive: Bool
-    let provider: String
     let actions: RowActions
 
     var body: some View {
@@ -59,9 +57,7 @@ struct StepView: View {
             ThinkingStep(text: m.text, live: step.live, thought: step.thought, open: step.open) { actions.toggle(step.id, false) }
         case .tool(let call):
             if let agent = call.agent {
-                SubAgentRow(call: call, agent: agent, open: step.open, provider: provider, onLink: actions.openLink) {
-                    actions.toggle(step.id, call.status == .failed)
-                }
+                SubAgentRow(call: call, agent: agent) { actions.openAgent(call.id) }
             } else {
                 ToolRow(call: call, background: call.status == .running && !phaseLive, open: step.open) { actions.toggle(step.id, false) }
             }

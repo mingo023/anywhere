@@ -18,10 +18,12 @@ type GitService interface {
 	Diff(tree, path string, at proto.DiffAt, o gitview.DiffOptions) (proto.GitDiff, error)
 	Log(tree string, all bool, skip, limit int) (proto.LogTips, []proto.LogCommit, bool, error)
 	Commit(tree, sha string) (proto.GitCommit, error)
+	Compare(tree, against string, cursor, limit int) (proto.GitCompare, error)
 	Stage(tree string, paths []string, staged bool) error
 	Discard(tree string, paths []string) error
 	CreateCommit(tree, message string, amend, all bool) (string, error)
-	Push(tree string, lease bool) error
+	Push(tree, remote string, lease, mayForce bool) error
+	PushesToUpstream(tree, remote string) bool
 	Pull(tree string) error
 	Watch(trees []string, changed func(tree, rev string)) (stop func())
 	Top(tree string) error
@@ -39,7 +41,7 @@ func (c *conn) closeGit() { c.watchGit(nil) }
 
 // gitVerb serves its cap's verbs; without the cap they are unknown.
 func (c *conn) gitVerb(m proto.ClientMessage) error {
-	if !slices.Contains(c.caps, proto.CapGit) {
+	if !slices.Contains(c.caps, proto.CapGit) || m.Type == "git.compare" && !slices.Contains(c.caps, proto.CapCompare) {
 		return proto.ErrMalformed
 	}
 	if m.Type == "git.watch" {
@@ -83,7 +85,10 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 		if err != nil {
 			return err
 		}
+		git := c.s.Registry.Load().Git
 		st.ID = m.ID
+		st.CommitAll = new(git.CommitsAll())
+		st.ForceWithLease = git.ForceWithLease && g.PushesToUpstream(m.Tree, git.PushRemote())
 		c.send(st)
 	case "git.diff":
 		d, err := g.Diff(m.Tree, m.Path, *m.At, gitview.DiffOptions{Context: m.Context, IgnoreWhitespace: m.IgnoreWhitespace, MaxLines: m.MaxLines})
@@ -102,6 +107,17 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 			return err
 		}
 		c.send(proto.NewGitLog(m.ID, tips, commits, more))
+	case "git.compare":
+		limit := 0
+		if m.Limit != nil {
+			limit = int(*m.Limit)
+		}
+		cmp, err := g.Compare(m.Tree, m.Against, m.Cursor, limit)
+		if err != nil {
+			return err
+		}
+		cmp.ID = m.ID
+		c.send(cmp)
 	case "git.commit":
 		cm, err := g.Commit(m.Tree, m.Sha)
 		if err != nil {
@@ -123,7 +139,11 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 		case "git.discard":
 			err = g.Discard(m.Tree, m.Paths)
 		case "git.push":
-			err = g.Push(m.Tree, m.Lease)
+			git := c.s.Registry.Load().Git
+			if m.Lease && !git.ForceWithLease {
+				return errors.New("Force push with lease is off in the Mac's Settings › Git")
+			}
+			err = g.Push(m.Tree, git.PushRemote(), m.Lease, git.ForceWithLease)
 		case "git.pull":
 			err = g.Pull(m.Tree)
 		}
@@ -185,6 +205,9 @@ func gitError(id string, err error) proto.Error {
 	}
 	if errors.Is(err, gitview.ErrOutsideTree) {
 		return proto.NewErrorCode(id, proto.CodeOutsideTree, err.Error())
+	}
+	if errors.Is(err, gitview.ErrUnknownRef) {
+		return proto.NewErrorCode(id, proto.CodeUnknownRef, err.Error())
 	}
 	return errorReply(id, err)
 }

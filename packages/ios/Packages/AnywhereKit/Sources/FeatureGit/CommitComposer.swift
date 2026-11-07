@@ -13,8 +13,8 @@ struct CommitComposer: View {
     @State private var note: String?
     @FocusState private var focused: Bool
 
-    /// The desktop's `git.commit_all` default: with nothing staged, a commit takes every change.
-    static let commitAll = true
+    /// The desktop's `git.commit_all`, as pocketd reads it.
+    private var commitAll: Bool { changes.head?.commitAll ?? true }
 
     var body: some View {
         let _ = BodyCount.hit("CommitComposer")
@@ -34,11 +34,11 @@ struct CommitComposer: View {
                 Button {
                     commit(amend ? .amend : .commit)
                 } label: {
-                    Text(amend && busy == nil ? "Amend" : Composer.label(totals: totals, busy: busy, commitAll: Self.commitAll))
+                    Text(amend && busy == nil ? "Amend" : Composer.label(totals: totals, busy: busy, commitAll: commitAll))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!(amend || Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: Self.commitAll)))
+                .disabled(!(amend || Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: commitAll)))
                 if !amend {
                     Button {
                         commit(.push)
@@ -46,7 +46,7 @@ struct CommitComposer: View {
                         Text("Commit & Push").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(!Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: Self.commitAll))
+                    .disabled(!Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: commitAll))
                 }
             }
             .disabled(busy != nil)
@@ -56,7 +56,7 @@ struct CommitComposer: View {
 
     private func commit(_ kind: CommitKind) {
         let totals = changes.head?.totals ?? .init(files: 0, added: 0, removed: 0, staged: 0)
-        switch Composer.step(totals: totals, kind: kind, message: message, busy: changes.busy != nil, commitAll: Self.commitAll) {
+        switch Composer.step(totals: totals, kind: kind, message: message, busy: changes.busy != nil, commitAll: commitAll) {
         case .skip:
             return
         case .askMessage:
@@ -67,15 +67,15 @@ struct CommitComposer: View {
             note = nil
             focused = false
             let text = message
+            let tree = changes.tree
             Haptics.tap()
             Task {
-                if await store.commit(changes.tree, message: text, kind: kind, all: all) {
-                    message = ""
-                    amend = false
-                    Haptics.success()
-                } else {
-                    Haptics.warning()
-                }
+                // The message goes once the commit lands, so a failed push leaves Push N as the retry, not a second commit.
+                guard await store.commit(tree, message: text, kind: kind == .amend ? .amend : .commit, all: all) else { return Haptics.warning() }
+                message = ""
+                amend = false
+                if kind == .push, !(await store.push(tree)) { return Haptics.warning() }
+                Haptics.success()
             }
         }
     }

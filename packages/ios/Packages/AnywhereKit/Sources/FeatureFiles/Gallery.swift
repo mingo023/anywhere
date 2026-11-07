@@ -17,6 +17,9 @@ public enum FilesGallery {
                 GalleryScene("files-svg\(suffix)", dark: dark) { AnyView(preview("docs/icon.svg")) },
                 GalleryScene("files-binary\(suffix)", dark: dark) { AnyView(preview("dist/app.zip")) },
                 GalleryScene("files-too-large\(suffix)", dark: dark) { AnyView(preview("logs/pocketd.log")) },
+                // No Mac in the gallery, so these reads fail as offline.
+                GalleryScene("files-failed\(suffix)", dark: dark) { AnyView(failedPreview()) },
+                GalleryScene("files-folder-failed\(suffix)", dark: dark) { AnyView(NavigationStack { tree(at: "docs/adr") }) },
             ]
         }
     }
@@ -31,9 +34,14 @@ public enum FilesGallery {
         return files
     }
 
-    @MainActor static func tree() -> some View {
+    @MainActor static func tree(at dir: String = "") -> some View {
         let files = store()
-        return FileTreeScreen(files: files, model: files.tree(Sample.fileTree))
+        return FileTreeScreen(files: files, model: files.tree(Sample.fileTree), dir: dir)
+    }
+
+    @MainActor static func failedPreview() -> some View {
+        let files = store()
+        return NavigationStack { FilePreviewScreen(files: files, preview: files.preview(tree: Sample.fileTree, path: "src/gone.rs")) }
     }
 
     @MainActor static func goToFile() -> some View {

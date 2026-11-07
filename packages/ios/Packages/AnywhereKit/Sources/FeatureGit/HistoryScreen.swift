@@ -52,8 +52,13 @@ struct HistoryScreen: View {
                 Toggle("All Branches", systemImage: "point.3.connected.trianglepath.dotted", isOn: $all)
             }
         }
+        .refreshable { await store.refreshHistory(tree) }
         .task(id: all) {
             if history.all != all || history.commits.isEmpty { await store.loadHistory(tree, all: all) }
+        }
+        // The tree's rev moves with a commit made here or anywhere else; a first page with the same tips changes nothing.
+        .task(id: head?.rev) {
+            if !history.commits.isEmpty { await store.refreshHistory(tree) }
         }
         .onAppear { store.show(tree) }
         .onDisappear { store.hide(tree) }

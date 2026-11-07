@@ -1,4 +1,5 @@
 import Foundation
+import Loopback
 import Testing
 import Wire
 @testable import Client

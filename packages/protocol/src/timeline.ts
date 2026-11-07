@@ -119,6 +119,7 @@ export const AgentSummary = Schema.Struct({
   access: Schema.optional(Schema.String),
   status: AgentStatus,
   failed: Schema.optional(Schema.Boolean),
+  error: Schema.optional(Schema.String),
   attached: Schema.Boolean,
   restore: Schema.optional(Schema.String),
   compacting: Schema.optional(Schema.Boolean),

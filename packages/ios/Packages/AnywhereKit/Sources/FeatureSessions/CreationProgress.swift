@@ -8,19 +8,24 @@ import SwiftUI
 struct CreationProgress: View {
     let creation: Creation?
     let retry: () -> Void
+    /// Offered beside Try Again when given.
+    var dismiss: (() -> Void)?
 
     var body: some View {
         Section {
             let steps = creation?.steps ?? []
-            if steps.isEmpty && creation?.error == nil {
+            if steps.isEmpty && creation?.error == nil && creation?.waiting != true {
                 row("Asking your Mac", running: true)
             }
             ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
-                let running = i == steps.count - 1 && creation?.done != true && creation?.error == nil
+                let running = i == steps.count - 1 && creation?.done != true && creation?.error == nil && creation?.waiting != true
                 VStack(alignment: .leading, spacing: Space.xxs) {
                     row(SessionText.step(step.step), running: running)
                     if let note = step.note { Text(note).font(Typography.footnote).foregroundStyle(Palette.text3.color) }
                 }
+            }
+            if let creation, creation.waiting {
+                row(SessionText.creating(creation), running: true)
             }
         } header: {
             Text("Starting")
@@ -30,6 +35,7 @@ struct CreationProgress: View {
                 Label(error.message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Palette.failedText.color)
                 if let detail = error.detail { Text(detail).font(Typography.codeSmall).foregroundStyle(Palette.text3.color) }
                 Button("Try Again", action: retry)
+                if let dismiss { Button("Dismiss", action: dismiss) }
             }
         }
     }

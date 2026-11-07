@@ -13,10 +13,15 @@ public actor DaemonConnection {
         public var helloTimeout: Duration
         public var requestTimeout: Duration
         public var backoff: Backoff
+        /// How long an online link may stay quiet before it is pinged. pocketd pings every 20 s.
+        public var pingAfter: Duration
+        /// How long a ping waits for anything to come back before the link counts as lost.
+        public var pongTimeout: Duration
 
         public init(
             host: String, token: String?, clientId: String, caps: [String] = Caps.phone, helloTimeout: Duration = .seconds(10),
-            requestTimeout: Duration = .seconds(20), backoff: Backoff = Backoff()
+            requestTimeout: Duration = .seconds(20), backoff: Backoff = Backoff(), pingAfter: Duration = .seconds(25),
+            pongTimeout: Duration = .seconds(10)
         ) {
             self.host = host
             self.token = token
@@ -25,6 +30,8 @@ public actor DaemonConnection {
             self.helloTimeout = helloTimeout
             self.requestTimeout = requestTimeout
             self.backoff = backoff
+            self.pingAfter = pingAfter
+            self.pongTimeout = pongTimeout
         }
     }
 
@@ -63,6 +70,14 @@ public actor DaemonConnection {
     private var refusal: ErrorCode?
     /// A receive is waiting on the socket, and will report how it closed.
     private var receiving = false
+    /// When the socket last brought anything: a frame or a pong.
+    private var heard = ContinuousClock.now
+    private var watchdog: Task<Void, Never>?
+    /// A ping is waiting for the link to answer.
+    private var checking = false
+    /// Bytes received since the ping went: a reply still arriving holds the pong back, as pocketd writes it whole first.
+    private var arriving: NWConnection.PendingDataTransferReport?
+    private var path: NWPathMonitor?
 
     public init(config: Config) {
         self.config = config
@@ -80,7 +95,82 @@ public actor DaemonConnection {
 
     public func start() {
         guard case .idle = state else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] _ in
+            self?.assumeIsolated { $0.pathChanged() }
+        }
+        monitor.start(queue: queue)
+        path = monitor
         dial()
+    }
+
+    /// Pings an online link and counts it lost if nothing comes back in time: a socket can die without a close.
+    public func verify() {
+        guard isOnline, !checking, let connection else { return }
+        checking = true
+        arriving = connection.startDataTransferReport()
+        let generation = generation
+        let sent = ContinuousClock.now
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .ping)
+        metadata.setPongHandler(queue) { [weak self] error in
+            guard error == nil else { return }
+            self?.assumeIsolated { $0.ponged(generation) }
+        }
+        let context = NWConnection.ContentContext(identifier: "ping", metadata: [metadata])
+        connection.send(content: nil, contentContext: context, isComplete: true, completion: .idempotent)
+        Task { [weak self, limit = config.pongTimeout] in
+            try? await Task.sleep(for: limit)
+            await self?.checked(generation, sent: sent)
+        }
+    }
+
+    private func ponged(_ generation: Int) {
+        guard generation == self.generation else { return }
+        heard = .now
+    }
+
+    private func checked(_ generation: Int, sent: ContinuousClock.Instant) {
+        guard generation == self.generation, let report = arriving else { return }
+        arriving = nil
+        guard heard < sent else {
+            checking = false
+            return
+        }
+        report.collect(queue: queue) { [weak self] report in
+            let received = report.pathReports.contains { $0.receivedApplicationByteCount > 0 }
+            self?.assumeIsolated { $0.collected(generation, received: received) }
+        }
+    }
+
+    private func collected(_ generation: Int, received: Bool) {
+        guard generation == self.generation else { return }
+        checking = false
+        if received { heard = .now } else { lost(closeCode: nil) }
+    }
+
+    /// Wakes when the link may have been quiet for `pingAfter`, and pings it if it has.
+    private func watch(_ generation: Int) {
+        watchdog = Task { [weak self, wait = config.pingAfter] in
+            var wait = wait
+            while !Task.isCancelled {
+                try? await Task.sleep(for: wait)
+                guard let next = await self?.quietLeft(generation) else { return }
+                wait = next
+            }
+        }
+    }
+
+    private func quietLeft(_ generation: Int) -> Duration? {
+        guard generation == self.generation, isOnline else { return nil }
+        let quiet = ContinuousClock.now - heard
+        guard quiet >= config.pingAfter else { return config.pingAfter - quiet }
+        verify()
+        return config.pingAfter
+    }
+
+    /// A new network may have left an online socket half-open, or brought back a Mac that was out of reach.
+    private func pathChanged() {
+        if isOnline { verify() } else { reconnectNow() }
     }
 
     /// Dials now instead of waiting out the backoff: the app came to the front or the network changed.
@@ -99,6 +189,7 @@ public actor DaemonConnection {
         guard !isStopped else { return }
         state = .stopped
         drop()
+        path?.cancel()
         failPending(.closed)
         continuation.yield(.closed(.stopped))
         continuation.finish()
@@ -208,6 +299,7 @@ public actor DaemonConnection {
     private func received(_ content: Data?, _ context: NWConnection.ContentContext?, _ error: NWError?, _ generation: Int) {
         guard generation == self.generation else { return }
         receiving = false
+        heard = .now
         let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
         if error != nil, metadata?.opcode != .close {
             lost(closeCode: nil)
@@ -270,6 +362,8 @@ public actor DaemonConnection {
             helloTimer?.cancel()
             state = .online(ok)
             backoff.reset()
+            heard = .now
+            watch(generation)
             continuation.yield(.connected(ok))
         case .error(let error):
             if let code = error.code {
@@ -315,6 +409,7 @@ public actor DaemonConnection {
         guard !isStopped else { return }
         state = .stopped
         drop()
+        path?.cancel()
         failPending(.closed)
         continuation.yield(.closed(outcome))
         continuation.finish()
@@ -325,6 +420,10 @@ public actor DaemonConnection {
         retry = nil
         helloTimer?.cancel()
         helloTimer = nil
+        watchdog?.cancel()
+        watchdog = nil
+        checking = false
+        arriving = nil
         generation += 1
         receiving = false
         guard let connection else { return }
@@ -351,6 +450,7 @@ public actor DaemonConnection {
         p.timeout.cancel()
         abandoned.insert(id)
         p.continuation.resume(throwing: error)
+        if error == .timedOut { verify() }
     }
 
     private func write(_ frame: ClientFrame) throws {

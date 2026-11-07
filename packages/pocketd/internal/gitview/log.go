@@ -148,21 +148,29 @@ func (s *Service) Commit(tree, rev string) (proto.GitCommit, error) {
 	}
 	at, _ := strconv.ParseInt(p[2], 10, 64)
 	c := proto.GitCommit{Sha: p[0], Author: p[1], At: at, Subject: p[3], Body: strings.TrimSpace(p[4])}
-	parent := s.parentOf(tree, sha)
-	names, err := s.git(tree, nil, readTimeout, []string{"diff-tree", "-r", "-z", "-M", "--name-status", "--no-commit-id", parent, sha})
+	c.Files, err = s.changedFiles(tree, s.parentOf(tree, sha), sha)
 	if err != nil {
 		return c, err
-	}
-	nums, err := s.git(tree, nil, readTimeout, []string{"diff-tree", "-r", "-z", "-M", "--numstat", "--no-commit-id", parent, sha})
-	if err != nil {
-		return c, err
-	}
-	counts := parseNumstat(nums)
-	c.Files = parseNameStatus(names)
-	for i := range c.Files {
-		if n, ok := counts[c.Files[i].Path]; ok && !n.binary {
-			c.Files[i].Added, c.Files[i].Removed = new(n.added), new(n.removed)
-		}
 	}
 	return proto.NewGitCommit(c), nil
+}
+
+// changedFiles are the files from→to changed, with their line counts unless binary.
+func (s *Service) changedFiles(tree, from, to string) ([]proto.CommitFile, error) {
+	names, err := s.git(tree, nil, readTimeout, []string{"diff-tree", "-r", "-z", "-M", "--name-status", "--no-commit-id", from, to})
+	if err != nil {
+		return nil, err
+	}
+	nums, err := s.git(tree, nil, readTimeout, []string{"diff-tree", "-r", "-z", "-M", "--numstat", "--no-commit-id", from, to})
+	if err != nil {
+		return nil, err
+	}
+	counts := parseNumstat(nums)
+	files := parseNameStatus(names)
+	for i := range files {
+		if n, ok := counts[files[i].Path]; ok && !n.binary {
+			files[i].Added, files[i].Removed = new(n.added), new(n.removed)
+		}
+	}
+	return files, nil
 }

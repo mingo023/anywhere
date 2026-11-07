@@ -32,12 +32,17 @@ struct PhoneRoot: View {
 
     private func section(_ tab: Tab) -> some View {
         NavigationStack(path: Binding(get: { navigator.path(tab) }, set: { navigator.setPath($0, for: tab) })) {
-            Destination.root(tab, host: host, app: app, pair: pair)
+            Destination.root(tab, host: host, app: app, pair: pair, open: navigator.push, leave: navigator.leave)
                 .macSwitcher(app: app, navigator: navigator, shown: tab != .settings)
                 .routeDestinations(app: app, navigator: navigator, pair: pair)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if tab != .settings, let host { ConnectionBanner(host: host) }
+            VStack(spacing: 0) {
+                if tab != .settings, let host { ConnectionBanner(host: host) }
+                if tab == .sessions, let text = HeldLinkRow.text(navigator.held, app: app) {
+                    HeldLinkRow(text: text, dismiss: navigator.dropHeld)
+                }
+            }
         }
     }
 

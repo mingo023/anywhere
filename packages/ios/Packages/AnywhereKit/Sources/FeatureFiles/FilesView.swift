@@ -8,20 +8,44 @@ import SwiftUI
 public struct FilesView: View {
     let host: HostModel
     let route: Route
+    let open: ((Route) -> Void)?
+    /// Read on appear rather than in `body`, so sessions changing elsewhere don't redraw the files.
+    @State private var target = ChatTarget.none
 
-    public init(host: HostModel, route: Route) {
+    /// `open` shows another feature's screen: the chat a mention went to, or a new session for lines on a tree without
+    /// one. It should go back to a chat already on the stack rather than push it again.
+    public init(host: HostModel, route: Route, open: ((Route) -> Void)? = nil) {
         self.host = host
         self.route = route
+        self.open = open
     }
 
     public var body: some View {
         switch route {
-        case .files(_, let tree, let dir):
-            FileTreeScreen(files: host.files, model: host.files.tree(tree), dir: dir)
-        case .file(_, let tree, let path):
-            FilePreviewScreen(files: host.files, preview: host.files.preview(tree: tree, path: path))
+        case .files(_, let tree, let dir, let chat):
+            FileTreeScreen(files: host.files, model: host.files.tree(tree), dir: dir, context: context(tree, chat: chat))
+                .onAppear { target = host.chatTarget(tree, opener: chat) }
+        case .file(_, let tree, let path, let line, let chat):
+            if let path = FileText.relative(path, tree: tree) {
+                FilePreviewScreen(
+                    files: host.files, preview: host.files.preview(tree: tree, path: path), line: line, context: context(tree, chat: chat)
+                )
+                .onAppear { target = host.chatTarget(tree, opener: chat) }
+            } else {
+                Placeholder("This file is outside \(FileText.baseName(tree))", systemImage: "folder.badge.questionmark", detail: path)
+            }
         default:
             Placeholder("Files", systemImage: "folder")
         }
+    }
+
+    private func context(_ tree: String, chat: String?) -> FilesContext {
+        FilesContext(
+            mac: route.mac ?? host.mac,
+            target: target,
+            retarget: { host.chatTarget(tree, opener: chat) },
+            project: host.workspace.projects.first { $0.path == tree || $0.worktrees.contains { $0.path == tree } }?.path,
+            open: open,
+            git: host.git)
     }
 }

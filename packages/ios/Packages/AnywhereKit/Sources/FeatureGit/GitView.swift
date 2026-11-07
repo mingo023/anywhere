@@ -9,19 +9,20 @@ import Wire
 public struct GitView: View {
     let host: HostModel
     let route: Route
+    let open: ((Route) -> Void)?
 
-    public init(host: HostModel, route: Route) {
+    public init(host: HostModel, route: Route, open: ((Route) -> Void)? = nil) {
         self.host = host
         self.route = route
+        self.open = open
     }
 
     public var body: some View {
         switch route {
-        case .changes(let mac, let tree):
-            ChangesScreen(host: host, mac: mac, tree: tree)
-        case .diff(_, let tree, let path, let staged):
-            let files = host.git.changes(tree).files.filter { staged ? $0.staged : $0.unstaged }.map(\.path)
-            DiffScreen(host: host, tree: tree, path: path, at: staged ? .staged : .working, siblings: files)
+        case .changes(let mac, let tree, let chat):
+            ChangesScreen(host: host, mac: mac, tree: tree, chat: chat, open: open)
+        case .diff(_, let tree, let path, let staged, let chat):
+            DiffScreen(host: host, tree: tree, path: path, at: staged ? .staged : .working, files: .changes(staged ? .staged : .changes), chat: chat, open: open)
         case .history(let mac, let tree):
             HistoryScreen(host: host, mac: mac, tree: tree)
         case .commit(_, let tree, let sha):

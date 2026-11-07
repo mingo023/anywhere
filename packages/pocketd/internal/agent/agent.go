@@ -75,6 +75,7 @@ type Agent struct {
 	phase           string // idle, working or needsYou
 	unseenEnd       bool
 	failed          bool
+	lastError       string // first line of this turn's result error
 	compacting      bool
 	pinned          bool
 	account         string
@@ -299,9 +300,14 @@ func (a *Agent) Summary() proto.AgentSummary {
 func (a *Agent) summary() proto.AgentSummary {
 	epoch, maxSeq := a.Timeline.State()
 	status := a.status()
+	failed := status == "done" && a.failed
+	var lastError string
+	if failed {
+		lastError = a.lastError
+	}
 	return proto.AgentSummary{
 		ID: a.id, TerminalID: a.terminal, Title: cmp.Or(a.named, a.title, a.fallback), Cwd: a.cwd, Provider: a.provider, Model: a.model, Effort: a.effort, Access: a.access,
-		Status: status, Failed: status == "done" && a.failed, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account, Switching: a.switching,
+		Status: status, Failed: failed, Error: lastError, Attached: a.attached, Restore: a.restore, Compacting: a.compacting, Pinned: a.pinned, Account: a.account, Switching: a.switching,
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
 		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal, Parent: a.parent,
@@ -382,7 +388,7 @@ func (r *Registry) Busy() bool {
 func (a *Agent) Working() {
 	a.update(true, func() {
 		a.enter("working")
-		a.unseenEnd, a.failed, a.restore = false, false, ""
+		a.unseenEnd, a.failed, a.lastError, a.restore = false, false, "", ""
 		a.stopped, a.prompted, a.awaiting = false, false, false
 		a.unhold()
 	})
@@ -725,8 +731,21 @@ func (a *Agent) record(e timeline.Event) {
 	} else {
 		a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
 	}
+	if !sub && item.Kind == "result" {
+		a.ended(item.Error)
+	}
 	if a.holding && e.Kind == "tool_end" && a.Timeline.BackgroundAgents() == 0 {
 		a.holdEnds()
+	}
+}
+
+// ended keeps the first line of the turn's error, which a failed turn shows
+// whether its result comes before or after the turn ends.
+func (a *Agent) ended(err string) {
+	before := a.summary()
+	a.lastError = firstLine(err)
+	if after := a.summary(); after != before {
+		a.hub.Publish(proto.NewAgentUpdate(after))
 	}
 }
 

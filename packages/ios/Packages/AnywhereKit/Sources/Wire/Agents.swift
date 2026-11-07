@@ -44,6 +44,8 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
     public var access: String?
     public var status: AgentStatus
     public var failed: Bool?
+    /// With `failed`, the first line of the failed turn's error.
+    public var error: String?
     public var attached: Bool
     public var restore: RestoreOutcome?
     public var compacting: Bool?
@@ -77,7 +79,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
 
     public init(
         id: String, terminalId: String, title: String, cwd: String, provider: String, model: String? = nil, effort: String? = nil,
-        access: String? = nil, status: AgentStatus, failed: Bool? = nil, attached: Bool, restore: RestoreOutcome? = nil,
+        access: String? = nil, status: AgentStatus, failed: Bool? = nil, error: String? = nil, attached: Bool, restore: RestoreOutcome? = nil,
         compacting: Bool? = nil, pinned: Bool? = nil, epoch: Int, maxSeq: Int, resets: Int? = nil, providerSessionId: String? = nil,
         createdAt: Int, updatedAt: Int, project: String? = nil, worktree: String? = nil, mainWorktree: Bool? = nil, branch: String? = nil,
         tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
@@ -93,6 +95,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         self.access = access
         self.status = status
         self.failed = failed
+        self.error = error
         self.attached = attached
         self.restore = restore
         self.compacting = compacting
@@ -147,6 +150,20 @@ public struct AgentCommands: Codable, Hashable, Sendable {
     public var commands: [Command]
     public init(agentId: String, commands: [Command]) {
         self.agentId = agentId
+        self.commands = commands
+    }
+}
+
+/// The slash commands a provider offers in a project before any agent runs there.
+public struct SkillsList: Codable, Hashable, Sendable {
+    public var provider: String
+    public var account: String?
+    public var project: String
+    public var commands: [Command]
+    public init(provider: String, account: String? = nil, project: String, commands: [Command]) {
+        self.provider = provider
+        self.account = account
+        self.project = project
         self.commands = commands
     }
 }
@@ -249,6 +266,17 @@ extension ClientMessage {
         public init(agentId: String) { self.agentId = agentId }
     }
 
+    public struct SkillsList: Codable, Hashable, Sendable {
+        public var provider: String
+        public var account: String?
+        public var project: String
+        public init(provider: String, account: String? = nil, project: String) {
+            self.provider = provider
+            self.account = account
+            self.project = project
+        }
+    }
+
     public struct AgentText: Codable, Hashable, Sendable {
         public var agentId: String
         public var text: String
@@ -307,6 +335,17 @@ extension ClientMessage {
     public struct AgentIds: Codable, Hashable, Sendable {
         public var agentIds: [String]
         public init(agentIds: [String]) { self.agentIds = agentIds }
+    }
+
+    /// The chats on screen. With `Caps.front`, `front` says whether the app is in front; without it pocketd reads
+    /// no ids as the app gone to the background.
+    public struct AgentView: Codable, Hashable, Sendable {
+        public var agentIds: [String]
+        public var front: Bool?
+        public init(agentIds: [String], front: Bool? = nil) {
+            self.agentIds = agentIds
+            self.front = front
+        }
     }
 
     /// `beforeSeq` and `sinceSeq` together are malformed.

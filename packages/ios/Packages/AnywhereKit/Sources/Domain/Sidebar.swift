@@ -93,11 +93,18 @@ public enum Sidebar {
         }
     }
 
-    /// A group's most urgent status and how many of its sessions share that section, so Failed counts as Done; nil when all are idle.
+    /// A group's most urgent status and how many of its sessions have exactly that status, so the count matches the word; nil when all are idle.
     public static func rollUp(_ statuses: [Status]) -> (status: Status, count: Int)? {
         guard let top = statuses.min(), top != .idle else { return nil }
-        let at = section(top, today: true)
-        return (top, statuses.filter { section($0, today: true) == at }.count)
+        return (top, statuses.filter { $0 == top }.count)
+    }
+
+    /// How many sessions have each status but Idle, most urgent first.
+    public static func breakdown(_ statuses: [Status]) -> [(status: Status, count: Int)] {
+        Status.allCases.filter { $0 != .idle }.compactMap { s in
+            let n = statuses.filter { $0 == s }.count
+            return n > 0 ? (s, n) : nil
+        }
     }
 
     /// The sessions whose title holds `query`, in any case, in the order given.

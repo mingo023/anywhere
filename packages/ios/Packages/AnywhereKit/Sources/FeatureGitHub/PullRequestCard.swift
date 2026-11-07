@@ -1,4 +1,6 @@
+import ChatModel
 import DesignSystem
+import Domain
 import Stores
 import SwiftUI
 import Wire
@@ -9,24 +11,44 @@ struct PullRequestCard: View {
     let store: GitHubStore
     let model: TreePullRequest
     let pr: PullRequest
-    /// Fixes the clock comments are dated against, for the gallery.
-    var now: Int?
+    var mac = PrMac()
+    var cleanup: WorktreeCleanup?
+    var deleteTree: (@MainActor () -> Void)?
+    var fix = FixContext()
 
-    @State private var merging = false
     @State private var passedShown = false
-    @Environment(\.openURL) private var openURL
+    @State private var fixing: FixRequest?
+    /// Delete after merging, once the reader has set it; until then the cleanup's default.
+    @State private var deleteAfter: Bool?
+    @State private var confirmingDelete = false
 
     var body: some View {
         List {
             header
+            if pr.state == "OPEN" { callout }
             checks
             review
-            merge
+            if pr.state == "OPEN" {
+                MergeSection(
+                    store: store, model: model, pr: pr, offline: mac.offline, cleanup: deletable, deleteAfter: deleteAfterBinding,
+                    resolveTitle: fix.offered ? fix.target.title("Resolve with") : nil,
+                    resolving: model.fixing?.conflict == true ? PullRequestText.resolving(fix.target.agent ?? "agent") : nil,
+                    resolve: { fixing = FixRequest(prompt: FixPrompt.conflict(base: pr.base), conflict: true) }
+                ) {
+                    if deleteAfter ?? deletable?.deletesByDefault ?? false { startDelete() }
+                }
+            }
+            if pr.state == "MERGED", let deletable, !model.kept {
+                MergedTreeSection(cleanup: deletable, offline: mac.offline) {
+                    model.kept = true
+                } delete: {
+                    startDelete()
+                }
+            }
             if !pr.threads.isEmpty || pr.state == "OPEN" {
                 Section {
-                    NavigationLink {
-                        ThreadsScreen(store: store, model: model, now: now)
-                    } label: {
+                    // A value link, so the screen is in the stack's path and a file opened from it keeps it.
+                    NavigationLink(value: Route.reviewThreads(mac: mac.id, tree: model.tree, chat: fix.opener)) {
                         LabeledContent {
                             let open = ThreadGroups.unresolved(pr.threads)
                             if open > 0 { Text("\(open) unresolved").foregroundStyle(Palette.waitingText.color) }
@@ -38,8 +60,39 @@ struct PullRequestCard: View {
             }
         }
         .groupedList()
-        .refreshable { await store.refresh(model.tree) }
+        .refreshable { await store.recheck(model.tree) }
         .errorAlert(model)
+        .sendsFixes($fixing, store: store, tree: model.tree, context: fix)
+        .confirmationDialog(deletable?.confirmTitle ?? "", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete Worktree", role: .destructive) { deleteTree?() }
+        } message: {
+            Text(deletable?.confirmMessage ?? "")
+        }
+    }
+
+    private var deletable: WorktreeCleanup? {
+        deleteTree == nil ? nil : cleanup
+    }
+
+    private var deleteAfterBinding: Binding<Bool> {
+        Binding(get: { deleteAfter ?? deletable?.deletesByDefault ?? false }, set: { deleteAfter = $0 })
+    }
+
+    private func startDelete() {
+        guard let deletable else { return }
+        if deletable.asks { confirmingDelete = true } else { deleteTree?() }
+    }
+
+    /// What's left to send while the agent isn't already fixing something, as the desktop's callout.
+    @ViewBuilder
+    private var callout: some View {
+        let (checks, threads) = ThreadGroups.unsent(pr, fixing: model.fixing)
+        if (model.fixing?.items ?? 0) == 0 && !(checks.isEmpty && threads.isEmpty) {
+            FixCallout(checks: checks.count, comments: threads.count, send: fix.offered ? fix.target.title("Send all to") : nil,
+                       canDrive: fix.canDrive, mac: mac) {
+                fixing = FixRequest(prompt: FixPrompt.fix(pr, checks: checks, threads: threads), threads: threads.map(\.id), checks: checks.map(\.name))
+            }
+        }
     }
 
     private var header: some View {
@@ -105,60 +158,6 @@ struct PullRequestCard: View {
         case .changesRequested: ("exclamationmark.circle.fill", .failed)
         case .requested: ("person.crop.circle.badge.clock", .waiting)
         case .none: ("circle.dotted", .muted)
-        }
-    }
-
-    @ViewBuilder
-    private var merge: some View {
-        if pr.state == "OPEN" {
-            Section("Merge") {
-                Label {
-                    Text(PullRequestText.gate(pr.gate, base: pr.base)).foregroundStyle(Palette.text.color)
-                } icon: {
-                    let tone: PrTone = pr.gate == .ready ? .success : pr.gate == .conflicts || pr.gate == .checksFailed ? .failed : .waiting
-                    Image(systemName: pr.gate == .ready ? "checkmark.seal.fill" : "exclamationmark.triangle.fill").foregroundStyle(tone.text.color)
-                }
-                if let line = PullRequestText.mergeable(pr) {
-                    Label {
-                        Text(line).foregroundStyle(Palette.text2.color)
-                    } icon: {
-                        let clean = pr.mergeable == "MERGEABLE"
-                        Image(systemName: clean ? "checkmark.circle" : "arrow.triangle.branch")
-                            .foregroundStyle((clean ? PrTone.success : pr.mergeable == "CONFLICTING" ? .failed : .muted).text.color)
-                    }
-                }
-                if pr.draft {
-                    Button {
-                        Haptics.tap()
-                        Task { await store.markReady(model.tree) }
-                    } label: {
-                        Text(model.busy ?? "Ready for review").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.busy != nil)
-                } else {
-                    Button {
-                        merging = true
-                    } label: {
-                        Label(model.busy ?? "Merge pull request", systemImage: "arrow.triangle.merge").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Palette.success.color)
-                    .disabled(pr.gate != .ready || model.busy != nil)
-                    .confirmationDialog("Merge #\(pr.number) into \(pr.base)?", isPresented: $merging, titleVisibility: .visible) {
-                        ForEach(MergeMethod.allCases, id: \.self) { method in
-                            Button(method.label) {
-                                Task {
-                                    await store.merge(model.tree, method: method)
-                                    if model.pr?.state == "MERGED" { Haptics.success() } else { Haptics.warning() }
-                                }
-                            }
-                        }
-                    } message: {
-                        Text("The branch stays.")
-                    }
-                }
-            }
         }
     }
 }

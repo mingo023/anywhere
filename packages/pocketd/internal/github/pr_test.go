@@ -176,14 +176,25 @@ func TestAMissingGhDiffersFromALoggedOutOne(t *testing.T) {
 	}
 }
 
-func TestABranchWithoutAPROrAFailingGhHasNone(t *testing.T) {
-	for _, err := range []error{&Failure{`no pull requests found for branch "fix/restore-handoff"`}, &Failure{"fatal: not a git repository (or any of the parent directories): .git"}, errors.New("timed out")} {
-		if pr, p := viewResult("", err); pr != nil || p != "" {
+func TestOnlyGhFindingNoPRMeansTheBranchHasNone(t *testing.T) {
+	if pr, p := viewResult("", &Failure{`no pull requests found for branch "fix/restore-handoff"`}); pr != nil || p != "" {
+		t.Errorf("none: %v %q", pr, p)
+	}
+	for _, err := range []error{&Failure{"fatal: not a git repository (or any of the parent directories): .git"}, errors.New("timed out"), &Failure{"HTTP 502: Bad Gateway"}} {
+		if pr, p := viewResult("", err); pr != nil || p != Failed {
 			t.Errorf("%v: %v %q", err, pr, p)
 		}
 	}
-	if pr, p := viewResult("not json", nil); pr != nil || p != "" {
-		t.Errorf("not json: %v", pr)
+	if pr, p := viewResult("not json", nil); pr != nil || p != Failed {
+		t.Errorf("not json: %v %q", pr, p)
+	}
+}
+
+func TestARepositoryWithoutAGitHubRemoteIsNotASignedOutGh(t *testing.T) {
+	for _, e := range []string{"no git remotes found", "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`"} {
+		if _, p := viewResult("", &Failure{e}); p != NoRemote {
+			t.Errorf("%s: %q", e, p)
+		}
 	}
 }
 
@@ -313,7 +324,7 @@ func TestGhStatusTellsAMissingGhFromASignedOutOne(t *testing.T) {
 func TestAPRTravelsAsTheGoldenWirePR(t *testing.T) {
 	pr := mustView(t, fixture(t, "cli.json"))
 	pr.Threads, _ = threadsResult(fixture(t, "threads.json"))
-	got, _ := json.MarshalIndent(proto.NewGhPR("p", "/Users/me/dev/cli", "", pr.Wire()), "", "  ")
+	got, _ := json.MarshalIndent(proto.NewGhPR("p", "/Users/me/dev/cli", "", pr.Wire(), false), "", "  ")
 	path := filepath.Join("testdata", "golden", "cli_pr.json")
 	if *update {
 		os.WriteFile(path, append(got, '\n'), 0o644)

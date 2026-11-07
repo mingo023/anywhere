@@ -52,6 +52,7 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ws:git.diff":           {"", "", "", ""},
 		"ws:git.log":            {"", "", "", ""},
 		"ws:git.commit":         {"", "", "", ""},
+		"ws:git.compare":        {"", "", "", ""},
 		"ws:gh.status":          {"", "", "", ""},
 		"ws:gh.pr":              {"", "", "", ""},
 		"ws:gh.prs":             {"", "", "", ""},

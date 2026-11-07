@@ -1,6 +1,6 @@
 import Wire
 
-/// What stacks over the composer box and sits in its bar: trays, the goal strip, the pills and the context ring.
+/// What stacks over the composer box and sits in its bar: trays, the pills and the context ring.
 
 /// Sub-agents and commands left running past their turn.
 public enum Background {
@@ -45,18 +45,14 @@ public enum Queue {
     }
 }
 
-/// An agent's `/goal`.
-public enum GoalStrip {
-    public static func statusLabel(_ status: String) -> String {
+/// An agent's `/goal`, as a pill in the composer's bar.
+public enum GoalPill {
+    /// The pill's words; none once the goal is met, stuck or otherwise over.
+    public static func label(_ status: String) -> String? {
         switch status {
-        case "active": "Active"
-        case "paused": "Paused"
-        case "blocked": "Stuck"
-        case "usageLimited": "Usage limit hit"
-        case "budgetLimited": "Over budget"
-        case "complete": "Met"
-        case "failed": "Gave up"
-        default: ""
+        case "active": "Goal active"
+        case "paused": "Goal paused"
+        default: nil
         }
     }
 
@@ -100,6 +96,11 @@ public enum ModelPill {
     /// The models a provider offers by alias, the phone having no catalog to list another's.
     public static func aliases(_ provider: String) -> [String] {
         provider == "claude" ? claudeAliases : []
+    }
+
+    /// What the provider calls effort, as its menu row reads.
+    public static func effortWord(_ provider: String) -> String {
+        provider == "codex" ? "Reasoning" : "Effort"
     }
 
     public static func effortLabel(_ effort: String) -> String {

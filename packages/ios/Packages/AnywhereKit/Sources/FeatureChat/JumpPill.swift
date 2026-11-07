@@ -21,6 +21,7 @@ struct JumpPill: View {
             .background(Palette.popover.color, in: Capsule())
             .overlay(Capsule().strokeBorder(Palette.hairline.color))
             .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+            .hitTarget()
         }
         .buttonStyle(.plain)
         .transition(.opacity.combined(with: .offset(y: 2)))

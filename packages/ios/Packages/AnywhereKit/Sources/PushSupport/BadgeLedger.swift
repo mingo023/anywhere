@@ -17,9 +17,12 @@ public struct BadgeLedger: @unchecked Sendable {
         return counts.values.reduce(0, +)
     }
 
-    public func forget(mac: String) {
+    /// Drops a Mac's count and returns the sum across the rest.
+    @discardableResult
+    public func forget(mac: String) -> Int {
         var counts = defaults.dictionary(forKey: Self.key) as? [String: Int] ?? [:]
         counts[mac] = nil
         defaults.set(counts, forKey: Self.key)
+        return counts.values.reduce(0, +)
     }
 }

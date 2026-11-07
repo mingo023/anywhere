@@ -27,13 +27,110 @@ import Wire
     #expect(GitText.push(GitHead(s)) == nil)
 }
 
-@Test func ahead_and_behind_show_only_what_differs() {
+@Test func the_branch_card_measures_against_the_base_in_words() {
     var s = Sample.gitStatus(files: 1)
-    #expect(GitText.aheadBehind(GitHead(s)) == "↑4 ↓1")
-    s.behind = 0
-    #expect(GitText.aheadBehind(GitHead(s)) == "↑4")
-    s.ahead = 0
-    #expect(GitText.aheadBehind(GitHead(s)) == nil)
+    #expect(GitText.branchLine(GitHead(s)) == "calm-otter → main")
+    #expect(GitText.distance(GitHead(s)) == "4 ahead · 1 behind main")
+    #expect(GitText.sinceBase(GitHead(s)) == "4 commits since main")
+    s.base = nil
+    #expect(GitText.branchLine(GitHead(s)) == "calm-otter")
+    #expect(GitText.distance(GitHead(s)) == nil)
+}
+
+@Test func pull_counts_what_the_upstream_has_and_hides_when_there_is_nothing() {
+    var s = Sample.gitStatus(files: 1)
+    #expect(GitText.pull(GitHead(s)) == "Pull")
+    s.unpulled = 12
+    #expect(GitText.pull(GitHead(s)) == "Pull 12")
+    s.unpulled = 0
+    #expect(GitText.pull(GitHead(s)) == nil)
+    s.upstream = nil
+    #expect(GitText.pull(GitHead(s)) == nil)
+}
+
+@Test func commit_all_follows_the_mac_and_defaults_on_for_an_older_pocketd() {
+    var s = Sample.gitStatus(files: 1)
+    #expect(GitHead(s).commitAll)
+    s.commitAll = false
+    #expect(!GitHead(s).commitAll)
+}
+
+@Test func push_forces_only_over_a_rewritten_branch_and_only_when_the_mac_allows_it() {
+    var s = Sample.gitStatus(files: 1)
+    s.unpulled = 3
+    #expect(GitHead(s).forceReplaces == nil)
+    s.forceWithLease = true
+    #expect(GitHead(s).forceReplaces == 3)
+    s.unpulled = 0
+    #expect(GitHead(s).forceReplaces == nil)
+    s.unpulled = 3
+    s.unpushed = 0
+    #expect(GitHead(s).forceReplaces == nil)
+    s.unpushed = nil
+    s.unpulled = nil
+    #expect(GitHead(s).forceReplaces == nil)
+}
+
+@Test func the_force_push_confirm_names_the_branch_what_it_replaces_and_the_remote() {
+    var s = Sample.gitStatus(files: 1)
+    s.forceWithLease = true
+    #expect(GitText.forcePush(GitHead(s)) == nil)
+    s.unpulled = 1
+    #expect(GitText.forcePush(GitHead(s))! == ("Force push calm-otter?", "Replaces 1 commit on origin."))
+    s.unpulled = 4
+    s.upstream = "fork/team/calm-otter"
+    #expect(GitText.forcePush(GitHead(s))! == ("Force push calm-otter?", "Replaces 4 commits on fork."))
+}
+
+@Test func stage_all_carries_its_count_and_says_so_while_it_runs() {
+    #expect(GitText.stageAll(.changes, count: 12, bulk: nil) == "Stage All 12")
+    #expect(GitText.stageAll(.staged, count: 3, bulk: nil) == "Unstage All 3")
+    let bulk = BulkStage(section: .changes, count: 1200)
+    #expect(GitText.stageAll(.changes, count: 0, bulk: bulk) == "Staging \(1200.formatted())…")
+    #expect(GitText.stageAll(.staged, count: 3, bulk: bulk) == "Unstage All 3")
+}
+
+@Test func the_discard_confirm_says_untracked_files_get_deleted() {
+    let files = [
+        GitFile(path: "a.swift", status: .modified, staged: false, unstaged: true),
+        GitFile(path: "b.swift", status: .untracked, staged: false, unstaged: true),
+        GitFile(path: "c.swift", status: .untracked, staged: false, unstaged: true),
+    ]
+    #expect(GitText.discardFacts(["a.swift"], files: files) == "Unstaged edits can't be restored")
+    #expect(GitText.discardFacts(["a.swift", "b.swift"], files: files) == "Unstaged edits can't be restored\nDeletes 1 untracked file")
+    #expect(GitText.discardFacts(["b.swift", "c.swift"], files: files) == "Unstaged edits can't be restored\nDeletes 2 untracked files")
+}
+
+@Test func the_change_bar_counts_changes_then_shows_where_it_is() {
+    #expect(GitText.position(nil, of: 42) == "42 changes")
+    #expect(GitText.position(nil, of: 1) == "1 change")
+    #expect(GitText.position(2, of: 42) == "3 of 42")
+}
+
+@Test func stepping_files_stops_at_the_ends_and_a_staged_file_gives_way_to_the_next() {
+    let files = ["a", "b", "c"]
+    #expect(DiffFiles.step(from: "b", by: 1, in: files) == "c")
+    #expect(DiffFiles.step(from: "c", by: 1, in: files) == nil)
+    #expect(DiffFiles.step(from: "x", by: 1, in: files) == nil)
+    #expect(DiffFiles.after(removing: "b", in: files) == "c")
+    #expect(DiffFiles.after(removing: "c", in: files) == "b")
+    #expect(DiffFiles.after(removing: "a", in: ["a"]) == nil)
+}
+
+@Test func stepping_changes_starts_at_either_end_and_stops_at_the_ends() {
+    #expect(ChangeStep.step(from: nil, by: 1, count: 3) == 0)
+    #expect(ChangeStep.step(from: nil, by: -1, count: 3) == 2)
+    #expect(ChangeStep.step(from: 2, by: 1, count: 3) == nil)
+    #expect(ChangeStep.step(from: 0, by: -1, count: 3) == nil)
+    #expect(ChangeStep.step(from: nil, by: 1, count: 0) == nil)
+}
+
+@Test func a_reloaded_diff_with_fewer_changes_keeps_the_stepped_change_within_them() {
+    #expect(ChangeStep.kept(5, count: 3) == 2)
+    #expect(ChangeStep.kept(1, count: 3) == 1)
+    #expect(ChangeStep.kept(1, count: 0) == nil)
+    #expect(ChangeStep.kept(nil, count: 3) == nil)
+    #expect(ChangeStep.step(from: ChangeStep.kept(5, count: 3), by: -1, count: 3) == 1)
 }
 
 @Test func a_path_splits_into_name_and_folder() {

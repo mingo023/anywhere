@@ -230,6 +230,38 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 	}
 }
 
+func TestARetryOfARunningCreateJoinsItInsteadOfStartingASecondAgent(t *testing.T) {
+	defer func(w time.Duration) { createWait = w }(createWait)
+	createWait = time.Second
+	onPath(t, "claude")
+	t.Setenv("SHELL", "/bin/sh")
+	project, _ := filepath.EvalSymlinks(t.TempDir())
+	git(t, project, "init", "-q", "-b", "main")
+	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
+	l := launcher(t, `["`+project+`"]`)
+	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
+	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
+	owner := Who{Owner: true, Key: "owner"}
+	s := spec("claude", "ask", false)
+	s.Project, s.Checkout.Worktree = project, project
+	opened, first := make(chan Creating, 1), make(chan Result, 1)
+	go func() { first <- l.Create(owner, "r1", s, quiet, func(c Creating) { opened <- c }) }()
+	var c Creating
+	select {
+	case c = <-opened:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first create opened no terminal")
+	}
+	var joined Creating
+	again := l.Create(owner, "r1", s, func(string, string) { t.Error("a retry got progress") }, func(c Creating) { joined = c })
+	if r := <-first; again != r || joined != c {
+		t.Fatalf("retry got %+v %+v, first %+v %+v", again, joined, r, c)
+	}
+	if n := len(l.d.Terminals.All()); n != 1 {
+		t.Fatalf("%d terminals", n)
+	}
+}
+
 func TestACreateInALocalRunsInTheProjectAndCarriesTheLocal(t *testing.T) {
 	defer func(w time.Duration) { createWait = w }(createWait)
 	createWait = 500 * time.Millisecond

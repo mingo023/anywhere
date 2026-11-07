@@ -8,6 +8,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case agentList(AgentList)
     case agentUpdate(AgentUpdate)
     case agentCommands(AgentCommands)
+    case skillsList(SkillsList)
     case agentMcp(AgentMcp)
     case agentBtw(AgentBtwAnswer)
     case agentStream(AgentStream)
@@ -42,6 +43,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case gitLog(GitLog)
     case gitCommit(CommitDetail)
     case gitCommitted(GitCommitted)
+    case gitCompare(GitCompare)
     case ghStatus(GhStatus)
     case ghPr(GhPr)
     case ghPrs(GhPrs)
@@ -64,6 +66,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "agent.list": self = .agentList(try AgentList(from: decoder))
         case "agent.update": self = .agentUpdate(try AgentUpdate(from: decoder))
         case "agent.commands": self = .agentCommands(try AgentCommands(from: decoder))
+        case "skills.list": self = .skillsList(try SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try AgentMcp(from: decoder))
         case "agent.btw": self = .agentBtw(try AgentBtwAnswer(from: decoder))
         case "agent.stream": self = .agentStream(try AgentStream(from: decoder))
@@ -98,6 +101,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "git.log": self = .gitLog(try GitLog(from: decoder))
         case "git.commit": self = .gitCommit(try CommitDetail(from: decoder))
         case "git.committed": self = .gitCommitted(try GitCommitted(from: decoder))
+        case "git.compare": self = .gitCompare(try GitCompare(from: decoder))
         case "gh.status": self = .ghStatus(try GhStatus(from: decoder))
         case "gh.pr": self = .ghPr(try GhPr(from: decoder))
         case "gh.prs": self = .ghPrs(try GhPrs(from: decoder))
@@ -123,6 +127,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .agentList(let m): try m.encode(to: encoder)
         case .agentUpdate(let m): try m.encode(to: encoder)
         case .agentCommands(let m): try m.encode(to: encoder)
+        case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
         case .agentBtw(let m): try m.encode(to: encoder)
         case .agentStream(let m): try m.encode(to: encoder)
@@ -157,6 +162,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .gitLog(let m): try m.encode(to: encoder)
         case .gitCommit(let m): try m.encode(to: encoder)
         case .gitCommitted(let m): try m.encode(to: encoder)
+        case .gitCompare(let m): try m.encode(to: encoder)
         case .ghStatus(let m): try m.encode(to: encoder)
         case .ghPr(let m): try m.encode(to: encoder)
         case .ghPrs(let m): try m.encode(to: encoder)
@@ -180,6 +186,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .agentList: "agent.list"
         case .agentUpdate: "agent.update"
         case .agentCommands: "agent.commands"
+        case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"
         case .agentBtw: "agent.btw"
         case .agentStream: "agent.stream"
@@ -214,6 +221,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .gitLog: "git.log"
         case .gitCommit: "git.commit"
         case .gitCommitted: "git.committed"
+        case .gitCompare: "git.compare"
         case .ghStatus: "gh.status"
         case .ghPr: "gh.pr"
         case .ghPrs: "gh.prs"

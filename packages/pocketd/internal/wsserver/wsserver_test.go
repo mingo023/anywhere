@@ -395,6 +395,18 @@ func TestAPhoneSwitchesAccessNoHigherThanTheOwnerAllows(t *testing.T) {
 	}
 }
 
+func TestAPhoneSwitchesToFullOnceTheOwnerRaisedItsCeilingToFull(t *testing.T) {
+	_, d, p := setup(t, withMaxAccess(t, "full"))
+	p.hello()
+	p.send(`{"type":"agent.settings","id":"p7","agentId":"a1","access":"full"}`)
+	if m := p.recv(); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	if !reflect.DeepEqual(d.accesses, []string{"full"}) {
+		t.Fatalf("%v", d.accesses)
+	}
+}
+
 func TestTheOwnerSwitchesToAnyAccess(t *testing.T) {
 	_, d, p := local(t, peer.OwnerOf(1), withMaxAccess(t, "ask"))
 	p.hello()

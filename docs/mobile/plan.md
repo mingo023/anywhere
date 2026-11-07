@@ -35,8 +35,8 @@ Platforms `.iOS(.v18), .macOS(.v14)`, `swiftLanguageModes: [.v6]`. Dependencies:
 | `FeatureSessions` | Stores, DesignSystem | projects → worktrees/Locals → sessions, Up next, new session (LaunchSpec), worktree create/delete, Locals, automations list |
 | `FeatureTerminal` | Stores, SwiftTerm, DesignSystem | terminal list, attach view (SwiftTerm `TerminalView` under `#if os(iOS)`), key bar (esc, tab, ctrl, arrows), fit-to-phone |
 | `FeatureGit` | Stores, CodeView, DiffModel, DesignSystem | changes (flat/tree, staged/unstaged, stage, discard, commit, push, pull), diff screen, commit graph, commit detail, branches |
-| `FeatureGitHub` | Stores, MarkdownView, DesignSystem | PR card with gate, checks, reviews, threads (reply/resolve), create/merge/ready, PR list of a project |
-| `FeatureFiles` | Stores, CodeView, MarkdownView, DesignSystem | file tree (lazy, git letters), fuzzy go-to-file, preview: code, markdown (rendered/source), image, binary/too-large states |
+| `FeatureGitHub` | Stores, ChatModel, MarkdownView, DesignSystem | PR card with gate, checks, reviews, threads (reply/resolve), create/merge/ready, PR list of a project |
+| `FeatureFiles` | Stores, CodeView, MarkdownView, Highlight, DesignSystem | file tree (lazy, git letters), fuzzy go-to-file, preview: code, markdown (rendered/source), image, binary/too-large states |
 | `FeaturePairing` | Stores, Client, DesignSystem | scan QR (iOS) / paste link / enter code, confirm, reconnect/revoked/update screens |
 | `FeatureSettings` | Stores, DesignSystem | Macs, notification prefs, Live Activity toggle, terminal access state, about |
 | `AppShell` | all features | `RootView` (each feature's public entry view takes a `HostModel` and the `Route` it shows: `SessionsView`, `ChatView`, `TerminalsView`, `GitView`, `GitHubView`, `FilesView`; `PairingView` and `SettingsView` take the `AppModel`), iPhone `NavigationStack` / iPad `NavigationSplitView`, `Route` destinations, deep links, scene phase (send `agent.view([])` on background) |

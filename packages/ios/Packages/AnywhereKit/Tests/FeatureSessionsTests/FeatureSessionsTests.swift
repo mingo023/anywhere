@@ -10,14 +10,16 @@ private let utc = TimeZone(secondsFromGMT: 0)!
 
 @Suite("Session text")
 struct SessionTextTests {
-    @Test("a session's second line is what it is doing, else a status its glyph alone can't tell apart, else its model")
+    @Test("a session's second line is what failed, else what it is doing, else a status its glyph alone can't tell apart, else its model")
     func detail() {
         let needs = Sample.agents.first { $0.id == "a-needs" }!
         #expect(SessionText.detail(needs, .needsYou) == "Approve Bash: rm -rf build")
         let compacting = Sample.agents.first { $0.id == "a-compacting" }!
         #expect(SessionText.detail(compacting, .working) == "Compacting…")
-        let failed = Sample.agents.first { $0.id == "a-failed" }!
+        var failed = Sample.agents.first { $0.id == "a-failed" }!
         #expect(SessionText.detail(failed, .failed) == "Failed")
+        failed.error = "API Error: 529 overloaded"
+        #expect(SessionText.detail(failed, .failed) == "API Error: 529 overloaded")
         let working = Sample.agents.first { $0.id == "a-working" }!
         #expect(SessionText.detail(working, .working) == "Opus 5.5")
         let idle = Sample.agents.first { $0.id == "a-chat" }!
@@ -126,28 +128,142 @@ struct WorkspacesTests {
         #expect(Workspaces.initials("") == "?")
     }
 
-    @Test("a roll-up reads as a count and what those sessions are doing; idle ones say nothing")
+    @Test("a roll-up reads as a count and the status those sessions have, in the domain's words; idle ones say nothing")
     func rollUp() {
-        #expect(Workspaces.label(.working, count: 1) == "1 running")
-        #expect(Workspaces.label(.needsYou, count: 2) == "2 waiting")
+        #expect(Workspaces.label(.working, count: 2) == "2 working")
+        #expect(Workspaces.label(.needsYou, count: 1) == "1 needs you")
         #expect(Workspaces.label(.failed, count: 1) == "1 failed")
+        #expect(Workspaces.label(.done, count: 2) == "2 done")
         #expect(Workspaces.label(.idle, count: 3) == nil)
     }
 
-    @Test("active now is what waits on you, then what runs, each newest first; the rest isn't active")
-    func active() {
+    @Test("one failed and two done read as 1 failed, with the whole breakdown for VoiceOver")
+    func breakdown() {
+        let statuses: [Status] = [.done, .failed, .done, .idle]
+        let roll = Sidebar.rollUp(statuses)!
+        #expect(Workspaces.label(roll.status, count: roll.count) == "1 failed")
+        #expect(Workspaces.breakdown(statuses) == "1 failed, 2 done")
+    }
+
+    @Test("working lists the sessions working now, the last to move first")
+    func working() {
         let cards = [
             Sidebar.Card(id: "run-old", title: "", status: .working, createdAt: 0, updatedAt: 10),
             Sidebar.Card(id: "wait", title: "", status: .needsYou, createdAt: 0, updatedAt: 5),
             Sidebar.Card(id: "run-new", title: "", status: .working, createdAt: 0, updatedAt: 20),
-            Sidebar.Card(id: "done", title: "", status: .done, createdAt: 0, updatedAt: 30),
         ]
-        #expect(Workspaces.active(cards) == ["wait", "run-new", "run-old"])
+        #expect(Workspaces.working(cards) == ["run-new", "run-old"])
     }
 
-    @Test("a project's line counts its workspaces and says when it last moved")
+    @Test("a project's line counts its worktrees and Locals and says when it last moved")
     func projectLine() {
-        #expect(Workspaces.line(workspaces: 2, latest: 1_000, now: 1_000) == "2 workspaces · now")
-        #expect(Workspaces.line(workspaces: 1, latest: 0, now: 1_000) == "1 workspace")
+        #expect(Workspaces.line(worktrees: 2, locals: 1, latest: 1_000, now: 1_000) == "2 worktrees · 1 Local · now")
+        #expect(Workspaces.line(worktrees: 1, locals: 0, latest: 0, now: 1_000) == "1 worktree")
+        #expect(Workspaces.line(worktrees: 0, locals: 2, latest: 0, now: 1_000) == "2 Locals")
+        #expect(Workspaces.line(worktrees: 0, locals: 0, latest: 0, now: 1_000) == "No worktrees")
+    }
+}
+
+@Suite("Folds")
+struct FoldsTests {
+    @Test("a project opens by itself while a session in it is working or wants a look, and the user's choice sticks either way")
+    func sticks() {
+        var folds = Folds()
+        #expect(folds.isOpen("p", lively: true))
+        #expect(!folds.isOpen("p", lively: false))
+        folds.toggle("p", lively: true)
+        #expect(!folds.isOpen("p", lively: true), "closed while busy stays closed")
+        folds.toggle("q", lively: false)
+        #expect(folds.isOpen("q", lively: false), "opened while idle stays open when its last session finishes")
+        #expect(Folds(rawValue: folds.rawValue) == folds)
+    }
+}
+
+@Suite("Up next text")
+struct UpNextTextTests {
+    @Test("a Needs you row shows the ask it waits on, a Failed row what failed, else what the session is doing")
+    func look() {
+        let needs = Sample.agents.first { $0.id == "a-needs" }!
+        #expect(SessionText.look(needs, .needsYou, requests: [Sample.permission]) == "Wants to run rm -rf build")
+        #expect(SessionText.look(needs, .needsYou, requests: [Sample.question]) == "Which colour?")
+        #expect(SessionText.look(needs, .needsYou, requests: []) == "Approve Bash: rm -rf build")
+        var failed = Sample.agents.first { $0.id == "a-failed" }!
+        #expect(SessionText.look(failed, .failed, requests: []) == "Failed")
+        failed.activity = "Running tests"
+        #expect(SessionText.look(failed, .failed, requests: []) == "Running tests")
+        failed.error = "API Error: 529 overloaded"
+        #expect(SessionText.look(failed, .failed, requests: []) == "API Error: 529 overloaded")
+        let working = Sample.agents.first { $0.id == "a-working" }!
+        #expect(SessionText.look(working, .working, requests: []) == "Opus 5.5")
+    }
+
+    @Test("a pull request reads as its number, Draft, and its checks, and its badge takes the colour of what it waits on")
+    func pullRequest() {
+        let item = PrItem(tree: "/t", number: 42, title: "", state: "OPEN", draft: false, gate: .checksFailed, checks: .init(passed: 3, failed: 1, pending: 0))
+        #expect(SessionText.pullRequest(item) == "#42 · 1 failed · 3 passed")
+        #expect(PrBadge.tone(item) == .failed)
+        var draft = item
+        draft.draft = true
+        #expect(SessionText.pullRequest(draft) == "#42 · Draft · 1 failed · 3 passed")
+        #expect(PrBadge.tone(draft) == .neutral)
+        var running = item
+        (running.checks, running.gate) = (.init(passed: 1, failed: 0, pending: 2), .checksRunning)
+        #expect(PrBadge.tone(running) == .working)
+    }
+}
+
+@Suite("Starting a session")
+struct StartingTests {
+    @Test("a start's row says its step, waits for the Mac when the link dropped, and names the agent it starts")
+    func steps() {
+        #expect(SessionText.creating(step: nil, waiting: false, provider: "claude") == "Asking your Mac…")
+        #expect(SessionText.creating(step: "worktree", waiting: false, provider: "claude") == "Creating git worktree…")
+        #expect(SessionText.creating(step: "agent", waiting: false, provider: "claude") == "Starting Claude…")
+        #expect(SessionText.creating(step: "agent", waiting: true, provider: "claude") == "Waiting for your Mac…")
+    }
+
+    @Test("Start says why it waits on the Mac: offline first, then agents still loading")
+    func waiting() {
+        #expect(NewSessionView.waiting(online: false, providers: false, failed: false, mac: "Studio") == "Studio isn't connected. Start turns on when it's back.")
+        #expect(NewSessionView.waiting(online: true, providers: false, failed: false, mac: "Studio") == "Loading agents from Studio…")
+        #expect(NewSessionView.waiting(online: true, providers: false, failed: true, mac: "Studio") == nil)
+        #expect(NewSessionView.waiting(online: true, providers: true, failed: false, mac: "Studio") == nil)
+    }
+
+    @Test("a start is titled by its prompt's first line and listed in the worktree or Local it runs in")
+    func row() {
+        #expect(NewSessionView.title("  Fix the login\nand the tests") == "Fix the login")
+        #expect(NewSessionView.title("") == "")
+        #expect(NewSessionView.key(.worktree("/w"), makesWorktree: false) == "/w")
+        #expect(NewSessionView.key(.local("local-1"), makesWorktree: false) == "local-1")
+        #expect(NewSessionView.key(.worktree("/p"), makesWorktree: true) == nil)
+        #expect(NewSessionView.key(.new(NewWorktree(name: "x")), makesWorktree: false) == nil)
+    }
+
+    @Test("a route's place is a Local when one has that id, else a worktree")
+    func place() {
+        #expect(Places.place(key: "review", locals: Sample.locals) == .local("review"))
+        #expect(Places.place(key: "/w/calm-otter", locals: Sample.locals) == .tree("/w/calm-otter"))
+    }
+}
+
+@Suite("Tree links")
+struct TreeLinksTests {
+    @Test("Changes counts the changed files, and says No changes at none")
+    func changes() {
+        #expect(TreeLinks.changes(nil) == nil)
+        #expect(TreeLinks.changes(0) == "No changes")
+        #expect(TreeLinks.changes(1) == "1 file")
+        #expect(TreeLinks.changes(1_200) == "1200 files")
+    }
+
+    @Test("the pull request row shows the PR, offers to create one once gh is ready, and hides without a GitHub remote or on a Mac that can't read GitHub")
+    func pullRequest() {
+        let item = PrItem(tree: "/t", number: 7, title: "", state: "OPEN", draft: false, gate: .ready, checks: .init(passed: 2, failed: 0, pending: 0))
+        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: nil, readsGitHub: true).map { [$0.title, $0.detail] } == ["Pull request", "#7 · 2 passed"])
+        #expect(TreeLinks.pullRequest(nil, gh: .ready, problem: nil, readsGitHub: true)?.title == "Create pull request")
+        #expect(TreeLinks.pullRequest(nil, gh: .signedOut, problem: nil, readsGitHub: true)?.title == "Pull request")
+        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: .noRemote, readsGitHub: true) == nil)
+        #expect(TreeLinks.pullRequest(nil, gh: nil, problem: nil, readsGitHub: false) == nil)
     }
 }

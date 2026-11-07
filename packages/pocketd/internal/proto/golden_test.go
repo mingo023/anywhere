@@ -33,7 +33,7 @@ var serverGolden = map[string]any{
 	"agent_list":          NewAgentList("l1", []AgentSummary{summary()}),
 	"agent_list_push":     NewAgentList("", nil),
 	"agent_update":        NewAgentUpdate(summary()),
-	"agent_update_failed": NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Failed = "done", true })),
+	"agent_update_failed": NewAgentUpdate(with(func(s *AgentSummary) { s.Status, s.Failed, s.Error = "done", true, "API Error: 529 overloaded" })),
 	"agent_update_compacting": NewAgentUpdate(with(func(s *AgentSummary) {
 		s.Status, s.Compacting, s.Attached, s.ProviderSessionID = "working", true, false, ""
 	})),
@@ -205,6 +205,7 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.create","id":"1","cwd":"/","profileId":"p","prompt":"x"}`,
 		`{"type":"agent.prompt","id":"1","agentId":"a"}`,
 		`{"type":"agent.timeline","id":"1","agentId":"a","limit":501}`,
+		`{"type":"agent.view","id":"1","agentIds":[],"front":"yes"}`,
 		`{"type":"permission.resolve","id":"1","requestId":"r","decision":"maybe"}`,
 		`{"type":"hello","id":"1","token":"t","clientId":"c"}`,
 		`{"type":"agent.timeline","id":"1","agentId":"a","limit":0}`,
@@ -252,7 +253,7 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"7","branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","Branch":"b"}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","new":null},"provider":"claude","access":"ask","plan":false,"model":null}}`,
-		`{"type":"config.set","id":"1","key":"phone.maxAccess","value":"full"}`,
+		`{"type":"config.set","id":"1","key":"phone.maxAccess","value":"settings"}`,
 		`{"type":"config.set","id":"1","key":"theme","value":"ask"}`,
 		`{"type":"worktree.rename","id":"1","path":"","title":"x"}`,
 		`{"type":"worktree.rename","id":"1","path":"/p"}`,

@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	ErrInvalid      = errors.New("phone.maxAccess is ask, edits or auto")
+	ErrInvalid      = errors.New("phone.maxAccess is ask, edits, auto or full")
 	ErrInvalidRelay = errors.New("push.relay is an https URL, or http on this Mac")
 )
 

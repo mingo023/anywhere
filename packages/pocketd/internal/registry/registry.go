@@ -31,7 +31,28 @@ type File struct {
 	Tracked []string `json:"tracked"`
 	Sidebar Sidebar  `json:"sidebar"`
 	Agents  Agents   `json:"agents"`
+	Git     Git      `json:"git"`
 }
+
+// Git is Settings › Git, which phone commits and pushes follow too.
+type Git struct {
+	// Remote is where pushes go, when the repository has a remote by that name.
+	Remote string `json:"remote"`
+	// CommitAll: with nothing staged, a commit takes every change. Nil is the desktop's default, on.
+	CommitAll *bool `json:"commit_all"`
+	// ForceWithLease lets a push replace a rewritten branch on the remote; a phone asks first.
+	ForceWithLease bool `json:"force_with_lease"`
+}
+
+// PushRemote is Remote, or the desktop's default.
+func (g Git) PushRemote() string {
+	if g.Remote == "" {
+		return "origin"
+	}
+	return g.Remote
+}
+
+func (g Git) CommitsAll() bool { return g.CommitAll == nil || *g.CommitAll }
 
 type Agents struct {
 	// Access is Settings › Permission mode, the access new sessions start with.

@@ -26,8 +26,8 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("FeatureSessions", ["Stores", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureTerminal", ["Stores", "DesignSystem", "Domain", "Fixtures", .product(name: "SwiftTerm", package: "SwiftTerm")], true),
     ("FeatureGit", ["Stores", "Client", "CodeView", "DiffModel", "DesignSystem", "Domain", "Fixtures"], true),
-    ("FeatureGitHub", ["Stores", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
-    ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
+    ("FeatureGitHub", ["Stores", "ChatModel", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
+    ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "Highlight", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureSettings", ["Stores", "DesignSystem", "Domain", "Wire", "Client", "Fixtures"], true),
     ("AppShell", [
@@ -35,8 +35,11 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
         "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "Fixtures",
     ], true),
     ("LiveActivityUI", ["ActivityModel", "DesignSystem"], true),
-    ("BenchScenes", ["Client", "DesignSystem", "FeatureChat", "FeatureFiles", "FeatureGit", "Fixtures", "Stores", "Wire"], false),
+    ("BenchScenes", ["Client", "DesignSystem", "Domain", "FeatureChat", "FeatureFiles", "FeatureGit", "Fixtures", "Stores", "Wire"], false),
 ]
+
+/// Test modules that talk to a pocketd stand-in on loopback.
+let loopbackTested: Set = ["Client", "Stores"]
 
 let executables: [(name: String, deps: [Target.Dependency])] = [
     ("anywhere-probe", ["Wire", "Client", "Stores", "PushSupport"]),
@@ -56,8 +59,11 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.20.0"),
     ],
     targets: modules.map { .target(name: $0.name, dependencies: $0.deps) }
+        + [.target(name: "Loopback", dependencies: ["Wire"], path: "Tests/Loopback")]
         + modules.filter(\.tested).map {
-            .testTarget(name: "\($0.name)Tests", dependencies: $0.name == "Fixtures" ? ["Fixtures"] : [.byName(name: $0.name), "Fixtures"])
+            .testTarget(
+                name: "\($0.name)Tests",
+                dependencies: ($0.name == "Fixtures" ? ["Fixtures"] : [.byName(name: $0.name), "Fixtures"]) + (loopbackTested.contains($0.name) ? ["Loopback"] : []))
         }
         + executables.map { .executableTarget(name: $0.name, dependencies: $0.deps) },
     swiftLanguageModes: [.v6]

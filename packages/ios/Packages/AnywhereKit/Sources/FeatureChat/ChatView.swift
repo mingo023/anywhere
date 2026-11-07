@@ -4,6 +4,7 @@ import Domain
 import MarkdownView
 import Stores
 import SwiftUI
+import Wire
 
 /// One agent's chat.
 @MainActor
@@ -11,7 +12,6 @@ public struct ChatView: View {
     let host: HostModel
     let agentId: String
     let open: (Route) -> Void
-    @State private var store: ChatStore?
 
     /// `open` takes the screens the chat links to, such as a file it names.
     public init(host: HostModel, agentId: String, open: @escaping (Route) -> Void = { _ in }) {
@@ -21,70 +21,76 @@ public struct ChatView: View {
     }
 
     public var body: some View {
+        // A Mac paired again is a new host: the chat takes its store, not the dead connection's.
+        HostedChat(host: host, agentId: agentId, open: open).id(ObjectIdentifier(host))
+    }
+}
+
+@MainActor
+private struct HostedChat: View {
+    let host: HostModel
+    let agentId: String
+    let open: (Route) -> Void
+    @State private var store: ChatStore?
+    @Environment(\.openURL) private var openURL
+
+    private var mac: String { host.hello?.serverId ?? host.id }
+
+    var body: some View {
         if let store {
-            let mac = host.hello?.serverId ?? host.id
-            ChatScreen(store: store, machine: host.name) { link in
-                switch link {
-                case .web: break
-                case .file(let path, _):
-                    guard let cwd = store.summary?.cwd else { return }
-                    open(.file(mac: mac, tree: cwd, path: path))
-                }
+            ChatScreen(store: store, machine: host.name, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }) {
+                follow($0, in: store)
             }
             .toolbar {
+                // One item, as wide as Back: the bar centres the title only when it fits between them evenly.
                 if let cwd = store.summary?.cwd {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        Button { open(.changes(mac: mac, tree: cwd)) } label: { Label("Changes", systemImage: "plusminus") }
-                        Button { open(.files(mac: mac, tree: cwd, dir: "")) } label: { Label("Files", systemImage: "folder") }
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button { open(.changes(mac: mac, tree: cwd, chat: agentId)) } label: { Label("Changes", systemImage: "plusminus") }
+                            Button { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) } label: { Label("Files", systemImage: "folder") }
+                            if host.hello?.has(Caps.gh) == true {
+                                Button { open(.pullRequest(mac: mac, tree: cwd, chat: agentId)) } label: {
+                                    Label("Pull request", systemImage: "arrow.triangle.pull")
+                                }
+                            }
+                        } label: {
+                            Label("More", systemImage: "ellipsis")
+                        }
                     }
                 }
+            }
+            .onChange(of: host.link == .online, initial: true) { _, online in store.follow(online: online, mac: host.name) }
+            .onChange(of: store.newSession) { _, ask in
+                guard let ask else { return }
+                store.openedNewSession()
+                let at = ask.cwd.flatMap(host.workspace.place(of:))
+                open(.newSession(mac: mac, project: at?.project, place: at?.tree, prompt: ask.prompt))
             }
         } else {
             Color.clear.screenBackground().onAppear { store = host.chat(agentId) }
         }
     }
-}
 
-/// The chat over a store: the transcript, and the composer under it.
-@MainActor
-struct ChatScreen: View {
-    let store: ChatStore
-    let machine: String
-    /// A file link; web links open in the browser.
-    let openFile: (MarkdownLink) -> Void
-    /// Off for gallery scenes, which have no Mac to tell.
-    var live = true
-    @State private var mapOpen = false
-    @State private var showing: String?
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        let _ = BodyCount.hit("ChatScreen")
-        VStack(spacing: 0) {
-            TranscriptView(store: store, showing: $showing, openLink: openLink)
-            ComposerView(store: store, machine: machine, show: { showing = $0 }, mapOpen: $mapOpen, openLink: openLink)
+    /// A file opens in Files at its line; a link to the worktree's own pull request opens it here, any other on the web.
+    private func follow(_ link: MarkdownLink, in store: ChatStore) {
+        guard let cwd = store.summary?.cwd else {
+            if case .web(let url) = link { openURL(url) }
+            return
         }
-        .screenBackground()
-        .navigationTitle(store.summary?.title ?? "Chat")
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .onAppear {
-            guard live else { return }
-            store.appear()
-            PushCenter.shared.visibleAgent = store.agentId
+        switch link {
+        case .file(let path, let line):
+            open(.file(mac: mac, tree: cwd, path: FileText.linked(path, from: "", tree: cwd) ?? path, line: line, chat: agentId))
+        case .web(let url):
+            guard let pr = PrLink(url.absoluteString), host.hello?.has(Caps.gh) == true else { return openURL(url) }
+            let tree = host.github.pullRequest(cwd)
+            Task {
+                if !tree.loaded { await host.github.refresh(cwd) }
+                if let own = tree.pr.flatMap({ PrLink($0.url) }), own.same(pr) {
+                    open(.pullRequest(mac: mac, tree: cwd, chat: agentId))
+                } else {
+                    openURL(url)
+                }
+            }
         }
-        .onDisappear {
-            guard live else { return }
-            store.disappear()
-            if PushCenter.shared.visibleAgent == store.agentId { PushCenter.shared.visibleAgent = nil }
-        }
-        .sheet(isPresented: $mapOpen) {
-            AgentMapSheet(transcript: store.session.transcript, provider: store.provider, show: { showing = $0 }, openLink: openLink)
-        }
-    }
-
-    private func openLink(_ link: MarkdownLink) {
-        if case .web(let url) = link { openURL(url) } else { openFile(link) }
     }
 }

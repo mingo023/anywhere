@@ -14,16 +14,75 @@ public struct Creation: Hashable, Sendable {
 
     public var kind: Kind
     public var steps: [Step] = []
-    /// The terminal an agent.create opened, once it exists.
+    /// The terminal an agent.create opened, once it exists, and the folder it opened in.
     public var terminalId: String?
+    public var cwd: String?
+    /// The request id it goes out with when not its own, after pocketd answered the first with an error.
+    public var requestId: String?
     public var error: ServerError?
     public var done = false
     /// The Local and worktree a launch made before a later step failed, so trying again starts there.
     public var madeLocal: String?
     public var madeTree: String?
+    /// What a session launch runs, so trying again runs the rest of it with the same request id.
+    public var plan: LaunchPlan?
+    /// What its row says: the prompt, or the agent.
+    public var title = ""
+    /// The worktree path or Local id it starts in, when it isn't a new one.
+    public var place: String?
+    /// The link dropped mid-launch; it goes on once the Mac is back.
+    public var waiting = false
+    /// The agent it started.
+    public var agentId: String?
+    /// A progress sheet shows it, and opens its chat when it starts.
+    public var watched = false
 
     /// The step running now, or the last one.
     public var current: String? { steps.last?.step }
+    public var project: String? { plan?.spec.project }
+
+    /// The agent.create it sends: the same spec under the same request id each time, as pocketd joins or replays a
+    /// request it has seen only when the spec matches.
+    func agentCreate(requestId: String) -> ClientMessage.AgentCreate? {
+        guard var spec = plan?.spec else { return nil }
+        if let madeTree { spec.checkout = .worktree(madeTree) }
+        return .init(requestId: requestId, spec: spec)
+    }
+
+    /// pocketd answered with an error, and would give the same answer to the same request id for 10 minutes; trying
+    /// again takes a new one, in the worktree a new-worktree start made before it failed.
+    mutating func answered(_ error: ServerError) {
+        self.error = error
+        if case .new = plan?.spec.checkout, madeTree == nil { madeTree = cwd }
+        requestId = WorkspaceStore.newRequestId()
+        terminalId = nil
+        cwd = nil
+    }
+}
+
+/// A worktree or Local on its way out: hidden from the lists until it's gone, or back with why it couldn't go.
+public struct Removal: Hashable, Sendable {
+    public var id: String
+    public var label: String
+    public var local: Bool
+    /// A worktree's branch, which `deleteBranch` deletes too.
+    public var branch: String?
+    public var deleteBranch = false
+    public var force = false
+    public var error: String?
+    /// Deleting the branch was refused: this many commits are on it alone.
+    public var unpushed: Int?
+
+    public init(id: String, label: String, local: Bool, branch: String? = nil, deleteBranch: Bool = false, force: Bool = false) {
+        self.id = id
+        self.label = label
+        self.local = local
+        self.branch = branch
+        self.deleteBranch = deleteBranch
+        self.force = force
+    }
+
+    public var failed: Bool { error != nil || unpushed != nil }
 }
 
 /// Projects, worktrees, Locals, worktree names, automations, branches and accounts of one Mac.
@@ -47,12 +106,16 @@ public final class WorkspaceStore: HostStore {
     /// Accounts by provider, as last listed.
     public private(set) var accounts: [String: [Account]] = [:]
     public private(set) var providers: AgentProviders?
-    /// Creations by request id, while their sheet watches them.
+    /// Creations by request id, until they are seen started or dismissed.
     public private(set) var creations: [String: Creation] = [:]
+    /// Worktrees and Locals being deleted, or that couldn't be, by path or id.
+    public private(set) var removals: [String: Removal] = [:]
     /// What the Mac lets this phone do, from hello.ok.
     public private(set) var hello: HelloOk?
 
     @ObservationIgnored let connection: DaemonConnection?
+    /// Told of each launch as it starts.
+    @ObservationIgnored public var onStart: (@MainActor (Creation) -> Void)?
 
     public init(connection: DaemonConnection? = nil) {
         self.connection = connection
@@ -62,6 +125,11 @@ public final class WorkspaceStore: HostStore {
         switch message {
         case .projectList(let list):
             loaded = true
+            // pocketd lists its projects after each hello, so a launch the link dropped goes on once they show what it made.
+            for id in creations.keys where creations[id]?.waiting == true {
+                creations[id]?.waiting = false
+                Task { await run(id) }
+            }
             return set(\.projects, list.projects)
         case .worktreeNames(let m):
             return set(\.names, m.names)
@@ -78,18 +146,22 @@ public final class WorkspaceStore: HostStore {
             let placed = set(\.localOfTerminal, map)
             return set(\.terminalCwds, cwds) || placed
         case .worktreeProgress(let p), .agentProgress(let p):
-            guard var c = creations[p.requestId] else { return false }
-            c.steps.append(.init(step: p.step, note: p.note))
-            creations[p.requestId] = c
+            guard let id = creation(sentAs: p.requestId) else { return false }
+            creations[id]?.steps.append(.init(step: p.step, note: p.note))
             return true
         case .agentCreating(let m):
-            guard creations[m.requestId] != nil else { return false }
-            creations[m.requestId]?.terminalId = m.terminalId
+            guard let id = creation(sentAs: m.requestId) else { return false }
+            creations[id]?.terminalId = m.terminalId
+            creations[id]?.cwd = m.cwd
             return true
         case .agentProviders(let m):
             guard providers != m else { return false }
             providers = m
             return true
+        case .agentList(let m):
+            return started(m.agents)
+        case .agentUpdate(let m):
+            return started([m.agent])
         default:
             return false
         }
@@ -157,7 +229,7 @@ public final class WorkspaceStore: HostStore {
             creations[create.requestId]?.done = true
             return made
         } catch {
-            creations[create.requestId]?.error = Self.serverError(error)
+            creations[create.requestId]?.error = failure(error)
             throw error
         }
     }
@@ -225,48 +297,151 @@ public final class WorkspaceStore: HostStore {
         locals.removeAll { $0.id == id }
     }
 
+    /// The project holding `cwd` and its worktree holding it, by path, as New Session presets them.
+    public func place(of cwd: String) -> (project: String, tree: String?)? {
+        let trees = Dictionary(projects.map { ($0.path, $0.worktrees.map(\.path)) }, uniquingKeysWith: { a, _ in a })
+        guard let project = Sidebar.projectOf(cwd, projects: projects.map(\.path), trees: trees) else { return nil }
+        return (project, Sidebar.worktreeOf(cwd, trees: trees[project] ?? []))
+    }
+
     public func nextLocalName(project: String) -> String {
         Sidebar.nextLocalName(locals.filter { $0.project == project }.map(\.name))
     }
 
-    /// Runs a launch plan: its Local, then its worktree, then the agent in it. Each step's progress lands in
-    /// `creations[requestId]`.
-    public func launch(_ plan: LaunchPlan, requestId: String) async throws -> AgentCreated {
-        creations[requestId] = Creation(kind: .session)
+    /// Lists a launch at once, as a row under its project; `run` carries it out. `place` is the worktree path or Local id
+    /// it starts in, when it isn't a new one.
+    public func add(_ plan: LaunchPlan, requestId: String, title: String, place: String?) {
+        creations[requestId] = Creation(kind: .session, plan: plan, title: title, place: place)
+    }
+
+    /// Runs what is left of a launch: its Local, then its worktree, then the agent in it, each step's progress landing in
+    /// `creations[id]`. A dropped link leaves it waiting; once the Mac is back, a Local or worktree made by then is taken
+    /// up rather than made twice, and agent.create goes out again as before, which pocketd joins or answers as it did
+    /// the first. Trying again does the same, under a new request id when pocketd answered with an error.
+    public func run(_ id: String) async {
+        guard var c = creations[id], let plan = c.plan, !c.done else { return }
+        c.error = nil
+        c.waiting = false
+        creations[id] = c
+        let requestId = c.requestId ?? id
+        let project = project(plan.spec.project)
         do {
-            if let local = plan.local {
-                let shown = !locals.contains(where: { $0.id == local.localId })
-                if shown { locals.append(Local(id: local.localId, project: local.project, name: local.name)) }
-                do {
-                    _ = try await request(.localCreate(local))
-                } catch {
-                    if shown { locals.removeAll { $0.id == local.localId } }
-                    throw error
+            if let local = plan.local, c.madeLocal == nil {
+                if !locals.contains(where: { $0.id == local.localId }) {
+                    locals.append(Local(id: local.localId, project: local.project, name: local.name))
+                    do {
+                        _ = try await request(.localCreate(local))
+                    } catch {
+                        locals.removeAll { $0.id == local.localId }
+                        throw error
+                    }
                 }
-                creations[requestId]?.madeLocal = local.localId
+                creations[id]?.madeLocal = local.localId
             }
-            var spec = plan.spec
-            if var create = plan.worktree {
-                create.requestId = requestId
-                guard case .worktreeCreated(let made) = try await request(.worktreeCreate(create), timeout: .seconds(600)) else {
-                    throw DaemonError.closed
+            if var create = plan.worktree, creations[id]?.madeTree == nil {
+                if let made = create.branch == nil && create.pr == nil ? Self.landed(create.name, in: project) : nil {
+                    creations[id]?.madeTree = made
+                } else {
+                    create.requestId = requestId
+                    guard case .worktreeCreated(let made) = try await request(.worktreeCreate(create), timeout: .seconds(600)) else {
+                        throw DaemonError.closed
+                    }
+                    creations[id]?.madeTree = made.path
                 }
-                creations[requestId]?.madeTree = made.path
-                spec.checkout = .worktree(made.path)
             }
-            guard case .agentCreated(let created) = try await request(.agentCreate(.init(requestId: requestId, spec: spec)), timeout: .seconds(600))
-            else { throw DaemonError.closed }
-            creations[requestId]?.done = true
-            return created
+            guard let now = creations[id], !now.done, let create = now.agentCreate(requestId: requestId) else { return }
+            guard case .agentCreated(let created) = try await request(.agentCreate(create), timeout: .seconds(600)) else {
+                throw DaemonError.closed
+            }
+            start(id, agent: created.agentId)
+        } catch DaemonError.closed, DaemonError.offline {
+            creations[id]?.waiting = true
+        } catch DaemonError.server(let e) {
+            creations[id]?.answered(e)
         } catch {
-            creations[requestId]?.error = Self.serverError(error)
-            throw error
+            creations[id]?.error = failure(error)
         }
     }
 
-    /// A sheet that stopped watching a creation lets it go.
+    /// The worktree of `project` a new branch named `name` made: its folder takes the name, so a create whose reply a
+    /// dropped link lost is found by it.
+    nonisolated static func landed(_ name: String, in project: Project?) -> String? {
+        project?.worktrees.first { !$0.isMain && $0.path.split(separator: "/").last.map(String.init) == name }?.path
+    }
+
+    /// The creation a request id now names.
+    private func creation(sentAs requestId: String) -> String? {
+        creations.first { ($0.value.requestId ?? $0.key) == requestId }?.key
+    }
+
+    /// An agent on the terminal a launch opened is the one it started, whether or not its reply came.
+    private func started(_ agents: [AgentSummary]) -> Bool {
+        var changed = false
+        for (id, c) in creations where !c.done {
+            guard let terminal = c.terminalId, let agent = agents.first(where: { $0.terminalId == terminal }) else { continue }
+            start(id, agent: agent.id)
+            changed = true
+        }
+        return changed
+    }
+
+    private func start(_ id: String, agent: String) {
+        creations[id]?.agentId = agent
+        creations[id]?.done = true
+        creations[id]?.waiting = false
+        if let c = creations[id] { onStart?(c) }
+    }
+
+    /// Whether a progress sheet shows the creation, and so opens its chat once it starts.
+    public func watch(_ requestId: String, _ on: Bool) {
+        guard creations[requestId] != nil, creations[requestId]?.watched != on else { return }
+        creations[requestId]?.watched = on
+    }
+
+    /// Launches that started while no sheet watched them, handed out once so one list says so.
+    public func takeStarted() -> [Creation] {
+        let started = creations.filter { $0.value.done && !$0.value.watched && $0.value.agentId != nil }
+        for id in started.keys { creations[id] = nil }
+        return started.values.sorted { $0.title < $1.title }
+    }
+
+    /// Dismisses a creation, or lets go of one a sheet saw through.
     public func forget(creation requestId: String) {
         creations[requestId] = nil
+    }
+
+    /// Deletes a worktree or Local, hiding it at once. A second ask while one is under way changes nothing; a failure
+    /// brings the row back with why, for `takeFailedRemoval`.
+    public func remove(_ removal: Removal) async {
+        guard removals[removal.id].map(\.failed) ?? true else { return }
+        var removal = removal
+        removal.error = nil
+        removal.unpushed = nil
+        removals[removal.id] = removal
+        do {
+            if removal.local {
+                try await deleteLocal(id: removal.id)
+            } else {
+                try await deleteWorktree(path: removal.id, deleteBranch: removal.deleteBranch, force: removal.force)
+                // pocketd's next list drops it; until then it would come back.
+                for i in projects.indices { projects[i].worktrees.removeAll { $0.path == removal.id } }
+            }
+            removals[removal.id] = nil
+        } catch {
+            removal.unpushed = Self.unpushedCommits(error)
+            removal.error = removal.unpushed == nil ? failure(error)?.message : nil
+            removals[removal.id] = removal.failed ? removal : nil
+        }
+    }
+
+    /// The trees `remove` is deleting now, which the lists leave out.
+    public var hidden: Set<String> { Set(removals.values.filter { !$0.failed }.map(\.id)) }
+
+    /// A removal that failed, handed out once so one screen says so.
+    public func takeFailedRemoval() -> Removal? {
+        guard let failed = removals.values.first(where: \.failed) else { return nil }
+        removals[failed.id] = nil
+        return failed
     }
 
     public func switchAccount(agentId: String, account: String) async throws {
@@ -281,7 +456,7 @@ public final class WorkspaceStore: HostStore {
         _ = try await request(.automationRun(.init(automationId: id)))
     }
 
-    public static func newRequestId() -> String {
+    public nonisolated static func newRequestId() -> String {
         "r-" + UUID().uuidString.prefix(13).lowercased()
     }
 
@@ -296,13 +471,9 @@ public final class WorkspaceStore: HostStore {
         return true
     }
 
-    public static func serverError(_ error: any Error) -> ServerError {
+    /// A server's own error, with its detail; else what `ErrorText` says, naming the Mac. Nil when cancelled.
+    func failure(_ error: any Error) -> ServerError? {
         if case DaemonError.server(let e) = error { return e }
-        switch error as? DaemonError {
-        case .offline: return ServerError(message: "This Mac isn't connected")
-        case .timedOut: return ServerError(message: "Your Mac didn't answer in time")
-        case .closed: return ServerError(message: "The connection dropped")
-        default: return ServerError(message: error.localizedDescription)
-        }
+        return ErrorText.describe(error, mac: hello?.hostname ?? ErrorText.unnamedMac).map { ServerError(message: $0) }
     }
 }

@@ -24,13 +24,16 @@ public struct FileRow: Identifiable, Hashable, Sendable {
     public let open: Bool
     /// An open folder whose listing hasn't come yet.
     public let loading: Bool
+    /// Why an open folder with nothing to show couldn't be listed.
+    public let failure: String?
 
-    public init(path: String, entry: FsEntry, depth: Int, open: Bool = false, loading: Bool = false) {
+    public init(path: String, entry: FsEntry, depth: Int, open: Bool = false, loading: Bool = false, failure: String? = nil) {
         self.path = path
         self.entry = entry
         self.depth = depth
         self.open = open
         self.loading = loading
+        self.failure = failure
     }
 }
 
@@ -39,6 +42,8 @@ public struct FileRow: Identifiable, Hashable, Sendable {
 public struct FileTree: Equatable, Sendable {
     public private(set) var listings: [String: [FsEntry]] = [:]
     public private(set) var open: Set<String> = []
+    /// Why folders couldn't be listed, until they are.
+    public private(set) var failures: [String: String] = [:]
 
     public init(listings: [String: [FsEntry]] = [:], open: Set<String> = []) {
         self.listings = listings
@@ -48,15 +53,30 @@ public struct FileTree: Equatable, Sendable {
     /// Takes a folder's listing; false when it already was this.
     @discardableResult
     public mutating func listed(_ dir: String, _ entries: [FsEntry]) -> Bool {
-        if listings[dir] == entries { return false }
+        let cleared = failures.removeValue(forKey: dir) != nil
+        if listings[dir] == entries { return cleared }
         listings[dir] = entries
         return true
     }
 
+    /// Records why a folder couldn't be listed; false when it already said so.
+    @discardableResult
+    public mutating func failed(_ dir: String, _ message: String) -> Bool {
+        failures.updateValue(message, forKey: dir) != message
+    }
+
+    /// Forgets why a folder failed, as it is asked for again; false when it hadn't.
+    @discardableResult
+    public mutating func retrying(_ dir: String) -> Bool {
+        failures.removeValue(forKey: dir) != nil
+    }
+
     /// Forgets a folder that is gone, and everything listed inside it.
     public mutating func gone(_ dir: String) {
-        listings = listings.filter { $0.key != dir && !$0.key.hasPrefix(dir + "/") }
-        open = open.filter { $0 != dir && !$0.hasPrefix(dir + "/") }
+        let inside = { (key: String) in key == dir || key.hasPrefix(dir + "/") }
+        listings = listings.filter { !inside($0.key) }
+        open = open.filter { !inside($0) }
+        failures = failures.filter { !inside($0.key) }
     }
 
     /// Opens or folds `dir`; true when it opened.
@@ -90,7 +110,9 @@ public struct FileTree: Equatable, Sendable {
         for entry in listings[dir] ?? [] where filter.shows(entry) {
             let path = dir.isEmpty ? entry.name : dir + "/" + entry.name
             let isOpen = entry.dir && open.contains(path)
-            rows.append(FileRow(path: path, entry: entry, depth: depth, open: isOpen, loading: isOpen && listings[path] == nil))
+            let failure = isOpen && listings[path] == nil ? failures[path] : nil
+            rows.append(
+                FileRow(path: path, entry: entry, depth: depth, open: isOpen, loading: isOpen && listings[path] == nil && failure == nil, failure: failure))
             if isOpen { push(path, depth: depth + 1, filter, into: &rows) }
         }
     }

@@ -9,6 +9,7 @@ public struct SettingsView: View {
     let app: AppModel
     let pair: (@MainActor () -> Void)?
     @AppStorage(Appearance.key) private var appearance = Appearance.system
+    @State private var forgetting: HostModel?
 
     /// `pair` shows the pairing flow; the shell owns it because features don't import each other.
     public init(app: AppModel, pair: (@MainActor () -> Void)? = nil) {
@@ -26,11 +27,11 @@ public struct SettingsView: View {
                         MacRow(host: host)
                     }
                     .swipeActions(edge: .trailing) {
-                        Button("Forget", role: .destructive) { app.forget(host.id) }
+                        Button("Forget", role: .destructive) { forgetting = host }
                     }
                     .contextMenu {
                         Button("Reconnect", systemImage: "arrow.clockwise") { reconnect(host) }
-                        Button("Forget", systemImage: "trash", role: .destructive) { app.forget(host.id) }
+                        Button("Forget", systemImage: "trash", role: .destructive) { forgetting = host }
                     }
                 }
                 if let pair {
@@ -71,6 +72,14 @@ public struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .confirmationDialog(
+            "Forget \(forgetting?.name ?? "")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
+            titleVisibility: .visible, presenting: forgetting
+        ) { host in
+            Button("Forget", role: .destructive) { app.forget(host.id) }
+        } message: { _ in
+            Text("This iPhone stops connecting to it. Pair again to bring it back.")
+        }
     }
 
     private func reconnect(_ host: HostModel) {

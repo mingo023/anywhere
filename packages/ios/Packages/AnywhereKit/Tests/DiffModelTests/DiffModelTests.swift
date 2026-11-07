@@ -68,6 +68,31 @@ struct DiffRowsTests {
         let rows = DiffDocument(Sample.diff(lines: 200))
         #expect(rows.state == .rows && rows.gutterDigits >= 3)
     }
+
+    @Test("a change is each run of added and deleted rows, found where it starts")
+    func changes() {
+        let lines = DiffRows.lines([
+            DiffRow(k: .hunk, t: "@@ -1,4 +1,4 @@"), DiffRow(k: .context, o: 1, n: 1, t: "a"), DiffRow(k: .deleted, o: 2, t: "b"),
+            DiffRow(k: .added, n: 2, t: "B"), DiffRow(k: .context, o: 3, n: 3, t: "c"), DiffRow(k: .added, n: 4, t: "d"),
+            DiffRow(k: .hunk, t: "@@ -9 +10 @@"), DiffRow(k: .deleted, o: 9, t: "e"),
+        ])
+        #expect(DiffRows.changes(lines) == [2, 5, 7])
+    }
+
+    @Test("a hunk header folds the unchanged lines between the hunk above and its own first line")
+    func hidden() {
+        let lines = DiffRows.lines([
+            DiffRow(k: .hunk, t: "@@ -5,2 +5,2 @@ func a()"), DiffRow(k: .context, o: 5, n: 5, t: "a"), DiffRow(k: .deleted, o: 6, t: "b"),
+            DiffRow(k: .hunk, t: "@@ -20,2 +20,2 @@"), DiffRow(k: .context, o: 20, n: 20, t: "c"),
+            DiffRow(k: .hunk, t: "@@ -21,0 +22,1 @@"), DiffRow(k: .added, n: 22, t: "d"),
+        ])
+        #expect(DiffRows.hidden(above: 0, in: lines) == 1...4)
+        #expect(DiffRows.hidden(above: 3, in: lines) == 7...19)
+        #expect(DiffRows.hidden(above: 5, in: lines) == 21...21)
+        #expect(DiffRows.hidden(above: 1, in: lines) == nil)
+        let single = DiffRows.oldRange("@@ -7 +7 @@")
+        #expect(single?.start == 7 && single?.count == 1)
+    }
 }
 
 @Suite("Edit previews")

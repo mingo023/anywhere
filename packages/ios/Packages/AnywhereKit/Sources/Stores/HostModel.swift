@@ -34,10 +34,14 @@ public final class HostModel: Identifiable {
     public let github: GitHubStore
     public let files: FilesStore
     public let push: PushStore
-    /// One per open chat, keyed by agent id.
+    /// One per chat on a stack, keyed by agent id; a chat's store goes once its screen is popped or its session closes.
     public private(set) var chats: [String: ChatStore] = [:]
+    /// The Mac has sent its session list since this host was made, so a session it lacks is gone.
+    public private(set) var agentsListed = false
 
     @ObservationIgnored private var listener: Task<Void, Never>?
+    /// The app is in front, as the scene last said; a new hello makes pocketd think so until it hears otherwise.
+    @ObservationIgnored private var active = true
     @ObservationIgnored private let now: @MainActor () -> Date
 
     public init(credentials: Credentials, connection: DaemonConnection? = nil, now: @escaping @MainActor () -> Date = { Date() }) {
@@ -50,10 +54,14 @@ public final class HostModel: Identifiable {
         sessions = SessionsStore(connection: connection)
         workspace = WorkspaceStore(connection: connection)
         terminals = TerminalStore(connection: connection)
-        git = GitStore(connection: connection)
-        github = GitHubStore(connection: connection)
-        files = FilesStore(connection: connection)
+        git = GitStore(connection: connection, macName: credentials.macName)
+        github = GitHubStore(connection: connection, macName: credentials.macName)
+        files = FilesStore(connection: connection, macName: credentials.macName)
         push = PushStore(connection: connection)
+        workspace.onStart = { [weak self] creation in
+            guard let self else { return }
+            for chat in chats.values { chat.started(prompt: creation.plan?.spec.prompt) }
+        }
     }
 
     /// A Mac that is never dialled, holding what `hello` and `messages` say: for the gallery and previews.
@@ -79,19 +87,33 @@ public final class HostModel: Identifiable {
         Task { await connection.start() }
     }
 
-    /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials now.
+    /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials
+    /// now, or checks a link that looks up is still there.
     public func scene(active: Bool) {
+        self.active = active
         let connection = connection
         // A link that stayed up says hello again to no one, so the chat on screen tells pocketd it's viewed once more.
-        let viewed = chats.values.filter(\.viewing).map(\.agentId)
+        let view = sceneView(front: hello?.has(Caps.front) ?? false)
         Task {
             if active {
                 await connection.reconnectNow()
-                if !viewed.isEmpty { _ = try? await connection.send(.agentView(.init(agentIds: viewed))) }
-            } else {
-                _ = try? await connection.send(.agentView(.init(agentIds: [])))
+                await connection.verify()
             }
+            if let view { _ = try? await connection.send(.agentView(view)) }
         }
+    }
+
+    /// What `agent.view` tells pocketd of the scene now: on a scene change, and after each hello.
+    func sceneView(front: Bool) -> ClientMessage.AgentView? {
+        Self.sceneView(active: active, viewing: chats.values.filter(\.viewing).map(\.agentId), front: front)
+    }
+
+    /// What `agent.view` tells pocketd when the app comes to the front or leaves it. Without `front.v1`, no ids is how
+    /// pocketd hears the app went to the background, so in front an empty view isn't sent.
+    nonisolated static func sceneView(active: Bool, viewing: [String], front: Bool) -> ClientMessage.AgentView? {
+        if front { return .init(agentIds: active ? viewing : [], front: active) }
+        guard active else { return .init(agentIds: []) }
+        return viewing.isEmpty ? nil : .init(agentIds: viewing)
     }
 
     public func stop() {
@@ -107,8 +129,19 @@ public final class HostModel: Identifiable {
         return chat
     }
 
+    /// Which session takes what a screen on `tree` hands to a chat; `opener` is the agent whose chat opened it.
+    public func chatTarget(_ tree: String, opener: String?) -> ChatTarget {
+        let trees = workspace.projects.flatMap { $0.worktrees.map(\.path) }
+        return ChatTarget(ChatSession.on(tree, trees: trees, sessions.sessions.values.map(\.summary)), opener: opener)
+    }
+
     public func closeChat(_ agentId: String) {
         chats[agentId] = nil
+    }
+
+    /// Releases the chat stores of agents not in `open`, the chats left on a stack.
+    public func keepChats(_ open: Set<String>) {
+        for agentId in chats.keys where !open.contains(agentId) { chats[agentId] = nil }
     }
 
     private var stores: [any HostStore] {
@@ -125,6 +158,7 @@ public final class HostModel: Identifiable {
                 link = .online
                 offlineSince = nil
                 for store in stores { store.connected(ok) }
+                if let view = sceneView(front: ok.has(Caps.front)) { Task { [connection] in _ = try? await connection.send(.agentView(view)) } }
             case .message(let message):
                 route(message)
             case .terminal(let frame):
@@ -155,6 +189,16 @@ public final class HostModel: Identifiable {
             if let chat = chats[agentId] { taken = chat.apply(message) || taken }
         } else {
             for chat in chats.values { taken = chat.apply(message) || taken }
+        }
+        // After the chat has seen its session close, so it can say so.
+        switch message {
+        case .agentList:
+            agentsListed = true
+            for agentId in chats.keys where sessions.session(agentId) == nil { chats[agentId] = nil }
+        case .agentUpdate(let update) where update.agent.status == .closed:
+            chats[update.agent.id] = nil
+        default:
+            break
         }
         return taken
     }

@@ -112,6 +112,40 @@ struct ActivityModelTests {
         #expect(ActivityDisplay.link(mac: "m", top: needs.top).absoluteString == "anywhere://mac/m/agent/a")
     }
 
+    @Test("each Mac keeps the activity updated last, so a stale one beside it ends instead of saying the Mac is offline")
+    func oneActivityPerMac() {
+        let now = Date(timeIntervalSince1970: 1_761_300_000)
+        let extras = MacActivity.extras([
+            (id: "stale", mac: "studio", stale: true, staleDate: now.addingTimeInterval(-600)),
+            (id: "fresh", mac: "studio", stale: false, staleDate: now.addingTimeInterval(300)),
+            (id: "undated", mac: "studio", stale: false, staleDate: nil),
+            (id: "other", mac: "air", stale: true, staleDate: now.addingTimeInterval(-600)),
+        ], held: [])
+        #expect(extras == ["stale", "undated"])
+        #expect(MacActivity.extras([(id: "only", mac: "studio", stale: true, staleDate: now)], held: []).isEmpty)
+    }
+
+    @Test("of a Mac's current activities, the one pocketd holds the token of stays, whatever its stale date; a stale one never beats a current one")
+    func theHeldActivityStays() {
+        let now = Date(timeIntervalSince1970: 1_761_300_000)
+        let shown = [
+            (id: "held", mac: "studio", stale: false, staleDate: now),
+            (id: "later", mac: "studio", stale: false, staleDate: now.addingTimeInterval(300)),
+        ]
+        #expect(MacActivity.extras(shown, held: ["held"]) == ["later"])
+        let gone = [(id: "held", mac: "studio", stale: true, staleDate: now), (id: "new", mac: "studio", stale: false, staleDate: nil)]
+        #expect(MacActivity.extras(gone, held: ["held"]) == ["held"])
+    }
+
+    @Test("a stale activity, which nothing may update, gives way to a fresh start; a current one blocks it, and a renewal starts only in place of a stale one")
+    func aStaleActivityIsReplaced() {
+        #expect(MacActivity.replaced([(id: "s", stale: true)], renewing: false) == ["s"])
+        #expect(MacActivity.replaced([(id: "s", stale: true)], renewing: true) == ["s"])
+        #expect(MacActivity.replaced([(id: "s", stale: true), (id: "c", stale: false)], renewing: false) == nil)
+        #expect(MacActivity.replaced([], renewing: false) == [])
+        #expect(MacActivity.replaced([], renewing: true) == nil)
+    }
+
     @Test("titles the app saved name the top session; a slot it never saw reads as a session")
     func titles() throws {
         let suite = "dev.mingo.anywhere.tests.\(UUID().uuidString)"
