@@ -100,7 +100,7 @@ public struct DiffView: View {
                             lines: document.lines, pairs: document.pairs, digits: document.gutterDigits, rows: DrawnRows.range(b, count: rows.count),
                             layout: sideBySide ? nil : rows, gutter: gutter, wrap: wraps, sideBySide: sideBySide, column: column, minWidth: width,
                             scrollX: scrollX, rowHeight: rowHeight, spans: shown.spans, dark: scheme == .dark, picked: picked,
-                            handles: sideBySide ? nil : picked.map { handleRows($0, rows: rows) }, mark: mark,
+                            handles: sideBySide ? nil : pick.map { handleRows($0, rows: rows) }, mark: mark,
                             actions: actions(document.lines, rows: rows))
                     }
                 }
@@ -139,18 +139,22 @@ public struct DiffView: View {
             handleEnded: { handle = nil })
     }
 
-    private func handleRows(_ picked: ClosedRange<Int>, rows: CodeRows) -> (top: Int, bottom: Int) {
-        let top = handle.flatMap { $0.edge == .top ? $0.from : nil } ?? rows.first(of: picked.lowerBound)
-        let bottom = handle.flatMap { $0.edge == .bottom ? $0.from : nil } ?? rows.rows(of: picked.upperBound).upperBound - 1
+    private func handleRows(_ pick: LinePick, rows: CodeRows) -> (top: Int, bottom: Int) {
+        let top = handle.map { $0.edge == .top ? $0.from : rows.first(of: pick.anchor) } ?? rows.first(of: pick.lines.lowerBound)
+        let bottom = handle.map { $0.edge == .bottom ? $0.from : rows.rows(of: pick.anchor).upperBound - 1 }
+            ?? rows.rows(of: pick.lines.upperBound).upperBound - 1
         return (top, bottom)
     }
 
     private func moveHandle(_ edge: LinePick.Edge, by: Int, lines: [UnifiedLine], rows: CodeRows) {
         guard let picked = pick?.lines else { return }
         let from = handle?.from ?? (edge == .top ? rows.first(of: picked.lowerBound) : rows.rows(of: picked.upperBound).upperBound - 1)
-        if handle == nil { handle = (edge, from) }
+        if handle == nil {
+            handle = (edge, from)
+            pick?.grab(edge)
+        }
         let row = (from + by).clamped(to: 0...max(rows.count - 1, 0))
-        _ = pick?.move(edge, to: rows[row].line) { LinePick.sameHunk(lines, $0, $1) }
+        _ = pick?.drag(to: rows[row].line) { LinePick.sameHunk(lines, $0, $1) }
     }
 
     private func columns(_ gutter: CodeStyle.Gutter, width: CGFloat) -> Int {

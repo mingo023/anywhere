@@ -23,14 +23,10 @@ public struct LinePick: Hashable, Sendable {
         return true
     }
 
-    /// Moves one edge to `line`, keeping the other, as dragging a handle does; true when it moved.
-    public mutating func move(_ edge: Edge, to line: Int, allowed: (Int, Int) -> Bool = { _, _ in true }) -> Bool {
-        let kept = edge == .top ? lines.upperBound : lines.lowerBound
-        let moving = edge == .top ? lines.lowerBound : lines.upperBound
-        guard line != moving, allowed(kept, line) else { return false }
-        anchor = kept
-        end = line
-        return true
+    /// Takes hold of one edge, as a handle drag starts: the other becomes the anchor, so `drag` moves only this one,
+    /// even past the anchor and back.
+    public mutating func grab(_ edge: Edge) {
+        (anchor, end) = edge == .top ? (lines.upperBound, lines.lowerBound) : (lines.lowerBound, lines.upperBound)
     }
 
     /// Whether no hunk header sits between rows `a` and `b` of a diff, both included.

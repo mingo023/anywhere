@@ -176,6 +176,17 @@ struct CodeFindTests {
         let none = CodeFind("zz", in: ["a"])
         #expect(none.position == "No matches" && none.match == nil)
     }
+
+    @Test("a search run again over reloaded lines resumes at the first match from the old current one")
+    func resume() throws {
+        var old = CodeFind("a", in: ["a", "b a", "a"])
+        old.step(by: 2)
+        var find = CodeFind("a", in: ["a", "x", "b a a", "a"])
+        find.resume(at: try #require(old.match))
+        #expect(find.match == CodeFind.Match(line: 2, range: 2..<3))
+        find.resume(at: CodeFind.Match(line: 9, range: 0..<1))
+        #expect(find.position == "4 of 4")
+    }
 }
 
 @Suite("Picking lines")
@@ -199,18 +210,35 @@ struct LinePickTests {
     func handles() {
         var pick = LinePick(3)
         _ = pick.drag(to: 6)
-        let top = pick.move(.top, to: 1)
+        pick.grab(.top)
+        let top = pick.drag(to: 1)
         #expect(top && pick.lines == 1...6)
-        let bottom = [pick.move(.bottom, to: 4), pick.move(.bottom, to: 4)]
+        pick.grab(.bottom)
+        let bottom = [pick.drag(to: 4), pick.drag(to: 4)]
         #expect(bottom == [true, false] && pick.lines == 1...4)
+    }
+
+    @Test("a handle dragged past the other edge keeps that edge, there and back")
+    func crossing() {
+        var pick = LinePick(3)
+        _ = pick.drag(to: 6)
+        pick.grab(.top)
+        var seen: [ClosedRange<Int>] = []
+        for line in [8, 9, 5] {
+            _ = pick.drag(to: line)
+            seen.append(pick.lines)
+        }
+        #expect(seen == [6...8, 6...9, 5...6])
     }
 
     @Test("in a diff a pick stops at the edge of its hunk")
     func hunk() {
         var pick = LinePick(1)
         let sameHunk = { LinePick.sameHunk(diff, $0, $1) }
-        let moved = [pick.drag(to: 4, allowed: sameHunk), pick.drag(to: 6, allowed: sameHunk), pick.move(.top, to: 0, allowed: sameHunk)]
-        #expect(moved == [true, false, false])
+        let moved = [pick.drag(to: 4, allowed: sameHunk), pick.drag(to: 6, allowed: sameHunk)]
+        pick.grab(.top)
+        let top = pick.drag(to: 0, allowed: sameHunk)
+        #expect(moved == [true, false] && !top)
         #expect(pick.lines == 1...4)
     }
 

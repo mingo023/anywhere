@@ -44,5 +44,10 @@ public struct CodeFind: Sendable, Equatable {
         current = ((current + by) % matches.count + matches.count) % matches.count
     }
 
+    /// Makes current the first match at or after `match`, else the last, so searching reloaded lines stays in place.
+    public mutating func resume(at match: Match) {
+        current = matches.firstIndex { ($0.line, $0.range.lowerBound) >= (match.line, match.range.lowerBound) } ?? max(matches.count - 1, 0)
+    }
+
     public func ranges(in line: Int) -> [Range<Int>] { byLine[line] ?? [] }
 }

@@ -127,7 +127,7 @@ public struct CodeTextView: View {
         return CodeBlock(
             lines: loaded.lines, rows: rows, range: range, digits: lineNumbers ? loaded.lines.digits : nil, minWidth: width,
             wrap: wrap, scrollX: scrollX, rowHeight: rowHeight, size: size, spans: loaded.spans, dark: scheme == .dark, find: find,
-            picked: picked, handles: picked.map { handleRows($0, rows: rows) }, flash: flash.map { rows.rows(of: $0) }, mark: mark,
+            picked: picked, handles: pick.map { handleRows($0, rows: rows) }, flash: flash.map { rows.rows(of: $0) }, mark: mark,
             tapped: { tap(rows[$0]) },
             pressed: { row in
                 guard !rows[row].more else { return }
@@ -140,19 +140,23 @@ public struct CodeTextView: View {
     }
 
     /// The rows the pick's handles sit on: the top one's first row, the bottom one's last. A handle being dragged
-    /// stays on the row it started from and follows the finger by offset.
-    private func handleRows(_ picked: ClosedRange<Int>, rows: CodeRows) -> (top: Int, bottom: Int) {
-        let top = handle.flatMap { $0.edge == .top ? $0.from : nil } ?? rows.first(of: picked.lowerBound)
-        let bottom = handle.flatMap { $0.edge == .bottom ? $0.from : nil } ?? rows.rows(of: picked.upperBound).upperBound - 1
+    /// stays on the row it started from and follows the finger by offset; the other stays on the anchor.
+    private func handleRows(_ pick: LinePick, rows: CodeRows) -> (top: Int, bottom: Int) {
+        let top = handle.map { $0.edge == .top ? $0.from : rows.first(of: pick.anchor) } ?? rows.first(of: pick.lines.lowerBound)
+        let bottom = handle.map { $0.edge == .bottom ? $0.from : rows.rows(of: pick.anchor).upperBound - 1 }
+            ?? rows.rows(of: pick.lines.upperBound).upperBound - 1
         return (top, bottom)
     }
 
     private func moveHandle(_ edge: LinePick.Edge, by: Int, rows: CodeRows) {
         guard let picked = pick?.lines else { return }
         let from = handle?.from ?? (edge == .top ? rows.first(of: picked.lowerBound) : rows.rows(of: picked.upperBound).upperBound - 1)
-        if handle == nil { handle = (edge, from) }
+        if handle == nil {
+            handle = (edge, from)
+            pick?.grab(edge)
+        }
         let row = (from + by).clamped(to: 0...max(rows.count - 1, 0))
-        _ = pick?.move(edge, to: rows[row].line)
+        _ = pick?.drag(to: rows[row].line)
     }
 
     private func tap(_ row: CodeRows.Row) {
@@ -204,10 +208,13 @@ public struct CodeTextView: View {
         try? await Task.sleep(for: .milliseconds(150))
         guard !Task.isCancelled else { return }
         let (query, lines) = (query, loaded.lines.lines)
-        let found = await Task.detached(priority: .userInitiated) { CodeFind(query, in: lines) }.value
+        var found = await Task.detached(priority: .userInitiated) { CodeFind(query, in: lines) }.value
         guard !Task.isCancelled else { return }
+        // A live reload searches again; it keeps the current match and the scroll.
+        let reloaded = find?.query == query
+        if reloaded, let match = find?.match { found.resume(at: match) }
         find = found
-        reveal(found.match)
+        if !reloaded { reveal(found.match) }
     }
 
     private func step(_ by: Int) {
