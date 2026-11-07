@@ -144,6 +144,13 @@ func theInputKeepsToAboutFiveRowsWithTheKeyboardUp() {
     #expect(Composer.rows(height: 100) == 3)
 }
 
+@Test("a swipe down the transcript hides the keyboard, a nudge or a swipe up doesn't")
+func aSwipeDownTheTranscriptHidesTheKeyboard() {
+    #expect(Composer.hidesKeyboard(dragged: 40))
+    #expect(!Composer.hidesKeyboard(dragged: 8))
+    #expect(!Composer.hidesKeyboard(dragged: -200))
+}
+
 @Test("Stop pressed within a second of a send is ignored")
 func stopPressedWithinASecondOfASendIsIgnored() {
     #expect(Composer.guardsStop(sentAt: 10_000, now: 10_400))

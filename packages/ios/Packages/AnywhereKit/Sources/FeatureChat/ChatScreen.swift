@@ -17,17 +17,28 @@ struct ChatScreen: View {
     @State private var showing: String?
     /// Taps on the transcript, which close the suggest list.
     @State private var outsideTaps = 0
+    @FocusState private var typing: Bool
 
     var body: some View {
         let _ = BodyCount.hit("ChatScreen")
         GeometryReader { screen in
             VStack(spacing: 0) {
                 TranscriptView(store: store, showing: $showing, openLink: openLink)
-                    .simultaneousGesture(TapGesture().onEnded { outsideTaps += 1 })
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            outsideTaps += 1
+                            typing = false
+                        }
+                    )
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 6).onChanged { drag in
+                            if typing && Composer.hidesKeyboard(dragged: drag.translation.height) { typing = false }
+                        }
+                    )
                 if !store.online { StaleStrip(mac: machine) }
                 ComposerView(
                     store: store, machine: machine, height: screen.size.height, outsideTaps: outsideTaps, show: { showing = $0 }, mapOpen: $mapOpen,
-                    openLink: openLink)
+                    openLink: openLink, focused: $typing)
             }
             .coordinateSpace(name: ComposerView.space)
         }

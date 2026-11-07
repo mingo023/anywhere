@@ -22,7 +22,8 @@ struct ComposerView: View {
     let show: (String) -> Void
     @Binding var mapOpen: Bool
     let openLink: (MarkdownLink) -> Void
-    @FocusState private var focused: Bool
+    /// The input holds the keyboard; the chat screen lets it go on a tap or swipe down the transcript.
+    var focused: FocusState<Bool>.Binding
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @State private var keyboard = HardwareKeyboard.attached
@@ -128,7 +129,7 @@ struct ComposerView: View {
                 .lineLimit(1...Composer.rows(height: Double(height)))
                 .font(ChatFont.bubble)
                 .textFieldStyle(.plain)
-                .focused($focused)
+                .focused(focused)
                 .disabled(store.armed)
                 .padding(.horizontal, 4)
                 .padding(.top, 4)
