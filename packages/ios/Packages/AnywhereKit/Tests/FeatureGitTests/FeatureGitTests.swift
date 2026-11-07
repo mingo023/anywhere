@@ -55,6 +55,33 @@ import Wire
     #expect(!GitHead(s).commitAll)
 }
 
+@Test func push_forces_only_over_a_rewritten_branch_and_only_when_the_mac_allows_it() {
+    var s = Sample.gitStatus(files: 1)
+    s.unpulled = 3
+    #expect(GitHead(s).forceReplaces == nil)
+    s.forceWithLease = true
+    #expect(GitHead(s).forceReplaces == 3)
+    s.unpulled = 0
+    #expect(GitHead(s).forceReplaces == nil)
+    s.unpulled = 3
+    s.unpushed = 0
+    #expect(GitHead(s).forceReplaces == nil)
+    s.unpushed = nil
+    s.unpulled = nil
+    #expect(GitHead(s).forceReplaces == nil)
+}
+
+@Test func the_force_push_confirm_names_the_branch_what_it_replaces_and_the_remote() {
+    var s = Sample.gitStatus(files: 1)
+    s.forceWithLease = true
+    #expect(GitText.forcePush(GitHead(s)) == nil)
+    s.unpulled = 1
+    #expect(GitText.forcePush(GitHead(s))! == ("Force push calm-otter?", "Replaces 1 commit on origin."))
+    s.unpulled = 4
+    s.upstream = "fork/team/calm-otter"
+    #expect(GitText.forcePush(GitHead(s))! == ("Force push calm-otter?", "Replaces 4 commits on fork."))
+}
+
 @Test func stage_all_carries_its_count_and_says_so_while_it_runs() {
     #expect(GitText.stageAll(.changes, count: 12, bulk: nil) == "Stage All 12")
     #expect(GitText.stageAll(.staged, count: 3, bulk: nil) == "Unstage All 3")

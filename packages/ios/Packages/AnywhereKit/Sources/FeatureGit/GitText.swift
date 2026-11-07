@@ -46,6 +46,13 @@ enum GitText {
         return unpushed > 0 ? "Push \(unpushed)" : nil
     }
 
+    /// The confirm before a Push that replaces commits on the remote, the one the upstream is on; nil when Push needs none.
+    nonisolated static func forcePush(_ head: GitHead) -> (title: String, message: String)? {
+        guard let n = head.forceReplaces, let branch = head.branch else { return nil }
+        let remote = head.upstream.flatMap { $0.split(separator: "/", maxSplits: 1).first }.map(String.init) ?? "the remote"
+        return ("Force push \(branch)?", "Replaces \(n) commit\(n == 1 ? "" : "s") on \(remote).")
+    }
+
     /// "Pull 3" when the upstream has commits this branch lacks; a plain Pull from a pocketd that doesn't count them.
     nonisolated static func pull(_ head: GitHead) -> String? {
         guard head.upstream != nil else { return nil }
