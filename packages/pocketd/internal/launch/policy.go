@@ -17,6 +17,10 @@ func Check(w Who, s proto.LaunchSpec, maxAccess string) *Failure {
 	if s.Access == "settings" {
 		return fail("access_not_allowed", "Only your Mac starts agents with their own settings")
 	}
+	// A Full ceiling lets the phone switch a running agent to Full, never start one on it.
+	if s.Access == "full" {
+		return fail("access_not_allowed", "Full access starts only from your Mac")
+	}
 	return ceiling(s.Access, maxAccess)
 }
 

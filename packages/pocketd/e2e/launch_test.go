@@ -124,7 +124,7 @@ func TestOwnerSetsPhoneAccessAndThePhoneIsRefusedAbove(t *testing.T) {
 		t.Fatalf("got %s", e.Raw)
 	}
 	create(p, "r2", inRepo(h, map[string]any{"access": "full"}))
-	if e := reply(p, "agent.creating", "error"); e.Message != "On your Mac: ⌘K → Phone access level" {
+	if e := reply(p, "agent.creating", "error"); e.Message != "Full access starts only from your Mac" {
 		t.Fatalf("got %s", e.Raw)
 	}
 	if _, code := h.Pocketd("config", "set", "phone.maxAccess", "auto"); code != 0 {
