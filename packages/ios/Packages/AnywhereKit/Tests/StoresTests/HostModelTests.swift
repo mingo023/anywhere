@@ -96,6 +96,17 @@ struct HostModelTests {
         #expect(HostModel.sceneView(active: true, viewing: [], front: false) == nil)
     }
 
+    @Test("a hello while the app is in the background still says so, with nothing viewed")
+    func helloInBackground() {
+        let h = host()
+        h.apply([.connected(Sample.hello)])
+        h.chat("a1").appear()
+        #expect(h.sceneView(front: true) == .init(agentIds: ["a1"], front: true))
+        h.scene(active: false)
+        #expect(h.sceneView(front: true) == .init(agentIds: [], front: false))
+        #expect(h.sceneView(front: false) == .init(agentIds: []))
+    }
+
     @Test("a message no store takes is reported as untaken")
     func untaken() {
         let h = host()
