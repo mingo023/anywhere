@@ -267,7 +267,8 @@ func (s *Service) Status(ctx context.Context, tree string) Status {
 }
 
 // PR is tree's PR: the cached one while it is fresh for a watched tree, else
-// gh is asked now. With Failed, a PR is the last one gh reported, now stale.
+// gh is asked now. With Failed, a PR is the last one gh reported, now stale,
+// and gh is asked again at once, as a phone's Retry expects.
 func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 	now := s.now()
 	s.mu.Lock()
@@ -278,7 +279,7 @@ func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 	}
 	s.mu.Unlock()
 	switch {
-	case had && now.Sub(a.at) < WatchedEvery:
+	case had && a.problem != Failed && now.Sub(a.at) < WatchedEvery:
 		return wire(a.pr), a.problem
 	case problem != "" && !had:
 		return nil, problem

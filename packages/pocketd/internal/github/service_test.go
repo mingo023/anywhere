@@ -252,6 +252,25 @@ func TestAGhFailureKeepsTheLastPRMarkedStaleAndWithoutOneSaysSo(t *testing.T) {
 	}
 }
 
+func TestRetryingAfterAGhFailureAsksGhAgainAtOnce(t *testing.T) {
+	f := newFake(t)
+	f.put("view.err", "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com\n")
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	c := &clock{at: time.Now()}
+	s.now = c.now
+	if _, problem := s.PR(ctx(t), tree); problem != Failed {
+		t.Fatalf("%q", problem)
+	}
+	f.drop("view.err")
+	f.put("view.json", fixture(t, "open.json"))
+	f.put("threads.json", fixture(t, "threads.json"))
+	c.add(time.Second)
+	if pr, problem := s.PR(ctx(t), tree); pr == nil || problem != "" {
+		t.Fatalf("%v %q", pr, problem)
+	}
+}
+
 func TestATreeWithoutAGitHubRemoteSaysSoAndLeavesTheOthersAlone(t *testing.T) {
 	f := newFake(t)
 	f.put("view.err", "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`\n")
