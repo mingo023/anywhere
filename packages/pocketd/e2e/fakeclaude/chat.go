@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -23,7 +24,13 @@ import (
 //	hang         stay in the turn until interrupted
 //	bg <cmd>     run a Bash tool in the background, then go on as slow
 //	agent <d>    start a sub-agent in the background, then go on as slow
+//	<anywhere_team_assignment …>  do each "write <path> <text>" and "run <cmd>" line, then echo it
 //	/compact     compact
+//
+// A user line with a uuid gets command_lifecycle lines about it, each noted
+// as "<state>: <text>": queued when read, then completed when its turn ends,
+// or cancelled when a stop ends its turn or an interrupt with cancel_queued
+// drops it while it waits. Such an interrupt drops every waiting prompt.
 //
 // Like claude, a bogus model fails each turn rather than the start.
 type chatter struct {
@@ -45,28 +52,33 @@ func chat() {
 	}
 	c.s.hook("SessionStart", map[string]any{"source": "startup", "model": c.model})()
 	note("fake claude ready")
-	prompts := make(chan string, 16)
+	prompts := make(chan message, 16)
 	go c.read(prompts)
-	for text := range prompts {
-		c.turn(text)
+	for m := range prompts {
+		c.turn(m)
 	}
 }
 
+// message is a user line pocketd sent; claude reports on one with a uuid.
+type message struct{ text, uuid string }
+
 func note(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) }
 
-func (c *chatter) read(prompts chan<- string) {
+func (c *chatter) read(prompts chan message) {
 	defer close(prompts)
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
 		var l struct {
 			Type      string `json:"type"`
+			UUID      string `json:"uuid"`
 			RequestID string `json:"request_id"`
 			Request   struct {
-				Subtype  string         `json:"subtype"`
-				TaskID   string         `json:"task_id"`
-				Model    string         `json:"model"`
-				Settings map[string]any `json:"settings"`
+				Subtype      string         `json:"subtype"`
+				TaskID       string         `json:"task_id"`
+				Model        string         `json:"model"`
+				Settings     map[string]any `json:"settings"`
+				CancelQueued bool           `json:"cancel_queued"`
 			} `json:"request"`
 			Response map[string]any `json:"response"`
 			Message  struct {
@@ -78,7 +90,9 @@ func (c *chatter) read(prompts chan<- string) {
 		}
 		switch l.Type {
 		case "user":
-			prompts <- l.Message.Content
+			m := message{l.Message.Content, l.UUID}
+			c.lifecycle(m, "queued")
+			prompts <- m
 		case "control_response":
 			id, _ := l.Response["request_id"].(string)
 			c.mu.Lock()
@@ -101,6 +115,10 @@ func (c *chatter) read(prompts chan<- string) {
 				note("stop_task: %s", l.Request.TaskID)
 			case "interrupt":
 				note("interrupt")
+				// Before the stop: the turn it ends must not take a dropped prompt first.
+				if l.Request.CancelQueued {
+					c.dropQueued(prompts)
+				}
 				select {
 				case c.stop <- struct{}{}:
 				default:
@@ -111,13 +129,35 @@ func (c *chatter) read(prompts chan<- string) {
 	}
 }
 
+// lifecycle reports state of m, as claude does for a line with a uuid.
+func (c *chatter) lifecycle(m message, state string) {
+	if m.uuid == "" {
+		return
+	}
+	note("%s: %s", state, m.text)
+	c.send(map[string]any{"type": "command_lifecycle", "command_uuid": m.uuid, "state": state})
+}
+
+// dropQueued cancels the prompts waiting for a turn.
+func (c *chatter) dropQueued(prompts chan message) {
+	for {
+		select {
+		case m := <-prompts:
+			c.lifecycle(m, "cancelled")
+		default:
+			return
+		}
+	}
+}
+
 func (c *chatter) send(v any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.out.Encode(v)
 }
 
-func (c *chatter) turn(text string) {
+func (c *chatter) turn(m message) {
+	text := m.text
 	c.mu.Lock()
 	model := c.model
 	c.mu.Unlock()
@@ -131,7 +171,7 @@ func (c *chatter) turn(text string) {
 	c.s.write(user(text))
 	c.next++
 	id := fmt.Sprintf("toolu_%d", c.next)
-	failed := false
+	failed, cancelled := false, false
 	switch {
 	case model == "bogus":
 		a := assistant(map[string]any{"type": "text", "text": "There's an issue with the selected model (bogus)."})
@@ -144,6 +184,8 @@ func (c *chatter) turn(text string) {
 		time.Sleep(300 * time.Millisecond)
 		c.s.hook("SessionStart", map[string]any{"source": "compact", "model": model})()
 		note("compacted")
+	case strings.HasPrefix(text, "<anywhere_team_assignment"):
+		failed = c.assignment(model, text)
 	case strings.HasPrefix(text, "run "):
 		failed = c.run(model, id, strings.TrimPrefix(text, "run "))
 	case strings.HasPrefix(text, "ask "):
@@ -151,15 +193,18 @@ func (c *chatter) turn(text string) {
 	case strings.HasPrefix(text, "bg "):
 		c.background(model, id, strings.TrimPrefix(text, "bg "))
 		failed = c.slow(model, "done")
+		cancelled = failed
 	case strings.HasPrefix(text, "agent "):
 		c.backgroundAgent(model, id, strings.TrimPrefix(text, "agent "))
 		failed = c.slow(model, "done")
+		cancelled = failed
 	case strings.HasPrefix(text, "slow "):
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
+		cancelled = failed
 	case text == "hang":
 		<-c.stop
 		c.s.write(user("[Request interrupted by user]"))
-		failed = true
+		failed, cancelled = true, true
 	default:
 		c.reply(model, text)
 	}
@@ -167,12 +212,26 @@ func (c *chatter) turn(text string) {
 	if !failed {
 		c.s.write(map[string]any{"type": "system", "subtype": "stop_hook_summary", "hookCount": 1})
 	}
+	if cancelled {
+		c.lifecycle(m, "cancelled")
+	} else {
+		c.lifecycle(m, "completed")
+	}
 	c.send(map[string]any{"type": "result", "subtype": "success", "is_error": failed, "session_id": c.s.id})
 }
 
 // run asks to run cmd as claude does: the PermissionRequest hook fires too,
 // but the answer comes through the stream.
 func (c *chatter) run(model, id, cmd string) (failed bool) {
+	failed, ran := c.call(id, cmd)
+	if ran {
+		c.reply(model, "ran "+cmd)
+	}
+	return failed
+}
+
+// call is run without its reply: whether the turn failed, and whether cmd ran.
+func (c *chatter) call(id, cmd string) (failed, ran bool) {
 	input := map[string]any{"command": cmd}
 	c.s.write(assistant(map[string]any{"type": "tool_use", "id": id, "name": "Bash", "input": input}))
 	hook := c.s.hook("PermissionRequest", map[string]any{"tool_name": "Bash", "tool_input": input})
@@ -186,12 +245,35 @@ func (c *chatter) run(model, id, cmd string) (failed bool) {
 		c.s.write(toolResult(id, msg, true))
 		if d["interrupt"] == true {
 			c.s.write(user("[Request interrupted by user for tool use]"))
-			return true
+			return true, false
 		}
-		return false
+		return false, false
 	}
 	c.s.write(toolResult(id, "ran: "+cmd, false))
-	c.reply(model, "ran "+cmd)
+	return false, true
+}
+
+// assignment does a team worker's instructions line by line: "write <path>
+// <text>" writes text to path in its folder, "run <cmd>" runs cmd as run does.
+// Then it echoes the assignment, its summary.
+func (c *chatter) assignment(model, text string) (failed bool) {
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(line, "write "):
+			path, body, _ := strings.Cut(strings.TrimPrefix(line, "write "), " ")
+			if err := os.WriteFile(filepath.Join(c.s.cwd, path), []byte(body+"\n"), 0o644); err != nil {
+				note("write %s: %v", path, err)
+				return true
+			}
+		case strings.HasPrefix(line, "run "):
+			c.next++
+			// No reply: the timeline joins texts with no tool between them, and the echo below is the summary.
+			if failed, _ := c.call(fmt.Sprintf("toolu_%d", c.next), strings.TrimPrefix(line, "run ")); failed {
+				return true
+			}
+		}
+	}
+	c.reply(model, text)
 	return false
 }
 

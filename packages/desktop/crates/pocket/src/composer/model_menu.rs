@@ -99,7 +99,7 @@ pub(crate) fn effort_rows(id: &'static str, levels: &[String], on: Option<&Strin
 }
 
 /// The agent's listed name for the model, else the model's label.
-fn model_name(model: &str, names: &[ListedModel]) -> String {
+pub(crate) fn model_name(model: &str, names: &[ListedModel]) -> String {
     names.iter().find(|m| m.value == model).map_or_else(|| model_label(model), |m| m.name.clone())
 }
 

@@ -72,6 +72,8 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
     /// Run without its TUI: only the chat drives it.
     public var chatOnly: Bool?
     public var goal: Goal?
+    /// The agent this one was started under, as a team's worker under its lead.
+    public var parent: String?
 
     public init(
         id: String, terminalId: String, title: String, cwd: String, provider: String, model: String? = nil, effort: String? = nil,
@@ -79,7 +81,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         compacting: Bool? = nil, pinned: Bool? = nil, epoch: Int, maxSeq: Int, resets: Int? = nil, providerSessionId: String? = nil,
         createdAt: Int, updatedAt: Int, project: String? = nil, worktree: String? = nil, mainWorktree: Bool? = nil, branch: String? = nil,
         tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
-        switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil
+        switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil, parent: String? = nil
     ) {
         self.id = id
         self.terminalId = terminalId
@@ -113,6 +115,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         self.switching = switching
         self.chatOnly = chatOnly
         self.goal = goal
+        self.parent = parent
     }
 }
 
@@ -249,9 +252,12 @@ extension ClientMessage {
     public struct AgentText: Codable, Hashable, Sendable {
         public var agentId: String
         public var text: String
-        public init(agentId: String, text: String) {
+        /// agent.prompt only: the agent plans the text as a team's lead.
+        public var team: Bool?
+        public init(agentId: String, text: String, team: Bool? = nil) {
             self.agentId = agentId
             self.text = text
+            self.team = team
         }
     }
 

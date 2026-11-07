@@ -114,7 +114,8 @@ func (x *codexChat) Notify(method string, params json.RawMessage) {
 		ThreadID string       `json:"threadId"`
 		Status   threadStatus `json:"status"`
 		Turn     struct {
-			ID string `json:"id"`
+			ID     string `json:"id"`
+			Status string `json:"status"`
 		} `json:"turn"`
 		Goal    codexGoal `json:"goal"`
 		Success bool      `json:"success"`
@@ -142,6 +143,13 @@ func (x *codexChat) Notify(method string, params json.RawMessage) {
 				x.turn = ""
 			}
 			x.mu.Unlock()
+			if method == "turn/completed" && p.Turn.ID != "" {
+				x.d.settle(x.pr.a.ID(), p.Turn.ID, p.Turn.Status == "completed")
+				// A stop sent it back; a failed turn's mail waits for the next turn, so a failing model doesn't spin.
+				if p.Turn.Status == "interrupted" {
+					x.d.Pump(x.pr.a.ID())
+				}
+			}
 		}
 	}
 	x.s.Notify(method, params)
@@ -245,7 +253,7 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 
 	// A turn that ended while no pocketd listened ends now; a new thread's idle is no turn end.
 	st := r.Thread.Status
-	if status := pr.a.Summary().Status; st.Type == "active" || status == "working" || status == "needsYou" {
+	if status := pr.a.Turn(); st.Type == "active" || status == "working" || status == "needsYou" {
 		d.codexStatus(pr, st.Type, st.ActiveFlags)
 	}
 	d.resumed(pr, thread)
@@ -454,6 +462,42 @@ func (c codexChatDriver) Prompt(text string) error {
 		return err
 	}
 	return x.prompt(text)
+}
+
+// Deliver steers the turn under way, or starts one; the turn's id is the ref.
+func (c codexChatDriver) Deliver(text string) (string, error) {
+	if !c.inForeground() {
+		return "", errNotForeground
+	}
+	if err := c.x.usable(); err != nil {
+		return "", err
+	}
+	input := []map[string]any{{"type": "text", "text": text}}
+	c.x.mu.Lock()
+	turn := c.x.turn
+	c.x.mu.Unlock()
+	if turn != "" {
+		res, err := c.x.call("turn/steer", map[string]any{"expectedTurnId": turn, "input": input})
+		if err != nil {
+			return "", err
+		}
+		var r struct {
+			TurnID string `json:"turnId"`
+		}
+		json.Unmarshal(res, &r)
+		return r.TurnID, nil
+	}
+	res, err := c.x.call("turn/start", map[string]any{"input": input})
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	json.Unmarshal(res, &r)
+	return r.Turn.ID, nil
 }
 
 func (c codexChatDriver) Interrupt() error {

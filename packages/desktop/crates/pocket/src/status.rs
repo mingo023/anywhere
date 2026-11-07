@@ -66,6 +66,8 @@ pub struct Card {
     pub pinned: bool,
     /// The account it runs on; empty is the built-in login.
     pub account: String,
+    /// The session it was started under; empty for none.
+    pub parent: String,
 }
 
 /// An agent's card, placed by the folder its terminal started in.
@@ -75,7 +77,7 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         id: a.id.clone(),
         provider: a.provider.clone(),
         model: model(a),
-        title: if a.title.is_empty() { "New session".into() } else { a.title.clone() },
+        title: title(a),
         cwd: cwd.to_string(),
         local: String::new(),
         at: a.updated_at,
@@ -85,7 +87,13 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         notice: notice(a),
         pinned: a.pinned,
         account: a.shown_account().to_string(),
+        parent: a.parent.clone(),
     }
+}
+
+/// The title a session shows: its own, else "New session".
+pub fn title(a: &Summary) -> String {
+    if a.title.is_empty() { "New session".into() } else { a.title.clone() }
 }
 
 /// "Opus 5.5 · high": the model, else the provider, then the effort it was started with.

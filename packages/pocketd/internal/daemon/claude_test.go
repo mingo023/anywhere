@@ -327,6 +327,18 @@ func TestAnAskIsOpenWhileAPermissionHookWaits(t *testing.T) {
 	eventually(t, "ask closed", func() bool { return !d.AskOpen(id) })
 }
 
+func TestAnAskTheBrokerAllowsByItselfNeverShowsTheAgentNeedingYou(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	var statuses []string
+	d.Agents.OnStatus = func(_, _, _, to string) { statuses = append(statuses, to) }
+	d.Broker.Allow = func(req proto.PermissionRequest) bool { return req.Detail.Command == "ls" }
+	out := hookFrom(d, pr, `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}`)
+	if !strings.Contains(string(out), `"behavior":"allow"`) || slices.Contains(statuses, "needsYou") || len(d.Broker.Open()) != 0 {
+		t.Fatalf("out %s, statuses %v, open %v", out, statuses, d.Broker.Open())
+	}
+}
+
 func TestNearestClaudeOwnsTheHook(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -1740,5 +1752,14 @@ func TestRetitleLeavesATranscriptOutsideClaudesProjectsAlone(t *testing.T) {
 	d.Retitle(func(terminal.Info) bool { return true }, "Fix login")
 	if raw, _ := os.ReadFile(path); strings.Contains(string(raw), "custom-title") {
 		t.Fatalf("%s", raw)
+	}
+}
+
+func TestAWaitForTheUserBetweenTurnsIsNoOpenAsk(t *testing.T) {
+	d := newDaemon(t)
+	term, pr := claudeIn(t, d)
+	pr.a.SetAwaiting(true)
+	if s := pr.a.Summary().Status; s != "needsYou" || d.AskOpen(term.Info().ID) {
+		t.Fatalf("status %q, ask open %t", s, d.AskOpen(term.Info().ID))
 	}
 }

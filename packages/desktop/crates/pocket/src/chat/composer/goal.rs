@@ -68,7 +68,7 @@ impl Desktop {
         let send = |text: &'static str| {
             let agent = agent.id.clone();
             cx.listener(move |this, _: &ClickEvent, _, cx| {
-                _ = this.outbox.prompt(&agent, text);
+                _ = this.outbox.prompt(&agent, text, false);
                 close_menu(this, cx);
             })
         };

@@ -12,6 +12,7 @@ import (
 
 	"pocketd/internal/broker"
 	"pocketd/internal/proto"
+	"pocketd/internal/teamrules"
 	"pocketd/internal/timeline"
 )
 
@@ -389,7 +390,7 @@ func (s *Session) started(it item, parent string) {
 				parts = append(parts, c.Text)
 			}
 		}
-		s.apply(parent, timeline.Event{Kind: "user", Text: strings.Join(parts, "\n")})
+		s.apply(parent, timeline.Event{Kind: "user", Text: teamrules.Strip(strings.Join(parts, "\n"))})
 	case "commandExecution", "fileChange", "mcpToolCall", "webSearch":
 		name, detail := tool(it)
 		s.details[it.ID] = detail
@@ -488,7 +489,12 @@ func (s *Session) Request(id json.RawMessage, method string, params json.RawMess
 }
 
 func (s *Session) ask(id json.RawMessage, name string, detail proto.ToolDetail) {
-	switch s.broker.Ask(s.ctx, proto.PermissionRequest{AgentID: s.agentID, ToolName: name, Detail: detail}, s.key(id)).Decision {
+	req := proto.PermissionRequest{AgentID: s.agentID, ToolName: name, Detail: detail}
+	if s.broker.Auto(req) {
+		s.c.Reply(id, map[string]string{"decision": "accept"})
+		return
+	}
+	switch s.broker.Ask(s.ctx, req, s.key(id)).Decision {
 	case "allow":
 		s.c.Reply(id, map[string]string{"decision": "accept"})
 	case "deny":

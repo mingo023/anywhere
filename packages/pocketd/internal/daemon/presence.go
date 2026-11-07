@@ -83,6 +83,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 		return c
 	}
 	origin := t.TakeOrigin()
+	parent := t.TakeParent()
 	h := d.adopt(pr, driver)
 	if h != nil {
 		pr.a = h.a
@@ -106,6 +107,9 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	}
 	if origin != "" {
 		pr.a.SetOrigin(origin)
+	}
+	if parent != "" {
+		pr.a.SetParent(parent)
 	}
 	d.place(pr)
 	d.mu.Lock()
@@ -376,8 +380,8 @@ func (pr *presence) save(e *state.Terminal) {
 	e.TranscriptPath = pr.transcript
 	pr.mu.Unlock()
 	e.Provider, e.ConversationID, e.Launch = pr.provider, s.ProviderSessionID, &launch
-	e.AgentID, e.CreatedAt, e.Status, e.Failed, e.Origin, e.Pinned = s.ID, s.CreatedAt, s.Status, s.Failed, s.Origin, s.Pinned
-	e.Account, e.Typed, e.Chat = s.Account, pr.typed, pr.stream != nil
+	e.AgentID, e.CreatedAt, e.Status, e.Failed, e.Origin, e.Pinned = s.ID, s.CreatedAt, pr.a.Turn(), s.Failed, s.Origin, s.Pinned
+	e.Account, e.Typed, e.Chat, e.Parent = s.Account, pr.typed, pr.stream != nil, s.Parent
 }
 
 // endAgent ends pr once; the poller and a hook's observe can both find it gone.
@@ -410,6 +414,8 @@ func (d *Daemon) endAgent(pr *presence) {
 		pr.unfollow()
 	}
 	pr.mu.Unlock()
+	// The session took the turns that showed its mail with it.
+	d.settle(pr.a.ID(), "", false)
 	if moving {
 		return
 	}

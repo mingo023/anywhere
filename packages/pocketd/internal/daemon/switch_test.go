@@ -445,3 +445,18 @@ func TestWithSwitchingAtALimitOffTheAgentStays(t *testing.T) {
 
 	noAsk(t, asks, "moved with switching off")
 }
+
+func TestAWaitForTheUserBetweenTurnsDoesntHoldASwitchButAnAskDoes(t *testing.T) {
+	a := newDaemon(t).Agents.Add("a1", "/w", "claude", nil)
+	a.SetAttached(true)
+	a.SetConversation("c1")
+	a.SetAwaiting(true)
+	if movable(a.Summary(), "b") || !movable(between(a), "b") {
+		t.Fatalf("awaiting: status %q, turn %q", a.Summary().Status, a.Turn())
+	}
+	a.Working()
+	a.NeedsYou()
+	if movable(between(a), "b") {
+		t.Fatal("an open ask let the switch through")
+	}
+}

@@ -1,0 +1,40 @@
+{
+  "type": "team.update",
+  "team": {
+    "lead": "a1",
+    "state": "proposed",
+    "tasks": [
+      {
+        "id": "t1",
+        "title": "Add truncate",
+        "agent": "claude",
+        "files": [
+          "src/truncate.js",
+          "test/truncate.test.js"
+        ],
+        "after": [],
+        "allow": [
+          "npm test"
+        ],
+        "instructions": "Write truncate(text, n) and its test",
+        "state": "planned"
+      },
+      {
+        "id": "t2",
+        "title": "Export truncate",
+        "agent": "codex",
+        "model": "gpt-6.1-sol",
+        "files": [
+          "src/index.js"
+        ],
+        "after": [
+          "t1"
+        ],
+        "allow": [],
+        "instructions": "Export truncate from src/index.js",
+        "state": "planned"
+      }
+    ],
+    "updatedAt": 1790000000000
+  }
+}

@@ -1,6 +1,9 @@
 pub mod automations;
 pub mod locals;
 pub mod providers;
+pub mod team;
+
+pub use team::{TaskPick, Team, TeamAction, TeamTask};
 
 use automations::{Automation, AutomationDraft, Automations, Run};
 use locals::Local;
@@ -54,6 +57,8 @@ pub struct Summary {
     pub chat_only: bool,
     /// What `/goal` set it working toward; none when no goal is set.
     pub goal: Option<Goal>,
+    /// The session it was started under, as a team's worker under its lead; empty for none.
+    pub parent: String,
 }
 
 /// An agent's `/goal`.
@@ -366,6 +371,8 @@ struct Frame {
     #[serde(deserialize_with = "automations::known")]
     automations: Vec<Automation>,
     runs: Vec<Run>,
+    team: Option<Team>,
+    teams: Vec<Team>,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -435,6 +442,12 @@ pub enum Event {
     Mcp { agent: String, servers: Result<Vec<McpServer>, String>, auth_url: String, acted: bool },
     /// pocketd couldn't act on one of the agent's MCP servers; `reason` says why.
     McpActFailed { agent: String, reason: String },
+    /// A lead's team changed.
+    Team(Team),
+    /// Every team one pocketd holds, sent whole.
+    Teams(Vec<Team>),
+    /// pocketd refused a team request from `lead`'s chat, or the socket never took it; `message` says why.
+    TeamFailed { lead: String, action: TeamAction, message: String },
 }
 
 #[derive(Default)]
@@ -459,6 +472,8 @@ pub struct Agents {
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
     pub automations: Automations,
+    /// Each team by its lead's id, from `team.list` and `team.update`.
+    pub teams: HashMap<String, Team>,
 }
 
 impl Agents {
@@ -468,6 +483,10 @@ impl Agents {
 
     pub fn revision(&self, id: &str) -> u64 {
         self.revisions.get(id).copied().unwrap_or_default()
+    }
+
+    pub fn team(&self, lead: &str) -> Option<&Team> {
+        self.teams.get(lead)
     }
 
     pub fn in_terminal(&self, terminal: &str) -> Option<&Summary> {
@@ -486,6 +505,7 @@ impl Agents {
     /// Drops all that host `source` sent, once it's taken off this Mac.
     pub fn forget(&mut self, source: &str) {
         self.apply_from(Some(source), Event::Agents(Vec::new()));
+        self.apply_from(Some(source), Event::Teams(Vec::new()));
         self.apply_from(Some(source), Event::Connected { scopes: Vec::new(), caps: Vec::new(), version: String::new() });
         self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
     }
@@ -550,7 +570,12 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
-            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
+            Event::Team(t) => team::keep(&mut self.teams, t),
+            Event::Teams(list) => {
+                self.teams.retain(|lead, _| !mine(lead) || list.iter().any(|t| &t.lead == lead));
+                list.into_iter().for_each(|t| team::keep(&mut self.teams, t));
+            }
+            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } => {}
         }
     }
 
@@ -654,6 +679,11 @@ impl Agents {
     /// pocketd switches a chat agent's access.
     pub fn access_offered(&self) -> bool {
         self.caps.iter().any(|c| c == ACCESS_CAP) && !self.observe_only()
+    }
+
+    /// pocketd plans and runs teams for this owner.
+    pub fn teams_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == TEAM_CAP) && !self.observe_only()
     }
 
     /// Shows a rename before pocketd echoes it; a blank title clears the name.
@@ -811,6 +841,8 @@ const BTW: &str = "btw-";
 const MCP: &str = "mcp-";
 const MCP_ACT: &str = "mcpact-";
 const INTERRUPT: &str = "interrupt-";
+const TEAMS: &str = "teams";
+const TEAM: &str = "team-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
 
@@ -818,6 +850,10 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 
 fn auto_id() -> String {
     format!("{AUTO}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn team_id() -> String {
+    format!("{TEAM}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 fn launch_event(f: &Frame) -> Option<Event> {
@@ -865,6 +901,7 @@ const FORK_CAP: &str = "fork.v1";
 const ACCOUNTS_CAP: &str = "accounts.v1";
 const SETTINGS_CAP: &str = "settings.v1";
 const ACCESS_CAP: &str = "access.v1";
+const TEAM_CAP: &str = "team.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
@@ -872,6 +909,18 @@ fn automation_event(f: &Frame) -> Option<Event> {
         "error" if f.id.starts_with(AUTO) => Some(Event::AutomationError(readable(&f.message))),
         _ => None,
     }
+}
+
+fn team_event(f: &Frame) -> Option<Event> {
+    match f.kind.as_str() {
+        "team.update" => f.team.clone().map(Event::Team),
+        "team.list" => Some(Event::Teams(f.teams.clone())),
+        _ => None,
+    }
+}
+
+fn team_list_request() -> Value {
+    json!({"type": "team.list", "id": TEAMS})
 }
 
 /// `events` with each run of items for the same chat as one, so a burst of streamed drafts redraws once.
@@ -919,10 +968,14 @@ impl Outbox {
         self.send(json!({"type": "agent.pin", "id": "pin", "agentId": agent_id, "pinned": pinned}));
     }
 
-    /// Types `text` into the agent's terminal and presses Enter; returns the request id a refusal names.
-    pub fn prompt(&self, agent_id: &str, text: &str) -> String {
+    /// Types `text` into the agent's terminal and presses Enter; `team` asks it for a team plan. Returns the request id a refusal names.
+    pub fn prompt(&self, agent_id: &str, text: &str, team: bool) -> String {
         let id = format!("{PROMPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
-        self.send(json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text}));
+        let mut msg = json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text});
+        if team {
+            msg["team"] = true.into();
+        }
+        self.send(msg);
         id
     }
 
@@ -1060,6 +1113,25 @@ impl Outbox {
         self.send(json!({"type": "automation.run", "id": auto_id(), "automationId": automation_id}));
     }
 
+    /// Asks for every team pocketd holds; `Event::Teams` answers. Each connect asks on its own.
+    pub fn team_list(&self) {
+        self.send(team_list_request());
+    }
+
+    /// Starts `lead`'s team with the tasks kept; a task left out is removed.
+    pub fn team_start(&self, lead: &str, tasks: &[TaskPick]) {
+        self.send(json!({"type": "team.start", "id": team_id(), "lead": lead, "tasks": tasks}));
+    }
+
+    pub fn team_stop(&self, lead: &str, task: &str) {
+        self.send(json!({"type": "team.stop", "id": team_id(), "lead": lead, "task": task}));
+    }
+
+    /// Merges each task's branch into the lead's checkout.
+    pub fn team_merge(&self, lead: &str) {
+        self.send(json!({"type": "team.merge", "id": team_id(), "lead": lead}));
+    }
+
     fn send(&self, m: Value) {
         let _ = self.0.send(m);
     }
@@ -1090,7 +1162,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 15] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1"];
+const CAPS: [&str; 16] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", TEAM_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1135,7 +1207,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| team_event(&f)) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -1143,7 +1215,11 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         let ev = match f.kind.as_str() {
             "hello.ok" => {
                 let host = host_event(&f);
+                let teams = f.caps.iter().any(|c| c == TEAM_CAP);
                 tx.unbounded_send(Event::Connected { scopes: f.scopes, caps: f.caps, version: f.version }).ok()?;
+                if teams {
+                    ws.send(Message::text(team_list_request().to_string())).ok()?;
+                }
                 let Some(ev) = host else { continue };
                 ev
             }
@@ -1183,18 +1259,18 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
     }
 }
 
-/// Prompts and stops written to pocketd and not yet answered, so a refusal names the one it refused.
+/// Prompts, stops and team verbs written to pocketd and not yet answered, so a refusal names the one it refused.
 #[derive(Default)]
 struct Requests(VecDeque<Value>);
 
 impl Requests {
     fn sent(&mut self, m: &Value) {
-        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt")) {
+        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt" | "team.start" | "team.stop" | "team.merge")) {
             self.0.push_back(m.clone());
         }
     }
 
-    /// Drops the request `f` answers; a refusal becomes `PromptFailed` or `InterruptFailed`.
+    /// Drops the request `f` answers; a refusal becomes `PromptFailed`, `InterruptFailed` or `TeamFailed`.
     fn answer(&mut self, f: &Frame) -> Option<Event> {
         if !matches!(f.kind.as_str(), "ack" | "error") {
             return None;
@@ -1205,12 +1281,17 @@ impl Requests {
     }
 }
 
-/// The event for a prompt or stop `m` that failed for `reason`; none for other messages.
+/// The event for a prompt, stop or team verb `m` that failed for `reason`; none for other messages.
 fn refused(m: &Value, reason: &str) -> Option<Event> {
     let field = |key: &str| m[key].as_str().unwrap_or_default().to_string();
+    let team = |lead: String, action| Some(Event::TeamFailed { lead, action, message: readable(reason) });
     match m["type"].as_str()? {
+        "agent.prompt" if m["team"] == true => team(field("agentId"), TeamAction::Plan(field("id"))),
         "agent.prompt" => Some(Event::PromptFailed { agent: field("agentId"), request: field("id") }),
         "agent.interrupt" => Some(Event::InterruptFailed { agent: field("agentId"), reason: reason.into() }),
+        "team.start" => team(field("lead"), TeamAction::Start),
+        "team.stop" => team(field("lead"), TeamAction::Stop),
+        "team.merge" => team(field("lead"), TeamAction::Merge),
         _ => None,
     }
 }
@@ -1421,6 +1502,12 @@ mod tests {
     }
 
     #[test]
+    fn a_summary_names_the_session_it_was_started_under() {
+        let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_update_parent.json")).unwrap();
+        assert_eq!(f.agent.unwrap().parent, "a0");
+    }
+
+    #[test]
     fn sub_agent_items_decode_with_the_call_that_spawned_them() {
         let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/stream_subagent.json")).unwrap();
         assert_eq!(f.item.unwrap().parent_tool_use_id.as_deref(), Some("t4"));
@@ -1502,7 +1589,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "team.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -1799,6 +1886,62 @@ mod tests {
     }
 
     #[test]
+    fn team_frames_become_team_events() {
+        let raw = json!({"lead": "a1", "state": "proposed", "updatedAt": 7, "tasks": [{"id": "t1", "title": "Add the parser", "agent": "codex", "files": ["src/parse.rs"], "after": [], "allow": ["cargo test"], "instructions": "Write it", "state": "planned"}]});
+        let want = Team {
+            lead: "a1".into(),
+            state: "proposed".into(),
+            updated_at: 7,
+            tasks: vec![TeamTask { id: "t1".into(), title: "Add the parser".into(), agent: "codex".into(), files: vec!["src/parse.rs".into()], allow: vec!["cargo test".into()], instructions: "Write it".into(), state: "planned".into(), ..TeamTask::default() }],
+            ..Team::default()
+        };
+        assert!(matches!(team_event(&frame(json!({"type": "team.update", "team": raw}))), Some(Event::Team(t)) if t == want));
+        assert!(matches!(team_event(&frame(json!({"type": "team.list", "id": "teams", "teams": [raw]}))), Some(Event::Teams(t)) if t == [want.clone()]));
+        assert!(team_event(&frame(json!({"type": "agent.list", "agents": []}))).is_none());
+    }
+
+    #[test]
+    fn hello_ok_asks_for_the_teams_and_their_list_reaches_the_app() {
+        let (server, sock) = pocketd("teams");
+        let (_out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        ws.send(Message::text(json!({"type": "hello.ok", "id": "h", "caps": ["team.v1"]}).to_string())).unwrap();
+        assert_eq!(read(&mut ws), json!({"type": "team.list", "id": "teams"}));
+        let list = json!({"type": "team.list", "id": "teams", "teams": [{"lead": "a1", "state": "planning", "tasks": [], "updatedAt": 1}]});
+        ws.send(Message::text(list.to_string())).unwrap();
+        let mut events = futures::executor::block_on_stream(events);
+        assert!(matches!(events.next(), Some(Event::Connected { .. })));
+        assert!(matches!(events.next(), Some(Event::Teams(t)) if t == [Team { lead: "a1".into(), state: "planning".into(), updated_at: 1, ..Team::default() }]));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_pocketd_without_teams_is_not_asked_for_them() {
+        let (server, sock) = pocketd("noteams");
+        let (out, _events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        ws.send(Message::text(json!({"type": "hello.ok", "id": "h", "caps": []}).to_string())).unwrap();
+        out.view(&["a1".into()]);
+        assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn team_is_offered_only_by_a_pocketd_that_serves_teams_to_an_owner() {
+        let mut a = Agents::default();
+        assert!(!a.teams_offered());
+        let caps = vec![TEAM_CAP.to_string()];
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: caps.clone(), version: String::new() });
+        assert!(a.teams_offered());
+        a.apply(Event::Connected { scopes: vec!["observe".into()], caps, version: String::new() });
+        assert!(!a.teams_offered());
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: vec![], version: String::new() });
+        assert!(!a.teams_offered());
+    }
+
+    #[test]
     fn a_refused_prompt_reports_which_send_failed() {
         let mut prompts = Requests::default();
         prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"}));
@@ -1836,13 +1979,37 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_team_request_names_its_lead_what_it_asked_and_why() {
+        let mut requests = Requests::default();
+        requests.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Split it", "team": true}));
+        requests.sent(&json!({"type": "team.start", "id": "team-2", "lead": "a1", "tasks": []}));
+        requests.sent(&json!({"type": "team.stop", "id": "team-3", "lead": "a1", "task": "t1"}));
+        requests.sent(&json!({"type": "team.merge", "id": "team-4", "lead": "a1"}));
+        let busy = requests.answer(&frame(json!({"type": "error", "id": "prompt-1", "code": "team_busy", "message": "This session's team is still running or waiting to merge"})));
+        assert!(matches!(busy, Some(Event::TeamFailed { lead, action: TeamAction::Plan(request), message }) if lead == "a1" && request == "prompt-1" && message == "This session's team is still running or waiting to merge"));
+        let start = requests.answer(&frame(json!({"type": "error", "id": "team-2", "message": "Malformed message"})));
+        assert!(matches!(start, Some(Event::TeamFailed { lead, action: TeamAction::Start, message }) if lead == "a1" && message == OUTDATED));
+        let stop = requests.answer(&frame(json!({"type": "error", "id": "team-3", "message": "Task t1 isn't running"})));
+        assert!(matches!(stop, Some(Event::TeamFailed { action: TeamAction::Stop, message, .. }) if message == "Task t1 isn't running"));
+        assert!(requests.answer(&frame(json!({"type": "ack", "id": "team-4"}))).is_none());
+    }
+
+    #[test]
+    fn a_team_request_the_socket_never_took_fails_and_a_plain_prompt_still_fails_as_before() {
+        let merge = json!({"type": "team.merge", "id": "team-1", "lead": "a1"});
+        assert!(matches!(refused(&merge, UNSENT), Some(Event::TeamFailed { lead, action: TeamAction::Merge, message }) if lead == "a1" && message == UNSENT));
+        let plain = json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "hi"});
+        assert!(matches!(refused(&plain, UNSENT), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == "prompt-1"));
+    }
+
+    #[test]
     fn each_prompt_goes_out_under_its_own_id_and_its_refusal_reaches_the_app() {
         let (server, sock) = pocketd("prompt");
         let (out, events) = connect(&sock);
         let mut ws = accept(&server);
         read(&mut ws);
-        let first = out.prompt("a1", "Fix it");
-        let second = out.prompt("a1", "Fix it");
+        let first = out.prompt("a1", "Fix it", false);
+        let second = out.prompt("a1", "Fix it", false);
         assert_ne!(first, second);
         assert_eq!((read(&mut ws)["id"].as_str(), read(&mut ws)["id"].as_str()), (Some(first.as_str()), Some(second.as_str())));
         let refusal = json!({"type": "error", "id": second, "message": "Agent isn't in the foreground"});
@@ -2103,8 +2270,68 @@ mod tests {
     #[test]
     fn prompt_sends_the_golden_agent_prompt_frame_but_its_id() {
         assert_eq!(sent_but_id(|o| {
-            o.prompt("a1", "hi");
+            o.prompt("a1", "hi", false);
         }), without_id(golden!("client/agent_prompt.json")));
+    }
+
+    #[test]
+    fn a_team_prompt_carries_team_and_a_plain_one_leaves_it_out() {
+        assert_eq!(sent_but_id(|o| _ = o.prompt("a1", "Split the parser", true)), json!({"type": "agent.prompt", "agentId": "a1", "text": "Split the parser", "team": true}));
+        assert_eq!(sent_but_id(|o| _ = o.prompt("a1", "hi", false)), json!({"type": "agent.prompt", "agentId": "a1", "text": "hi"}));
+    }
+
+    #[test]
+    fn team_messages_name_the_lead_and_the_tasks_kept() {
+        let pick = TaskPick { id: "t1".into(), agent: "codex".into(), model: "gpt-6-sol".into(), allow: vec!["cargo test".into()] };
+        let bare = TaskPick { id: "t2".into(), agent: "claude".into(), model: String::new(), allow: vec![] };
+        assert_eq!(sent_but_id(|o| o.team_list()), json!({"type": "team.list"}));
+        assert_eq!(
+            sent_but_id(|o| o.team_start("a1", &[pick, bare])),
+            json!({"type": "team.start", "lead": "a1", "tasks": [{"id": "t1", "agent": "codex", "model": "gpt-6-sol", "allow": ["cargo test"]}, {"id": "t2", "agent": "claude"}]})
+        );
+        assert_eq!(sent_but_id(|o| o.team_stop("a1", "t2")), json!({"type": "team.stop", "lead": "a1", "task": "t2"}));
+        assert_eq!(sent_but_id(|o| o.team_merge("a1")), json!({"type": "team.merge", "lead": "a1"}));
+    }
+
+    #[test]
+    fn team_list_sends_the_golden_team_list_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.team_list()), without_id(golden!("client/team_list.json")));
+    }
+
+    #[test]
+    fn a_team_prompt_sends_the_golden_team_prompt_frame_but_its_id() {
+        assert_eq!(
+            sent_but_id(|o| _ = o.prompt("a1", "Add truncate and titleCase, each with its own test", true)),
+            without_id(golden!("client/agent_prompt_team.json"))
+        );
+    }
+
+    #[test]
+    fn team_start_sends_the_golden_team_start_frame_but_its_id() {
+        let tasks = [
+            TaskPick { id: "t1".into(), agent: "claude".into(), model: "sonnet".into(), allow: vec!["npm test".into()] },
+            TaskPick { id: "t2".into(), agent: "codex".into(), model: String::new(), allow: vec![] },
+        ];
+        assert_eq!(sent_but_id(|o| o.team_start("5f0c2a9e-1b2c-4d3e-8f90-123456789abc", &tasks)), without_id(golden!("client/team_start.json")));
+    }
+
+    #[test]
+    fn team_stop_sends_the_golden_team_stop_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.team_stop("5f0c2a9e-1b2c-4d3e-8f90-123456789abc", "t1")), without_id(golden!("client/team_stop.json")));
+    }
+
+    #[test]
+    fn team_merge_sends_the_golden_team_merge_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.team_merge("5f0c2a9e-1b2c-4d3e-8f90-123456789abc")), without_id(golden!("client/team_merge.json")));
+    }
+
+    #[test]
+    fn the_golden_team_frames_decode_into_team_events() {
+        let update = golden!("server/team_update.json");
+        let lead = update["team"]["lead"].as_str().unwrap().to_string();
+        assert!(matches!(team_event(&frame(update.clone())), Some(Event::Team(t)) if t.lead == lead && t.tasks.len() == update["team"]["tasks"].as_array().unwrap().len()));
+        let list = golden!("server/team_list.json");
+        assert!(matches!(team_event(&frame(list.clone())), Some(Event::Teams(t)) if t.len() == list["teams"].as_array().unwrap().len()));
     }
 
     #[test]
@@ -2275,5 +2502,52 @@ mod tests {
         a.apply(Event::Items("a".into(), vec![item("2")]));
         a.apply(Event::Agents(vec![]));
         assert_eq!((a.revision("a"), a.revision("b")), (2, 0));
+    }
+
+    fn team(lead: &str, state: &str, updated_at: i64) -> Team {
+        Team { lead: lead.into(), state: state.into(), updated_at, ..Team::default() }
+    }
+
+    fn leads(a: &Agents) -> Vec<&str> {
+        let mut leads: Vec<&str> = a.teams.keys().map(String::as_str).collect();
+        leads.sort();
+        leads
+    }
+
+    #[test]
+    fn a_team_update_is_kept_by_its_lead_and_replaces_the_one_before() {
+        let mut a = Agents::default();
+        a.apply(Event::Team(team("a1", "planning", 1)));
+        a.apply(Event::Team(team("a1", "proposed", 2)));
+        a.apply(Event::Team(team("a2", "planning", 1)));
+        assert_eq!(a.team("a1"), Some(&team("a1", "proposed", 2)));
+        assert_eq!(a.team("a2"), Some(&team("a2", "planning", 1)));
+    }
+
+    #[test]
+    fn an_update_older_than_the_team_held_changes_nothing() {
+        let mut a = Agents::default();
+        a.apply(Event::Team(team("a1", "running", 5)));
+        a.apply(Event::Teams(vec![team("a1", "proposed", 4)]));
+        a.apply(Event::Team(team("a1", "planning", 3)));
+        assert_eq!(a.team("a1"), Some(&team("a1", "running", 5)));
+    }
+
+    #[test]
+    fn a_team_list_replaces_only_the_teams_of_the_pocketd_that_sent_it() {
+        let mut a = Agents::default();
+        a.apply(Event::Team(team("a1", "running", 1)));
+        a.apply_from(Some("devbox"), Event::Team(team("devbox/b1", "running", 1)));
+        a.apply_from(Some("devbox"), Event::Teams(vec![team("devbox/b2", "proposed", 1)]));
+        assert_eq!(leads(&a), ["a1", "devbox/b2"]);
+    }
+
+    #[test]
+    fn a_host_taken_off_this_mac_takes_its_teams_with_it() {
+        let mut a = Agents::default();
+        a.apply(Event::Team(team("a1", "running", 1)));
+        a.apply_from(Some("devbox"), Event::Team(team("devbox/b1", "running", 1)));
+        a.forget("devbox");
+        assert_eq!(leads(&a), ["a1"]);
     }
 }

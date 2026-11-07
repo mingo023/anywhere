@@ -783,3 +783,10 @@ func TestAMonitorWatchesInTheBackgroundUntilItsStreamEndsOrItExpires(t *testing.
 		t.Fatalf("still lasting: %v", tl.Lasting())
 	}
 }
+
+func TestATeamPromptShowsOnlyWhatTheUserTyped(t *testing.T) {
+	got := Map([]byte(`{"type":"user","message":{"content":"<anywhere_team>\nPlan it.\n</anywhere_team>\n\nAdd truncate"}}`))
+	if len(got) != 1 || got[0].Kind != "user" || got[0].Text != "Add truncate" {
+		t.Fatalf("got %+v", got)
+	}
+}

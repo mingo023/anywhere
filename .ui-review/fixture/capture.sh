@@ -15,6 +15,7 @@ for spec in "$@"; do
     compact-sidebar-open|repositories-worktrees) scenario=worktrees ;;
     restore-*) scenario=restored ;;
     chat*) scenario=chat ;;
+    team*) scenario=team ;;
     *) scenario=sessions ;;
   esac
   fx=$(mktemp -d)

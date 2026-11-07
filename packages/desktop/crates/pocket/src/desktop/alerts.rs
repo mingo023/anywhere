@@ -4,7 +4,7 @@ use crate::inbox;
 use crate::renames::Feed;
 use crate::status::{self, Alert, Status};
 use crate::terminals::link;
-use agents::{Agents, Decision, Event, Host, Permission, Summary};
+use agents::{Agents, Decision, Event, Host, Permission, Summary, TeamAction};
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -124,6 +124,12 @@ impl Desktop {
 
     /// An agent event from this Mac's pocketd, or from `host`'s already tagged; a host's hello says nothing of this Mac's pocketd.
     pub(crate) fn on_agents_from(&mut self, host: Option<&str>, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
+        if let Event::Team(team) = &ev {
+            self.team_updated(team, window, cx);
+        }
+        if let Event::Teams(teams) = &ev {
+            teams.iter().for_each(|t| _ = self.team.island.saw(t));
+        }
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
             return self.on_pair(ev, cx);
         }
@@ -143,6 +149,14 @@ impl Desktop {
             if let Some(v) = self.chats.views.get_mut(agent) {
                 v.session.outgoing.fail(request);
             }
+            return cx.notify();
+        }
+        if let Event::TeamFailed { lead, action, message } = &ev {
+            // A refused team prompt fails its send, as a refused prompt does.
+            if let (TeamAction::Plan(request), Some(v)) = (action, self.chats.views.get_mut(lead)) {
+                v.session.outgoing.fail(request);
+            }
+            self.error = Some(crate::team::failed(action, message));
             return cx.notify();
         }
         if let Event::InterruptFailed { agent, reason } = &ev {

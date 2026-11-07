@@ -1,0 +1,1 @@
+{"type":"team.start","id":"tm1","lead":"5f0c2a9e-1b2c-4d3e-8f90-123456789abc","tasks":[{"id":"t1","agent":"claude","model":"sonnet","allow":["npm test"]},{"id":"t2","agent":"codex"}]}

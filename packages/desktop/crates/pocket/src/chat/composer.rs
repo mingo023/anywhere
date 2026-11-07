@@ -12,6 +12,8 @@ pub(crate) mod suggest;
 use super::question::Wizard;
 use suggest::Prompt;
 use crate::composer::{Attachment, Draft, Menu};
+use crate::composer::add_menu::{self, Opens};
+use crate::composer::{team_chip, team_offered};
 use crate::desktop::Desktop;
 use crate::renames;
 use crate::desktop::chrome::id;
@@ -63,15 +65,36 @@ pub(super) fn composer_mode(observe_only: bool, ask: Option<&Ask>) -> Mode {
     }
 }
 
-/// The footer's hint at what Enter does now.
-pub(super) fn hint(mode: Mode, working: bool, stopping: bool, empty: bool, can_queue: bool) -> Option<&'static str> {
+/// The footer's hint at what Enter does now; `team` while the Team chip is set.
+pub(super) fn hint(mode: Mode, working: bool, stopping: bool, empty: bool, can_queue: bool, team: bool) -> Option<&'static str> {
     match mode {
         Mode::ViewOnly => None,
         Mode::Permission { .. } | Mode::Question { .. } => Some("Answer the request above to continue"),
         Mode::Prompt if !working => None,
         Mode::Prompt if stopping => Some("Stopping…"),
+        Mode::Prompt if team => Some("Team waits for this turn to end · esc to stop"),
         Mode::Prompt if empty || !can_queue => Some("Working · esc to stop"),
         Mode::Prompt => Some("⏎ send into this turn · ⌘⏎ queue for after"),
+    }
+}
+
+/// What the Team chip does to a send.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum TeamSend {
+    /// The send goes as it would without the chip.
+    Off,
+    /// The send asks the agent for a team plan.
+    On,
+    /// The send stays in the box: the plan starts a turn of its own, and the queue can't carry the flag.
+    Wait,
+}
+
+/// A command goes as typed, since pocketd would wrap it in the team rules.
+pub(super) fn team_send(team: bool, command: bool, busy: bool) -> TeamSend {
+    match (team && !command, busy) {
+        (false, _) => TeamSend::Off,
+        (true, true) => TeamSend::Wait,
+        (true, false) => TeamSend::On,
     }
 }
 
@@ -302,21 +325,7 @@ impl Desktop {
 
     pub(crate) fn chat_command(&mut self, agent: &str, c: Command, cx: &mut Context<Self>) {
         match c {
-            Command::Send(text) => {
-                let working = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
-                let view = self.chats.views.get_mut(agent);
-                let held = working && view.is_some();
-                let request = if held { None } else { self.outbox.prompt(agent, &text) };
-                if let Some(v) = view {
-                    let send = v.session.outgoing.push(text, working, now_ms());
-                    if let Some((send, request)) = send.zip(request) {
-                        v.session.outgoing.sent_as(send, request);
-                    }
-                    if !working {
-                        v.pin();
-                    }
-                }
-            }
+            Command::Send(text) => self.chat_prompt(agent, text, false),
             Command::Interrupt => {
                 self.outbox.interrupt(agent);
                 if let Some(v) = self.chats.views.get_mut(agent) {
@@ -335,6 +344,26 @@ impl Desktop {
             Command::Answer { request, answers } => self.outbox.answer(&request, &answers),
         }
         cx.notify();
+    }
+
+    /// Sends `text`, or holds it in the queue while the agent works; `team` asks for a team plan.
+    fn chat_prompt(&mut self, agent: &str, text: String, team: bool) {
+        let working = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
+        let view = self.chats.views.get_mut(agent);
+        let held = working && view.is_some();
+        let request = if held { None } else { self.outbox.prompt(agent, &text, team) };
+        if let Some(v) = view {
+            let send = v.session.outgoing.push(text, working, now_ms());
+            if let (Some(send), true) = (send, team) {
+                v.session.outgoing.asks_team(send);
+            }
+            if let Some((send, request)) = send.zip(request) {
+                v.session.outgoing.sent_as(send, request);
+            }
+            if !working {
+                v.pin();
+            }
+        }
     }
 
     fn focused_chat(&self) -> Option<String> {
@@ -454,6 +483,10 @@ impl Desktop {
         if let Some((Kind::Unsupported, name, _)) = slash {
             return self.show_notice(Notice::InTerminal { agent, text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
+        let team = team_send(self.chats.composer.draft.team && team_offered(self.agents.teams_offered(), chat_only, &provider), slash.is_some(), busy);
+        if team == TeamSend::Wait {
+            return cx.notify();
+        }
         self.chats.composer.draft.clear();
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
@@ -462,13 +495,14 @@ impl Desktop {
         // A command's name must lead what it sends.
         let text = if slash.is_some() { text } else { self.chats.composer.suggest.with_mcp_context(&agent, &provider, &text) };
         if chat::skips_queue(&typed) {
-            self.outbox.prompt(&agent, &text);
+            self.outbox.prompt(&agent, &text, false);
             return cx.notify();
         }
         if !steer {
-            return self.chat_command(&agent, Command::Send(text), cx);
+            self.chat_prompt(&agent, text, team == TeamSend::On);
+            return cx.notify();
         }
-        let request = self.outbox.prompt(&agent, &text);
+        let request = self.outbox.prompt(&agent, &text, false);
         if let Some(v) = self.chats.views.get_mut(&agent) {
             let send = v.session.outgoing.steer_text(text, now_ms());
             if let Some(request) = request {
@@ -533,6 +567,14 @@ impl Desktop {
             return (self.chats.input.read(cx).value().to_string(), &self.chats.composer.draft.images);
         }
         self.chats.drafts.parked(agent).map_or((String::new(), &[][..]), |(text, draft)| (text.clone(), &draft.images))
+    }
+
+    /// Whether `agent`'s draft has the Team chip set, held in the input or parked.
+    fn chat_team(&self, agent: &str) -> bool {
+        if self.chats.drafts.owner() == Some(agent) {
+            return self.chats.composer.draft.team;
+        }
+        self.chats.drafts.parked(agent).is_some_and(|(_, draft)| draft.team)
     }
 
     /// Adds `text` to the end of `agent`'s draft, in the input when its chat holds it.
@@ -606,9 +648,11 @@ impl Desktop {
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
-        let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
+        let team = team_offered(self.agents.teams_offered(), agent.chat_only, &agent.provider) && self.chat_team(&agent.id);
+        let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue, team), said, asking, cx.reduce_motion());
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
-        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
+        let island = self.team_island(agent, cx);
+        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(island).children(map).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 
@@ -659,7 +703,23 @@ impl Desktop {
             send_button::ghost_stop(id(format!("chat-stop:{terminal}"))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_stop(&t, cx)))
         });
         let send = (!view_only).then(|| send_button::send_button(id(format!("chat-send:{terminal}")), action, empty, blocked).when(!blocked && !(action == Action::Send && empty), |b| b.on_click(press(terminal))));
-        let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), |d| &mut d.chats.composer.draft, cx));
+        let team = team_offered(self.agents.teams_offered(), agent.chat_only, &agent.provider).then(|| self.chat_team(&agent.id));
+        let add = (!view_only).then(|| {
+            let (agent, open) = (agent.id.clone(), held && self.chats.composer.draft.menu == Some(Menu::Add));
+            let toggle = move |this: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>| {
+                this.chat_take_input(&agent, window, cx);
+                this.chats.composer.draft.toggle(Menu::Add);
+                cx.notify();
+            };
+            add_menu::add_button(id(format!("chat-add:{terminal}")), open, team, Opens::Up, |d| &mut d.chats.composer.draft, toggle, cx)
+        });
+        let chip = (!view_only && team == Some(true)).then(|| {
+            let agent = agent.id.clone();
+            team_chip::team_chip(id(format!("chat-team-remove:{terminal}")), move |this, window, cx| {
+                this.chat_take_input(&agent, window, cx);
+                this.chats.composer.draft.team = false;
+            }, cx)
+        });
         let strip = attachments::strip(images, cx);
         let input = if view_only {
             div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child("View only").into_any_element()
@@ -686,8 +746,9 @@ impl Desktop {
             .child(self.chat_model_pill(agent, view_only, cx))
             .children(self.chat_access_pill(agent, view_only, cx))
             .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
+            .children(chip)
             .child(div().flex_1())
-            .children(attach)
+            .children(add)
             .children(ghost)
             .children(send);
         let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
@@ -727,7 +788,7 @@ fn added(draft: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, added, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, terminal_only_said, text_view_focused, typed_text, working};
+    use super::{Mode, TeamSend, added, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, team_send, terminal_only_said, text_view_focused, typed_text, working};
     use gpui_kit::{KeyContext, Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
@@ -773,7 +834,7 @@ mod tests {
         let busy = busy(&agent("idle"), Some(&ended));
         assert!(!busy, "a send starts a new turn");
         assert_eq!(placeholder(busy, false, true), super::PLACEHOLDER);
-        assert_eq!(hint(Mode::Prompt, busy, false, true, true), None, "no esc to stop");
+        assert_eq!(hint(Mode::Prompt, busy, false, true, true, false), None, "no esc to stop");
         assert_eq!(chat::action(busy, false, true), Action::Send, "no Stop");
     }
 
@@ -803,24 +864,39 @@ mod tests {
 
     #[test]
     fn the_footer_hints_at_what_enter_does_now() {
-        assert_eq!(hint(Mode::Prompt, false, false, true, true), None);
-        assert_eq!(hint(Mode::Prompt, true, false, true, true), Some("Working · esc to stop"));
-        assert_eq!(hint(Mode::Prompt, true, false, false, true), Some("⏎ send into this turn · ⌘⏎ queue for after"));
-        assert_eq!(hint(Mode::Prompt, true, false, false, false), Some("Working · esc to stop"), "an agent that can't take a send mid-turn has nothing to send");
-        assert_eq!(hint(Mode::Permission { answerable: true }, true, false, true, true), Some("Answer the request above to continue"));
-        assert_eq!(hint(Mode::ViewOnly, false, false, true, true), None);
+        assert_eq!(hint(Mode::Prompt, false, false, true, true, false), None);
+        assert_eq!(hint(Mode::Prompt, true, false, true, true, false), Some("Working · esc to stop"));
+        assert_eq!(hint(Mode::Prompt, true, false, false, true, false), Some("⏎ send into this turn · ⌘⏎ queue for after"));
+        assert_eq!(hint(Mode::Prompt, true, false, false, false, false), Some("Working · esc to stop"), "an agent that can't take a send mid-turn has nothing to send");
+        assert_eq!(hint(Mode::Permission { answerable: true }, true, false, true, true, false), Some("Answer the request above to continue"));
+        assert_eq!(hint(Mode::ViewOnly, false, false, true, true, false), None);
     }
 
     #[test]
     fn a_turn_being_stopped_reads_stopping_and_takes_sends_only_into_the_queue() {
-        assert_eq!(hint(Mode::Prompt, true, true, true, true), Some("Stopping…"));
-        assert_eq!(hint(Mode::Prompt, true, true, false, true), Some("Stopping…"), "Enter queues instead of steering");
-        assert_eq!(hint(Mode::Prompt, false, true, true, true), None, "the turn ended");
+        assert_eq!(hint(Mode::Prompt, true, true, true, true, false), Some("Stopping…"));
+        assert_eq!(hint(Mode::Prompt, true, true, false, true, false), Some("Stopping…"), "Enter queues instead of steering");
+        assert_eq!(hint(Mode::Prompt, false, true, true, true, false), None, "the turn ended");
         assert_eq!(placeholder(true, true, true), "Queue a follow-up…");
         assert_eq!(placeholder(true, false, true), "Send a follow-up into this turn…");
         assert!(stop_beside_steer(Action::Steer, true));
         assert!(!stop_beside_steer(Action::Queue, true), "the stop is already on its way");
         assert!(!stop_beside_steer(Action::Steer, false));
+    }
+
+    #[test]
+    fn a_team_prompt_asks_for_a_plan_only_from_an_idle_agent_and_never_for_a_command() {
+        assert_eq!(team_send(true, false, false), TeamSend::On);
+        assert_eq!(team_send(true, false, true), TeamSend::Wait, "the plan starts a turn of its own");
+        assert_eq!(team_send(true, true, false), TeamSend::Off, "a command goes as typed");
+        assert_eq!(team_send(false, false, true), TeamSend::Off);
+    }
+
+    #[test]
+    fn the_footer_says_a_team_prompt_waits_for_the_turn_to_end() {
+        assert_eq!(hint(Mode::Prompt, true, false, false, true, true), Some("Team waits for this turn to end · esc to stop"));
+        assert_eq!(hint(Mode::Prompt, false, false, false, true, true), None, "an idle agent takes it now");
+        assert_eq!(hint(Mode::Prompt, true, true, false, true, true), Some("Stopping…"));
     }
 
     #[test]

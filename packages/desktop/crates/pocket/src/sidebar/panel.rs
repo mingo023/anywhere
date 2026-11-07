@@ -86,7 +86,7 @@ impl Desktop {
     /// The rail at the window's right edge: an icon per side, each opening the panel on it or closing it when shown.
     pub(crate) fn workspace_rail(&self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.panel_open;
-        let waiting = self.sessions_matching("").iter().any(|c| c.status == Status::NeedsYou);
+        let waiting = self.sessions_matching("").iter().any(|(c, _)| c.status == Status::NeedsYou);
         let changed = self.repo().map_or(0, |r| r.files.len());
         let pr = self.shown_pr().map(|(_, pr)| pr);
         let sides = [(Side::Sessions, "sessions"), (Side::Explorer, "explorer"), (Side::Changes, "branch"), (Side::PullRequest, "github")];

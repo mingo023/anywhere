@@ -561,6 +561,7 @@ impl Desktop {
         }
         let (plan, efforts) = (self.agents.provider_info(&pick.provider).plan, self.launch_efforts(&pick.provider, &pick.model));
         self.store.agents.launch(&mut spec, plan, &efforts);
+        composer::ask_team(&mut spec, self.new_form.composer.draft.team, self.agents.teams_offered());
         self.store.repos.entry(project.clone()).or_default().launch = pick;
         if worktree {
             self.store.collapsed.remove(&project);

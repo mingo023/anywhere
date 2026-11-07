@@ -59,6 +59,8 @@ pub enum Overlay {
     Confirm,
     PairPhone,
     PhoneAccess,
+    /// A lead's team plan, to edit and start.
+    Team,
 }
 
 #[derive(Clone)]
@@ -81,6 +83,7 @@ pub enum Confirm {
     UpdateHost { id: String, name: String, windows: bool },
     RemoveAccount { key: Key, name: String },
     SignOutAccount { key: Key, name: String },
+    MergeTeam(String),
 }
 
 /// The sidebar row whose `⋯` menu is open.

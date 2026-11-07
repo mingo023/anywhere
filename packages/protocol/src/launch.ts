@@ -38,6 +38,7 @@ export const LaunchSpec = Schema.Struct({
   fork: Schema.optional(Schema.String),
   account: Schema.optional(Schema.String),
   chat: Schema.optional(Schema.Boolean),
+  team: Schema.optional(Schema.Boolean),
 });
 export type LaunchSpec = typeof LaunchSpec.Type;
 

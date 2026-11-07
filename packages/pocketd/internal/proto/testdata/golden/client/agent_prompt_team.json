@@ -1,0 +1,1 @@
+{"type":"agent.prompt","id":"p2","agentId":"a1","text":"Add truncate and titleCase, each with its own test","team":true}

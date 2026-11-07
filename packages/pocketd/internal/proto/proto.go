@@ -228,6 +228,8 @@ type AgentSummary struct {
 	ChatOnly bool `json:"chatOnly,omitempty"`
 	// Goal is what the agent keeps working toward across turns, set by /goal.
 	Goal Goal `json:"goal,omitzero"`
+	// Parent is the agent this one was started under, as a team's worker under its lead; empty for none.
+	Parent string `json:"parent,omitempty"`
 }
 
 // GoalFailed is Claude's judge giving a goal up; Codex has no such status.

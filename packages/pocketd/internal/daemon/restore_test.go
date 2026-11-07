@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -513,6 +514,28 @@ func TestTheFileKeepsWhoStartedTheAgent(t *testing.T) {
 	}
 }
 
+func TestTheFileKeepsTheSessionAnAgentWasStartedUnder(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	pr.a.SetParent("a-lead")
+	hookFrom(d, pr, sessionStart("s1", transcript(t, "hi")))
+	if e := d.Snapshot().Terminals[0]; e.Parent != "a-lead" {
+		t.Fatalf("entry = %+v", e)
+	}
+}
+
+func TestAnAgentComesBackUnderTheSessionItWasStartedUnder(t *testing.T) {
+	d := newDaemon(t)
+	resuming(d, "/bin/sh", "-c", "sleep 30")
+	saved := savedAgent(t.TempDir(), "claude")
+	saved.Terminals[0].Parent = "a-lead"
+	d.Restore(saved, "/bin/sh")
+	_, a := restoredIn(t, d)
+	if s := a.Summary(); s.Parent != "a-lead" {
+		t.Fatalf("parent = %q", s.Parent)
+	}
+}
+
 func TestTheFileKeepsWhetherTheUserStartedTheAgent(t *testing.T) {
 	d := newDaemon(t)
 	_, typed := claudeIn(t, d)
@@ -571,5 +594,23 @@ func TestAResumeSlowerThanItsWaitIsStillOneTheUserDidNotStart(t *testing.T) {
 	}
 	if pr := waitPresent(t, d, term); pr.typed {
 		t.Fatal("a late resume counts as one the user started")
+	}
+}
+
+func TestWaitRestoredReturnsOnceTheRestoreHasFailed(t *testing.T) {
+	old := RestoreWait
+	RestoreWait = 200 * time.Millisecond
+	t.Cleanup(func() { RestoreWait = old })
+	d := newDaemon(t)
+	resuming(d, "/bin/sh", "-c", "sleep 30")
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	_, a := restoredIn(t, d)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := d.WaitRestored(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if s := a.Summary(); s.Restore != proto.RestoreFailed || s.Attached {
+		t.Fatalf("summary = %+v", s)
 	}
 }

@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 type Agent = {
   id: string; title: string; provider: "claude" | "codex"; repo: string; branch?: string;
   status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string; effort?: string; pinned?: boolean;
-  diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string;
+  diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string; parent?: string;
 };
 type Scenario = { repos: string[]; merged?: string[]; agents: Agent[] };
 
@@ -59,6 +59,17 @@ SCENARIOS.chat = {
   repos: ["app-android", "app-ios", "app-hook", "marketing"],
   agents: [
     { id: "parser", title: "Refactor the transcript fold", provider: "claude", model: "opus", effort: "high", repo: "app-android", branch: "refactor/fold", status: "idle", ago: 1 },
+    ...OTHERS,
+  ],
+};
+
+// A lead with two workers, each in its own worktree as team mode makes them.
+SCENARIOS.team = {
+  repos: ["app-android", "app-ios", "app-hook", "marketing"],
+  agents: [
+    { id: "parser", title: "Refactor the transcript fold", provider: "claude", model: "opus", effort: "high", repo: "app-android", branch: "refactor/fold", status: "idle", ago: 1 },
+    { id: "fold-split", parent: "parser", title: "Split fold.rs by block kind", provider: "claude", repo: "app-android", branch: "team-parser-t1", status: "running", ago: 0 },
+    { id: "fold-tests", parent: "parser", title: "Cover the fold with tests", provider: "codex", repo: "app-android", branch: "team-parser-t2", status: "idle", ago: 0 },
     ...OTHERS,
   ],
 };
@@ -157,7 +168,7 @@ const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.re
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left = { claude: 62, codex: 41 };
 const summaries = scenario.agents.map((a) => ({
-  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, status: status(a), restore: a.restore,
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, status: status(a), restore: a.restore, parent: a.parent,
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
   tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000, resets: 0,
 }));
@@ -341,7 +352,7 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "locals.v1", "settings.v1", "access.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "locals.v1", "settings.v1", "access.v1", "team.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
