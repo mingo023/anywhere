@@ -25,6 +25,7 @@ private struct FixHost: ViewModifier {
     let store: GitHubStore
     let tree: String
     let context: FixContext
+    @State private var choices: [ChatSession] = []
 
     func body(content: Content) -> some View {
         content
@@ -32,32 +33,27 @@ private struct FixHost: ViewModifier {
                 if let request { route(request) }
             }
             .confirmationDialog("Send to", isPresented: choosing, titleVisibility: .visible, presenting: request) { request in
-                if case .choose(let sessions) = context.target {
-                    ForEach(sessions) { session in
-                        Button(session.title) { send(request, to: session) }
-                    }
+                ForEach(choices) { session in
+                    Button(session.title) { send(request, to: session) }
                 }
             }
     }
 
     private var choosing: Binding<Bool> {
-        Binding(
-            get: {
-                guard request != nil, case .choose = context.target else { return false }
-                return true
-            },
-            set: { if !$0 { request = nil } })
+        Binding(get: { request != nil && !choices.isEmpty }, set: { if !$0 { request = nil } })
     }
 
     private func route(_ fix: FixRequest) {
-        switch context.target {
-        case .one(let session):
+        choices = []
+        let target = context.retarget?() ?? context.target
+        switch ChatHandoff(target, mac: context.mac, project: context.project, tree: tree, prompt: fix.prompt) {
+        case .send(let session):
             send(fix, to: session)
-        case .choose:
-            break
-        case .none:
+        case .choose(let sessions):
+            choices = sessions
+        case .start(let route):
             request = nil
-            context.open?(.newSession(mac: context.mac, project: context.project, place: tree, prompt: fix.prompt))
+            if let route { context.open?(route) }
         }
     }
 

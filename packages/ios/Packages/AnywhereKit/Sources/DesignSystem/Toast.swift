@@ -1,3 +1,4 @@
+import Domain
 import SwiftUI
 
 /// A short note at the bottom of a screen that something happened, with at most one action: "Copied path",
@@ -18,6 +19,13 @@ public struct Toast: Identifiable {
         self.lasts = lasts
         self.actionTitle = actionTitle
         self.action = action
+    }
+
+    /// `text` about something now in a chat, with Go to chat when the screen can `open` it.
+    @MainActor
+    public static func sent(_ text: String, chat: Route, open: ((Route) -> Void)?) -> Toast {
+        guard let open else { return Toast(text) }
+        return Toast(text, actionTitle: "Go to chat") { open(chat) }
     }
 }
 

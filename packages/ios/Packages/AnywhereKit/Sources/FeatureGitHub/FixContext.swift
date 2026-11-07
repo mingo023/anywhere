@@ -9,7 +9,10 @@ struct FixContext {
     var opener: String?
     /// The project holding the tree, for a session started from it.
     var project: String?
+    /// As read when the screen opened, for what the buttons say.
     var target = ChatTarget.none
+    /// Reads the target again when problems are sent, so the screens needn't watch every session; nil keeps `target`.
+    var retarget: (@MainActor () -> ChatTarget)?
     /// The phone holds the drive scope.
     var canDrive = false
     /// Sends a prompt to a session; false when it can't take one now.

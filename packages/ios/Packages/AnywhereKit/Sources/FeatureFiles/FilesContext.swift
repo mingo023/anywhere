@@ -7,7 +7,10 @@ import SwiftUI
 /// can, as in the gallery).
 struct FilesContext {
     var mac = ""
+    /// As read when the screen opened, for what the screens offer.
     var target = ChatTarget.none
+    /// Reads the target again when something is handed, so the screens needn't watch every session; nil keeps `target`.
+    var retarget: (@MainActor () -> ChatTarget)?
     /// The project holding the tree, for a session started from it.
     var project: String?
     var open: ((Route) -> Void)?

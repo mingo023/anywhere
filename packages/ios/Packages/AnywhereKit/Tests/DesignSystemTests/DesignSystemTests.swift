@@ -67,4 +67,16 @@ struct DesignSystemTests {
         #expect(phases.max()! <= 1.2)
         #expect(phases == phases.sorted())
     }
+
+    @Test("a toast about something sent to a chat goes to it only where the screen can open it")
+    @MainActor
+    func sentToast() {
+        let chat = Route.chat(mac: "m", agentId: "a1")
+        #expect(Toast.sent("Added", chat: chat, open: nil).actionTitle == nil)
+        var opened: Route?
+        let toast = Toast.sent("Added", chat: chat) { opened = $0 }
+        #expect(toast.text == "Added" && toast.actionTitle == "Go to chat")
+        toast.action?()
+        #expect(opened == chat)
+    }
 }

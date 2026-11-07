@@ -244,12 +244,12 @@ struct DiffScreen: View {
         let path = path
         return { quote in
             let text = quote.payload(path: path)
-            switch askTarget {
-            case .one(let session): ask(session, text)
+            switch ChatHandoff(askTarget, mac: host.mac, project: host.workspace.place(of: tree)?.project, tree: tree, prompt: text) {
+            case .send(let session): ask(session, text)
             case .choose(let sessions): asking = (text, sessions)
-            case .none:
-                guard let open else { return toast = Toast("No session in this worktree to ask") }
-                open(.newSession(mac: host.mac, project: host.workspace.place(of: tree)?.project, place: tree, prompt: text))
+            case .start(let route):
+                guard let open, let route else { return toast = Toast("No session in this worktree to ask") }
+                open(route)
             }
         }
     }
@@ -257,10 +257,7 @@ struct DiffScreen: View {
     private func ask(_ session: ChatSession, _ quote: String) {
         host.files.quote(quote, tree: tree, for: session.id)
         Haptics.success()
-        let done = "Added to \(session.agent)'s input"
-        guard let open else { return toast = Toast(done) }
-        let chat = Route.chat(mac: host.mac, agentId: session.id)
-        toast = Toast(done, actionTitle: "Go to chat") { open(chat) }
+        toast = .sent(ChatHandoff.added(to: session), chat: .chat(mac: host.mac, agentId: session.id), open: open)
     }
 
     @ViewBuilder

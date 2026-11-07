@@ -14,6 +14,8 @@ public struct GitHubView: View {
     let open: ((Route) -> Void)?
     /// The tree's status reads before this visit; deleting trusts only a change count read since.
     @State private var readsBefore: Int?
+    /// Read on appear rather than in `body`, so sessions changing elsewhere don't redraw the PR.
+    @State private var target = ChatTarget.none
 
     /// `open` shows the chat a PR's problems were sent to, or a new session for them on a worktree without one.
     public init(host: HostModel, route: Route, open: ((Route) -> Void)? = nil, leave: ((String) -> Void)? = nil) {
@@ -39,6 +41,7 @@ public struct GitHubView: View {
             )
             .onAppear {
                 readsBefore = changes.reads
+                target = host.chatTarget(tree, opener: chat)
                 host.git.show(tree, reread: true)
             }
             .onDisappear { host.git.hide(tree) }
@@ -47,6 +50,7 @@ public struct GitHubView: View {
         case .reviewThreads(let mac, let tree, let chat):
             ThreadsScreen(store: host.github, model: host.github.pullRequest(tree), mac: PrMac(id: mac, name: host.name, offline: host.link != .online),
                           fix: fix(tree, mac: mac, chat: chat))
+                .onAppear { target = host.chatTarget(tree, opener: chat) }
         default:
             Placeholder("Pull request", systemImage: "arrow.triangle.pull")
         }
@@ -68,7 +72,7 @@ public struct GitHubView: View {
     private func fix(_ tree: String, mac: String, chat: String?) -> FixContext {
         FixContext(
             mac: mac, opener: chat, project: host.workspace.place(of: tree)?.project,
-            target: host.chatTarget(tree, opener: chat),
+            target: target, retarget: { host.chatTarget(tree, opener: chat) },
             canDrive: !Composer.observeOnly(host.hello?.scopes ?? []),
             send: { host.chat($0).send(text: $1) },
             open: open)

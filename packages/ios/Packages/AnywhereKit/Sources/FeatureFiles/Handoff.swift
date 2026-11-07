@@ -13,8 +13,13 @@ enum Handoff: Hashable {
     func done(_ session: ChatSession) -> String {
         switch self {
         case .mention: "Mentioned in \(session.title)"
-        case .quote: "Added to \(session.agent)'s input"
+        case .quote: ChatHandoff.added(to: session)
         }
+    }
+
+    /// What a new session starts with on a tree without one; a mention starts none.
+    var prompt: String? {
+        if case .quote(let text) = self { text } else { nil }
     }
 }
 
@@ -33,6 +38,7 @@ private struct HandoffHost: ViewModifier {
     let files: FilesStore
     let tree: String
     let context: FilesContext
+    @State private var choices: [ChatSession] = []
 
     func body(content: Content) -> some View {
         content
@@ -40,10 +46,8 @@ private struct HandoffHost: ViewModifier {
                 if let request { route(request) }
             }
             .confirmationDialog(title, isPresented: choosing, titleVisibility: .visible, presenting: request) { request in
-                if case .choose(let sessions) = context.target {
-                    ForEach(sessions) { session in
-                        Button(session.title) { send(request, to: session) }
-                    }
+                ForEach(choices) { session in
+                    Button(session.title) { send(request, to: session) }
                 }
             }
     }
@@ -53,25 +57,20 @@ private struct HandoffHost: ViewModifier {
     }
 
     private var choosing: Binding<Bool> {
-        Binding(
-            get: {
-                guard request != nil, case .choose = context.target else { return false }
-                return true
-            },
-            set: { if !$0 { request = nil } })
+        Binding(get: { request != nil && !choices.isEmpty }, set: { if !$0 { request = nil } })
     }
 
     private func route(_ handoff: Handoff) {
-        switch context.target {
-        case .one(let session):
+        choices = []
+        let target = context.retarget?() ?? context.target
+        switch ChatHandoff(target, mac: context.mac, project: context.project, tree: tree, prompt: handoff.prompt) {
+        case .send(let session):
             send(handoff, to: session)
-        case .choose:
-            break
-        case .none:
+        case .choose(let sessions):
+            choices = sessions
+        case .start(let route):
             request = nil
-            if case .quote(let text) = handoff {
-                context.open?(.newSession(mac: context.mac, project: context.project, place: tree, prompt: text))
-            }
+            if let route { context.open?(route) }
         }
     }
 
@@ -82,8 +81,6 @@ private struct HandoffHost: ViewModifier {
         case .quote(let text): files.quote(text, tree: tree, for: session.id)
         }
         Haptics.success()
-        guard let open = context.open else { return toast = Toast(handoff.done(session)) }
-        let chat = Route.chat(mac: context.mac, agentId: session.id)
-        toast = Toast(handoff.done(session), actionTitle: "Go to chat") { open(chat) }
+        toast = .sent(handoff.done(session), chat: .chat(mac: context.mac, agentId: session.id), open: context.open)
     }
 }

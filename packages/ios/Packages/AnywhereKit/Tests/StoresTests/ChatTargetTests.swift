@@ -1,3 +1,4 @@
+import Domain
 import Testing
 import Wire
 @testable import Stores
@@ -55,5 +56,16 @@ struct ChatTargetTests {
     func noneReady() {
         let a = ChatSession(id: "a1", title: "Fix the build", agent: "Claude", ready: false)
         #expect(ChatTarget([a], opener: nil) == .one(a))
+    }
+
+    @Test("a handoff goes to the target session, waits on the reader's pick, or starts a session with its prompt")
+    func handoff() {
+        let a = ChatSession(id: "a1", title: "Fix the build", agent: "Claude")
+        let b = ChatSession(id: "a2", title: "Docs", agent: "Codex")
+        #expect(ChatHandoff(.one(a), mac: "m", project: "/p", tree: "/w", prompt: "why?") == .send(a))
+        #expect(ChatHandoff(.choose([a, b]), mac: "m", project: "/p", tree: "/w", prompt: nil) == .choose([a, b]))
+        #expect(ChatHandoff(.none, mac: "m", project: "/p", tree: "/w", prompt: "why?") == .start(.newSession(mac: "m", project: "/p", place: "/w", prompt: "why?")))
+        #expect(ChatHandoff(.none, mac: "m", project: "/p", tree: "/w", prompt: nil) == .start(nil))
+        #expect(ChatHandoff.added(to: a) == "Added to Claude's input")
     }
 }
