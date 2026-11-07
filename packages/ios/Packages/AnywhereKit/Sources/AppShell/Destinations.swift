@@ -42,7 +42,7 @@ struct Destination: View {
     static func screen(_ route: Route, _ host: HostModel, open: @escaping @MainActor (Route) -> Void) -> some View {
         switch route {
         case .sessions, .project, .worktree, .local, .newSession, .automations:
-            SessionsView(host: host, route: route)
+            SessionsView(host: host, route: route, open: open)
         case .chat(_, let agentId):
             ChatView(host: host, agentId: agentId, open: open)
                 #if os(iOS)
@@ -65,9 +65,10 @@ struct Destination: View {
     /// The root of a section for a Mac, its sessions narrowed to `tree` if given; a Mac whose link ended shows why instead.
     /// With `upNext`, a Mac's sessions are its Up next and Working only, as the iPad's sidebar holds its projects.
     @ViewBuilder
-    static func root(_ tab: Tab, host: HostModel?, app: AppModel, tree: Route? = nil, upNext: Bool = false, pair: @escaping @MainActor () -> Void)
-        -> some View
-    {
+    static func root(
+        _ tab: Tab, host: HostModel?, app: AppModel, tree: Route? = nil, upNext: Bool = false, pair: @escaping @MainActor () -> Void,
+        open: @escaping @MainActor (Route) -> Void
+    ) -> some View {
         switch tab {
         case .settings:
             SettingsView(app: app, pair: pair)
@@ -79,7 +80,7 @@ struct Destination: View {
                     if upNext && tree == nil {
                         UpNextList(host: host)
                     } else {
-                        SessionsView(host: host, route: tree ?? .sessions(mac: host.mac))
+                        SessionsView(host: host, route: tree ?? .sessions(mac: host.mac), open: open)
                     }
                 } else {
                     TerminalsView(host: host, route: .terminals(mac: host.mac))

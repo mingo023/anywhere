@@ -32,7 +32,7 @@ struct PhoneRoot: View {
 
     private func section(_ tab: Tab) -> some View {
         NavigationStack(path: Binding(get: { navigator.path(tab) }, set: { navigator.setPath($0, for: tab) })) {
-            Destination.root(tab, host: host, app: app, pair: pair)
+            Destination.root(tab, host: host, app: app, pair: pair, open: navigator.push)
                 .macSwitcher(app: app, navigator: navigator, shown: tab != .settings)
                 .routeDestinations(app: app, navigator: navigator, pair: pair)
         }

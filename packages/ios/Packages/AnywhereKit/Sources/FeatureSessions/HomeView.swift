@@ -21,6 +21,8 @@ struct HomeView: View {
     let host: HostModel
     let mac: String
     var only: String?
+    /// Pushes a route from where a link can't, as a menu.
+    var open: ((Route) -> Void)?
     @State private var query = ""
     @AppStorage("sessions.sort") private var sort = Sidebar.SessionSort.newest
     @AppStorage("sessions.projectSort") private var projectSort = HomeList.ProjectSort.manual
@@ -196,7 +198,9 @@ struct HomeView: View {
                        open: open, breakdown: Workspaces.breakdown(statuses))
         }
         .buttonStyle(.plain)
-        .contextMenu { ProjectMenu(section: section, canManage: host.workspace.canManage, making: $making, action: $action) }
+        .contextMenu {
+            ProjectMenu(section: section, canManage: host.workspace.canManage, making: $making, action: $action, pullRequests: pullRequests(section.id))
+        }
         ForEach(creations(section.id), id: \.id) { creation in
             CreationRow(creation: creation.value, retry: { host.workspace.runKept(creation.id) }, dismiss: { host.workspace.forget(creation: creation.id) })
                 .onTapGesture { making = .progress(requestId: creation.id) }
@@ -212,13 +216,6 @@ struct HomeView: View {
                 .listRowSeparator(.hidden, edges: .top)
                 .modifier(TreeActions(tree: tree, project: section.id, canManage: host.workspace.canManage, making: $making, action: $action))
             }
-            if !pulls.isEmpty {
-                PushRow(value: Route.pullRequests(mac: mac, project: section.id)) {
-                    NewWorkspaceRow(title: pulls.count == 1 ? "1 pull request" : "\(pulls.count) pull requests", systemImage: "arrow.triangle.pull", last: false)
-                }
-                .listRowInsets(WorkspaceRow.insets)
-                .listRowSeparator(.hidden, edges: .top)
-            }
             Button {
                 making = host.workspace.canManage ? .worktree(project: section.id) : .session(project: section.id, place: nil)
             } label: {
@@ -228,6 +225,12 @@ struct HomeView: View {
             .listRowInsets(WorkspaceRow.insets)
             .listRowSeparator(.hidden, edges: .top)
         }
+    }
+
+    /// Opens the project's pull requests, when the Mac reads GitHub.
+    private func pullRequests(_ project: String) -> (() -> Void)? {
+        guard let open, host.hello?.has(Caps.gh) == true else { return nil }
+        return { open(.pullRequests(mac: mac, project: project)) }
     }
 
     /// The sessions of a project being started, oldest request first.
@@ -302,19 +305,23 @@ struct TreeMenu: View {
     }
 }
 
-/// What a project's menu offers: a session in it, and a worktree or Local when the Mac lets this phone.
+/// What a project's menu offers: a session in it, a worktree or Local when the Mac lets this phone, and its pull requests.
 @MainActor
 struct ProjectMenu: View {
     let section: HomeList.Section
     let canManage: Bool
     @Binding var making: Making?
     @Binding var action: RowAction?
+    let pullRequests: (() -> Void)?
 
     var body: some View {
         Button { making = .session(project: section.id, place: nil) } label: { Label("New Session", systemImage: "square.and.pencil") }
         if canManage {
             Button { making = .worktree(project: section.id) } label: { Label("New Worktree", systemImage: "plus.square.on.square") }
             Button { action = .newLocal(project: section.id) } label: { Label("New Local", systemImage: "folder.badge.plus") }
+        }
+        if let pullRequests {
+            Button(action: pullRequests) { Label("Pull Requests", systemImage: "arrow.triangle.pull") }
         }
     }
 }

@@ -8,17 +8,19 @@ import SwiftUI
 public struct SessionsView: View {
     let host: HostModel
     let route: Route
+    let open: ((Route) -> Void)?
 
-    public init(host: HostModel, route: Route) {
+    public init(host: HostModel, route: Route, open: ((Route) -> Void)? = nil) {
         self.host = host
         self.route = route
+        self.open = open
     }
 
     public var body: some View {
         let mac = route.mac ?? host.hello?.serverId ?? host.id
         switch route {
         case .project(_, let path):
-            HomeView(host: host, mac: mac, only: path)
+            HomeView(host: host, mac: mac, only: path, open: open)
         case .worktree(_, let path):
             TreeView(host: host, mac: mac, key: path)
         case .local(_, let id):
@@ -30,7 +32,7 @@ public struct SessionsView: View {
         case .automations:
             AutomationsView(host: host, mac: mac)
         default:
-            HomeView(host: host, mac: mac)
+            HomeView(host: host, mac: mac, open: open)
         }
     }
 }

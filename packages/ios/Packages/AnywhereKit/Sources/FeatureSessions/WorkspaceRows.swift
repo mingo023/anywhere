@@ -156,24 +156,21 @@ struct WorkspaceRow: View {
     }
 }
 
-/// A quiet row under a project's trees: its pull requests, and last, a new worktree, or a session where the Mac doesn't
-/// let this phone make worktrees.
+/// The last row under a project: a new worktree, or a session where the Mac doesn't let this phone make worktrees.
 @MainActor
 struct NewWorkspaceRow: View {
     let title: String
-    var systemImage = "plus"
-    var last = true
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Image(systemName: systemImage).font(Typography.footnote.weight(.semibold)).frame(width: 18)
+            Image(systemName: "plus").font(Typography.footnote.weight(.semibold)).frame(width: 18)
             Text(title).font(Typography.subheadline)
             Spacer()
         }
         .foregroundStyle(Palette.text3.color)
         .padding(.vertical, 12)
         .padding(.leading, TreeLine.width)
-        .background(alignment: .leading) { TreeLine(last: last).stroke(Palette.separatorStrong.color, lineWidth: 1).frame(width: TreeLine.width) }
+        .background(alignment: .leading) { TreeLine(last: true).stroke(Palette.separatorStrong.color, lineWidth: 1).frame(width: TreeLine.width) }
         .contentShape(Rectangle())
     }
 }
