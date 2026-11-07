@@ -32,7 +32,7 @@ Non-goals:
 
 | UX section | Spec says | Winning decision | Text to build |
 |---|---|---|---|
-| UXP §4.8 access chips | Full access allowed from the phone, with a confirm | D18 | The phone offers Ask / Auto-accept edits / Auto / Full, up to `phone.maxAccess` (default Ask); Full asks first and is never a draft's default. Hint under a locked chip: "On your Mac: ⌘K → Phone access level" |
+| UXP §4.8 access chips | Full access allowed from the phone, with a confirm | D18 | The phone offers Ask / Auto-accept edits / Auto, up to `phone.maxAccess` (default Ask), and never starts on Full access. Hint under a locked chip: "On your Mac: ⌘K → Phone access level" |
 | UXP §4.8 Codex hint | "Codex plan needs a chat session" | D14, D31 | "Codex can't plan first in a terminal session" |
 | UXP §4.8 states | "Trust this folder on your Mac first" | FR 06-6 | On `folder_not_trusted`: "Trust this folder in Claude on your Mac first" |
 | UXD §3.9 access rules | canvas chips, Phase 4 | E06 PR4 | The existing sheet, not the canvas, uses the §6 chips: "Ask" · "Auto-accept edits" · "Auto" · "Full access" (desktop only, amber) · "Plan first". Picks are remembered per Project |
@@ -179,7 +179,7 @@ Error codes (`Error.code`; E02 PR1 / E03 add their own to the same field):
 | `worktree_exists` | branch or dir already taken | — |
 | `invalid_spec` | bad model charset; effort not offered for provider | — |
 | `provider_unavailable` | binary not on the Login shell PATH | — |
-| `access_not_allowed` | above ceiling; owner-only field from phone; codex `plan` | — |
+| `access_not_allowed` | above ceiling; `full` from phone; owner-only field from phone; codex `plan` | — |
 | `folder_not_trusted` | claude, non-owner, cwd untrusted (§5.6) | — |
 | `spawn_failed` | git worktree add, copy, spawn, setup exit, agent exit before created | git stderr or last 20 screen lines, ≤ 4 KiB |
 | `duplicate` | same principal + requestId, different spec | — |

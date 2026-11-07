@@ -573,13 +573,13 @@ Layout: a modal, composer-first [R08 §F10; R17 §S1].
 | Checkout | worktrees by name (main first, meta "on {branch}"), then "New worktree" | New worktree; not remembered | D5; [R17 §S6] |
 | Worktree name | inline field "branch {name}"; slug from the first 4 words of the prompt, else adjective-noun | — | [R17 §S1] |
 | Agent | "Claude Code" / "Codex" sections; model rows; "Effort" row | last pick per provider. Before the model catalog, the last-seen label or the provider name, never "Default model"; omit `--model` unless picked | [R17 §S2, §F13, §S6] |
-| Access | Ask ("Ask before commands and file changes.") · Auto-accept edits · Auto · Full, each up to `phone.maxAccess`; Full asks first (D18) | Ask; remembered | [R17 §F14, §S3] |
+| Access | Ask ("Ask before commands and file changes.") · Auto-accept edits · Auto, each up to `phone.maxAccess`; never Full access (D18) | Ask; remembered | [R17 §F14, §S3] |
 | Plan first | toggle "Review a plan before building." Disabled for Codex: "Codex can't plan first in a terminal session" (D31) | off | [R17 §S3] |
 
 - **Access from the phone:**
   - Only Ask + Plan first are enabled by default [R18 §F6 R7].
-  - Auto-accept edits, Auto and Full are enabled up to `phone.maxAccess` (default Ask), which the owner sets on the Mac: `pocketd config set phone.maxAccess`, or ⌘K → Phone access level (D18, PRD FR 06-7). Locked chips carry the hint "On your Mac: ⌘K → Phone access level".
-  - Picking Full asks "Skip every approval?" first, and a draft never starts on Full (D18).
+  - Auto-accept edits and Auto are enabled up to `phone.maxAccess` (default Ask), which the owner sets on the Mac: `pocketd config set phone.maxAccess`, or ⌘K → Phone access level (D18, PRD FR 06-7). Locked chips carry the hint "On your Mac: ⌘K → Phone access level".
+  - A Session never starts on Full access from the phone; under a Full ceiling the chat's access pill switches a running one to it, after asking (D18).
 - **Send:** disabled while the prompt is empty (**new**; R17 leaves empty prompts open). On the reply with the new `agentId`, replace this modal with Session.
 
 **States** [R17 §S5; R18 §F6 R7]
