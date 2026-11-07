@@ -401,16 +401,15 @@ struct ChatStoreTests {
         #expect(c.draft.images.map(\.path) == ["/att/a.png"])
     }
 
-    @Test("/new asks for New Session in the chat's project and place, with what follows as its prompt, and keeps the draft")
+    @Test("/new asks for New Session where the chat's agent runs, with what follows as its prompt, and keeps the draft")
     func newOpensNewSession() {
         var a = agent()
-        a.project = "/w"
-        a.worktree = "/w/.worktrees/calm-otter"
+        a.cwd = "/w/.worktrees/calm-otter/src"
         let c = ChatStore(agentId: "a1")
         c.seed(a, requests: [], hello: Sample.hello)
         c.draft.text = "/new fix the build"
         c.send()
-        #expect(c.newSession == .init(project: "/w", place: "/w/.worktrees/calm-otter", prompt: "fix the build"))
+        #expect(c.newSession == .init(cwd: "/w/.worktrees/calm-otter/src", prompt: "fix the build"))
         #expect(c.draft.text == "/new fix the build")
         c.openedNewSession()
         #expect(c.newSession == nil)

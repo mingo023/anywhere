@@ -141,6 +141,15 @@ struct WorkspaceStoreTests {
         #expect(s.creations["seen"]?.done == true)
     }
 
+    @Test("a folder is placed in the project and the worktree holding it, by path")
+    func placeOf() {
+        let s = store()
+        let place = s.place(of: "/Users/mingo/.worktrees/website/dark-mode/src")
+        #expect(place?.project == "/Users/mingo/dev/website")
+        #expect(place?.tree == "/Users/mingo/.worktrees/website/dark-mode")
+        #expect(s.place(of: "/tmp/elsewhere") == nil)
+    }
+
     @Test("a worktree whose create reply a dropped link lost is found by its folder")
     func landed() {
         let anywhere = Sample.projects[0]

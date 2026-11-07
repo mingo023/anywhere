@@ -295,6 +295,13 @@ public final class WorkspaceStore: HostStore {
         locals.removeAll { $0.id == id }
     }
 
+    /// The project holding `cwd` and its worktree holding it, by path, as New Session presets them.
+    public func place(of cwd: String) -> (project: String, tree: String?)? {
+        let trees = Dictionary(projects.map { ($0.path, $0.worktrees.map(\.path)) }, uniquingKeysWith: { a, _ in a })
+        guard let project = Sidebar.projectOf(cwd, projects: projects.map(\.path), trees: trees) else { return nil }
+        return (project, Sidebar.worktreeOf(cwd, trees: trees[project] ?? []))
+    }
+
     public func nextLocalName(project: String) -> String {
         Sidebar.nextLocalName(locals.filter { $0.project == project }.map(\.name))
     }

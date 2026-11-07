@@ -54,7 +54,8 @@ private struct HostedChat: View {
                 .onChange(of: store.newSession) { _, ask in
                     guard let ask else { return }
                     store.openedNewSession()
-                    open(.newSession(mac: mac, project: ask.project, place: ask.place, prompt: ask.prompt))
+                    let at = ask.cwd.flatMap(host.workspace.place(of:))
+                    open(.newSession(mac: mac, project: at?.project, place: at?.tree, prompt: ask.prompt))
                 }
         } else {
             Color.clear.screenBackground().onAppear { store = host.chat(agentId) }

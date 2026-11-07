@@ -108,10 +108,9 @@ public final class ChatStore: HostStore {
         }
     }
 
-    /// A New Session preset to this chat's project and place, with what followed `/new` as its prompt.
+    /// A New Session preset to the folder this chat's agent runs in, with what followed `/new` as its prompt.
     public struct NewSession: Hashable, Sendable {
-        public var project: String?
-        public var place: String?
+        public var cwd: String?
         public var prompt: String?
     }
 
@@ -485,10 +484,10 @@ public final class ChatStore: HostStore {
         }
     }
 
-    /// Asks the screen to open New Session in this chat's project and place.
+    /// Asks the screen to open New Session where this chat's agent runs.
     func startNewSession(_ prompt: String) {
         let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        newSession = NewSession(project: summary?.project, place: summary?.worktree, prompt: prompt.isEmpty ? nil : prompt)
+        newSession = NewSession(cwd: summary?.cwd, prompt: prompt.isEmpty ? nil : prompt)
     }
 
     public func openedNewSession() { newSession = nil }
