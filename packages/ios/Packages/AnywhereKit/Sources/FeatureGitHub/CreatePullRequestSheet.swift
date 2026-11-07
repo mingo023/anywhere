@@ -10,6 +10,8 @@ struct CreatePullRequestSheet: View {
     let model: TreePullRequest
     let newPr: NewPr
     let branches: (@MainActor () async throws -> BranchList)?
+    /// Creating waits for the Mac.
+    let offline: Bool
 
     @State private var title: String
     @State private var bodyText: String
@@ -19,11 +21,12 @@ struct CreatePullRequestSheet: View {
     @AppStorage("github.draft") private var draft = false
     @Environment(\.dismiss) private var dismiss
 
-    init(store: GitHubStore, tree: String, newPr: NewPr, branches: (@MainActor () async throws -> BranchList)? = nil) {
+    init(store: GitHubStore, tree: String, newPr: NewPr, branches: (@MainActor () async throws -> BranchList)? = nil, offline: Bool = false) {
         self.store = store
         model = store.pullRequest(tree)
         self.newPr = newPr
         self.branches = branches
+        self.offline = offline
         let filled = PullRequestText.fromCommits(newPr.commits)
         _title = State(initialValue: filled.title)
         _bodyText = State(initialValue: filled.body)
@@ -68,7 +71,7 @@ struct CreatePullRequestSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(PullRequestText.createLabel(draft: draft, busy: model.busy)) { create() }
-                        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
+                        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil || offline)
                 }
             }
             .interactiveDismissDisabled(model.busy != nil)

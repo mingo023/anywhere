@@ -43,14 +43,14 @@ struct ThreadsScreen: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.threads) { thread in
-                        ThreadRow(thread: thread, now: now ?? Int(Date().timeIntervalSince1970), file: file(thread)) {
+                        ThreadRow(thread: thread, now: now ?? Int(Date().timeIntervalSince1970), file: file(thread), offline: mac.offline) {
                             replying = thread
                         } resolve: { resolved in
                             Haptics.tap()
                             Task { await store.resolve(model.tree, thread: thread.id, resolved: resolved) }
                         }
                         if let body = model.unposted[thread.id] {
-                            UnpostedReply(text: body) {
+                            UnpostedReply(text: body, offline: mac.offline) {
                                 Task { await store.reply(model.tree, thread: thread.id, body: body) }
                             } edit: {
                                 store.unpost(model.tree, thread: thread.id, edit: true)
@@ -71,12 +71,13 @@ struct ThreadsScreen: View {
         .animation(.default, value: filter)
         .overlay(alignment: .bottom) {
             if let notice = model.notice {
-                NoticeBar(notice: notice) { Task { await store.undo(model.tree) } }
+                NoticeBar(notice: notice) { Task { await store.undo(model.tree) } }.disabled(mac.offline)
             }
         }
         .animation(.snappy, value: model.notice)
         .sheet(item: $replying) { thread in
-            ReplySheet(thread: thread, draft: model.drafts[thread.id] ?? "", footer: PullRequestText.postsAs(login: store.status?.login, mac: mac.name)) {
+            ReplySheet(thread: thread, draft: model.drafts[thread.id] ?? "", footer: PullRequestText.postsAs(login: store.status?.login, mac: mac.name),
+                       offline: mac.offline) {
                 model.drafts[thread.id] = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
             } send: { body in
                 Task { await store.reply(model.tree, thread: thread.id, body: body) }
@@ -113,6 +114,8 @@ struct ThreadRow: View {
     let now: Int
     /// The code the thread is on, opened by tapping its place or hunk.
     let file: Route
+    /// Resolving waits for the Mac; replies can still be written.
+    let offline: Bool
     let reply: () -> Void
     let resolve: (Bool) -> Void
     @Environment(\.openURL) private var openURL
@@ -155,7 +158,7 @@ struct ThreadRow: View {
             if !thread.resolved {
                 HStack(spacing: Space.m) {
                     Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
-                    Button("Resolve", systemImage: "checkmark") { resolve(true) }
+                    Button("Resolve", systemImage: "checkmark") { resolve(true) }.disabled(offline)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
@@ -166,9 +169,9 @@ struct ThreadRow: View {
         .opacity(thread.resolved ? 0.7 : 1)
         .swipeActions(edge: .trailing) {
             if thread.resolved {
-                Button("Unresolve", systemImage: "arrow.uturn.backward") { resolve(false) }.tint(.orange)
+                Button("Unresolve", systemImage: "arrow.uturn.backward") { resolve(false) }.tint(.orange).disabled(offline)
             } else {
-                Button("Resolve", systemImage: "checkmark") { resolve(true) }.tint(.green)
+                Button("Resolve", systemImage: "checkmark") { resolve(true) }.tint(.green).disabled(offline)
             }
         }
         .swipeActions(edge: .leading) {
@@ -177,9 +180,9 @@ struct ThreadRow: View {
         .contextMenu {
             Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
             if thread.resolved {
-                Button("Unresolve", systemImage: "arrow.uturn.backward") { resolve(false) }
+                Button("Unresolve", systemImage: "arrow.uturn.backward") { resolve(false) }.disabled(offline)
             } else {
-                Button("Resolve", systemImage: "checkmark") { resolve(true) }
+                Button("Resolve", systemImage: "checkmark") { resolve(true) }.disabled(offline)
             }
         }
     }
@@ -222,6 +225,7 @@ struct HunkBox: View {
 struct ReplySheet: View {
     let thread: ReviewThread
     let footer: String
+    let offline: Bool
     let keep: (String) -> Void
     let send: (String) -> Void
     @State private var text: String
@@ -229,9 +233,13 @@ struct ReplySheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
 
-    init(thread: ReviewThread, draft: String = "", footer: String, keep: @escaping (String) -> Void, send: @escaping (String) -> Void) {
+    init(
+        thread: ReviewThread, draft: String = "", footer: String, offline: Bool = false, keep: @escaping (String) -> Void,
+        send: @escaping (String) -> Void
+    ) {
         self.thread = thread
         self.footer = footer
+        self.offline = offline
         self.keep = keep
         self.send = send
         _text = State(initialValue: draft)
@@ -259,7 +267,7 @@ struct ReplySheet: View {
                         send(text)
                         dismiss()
                     }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || offline)
                 }
             }
             .onAppear { focused = true }

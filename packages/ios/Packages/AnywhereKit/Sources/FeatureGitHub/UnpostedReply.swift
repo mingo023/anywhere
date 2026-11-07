@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 struct UnpostedReply: View {
     let text: String
+    /// Retrying waits for the Mac.
+    let offline: Bool
     let retry: () -> Void
     let edit: () -> Void
     let delete: () -> Void
@@ -22,6 +24,7 @@ struct UnpostedReply: View {
                 .frame(maxWidth: .infinity, minHeight: HitTarget.minimum, alignment: .leading)
                 .contentShape(Rectangle())
             }
+            .disabled(offline)
             Button(action: edit) { Image(systemName: "pencil").hitTarget() }
                 .accessibilityLabel("Edit")
             Button(role: .destructive, action: delete) { Image(systemName: "trash").hitTarget() }

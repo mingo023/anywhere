@@ -77,12 +77,12 @@ struct PullRequestScreen: View {
             }
             .overlay(alignment: .bottom) {
                 if let notice = model.notice {
-                    NoticeBar(notice: notice) { Task { await store.undo(model.tree) } }
+                    NoticeBar(notice: notice) { Task { await store.undo(model.tree) } }.disabled(mac.offline)
                 }
             }
             .animation(.snappy, value: model.notice)
             .sheet(isPresented: $creating) {
-                CreatePullRequestSheet(store: store, tree: model.tree, newPr: newPr, branches: branches)
+                CreatePullRequestSheet(store: store, tree: model.tree, newPr: newPr, branches: branches, offline: mac.offline)
             }
             .task(id: model.tree) {
                 guard let every else { return }
